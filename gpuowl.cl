@@ -1,12 +1,10 @@
-// OwLL, a GPU Lucas-Lehmer prime checker.
+// gpuOWL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
-// v0.1, April 2017.
 
 #define _O __attribute__((overloadable))
 #define K(x, y) kernel __attribute__((reqd_work_group_size(x, y, 1))) void
 #define CONST const global
 #define SMALL_CONST constant
-// constant
 
 #define X1(a, b) { double  t = a; a = t + b; b = t - b; }
 #define X2(a, b) { double2 t = a; a = t + b; b = t - b; }
@@ -394,25 +392,3 @@ K(256, 1) transposeB(global double2 *in, CONST double2 *trig) {
     in[p] = mul(u[i], trig[i * 256 + me]);
   }
 }
-
-/*
-// 4 + 3x4 + 3x16 + 3x64 + 3x256
-constant double2 trig1k[4 * 256] = {
-#include "trig1k.i"
-};
-
-// 8 + 7x8 + 7x64 + 3x512
-constant double2 trig2k[8 * 256] = {
-#include "trig2k.i"
-};
-
-K(256, 1) readTrig(global double2 *a, global double2 *b) {
-  uint me = get_local_id(0);
-  for (int i = 0; i < 4; ++i) {
-    a[i * 256 + me] = trig1k[i * 256 + me];
-  }
-  for (int i = 0; i < 8; ++i) {
-    b[i * 256 + me] = trig2k[i * 256 + me];
-  }
-}
-*/

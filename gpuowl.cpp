@@ -1,4 +1,4 @@
-// gpuOWL (a GPU OpenCL Lucas-Lehmer primality checker).
+// gpuOWL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
 
 #include "clwrap.h"
@@ -108,43 +108,49 @@ double *genSmallTrig1K() {
   return out;
 }
 
+bool isAllZero(int *p, int size) {
+  for (int *end = p + size; p < end; ++p) { if (*p) { return false; } }
+  return true;
+}
+
 int main(int argc, char **argv) {
-  printf("owLL 0.1 GPU Lucas-Lehmer\n");
+  printf("gpuOWL v0.1 GPU Lucas-Lehmer primality checker\n");
   
   int W = 1024;
   int H = 2048;
   int SIZE  = W * H;
   int N = 2 * SIZE;
 
-  // int E = 39527687;
-  // int E = 79517539;
-  
-  int E = 0;
-  int startK = 0;
-  if (argc >= 2) { E = atoi(argv[1]); }
-
-  int *data = new int[N]();
-  data[0] = 4; // LL root.
-
-  FILE *fi = fopen("owll-checkpoint.bin", "rb");
-  if (fi) {
-    int saveE, saveK, saveN;
-    if (fscanf(fi, "OWLL1 %d %d %d\n", &saveE, &saveK, &saveN) == 3 &&
-        (E == 0 || E == saveE) && N == saveN &&
-        fread(data, sizeof(int) * N, 1, fi) == 1) {
-      E = saveE;
-      startK = saveK;
-    } else {
-      printf("Wrong checkpoint (or move the file \"owll-checkpoint.bin\" out of the way)\n");
-    }
-    fclose(fi);
-  }
-  
-  if (E == 0 && argc < 2) {
-    printf("No exponent argument, and no resume checkpoint found.\nUsage: owLL <exponent>\n");
+  if (argc < 2) {
+    printf("Usage: gpuowl <exponent>\nE.g. gpuowl 77000201\n");
     exit(0);
   }
   
+  int E = atoi(argv[1]);
+  int startK = 0;
+  int *data = new int[N]();
+  data[0] = 4; // LL root.
+
+  char fileNameSave[128];
+  snprintf(fileNameSave, sizeof(fileNameSave), "save-%d.bin", E);
+  const char *saveHeader = "gpuOWL1 %d %d %d %d\n";
+  FILE *fi = fopen(fileNameSave, "rb");
+  if (fi) {
+    int saveE, saveK, saveW, saveH;
+    bool ok = false;
+    if (fscanf(fi, "gpuOWL1 %d %d %d %d\n", &saveE, &saveK, &saveW, &saveH) == 4 &&
+        E == saveE && W == saveW && H == saveH &&
+        fread(data, sizeof(int) * (2 * W * H), 1, fi) == 1) {
+      startK = saveK;
+      ok = true;
+    }
+    fclose(fi);
+    if (!ok) {
+      printf("Wrong '%s' file, please move it out of the way.\n", fileNameSave);
+      exit(1);
+    }
+  }
+    
   printf("LL of %d at iteration %d\n", E, startK);
   printf("FFT %d*%d (%dM digits, %.2f bits per digit)\n", W, H, N / (1024 * 1024), E / (double) N);
   
@@ -171,7 +177,6 @@ int main(int argc, char **argv) {
   genBitlen(E, N, W, H, aTab, iTab, bitlenTab);
   unsigned firstBitlen[4] = {bitlenTab[0], bitlenTab[1], bitlenTab[2 * W], bitlenTab[2 * W + 1]};
   for (int i = 0, s = 0; i < 4; ++i) { firstBitlen[i] = (s += firstBitlen[i]); }
-  // printf("[debug] bitlen %d %d %d %d\n", firstBitlen[0], firstBitlen[1], firstBitlen[2], firstBitlen[3]);
   
   Buf      bufA(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, aTab);
   Buf      bufI(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, iTab);
@@ -180,12 +185,10 @@ int main(int argc, char **argv) {
   delete[] aTab;
   delete[] iTab;
   delete[] bitlenTab;  
-  // q.time("gen bitlen");
 
   double *bigTrig = genBigTrig(W, H);
   Buf bufBigTrig(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, bigTrig);
   delete[] bigTrig;
-  // q.time("gen bigTrig");
   
   double *sins = genSin(H, W); // transposed W/H !
   Buf bufSins(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N / 2, sins);
@@ -199,7 +202,6 @@ int main(int argc, char **argv) {
   
   delete[] trig1K;
   delete[] trig2K;
-  // q.time("gen sins trig");
   
   Buf buf1(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N);
   Buf buf2(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N);
@@ -227,6 +229,10 @@ int main(int argc, char **argv) {
   int saveStep  = 10 * logStep;
   int bigEnd    = E - 2;
   float percent = 100 / (float) bigEnd;
+
+  char fileNameOld[128], fileNameNew[128];
+  snprintf(fileNameOld, sizeof(fileNameOld), "save-%d.old", E);
+  snprintf(fileNameNew, sizeof(fileNameNew), "save-%d.new", E);
   
   for (int k = startK; k < bigEnd;) {
     for (int checkpointEnd = std::min((k / saveStep + 1) * saveStep, bigEnd); k < checkpointEnd;) {
@@ -248,53 +254,37 @@ int main(int argc, char **argv) {
       float err = q.readAndReset(bufErr) * (1 / (float) (1 << 30));
       maxErr = std::max(err, maxErr);
     
-      q.readBlocking(&bufData, 0, sizeof(int) * (2048 + 2), data);
-      data[2] = data[2048];
-      data[3] = data[2049];
-      __int128 residue = data[0] + (((int64_t) data[1]) << firstBitlen[0]) + (((int64_t) data[2]) << firstBitlen[1]) + (((__int128) data[3]) << firstBitlen[2]);
-
-      q.time("%08d (%.2f%%), 0x%016lx error %g (max %g) ", k, k * percent, (unsigned long) residue, err, maxErr);
+      q.readBlocking(&bufData, 0, sizeof(int) * (W * 2 + 2), data);
+      int64_t words[4] = {data[0], data[1], data[W * 2], data[W * 2 + 1]};
+      int64_t residue = words[0] + (words[1] << firstBitlen[0]) + (words[2] << firstBitlen[1]) + (words[3] << firstBitlen[2]);      
+      // __int128 residue = data[0] + (((int64_t) data[1]) << firstBitlen[0]) + (((int64_t) data[2]) << firstBitlen[1]) + (((__int128) data[3]) << firstBitlen[2]);
+      q.time("%08d (%.2f%% of %d), 0x%016lx error %g (max %g)", k, k * percent, E, (unsigned long)residue, err, maxErr);
     }
 
     q.readBlocking(&bufData, 0, sizeof(int) * N, data);
-    FILE *fo = fopen("owll-checkpoint.new", "wb");
-    if (fo) {
-      fprintf(fo, "OWLL1 %d %d %d\n", E, k, N);
-      auto nr = fwrite(data, sizeof(int) * N, 1, fo);
-      fclose(fo);
-      if (nr == 1) {
-        rename("owll-checkpoint.bin", "owll-checkpoint.old");
-        rename("owll-checkpoint.new", "owll-checkpoint.bin");
+
+    if (isAllZero(data + 1, N) && (data[0] == 0 || data[0] == 2)) {
+      if (k == E - 2) {
+        printf("*****   M%d is prime!   *****\n", E);
       } else {
-        printf("Error writing checkpoint\n");
+        printf("ERROR stop at iteration %d with %d\n", k, data[0]);
+      }
+      break;
+    }
+    
+    FILE *fo = fopen(fileNameNew, "wb");
+    if (fo) {
+      bool ok = fprintf(fo, saveHeader, E, k, W, H) >= 0 && fwrite(data, sizeof(int) * N, 1, fo) == 1;
+      fclose(fo);
+      if (ok) {
+        rename(fileNameSave, fileNameOld);
+        rename(fileNameNew, fileNameSave);
+      } else {
+        printf("Error saving checkpoint\n");
       }
     } else {
-      printf("Can't open checkpoint file \"owll-checkpoint.new\"\n");
+      printf("Can't open file '%s'\n", fileNameNew);
     }
-    q.time("checkpoint %d", k);
+    q.time("save %d", k);
   }
-  
-  q.readBlocking(&bufData, 0, sizeof(int) * N, data);
-  for (int i = 0, cnt = 0; i < N && cnt < 100; ++i) {
-    if (data[i]) {
-      printf("(%d %d) ", i, data[i]);
-      ++cnt;
-    }
-  }
-  printf("\n");
-
-  q.time("start shutdown");
-  buf1.release();
-  buf2.release();
-  bufBigTrig.release();
-  bufTrig1K.release();
-  bufTrig2K.release();
-  bufSins.release();
-  bufA.release();
-  bufI.release();
-  bufBitlen.release();
-  bufData.release();
-  bufCarry.release();
-  bufErr.release();
-  q.time("released buffers");
 }

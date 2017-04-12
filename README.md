@@ -1,4 +1,4 @@
-# gpuOwL
+# gpuOWL
 GPU Lucas-Lehmer primality test.
 
 ## Build
@@ -13,5 +13,5 @@ The build is just a C++ compiler invocation on gpuowl.cpp, specifying the OpenCL
 g++ gpuowl.cpp -ogpuowl -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -lOpenCL
 
 ## Invocation
-gpuowl <exponent>, e.g. gpuowl 39527687, to perform primality test of 2^exponent - 1.
+gpuowl \<exponent\>, e.g. gpuowl 39527687, to perform primality test of 2^exponent - 1.
 
