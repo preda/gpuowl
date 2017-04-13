@@ -18,7 +18,6 @@ void genBitlen(int E, int N, int W, int H, double *aTab, double *iTab, byte *bit
   byte   *pb = bitlenTab;
 
   auto iN = 1 / (long double) N;
-  auto en = E / (long double) N;
   
   for (int line = 0; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
