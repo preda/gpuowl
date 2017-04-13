@@ -112,8 +112,28 @@ bool isAllZero(int *p, int size) {
   return true;
 }
 
+int log(FILE *logf, const char *fmt, ...) {
+  va_list va;
+  
+  va_start(va, fmt);
+  vprintf(fmt, va);
+  va_end(va);
+
+  if (logf) {
+    va_start(va, fmt);
+    vfprintf(logf, fmt, va);
+    va_end(va);
+  }
+}
+
 int main(int argc, char **argv) {
-  printf("gpuOWL v0.1 GPU Lucas-Lehmer primality checker\n");
+  int E = (argc >= 2) ? atoi(argv[1]) : 0;
+  char logName[128];
+  snprintf(logName, sizeof(logName), E ? "log-%d.txt" : "log.txt", E);  
+  FILE *logf = fopen(logName, "a");
+  if (logf) { setlinebuf(logf); }
+
+  log(logf, "gpuOWL v0.1 GPU Lucas-Lehmer primality checker\n");
   
   int W = 1024;
   int H = 2048;
@@ -121,11 +141,10 @@ int main(int argc, char **argv) {
   int N = 2 * SIZE;
 
   if (argc < 2) {
-    printf("Usage: gpuowl <exponent>\nE.g. gpuowl 77000201\n");
+    log(logf, "Usage: gpuowl <exponent>\nE.g. gpuowl 77000201\n");
     exit(0);
   }
   
-  int E = atoi(argv[1]);
   int startK = 0;
   int *data = new int[N]();
   data[0] = 4; // LL root.
@@ -145,17 +164,16 @@ int main(int argc, char **argv) {
     }
     fclose(fi);
     if (!ok) {
-      printf("Wrong '%s' file, please move it out of the way.\n", fileNameSave);
+      log(logf, "Wrong '%s' file, please move it out of the way.\n", fileNameSave);
       exit(1);
     }
   }
     
-  printf("LL of %d at iteration %d\n", E, startK);
-  printf("FFT %d*%d (%dM digits, %.2f bits per digit)\n", W, H, N / (1024 * 1024), E / (double) N);
+  log(logf, "LL of %d at iteration %d\n", E, startK);
+  log(logf, "FFT %d*%d (%dM digits, %.2f bits per digit)\n", W, H, N / (1024 * 1024), E / (double) N);
   
   Context c;
   Queue q(c);
-  q.time("");
 
   Program program(c, "gpuowl.cl");
   K(program, fftPremul1K); 
@@ -168,7 +186,7 @@ int main(int argc, char **argv) {
   K(program, carryA);
   K(program, carryB);
 
-  q.time("OpenCL compile");
+  log(logf, "OpenCL compile: %ld ms\n", q.time(false));
   
   auto *aTab      = new double[N];
   auto *iTab      = new double[N];
@@ -219,8 +237,8 @@ int main(int argc, char **argv) {
   fft1Kt.setArgs(buf2, buf1, bufTrig1K);  
   carryA.setArgs(buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
   carryB.setArgs(bufData, bufCarry, bufBitlen);
-  
-  q.time("setup");
+
+  log(logf, "setup: %ld ms\n", q.time(false));
 
   float maxErr = 0;
 
@@ -257,16 +275,18 @@ int main(int argc, char **argv) {
       int64_t words[4] = {data[0], data[1], data[W * 2], data[W * 2 + 1]};
       int64_t residue = words[0] + (words[1] << firstBitlen[0]) + (words[2] << firstBitlen[1]) + (words[3] << firstBitlen[2]);      
       // __int128 residue = data[0] + (((int64_t) data[1]) << firstBitlen[0]) + (((int64_t) data[2]) << firstBitlen[1]) + (((__int128) data[3]) << firstBitlen[2]);
-      q.time("%08d (%.2f%% of %d), 0x%016lx error %g (max %g)", k, k * percent, E, (unsigned long)residue, err, maxErr);
+      log(logf, "%08d (%.2f%% of %d), 0x%016lx error %g (max %g): %ld ms\n",
+          k, k * percent, E, (unsigned long)residue, err, maxErr, q.time(false));
+      // q.time("%08d (%.2f%% of %d), 0x%016lx error %g (max %g)", k, k * percent, E, (unsigned long)residue, err, maxErr);
     }
 
     q.readBlocking(&bufData, 0, sizeof(int) * N, data);
 
     if (isAllZero(data + 1, N) && (data[0] == 0 || data[0] == 2)) {
       if (k == E - 2) {
-        printf("*****   M%d is prime!   *****\n", E);
+        log(logf, "*****   M%d is prime!   *****\n", E);
       } else {
-        printf("ERROR stop at iteration %d with %d\n", k, data[0]);
+        log(logf, "ERROR stop at iteration %d with %d\n", k, data[0]);
       }
       break;
     }
@@ -279,11 +299,11 @@ int main(int argc, char **argv) {
         rename(fileNameSave, fileNameOld);
         rename(fileNameNew, fileNameSave);
       } else {
-        printf("Error saving checkpoint\n");
+        log(logf, "Error saving checkpoint\n");
       }
     } else {
-      printf("Can't open file '%s'\n", fileNameNew);
+      log(logf, "Can't open file '%s'\n", fileNameNew);
     }
-    q.time("save %d", k);
+    log(logf, "saved %d: %ld ms\n", k, q.time(false));
   }
 }

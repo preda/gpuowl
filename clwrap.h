@@ -7,21 +7,11 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
-unsigned long timeMillis() {
+long timeMillis() {
   struct timeval tv;
   gettimeofday(&tv, 0);
   return tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
-
-void printTime(const char *s = 0) {
-  static unsigned long prev = 0;
-  unsigned long now = timeMillis();
-  if (prev && s) {
-    printf("%s: %lu ms\n", s, now - prev);
-  }
-  prev = now;
-}
-
 
 #define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
 
@@ -169,12 +159,14 @@ class Buf {
 class Queue {
 public:
   cl_command_queue queue;
+  long prevTime;
 
   Queue(Context &c) {
     int err;
-    queue = clCreateCommandQueueWithProperties(c.context, c.device, 0, &err);
-    // queue = clCreateCommandQueue(c.context, c.device, 0, &err);
+    // queue = clCreateCommandQueueWithProperties(c.context, c.device, 0, &err);
+    queue = clCreateCommandQueue(c.context, c.device, 0, &err);
     CHECK(err);
+    prevTime = timeMillis();
   }
 
   ~Queue() {
@@ -182,15 +174,13 @@ public:
     CHECK(clFinish(queue));
     CHECK(clReleaseCommandQueue(queue));
   }
-  
-  void time(const char *fmt, ...) {
-    va_list va;
-    char buf[128];
-    va_start(va, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, va);
-    va_end(va);
-    finish();
-    printTime(buf);
+
+  long time(bool wait = true) {
+    if (wait) { finish(); }
+    long now = timeMillis();
+    long delta = now - prevTime;
+    prevTime = now;
+    return delta;
   }
   
   void run(size_t groupSize, Kernel &k, size_t workSize) {

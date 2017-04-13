@@ -40,7 +40,7 @@ cl_kernel clCreateKernel(cl_program, const char *, cl_int *);
 cl_int clReleaseKernel(cl_kernel);
 cl_mem clCreateBuffer(cl_context, cl_mem_flags, size_t, void *, cl_int *);
 cl_int clReleaseMemObject(cl_mem);
-cl_command_queue clCreateCommandQueueWithProperties(cl_context, cl_device_id, const cl_queue_properties *, cl_int *);
+cl_command_queue clCreateCommandQueue(cl_context, cl_device_id, const cl_queue_properties *, cl_int *);
 cl_int clEnqueueReadBuffer(cl_command_queue, cl_mem, cl_bool, size_t, size_t, void *, cl_uint, const cl_event *, cl_event *);
 cl_int clEnqueueWriteBuffer(cl_command_queue, cl_mem, cl_bool, size_t, size_t, const void *, cl_uint, const cl_event *, cl_event *);
 cl_int clFlush(cl_command_queue);
