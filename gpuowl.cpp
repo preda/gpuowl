@@ -142,6 +142,7 @@ int main(int argc, char **argv) {
 
   if (argc < 2) {
     log(logf, "Usage: gpuowl <exponent>\nE.g. gpuowl 77000201\n");
+    fclose(logf);
     exit(0);
   }
   
@@ -165,6 +166,7 @@ int main(int argc, char **argv) {
     fclose(fi);
     if (!ok) {
       log(logf, "Wrong '%s' file, please move it out of the way.\n", fileNameSave);
+      fclose(logf);
       exit(1);
     }
   }
@@ -306,4 +308,5 @@ int main(int argc, char **argv) {
     }
     log(logf, "saved %d: %ld ms\n", k, q.time(false));
   }
+  fclose(logf);
 }
