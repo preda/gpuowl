@@ -112,38 +112,33 @@ bool isAllZero(int *p, int size) {
   return true;
 }
 
-int log(FILE *logf, const char *fmt, ...) {
-  va_list va;
-  
-  va_start(va, fmt);
-  vprintf(fmt, va);
-  va_end(va);
+FILE *logFiles[3] = {0, 0, 0};
 
-  if (logf) {
+int log(const char *fmt, ...) {
+  va_list va;
+  for (FILE **pf = logFiles; *pf; ++pf) {
     va_start(va, fmt);
-    vfprintf(logf, fmt, va);
+    vfprintf(*pf, fmt, va);
     va_end(va);
   }
 }
 
-int main(int argc, char **argv) {
-  int E = (argc >= 2) ? atoi(argv[1]) : 0;
+void openLogFile(int E) {
   char logName[128];
-  snprintf(logName, sizeof(logName), E ? "log-%d.txt" : "log.txt", E);  
+  snprintf(logName, sizeof(logName), "log-%d.txt", E);  
   FILE *logf = fopen(logName, "a");
-  if (logf) { setlinebuf(logf); }
+  if (logf) {
+    setlinebuf(logf);
+    logFiles[1] = logf;
+  }
+}
 
-  log(logf, "gpuOWL v0.1 GPU Lucas-Lehmer primality checker\n");
-  
+int doit(int E) {
   int W = 1024;
   int H = 2048;
   int SIZE  = W * H;
   int N = 2 * SIZE;
 
-  if (argc < 2) {
-    log(logf, "Usage: gpuowl <exponent>\nE.g. gpuowl 77000201\n");
-    exit(0);
-  }
   
   int startK = 0;
   int *data = new int[N]();
@@ -164,13 +159,13 @@ int main(int argc, char **argv) {
     }
     fclose(fi);
     if (!ok) {
-      log(logf, "Wrong '%s' file, please move it out of the way.\n", fileNameSave);
-      exit(1);
+      log("Wrong '%s' file, please move it out of the way.\n", fileNameSave);
+      return 1;
     }
   }
     
-  log(logf, "LL of %d at iteration %d\n", E, startK);
-  log(logf, "FFT %d*%d (%dM digits, %.2f bits per digit)\n", W, H, N / (1024 * 1024), E / (double) N);
+  log("LL of %d at iteration %d\n", E, startK);
+  log("FFT %d*%d (%dM digits, %.2f bits per digit)\n", W, H, N / (1024 * 1024), E / (double) N);
   
   Context c;
   Queue q(c);
@@ -186,7 +181,7 @@ int main(int argc, char **argv) {
   K(program, carryA);
   K(program, carryB);
 
-  log(logf, "OpenCL compile: %ld ms\n", q.time(false));
+  log("OpenCL compile: %ld ms\n", q.time(false));
   
   auto *aTab      = new double[N];
   auto *iTab      = new double[N];
@@ -225,8 +220,8 @@ int main(int argc, char **argv) {
 
   Buf bufData (c, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int)  * N, data);
   Buf bufCarry(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(long) * N / 8);
-  Buf bufErr  (c, CL_MEM_READ_WRITE, sizeof(int));
-  q.readAndReset(bufErr);
+  uint zero = 0;
+  Buf bufErr  (c, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
 
   fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
   transposeA.setArgs(buf1, bufBigTrig);
@@ -238,7 +233,7 @@ int main(int argc, char **argv) {
   carryA.setArgs(buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
   carryB.setArgs(bufData, bufCarry, bufBitlen);
 
-  log(logf, "setup: %ld ms\n", q.time(false));
+  log("setup: %ld ms\n", q.time(false));
 
   float maxErr = 0;
 
@@ -267,26 +262,29 @@ int main(int argc, char **argv) {
         q.run(carryA,       SIZE / 8);
         q.run(carryB,       SIZE / 8);
       }
-    
-      float err = q.readAndReset(bufErr) * (1 / (float) (1 << 30));
+
+      uint rawErr = 0, zero = 0;
+      q.read( false, bufErr,  sizeof(uint), &rawErr);
+      q.write(false, bufErr,  sizeof(uint), &zero);
+      q.read( true,  bufData, sizeof(int) * (W * 2 + 2), data);
+      
+      float err = rawErr * (1 / (float) (1 << 30));
       maxErr = std::max(err, maxErr);
-    
-      q.readBlocking(&bufData, 0, sizeof(int) * (W * 2 + 2), data);
+
       int64_t words[4] = {data[0], data[1], data[W * 2], data[W * 2 + 1]};
       int64_t residue = words[0] + (words[1] << firstBitlen[0]) + (words[2] << firstBitlen[1]) + (words[3] << firstBitlen[2]);      
-      // __int128 residue = data[0] + (((int64_t) data[1]) << firstBitlen[0]) + (((int64_t) data[2]) << firstBitlen[1]) + (((__int128) data[3]) << firstBitlen[2]);
-      log(logf, "%08d (%.2f%% of %d), 0x%016lx error %g (max %g): %ld ms\n",
+      log("%08d (%.2f%% of %d), 0x%016lx error %g (max %g): %ld ms\n",
           k, k * percent, E, (unsigned long)residue, err, maxErr, q.time(false));
-      // q.time("%08d (%.2f%% of %d), 0x%016lx error %g (max %g)", k, k * percent, E, (unsigned long)residue, err, maxErr);
+      if (err > .45f) { log("Error %g is too big!", err); }
     }
 
-    q.readBlocking(&bufData, 0, sizeof(int) * N, data);
+    q.read(true, bufData, sizeof(int) * N, data);
 
     if (isAllZero(data + 1, N) && (data[0] == 0 || data[0] == 2)) {
       if (k == E - 2) {
-        log(logf, "*****   M%d is prime!   *****\n", E);
+        log("*****   M%d is prime!   *****\n", E);
       } else {
-        log(logf, "ERROR stop at iteration %d with %d\n", k, data[0]);
+        log("ERROR stop at iteration %d with %d\n", k, data[0]);
       }
       break;
     }
@@ -299,11 +297,34 @@ int main(int argc, char **argv) {
         rename(fileNameSave, fileNameOld);
         rename(fileNameNew, fileNameSave);
       } else {
-        log(logf, "Error saving checkpoint\n");
+        log("Error saving checkpoint\n");
       }
     } else {
-      log(logf, "Can't open file '%s'\n", fileNameNew);
+      log("Can't open file '%s'\n", fileNameNew);
     }
-    log(logf, "saved %d: %ld ms\n", k, q.time(false));
+    log("saved %d: %ld ms\n", k, q.time(false));
   }
+}
+
+int main(int argc, char **argv) {
+  logFiles[0] = stdout;
+
+  int E = (argc >= 2) ? atoi(argv[1]) : 0;
+  
+  if (E < 67000000 || E > 78000000) {
+    log("Usage: gpuowl <exponent>\n"
+	"E.g. gpuowl 77000201\n"
+	"Where <exponent> is a Mersenne exponent in the range 67'000'000 to 78'000'000\n"
+	);
+    return 0;
+  }
+
+  openLogFile(E);
+  log("gpuOWL v0.1 GPU Lucas-Lehmer primality checker\n");
+  
+  int ret = doit(E);
+
+  if (logFiles[1]) { fclose(logFiles[1]); }
+
+  return ret;
 }

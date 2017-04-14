@@ -206,69 +206,26 @@ public:
     run(k, workSize);
   }
 
-  
-
   void run2D(size_t groupSize0, size_t groupSize1, Kernel &k, size_t workSize0, size_t workSize1) {
     size_t groupSizes[] = {groupSize0, groupSize1};
     size_t workSizes[] = {workSize0, workSize1};
     CHECK(clEnqueueNDRangeKernel(queue, k.k, 2, NULL, workSizes, groupSizes, 0, NULL, NULL));
   }
 
-  /*
-  template<class T> void read(Buf &buf, T &var) {
-    CHECK(clEnqueueReadBuffer(queue, buf.buf, CL_BLOCKING, 0, sizeof(var), &var, 0, NULL, NULL));
+  void read(bool blocking, Buf &buf, size_t start, size_t size, void *data) {
+    CHECK(clEnqueueReadBuffer(queue, buf.buf, blocking, start, size, data, 0, NULL, NULL));
   }
-  */
 
-  uint readAndReset(Buf &buf) {
-    uint ret = 0;
-    uint zero = 0;
-    CHECK(clEnqueueReadBuffer( queue, buf.buf, CL_NON_BLOCKING, 0, sizeof(uint), &ret,  0, NULL, NULL));
-    CHECK(clEnqueueWriteBuffer(queue, buf.buf, CL_BLOCKING,     0, sizeof(uint), &zero, 0, NULL, NULL));
-    return ret;
-  }
+  void read(bool blocking, Buf &buf, size_t size, void *data) { read(blocking, buf, 0, size, data); }
   
-  uint read(Buf &buf) {
-    uint ret = 0;
-    CHECK(clEnqueueReadBuffer(queue, buf.buf, CL_BLOCKING, 0, sizeof(uint), &ret, 0, NULL, NULL));
-    return ret;
-  }
-
-  void readBlocking(Buf *buf, size_t start, size_t size, void *data) {
-    CHECK(clEnqueueReadBuffer(queue, buf->buf, CL_BLOCKING, start, size, data, 0, NULL, NULL));
-  }
   
-  void write(Buf &buf, void *ptr, size_t size, bool blocking) {
-    CHECK(clEnqueueWriteBuffer(queue, buf.buf, blocking ? CL_BLOCKING : CL_NON_BLOCKING,
-                               0, size, ptr, 0, NULL, NULL));
-  }
-  
-  void writeBlocking(Buf &buf, void *ptr, size_t size) { write(buf, ptr, size, true); }
-  void writeAsync(Buf &buf, void *ptr, size_t size) { write(buf, ptr, size, false); }
-
-  void write(Buf &buf, void *data, size_t size) {
-    CHECK(clEnqueueWriteBuffer(queue, buf.buf, CL_NON_BLOCKING, 0, size, data, 0, NULL, NULL));
+  void write(bool blocking, Buf &buf, size_t start, size_t size, void *data) {
+    CHECK(clEnqueueWriteBuffer(queue, buf.buf, blocking, start, size, data, 0, NULL, NULL));
   }
 
-  /*
-  void zero(Buf &buf, size_t offset, size_t size) {
-    unsigned zero = 0;
-    CHECK(clEnqueueFillBuffer(queue, buf.buf, &zero, sizeof(zero), offset, size, 0, NULL, NULL));
-  }
-  */
-
-  /*
-  template<class T> void write(Buf &buf, T &var, bool blocking) {
-    CHECK(clEnqueueWriteBuffer(queue, buf.buf, blocking ? CL_BLOCKING : CL_NON_BLOCKING,
-                               0, sizeof(var), &var, 0, NULL, NULL));
-  }
-  template<class T> void writeBlocking(Buf &buf, T &var) { write(buf, var, true); }
-  template<class T> void writeAsync(Buf &buf, T &var) { write(buf, var, false); }
-  */
+  void write(bool blocking, Buf &buf, size_t size, void *data) { write(blocking, buf, 0, size, data); }
 
   void flush() { CHECK(clFlush(queue)); }
 
   void finish() { CHECK(clFinish(queue)); }
-
-  // void barrier() { CHECK(clEnqueueBarrierWithWaitList(queue, 0, NULL, NULL)); }
 };

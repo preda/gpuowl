@@ -49,10 +49,6 @@ cl_int clSetKernelArg(cl_kernel, cl_uint, size_t, const void *);
 }
 
 #define CL_SUCCESS                                  0
-#define CL_FALSE                                    0
-#define CL_TRUE                                     1
-#define CL_BLOCKING                                 CL_TRUE
-#define CL_NON_BLOCKING                             CL_FALSE
 #define CL_DEVICE_TYPE_GPU                          (1 << 2)
 #define CL_PROGRAM_BINARY_SIZES                     0x1165
 #define CL_PROGRAM_BINARIES                         0x1166
