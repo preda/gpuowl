@@ -165,7 +165,7 @@ int doit(int E) {
   }
     
   log("LL of %d at iteration %d\n", E, startK);
-  log("FFT %d*%d (%dM digits, %.2f bits per digit)\n", W, H, N / (1024 * 1024), E / (double) N);
+  log("FFT %d*%d (%dM words, %.2f bits per word)\n", W, H, N / (1024 * 1024), E / (double) N);
   
   Context c;
   Queue q(c);
@@ -272,9 +272,14 @@ int doit(int E) {
       maxErr = std::max(err, maxErr);
 
       int64_t words[4] = {data[0], data[1], data[W * 2], data[W * 2 + 1]};
-      int64_t residue = words[0] + (words[1] << firstBitlen[0]) + (words[2] << firstBitlen[1]) + (words[3] << firstBitlen[2]);      
-      log("%08d (%.2f%% of %d), 0x%016lx error %g (max %g): %ld ms\n",
-          k, k * percent, E, (unsigned long)residue, err, maxErr, q.time(false));
+      int64_t residue = words[0] + (words[1] << firstBitlen[0]) + (words[2] << firstBitlen[1]) + (words[3] << firstBitlen[2]);
+
+      double msPerIter = q.time(false) * (1 / (double) logStep);
+      int etaMins = (bigEnd - k) * msPerIter * (1 / (double) 60000) + .5;
+
+      log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d. 0x%016lx error %g (max %g)\n",
+	  k, E, k * percent, msPerIter, etaMins / (24*60), etaMins / 60 % 24, etaMins % 60, residue, err, maxErr);
+
       if (err > .45f) { log("Error %g is too big!", err); }
     }
 
