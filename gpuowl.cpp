@@ -277,7 +277,7 @@ int doit(int E) {
       double msPerIter = q.time(false) * (1 / (double) logStep);
       int etaMins = (bigEnd - k) * msPerIter * (1 / (double) 60000) + .5;
 
-      log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d. 0x%016lx error %g (max %g)\n",
+      log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d  0x%016lx error %g (max %g)\n",
 	  k, E, k * percent, msPerIter, etaMins / (24*60), etaMins / 60 % 24, etaMins % 60, residue, err, maxErr);
 
       if (err > .45f) { log("Error %g is too big!", err); }
