@@ -3,7 +3,8 @@
 
 #define _O __attribute__((overloadable))
 #define K(x, y) kernel __attribute__((reqd_work_group_size(x, y, 1))) void
-#define CONST const global
+#define CONST constant
+// const global
 #define SMALL_CONST constant
 
 #define X1(a, b) { double  t = a; a = t + b; b = t - b; }
@@ -149,7 +150,7 @@ K(256, 1) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMA
   for (int i = 0; i < 4; ++i) { out[me + i * 256] = u[i]; }  
 }
 
-void fft1kA(uint W, global double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+void fft1kA(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
   uint g = get_group_id(0);
   in  += g % (W / 64) * 64 + g / (W / 64) * W;
 
