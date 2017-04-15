@@ -4,7 +4,6 @@
 #define _O __attribute__((overloadable))
 #define K(x, y) kernel __attribute__((reqd_work_group_size(x, y, 1))) void
 #define CONST const global
-// constant
 #define SMALL_CONST constant
 
 #define X1(a, b) { double  t = a; a = t + b; b = t - b; }
@@ -68,12 +67,30 @@ void _O shuffle(local double *lds, double2 *u, uint n, uint f) {
   }
 }
 
+void _O shuffle(local uint *lds, double2 *u, uint n, uint f) {
+  uint me = get_local_id(0);
+  uint m = me / f;
+  
+  for (int b = 0; b < 4; ++b) {
+    if (b) { bar(); }
+    for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = ((uint *) (u + i))[b]; }
+    bar();
+    for (uint i = 0; i < n; ++i) { ((uint *) (u + i))[b] = lds[i * 256 + me]; }
+  }
+}
+
 void tabMul(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
 }
 
-void shuffleMul(SMALL_CONST double2 *trig, local double *lds, double2 *u, uint n, uint f) {
+void _O shuffleMul(SMALL_CONST double2 *trig, local double *lds, double2 *u, uint n, uint f) {
+  bar();
+  shuffle(lds, u, n, f);
+  tabMul(trig, u, n, f);
+}
+
+void _O shuffleMul(SMALL_CONST double2 *trig, local uint *lds, double2 *u, uint n, uint f) {
   bar();
   shuffle(lds, u, n, f);
   tabMul(trig, u, n, f);
@@ -99,7 +116,7 @@ void fft1kImpl(double2 *u, SMALL_CONST double2 *trig1k) {
 }
 
 void fft2kImpl(double2 *u, SMALL_CONST double2 *trig2k) {
-  local double lds[2048];
+  local uint lds[2048];
 
   fft8(u);
   shuffle(lds,   u, 8, 32);
@@ -111,13 +128,13 @@ void fft2kImpl(double2 *u, SMALL_CONST double2 *trig2k) {
   fft8(u);
 
   uint me = get_local_id(0);
-  for (int b = 0; b < 2; ++b) {
+  for (int b = 0; b < 4; ++b) {
     bar();
-    for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = ((double *) (u + i))[b]; }
+    for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = ((uint *) (u + i))[b]; }
     bar();
     for (int i = 0; i < 4; ++i) {
-      ((double *) (u + i))[b]     = lds[i * 512 + me];
-      ((double *) (u + i + 4))[b] = lds[i * 512 + me + 256];
+      ((uint *) (u + i))[b]     = lds[i * 512 + me];
+      ((uint *) (u + i + 4))[b] = lds[i * 512 + me + 256];
     }
   }
 
@@ -150,7 +167,7 @@ K(256, 1) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMA
   for (int i = 0; i < 4; ++i) { out[me + i * 256] = u[i]; }  
 }
 
-void fft1kA(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+void fft1kA(uint W, global double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
   uint g = get_group_id(0);
   in  += g % (W / 64) * 64 + g / (W / 64) * W;
 

@@ -1,3 +1,10 @@
+gpuowl
+save-*.bin
+save-*.old
+log*.txt
+isa/
+*.isa
+
 # Compiled Object files
 *.slo
 *.lo
