@@ -39,8 +39,6 @@ class Program {
 public:
   cl_program program;
 
-  // Program() : program(nullptr) { }
-
   Program(Context &c, const char *f, const char *opts = "") { compile(c, f, opts); }
   ~Program() { clReleaseProgram(program); }
   
@@ -71,16 +69,6 @@ public:
     fclose(f);
   }
 
-  void dumpBin(FILE *fo) {
-    size_t programSize;
-    CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &programSize, NULL));
-    char buf[programSize + 1];
-    char *pbuf = buf;
-    CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(size_t), &pbuf, NULL));
-    fwrite(buf, 1, programSize, fo);
-    fflush(fo);
-  }
-
  private:  
   size_t read(char *buf, int bufSize, FILE *f) {
     size_t size = fread(buf, 1, bufSize, f); assert(size);
@@ -89,9 +77,7 @@ public:
 };
 
     // "-Werror -cl-fast-relaxed-math -I. -fno-bin-llvmir -fno-bin-source -fno-bin-amdil -save-temps=tmp1/";
-    // -fno-bin-hsail #bad
     // -cl-opt-disable
-
 
 class Kernel {
 public:
