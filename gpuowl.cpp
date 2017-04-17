@@ -11,6 +11,8 @@
 #define K(program, name) Kernel name(program, #name);
 
 typedef unsigned char byte;
+typedef int64_t i64;
+typedef uint64_t u64;
 
 void genBitlen(int E, int N, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
   double *pa = aTab;
@@ -112,6 +114,22 @@ bool isAllZero(int *p, int size) {
   return true;
 }
 
+void getShiftTab(int W, byte *bitlenTab, int tabSize, int *shiftTab) {
+  int sh = 0;
+  for (int i = 0; i < tabSize; ++i) {
+    shiftTab[i] = sh;
+    if (sh >= 64) { return; }
+    sh += bitlenTab[i / 2 * 2 * W + i % 2];
+  }
+  assert(false);
+}
+
+u64 residue(int W, int N, int *data, int *shiftTab) {
+  i64 r = ((data[N-1] < 0) ? -1 : 0);
+  for (int i = 0; shiftTab[i] < 64; ++i) { r += ((i64) data[i / 2 * 2 * W + i % 2]) << shiftTab[i]; }
+  return r;
+}
+
 FILE *logFiles[3] = {0, 0, 0};
 
 int log(const char *fmt, ...) {
@@ -145,13 +163,13 @@ int doit(int E) {
 
   char fileNameSave[128];
   snprintf(fileNameSave, sizeof(fileNameSave), "save-%d.bin", E);
-  const char *saveHeader = "gpuOWL1 %d %d %d %d\n";
+  const char *saveHeader = "LL1 %10d %10d %10d %10d %10d    \n\032";
   FILE *fi = fopen(fileNameSave, "rb");
   if (fi) {
-    int saveE, saveK, saveW, saveH;
+    int saveE, saveK, saveW, saveH, unused;
     bool ok = false;
-    if (fscanf(fi, "gpuOWL1 %d %d %d %d\n", &saveE, &saveK, &saveW, &saveH) == 4 &&
-        E == saveE && W == saveW && H == saveH &&
+    if (fscanf(fi, saveHeader, &saveE, &saveK, &saveW, &saveH, &unused) == 5 &&
+        E == saveE && W == saveW && H == saveH && unused == 0 &&
         fread(data, sizeof(int) * (2 * W * H), 1, fi) == 1) {
       startK = saveK;
       ok = true;
@@ -180,12 +198,16 @@ int doit(int E) {
   K(program, carryA);
   K(program, carryB);
 
-  log("OpenCL compile: %ld ms\n", q.time(false));
+  log("OpenCL compile: %ld ms\n", q.time());
   
   auto *aTab      = new double[N];
   auto *iTab      = new double[N];
   auto *bitlenTab = new byte[N];
   genBitlen(E, N, W, H, aTab, iTab, bitlenTab);
+
+  int shiftTab[32];
+  getShiftTab(W, bitlenTab, 32, shiftTab);
+  
   unsigned firstBitlen[4] = {bitlenTab[0], bitlenTab[1], bitlenTab[2 * W], bitlenTab[2 * W + 1]};
   for (int i = 0, s = 0; i < 4; ++i) { firstBitlen[i] = (s += firstBitlen[i]); }
   
@@ -232,59 +254,65 @@ int doit(int E) {
   carryA.setArgs(buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
   carryB.setArgs(bufData, bufCarry, bufBitlen);
 
-  log("setup: %ld ms\n", q.time(false));
+  log("setup: %ld ms\n", q.time());
 
   float maxErr = 0;
 
   int logStep   = 10000;
-  int saveStep  = 10 * logStep;
+  // int saveStep  = 10 * logStep;
   int bigEnd    = E - 2;
   float percent = 100 / (float) bigEnd;
 
   char fileNameOld[128], fileNameNew[128];
   snprintf(fileNameOld, sizeof(fileNameOld), "save-%d.old", E);
   snprintf(fileNameNew, sizeof(fileNameNew), "save-%d.new", E);
+
+  q.run(fftPremul1K,  SIZE / 4);
   
   for (int k = startK; k < bigEnd;) {
-    for (int checkpointEnd = std::min((k / saveStep + 1) * saveStep, bigEnd); k < checkpointEnd;) {
-      for (int logEnd = std::min((k / logStep + 1) * logStep, checkpointEnd); k < logEnd; ++k) {
-        q.run(fftPremul1K,  SIZE / 4);
-        q.run(transposeA,   SIZE / 16);
-        q.run(fft2Kt,       SIZE / 8);
+    for (int logEnd = std::min((k / logStep + 1) * logStep, bigEnd); k < logEnd; ++k) {
+      q.run(transposeA,   SIZE / 16);
+      q.run(fft2Kt,       SIZE / 8);
         
-        q.run(square2K,     SIZE / 2);
+      q.run(square2K,     SIZE / 2);
       
-        q.run(fft2K,        SIZE / 8);
-        q.run(transposeB,   SIZE / 16);
-        q.run(fft1Kt,       SIZE / 4);
+      q.run(fft2K,        SIZE / 8);
+      q.run(transposeB,   SIZE / 16);
+      q.run(fft1Kt,       SIZE / 4);
       
-        q.run(carryA,       SIZE / 8);
-        q.run(carryB,       SIZE / 8);
-      }
+      q.run(carryA,       SIZE / 8);
+      q.run(carryB,       SIZE / 8);
 
-      uint rawErr = 0, zero = 0;
-      q.read( false, bufErr,  sizeof(uint), &rawErr);
-      q.write(false, bufErr,  sizeof(uint), &zero);
-      q.read( true,  bufData, sizeof(int) * (W * 2 + 2), data);
+      if (k >= logEnd) { break; }
       
-      float err = rawErr * (1 / (float) (1 << 30));
-      maxErr = std::max(err, maxErr);
-
-      int64_t words[4] = {data[0], data[1], data[W * 2], data[W * 2 + 1]};
-      int64_t residue = words[0] + (words[1] << firstBitlen[0]) + (words[2] << firstBitlen[1]) + (words[3] << firstBitlen[2]);
-
-      double msPerIter = q.time(false) * (1 / (double) logStep);
-      int etaMins = (bigEnd - k) * msPerIter * (1 / (double) 60000) + .5;
-
-      log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d  0x%016lx error %g (max %g)\n",
-	  k, E, k * percent, msPerIter, etaMins / (24*60), etaMins / 60 % 24, etaMins % 60, residue, err, maxErr);
-
-      if (err > .45f) { log("Error %g is too big!", err); }
+      q.run(fftPremul1K,  SIZE / 4);
     }
+    
+    uint rawErr = 0, zero = 0;
+    q.read( false, bufErr,  sizeof(uint), &rawErr);
+    q.write(false, bufErr,  sizeof(uint), &zero);
+    Event dataRead = q.read(bufData, sizeof(int) * N, data);
 
-    q.read(true, bufData, sizeof(int) * N, data);
+    q.run(fftPremul1K, SIZE / 4);
+    dataRead.wait();
+    
+    float err = rawErr * (1 / (float) (1 << 30));
+    maxErr = std::max(err, maxErr);
+    if (err > .45f) { log("Error %g is too large!", err); }
+    
+    u64 res = residue(W, N, data, shiftTab);
+    /*
+    int64_t words[4] = {data[0], data[1], data[W * 2], data[W * 2 + 1]};
+    int64_t residue = words[0] + (words[1] << firstBitlen[0]) + (words[2] << firstBitlen[1]) + (words[3] << firstBitlen[2]);
+    */
 
-    if (isAllZero(data + 1, N) && (data[0] == 0 || data[0] == 2)) {
+    double msPerIter = q.time() * (1 / (double) logStep);
+    int etaMins = (bigEnd - k) * msPerIter * (1 / (double) 60000) + .5;
+
+    log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d  0x%016lx error %g (max %g)\n",
+        k, E, k * percent, msPerIter, etaMins / (24*60), etaMins / 60 % 24, etaMins % 60, res, err, maxErr);
+
+    if ((data[0] == 0 || data[0] == 2) && isAllZero(data + 1, N)) {
       if (k == E - 2) {
         log("*****   M%d is prime!   *****\n", E);
       } else {
@@ -295,7 +323,7 @@ int doit(int E) {
     
     FILE *fo = fopen(fileNameNew, "wb");
     if (fo) {
-      bool ok = fprintf(fo, saveHeader, E, k, W, H) >= 0 && fwrite(data, sizeof(int) * N, 1, fo) == 1;
+      bool ok = fprintf(fo, saveHeader, E, k, W, H, 0) == 64 && fwrite(data, sizeof(int) * N, 1, fo) == 1;
       fclose(fo);
       if (ok) {
         rename(fileNameSave, fileNameOld);
@@ -306,7 +334,10 @@ int doit(int E) {
     } else {
       log("Can't open file '%s'\n", fileNameNew);
     }
-    log("saved %d: %ld ms\n", k, q.time(false));
+    log("saved %d: %ld ms\n", k, q.time());
+
+    q.flush();
+    log("flush time %ld\n", q.time());
   }
 }
 
