@@ -1,4 +1,4 @@
-# gpuOWL
+# gpuOwL
 GPU Lucas-Lehmer primality test.
 
 ## Build
@@ -13,7 +13,7 @@ The build is just a C++ compiler invocation on gpuowl.cpp, specifying the OpenCL
 g++ gpuowl.cpp -ogpuowl -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -lOpenCL
 
 ## Usage
-* Get exponents for testing from GIPMS Manual Testing ( http://mersenne.org/ ). gpuOWL best handles exponents is the vicinity of 77M, less than 78M.
+* Get exponents for testing from GIPMS Manual Testing ( http://mersenne.org/ ). gpuOwL best handles exponents is the vicinity of 77M, less than 78M.
 * Copy the lines from GIMPS to a file named 'worktodo.txt'
 * Run gpuowl. It prints progress report on stdout and in gpuowl.log, and writes result lines to results.txt
 * Submit the result lines from results.txt to http://mersenne.org/ manual testing.

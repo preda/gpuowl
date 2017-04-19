@@ -430,7 +430,7 @@ int main(int argc, char **argv) {
 
   logFiles[1] = logf;
   
-  log("gpuOWL v0.1 GPU Lucas-Lehmer primality checker\n");
+  log("gpuOwL v0.1 GPU Lucas-Lehmer primality checker\n");
   
   bool someSuccess = false;
   while (true) {
