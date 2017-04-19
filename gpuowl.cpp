@@ -254,7 +254,7 @@ bool worktodoGetLinePos(int E, int *begin, int *end) {
   long p1 = 0;
   while (true) {
     if (fscanf(fi, "%255s\n", line) < 1) { break; }
-    printf("line '%s'\n", line);
+    // printf("line '%s'\n", line);
     long p2 = ftell(fi);
     if (sscanf(line, "%11[^=]=%*32[0-9a-fA-F],%d,%*d,%*d", kind, &exp) == 2 &&
         (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")) &&
@@ -262,7 +262,7 @@ bool worktodoGetLinePos(int E, int *begin, int *end) {
       *begin = p1;
       *end = p2;
       ret = true;
-      printf("** %d %d\n", *begin, *end);
+      // printf("** %d %d\n", *begin, *end);
       break;
     }
     p1 = p2;
@@ -284,7 +284,8 @@ bool worktodoDelete(int begin, int end) {
   fclose(fi);
   
   FILE *fo = fopen("worktodo-tmp.tmp", "w");
-  bool ok = (fwrite(buf, begin + n - end, 1, fo) == 1);
+  int newSize = begin + n - end;
+  bool ok = (newSize == 0) || (fwrite(buf, newSize, 1, fo) == 1);
   fclose(fo);
   return ok &&
     (rename("worktodo.txt",     "worktodo.bak") == 0) &&
