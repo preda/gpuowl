@@ -1,9 +1,13 @@
 gpuowl
+gpuowl.log
 save-*.bin
 save-*.old
 log*.txt
 isa/
 *.isa
+worktodo.txt
+results.txt
+*.bak
 
 # Compiled Object files
 *.slo
