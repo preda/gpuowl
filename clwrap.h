@@ -4,7 +4,6 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdarg>
-#include <sys/stat.h>
 #include <sys/time.h>
 
 long timeMillis() {
@@ -53,9 +52,9 @@ public:
     int err;
     program = clCreateProgramWithSource(c.context, 1, (const char **)&pbuf, &size, &err);
     CHECK(err);
-    mkdir("isa", 0777);
     snprintf(buf, sizeof(buf),
-             "%s -Werror -cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size -I. -fno-bin-llvmir -save-temps=isa/", extra);
+             "%s -Werror -cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size -I. -fno-bin-llvmir", extra);
+    //Add this to output GCN ISA: -save-temps
 
     err = clBuildProgram(program, 1, &(c.device), buf, NULL, NULL);
     if (err != CL_SUCCESS) {

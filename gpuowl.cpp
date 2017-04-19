@@ -11,6 +11,10 @@
 
 #define K(program, name) Kernel name(program, #name);
 
+#ifndef M_PIl
+#define M_PIl		3.141592653589793238462643383279502884L
+#endif
+
 typedef unsigned char byte;
 typedef int64_t i64;
 typedef uint64_t u64;
@@ -366,7 +370,7 @@ bool checkPrime(int E, bool *outIsPrime, u64 *outResidue) {
 
   Buf bufData (c, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int)  * N, data);
   Buf bufCarry(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(long) * N / 8);
-  const uint zero = 0;
+  const unsigned zero = 0;
   Buf bufErr  (c, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
 
   fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
@@ -399,9 +403,9 @@ bool checkPrime(int E, bool *outIsPrime, u64 *outResidue) {
       q.run(carryB, N / 16);
     }
 
-    uint rawErr = 0;
-    q.read( false, bufErr, sizeof(uint), &rawErr);
-    q.write(false, bufErr, sizeof(uint), &zero);
+    unsigned rawErr = 0;
+    q.read( false, bufErr, sizeof(unsigned), &rawErr);
+    q.write(false, bufErr, sizeof(unsigned), &zero);
     q.read( true, bufData, sizeof(int) * N, data);
     float err = rawErr * (1 / (float) (1 << 30));
     maxErr = std::max(err, maxErr);
@@ -419,7 +423,11 @@ bool checkPrime(int E, bool *outIsPrime, u64 *outResidue) {
 int main(int argc, char **argv) {
   logFiles[0] = stdout;
   FILE *logf = fopen("gpuowl.log", "a");
+
+#ifdef  _DEFAULT_SOURCE
   if (logf) { setlinebuf(logf); }
+#endif
+
   logFiles[1] = logf;
   
   log("gpuOWL v0.1 GPU Lucas-Lehmer primality checker\n");
