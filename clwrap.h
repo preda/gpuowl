@@ -129,9 +129,9 @@ class Buf {
  public:
   cl_mem buf;
 
-  Buf(Context &c, unsigned kind, size_t size, void *ptr) {
+  Buf(Context &c, unsigned kind, size_t size, const void *ptr) {
     int err;
-    buf = clCreateBuffer(c.context, kind, size, ptr, &err);
+    buf = clCreateBuffer(c.context, kind, size, (void *) ptr, &err);
     CHECK(err);
   }
 
@@ -142,23 +142,47 @@ class Buf {
   void release() { CHECK(clReleaseMemObject(buf)); }
 };
 
-struct Event {
+class Event {
   cl_event event;
 
-  void release() { CHECK(clReleaseEvent(event)); }
-  void wait() { CHECK(clWaitForEvents(1, &event)); }
+ public:
+  Event() : event(nullptr) {}
+  Event(cl_event ev) : event(ev) {}
+
+  void wait() const { CHECK(clWaitForEvents(1, &event)); }
+  void release() { CHECK(clReleaseEvent(event)); event = nullptr; }
+  bool isActive() { return (event); }  
+  void waitAndRelease() {
+    wait();
+    release();    
+  }
+};
+
+class Timer {
+  long prevTime;
+  
+ public:
+  
+  Timer() : prevTime (timeMillis()) { }
+
+  long delta() {
+    long now = timeMillis();
+    long d = now - prevTime;
+    prevTime = now;
+    return d;
+  }
+  
 };
 
 class Queue {
 public:
   cl_command_queue queue;
-  long prevTime;
+  // long prevTime;
 
   Queue(Context &c) {
     int err;
     queue = clCreateCommandQueue(c.context, c.device, 0, &err);
     CHECK(err);
-    prevTime = timeMillis();
   }
 
   ~Queue() {
@@ -167,6 +191,7 @@ public:
     CHECK(clReleaseCommandQueue(queue));
   }
 
+  /*
   long time() {
     // if (wait) { finish(); }
     long now = timeMillis();
@@ -174,6 +199,7 @@ public:
     prevTime = now;
     return delta;
   }
+  */
   
   void run(size_t groupSize, Kernel &k, size_t workSize) {
     CHECK(clEnqueueNDRangeKernel(queue, k.k, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
@@ -209,12 +235,12 @@ public:
   }
 
   Event read(Buf &buf, size_t size, void *data, size_t start = 0) {
-    Event event;
-    read(false, buf, size, data, start, &event.event);
-    return event;
+    cl_event event;
+    read(false, buf, size, data, start, &event);
+    return Event(event);
   }
   
-  void write(bool blocking, Buf &buf, size_t size, void *data, size_t start = 0) {
+  void write(bool blocking, Buf &buf, size_t size, const void *data, size_t start = 0) {
     CHECK(clEnqueueWriteBuffer(queue, buf.buf, blocking, start, size, data, 0, NULL, NULL));
   }
 

@@ -7,6 +7,7 @@
 #include <memory>
 #include <cstdio>
 #include <cmath>
+#include <thread>
 
 #define K(program, name) Kernel name(program, #name);
 
@@ -124,9 +125,10 @@ void getShiftTab(int W, byte *bitlenTab, int tabSize, int *shiftTab) {
   assert(false);
 }
 
-u64 residue(int W, int N, int *data, int *shiftTab) {
+u64 residue(int N, int W, int *data, const int *shiftTab) {
   i64 r = ((data[N-1] < 0) ? -1 : 0);
   for (int i = 0; shiftTab[i] < 64; ++i) { r += ((i64) data[i / 2 * 2 * W + i % 2]) << shiftTab[i]; }
+  printf("%lx\n", (u64) r);
   return r;
 }
 
@@ -151,42 +153,90 @@ void openLogFile(int E) {
   }
 }
 
-int doit(int E) {
-  int W = 1024;
-  int H = 2048;
-  int SIZE  = W * H;
-  int N = 2 * SIZE;
-  
-  int startK = 0;
-  int *data = new int[N]();
-  data[0] = 4; // LL root.
-
-  char fileNameSave[128];
-  snprintf(fileNameSave, sizeof(fileNameSave), "save-%d.bin", E);
+class FileSaver {
+private:
+  char fileNameSave[64], fileNameOld[64], fileNameNew[64];
+  int E, N, W, H;
   const char *saveHeader = "LL1 %10d %10d %10d %10d %10d    \n\032";
-  FILE *fi = fopen(fileNameSave, "rb");
-  if (fi) {
+  
+  
+public:
+  FileSaver(int iniE, int iniN, int iniW, int iniH) : E(iniE), N(iniN), W(iniW), H(iniH) {
+    char base[64];
+    snprintf(base, sizeof(base), "save-%d", E);
+    snprintf(fileNameSave, sizeof(fileNameSave), "%s.bin", base);
+    snprintf(fileNameOld,  sizeof(fileNameOld),  "%s.old", base);
+    snprintf(fileNameNew,  sizeof(fileNameNew),  "%s.new", base);
+  }
+  
+  bool load(int *data, int *startK) {
+    FILE *fi = fopen(fileNameSave, "rb");
+    if (!fi) { return true; }
+    
     int saveE, saveK, saveW, saveH, unused;
     bool ok = false;
     if (fscanf(fi, saveHeader, &saveE, &saveK, &saveW, &saveH, &unused) == 5 &&
         E == saveE && W == saveW && H == saveH && unused == 0 &&
         fread(data, sizeof(int) * (2 * W * H), 1, fi) == 1) {
-      startK = saveK;
+      *startK = saveK;
       ok = true;
     }
     fclose(fi);
-    if (!ok) {
-      log("Wrong '%s' file, please move it out of the way.\n", fileNameSave);
-      return 1;
-    }
+    if (!ok) { log("Wrong '%s' file, please move it out of the way.\n", fileNameSave); }
+    return ok;
   }
+  
+  void save(int *data, int k) const {
+    FILE *fo = fopen(fileNameNew, "wb");
+    if (fo) {
+      bool ok = fprintf(fo, saveHeader, E, k, W, H, 0) == 64 && fwrite(data, sizeof(int) * N, 1, fo) == 1;
+      fclose(fo);
+      if (ok) {
+        rename(fileNameSave, fileNameOld);
+        rename(fileNameNew, fileNameSave);
+      } else {
+        log("Error saving checkpoint\n");
+      }
+    } else {
+      log("Can't open file '%s'\n", fileNameNew);
+    }
+    // log("saved %d: %ld ms\n", k, q.time());
+  }
+};
+
+void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
+  const float percent = 100 / (float) (E - 2);
+  if (err > .45f) { log("Error %g is too large!", err); }
+  
+  int etaMins = (E - 2 - k) * msPerIter * (1 / (double) 60000) + .5;
+  int days  = etaMins / (24 * 60);
+  int hours = etaMins / 60 % 24;
+  int mins  = etaMins % 60;
+  
+  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d  0x%016lx error %g (max %g)\n",
+      k, E, k * percent, msPerIter, days, hours, mins, res, err, maxErr);
+}
+
+int doit(int E) {
+  constexpr int W = 1024;
+  constexpr int H = 2048;
+  constexpr int SIZE  = W * H;
+  constexpr int N = 2 * SIZE;
+  
+  int startK = 0;
+  int *data = new int[N]();
+  data[0] = 4; // LL root.
+
+  FileSaver fileSaver(E, N, W, H);
+  if (!fileSaver.load(data, &startK)) { return 1; }
     
   log("LL of %d at iteration %d\n", E, startK);
   log("FFT %d*%d (%dM words, %.2f bits per word)\n", W, H, N / (1024 * 1024), E / (double) N);
   
   Context c;
   Queue q(c);
-
+  Timer timer;
+  
   Program program(c, "gpuowl.cl");
   K(program, fftPremul1K); 
   K(program, transposeA);
@@ -198,7 +248,7 @@ int doit(int E) {
   K(program, carryA);
   K(program, carryB);
 
-  log("OpenCL compile: %ld ms\n", q.time());
+  log("OpenCL compile: %ld ms\n", timer.delta());
   
   auto *aTab      = new double[N];
   auto *iTab      = new double[N];
@@ -207,9 +257,6 @@ int doit(int E) {
 
   int shiftTab[32];
   getShiftTab(W, bitlenTab, 32, shiftTab);
-  
-  unsigned firstBitlen[4] = {bitlenTab[0], bitlenTab[1], bitlenTab[2 * W], bitlenTab[2 * W + 1]};
-  for (int i = 0, s = 0; i < 4; ++i) { firstBitlen[i] = (s += firstBitlen[i]); }
   
   Buf      bufA(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, aTab);
   Buf      bufI(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, iTab);
@@ -241,7 +288,7 @@ int doit(int E) {
 
   Buf bufData (c, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int)  * N, data);
   Buf bufCarry(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(long) * N / 8);
-  uint zero = 0;
+  const uint zero = 0;
   Buf bufErr  (c, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
 
   fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
@@ -254,90 +301,54 @@ int doit(int E) {
   carryA.setArgs(buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
   carryB.setArgs(bufData, bufCarry, bufBitlen);
 
-  log("setup: %ld ms\n", q.time());
+  log("setup: %ld ms\n", timer.delta());
+
+  constexpr int logStep   = 10000;
 
   float maxErr = 0;
-
-  int logStep   = 10000;
-  // int saveStep  = 10 * logStep;
-  int bigEnd    = E - 2;
-  float percent = 100 / (float) bigEnd;
-
-  char fileNameOld[128], fileNameNew[128];
-  snprintf(fileNameOld, sizeof(fileNameOld), "save-%d.old", E);
-  snprintf(fileNameNew, sizeof(fileNameNew), "save-%d.new", E);
-
-  q.run(fftPremul1K,  SIZE / 4);
   
-  for (int k = startK; k < bigEnd;) {
-    for (int logEnd = std::min((k / logStep + 1) * logStep, bigEnd); k < logEnd; ++k) {
-      q.run(transposeA,   SIZE / 16);
-      q.run(fft2Kt,       SIZE / 8);
+  Event dataReady;
+  int kLog = -32;
+  uint rawErr = 0;
+  
+  for (int k = startK; k < E - 2; ++k) {    
+    q.run(fftPremul1K,  SIZE / 4);
+    q.run(transposeA,   SIZE / 16);
+    q.run(fft2Kt,       SIZE / 8);
         
-      q.run(square2K,     SIZE / 2);
+    q.run(square2K,     SIZE / 2);
       
-      q.run(fft2K,        SIZE / 8);
-      q.run(transposeB,   SIZE / 16);
-      q.run(fft1Kt,       SIZE / 4);
+    q.run(fft2K,        SIZE / 8);
+    q.run(transposeB,   SIZE / 16);
+    q.run(fft1Kt,       SIZE / 4);
+    
+    q.run(carryA, N / 16);
+    q.run(carryB, N / 16);
+
+    if ((k + 1) % logStep == 0) {
+      q.read( false, bufErr,  sizeof(uint), &rawErr);
+      q.write(false, bufErr,  sizeof(uint), &zero);
+      dataReady = q.read(bufData, sizeof(int) * N, data);
+      kLog = k + 1;
+    } else if (k == kLog) {
+      dataReady.waitAndRelease();
+      float err = rawErr * (1 / (float) (1 << 30));
+      maxErr = std::max(err, maxErr);
+      double msPerIter = timer.delta() * (1 / (double) logStep);
+      u64 res = residue(N, W, data, shiftTab);      
+      doLog(E, kLog, err, maxErr, msPerIter, res);
       
-      q.run(carryA,       SIZE / 8);
-      q.run(carryB,       SIZE / 8);
-
-      if (k >= logEnd) { break; }
-      
-      q.run(fftPremul1K,  SIZE / 4);
-    }
-    
-    uint rawErr = 0, zero = 0;
-    q.read( false, bufErr,  sizeof(uint), &rawErr);
-    q.write(false, bufErr,  sizeof(uint), &zero);
-    Event dataRead = q.read(bufData, sizeof(int) * N, data);
-
-    q.run(fftPremul1K, SIZE / 4);
-    dataRead.wait();
-    
-    float err = rawErr * (1 / (float) (1 << 30));
-    maxErr = std::max(err, maxErr);
-    if (err > .45f) { log("Error %g is too large!", err); }
-    
-    u64 res = residue(W, N, data, shiftTab);
-    /*
-    int64_t words[4] = {data[0], data[1], data[W * 2], data[W * 2 + 1]};
-    int64_t residue = words[0] + (words[1] << firstBitlen[0]) + (words[2] << firstBitlen[1]) + (words[3] << firstBitlen[2]);
-    */
-
-    double msPerIter = q.time() * (1 / (double) logStep);
-    int etaMins = (bigEnd - k) * msPerIter * (1 / (double) 60000) + .5;
-
-    log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d  0x%016lx error %g (max %g)\n",
-        k, E, k * percent, msPerIter, etaMins / (24*60), etaMins / 60 % 24, etaMins % 60, res, err, maxErr);
-
-    if ((data[0] == 0 || data[0] == 2) && isAllZero(data + 1, N)) {
-      if (k == E - 2) {
-        log("*****   M%d is prime!   *****\n", E);
-      } else {
-        log("ERROR stop at iteration %d with %d\n", k, data[0]);
+      if ((data[0] == 0 || data[0] == 2) && isAllZero(data + 1, N)) {
+        if (kLog == E - 2) {
+          if (data[0] == 0) { log("*****   M%d is prime!   *****\n", E); }
+        } else {
+          log("ERROR at iteration %d with %d\n", kLog, data[0]);
+          break;
+        }
       }
-      break;
+    } else if (k == kLog + 16) {
+      fileSaver.save(data, kLog);
     }
-    
-    FILE *fo = fopen(fileNameNew, "wb");
-    if (fo) {
-      bool ok = fprintf(fo, saveHeader, E, k, W, H, 0) == 64 && fwrite(data, sizeof(int) * N, 1, fo) == 1;
-      fclose(fo);
-      if (ok) {
-        rename(fileNameSave, fileNameOld);
-        rename(fileNameNew, fileNameSave);
-      } else {
-        log("Error saving checkpoint\n");
-      }
-    } else {
-      log("Can't open file '%s'\n", fileNameNew);
-    }
-    log("saved %d: %ld ms\n", k, q.time());
-
-    q.flush();
-    log("flush time %ld\n", q.time());
   }
 }
 
