@@ -303,15 +303,33 @@ int doit(int E) {
 
   log("setup: %ld ms\n", timer.delta());
 
-  constexpr int logStep   = 10000;
-
-  float maxErr = 0;
-  
-  Event dataReady;
-  int kLog = -32;
+  constexpr int logStep   = 20000;
+  float maxErr = 0;  
   uint rawErr = 0;
   
-  for (int k = startK; k < E - 2; ++k) {    
+  for (int k = startK, nextLog = (startK / logStep + 1) * logStep; k < E - 2; ++k) {    
+    if (k == nextLog) {
+      nextLog += logStep;
+      q.read( false, bufErr,  sizeof(uint), &rawErr);
+      q.write(false, bufErr,  sizeof(uint), &zero);
+      q.read(true, bufData, sizeof(int) * N, data);
+      float err = rawErr * (1 / (float) (1 << 30));
+      maxErr = std::max(err, maxErr);
+      double msPerIter = timer.delta() * (1 / (double) logStep);
+      u64 res = residue(N, W, data, shiftTab);      
+      doLog(E, k, err, maxErr, msPerIter, res);
+      
+      if ((data[0] == 0 || data[0] == 2) && isAllZero(data + 1, N)) {
+        if (k == E - 2) {
+          if (data[0] == 0) { log("*****   M%d is prime!   *****\n", E); }
+        } else {
+          log("ERROR at iteration %d with %d\n", k, data[0]);
+          break;
+        }
+      }
+      fileSaver.save(data, k);
+    }
+
     q.run(fftPremul1K,  SIZE / 4);
     q.run(transposeA,   SIZE / 16);
     q.run(fft2Kt,       SIZE / 8);
@@ -324,31 +342,6 @@ int doit(int E) {
     
     q.run(carryA, N / 16);
     q.run(carryB, N / 16);
-
-    if ((k + 1) % logStep == 0) {
-      q.read( false, bufErr,  sizeof(uint), &rawErr);
-      q.write(false, bufErr,  sizeof(uint), &zero);
-      dataReady = q.read(bufData, sizeof(int) * N, data);
-      kLog = k + 1;
-    } else if (k == kLog) {
-      dataReady.waitAndRelease();
-      float err = rawErr * (1 / (float) (1 << 30));
-      maxErr = std::max(err, maxErr);
-      double msPerIter = timer.delta() * (1 / (double) logStep);
-      u64 res = residue(N, W, data, shiftTab);      
-      doLog(E, kLog, err, maxErr, msPerIter, res);
-      
-      if ((data[0] == 0 || data[0] == 2) && isAllZero(data + 1, N)) {
-        if (kLog == E - 2) {
-          if (data[0] == 0) { log("*****   M%d is prime!   *****\n", E); }
-        } else {
-          log("ERROR at iteration %d with %d\n", kLog, data[0]);
-          break;
-        }
-      }
-    } else if (k == kLog + 16) {
-      fileSaver.save(data, kLog);
-    }
   }
 }
 
@@ -357,10 +350,10 @@ int main(int argc, char **argv) {
 
   int E = (argc >= 2) ? atoi(argv[1]) : 0;
   
-  if (E < 67000000 || E > 78000000) {
+  if (E < 35000000 || E > 78000000) {
     log("Usage: gpuowl <exponent>\n"
 	"E.g. gpuowl 77000201\n"
-	"Where <exponent> is a Mersenne exponent in the range 67'000'000 to 78'000'000\n"
+	"Where <exponent> is a Mersenne exponent in the range 35'000'000 to 78'000'000\n"
 	);
     return 0;
   }

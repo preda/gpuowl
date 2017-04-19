@@ -142,22 +142,6 @@ class Buf {
   void release() { CHECK(clReleaseMemObject(buf)); }
 };
 
-class Event {
-  cl_event event;
-
- public:
-  Event() : event(nullptr) {}
-  Event(cl_event ev) : event(ev) {}
-
-  void wait() const { CHECK(clWaitForEvents(1, &event)); }
-  void release() { CHECK(clReleaseEvent(event)); event = nullptr; }
-  bool isActive() { return (event); }  
-  void waitAndRelease() {
-    wait();
-    release();    
-  }
-};
-
 class Timer {
   long prevTime;
   
@@ -177,7 +161,6 @@ class Timer {
 class Queue {
 public:
   cl_command_queue queue;
-  // long prevTime;
 
   Queue(Context &c) {
     int err;
@@ -190,16 +173,6 @@ public:
     CHECK(clFinish(queue));
     CHECK(clReleaseCommandQueue(queue));
   }
-
-  /*
-  long time() {
-    // if (wait) { finish(); }
-    long now = timeMillis();
-    long delta = now - prevTime;
-    prevTime = now;
-    return delta;
-  }
-  */
   
   void run(size_t groupSize, Kernel &k, size_t workSize) {
     CHECK(clEnqueueNDRangeKernel(queue, k.k, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
@@ -230,14 +203,8 @@ public:
     CHECK(clEnqueueNDRangeKernel(queue, k.k, 2, NULL, workSizes, groupSizes, 0, NULL, NULL));
   }
 
-  void read(bool blocking, Buf &buf, size_t size, void *data, size_t start = 0, cl_event *outEvent = NULL) {
-    CHECK(clEnqueueReadBuffer(queue, buf.buf, blocking, start, size, data, 0, NULL, outEvent));
-  }
-
-  Event read(Buf &buf, size_t size, void *data, size_t start = 0) {
-    cl_event event;
-    read(false, buf, size, data, start, &event);
-    return Event(event);
+  void read(bool blocking, Buf &buf, size_t size, void *data, size_t start = 0) {
+    CHECK(clEnqueueReadBuffer(queue, buf.buf, blocking, start, size, data, 0, NULL, NULL));
   }
   
   void write(bool blocking, Buf &buf, size_t size, const void *data, size_t start = 0) {
