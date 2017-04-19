@@ -128,7 +128,6 @@ void getShiftTab(int W, byte *bitlenTab, int tabSize, int *shiftTab) {
 u64 residue(int N, int W, int *data, const int *shiftTab) {
   i64 r = ((data[N-1] < 0) ? -1 : 0);
   for (int i = 0; shiftTab[i] < 64; ++i) { r += ((i64) data[i / 2 * 2 * W + i % 2]) << shiftTab[i]; }
-  printf("%lx\n", (u64) r);
   return r;
 }
 
@@ -306,42 +305,30 @@ int doit(int E) {
   constexpr int logStep   = 20000;
   float maxErr = 0;  
   uint rawErr = 0;
-  
-  for (int k = startK, nextLog = (startK / logStep + 1) * logStep; k < E - 2; ++k) {    
-    if (k == nextLog) {
-      nextLog += logStep;
-      q.read( false, bufErr,  sizeof(uint), &rawErr);
-      q.write(false, bufErr,  sizeof(uint), &zero);
-      q.read(true, bufData, sizeof(int) * N, data);
-      float err = rawErr * (1 / (float) (1 << 30));
-      maxErr = std::max(err, maxErr);
-      double msPerIter = timer.delta() * (1 / (double) logStep);
-      u64 res = residue(N, W, data, shiftTab);      
-      doLog(E, k, err, maxErr, msPerIter, res);
-      
-      if ((data[0] == 0 || data[0] == 2) && isAllZero(data + 1, N)) {
-        if (k == E - 2) {
-          if (data[0] == 0) { log("*****   M%d is prime!   *****\n", E); }
-        } else {
-          log("ERROR at iteration %d with %d\n", k, data[0]);
-          break;
-        }
-      }
-      fileSaver.save(data, k);
-    }
 
-    q.run(fftPremul1K,  SIZE / 4);
-    q.run(transposeA,   SIZE / 16);
-    q.run(fft2Kt,       SIZE / 8);
-        
-    q.run(square2K,     SIZE / 2);
-      
-    q.run(fft2K,        SIZE / 8);
-    q.run(transposeB,   SIZE / 16);
-    q.run(fft1Kt,       SIZE / 4);
+  for (int k = startK; k < E - 2;) {
+    for (int nextLog = std::min((k / logStep + 1) * logStep, E - 2); k < nextLog; ++k) {
+      q.run(fftPremul1K,  SIZE / 4);
+      q.run(transposeA,   SIZE / 16);
+      q.run(fft2Kt,       SIZE / 8);
+      q.run(square2K,     SIZE / 2);
+      q.run(fft2K,        SIZE / 8);
+      q.run(transposeB,   SIZE / 16);
+      q.run(fft1Kt,       SIZE / 4);
+      q.run(carryA, N / 16);
+      q.run(carryB, N / 16);
+    }
     
-    q.run(carryA, N / 16);
-    q.run(carryB, N / 16);
+    q.read( false, bufErr,  sizeof(uint), &rawErr);
+    q.write(false, bufErr,  sizeof(uint), &zero);
+    q.read(true, bufData, sizeof(int) * N, data);
+    float err = rawErr * (1 / (float) (1 << 30));
+    maxErr = std::max(err, maxErr);
+    double msPerIter = timer.delta() * (1 / (double) logStep);
+    u64 res = residue(N, W, data, shiftTab);      
+    doLog(E, k, err, maxErr, msPerIter, res);
+    fileSaver.save(data, k);
+    if (k == E - 2 && isAllZero(data, N)) { log("*****   M%d is prime!   *****\n", E); }
   }
 }
 
