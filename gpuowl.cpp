@@ -290,8 +290,6 @@ bool worktodoDelete(int begin, int end) {
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
   FILE *fo = fopen("results.txt", "a");
   if (!fo) { return false; }
-  // M( 77000201 )C, 0x5561a29ad401481c, offset = 0, n = 4096K, gpuowl v0.1, AID: FAF7794A597507B167BE68936175A48E
-  
   fprintf(fo, "M( %d )%c, 0x%lx, offset = 0, n = %dK, %s, AID: %s\n", E, isPrime ? 'P' : 'C', residue, 4096, AGENT, AID);
   fclose(fo);
   return true;
