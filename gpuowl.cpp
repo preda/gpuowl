@@ -3,17 +3,21 @@
 
 #include "clwrap.h"
 
-#include <cassert>
 #include <memory>
+#include <cassert>
 #include <cstdio>
 #include <cmath>
-#include <thread>
+#include <cstring>
 
 #define K(program, name) Kernel name(program, #name);
 
 typedef unsigned char byte;
 typedef int64_t i64;
 typedef uint64_t u64;
+
+constexpr int MIN_EXP = 35000000;
+constexpr int MAX_EXP = 78000000;
+const char *AGENT = "gpuowl v0.1";
 
 void genBitlen(int E, int N, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
   double *pa = aTab;
@@ -142,16 +146,6 @@ int log(const char *fmt, ...) {
   }
 }
 
-void openLogFile(int E) {
-  char logName[128];
-  snprintf(logName, sizeof(logName), "log-%d.txt", E);  
-  FILE *logf = fopen(logName, "a");
-  if (logf) {
-    setlinebuf(logf);
-    logFiles[1] = logf;
-  }
-}
-
 class FileSaver {
 private:
   char fileNameSave[64], fileNameOld[64], fileNameNew[64];
@@ -212,11 +206,98 @@ void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
   
-  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d  0x%016lx error %g (max %g)\n",
+  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d; %016lx error %g (max %g)\n",
       k, E, k * percent, msPerIter, days, hours, mins, res, err, maxErr);
 }
 
-int doit(int E) {
+int worktodoReadExponent(char *AID) {
+  FILE *fi = fopen("worktodo.txt", "r");
+  if (!fi) {
+    log("No 'worktodo.txt' file found\n");
+    return 0;
+  }
+
+  char line[256];
+  char kind[32];
+  int exp;
+  int ret = 0;
+  while (true) {
+    if (fscanf(fi, "%255s\n", line) < 1) { break; }
+    if (sscanf(line, "%11[^=]=%32[0-9a-fA-F],%d,%*d,%*d", kind, AID, &exp) == 3 &&
+        (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")) &&
+        exp >= MIN_EXP && exp <= MAX_EXP) {
+      ret = exp;
+      break;
+    } else {
+      log("worktodo.txt line '%s' skipped\n", line);
+    }
+  }
+  fclose(fi);
+  return ret;
+}
+
+bool worktodoGetLinePos(int E, int *begin, int *end) {
+  FILE *fi = fopen("worktodo.txt", "r");
+  if (!fi) {
+    log("No 'worktodo.txt' file found\n");
+    return false;
+  }
+
+  char line[256];
+  char kind[32];
+  int exp;
+  bool ret = false;
+  long p1 = 0;
+  while (true) {
+    if (fscanf(fi, "%255s\n", line) < 1) { break; }
+    printf("line '%s'\n", line);
+    long p2 = ftell(fi);
+    if (sscanf(line, "%11[^=]=%*32[0-9a-fA-F],%d,%*d,%*d", kind, &exp) == 2 &&
+        (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")) &&
+        exp == E) {
+      *begin = p1;
+      *end = p2;
+      ret = true;
+      printf("** %d %d\n", *begin, *end);
+      break;
+    }
+    p1 = p2;
+  }
+  fclose(fi);
+  return ret;
+}
+
+bool worktodoDelete(int begin, int end) {
+  assert(begin >= 0 && end > begin);
+  FILE *fi = fopen("worktodo.txt", "r");
+  char buf[64 * 1024];
+  int n = fread(buf, 1, sizeof(buf), fi);
+  if (n == sizeof(buf) || end > n) {
+    fclose(fi);
+    return false;
+  }
+  memmove(buf + begin, buf + end, n - end);
+  fclose(fi);
+  
+  FILE *fo = fopen("worktodo-tmp.tmp", "w");
+  bool ok = (fwrite(buf, begin + n - end, 1, fo) == 1);
+  fclose(fo);
+  return ok &&
+    (rename("worktodo.txt",     "worktodo.bak") == 0) &&
+    (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
+}
+
+bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
+  FILE *fo = fopen("results.txt", "a");
+  if (!fo) { return false; }
+  // M( 77000201 )C, 0x5561a29ad401481c, offset = 0, n = 4096K, gpuowl v0.1, AID: FAF7794A597507B167BE68936175A48E
+  
+  fprintf(fo, "M( %d )%c, 0x%lx, offset = 0, n = %dK, %s, AID: %s\n", E, isPrime ? 'P' : 'C', residue, 4096, AGENT, AID);
+  fclose(fo);
+  return true;
+}
+
+bool checkPrime(int E, bool *outIsPrime, u64 *outResidue) {
   constexpr int W = 1024;
   constexpr int H = 2048;
   constexpr int SIZE  = W * H;
@@ -227,7 +308,7 @@ int doit(int E) {
   data[0] = 4; // LL root.
 
   FileSaver fileSaver(E, N, W, H);
-  if (!fileSaver.load(data, &startK)) { return 1; }
+  if (!fileSaver.load(data, &startK)) { return false; }
     
   log("LL of %d at iteration %d\n", E, startK);
   log("FFT %d*%d (%dM words, %.2f bits per word)\n", W, H, N / (1024 * 1024), E / (double) N);
@@ -302,11 +383,12 @@ int doit(int E) {
 
   log("setup: %ld ms\n", timer.delta());
 
-  constexpr int logStep   = 20000;
+  constexpr int logStep = 20000;
   float maxErr = 0;  
-  uint rawErr = 0;
+  u64 res;
 
-  for (int k = startK; k < E - 2;) {
+  int k = startK;
+  do {
     for (int nextLog = std::min((k / logStep + 1) * logStep, E - 2); k < nextLog; ++k) {
       q.run(fftPremul1K,  SIZE / 4);
       q.run(transposeA,   SIZE / 16);
@@ -318,39 +400,64 @@ int doit(int E) {
       q.run(carryA, N / 16);
       q.run(carryB, N / 16);
     }
-    
-    q.read( false, bufErr,  sizeof(uint), &rawErr);
-    q.write(false, bufErr,  sizeof(uint), &zero);
-    q.read(true, bufData, sizeof(int) * N, data);
+
+    uint rawErr = 0;
+    q.read( false, bufErr, sizeof(uint), &rawErr);
+    q.write(false, bufErr, sizeof(uint), &zero);
+    q.read( true, bufData, sizeof(int) * N, data);
     float err = rawErr * (1 / (float) (1 << 30));
     maxErr = std::max(err, maxErr);
     double msPerIter = timer.delta() * (1 / (double) logStep);
-    u64 res = residue(N, W, data, shiftTab);      
+    res = residue(N, W, data, shiftTab);      
     doLog(E, k, err, maxErr, msPerIter, res);
     fileSaver.save(data, k);
-    if (k == E - 2 && isAllZero(data, N)) { log("*****   M%d is prime!   *****\n", E); }
-  }
+  } while (k < E - 2);
+
+  *outIsPrime = isAllZero(data, N);
+  *outResidue = res;
+  return true;
 }
 
 int main(int argc, char **argv) {
   logFiles[0] = stdout;
-
-  int E = (argc >= 2) ? atoi(argv[1]) : 0;
+  FILE *logf = fopen("gpuowl.log", "a");
+  if (logf) { setlinebuf(logf); }
+  logFiles[1] = logf;
   
-  if (E < 35000000 || E > 78000000) {
-    log("Usage: gpuowl <exponent>\n"
-	"E.g. gpuowl 77000201\n"
-	"Where <exponent> is a Mersenne exponent in the range 35'000'000 to 78'000'000\n"
-	);
-    return 0;
-  }
-
-  openLogFile(E);
   log("gpuOWL v0.1 GPU Lucas-Lehmer primality checker\n");
   
-  int ret = doit(E);
+  bool someSuccess = false;
+  while (true) {
+    char AID[64];
+    int E = worktodoReadExponent(AID);
+    if (E <= 0) {
+      if (!someSuccess) {
+        log("See http://www.mersenne.org/manual_assignment/\n"
+            "Please provide a 'worktodo.txt' file containing GIMPS manual test LL assignements "
+            "in the range %d to %d; e.g.\n\n"            
+            "Test=3181F68030F6BF3DCD32B77337D5EF6B,71561261,75,1\n"
+            "DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,71561261,75,1\n",
+            MIN_EXP, MAX_EXP);
+      }
+      break;
+    }
+    someSuccess = true;
 
-  if (logFiles[1]) { fclose(logFiles[1]); }
+    bool isPrime;
+    u64 res;
+    if (checkPrime(E, &isPrime, &res)) {
+      if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
+      
+      int lineBegin, lineEnd;
+      if (!writeResult(E, isPrime, res, AID) ||
+          !worktodoGetLinePos(E, &lineBegin, &lineEnd) ||
+          !worktodoDelete(lineBegin, lineEnd)) {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
 
-  return ret;
+  if (logf) { fclose(logf); }
 }
