@@ -298,7 +298,7 @@ bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
   return true;
 }
 
-bool checkPrime(cl_program program, int E, bool *outIsPrime, u64 *outResidue) {
+bool checkPrime(cl_program program, int E, int logStep, bool *outIsPrime, u64 *outResidue) {
   constexpr int W = 1024;
   constexpr int H = 2048;
   constexpr int SIZE  = W * H;
@@ -318,7 +318,6 @@ bool checkPrime(cl_program program, int E, bool *outIsPrime, u64 *outResidue) {
   Queue q(c);
   Timer timer;
   
-  // Program program(c, "gpuowl.cl");
   K(program, fftPremul1K); 
   K(program, transposeA);
   K(program, fft2Kt);
@@ -384,7 +383,6 @@ bool checkPrime(cl_program program, int E, bool *outIsPrime, u64 *outResidue) {
 
   log("setup: %ld ms\n", timer.delta());
 
-  constexpr int logStep = 20000;
   float maxErr = 0;  
   u64 res;
 
@@ -431,11 +429,18 @@ int main(int argc, char **argv) {
   log("gpuOwL v0.1 GPU Lucas-Lehmer primality checker\n");
 
   const char *extraOpts = "";
+  int logStep = 20000;
+  
   if (argc > 1) {
     if (!strcmp(argv[1], "-cl") && argc > 2) {
       extraOpts = argv[2];      
     } else if (!strcmp(argv[1], "-h")) {
-      log("Command line options:\n-cl -save-temps : to save the compiled ISA\n\n");
+      log("Command line options:\n"
+          "-cl -save-temps : to save the compiled ISA\n"
+          "-logstep <n> : to log every <n> iterations (default 20000)\n"
+          "\n");
+    } else if (!strcmp(argv[1], "-logstep") && argc > 2 && atoi(argv[2]) > 0) {
+      logStep = atoi(argv[2]);
     }
   }
   
@@ -470,7 +475,7 @@ int main(int argc, char **argv) {
 
     bool isPrime;
     u64 res;
-    if (checkPrime(program, E, &isPrime, &res)) {
+    if (checkPrime(program, E, logStep, &isPrime, &res)) {
       if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
       
       int lineBegin, lineEnd;
