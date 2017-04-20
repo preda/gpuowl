@@ -17,3 +17,7 @@ g++ gpuowl.cpp -ogpuowl -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -lOpenCL
 * Copy the lines from GIMPS to a file named 'worktodo.txt'
 * Run gpuowl. It prints progress report on stdout and in gpuowl.log, and writes result lines to results.txt
 * Submit the result lines from results.txt to http://mersenne.org/ manual testing.
+
+## Command line arguments
+* It is possible to pass arguments to the OpenCL compiler by passing "-cl" to gpuowl. For example, to dump the compiled ISA use
+**gpuowl -cl -save-temps** ; to put the ISA into an *existing* folder 'isa' use **gpuowl -cl -save-temps=isa/**

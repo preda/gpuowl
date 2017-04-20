@@ -423,14 +423,22 @@ int main(int argc, char **argv) {
   logFiles[0] = stdout;
   FILE *logf = fopen("gpuowl.log", "a");
 
-#ifdef  _DEFAULT_SOURCE
+#ifdef _DEFAULT_SOURCE
   if (logf) { setlinebuf(logf); }
 #endif
 
   logFiles[1] = logf;
-  
   log("gpuOwL v0.1 GPU Lucas-Lehmer primality checker\n");
 
+  const char *extraOpts = "";
+  if (argc > 1) {
+    if (!strcmp(argv[1], "-cl") && argc > 2) {
+      extraOpts = argv[2];      
+    } else if (!strcmp(argv[1], "-h")) {
+      log("Command line options:\n-cl -save-temps : to save the compiled ISA\n\n");
+    }
+  }
+  
   cl_device_id device = getDevice();
   char deviceName[256];
   getDeviceName(device, deviceName, sizeof(deviceName));
@@ -438,7 +446,7 @@ int main(int argc, char **argv) {
 
   cl_context context = createContext(device);
 
-  // cl_program program = compile(device, context, "gpuowl.cl", "");
+  cl_program program = compile(device, context, "gpuowl.cl", extraOpts);
   
   bool someSuccess = false;
   while (true) {
