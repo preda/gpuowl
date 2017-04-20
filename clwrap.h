@@ -64,9 +64,8 @@ cl_context createContext(cl_device_id device) {
   return context;
 }
 
-void release(cl_context context) {
-  CHECK(clReleaseContext(context));
-}
+void release(cl_context context) { CHECK(clReleaseContext(context)); }
+void release(cl_program program) { CHECK(clReleaseProgram(program)); }
 
 cl_program compile(cl_device_id device, cl_context context, const char *fileName, const char *opts) {
   FILE *fi = fopen(fileName, "r");
@@ -87,7 +86,10 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
 
   snprintf(buf, sizeof(buf),
            "%s -Werror -cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size -I. -fno-bin-llvmir", opts);
-  //Add this to output GCN ISA: -save-temps  
+  // Other options:
+  // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/
+  // * to disable all OpenCL optimization: -cl-opt-disable
+  // * various: -fno-bin-source -fno-bin-amdil
 
   if ((err = clBuildProgram(program, 1, &device, buf, NULL, NULL)) != CL_SUCCESS) {
     size_t logSize;
@@ -104,45 +106,12 @@ class Program {
 public:
   cl_program program;
 
-  Program(Context &c, const char *f, const char *opts = "") { compile(c, f, opts); }
+  Program(Context &c, const char *f, const char *opts = "") {
+    program = compile(c.device, c.context, f, opts);
+  }
+
   ~Program() { clReleaseProgram(program); }
-  
-  void compile(Context &c, const char *fileName, const char *extra) {
-    FILE *f = fopen(fileName, "r");
-    assert(f);
-    
-    char buf[256 * 1024];
-    size_t size = read(buf, sizeof(buf), f);
-    assert(size < sizeof(buf));
-    char *pbuf = buf;
-    int err;
-    program = clCreateProgramWithSource(c.context, 1, (const char **)&pbuf, &size, &err);
-    CHECK(err);
-    snprintf(buf, sizeof(buf),
-             "%s -Werror -cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size -I. -fno-bin-llvmir", extra);
-    //Add this to output GCN ISA: -save-temps
-
-    err = clBuildProgram(program, 1, &(c.device), buf, NULL, NULL);
-    if (err != CL_SUCCESS) {
-      size_t logSize;
-      clGetProgramBuildInfo(program, c.device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
-      buf[logSize] = 0;
-      fprintf(stderr, "log %s\n", buf);
-    }
-    CHECK(err);
-
-    fclose(f);
-  }
-
- private:  
-  size_t read(char *buf, int bufSize, FILE *f) {
-    size_t size = fread(buf, 1, bufSize, f); assert(size);
-    return size;
-  }
 };
-
-    // "-Werror -cl-fast-relaxed-math -I. -fno-bin-llvmir -fno-bin-source -fno-bin-amdil -save-temps=tmp1/";
-    // -cl-opt-disable
 
 class Kernel {
 public:

@@ -480,8 +480,10 @@ int main(int argc, char **argv) {
       break;
     }
   }
-
+  
+  release(program);
   release(context);
-  log("Bye\n");
+  
+  log("\nBye\n");
   if (logf) { fclose(logf); }
 }
