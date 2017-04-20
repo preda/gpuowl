@@ -34,6 +34,72 @@ public:
   }
 };
 
+cl_device_id getDevice() {
+  cl_platform_id platform;
+  CHECK(clGetPlatformIDs(1, &platform, NULL));
+  cl_device_id device;
+  CHECK(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, NULL));
+  return device;
+}
+
+void getDeviceName(cl_device_id device, char *buf, size_t bufSize) {
+  char name[256];
+  size_t outSize = 0;
+  clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(name), name, &outSize);
+  assert(outSize < sizeof(name));
+  name[outSize] = 0;
+
+  char version[256];
+  clGetDeviceInfo(device, CL_DEVICE_VERSION, sizeof(version), version, &outSize);
+  assert(outSize < sizeof(version));
+  version[outSize] = 0;
+
+  snprintf(buf, bufSize, "%s - %s", name, version);
+}
+
+cl_context createContext(cl_device_id device) {
+  int err;
+  cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
+  CHECK(err);
+  return context;
+}
+
+void release(cl_context context) {
+  CHECK(clReleaseContext(context));
+}
+
+cl_program compile(cl_device_id device, cl_context context, const char *fileName, const char *opts) {
+  FILE *fi = fopen(fileName, "r");
+  if (!fi) {
+    fprintf(stderr, "Could not open cl source file '%s'\n", fileName);
+    return 0;
+  }
+    
+  char buf[64 * 1024];
+  size_t size = fread(buf, 1, sizeof(buf), fi);
+  fclose(fi);
+  assert(size < sizeof(buf));
+
+  char *pbuf = buf;
+  int err;
+  cl_program program = clCreateProgramWithSource(context, 1, (const char **)&pbuf, &size, &err);
+  CHECK(err);
+
+  snprintf(buf, sizeof(buf),
+           "%s -Werror -cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size -I. -fno-bin-llvmir", opts);
+  //Add this to output GCN ISA: -save-temps  
+
+  if ((err = clBuildProgram(program, 1, &device, buf, NULL, NULL)) != CL_SUCCESS) {
+    size_t logSize;
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
+    buf[logSize] = 0;
+    fprintf(stderr, "OpenCL compilation error %d, log:\n%s\n", err, buf);
+    return 0;
+  }
+
+  return program;
+}
+
 class Program {
 public:
   cl_program program;

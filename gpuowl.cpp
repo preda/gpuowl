@@ -254,7 +254,6 @@ bool worktodoGetLinePos(int E, int *begin, int *end) {
   long p1 = 0;
   while (true) {
     if (fscanf(fi, "%255s\n", line) < 1) { break; }
-    // printf("line '%s'\n", line);
     long p2 = ftell(fi);
     if (sscanf(line, "%11[^=]=%*32[0-9a-fA-F],%d,%*d,%*d", kind, &exp) == 2 &&
         (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")) &&
@@ -262,7 +261,6 @@ bool worktodoGetLinePos(int E, int *begin, int *end) {
       *begin = p1;
       *end = p2;
       ret = true;
-      // printf("** %d %d\n", *begin, *end);
       break;
     }
     p1 = p2;
@@ -432,6 +430,15 @@ int main(int argc, char **argv) {
   logFiles[1] = logf;
   
   log("gpuOwL v0.1 GPU Lucas-Lehmer primality checker\n");
+
+  cl_device_id device = getDevice();
+  char deviceName[256];
+  getDeviceName(device, deviceName, sizeof(deviceName));
+  log("%s\n", deviceName);
+
+  cl_context context = createContext(device);
+
+  // cl_program program = compile(device, context, "gpuowl.cl", "");
   
   bool someSuccess = false;
   while (true) {
@@ -466,5 +473,7 @@ int main(int argc, char **argv) {
     }
   }
 
+  release(context);
+  log("Bye\n");
   if (logf) { fclose(logf); }
 }
