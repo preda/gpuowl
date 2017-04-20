@@ -12,7 +12,7 @@
 #define K(program, name) Kernel name(program, #name);
 
 #ifndef M_PIl
-#define M_PIl		3.141592653589793238462643383279502884L
+#define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
 typedef unsigned char byte;
@@ -298,7 +298,7 @@ bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
   return true;
 }
 
-bool checkPrime(int E, bool *outIsPrime, u64 *outResidue) {
+bool checkPrime(cl_program program, int E, bool *outIsPrime, u64 *outResidue) {
   constexpr int W = 1024;
   constexpr int H = 2048;
   constexpr int SIZE  = W * H;
@@ -318,7 +318,7 @@ bool checkPrime(int E, bool *outIsPrime, u64 *outResidue) {
   Queue q(c);
   Timer timer;
   
-  Program program(c, "gpuowl.cl");
+  // Program program(c, "gpuowl.cl");
   K(program, fftPremul1K); 
   K(program, transposeA);
   K(program, fft2Kt);
@@ -329,7 +329,7 @@ bool checkPrime(int E, bool *outIsPrime, u64 *outResidue) {
   K(program, carryA);
   K(program, carryB);
 
-  log("OpenCL compile: %ld ms\n", timer.delta());
+  log("OpenCL load kernels: %ld ms\n", timer.delta());
   
   auto *aTab      = new double[N];
   auto *iTab      = new double[N];
@@ -446,7 +446,10 @@ int main(int argc, char **argv) {
 
   cl_context context = createContext(device);
 
+  Timer timer;
   cl_program program = compile(device, context, "gpuowl.cl", extraOpts);
+  log("OpenCL compile: %ld ms\n", timer.delta());
+  
   
   bool someSuccess = false;
   while (true) {
@@ -467,7 +470,7 @@ int main(int argc, char **argv) {
 
     bool isPrime;
     u64 res;
-    if (checkPrime(E, &isPrime, &res)) {
+    if (checkPrime(program, E, &isPrime, &res)) {
       if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
       
       int lineBegin, lineEnd;

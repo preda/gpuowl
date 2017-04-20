@@ -117,9 +117,9 @@ class Kernel {
 public:
   cl_kernel k;
   
-  Kernel(Program &p, const char *name) {
+  Kernel(cl_program program, const char *name) {
     int err;
-    k = clCreateKernel(p.program, name, &err);
+    k = clCreateKernel(program, name, &err);
     CHECK2(err, name);
   }
 
