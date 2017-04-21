@@ -1,4 +1,4 @@
-// gpuOWL, a GPU OpenCL Lucas-Lehmer primality checker.
+// gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
 
 #define _O __attribute__((overloadable))
@@ -322,6 +322,7 @@ void square(uint W, global double2 *in, CONST double2 *trig) {
 }
 
 K(256, 1) square2K(global double2 *in, CONST double2 *trig)  { square(2048, in, trig); }
+K(256, 1) square1K(global double2 *in, CONST double2 *trig)  { square(1024, in, trig); }
 
 void transposeCore(double2 *u) {
   local double lds[4096];
@@ -393,3 +394,4 @@ K(256, 1) transposeB(global double2 *in, CONST double2 *trig) {
     in[p] = mul(u[i], trig[i * 256 + me]);
   }
 }
+

@@ -66,6 +66,7 @@ cl_context createContext(cl_device_id device) {
 
 void release(cl_context context) { CHECK(clReleaseContext(context)); }
 void release(cl_program program) { CHECK(clReleaseProgram(program)); }
+void release(cl_mem buf)         { CHECK(clReleaseMemObject(buf)); }
 
 cl_program compile(cl_device_id device, cl_context context, const char *fileName, const char *opts) {
   FILE *fi = fopen(fileName, "r");
@@ -101,17 +102,6 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
 
   return program;
 }
-
-class Program {
-public:
-  cl_program program;
-
-  Program(Context &c, const char *f, const char *opts = "") {
-    program = compile(c.device, c.context, f, opts);
-  }
-
-  ~Program() { clReleaseProgram(program); }
-};
 
 class Kernel {
 public:
@@ -159,19 +149,20 @@ public:
   }
 };
 
+cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0) {
+  int err;
+  cl_mem buf = clCreateBuffer(context, kind, size, (void *) ptr, &err);
+  CHECK(err);
+  return buf;
+}
+
 class Buf {
  public:
   cl_mem buf;
 
-  Buf(Context &c, unsigned kind, size_t size, const void *ptr) {
-    int err;
-    buf = clCreateBuffer(c.context, kind, size, (void *) ptr, &err);
-    CHECK(err);
+  Buf(Context &c, unsigned kind, size_t size, const void *ptr = 0) {
+    buf = makeBuf(c.context, kind, size, (void *) ptr);
   }
-
-  Buf(Context &c, unsigned kind, size_t size) : Buf(c, kind, size, NULL) { }
-
-  // ~Buf() { }
 
   void release() { CHECK(clReleaseMemObject(buf)); }
 };

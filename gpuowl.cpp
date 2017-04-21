@@ -23,12 +23,14 @@ constexpr int MIN_EXP = 35000000;
 constexpr int MAX_EXP = 78000000;
 const char *AGENT = "gpuowl v0.1";
 
-void genBitlen(int E, int N, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
+constexpr unsigned CONST_BUF = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
+
+void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
   double *pa = aTab;
   double *pi = iTab;
   byte   *pb = bitlenTab;
 
-  auto iN = 1 / (long double) N;
+  auto iN = 1 / (long double) (2 * W * H);
   
   for (int line = 0; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
@@ -95,27 +97,33 @@ double *smallTrigBlock(int W, int H, double *out) {
   return p;
 }
 
-double *genSmallTrig2K() {
+cl_mem genSmallTrig2K(cl_context context) {
   int size = 2 * 4 * 512;
-  double *out = new double[size]();
-  double *p = out + 2 * 8;
+  double *tab = new double[size]();
+  double *p   = tab + 2 * 8;
   p = smallTrigBlock(  8, 8, p);
   p = smallTrigBlock( 64, 8, p);
   p = smallTrigBlock(512, 4, p);
-  assert(p - out == size);
-  return out;
+  assert(p - tab == size);
+  
+  cl_mem buf = makeBuf(context, CONST_BUF, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;
 }
 
-double *genSmallTrig1K() {
+cl_mem genSmallTrig1K(cl_context context) {
   int size = 2 * 4 * 256;
-  double *out = new double[size]();
-  double *p = out + 2 * 4;
+  double *tab = new double[size]();
+  double *p   = tab + 2 * 4;
   p = smallTrigBlock(  4, 4, p);
   p = smallTrigBlock( 16, 4, p);
   p = smallTrigBlock( 64, 4, p);
   p = smallTrigBlock(256, 4, p);
-  assert(p - out == size);
-  return out;
+  assert(p - tab == size);
+
+  cl_mem buf = makeBuf(context, CONST_BUF, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;
 }
 
 bool isAllZero(int *p, int size) {
@@ -123,9 +131,9 @@ bool isAllZero(int *p, int size) {
   return true;
 }
 
-void getShiftTab(int W, byte *bitlenTab, int tabSize, int *shiftTab) {
+void getShiftTab(int W, byte *bitlenTab, int *shiftTab) {
   int sh = 0;
-  for (int i = 0; i < tabSize; ++i) {
+  for (int i = 0; i < 32; ++i) {
     shiftTab[i] = sh;
     if (sh >= 64) { return; }
     sh += bitlenTab[i / 2 * 2 * W + i % 2];
@@ -298,7 +306,25 @@ bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
   return true;
 }
 
-bool checkPrime(cl_program program, int E, int logStep, bool *outIsPrime, u64 *outResidue) {
+void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, cl_mem *pBufI, cl_mem *pBufBitlen, int *shiftTab) {
+  int N = 2 * W * H;
+  double *aTab    = new double[N];
+  double *iTab    = new double[N];
+  byte *bitlenTab = new byte[N];
+  
+  genBitlen(E, W, H, aTab, iTab, bitlenTab);
+  getShiftTab(W, bitlenTab, shiftTab);
+  
+  *pBufA      = makeBuf(context, CONST_BUF, sizeof(double) * N, aTab);
+  *pBufI      = makeBuf(context, CONST_BUF, sizeof(double) * N, iTab);
+  *pBufBitlen = makeBuf(context, CONST_BUF, sizeof(double) * N, bitlenTab);
+
+  delete[] aTab;
+  delete[] iTab;
+  delete[] bitlenTab;
+}
+
+bool checkPrime(cl_program program, cl_mem bufTrig1K, cl_mem bufTrig2K, int E, int logStep, bool *outIsPrime, u64 *outResidue) {
   constexpr int W = 1024;
   constexpr int H = 2048;
   constexpr int SIZE  = W * H;
@@ -329,13 +355,16 @@ bool checkPrime(cl_program program, int E, int logStep, bool *outIsPrime, u64 *o
   K(program, carryB);
 
   log("OpenCL load kernels: %ld ms\n", timer.delta());
-  
+
+  cl_mem bufA, bufI, bufBitlen;
+  int shiftTab[32];
+  setupExponentBufs(c.context, E, W, H, &bufA, &bufI, &bufBitlen, shiftTab);
+
+  /*
   auto *aTab      = new double[N];
   auto *iTab      = new double[N];
   auto *bitlenTab = new byte[N];
-  genBitlen(E, N, W, H, aTab, iTab, bitlenTab);
-
-  int shiftTab[32];
+  genBitlen(E, W, H, aTab, iTab, bitlenTab);
   getShiftTab(W, bitlenTab, 32, shiftTab);
   
   Buf      bufA(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, aTab);
@@ -344,7 +373,8 @@ bool checkPrime(cl_program program, int E, int logStep, bool *outIsPrime, u64 *o
   
   delete[] aTab;
   delete[] iTab;
-  delete[] bitlenTab;  
+  delete[] bitlenTab;
+  */
 
   double *bigTrig = genBigTrig(W, H);
   Buf bufBigTrig(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, bigTrig);
@@ -354,6 +384,7 @@ bool checkPrime(cl_program program, int E, int logStep, bool *outIsPrime, u64 *o
   Buf bufSins(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N / 2, sins);
   delete[] sins;
 
+  /*
   double *trig1K = genSmallTrig1K();
   double *trig2K = genSmallTrig2K();
 
@@ -362,6 +393,7 @@ bool checkPrime(cl_program program, int E, int logStep, bool *outIsPrime, u64 *o
   
   delete[] trig1K;
   delete[] trig2K;
+  */
   
   Buf buf1(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N);
   Buf buf2(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N);
@@ -455,6 +487,9 @@ int main(int argc, char **argv) {
   cl_program program = compile(device, context, "gpuowl.cl", extraOpts);
   log("OpenCL compile: %ld ms\n", timer.delta());
   
+  cl_mem bufTrig1K = genSmallTrig1K(context);
+  cl_mem bufTrig2K = genSmallTrig2K(context);
+
   
   bool someSuccess = false;
   while (true) {
@@ -475,7 +510,7 @@ int main(int argc, char **argv) {
 
     bool isPrime;
     u64 res;
-    if (checkPrime(program, E, logStep, &isPrime, &res)) {
+    if (checkPrime(program, bufTrig1K, bufTrig2K, E, logStep, &isPrime, &res)) {
       if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
       
       int lineBegin, lineEnd;
