@@ -9,7 +9,7 @@
 #include <cmath>
 #include <cstring>
 
-#define K(program, name) Kernel name(program, #name);
+#define K(program, name) cl_kernel name = makeKernel(program, #name)
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -23,7 +23,8 @@ constexpr int MIN_EXP = 35000000;
 constexpr int MAX_EXP = 78000000;
 const char *AGENT = "gpuowl v0.1";
 
-constexpr unsigned CONST_BUF = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
+const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
+const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
   double *pa = aTab;
@@ -106,7 +107,7 @@ cl_mem genSmallTrig2K(cl_context context) {
   p = smallTrigBlock(512, 4, p);
   assert(p - tab == size);
   
-  cl_mem buf = makeBuf(context, CONST_BUF, sizeof(double) * size, tab);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
   return buf;
 }
@@ -121,7 +122,7 @@ cl_mem genSmallTrig1K(cl_context context) {
   p = smallTrigBlock(256, 4, p);
   assert(p - tab == size);
 
-  cl_mem buf = makeBuf(context, CONST_BUF, sizeof(double) * size, tab);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
   return buf;
 }
@@ -161,12 +162,11 @@ int log(const char *fmt, ...) {
 class FileSaver {
 private:
   char fileNameSave[64], fileNameOld[64], fileNameNew[64];
-  int E, N, W, H;
+  int E, W, H;
   const char *saveHeader = "LL1 %10d %10d %10d %10d %10d    \n\032";
   
-  
 public:
-  FileSaver(int iniE, int iniN, int iniW, int iniH) : E(iniE), N(iniN), W(iniW), H(iniH) {
+  FileSaver(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
     char base[64];
     snprintf(base, sizeof(base), "save-%d", E);
     snprintf(fileNameSave, sizeof(fileNameSave), "%s.bin", base);
@@ -194,7 +194,7 @@ public:
   void save(int *data, int k) const {
     FILE *fo = fopen(fileNameNew, "wb");
     if (fo) {
-      bool ok = fprintf(fo, saveHeader, E, k, W, H, 0) == 64 && fwrite(data, sizeof(int) * N, 1, fo) == 1;
+      bool ok = fprintf(fo, saveHeader, E, k, W, H, 0) == 64 && fwrite(data, sizeof(int) * (2 * W * H), 1, fo) == 1;
       fclose(fo);
       if (ok) {
         rename(fileNameSave, fileNameOld);
@@ -315,16 +315,112 @@ void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, c
   genBitlen(E, W, H, aTab, iTab, bitlenTab);
   getShiftTab(W, bitlenTab, shiftTab);
   
-  *pBufA      = makeBuf(context, CONST_BUF, sizeof(double) * N, aTab);
-  *pBufI      = makeBuf(context, CONST_BUF, sizeof(double) * N, iTab);
-  *pBufBitlen = makeBuf(context, CONST_BUF, sizeof(double) * N, bitlenTab);
+  *pBufA      = makeBuf(context, BUF_CONST, sizeof(double) * N, aTab);
+  *pBufI      = makeBuf(context, BUF_CONST, sizeof(double) * N, iTab);
+  *pBufBitlen = makeBuf(context, BUF_CONST, sizeof(byte)   * N, bitlenTab);
 
   delete[] aTab;
   delete[] iTab;
   delete[] bitlenTab;
 }
 
-bool checkPrime(cl_program program, cl_mem bufTrig1K, cl_mem bufTrig2K, int E, int logStep, bool *outIsPrime, u64 *outResidue) {
+bool checkPrime(cl_context context, cl_program program, cl_queue q, cl_mem bufTrig1K, cl_mem bufTrig2K, int E, int logStep, bool *outIsPrime, u64 *outResidue) {
+  constexpr int W = 1024;
+  constexpr int H = 2048;
+  constexpr int N = 2 * W * H;
+  
+  int startK = 0;
+  int *data = new int[N]();
+  data[0] = 4; // LL root.
+
+  FileSaver fileSaver(E, W, H);
+  if (!fileSaver.load(data, &startK)) { return false; }
+  
+  log("LL (FFT %dM, %dK x %dK) of %d (%.2f bits/word) at iteration %d\n",
+      N / (1024 * 1024), W / 1024, H / 1024, E, E / (double) N, startK);
+    
+  Timer timer;
+  
+  cl_mem bufA, bufI, bufBitlen;
+  int shiftTab[32];
+  setupExponentBufs(context, E, W, H, &bufA, &bufI, &bufBitlen, shiftTab);
+
+  double *bigTrig = genBigTrig(W, H);
+  cl_mem bufBigTrig = makeBuf(context, BUF_CONST, sizeof(double) * N, bigTrig);
+  delete[] bigTrig;
+  
+  double *sins = genSin(H, W); // transposed W/H !
+  cl_mem bufSins = makeBuf(context, BUF_CONST, sizeof(double) * N / 2, sins);
+  delete[] sins;
+
+  cl_mem buf1     = makeBuf(context, BUF_RW, sizeof(double) * N);
+  cl_mem buf2     = makeBuf(context, BUF_RW, sizeof(double) * N);
+  cl_mem bufCarry = makeBuf(context, BUF_RW, sizeof(long)   * N / 8);
+
+  const unsigned zero = 0;
+  cl_mem bufErr   = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
+  cl_mem bufData  = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * N, data);
+
+  K(program, fftPremul1K);
+  K(program, transposeA);
+  K(program, fft2Kt);
+  K(program, square2K);
+  K(program, fft2K);
+  K(program, transposeB);
+  K(program, fft1Kt);
+  K(program, carryA);
+  K(program, carryB);
+
+  setArgs(fftPremul1K, bufData, buf1, bufA, bufTrig1K);
+  setArgs(transposeA, buf1, bufBigTrig);
+  setArgs(fft2Kt,  buf1, buf2, bufTrig2K);
+  setArgs(square2K, buf2, bufSins);
+  setArgs(fft2K,  buf2, bufTrig2K);
+  setArgs(transposeB, buf2, bufBigTrig);
+  setArgs(fft1Kt, buf2, buf1, bufTrig1K);  
+  setArgs(carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
+  setArgs(carryB, bufData, bufCarry, bufBitlen);
+
+  log("OpenCL buffers and kernels setup: %ld ms\n", timer.delta());
+
+  float maxErr = 0;  
+  u64 res;
+  int k = startK;
+  
+  do {
+    for (int nextLog = std::min((k / logStep + 1) * logStep, E - 2); k < nextLog; ++k) {
+      run(q, fftPremul1K, N / 8);
+      run(q, transposeA,  N / 32);
+      run(q, fft2Kt,      N / 16);
+      
+      run(q, square2K,    N / 4);
+      
+      run(q, fft2K,       N / 16);
+      run(q, transposeB,  N / 32);
+      run(q, fft1Kt,      N / 8);
+      
+      run(q, carryA,      N / 16);
+      run(q, carryB,      N / 16);
+    }
+
+    unsigned rawErr = 0;
+    read(q,  false, bufErr,  sizeof(unsigned), &rawErr);
+    write(q, false, bufErr,  sizeof(unsigned), &zero);
+    read(q,  true,  bufData, sizeof(int) * N, data);
+    float err = rawErr * (1 / (float) (1 << 30));
+    maxErr = std::max(err, maxErr);
+    double msPerIter = timer.delta() * (1 / (double) logStep);
+    res = residue(N, W, data, shiftTab);      
+    doLog(E, k, err, maxErr, msPerIter, res);
+    fileSaver.save(data, k);
+  } while (k < E - 2);
+
+  *outIsPrime = isAllZero(data, N);
+  *outResidue = res;
+  return true;
+}
+#if 0
+bool checkPrime4M(cl_program program, cl_mem bufTrig1K, cl_mem bufTrig2K, int E, int logStep, bool *outIsPrime, u64 *outResidue) {
   constexpr int W = 1024;
   constexpr int H = 2048;
   constexpr int SIZE  = W * H;
@@ -360,22 +456,6 @@ bool checkPrime(cl_program program, cl_mem bufTrig1K, cl_mem bufTrig2K, int E, i
   int shiftTab[32];
   setupExponentBufs(c.context, E, W, H, &bufA, &bufI, &bufBitlen, shiftTab);
 
-  /*
-  auto *aTab      = new double[N];
-  auto *iTab      = new double[N];
-  auto *bitlenTab = new byte[N];
-  genBitlen(E, W, H, aTab, iTab, bitlenTab);
-  getShiftTab(W, bitlenTab, 32, shiftTab);
-  
-  Buf      bufA(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, aTab);
-  Buf      bufI(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, iTab);
-  Buf bufBitlen(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(byte)   * N, bitlenTab);
-  
-  delete[] aTab;
-  delete[] iTab;
-  delete[] bitlenTab;
-  */
-
   double *bigTrig = genBigTrig(W, H);
   Buf bufBigTrig(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, bigTrig);
   delete[] bigTrig;
@@ -383,17 +463,6 @@ bool checkPrime(cl_program program, cl_mem bufTrig1K, cl_mem bufTrig2K, int E, i
   double *sins = genSin(H, W); // transposed W/H !
   Buf bufSins(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N / 2, sins);
   delete[] sins;
-
-  /*
-  double *trig1K = genSmallTrig1K();
-  double *trig2K = genSmallTrig2K();
-
-  Buf bufTrig1K(c, CL_MEM_READ_ONLY | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(double) * 2 * 1024, trig1K);
-  Buf bufTrig2K(c, CL_MEM_READ_ONLY | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(double) * 2 * 2048, trig2K);
-  
-  delete[] trig1K;
-  delete[] trig2K;
-  */
   
   Buf buf1(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N);
   Buf buf2(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N);
@@ -448,6 +517,7 @@ bool checkPrime(cl_program program, cl_mem bufTrig1K, cl_mem bufTrig2K, int E, i
   *outResidue = res;
   return true;
 }
+#endif
 
 int main(int argc, char **argv) {
   logFiles[0] = stdout;
@@ -483,9 +553,11 @@ int main(int argc, char **argv) {
 
   cl_context context = createContext(device);
 
-  Timer timer;
+  cl_queue queue = makeQueue(device, context);
+
+  // Timer timer;
   cl_program program = compile(device, context, "gpuowl.cl", extraOpts);
-  log("OpenCL compile: %ld ms\n", timer.delta());
+  // log("OpenCL compile: %ld ms\n", timer.delta());
   
   cl_mem bufTrig1K = genSmallTrig1K(context);
   cl_mem bufTrig2K = genSmallTrig2K(context);
@@ -510,7 +582,7 @@ int main(int argc, char **argv) {
 
     bool isPrime;
     u64 res;
-    if (checkPrime(program, bufTrig1K, bufTrig2K, E, logStep, &isPrime, &res)) {
+    if (checkPrime(context, program, queue, bufTrig1K, bufTrig2K, E, logStep, &isPrime, &res)) {
       if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
       
       int lineBegin, lineEnd;

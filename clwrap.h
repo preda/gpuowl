@@ -12,10 +12,27 @@ long timeMillis() {
   return tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
+class Timer {
+  long prevTime;
+  
+ public:
+  
+  Timer() : prevTime (timeMillis()) { }
+
+  long delta() {
+    long now = timeMillis();
+    long d = now - prevTime;
+    prevTime = now;
+    return d;
+  }
+  
+};
+
 #define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
 
 #define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d (%s)\n", e, mes); assert(false); }}
 
+/*
 class Context {
 public:
   cl_device_id device;
@@ -33,6 +50,7 @@ public:
     CHECK(clReleaseContext(context));
   }
 };
+*/
 
 cl_device_id getDevice() {
   cl_platform_id platform;
@@ -64,9 +82,13 @@ cl_context createContext(cl_device_id device) {
   return context;
 }
 
+typedef cl_command_queue cl_queue;
+
 void release(cl_context context) { CHECK(clReleaseContext(context)); }
 void release(cl_program program) { CHECK(clReleaseProgram(program)); }
 void release(cl_mem buf)         { CHECK(clReleaseMemObject(buf)); }
+void release(cl_queue queue)     { CHECK(clReleaseCommandQueue(queue)); }
+void release(cl_kernel k)        { CHECK(clReleaseKernel(k)); }
 
 cl_program compile(cl_device_id device, cl_context context, const char *fileName, const char *opts) {
   FILE *fi = fopen(fileName, "r");
@@ -103,6 +125,28 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
   return program;
 }
 
+cl_kernel makeKernel(cl_program program, const char *name) {
+  int err;
+  cl_kernel k = clCreateKernel(program, name, &err);
+  CHECK2(err, name);
+  return k;
+}
+
+void setArg(cl_kernel k, int pos, const auto &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
+void setArgs(cl_kernel k, const auto &a) { setArg(k, 0, a); }
+void setArgs(cl_kernel k, const auto &a, const auto &b) { setArgs(k, a); setArg(k, 1, b); }
+void setArgs(cl_kernel k, const auto &a, const auto &b, const auto &c) { setArgs(k, a, b); setArg(k, 2, c); }
+void setArgs(cl_kernel k, const auto &a, const auto &b, const auto &c, const auto &d) { setArgs(k, a, b, c); setArg(k, 3, d); }
+void setArgs(cl_kernel k, const auto &a, const auto &b, const auto &c, const auto &d, const auto &e) {
+  setArgs(k, a, b, c, d);
+  setArg(k, 4, e);
+}
+void setArgs(cl_kernel k, const auto &a, const auto &b, const auto &c, const auto &d, const auto &e, const auto &f) {
+  setArgs(k, a, b, c, d, e);
+  setArg(k, 5, f);
+}
+
+/*
 class Kernel {
 public:
   cl_kernel k;
@@ -148,6 +192,7 @@ public:
     setArg(5, f);
   }
 };
+*/
 
 cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0) {
   int err;
@@ -156,6 +201,7 @@ cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr =
   return buf;
 }
 
+/*
 class Buf {
  public:
   cl_mem buf;
@@ -166,37 +212,44 @@ class Buf {
 
   void release() { CHECK(clReleaseMemObject(buf)); }
 };
+*/
 
-class Timer {
-  long prevTime;
-  
- public:
-  
-  Timer() : prevTime (timeMillis()) { }
+cl_queue makeQueue(cl_device_id d, cl_context c) {
+  int err;
+  cl_queue q = clCreateCommandQueue(c, d, 0, &err);
+  CHECK(err);
+  return q;
+}
 
-  long delta() {
-    long now = timeMillis();
-    long d = now - prevTime;
-    prevTime = now;
-    return d;
-  }
-  
-};
+void run(cl_queue queue, cl_kernel kernel, size_t workSize) {
+  size_t groupSize = 256;
+  CHECK(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
+}
 
+void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start = 0) {
+  CHECK(clEnqueueReadBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
+}
+
+void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *data, size_t start = 0) {
+  CHECK(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
+}
+
+void flush( cl_queue q) { CHECK(clFlush(q)); }
+void finish(cl_queue q) { CHECK(clFinish(q)); }
+
+/*
 class Queue {
 public:
   cl_command_queue queue;
 
   Queue(Context &c) {
-    int err;
-    queue = clCreateCommandQueue(c.context, c.device, 0, &err);
-    CHECK(err);
+    queue = makeQueue(c.context, c.device);
   }
 
   ~Queue() {
     flush();
-    CHECK(clFinish(queue));
-    CHECK(clReleaseCommandQueue(queue));
+    finish();
+    release(queue);
   }
   
   void run(size_t groupSize, Kernel &k, size_t workSize) {
@@ -241,3 +294,4 @@ public:
 
   void finish() { CHECK(clFinish(queue)); }
 };
+*/
