@@ -29,28 +29,7 @@ class Timer {
 };
 
 #define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
-
 #define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d (%s)\n", e, mes); assert(false); }}
-
-/*
-class Context {
-public:
-  cl_device_id device;
-  cl_context context;
-  
-  Context() {
-    cl_platform_id platform;
-    CHECK(clGetPlatformIDs(1, &platform, NULL));
-    CHECK(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, NULL));
-    int err;
-    context = clCreateContext(NULL, 1, &device, NULL, NULL, &err); CHECK(err);
-  }
-
-  ~Context() {
-    CHECK(clReleaseContext(context));
-  }
-};
-*/
 
 cl_device_id getDevice() {
   cl_platform_id platform;
@@ -146,73 +125,12 @@ void setArgs(cl_kernel k, const auto &a, const auto &b, const auto &c, const aut
   setArg(k, 5, f);
 }
 
-/*
-class Kernel {
-public:
-  cl_kernel k;
-  
-  Kernel(cl_program program, const char *name) {
-    int err;
-    k = clCreateKernel(program, name, &err);
-    CHECK2(err, name);
-  }
-
-  ~Kernel() {
-    clReleaseKernel(k); k = 0;
-  }
-
-  template<class T> void setArg(int pos, const T &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
-
-  template<class A> void setArgs(const A &a) {
-    setArg(0, a);
-  }
-  
-  template<class A, class B> void setArgs(const A &a, const B &b) {
-    setArgs(a);
-    setArg(1, b);
-  }
-  
-  template<class A, class B, class C> void setArgs(const A &a, const B &b, const C &c) {
-    setArgs(a, b);
-    setArg(2, c);
-  }
-
-  template<class A, class B, class C, class D> void setArgs(const A &a, const B &b, const C &c, const D &d) {
-    setArgs(a, b, c);
-    setArg(3, d);
-  }
-  
-  template<class A, class B, class C, class D, class E> void setArgs(const A &a, const B &b, const C &c, const D &d, const E &e) {
-    setArgs(a, b, c, d);
-    setArg(4, e);
-  }
-
-  template<class A, class B, class C, class D, class E, class F> void setArgs(const A &a, const B &b, const C &c, const D &d, const E &e, const F &f) {
-    setArgs(a, b, c, d, e);
-    setArg(5, f);
-  }
-};
-*/
-
 cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0) {
   int err;
   cl_mem buf = clCreateBuffer(context, kind, size, (void *) ptr, &err);
   CHECK(err);
   return buf;
 }
-
-/*
-class Buf {
- public:
-  cl_mem buf;
-
-  Buf(Context &c, unsigned kind, size_t size, const void *ptr = 0) {
-    buf = makeBuf(c.context, kind, size, (void *) ptr);
-  }
-
-  void release() { CHECK(clReleaseMemObject(buf)); }
-};
-*/
 
 cl_queue makeQueue(cl_device_id d, cl_context c) {
   int err;
@@ -236,62 +154,3 @@ void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *d
 
 void flush( cl_queue q) { CHECK(clFlush(q)); }
 void finish(cl_queue q) { CHECK(clFinish(q)); }
-
-/*
-class Queue {
-public:
-  cl_command_queue queue;
-
-  Queue(Context &c) {
-    queue = makeQueue(c.context, c.device);
-  }
-
-  ~Queue() {
-    flush();
-    finish();
-    release(queue);
-  }
-  
-  void run(size_t groupSize, Kernel &k, size_t workSize) {
-    CHECK(clEnqueueNDRangeKernel(queue, k.k, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
-  }
-
-  void run(Kernel &k, size_t workSize) { run(256, k, workSize); }
-
-  template<class A> void run(Kernel &k, size_t workSize, const A &a) {
-    k.setArgs(a);
-    run(k, workSize);
-  }
-
-  template<class A, class B> void run(Kernel &k, size_t workSize, const A &a, const B &b) {
-    k.setArgs(a, b);
-    run(k, workSize);
-  }
-
-  template<class A, class B, class C, class D, class E, class F>
-    void run(Kernel &k, size_t workSize,
-             const A &a, const B &b, const C &c, const D &d, const E &e, const F &f) {
-    k.setArgs(a, b, c, d, e, f);
-    run(k, workSize);
-  }
-
-  void run2D(size_t groupSize0, size_t groupSize1, Kernel &k, size_t workSize0, size_t workSize1) {
-    size_t groupSizes[] = {groupSize0, groupSize1};
-    size_t workSizes[] = {workSize0, workSize1};
-    CHECK(clEnqueueNDRangeKernel(queue, k.k, 2, NULL, workSizes, groupSizes, 0, NULL, NULL));
-  }
-
-  void read(bool blocking, Buf &buf, size_t size, void *data, size_t start = 0) {
-    CHECK(clEnqueueReadBuffer(queue, buf.buf, blocking, start, size, data, 0, NULL, NULL));
-  }
-  
-  void write(bool blocking, Buf &buf, size_t size, const void *data, size_t start = 0) {
-    CHECK(clEnqueueWriteBuffer(queue, buf.buf, blocking, start, size, data, 0, NULL, NULL));
-  }
-
-
-  void flush() { CHECK(clFlush(queue)); }
-
-  void finish() { CHECK(clFinish(queue)); }
-};
-*/
