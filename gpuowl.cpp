@@ -9,7 +9,7 @@
 #include <cmath>
 #include <cstring>
 
-#define K(program, name) cl_kernel name = makeKernel(program, #name)
+#define K(program, name, ...) cl_kernel name = makeKernel(program, #name); setArgs(name, __VA_ARGS__)
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -19,8 +19,8 @@ typedef unsigned char byte;
 typedef int64_t i64;
 typedef uint64_t u64;
 
-constexpr int MIN_EXP = 35000000;
-constexpr int MAX_EXP = 78000000;
+const int EXP_MIN_2M = 20000000, EXP_MAX_2M = 40000000, EXP_MIN_4M = 35000000, EXP_MAX_4M = 78000000;
+
 const char *AGENT = "gpuowl v0.1";
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
@@ -237,7 +237,7 @@ int worktodoReadExponent(char *AID) {
     if (fscanf(fi, "%255s\n", line) < 1) { break; }
     if (sscanf(line, "%11[^=]=%32[0-9a-fA-F],%d,%*d,%*d", kind, AID, &exp) == 3 &&
         (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")) &&
-        exp >= MIN_EXP && exp <= MAX_EXP) {
+        exp >= EXP_MIN_2M && exp <= EXP_MAX_4M) {
       ret = exp;
       break;
     } else {
@@ -324,11 +324,12 @@ void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, c
   delete[] bitlenTab;
 }
 
-bool checkPrime(cl_context context, cl_program program, cl_queue q, cl_mem bufTrig1K, cl_mem bufTrig2K, int E, int logStep, bool *outIsPrime, u64 *outResidue) {
-  constexpr int W = 1024;
-  constexpr int H = 2048;
-  constexpr int N = 2 * W * H;
-  
+bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_mem bufTrig1K, cl_mem bufTrig2K,
+                int E, int logStep, bool *outIsPrime, u64 *outResidue) {
+  const int W = 1024;
+  const int N = 2 * W * H;
+  assert(H == 1024 || H == 2048);
+
   int startK = 0;
   int *data = new int[N]();
   data[0] = 4; // LL root.
@@ -361,27 +362,25 @@ bool checkPrime(cl_context context, cl_program program, cl_queue q, cl_mem bufTr
   cl_mem bufErr   = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
   cl_mem bufData  = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * N, data);
 
-  K(program, fftPremul1K);
-  K(program, transposeA);
-  K(program, fft2Kt);
-  K(program, square2K);
-  K(program, fft2K);
-  K(program, transposeB);
-  K(program, fft1Kt);
-  K(program, carryA);
-  K(program, carryB);
+  K(program, fftPremul1K, bufData, buf1, bufA, bufTrig1K);
+  K(program, transpose1K, buf1, bufBigTrig);
+  K(program, fft2K_1K, buf1, buf2, bufTrig2K);
+  K(program, fft1K_1K, buf1, buf2, bufTrig1K);
+  
+  K(program, csquare2K, buf2, bufSins);
+  K(program, csquare1K, buf2, bufSins);
 
-  setArgs(fftPremul1K, bufData, buf1, bufA, bufTrig1K);
-  setArgs(transposeA, buf1, bufBigTrig);
-  setArgs(fft2Kt,  buf1, buf2, bufTrig2K);
-  setArgs(square2K, buf2, bufSins);
-  setArgs(fft2K,  buf2, bufTrig2K);
-  setArgs(transposeB, buf2, bufBigTrig);
-  setArgs(fft1Kt, buf2, buf1, bufTrig1K);  
-  setArgs(carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
-  setArgs(carryB, bufData, bufCarry, bufBitlen);
+  K(program, fft2K, buf2, bufTrig2K);
+  K(program, fft1K, buf2, bufTrig1K);
+  K(program, mtranspose2K, buf2, bufBigTrig);
+  K(program, cfft1K_2K, buf2, buf1, bufTrig1K);
+  K(program, cfft1K_1K, buf2, buf1, bufTrig1K);
+  
+  K(program, carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
+  K(program, carryB_2K, bufData, bufCarry, bufBitlen);
+  K(program, carryB_1K, bufData, bufCarry, bufBitlen);
 
-  log("OpenCL buffers and kernels setup: %ld ms\n", timer.delta());
+  log("OpenCL setup: %ld ms\n", timer.delta());
 
   float maxErr = 0;  
   u64 res;
@@ -389,20 +388,35 @@ bool checkPrime(cl_context context, cl_program program, cl_queue q, cl_mem bufTr
   
   do {
     for (int nextLog = std::min((k / logStep + 1) * logStep, E - 2); k < nextLog; ++k) {
-      run(q, fftPremul1K, N / 8);
-      run(q, transposeA,  N / 32);
-      run(q, fft2Kt,      N / 16);
-      
-      run(q, square2K,    N / 4);
-      
-      run(q, fft2K,       N / 16);
-      run(q, transposeB,  N / 32);
-      run(q, fft1Kt,      N / 8);
-      
-      run(q, carryA,      N / 16);
-      run(q, carryB,      N / 16);
-    }
+      if (H == 1024) {
+        run(q, fftPremul1K, N / 8);
+        run(q, transpose1K, N / 32, buf1);
+        run(q, fft1K_1K,    N / 8);
 
+        run(q, csquare1K,   N / 4);
+
+        run(q, fft1K,       N / 8);
+        run(q, transpose1K, N / 32, buf2);
+        run(q, cfft1K_1K,   N / 8);
+        
+        run(q, carryA,      N / 16);
+        run(q, carryB_1K,   N / 16);        
+      } else {
+        run(q, fftPremul1K, N / 8);
+        run(q, transpose1K, N / 32);
+        run(q, fft2K_1K,    N / 16);
+      
+        run(q, csquare2K,   N / 4);
+      
+        run(q, fft2K,       N / 16);
+        run(q, mtranspose2K, N / 32);
+        run(q, cfft1K_2K,   N / 8);
+        
+        run(q, carryA,      N / 16);
+        run(q, carryB_2K,   N / 16);
+      }
+    }
+    
     unsigned rawErr = 0;
     read(q,  false, bufErr,  sizeof(unsigned), &rawErr);
     write(q, false, bufErr,  sizeof(unsigned), &zero);
@@ -419,105 +433,6 @@ bool checkPrime(cl_context context, cl_program program, cl_queue q, cl_mem bufTr
   *outResidue = res;
   return true;
 }
-#if 0
-bool checkPrime4M(cl_program program, cl_mem bufTrig1K, cl_mem bufTrig2K, int E, int logStep, bool *outIsPrime, u64 *outResidue) {
-  constexpr int W = 1024;
-  constexpr int H = 2048;
-  constexpr int SIZE  = W * H;
-  constexpr int N = 2 * SIZE;
-  
-  int startK = 0;
-  int *data = new int[N]();
-  data[0] = 4; // LL root.
-
-  FileSaver fileSaver(E, N, W, H);
-  if (!fileSaver.load(data, &startK)) { return false; }
-    
-  log("LL of %d at iteration %d\n", E, startK);
-  log("FFT %d*%d (%dM words, %.2f bits per word)\n", W, H, N / (1024 * 1024), E / (double) N);
-  
-  Context c;
-  Queue q(c);
-  Timer timer;
-  
-  K(program, fftPremul1K); 
-  K(program, transposeA);
-  K(program, fft2Kt);
-  K(program, square2K);
-  K(program, fft2K);
-  K(program, transposeB);
-  K(program, fft1Kt);
-  K(program, carryA);
-  K(program, carryB);
-
-  log("OpenCL load kernels: %ld ms\n", timer.delta());
-
-  cl_mem bufA, bufI, bufBitlen;
-  int shiftTab[32];
-  setupExponentBufs(c.context, E, W, H, &bufA, &bufI, &bufBitlen, shiftTab);
-
-  double *bigTrig = genBigTrig(W, H);
-  Buf bufBigTrig(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N, bigTrig);
-  delete[] bigTrig;
-  
-  double *sins = genSin(H, W); // transposed W/H !
-  Buf bufSins(c, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N / 2, sins);
-  delete[] sins;
-  
-  Buf buf1(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N);
-  Buf buf2(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(double) * N);
-
-  Buf bufData (c, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int)  * N, data);
-  Buf bufCarry(c, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, sizeof(long) * N / 8);
-  const unsigned zero = 0;
-  Buf bufErr  (c, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
-
-  fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
-  transposeA.setArgs(buf1, bufBigTrig);
-  fft2Kt.setArgs(buf1, buf2, bufTrig2K);
-  square2K.setArgs(buf2, bufSins);
-  fft2K.setArgs(buf2, bufTrig2K);
-  transposeB.setArgs(buf2, bufBigTrig);
-  fft1Kt.setArgs(buf2, buf1, bufTrig1K);  
-  carryA.setArgs(buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
-  carryB.setArgs(bufData, bufCarry, bufBitlen);
-
-  log("setup: %ld ms\n", timer.delta());
-
-  float maxErr = 0;  
-  u64 res;
-
-  int k = startK;
-  do {
-    for (int nextLog = std::min((k / logStep + 1) * logStep, E - 2); k < nextLog; ++k) {
-      q.run(fftPremul1K,  SIZE / 4);
-      q.run(transposeA,   SIZE / 16);
-      q.run(fft2Kt,       SIZE / 8);
-      q.run(square2K,     SIZE / 2);
-      q.run(fft2K,        SIZE / 8);
-      q.run(transposeB,   SIZE / 16);
-      q.run(fft1Kt,       SIZE / 4);
-      q.run(carryA, N / 16);
-      q.run(carryB, N / 16);
-    }
-
-    unsigned rawErr = 0;
-    q.read( false, bufErr, sizeof(unsigned), &rawErr);
-    q.write(false, bufErr, sizeof(unsigned), &zero);
-    q.read( true, bufData, sizeof(int) * N, data);
-    float err = rawErr * (1 / (float) (1 << 30));
-    maxErr = std::max(err, maxErr);
-    double msPerIter = timer.delta() * (1 / (double) logStep);
-    res = residue(N, W, data, shiftTab);      
-    doLog(E, k, err, maxErr, msPerIter, res);
-    fileSaver.save(data, k);
-  } while (k < E - 2);
-
-  *outIsPrime = isAllZero(data, N);
-  *outResidue = res;
-  return true;
-}
-#endif
 
 int main(int argc, char **argv) {
   logFiles[0] = stdout;
@@ -532,6 +447,7 @@ int main(int argc, char **argv) {
 
   const char *extraOpts = "";
   int logStep = 20000;
+  bool force4M = false;
   
   if (argc > 1) {
     if (!strcmp(argv[1], "-cl") && argc > 2) {
@@ -540,9 +456,12 @@ int main(int argc, char **argv) {
       log("Command line options:\n"
           "-cl -save-temps : to save the compiled ISA\n"
           "-logstep <n> : to log every <n> iterations (default 20000)\n"
+          "-fft=4M : force use of FFT of size 4M. \n"
           "\n");
     } else if (!strcmp(argv[1], "-logstep") && argc > 2 && atoi(argv[2]) > 0) {
       logStep = atoi(argv[2]);
+    } else if (!strcmp(argv[1], "-fft=4M")) {
+      force4M = true;
     }
   }
   
@@ -555,9 +474,8 @@ int main(int argc, char **argv) {
 
   cl_queue queue = makeQueue(device, context);
 
-  // Timer timer;
   cl_program program = compile(device, context, "gpuowl.cl", extraOpts);
-  // log("OpenCL compile: %ld ms\n", timer.delta());
+  if (!program) { exit(1); }
   
   cl_mem bufTrig1K = genSmallTrig1K(context);
   cl_mem bufTrig2K = genSmallTrig2K(context);
@@ -574,7 +492,7 @@ int main(int argc, char **argv) {
             "in the range %d to %d; e.g.\n\n"            
             "Test=3181F68030F6BF3DCD32B77337D5EF6B,71561261,75,1\n"
             "DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,71561261,75,1\n",
-            MIN_EXP, MAX_EXP);
+            EXP_MIN_2M, EXP_MAX_4M);
       }
       break;
     }
@@ -582,7 +500,8 @@ int main(int argc, char **argv) {
 
     bool isPrime;
     u64 res;
-    if (checkPrime(context, program, queue, bufTrig1K, bufTrig2K, E, logStep, &isPrime, &res)) {
+    int height = (force4M || (E > EXP_MAX_2M)) ? 2048 : 1024;
+    if (checkPrime(height, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, &isPrime, &res)) {
       if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
       
       int lineBegin, lineEnd;

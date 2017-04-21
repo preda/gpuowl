@@ -150,7 +150,40 @@ K(256, 1) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMA
   for (int i = 0; i < 4; ++i) { out[me + i * 256] = u[i]; }  
 }
 
-void fft1kA(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+K(256, 1) fft1K(global double2 *in, SMALL_CONST double2 *trig1k) {
+  uint g = get_group_id(0);
+  in += g * 1024;
+  
+  uint me = get_local_id(0);
+  double2 u[4];
+
+  for (int i = 0; i < 4; ++i) { u[i] = in[me + i * 256]; }
+
+  fft1kImpl(u, trig1k);
+
+  for (int i = 0; i < 4; ++i) { in[me + i * 256] = u[i]; }  
+}
+
+// Input is transposed.
+void fft1Kt(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+  uint g = get_group_id(0);
+  in  += g % (W / 64) * 64 + g / (W / 64) * W;
+
+  uint me = get_local_id(0);
+  double2 u[4];
+
+  for (int i = 0; i < 4; ++i) { u[i] = in[me % 64 + (me / 64 + i * 4) * 64 * W]; }
+
+  fft1kImpl(u, trig1k);
+  
+  uint lg = g / (W / 64) + g % (W / 64) * 64;
+  out += lg * 1024;
+
+  for (int i = 0; i < 4; ++i) { out[i * 256 + me] = u[i]; }
+}
+
+// Outputs conjugate (used in the inverse FFT). Input is transposed.
+void cfft1Kt(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
   uint g = get_group_id(0);
   in  += g % (W / 64) * 64 + g / (W / 64) * W;
 
@@ -167,7 +200,9 @@ void fft1kA(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 
   for (int i = 0; i < 4; ++i) { out[i * 256 + me] = conjugate(u[i]); }
 }
 
-K(256, 1) fft1Kt(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { fft1kA(2048, in, out, trig1k); }
+K(256, 1) fft1K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { fft1Kt(1024, in, out, trig1k); }
+K(256, 1) cfft1K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { cfft1Kt(1024, in, out, trig1k); }
+K(256, 1) cfft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { cfft1Kt(2048, in, out, trig1k); }
 
 K(256, 1) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
@@ -187,7 +222,7 @@ K(256, 1) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
 }
 
 // input 1024/64, output 2048.
-K(256, 1) fft2Kt(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig2k) {
+K(256, 1) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
   in  += g % 16 * 64 + g / 16 * 1024;
 
@@ -284,9 +319,11 @@ void carryBCore(uint H, global int2 *in, global long *carryIn, CONST uchar2 *bit
   // if (carry) { globalmaxErr = 0.5; } // Assert no carry at this point.
 }
 
-K(256, 1) carryB(global int2 *in, global long *carryIn, CONST uchar2 *bitlen) { carryBCore(2048, in, carryIn, bitlen); }
+K(256, 1) carryB_1K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen) { carryBCore(1024, in, carryIn, bitlen); }
+K(256, 1) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen) { carryBCore(2048, in, carryIn, bitlen); }
 
-void square(uint W, global double2 *in, CONST double2 *trig) {
+// Inputs normal (non-conjugate); outputs conjugate.
+void csquare(uint W, global double2 *in, CONST double2 *trig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -321,8 +358,8 @@ void square(uint W, global double2 *in, CONST double2 *trig) {
   }
 }
 
-K(256, 1) square2K(global double2 *in, CONST double2 *trig)  { square(2048, in, trig); }
-K(256, 1) square1K(global double2 *in, CONST double2 *trig)  { square(1024, in, trig); }
+K(256, 1) csquare2K(global double2 *in, CONST double2 *trig)  { csquare(2048, in, trig); }
+K(256, 1) csquare1K(global double2 *in, CONST double2 *trig)  { csquare(1024, in, trig); }
 
 void transposeCore(double2 *u) {
   local double lds[4096];
@@ -343,7 +380,7 @@ void transposeCore(double2 *u) {
   }
 }
 
-K(256, 1) transposeA(global double2 *in, CONST double2 *trig) {
+K(256, 1) transpose1K(global double2 *in, CONST double2 *trig) {
   uint W = 1024;
   uint g = get_group_id(0);
   uint gx = g % (W / 64);
@@ -369,7 +406,8 @@ K(256, 1) transposeA(global double2 *in, CONST double2 *trig) {
   }
 }
 
-K(256, 1) transposeB(global double2 *in, CONST double2 *trig) {
+// transpose with multiplication on output.
+K(256, 1) mtranspose2K(global double2 *in, CONST double2 *trig) {
   uint W = 2048;
   uint g = get_group_id(0);
   uint gx = g % (W / 64);

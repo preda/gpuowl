@@ -144,6 +144,11 @@ void run(cl_queue queue, cl_kernel kernel, size_t workSize) {
   CHECK(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
 }
 
+void run(cl_queue queue, cl_kernel kernel, size_t workSize, const auto &a) {
+  setArgs(kernel, a);
+  run(queue, kernel, workSize);
+}
+
 void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start = 0) {
   CHECK(clEnqueueReadBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
