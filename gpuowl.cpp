@@ -337,8 +337,8 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   FileSaver fileSaver(E, W, H);
   if (!fileSaver.load(data, &startK)) { return false; }
   
-  log("LL (FFT %dM, %dK x %dK) of %d (%.2f bits/word) at iteration %d\n",
-      N / (1024 * 1024), W / 1024, H / 1024, E, E / (double) N, startK);
+  log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) at iteration %d\n",
+      N / 1024, W, H, E, E / (double) N, startK);
     
   Timer timer;
   

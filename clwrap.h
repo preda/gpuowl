@@ -86,8 +86,7 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
   cl_program program = clCreateProgramWithSource(context, 1, (const char **)&pbuf, &size, &err);
   CHECK(err);
 
-  snprintf(buf, sizeof(buf),
-           "%s -cl-fast-relaxed-math -cl-std=CL2.0", opts);
+  snprintf(buf, sizeof(buf), "%s -cl-fast-relaxed-math -cl-std=CL2.0", opts);
   // Other options:
   // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/
   // * to disable all OpenCL optimization: -cl-opt-disable
