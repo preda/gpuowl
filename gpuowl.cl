@@ -1,7 +1,6 @@
 // gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
 
-#define _O __attribute__((overloadable))
 #define K(x, y) kernel __attribute__((reqd_work_group_size(x, y, 1))) void
 #define CONST const global
 // constant
@@ -12,11 +11,11 @@
 #define S2(a, b) { double2 t = a; a = b; b = t; }
 
 void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
-double2 _O mul(double2 u, double a, double b) { return (double2) { u.x * a - u.y * b, u.x * b + u.y * a}; }
-double2 _O mul(double2 u, double2 v) { return mul(u, v.x, v.y); }
+double2 muld(double2 u, double a, double b) { return (double2) { u.x * a - u.y * b, u.x * b + u.y * a}; }
+double2 mul(double2 u, double2 v) { return muld(u, v.x, v.y); }
 
-#define MUL(x, a, b) x = mul(x, a, b)
-#define MUL_2(x, a, b) x = mul(x, a, b) * M_SQRT1_2
+#define MUL(x, a, b) x = muld(x, a, b)
+#define MUL_2(x, a, b) x = muld(x, a, b) * M_SQRT1_2
 #define M(x, t) x = mul(x, t)
 
 double2 sq(double2 u) {
@@ -56,7 +55,7 @@ void fft8(double2 *u) {
   S2(u[3], u[6]);
 }
 
-void _O shuffle(local double *lds, double2 *u, uint n, uint f) {
+void shufl(local double *lds, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   uint m = me / f;
   
@@ -75,7 +74,7 @@ void tabMul(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
 
 void shuffleMul(SMALL_CONST double2 *trig, local double *lds, double2 *u, uint n, uint f) {
   bar();
-  shuffle(lds, u, n, f);
+  shufl(lds, u, n, f);
   tabMul(trig, u, n, f);
 }
 
@@ -83,7 +82,7 @@ void fft1kImpl(double2 *u, SMALL_CONST double2 *trig1k) {
   local double lds[1024];
 
   fft4(u);
-  shuffle(lds,   u, 4, 64);
+  shufl(lds,   u, 4, 64);
   tabMul(trig1k, u, 4, 64);  
   
   fft4(u);
@@ -102,7 +101,7 @@ void fft2kImpl(double2 *u, SMALL_CONST double2 *trig2k) {
   local double lds[2048];
 
   fft8(u);
-  shuffle(lds,   u, 8, 32);
+  shufl(lds,   u, 8, 32);
   tabMul(trig2k, u, 8, 32);
 
   fft8(u);
