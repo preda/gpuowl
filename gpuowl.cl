@@ -180,28 +180,8 @@ void fft1Kt(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 
   for (int i = 0; i < 4; ++i) { out[i * 256 + me] = u[i]; }
 }
 
-// Outputs conjugate (used in the inverse FFT). Input is transposed.
-void cfft1Kt(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
-  uint g = get_group_id(0);
-  in  += g % (W / 64) * 64 + g / (W / 64) * W;
-
-  uint me = get_local_id(0);
-  double2 u[4];
-
-  for (int i = 0; i < 4; ++i) { u[i] = in[me % 64 + (me / 64 + i * 4) * 64 * W]; }
-
-  local double lds[1024];
-  fft1kImpl(lds, u, trig1k);
-  
-  uint lg = g / (W / 64) + g % (W / 64) * 64;
-  out += lg * 1024;
-
-  for (int i = 0; i < 4; ++i) { out[i * 256 + me] = conjugate(u[i]); }
-}
-
 K(256, 1) fft1K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { fft1Kt(1024, in, out, trig1k); }
-K(256, 1) cfft1K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { cfft1Kt(1024, in, out, trig1k); }
-K(256, 1) cfft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { cfft1Kt(2048, in, out, trig1k); }
+K(256, 1) fft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { fft1Kt(2048, in, out, trig1k); }
 
 K(256, 1) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
@@ -270,6 +250,7 @@ int2 car1(long *carry, int2 r, uchar2 bits) {
   return (int2) (a, b);
 }
 
+// conjugates input
 K(256, 1) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global long *carryOut,
                  CONST uchar2 *bitlen, global uint *globalMaxErr) {
   uint g  = get_group_id(0);
@@ -286,7 +267,7 @@ K(256, 1) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global l
 
   for (int i = 0; i < 8; ++i) {
     uint p = me + i * 1024;
-    out[p] = car0(&carry, in[p], A[p], bitlen[p], &maxErr);
+    out[p] = car0(&carry, conjugate(in[p]), A[p], bitlen[p], &maxErr);
   }
 
   carryOut[me + g * 256] = carry;

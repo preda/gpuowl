@@ -373,8 +373,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   K(program, fft2K, buf2, bufTrig2K);
   K(program, fft1K, buf2, bufTrig1K);
   K(program, mtranspose2K, buf2, bufBigTrig);
-  K(program, cfft1K_2K, buf2, buf1, bufTrig1K);
-  K(program, cfft1K_1K, buf2, buf1, bufTrig1K);
+  K(program, fft1K_2K, buf2, buf1, bufTrig1K);
   
   K(program, carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
   K(program, carryB_2K, bufData, bufCarry, bufBitlen);
@@ -391,13 +390,13 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
       if (H == 1024) {
         run(q, fftPremul1K, N / 8);
         run(q, transpose1K, N / 32, buf1);
-        run(q, fft1K_1K,    N / 8);
+        run(q, fft1K_1K,    N / 8, buf1, buf2);
 
         run(q, csquare1K,   N / 4);
 
         run(q, fft1K,       N / 8);
         run(q, transpose1K, N / 32, buf2);
-        run(q, cfft1K_1K,   N / 8);
+        run(q, fft1K_1K,    N / 8, buf2, buf1);
         
         run(q, carryA,      N / 16);
         run(q, carryB_1K,   N / 16);        
@@ -410,7 +409,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
       
         run(q, fft2K,       N / 16);
         run(q, mtranspose2K, N / 32);
-        run(q, cfft1K_2K,   N / 8);
+        run(q, fft1K_2K,    N / 8);
         
         run(q, carryA,      N / 16);
         run(q, carryB_2K,   N / 16);
