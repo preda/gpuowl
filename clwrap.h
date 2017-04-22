@@ -87,10 +87,12 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
   CHECK(err);
 
   snprintf(buf, sizeof(buf),
-           "%s -Werror -cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size -I. -fno-bin-llvmir", opts);
+           "%s -cl-fast-relaxed-math -cl-std=CL2.0", opts);
   // Other options:
   // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/
   // * to disable all OpenCL optimization: -cl-opt-disable
+  // * -cl-uniform-work-group-size
+  // * -fno-bin-llvmir
   // * various: -fno-bin-source -fno-bin-amdil
 
   if ((err = clBuildProgram(program, 1, &device, buf, NULL, NULL)) != CL_SUCCESS) {

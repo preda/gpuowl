@@ -301,7 +301,7 @@ bool worktodoDelete(int begin, int end) {
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
   FILE *fo = fopen("results.txt", "a");
   if (!fo) { return false; }
-  fprintf(fo, "M( %d )%c, 0x%lx, offset = 0, n = %dK, %s, AID: %s\n", E, isPrime ? 'P' : 'C', residue, 4096, AGENT, AID);
+  fprintf(fo, "M( %d )%c, 0x%016lx, offset = 0, n = %dK, %s, AID: %s\n", E, isPrime ? 'P' : 'C', residue, 4096, AGENT, AID);
   fclose(fo);
   return true;
 }
@@ -462,6 +462,8 @@ int main(int argc, char **argv) {
       logStep = atoi(argv[2]);
     } else if (!strcmp(argv[1], "-fft=4M")) {
       force4M = true;
+    } else {
+      log("Argument '%s' not understood\n", argv[1]);
     }
   }
   
