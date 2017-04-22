@@ -3,7 +3,6 @@
 
 #define K(x, y) kernel __attribute__((reqd_work_group_size(x, y, 1))) void
 #define CONST const global
-// constant
 #define SMALL_CONST constant
 
 #define X1(a, b) { double  t = a; a = t + b; b = t - b; }
@@ -162,7 +161,7 @@ K(256, 1) fft1K(global double2 *in, SMALL_CONST double2 *trig1k) {
 }
 
 // Input is transposed.
-void fft1Kt(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+void fft1Kt(local double *lds, uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
   uint g = get_group_id(0);
   in  += g % (W / 64) * 64 + g / (W / 64) * W;
 
@@ -171,7 +170,6 @@ void fft1Kt(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 
 
   for (int i = 0; i < 4; ++i) { u[i] = in[me % 64 + (me / 64 + i * 4) * 64 * W]; }
 
-  local double lds[1024];
   fft1kImpl(lds, u, trig1k);
   
   uint lg = g / (W / 64) + g % (W / 64) * 64;
@@ -180,8 +178,15 @@ void fft1Kt(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 
   for (int i = 0; i < 4; ++i) { out[i * 256 + me] = u[i]; }
 }
 
-K(256, 1) fft1K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { fft1Kt(1024, in, out, trig1k); }
-K(256, 1) fft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) { fft1Kt(2048, in, out, trig1k); }
+K(256, 1) fft1K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+  local double lds[1024];
+  fft1Kt(lds, 1024, in, out, trig1k);
+}
+
+K(256, 1) fft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+  local double lds[1024];
+  fft1Kt(lds, 2048, in, out, trig1k);
+}
 
 K(256, 1) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
@@ -343,8 +348,7 @@ void csquare(uint W, global double2 *in, CONST double2 *trig) {
 K(256, 1) csquare2K(global double2 *in, CONST double2 *trig)  { csquare(2048, in, trig); }
 K(256, 1) csquare1K(global double2 *in, CONST double2 *trig)  { csquare(1024, in, trig); }
 
-void transposeCore(double2 *u) {
-  local double lds[4096];
+void transposeCore(local double *lds, double2 *u) {
   uint me = get_local_id(0);
   for (int b = 0; b < 2; ++b) {
     if (b) { bar(); }
@@ -380,7 +384,8 @@ K(256, 1) transpose1K(global double2 *in, CONST double2 *trig) {
     u[i] = mul(in[p], trig[i * 256 + me]);
   }
 
-  transposeCore(u);
+  local double lds[4096];
+  transposeCore(lds, u);
   
   for (int i = 0; i < 16; ++i) {
     uint p = (my + i * 4) * W + mx;
@@ -407,7 +412,8 @@ K(256, 1) mtranspose2K(global double2 *in, CONST double2 *trig) {
     u[i] = in[p];
   }
 
-  transposeCore(u);
+  local double lds[4096];
+  transposeCore(lds, u);
   
   for (int i = 0; i < 16; ++i) {
     uint p = (my + i * 4) * W + mx;
