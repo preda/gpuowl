@@ -78,9 +78,7 @@ void shuffleMul(SMALL_CONST double2 *trig, local double *lds, double2 *u, uint n
   tabMul(trig, u, n, f);
 }
 
-void fft1kImpl(double2 *u, SMALL_CONST double2 *trig1k) {
-  local double lds[1024];
-
+void fft1kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig1k) {
   fft4(u);
   shufl(lds,   u, 4, 64);
   tabMul(trig1k, u, 4, 64);  
@@ -97,9 +95,7 @@ void fft1kImpl(double2 *u, SMALL_CONST double2 *trig1k) {
   fft4(u);
 }
 
-void fft2kImpl(double2 *u, SMALL_CONST double2 *trig2k) {
-  local double lds[2048];
-
+void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig2k) {
   fft8(u);
   shufl(lds,   u, 8, 32);
   tabMul(trig2k, u, 8, 32);
@@ -144,7 +140,8 @@ K(256, 1) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMA
     u[i] = (double2)(r.x, r.y) * A[me + i * 256];
   }
 
-  fft1kImpl(u, trig1k);
+  local double lds[1024];
+  fft1kImpl(lds, u, trig1k);
 
   for (int i = 0; i < 4; ++i) { out[me + i * 256] = u[i]; }  
 }
@@ -158,7 +155,8 @@ K(256, 1) fft1K(global double2 *in, SMALL_CONST double2 *trig1k) {
 
   for (int i = 0; i < 4; ++i) { u[i] = in[me + i * 256]; }
 
-  fft1kImpl(u, trig1k);
+  local double lds[1024];
+  fft1kImpl(lds, u, trig1k);
 
   for (int i = 0; i < 4; ++i) { in[me + i * 256] = u[i]; }  
 }
@@ -173,7 +171,8 @@ void fft1Kt(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 
 
   for (int i = 0; i < 4; ++i) { u[i] = in[me % 64 + (me / 64 + i * 4) * 64 * W]; }
 
-  fft1kImpl(u, trig1k);
+  local double lds[1024];
+  fft1kImpl(lds, u, trig1k);
   
   uint lg = g / (W / 64) + g % (W / 64) * 64;
   out += lg * 1024;
@@ -191,7 +190,8 @@ void cfft1Kt(uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2
 
   for (int i = 0; i < 4; ++i) { u[i] = in[me % 64 + (me / 64 + i * 4) * 64 * W]; }
 
-  fft1kImpl(u, trig1k);
+  local double lds[1024];
+  fft1kImpl(lds, u, trig1k);
   
   uint lg = g / (W / 64) + g % (W / 64) * 64;
   out += lg * 1024;
@@ -212,7 +212,8 @@ K(256, 1) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
 
   for (int i = 0; i < 8; ++i) { u[i] = in[me + i * 256]; }
 
-  fft2kImpl(u, trig2k);
+  local double lds[2048];
+  fft2kImpl(lds, u, trig2k);
 
   for (int i = 0; i < 4; ++i) {
     in[me + i * 512]       = u[i];
@@ -230,7 +231,8 @@ K(256, 1) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *
 
   for (int i = 0; i < 8; ++i) { u[i] = in[me % 64 + (me / 64 + i * 4) * 64 * 1024]; }
 
-  fft2kImpl(u, trig2k);
+  local double lds[2048];
+  fft2kImpl(lds, u, trig2k);
   
   uint lg = g / 16 + g % 16 * 64;
   out += lg * 2048;
