@@ -211,15 +211,13 @@ public:
 
 void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
   const float percent = 100 / (float) (E - 2);
-  if (err > .45f) { log("Error %g is too large!", err); }
-  
   int etaMins = (E - 2 - k) * msPerIter * (1 / (double) 60000) + .5;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
   
-  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d; %016lx error %g (max %g)\n",
-      k, E, k * percent, msPerIter, days, hours, mins, res, err, maxErr);
+  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d; %016llx error %g (max %g)\n",
+      k, E, k * percent, msPerIter, days, hours, mins, (unsigned long long) res, err, maxErr);
 }
 
 int worktodoReadExponent(char *AID) {
@@ -301,7 +299,8 @@ bool worktodoDelete(int begin, int end) {
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
   FILE *fo = fopen("results.txt", "a");
   if (!fo) { return false; }
-  fprintf(fo, "M( %d )%c, 0x%016lx, offset = 0, n = %dK, %s, AID: %s\n", E, isPrime ? 'P' : 'C', residue, 4096, AGENT, AID);
+  fprintf(fo, "M( %d )%c, 0x%016llx, offset = 0, n = %dK, %s, AID: %s\n",
+          E, isPrime ? 'P' : 'C', (unsigned long long) residue, 4096, AGENT, AID);
   fclose(fo);
   return true;
 }
@@ -376,8 +375,8 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   K(program, fft1K_2K, buf2, buf1, bufTrig1K);
   
   K(program, carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
-  K(program, carryB_2K, bufData, bufCarry, bufBitlen);
-  K(program, carryB_1K, bufData, bufCarry, bufBitlen);
+  K(program, carryB_2K, bufData, bufCarry, bufBitlen, bufErr);
+  K(program, carryB_1K, bufData, bufCarry, bufBitlen, bufErr);
 
   log("OpenCL setup: %ld ms\n", timer.delta());
 
@@ -426,6 +425,10 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     res = residue(N, W, data, shiftTab);      
     doLog(E, k, err, maxErr, msPerIter, res);
     fileSaver.save(data, k);
+    if (err >= .5f) {
+      log("Error %g is too large, re-try with a larger FFT.\n", err);
+      return false;
+    }
   } while (k < E - 2);
 
   *outIsPrime = isAllZero(data, N);
@@ -491,7 +494,7 @@ int main(int argc, char **argv) {
         log("See http://www.mersenne.org/manual_assignment/\n"
             "Please provide a 'worktodo.txt' file containing GIMPS manual test LL assignements "
             "in the range %d to %d; e.g.\n\n"            
-            "Test=3181F68030F6BF3DCD32B77337D5EF6B,71561261,75,1\n"
+            "Test=0,71561261,0,0\n"
             "DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,71561261,75,1\n",
             EXP_MIN_2M, EXP_MAX_4M);
       }

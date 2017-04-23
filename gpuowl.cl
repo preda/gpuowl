@@ -285,7 +285,7 @@ K(256, 1) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global l
   if (me == 0) { atomic_max(globalMaxErr, localMaxErr); }
 }
 
-void carryBCore(uint H, global int2 *in, global long *carryIn, CONST uchar2 *bitlen) {
+void carryBCore(uint H, global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   
@@ -301,13 +301,19 @@ void carryBCore(uint H, global int2 *in, global long *carryIn, CONST uchar2 *bit
   for (int i = 0; i < 8; ++i) {
     uint p = me + i * 1024;
     in[p] = car1(&carry, in[p], bitlen[p]);
-    if (!carry) { break; }
+    if (!carry) { return; }
   }
-  // if (carry) { globalmaxErr = 0.5; } // Assert no carry at this point.
+  
+  if (carry) { atomic_max(maxErr, (1 << 29)); }  // Assert no carry left at this point.
 }
 
-K(256, 1) carryB_1K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen) { carryBCore(1024, in, carryIn, bitlen); }
-K(256, 1) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen) { carryBCore(2048, in, carryIn, bitlen); }
+K(256, 1) carryB_1K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
+  carryBCore(1024, in, carryIn, bitlen, maxErr);
+}
+
+K(256, 1) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
+  carryBCore(2048, in, carryIn, bitlen, maxErr);
+}
 
 // Inputs normal (non-conjugate); outputs conjugate.
 void csquare(uint W, global double2 *in, CONST double2 *trig) {
