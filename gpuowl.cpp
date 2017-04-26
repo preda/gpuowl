@@ -331,8 +331,9 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
 
   int startK = 0;
   int *data = new int[N]();
-  data[0] = 4; // LL root.
-
+  int *saveData = new int[N];
+  data[0]     = 4; // LL root.
+  
   FileSaver fileSaver(E, W, H);
   if (!fileSaver.load(data, &startK)) { return false; }
   
@@ -372,13 +373,18 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   K(program, fft1K_2K, buf2, buf1, bufTrig1K);
   
   K(program, carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
-  K(program, carryB_2K, bufData, bufCarry, bufBitlen, bufErr);
+  K(program, carryB_2K,          bufData, bufCarry, bufBitlen, bufErr);
 
   log("OpenCL setup: %ld ms\n", timer.delta());
 
-  float maxErr = 0;  
+  float maxErr  = 0;
+  double sumErr = 1e-30;
+  int nErr = 0;
+  
   u64 res;
   int k = startK;
+  int saveK = 0;
+  bool isCheck = false;
   
   do {
     for (int nextLog = std::min((k / logStep + 1) * logStep, E - 2); k < nextLog; ++k) {
@@ -406,9 +412,33 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     res = residue(N, W, data, shiftTab);      
     doLog(E, k, err, maxErr, msPerIter, res);
     fileSaver.save(data, k);
+
     if (err >= .5f) {
-      log("Error %g is too large, re-try with a larger FFT.\n", err);
+      log("Error %g is way too large, stopping.\n", err);
       return false;
+    }
+
+    float iAvgErr = nErr / (float) sumErr; // inverse of average error.
+    if (isCheck) {
+      isCheck = false;
+      if (!memcmp(data, saveData, sizeof(int) * N)) {
+        log("Consistency checked OK, continuing.\n");
+      } else {
+        log("Consistency check FAILED, something is wrong, stopping.\n");
+        return false;
+      }
+    } else if (nErr && err * iAvgErr > 1.166f) {
+      log("Error jump by %.2f%%, doing a consistency check.\n", (err * iAvgErr - 1) * 100);      
+      isCheck = true;
+      write(q, true, bufData, sizeof(int) * N, saveData);
+      k = saveK;
+    }
+    
+    memcpy(saveData, data, sizeof(int) * N);
+    saveK = k;
+    if (!isCheck) {
+      ++nErr;
+      sumErr += err;
     }
   } while (k < E - 2);
 
