@@ -327,7 +327,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
                 int E, int logStep, bool *outIsPrime, u64 *outResidue) {
   const int W = 1024;
   const int N = 2 * W * H;
-  assert(H == 1024 || H == 2048);
+  assert(H == 2048);
 
   int startK = 0;
   int *data = new int[N]();
@@ -364,19 +364,15 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   K(program, fftPremul1K, bufData, buf1, bufA, bufTrig1K);
   K(program, transpose1K, buf1, bufBigTrig);
   K(program, fft2K_1K, buf1, buf2, bufTrig2K);
-  K(program, fft1K_1K, buf1, buf2, bufTrig1K);
   
   K(program, csquare2K, buf2, bufSins);
-  K(program, csquare1K, buf2, bufSins);
 
   K(program, fft2K, buf2, bufTrig2K);
-  K(program, fft1K, buf2, bufTrig1K);
   K(program, mtranspose2K, buf2, bufBigTrig);
   K(program, fft1K_2K, buf2, buf1, bufTrig1K);
   
   K(program, carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
   K(program, carryB_2K, bufData, bufCarry, bufBitlen, bufErr);
-  K(program, carryB_1K, bufData, bufCarry, bufBitlen, bufErr);
 
   log("OpenCL setup: %ld ms\n", timer.delta());
 
@@ -386,33 +382,18 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   
   do {
     for (int nextLog = std::min((k / logStep + 1) * logStep, E - 2); k < nextLog; ++k) {
-      if (H == 1024) {
-        run(q, fftPremul1K, N / 8);
-        run(q, transpose1K, N / 32, buf1);
-        run(q, fft1K_1K,    N / 8, buf1, buf2);
-
-        run(q, csquare1K,   N / 4);
-
-        run(q, fft1K,       N / 8);
-        run(q, transpose1K, N / 32, buf2);
-        run(q, fft1K_1K,    N / 8, buf2, buf1);
-        
-        run(q, carryA,      N / 16);
-        run(q, carryB_1K,   N / 16);        
-      } else {
-        run(q, fftPremul1K, N / 8);
-        run(q, transpose1K, N / 32);
-        run(q, fft2K_1K,    N / 16);
+      run(q, fftPremul1K, N / 8);
+      run(q, transpose1K, N / 32);
+      run(q, fft2K_1K,    N / 16);
       
-        run(q, csquare2K,   N / 4);
+      run(q, csquare2K,   N / 4);
       
-        run(q, fft2K,       N / 16);
-        run(q, mtranspose2K, N / 32);
-        run(q, fft1K_2K,    N / 8);
+      run(q, fft2K,       N / 16);
+      run(q, mtranspose2K, N / 32);
+      run(q, fft1K_2K,    N / 8);
         
-        run(q, carryA,      N / 16);
-        run(q, carryB_2K,   N / 16);
-      }
+      run(q, carryA,      N / 16);
+      run(q, carryB_2K,   N / 16);
     }
     
     unsigned rawErr = 0;
@@ -449,7 +430,6 @@ int main(int argc, char **argv) {
 
   const char *extraOpts = "";
   int logStep = 20000;
-  bool force4M = false;
   
   if (argc > 1) {
     if (!strcmp(argv[1], "-cl") && argc > 2) {
@@ -458,12 +438,9 @@ int main(int argc, char **argv) {
       log("Command line options:\n"
           "-cl -save-temps : to save the compiled ISA\n"
           "-logstep <n> : to log every <n> iterations (default 20000)\n"
-          "-fft=4M : force use of FFT of size 4M. \n"
           "\n");
     } else if (!strcmp(argv[1], "-logstep") && argc > 2 && atoi(argv[2]) > 0) {
       logStep = atoi(argv[2]);
-    } else if (!strcmp(argv[1], "-fft=4M")) {
-      force4M = true;
     } else {
       log("Argument '%s' not understood\n", argv[1]);
     }
@@ -496,7 +473,7 @@ int main(int argc, char **argv) {
             "in the range %d to %d; e.g.\n\n"            
             "Test=0,71561261,0,0\n"
             "DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,71561261,75,1\n",
-            EXP_MIN_2M, EXP_MAX_4M);
+            EXP_MIN_4M, EXP_MAX_4M);
       }
       break;
     }
@@ -504,8 +481,7 @@ int main(int argc, char **argv) {
 
     bool isPrime;
     u64 res;
-    int height = (force4M || (E > EXP_MAX_2M)) ? 2048 : 1024;
-    if (checkPrime(height, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, &isPrime, &res)) {
+    if (checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, &isPrime, &res)) {
       if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
       
       int lineBegin, lineEnd;

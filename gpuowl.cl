@@ -145,21 +145,6 @@ K(256, 1) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMA
   for (int i = 0; i < 4; ++i) { out[me + i * 256] = u[i]; }  
 }
 
-K(256, 1) fft1K(global double2 *in, SMALL_CONST double2 *trig1k) {
-  uint g = get_group_id(0);
-  in += g * 1024;
-  
-  uint me = get_local_id(0);
-  double2 u[4];
-
-  for (int i = 0; i < 4; ++i) { u[i] = in[me + i * 256]; }
-
-  local double lds[1024];
-  fft1kImpl(lds, u, trig1k);
-
-  for (int i = 0; i < 4; ++i) { in[me + i * 256] = u[i]; }  
-}
-
 // Input is transposed.
 void fft1Kt(local double *lds, uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
   uint g = get_group_id(0);
@@ -176,11 +161,6 @@ void fft1Kt(local double *lds, uint W, CONST double2 *in, global double2 *out, S
   out += lg * 1024;
 
   for (int i = 0; i < 4; ++i) { out[i * 256 + me] = u[i]; }
-}
-
-K(256, 1) fft1K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
-  local double lds[1024];
-  fft1Kt(lds, 1024, in, out, trig1k);
 }
 
 K(256, 1) fft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
@@ -307,10 +287,6 @@ void carryBCore(uint H, global int2 *in, global long *carryIn, CONST uchar2 *bit
   if (carry) { atomic_max(maxErr, (1 << 29)); }  // Assert no carry left at this point.
 }
 
-K(256, 1) carryB_1K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
-  carryBCore(1024, in, carryIn, bitlen, maxErr);
-}
-
 K(256, 1) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
   carryBCore(2048, in, carryIn, bitlen, maxErr);
 }
@@ -352,7 +328,6 @@ void csquare(uint W, global double2 *in, CONST double2 *trig) {
 }
 
 K(256, 1) csquare2K(global double2 *in, CONST double2 *trig)  { csquare(2048, in, trig); }
-K(256, 1) csquare1K(global double2 *in, CONST double2 *trig)  { csquare(1024, in, trig); }
 
 void transposeCore(local double *lds, double2 *u) {
   uint me = get_local_id(0);
