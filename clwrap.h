@@ -31,27 +31,42 @@ class Timer {
 #define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
 #define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d (%s)\n", e, mes); assert(false); }}
 
-cl_device_id getDevice() {
-  cl_platform_id platform;
-  CHECK(clGetPlatformIDs(1, &platform, NULL));
-  cl_device_id device;
-  CHECK(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, NULL));
-  return device;
+void getInfo(void *id, int what, size_t bufSize, char *buf) {
+  size_t outSize = 0;
+  if (what == CL_PLATFORM_VERSION) {
+    CHECK(clGetPlatformInfo((cl_platform_id) id, what, bufSize, buf, &outSize));
+  } else {
+    CHECK(clGetDeviceInfo((cl_device_id) id, what, bufSize, buf, &outSize));
+  }
+  assert(outSize < bufSize);
+  buf[outSize] = 0;
 }
 
-void getDeviceName(cl_device_id device, char *buf, size_t bufSize) {
-  char name[256];
-  size_t outSize = 0;
-  clGetDeviceInfo(device, CL_DEVICE_NAME, sizeof(name), name, &outSize);
-  assert(outSize < sizeof(name));
-  name[outSize] = 0;
+int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
+  cl_platform_id platform;
+  CHECK(clGetPlatformIDs(1, &platform, NULL));
+  unsigned n = 0;
+  CHECK(clGetDeviceIDs(platform, onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL, size, out, &n));
+  return n;
+}
 
-  char version[256];
-  clGetDeviceInfo(device, CL_DEVICE_VERSION, sizeof(version), version, &outSize);
-  assert(outSize < sizeof(version));
-  version[outSize] = 0;
+int getNumberOfDevices() { return getDeviceIDs(false, 0, NULL); }
 
-  snprintf(buf, bufSize, "%s - %s", name, version);
+void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
+  // cl_platform_id platform;
+  // CHECK(clGetPlatformIDs(1, &platform, NULL));
+  // cl_device_id device; CHECK(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, NULL));
+  // getInfo(platform, CL_PLATFORM_VERSION, sizeof(platformVersion), platformVersion);
+  
+  char name[128];
+  char version[128];
+  getInfo(device, CL_DEVICE_NAME,    sizeof(name), name);
+  getInfo(device, CL_DEVICE_VERSION, sizeof(version), version);
+
+  unsigned isEcc = 0;
+  CHECK(clGetDeviceInfo(device, CL_DEVICE_ERROR_CORRECTION_SUPPORT, sizeof(isEcc), &isEcc, NULL));
+  
+  snprintf(info, infoSize, "%s; %s%s", name, version, isEcc ? " (ECC)" : "");
 }
 
 cl_context createContext(cl_device_id device) {
@@ -86,15 +101,15 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
   cl_program program = clCreateProgramWithSource(context, 1, (const char **)&pbuf, &size, &err);
   CHECK(err);
 
-  snprintf(buf, sizeof(buf), "%s -cl-fast-relaxed-math -cl-std=CL2.0", opts);
-  // Other options:
-  // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/
-  // * to disable all OpenCL optimization: -cl-opt-disable
-  // * -cl-uniform-work-group-size
-  // * -fno-bin-llvmir
-  // * various: -fno-bin-source -fno-bin-amdil
+  // First try CL2.0 compilation.
+  snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size %s", opts);
+  if ((err = clBuildProgram(program, 1, &device, buf, NULL, NULL)) == CL_INVALID_COMPILER_OPTIONS) {
+    printf("Falling back to CL1.x compilation\n");
+    snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math %s", opts);
+    err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
+  }
 
-  if ((err = clBuildProgram(program, 1, &device, buf, NULL, NULL)) != CL_SUCCESS) {
+  if (err != CL_SUCCESS) {
     size_t logSize;
     clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
     buf[logSize] = 0;
@@ -103,7 +118,14 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
   }
 
   return program;
-}
+}  
+  // Other options:
+  // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/
+  // * to disable all OpenCL optimization (do not use): -cl-opt-disable
+  // * -cl-uniform-work-group-size
+  // * -fno-bin-llvmir
+  // * various: -fno-bin-source -fno-bin-amdil
+
 
 cl_kernel makeKernel(cl_program program, const char *name) {
   int err;

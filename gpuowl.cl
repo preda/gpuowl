@@ -230,7 +230,7 @@ int updateB(long *carry, long x, uint bits) {
   return w;
 }
 
-int2 update2(long *carry, long2 r, uchar2 bits) {
+int2 update(long *carry, long2 r, uchar2 bits) {
   int a = updateA(carry, r.x, bits.x);
   int b = updateB(carry, r.y, bits.y);
   return (int2) (a, b);
@@ -239,11 +239,11 @@ int2 update2(long *carry, long2 r, uchar2 bits) {
 int2 car0(long *carry, double2 u, double2 a, uchar2 bits, float *maxErr) {
   long a0 = toLong(u.x * a.x, maxErr);
   long a1 = toLong(u.y * a.y, maxErr);
-  return update2(carry, (long2)(a0, a1), bits);
+  return update(carry, (long2)(a0, a1), bits);
 }
 
 int2 car1(long *carry, int2 r, uchar2 bits) {
-  return update2(carry, (long2)(r.x, r.y), bits);
+  return update(carry, (long2)(r.x, r.y), bits);
 }
 
 // conjugates input

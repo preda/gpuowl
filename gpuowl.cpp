@@ -459,27 +459,83 @@ int main(int argc, char **argv) {
   log("gpuOwL v0.1 GPU Lucas-Lehmer primality checker\n");
 
   const char *extraOpts = "";
-  int logStep = 20000;
+  const int DEFAULT_LOGSTEP = 20000;
+  int logStep = DEFAULT_LOGSTEP;
+  int forceDevice = -1;
   
-  if (argc > 1) {
-    if (!strcmp(argv[1], "-cl") && argc > 2) {
-      extraOpts = argv[2];      
-    } else if (!strcmp(argv[1], "-h")) {
+  for (int i = 1; i < argc; ++i) {
+    const char *arg = argv[i];
+    if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n"
-          "-cl -save-temps : to save the compiled ISA\n"
-          "-logstep <n> : to log every <n> iterations (default 20000)\n"
-          "\n");
-    } else if (!strcmp(argv[1], "-logstep") && argc > 2 && atoi(argv[2]) > 0) {
-      logStep = atoi(argv[2]);
+          "-cl <CL compiler options>\n"
+          "    e.g. -cl -save-temps or -cl -save-temps=prefix or -cl -save-temps=folder/\n"
+          "    to save the compiled ISA\n"
+          "-logstep <N> : to log every <n> iterations (default %d)\n"
+          "-device <N> : select specific device among:\n", DEFAULT_LOGSTEP);
+
+      cl_device_id devices[16];
+      int ndev = getDeviceIDs(false, 16, devices);
+      for (int i = 0; i < ndev; ++i) {
+        char info[256];
+        getDeviceInfo(devices[i], sizeof(info), info);
+        log("    %d : %s\n", i, info);
+      }
+      return 0;
+    } else if (!strcmp(arg, "-cl")) {
+      if (i < argc - 1) {
+        extraOpts = argv[++i];
+      } else {
+        log("-cl expects options string to pass to CL compiler\n");
+        return 1;
+      }
+    } else if (!strcmp(arg, "-logstep")) {
+      if (i < argc - 1) {
+        logStep = atoi(argv[++i]);
+        if (logStep <= 0) {
+          log("invalid -logstep '%s'\n", argv[i]);
+          return 2;
+        }
+      } else {
+        log("-logstep expects <N> argument\n");
+        return 2;
+      }
+    } else if (!strcmp(arg, "-device")) {
+      if (i < argc - 1) {
+        forceDevice = atoi(argv[++i]);
+        int nDevices = getNumberOfDevices();
+        if (forceDevice < 0 || forceDevice >= nDevices) {
+          log("invalid -device %d (must be between [0, %d]\n", forceDevice, nDevices - 1);
+          return 4;
+        }        
+      } else {
+        log("-device expects <N> argument\n");
+        return 4;
+      }
     } else {
-      log("Argument '%s' not understood\n", argv[1]);
+      log("Argument '%s' not understood\n", arg);
+      return 6;
+    }
+  }
+
+  
+  cl_device_id device;
+  if (forceDevice >= 0) {
+    cl_device_id devices[16];
+    int n = getDeviceIDs(false, 16, devices);
+    assert(n > forceDevice);
+    device = devices[forceDevice];
+  } else {
+    int n = getDeviceIDs(true, 1, &device);
+    if (n <= 0) {
+      log("No GPU device found. See --help for how to select a specific device.\n");
+      return 8;
     }
   }
   
-  cl_device_id device = getDevice();
-  char deviceName[256];
-  getDeviceName(device, deviceName, sizeof(deviceName));
-  log("%s\n", deviceName);
+  char info[256];
+  getDeviceInfo(device, sizeof(info), info);
+
+  log("%s\n", info);
 
   cl_context context = createContext(device);
 

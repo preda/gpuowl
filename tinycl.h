@@ -37,6 +37,7 @@ int clBuildProgram(cl_program, unsigned, const cl_device_id *, const char *, voi
 int clGetProgramBuildInfo(cl_program, cl_device_id, cl_program_build_info, size_t, void *, size_t *);
 int clGetProgramInfo(cl_program, cl_program_info, size_t, void *, size_t *);
 int clGetDeviceInfo(cl_device_id, cl_device_info, size_t, void *, size_t *);
+int clGetPlatformInfo(cl_platform_id, cl_device_info, size_t, void *, size_t *);
 
 cl_kernel clCreateKernel(cl_program, const char *, int *);
 int clReleaseKernel(cl_kernel);
@@ -60,9 +61,13 @@ int clWaitForEvents(unsigned numEvents, const cl_event *);
 
 #define CL_SUCCESS              0
 #define CL_DEVICE_TYPE_GPU      (1 << 2)
+#define CL_DEVICE_TYPE_ALL      0xFFFFFFFF
+#define CL_PLATFORM_VERSION     0x0901
+#define CL_DEVICE_ERROR_CORRECTION_SUPPORT 0x1024
 #define CL_DEVICE_NAME          0x102B
 #define CL_DEVICE_VERSION       0x102F
 #define CL_DRIVER_VERSION       0x102D
+#define CL_DEVICE_BUILT_IN_KERNELS 0x103F
 #define CL_PROGRAM_BINARY_SIZES 0x1165
 #define CL_PROGRAM_BINARIES     0x1166
 #define CL_PROGRAM_BUILD_LOG    0x1183
@@ -70,4 +75,5 @@ int clWaitForEvents(unsigned numEvents, const cl_event *);
 #define CL_MEM_READ_ONLY        (1 << 2)
 #define CL_MEM_COPY_HOST_PTR    (1 << 5)
 #define CL_MEM_HOST_NO_ACCESS   (1 << 9)
+#define CL_INVALID_COMPILER_OPTIONS -66
 
