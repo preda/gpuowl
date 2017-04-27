@@ -223,16 +223,24 @@ int update(long *carry, long x, uint bits) {
   return w;
 }
 
+int2 update2(long *carry, long2 r, uchar2 bits) {
+  int a = update(carry, r.x, bits.x);
+  int b = update(carry, r.y, bits.y);
+  return (int2) (a, b);
+}
+
 int2 car0(long *carry, double2 u, double2 a, uchar2 bits, float *maxErr) {
   int r0 = update(carry, toLong(u.x * a.x, maxErr), bits.x);
   int r1 = update(carry, toLong(u.y * a.y, maxErr), bits.y);
   return (int2) (r0, r1);
+  // return update2(carry, (long2)(toLong(u.x * a.x, maxErr), toLong(u.y * a.y, maxErr)), bits);
 }
 
 int2 car1(long *carry, int2 r, uchar2 bits) {
   int a = update(carry, r.x, bits.x);
   int b = update(carry, r.y, bits.y);
   return (int2) (a, b);
+  // return update2(carry, (long2)(r.x, r.y), bits);
 }
 
 // conjugates input
@@ -260,12 +268,12 @@ K(256, 1) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global l
   local uint localMaxErr;
   if (me == 0) { localMaxErr = 0; }
   bar();
-  atomic_max(&localMaxErr, maxErr * (1 << 30));
+  atomic_max(&localMaxErr, (uint) (maxErr * (1 << 30)));
   bar();
   if (me == 0) { atomic_max(globalMaxErr, localMaxErr); }
 }
 
-void carryBCore(uint H, global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
+void carryBCore(uint H, global int2 *in, CONST long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   
