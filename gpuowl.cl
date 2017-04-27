@@ -214,33 +214,36 @@ long toLong(double x, float *maxErr) {
   return rx;
 }
 
-int lowBits(long u, uint bits) { return (((int) ((uint) ((ulong) u))) << (32 - bits)) >> (32 - bits); }
+int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
 
-int update(long *carry, long x, uint bits) {
+int updateA(long *carry, long x, uint bits) {
   long u = *carry + x;
   int w = lowBits(u, bits);
   *carry = (u - w) >> bits;
   return w;
 }
 
+int updateB(long *carry, long x, uint bits) {
+  long u = *carry + x;
+  int w = lowBits(((int) u) - 1, bits) + 1;
+  *carry = (u - w) >> bits;
+  return w;
+}
+
 int2 update2(long *carry, long2 r, uchar2 bits) {
-  int a = update(carry, r.x, bits.x);
-  int b = update(carry, r.y, bits.y);
+  int a = updateA(carry, r.x, bits.x);
+  int b = updateB(carry, r.y, bits.y);
   return (int2) (a, b);
 }
 
 int2 car0(long *carry, double2 u, double2 a, uchar2 bits, float *maxErr) {
-  int r0 = update(carry, toLong(u.x * a.x, maxErr), bits.x);
-  int r1 = update(carry, toLong(u.y * a.y, maxErr), bits.y);
-  return (int2) (r0, r1);
-  // return update2(carry, (long2)(toLong(u.x * a.x, maxErr), toLong(u.y * a.y, maxErr)), bits);
+  long a0 = toLong(u.x * a.x, maxErr);
+  long a1 = toLong(u.y * a.y, maxErr);
+  return update2(carry, (long2)(a0, a1), bits);
 }
 
 int2 car1(long *carry, int2 r, uchar2 bits) {
-  int a = update(carry, r.x, bits.x);
-  int b = update(carry, r.y, bits.y);
-  return (int2) (a, b);
-  // return update2(carry, (long2)(r.x, r.y), bits);
+  return update2(carry, (long2)(r.x, r.y), bits);
 }
 
 // conjugates input
