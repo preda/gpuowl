@@ -150,7 +150,7 @@ u64 residue(int N, int W, int *data, const int *shiftTab) {
 
 FILE *logFiles[3] = {0, 0, 0};
 
-int log(const char *fmt, ...) {
+void log(const char *fmt, ...) {
   va_list va;
   for (FILE **pf = logFiles; *pf; ++pf) {
     va_start(va, fmt);
@@ -447,22 +447,11 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   return true;
 }
 
-int main(int argc, char **argv) {
-  logFiles[0] = stdout;
-  FILE *logf = fopen("gpuowl.log", "a");
-
-#ifdef _DEFAULT_SOURCE
-  if (logf) { setlinebuf(logf); }
-#endif
-
-  logFiles[1] = logf;
-  log("gpuOwL v0.1 GPU Lucas-Lehmer primality checker\n");
-
-  const char *extraOpts = "";
+// return false to stop.
+bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *forceDevice) {
   const int DEFAULT_LOGSTEP = 20000;
-  int logStep = DEFAULT_LOGSTEP;
-  int forceDevice = -1;
-  
+  *logStep = DEFAULT_LOGSTEP;
+
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
@@ -480,43 +469,60 @@ int main(int argc, char **argv) {
         getDeviceInfo(devices[i], sizeof(info), info);
         log("    %d : %s\n", i, info);
       }
-      return 0;
+      return false;
     } else if (!strcmp(arg, "-cl")) {
       if (i < argc - 1) {
-        extraOpts = argv[++i];
+        *extraOpts = argv[++i];
       } else {
         log("-cl expects options string to pass to CL compiler\n");
-        return 1;
+        return false;
       }
     } else if (!strcmp(arg, "-logstep")) {
       if (i < argc - 1) {
-        logStep = atoi(argv[++i]);
-        if (logStep <= 0) {
+        *logStep = atoi(argv[++i]);
+        if (*logStep <= 0) {
           log("invalid -logstep '%s'\n", argv[i]);
-          return 2;
+          return false;
         }
       } else {
         log("-logstep expects <N> argument\n");
-        return 2;
+        return false;
       }
     } else if (!strcmp(arg, "-device")) {
       if (i < argc - 1) {
-        forceDevice = atoi(argv[++i]);
+        *forceDevice = atoi(argv[++i]);
         int nDevices = getNumberOfDevices();
-        if (forceDevice < 0 || forceDevice >= nDevices) {
-          log("invalid -device %d (must be between [0, %d]\n", forceDevice, nDevices - 1);
-          return 4;
+        if (*forceDevice < 0 || *forceDevice >= nDevices) {
+          log("invalid -device %d (must be between [0, %d]\n", *forceDevice, nDevices - 1);
+          return false;
         }        
       } else {
         log("-device expects <N> argument\n");
-        return 4;
+        return false;
       }
     } else {
       log("Argument '%s' not understood\n", arg);
-      return 6;
+      return false;
     }
   }
+  return true;
+}
 
+int main(int argc, char **argv) {
+  logFiles[0] = stdout;
+  FILE *logf = fopen("gpuowl.log", "a");
+
+#ifdef _DEFAULT_SOURCE
+  if (logf) { setlinebuf(logf); }
+#endif
+
+  logFiles[1] = logf;
+  log("gpuOwL v0.1 GPU Lucas-Lehmer primality checker\n");
+
+  const char *extraOpts = "";
+  int forceDevice = -1;
+  int logStep = 0;
+  if (!parseArgs(argc, argv, &extraOpts, &logStep, &forceDevice)) { return 0; }
   
   cl_device_id device;
   if (forceDevice >= 0) {

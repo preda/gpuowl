@@ -31,13 +31,9 @@ class Timer {
 #define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
 #define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d (%s)\n", e, mes); assert(false); }}
 
-void getInfo(void *id, int what, size_t bufSize, char *buf) {
+void getInfo(cl_device_id id, int what, size_t bufSize, char *buf) {
   size_t outSize = 0;
-  if (what == CL_PLATFORM_VERSION) {
-    CHECK(clGetPlatformInfo((cl_platform_id) id, what, bufSize, buf, &outSize));
-  } else {
-    CHECK(clGetDeviceInfo((cl_device_id) id, what, bufSize, buf, &outSize));
-  }
+  CHECK(clGetDeviceInfo(id, what, bufSize, buf, &outSize));
   assert(outSize < bufSize);
   buf[outSize] = 0;
 }
@@ -53,11 +49,6 @@ int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
 int getNumberOfDevices() { return getDeviceIDs(false, 0, NULL); }
 
 void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
-  // cl_platform_id platform;
-  // CHECK(clGetPlatformIDs(1, &platform, NULL));
-  // cl_device_id device; CHECK(clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, NULL));
-  // getInfo(platform, CL_PLATFORM_VERSION, sizeof(platformVersion), platformVersion);
-  
   char name[128];
   char version[128];
   getInfo(device, CL_DEVICE_NAME,    sizeof(name), name);
