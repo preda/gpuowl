@@ -377,10 +377,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
 
   log("OpenCL setup: %ld ms\n", timer.delta());
 
-  float maxErr  = 0;
-  double sumErr = 1e-30;
-  int nErr = 0;
-  
+  float maxErr  = 0;  
   u64 res;
   int k = startK;
   int saveK = 0;
@@ -407,6 +404,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     write(q, false, bufErr,  sizeof(unsigned), &zero);
     read(q,  true,  bufData, sizeof(int) * N, data);
     float err = rawErr * (1 / (float) (1 << 30));
+    float prevMaxErr = maxErr;
     maxErr = std::max(err, maxErr);
     double msPerIter = timer.delta() * (1 / (double) logStep);
     res = residue(N, W, data, shiftTab);      
@@ -418,7 +416,6 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
       return false;
     }
 
-    float iAvgErr = nErr / (float) sumErr; // inverse of average error.
     if (isCheck) {
       isCheck = false;
       if (!memcmp(data, saveData, sizeof(int) * N)) {
@@ -427,8 +424,8 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
         log("Consistency check FAILED, something is wrong, stopping.\n");
         return false;
       }
-    } else if (nErr && err * iAvgErr > 1.166f) {
-      log("Error jump by %.2f%%, doing a consistency check.\n", (err * iAvgErr - 1) * 100);      
+    } else if (prevMaxErr > 0 && err > 1.166f * prevMaxErr) {
+      log("Error jump by %.2f%%, doing a consistency check.\n", (err / prevMaxErr - 1) * 100);      
       isCheck = true;
       write(q, true, bufData, sizeof(int) * N, saveData);
       k = saveK;
@@ -436,10 +433,6 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     
     memcpy(saveData, data, sizeof(int) * N);
     saveK = k;
-    if (!isCheck) {
-      ++nErr;
-      sumErr += err;
-    }
   } while (k < E - 2);
 
   *outIsPrime = isAllZero(data, N);
