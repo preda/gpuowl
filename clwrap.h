@@ -94,8 +94,8 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
 
   // First try CL2.0 compilation.
   snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size %s", opts);
-  if ((err = clBuildProgram(program, 1, &device, buf, NULL, NULL)) == CL_INVALID_COMPILER_OPTIONS) {
-    printf("Falling back to CL1.x compilation\n");
+  if ((err = clBuildProgram(program, 1, &device, buf, NULL, NULL)) < 0) {
+    printf("Falling back to CL1.x compilation (error %d)\n", err);
     snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math %s", opts);
     err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
   }
