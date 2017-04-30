@@ -42,8 +42,9 @@ int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
   cl_platform_id platforms[8];
   unsigned nPlatforms;
   CHECK(clGetPlatformIDs(8, platforms, &nPlatforms));
+  
   unsigned n = 0;
-  for (int i = 0; i < (int) nPlatforms; ++i) {
+  for (int i = 0; i < (int) nPlatforms && size > n; ++i) {
     unsigned delta = 0;
     CHECK(clGetDeviceIDs(platforms[i], onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL, size - n, out + n, &delta));
     n += delta;
@@ -51,7 +52,19 @@ int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
   return n;
 }
 
-int getNumberOfDevices() { return getDeviceIDs(false, 0, NULL); }
+int getNumberOfDevices() {
+  cl_platform_id platforms[8];
+  unsigned nPlatforms;
+  CHECK(clGetPlatformIDs(8, platforms, &nPlatforms));
+  
+  unsigned n = 0;
+  for (int i = 0; i < (int) nPlatforms; ++i) {
+    unsigned delta = 0;
+    CHECK(clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, 0, NULL, &delta));
+    n += delta;
+  }
+  return n;
+}
 
 void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
   char name[128];
