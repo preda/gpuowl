@@ -180,14 +180,21 @@ public:
     
     int saveE, saveK, saveW, saveH, unused;
     bool ok = false;
-    if (fscanf(fi, saveHeader, &saveE, &saveK, &saveW, &saveH, &unused) == 5 &&
-        E == saveE && W == saveW && H == saveH && unused == 0 &&
-        fread(data, sizeof(int) * (2 * W * H), 1, fi) == 1) {
-      *startK = saveK;
-      ok = true;
+    if (fscanf(fi, saveHeader, &saveE, &saveK, &saveW, &saveH, &unused) != 5 ||
+        !(E == saveE && W == saveW && H == saveH && unused == 0)) {
+      log("Wrong header in '%s'\n", fileNameSave);
+    } else {
+      int N = 2 * W * H;
+      int expected = sizeof(int) * N;
+      int nRead = fread(data, 1, expected + 1, fi);
+      if (nRead != expected) {
+        log("Invalid '%s' file size, expected %d but read %d\n", fileNameSave, expected, nRead);
+      } else {
+        *startK = saveK;
+        ok = true;
+      }
     }
     fclose(fi);
-    if (!ok) { log("Wrong '%s' file, please move it out of the way.\n", fileNameSave); }
     return ok;
   }
   
@@ -330,7 +337,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   assert(H == 2048);
 
   int startK = 0;
-  int *data = new int[N]();
+  int *data = new int[N + 1]();
   int *saveData = new int[N];
   data[0]     = 4; // LL root.
   
