@@ -39,10 +39,15 @@ void getInfo(cl_device_id id, int what, size_t bufSize, char *buf) {
 }
 
 int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
-  cl_platform_id platform;
-  CHECK(clGetPlatformIDs(1, &platform, NULL));
+  cl_platform_id platforms[8];
+  unsigned nPlatforms;
+  CHECK(clGetPlatformIDs(8, platforms, &nPlatforms));
   unsigned n = 0;
-  CHECK(clGetDeviceIDs(platform, onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL, size, out, &n));
+  for (int i = 0; i < (int) nPlatforms; ++i) {
+    unsigned delta = 0;
+    CHECK(clGetDeviceIDs(platforms[i], onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL, size - n, out + n, &delta));
+    n += delta;
+  }
   return n;
 }
 
