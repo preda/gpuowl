@@ -21,7 +21,9 @@ typedef uint64_t u64;
 
 const int EXP_MIN_2M = 20000000, EXP_MAX_2M = 40000000, EXP_MIN_4M = 35000000, EXP_MAX_4M = 78000000;
 
-const char *AGENT = "gpuowl v0.2";
+#define VERSION "0.1"
+
+const char *AGENT = "gpuowl v" VERSION;
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
@@ -150,6 +152,10 @@ u64 residue(int N, int W, int *data, const int *shiftTab) {
 
 FILE *logFiles[3] = {0, 0, 0};
 
+#ifdef __GNUC__
+void log(const char *fmt, ...) __attribute__ ((format(printf, 1, 2)));
+#endif
+
 void log(const char *fmt, ...) {
   va_list va;
   for (FILE **pf = logFiles; *pf; ++pf) {
@@ -232,26 +238,39 @@ public:
     *startK = fileK;
     return true;
   }
-  
-  void save(int *data, int k) const {
-    int N = 2 * W * H;
-    int wordsSize = sizeof(int) * N;    
-    int n = snprintf((char *) (data + N), 128, headerFormat, E, k, W, H, 0, checksum(data, N));
-    assert(n < 128);
 
-    remove(fileNameOld);
-    rename(fileNameSave, fileNameOld);
-    
-    FILE *fo = fopen(fileNameSave, "wb");
+  void write(int size, const void *data, const char *name) {
+    FILE *fo = fopen(name, "wb");
     if (fo) {
-      int nWritten = fwrite(data, wordsSize + n, 1, fo);
+      int nWritten = fwrite(data, size, 1, fo);
       fclose(fo);
       if (nWritten != 1) {
-        log("Error writing file '%s'\n", fileNameSave);
+        log("Error writing file '%s'\n", name);
       }
     } else {
-      log("Can't write file '%s'\n", fileNameSave);
+      log("Can't write file '%s'\n", name);
     }
+  }
+
+  int prepareHeader(int *data, int k) {
+    int N = 2 * W * H;
+    int n = snprintf((char *) (data + N), 128, headerFormat, E, k, W, H, 0, checksum(data, N));
+    assert(n < 128);
+    return n;
+  }
+  
+  void save(int *data, int k) {
+    int headerSize = prepareHeader(data, k);
+    remove(fileNameOld);
+    rename(fileNameSave, fileNameOld);
+    write(sizeof(int) * 2 * W * H + headerSize, data, fileNameSave);
+  }
+
+  void savePersist(int *data, int k, u64 residue) {
+    int headerSize = prepareHeader(data, k);    
+    char name[64];
+    snprintf(name, sizeof(name), "s%d.%d.%016llx.ll", E, k, (unsigned long long) residue);
+    write(sizeof(int) * 2 * W * H + headerSize, data, name);
   }
 };
 
@@ -370,7 +389,7 @@ void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, c
 }
 
 bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_mem bufTrig1K, cl_mem bufTrig2K,
-                int E, int logStep, bool *outIsPrime, u64 *outResidue) {
+                int E, int logStep, int saveStep, bool *outIsPrime, u64 *outResidue) {
   const int W = 1024;
   const int N = 2 * W * H;
   assert(H == 2048);
@@ -456,6 +475,9 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     res = residue(N, W, data, shiftTab);      
     doLog(E, k, err, maxErr, msPerIter, res);
     fileSaver.save(data, k);
+    if (k / saveStep != (k - logStep) / saveStep) {
+      fileSaver.savePersist(data, k, res);
+    }
 
     if (err >= .5f) {
       log("Error %g is way too large, stopping.\n", err);
@@ -487,19 +509,20 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
 }
 
 // return false to stop.
-bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *forceDevice) {
+bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *saveStep, int *forceDevice) {
   const int DEFAULT_LOGSTEP = 20000;
-  *logStep = DEFAULT_LOGSTEP;
+  *logStep  = DEFAULT_LOGSTEP;
+  *saveStep = 0;
 
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n"
           "-cl <CL compiler options>\n"
-          "    e.g. -cl -save-temps or -cl -save-temps=prefix or -cl -save-temps=folder/\n"
-          "    to save the compiled ISA\n"
-          "-logstep <N> : to log every <n> iterations (default %d)\n"
-          "-device <N> : select specific device among:\n", DEFAULT_LOGSTEP);
+          "    e.g. -cl -save-temps or -cl -save-temps=prefix or -cl -save-temps=folder/ to save ISA code\n"
+          "-logstep  <N> : to log every <N> iterations (default %d)\n"
+          "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
+          "-device   <N> : select specific device among:\n", *logStep, 500 * *logStep);
 
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
@@ -527,6 +550,17 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
         log("-logstep expects <N> argument\n");
         return false;
       }
+    } else if (!strcmp(arg, "-savestep")) {
+      if (i < argc - 1) {
+        *saveStep = atoi(argv[++i]);
+        if (*saveStep <= 0) {
+          log("invalid -savestep '%s'\n", argv[i]);
+          return false;
+        }
+      } else {
+        log("-savestep expects <N> argument\n");
+        return false;
+      }
     } else if (!strcmp(arg, "-device")) {
       if (i < argc - 1) {
         *forceDevice = atoi(argv[++i]);
@@ -544,6 +578,12 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
       return false;
     }
   }
+
+  if (!*saveStep) { *saveStep = 500 * *logStep; }
+  if (*saveStep < *logStep || *saveStep % *logStep) {
+    log("It is recommended to use a persist step that is a multiple of the log step (you provided %d, %d)\n", *saveStep, *logStep);
+  }
+  
   return true;
 }
 
@@ -556,12 +596,13 @@ int main(int argc, char **argv) {
 #endif
 
   logFiles[1] = logf;
-  log("gpuOwL v0.1 GPU Lucas-Lehmer primality checker\n");
+  log("gpuOwL v" VERSION " GPU Lucas-Lehmer primality checker\n");
 
   const char *extraOpts = "";
   int forceDevice = -1;
   int logStep = 0;
-  if (!parseArgs(argc, argv, &extraOpts, &logStep, &forceDevice)) { return 0; }
+  int saveStep = 0;
+  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice)) { return 0; }
   
   cl_device_id device;
   if (forceDevice >= 0) {
@@ -579,9 +620,10 @@ int main(int argc, char **argv) {
   
   char info[256];
   getDeviceInfo(device, sizeof(info), info);
-
   log("%s\n", info);
-
+  
+  log("Will log every %d iterations, and persist checkpoint every %d iterations.\n", logStep, saveStep);
+  
   cl_context context = createContext(device);
 
   cl_queue queue = makeQueue(device, context);
@@ -612,7 +654,7 @@ int main(int argc, char **argv) {
 
     bool isPrime;
     u64 res;
-    if (checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, &isPrime, &res)) {
+    if (checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, saveStep, &isPrime, &res)) {
       if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
       
       int lineBegin, lineEnd;
