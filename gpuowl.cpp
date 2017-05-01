@@ -21,7 +21,7 @@ typedef uint64_t u64;
 
 const int EXP_MIN_2M = 20000000, EXP_MAX_2M = 40000000, EXP_MIN_4M = 35000000, EXP_MAX_4M = 78000000;
 
-const char *AGENT = "gpuowl v0.1";
+const char *AGENT = "gpuowl v0.2";
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
@@ -159,60 +159,99 @@ void log(const char *fmt, ...) {
   }
 }
 
+int checksum(int *data, unsigned words) {
+  int sum = 0;
+  for (int *p = data, *end = data + words; p < end; ++p) { sum += *p; }
+  return sum;
+}
+
 class FileSaver {
 private:
-  char fileNameSave[64], fileNameOld[64], fileNameNew[64];
+  char fileNameSave[64], fileNameOld[64];
   int E, W, H;
-  const char *saveHeader = "LL1 %10d %10d %10d %10d %10d    \n\032";
+  // Header: "\nLL2 <exponent> <iteration> <width> <height> <offset> <sum> \n"
+  const char *headerFormat = "\nLL2 %d %d %d %d %d %d\n";
   
 public:
   FileSaver(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
-    char base[64];
-    snprintf(base, sizeof(base), "save-%d", E);
-    snprintf(fileNameSave, sizeof(fileNameSave), "%s.bin", base);
-    snprintf(fileNameOld,  sizeof(fileNameOld),  "%s.old", base);
-    snprintf(fileNameNew,  sizeof(fileNameNew),  "%s.new", base);
+    snprintf(fileNameSave, sizeof(fileNameSave), "c%d.ll", E);
+    snprintf(fileNameOld,  sizeof(fileNameOld),  "t%d.ll", E);
   }
-  
-  bool load(int *data, int *startK) {
-    FILE *fi = fopen(fileNameSave, "rb");
+
+  bool loadLL1(int *data, int *startK) {
+    char fileName[64];
+    snprintf(fileName, sizeof(fileName), "save-%d.bin", E);
+    FILE *fi = fopen(fileName, "rb");
     if (!fi) { return true; }
-    
+
     int saveE, saveK, saveW, saveH, unused;
     bool ok = false;
-    if (fscanf(fi, saveHeader, &saveE, &saveK, &saveW, &saveH, &unused) != 5 ||
-        !(E == saveE && W == saveW && H == saveH && unused == 0)) {
-      log("Wrong header in '%s'\n", fileNameSave);
-    } else {
-      int N = 2 * W * H;
-      int expected = sizeof(int) * N;
-      int nRead = fread(data, 1, expected + 1, fi);
-      if (nRead != expected) {
-        log("Invalid '%s' file size, expected %d but read %d\n", fileNameSave, expected, nRead);
-      } else {
-        *startK = saveK;
-        ok = true;
-      }
+    if (fscanf(fi, "LL1 %10d %10d %10d %10d %10d    \n\032", &saveE, &saveK, &saveW, &saveH, &unused) == 5 &&
+        E == saveE && W == saveW && H == saveH && unused == 0 &&
+        fread(data, sizeof(int) * (2 * W * H), 1, fi) == 1) {
+      *startK = saveK;
+      ok = true;
     }
     fclose(fi);
+    if (!ok) { log("Wrong '%s' file, please move it out of the way.\n", fileNameSave); }
     return ok;
   }
   
+  bool load(int *data, int *startK) {
+    FILE *fi = fopen(fileNameSave, "rb");    
+    if (!fi) { 
+      log("Checkpoint file '%s' not found. You can use '%s'.\n", fileNameSave, fileNameOld);
+      return loadLL1(data, startK);
+    }
+    
+    int N = 2 * W * H;
+    int wordsSize = sizeof(int) * N;
+    int n = fread(data, 1, wordsSize + 128, fi);
+    fclose(fi);
+
+    if (n < wordsSize || n >= wordsSize + 128) {
+      log("File '%s' has invalid size (%d)\n", fileNameSave, n);
+      return false;
+    }
+        
+    int fileE, fileK, fileW, fileH, fileOffset, fileSum;
+    char *header = (char *) (data + N);
+    header[n - wordsSize] = 0;
+    
+    if (sscanf(header, headerFormat, &fileE, &fileK, &fileW, &fileH, &fileOffset, &fileSum) != 6 ||
+        !(E == fileE && W == fileW && H == fileH && 0 == fileOffset)) {
+      log("File '%s' has wrong tailer '%s'\n", fileNameSave, header);
+      return false;
+    }
+    
+    if (fileSum != checksum(data, N)) {
+      log("File '%s' has wrong checksum (expected %d got %d)\n", fileNameSave, fileSum, checksum(data, N));
+      return false;
+    }
+    
+    *startK = fileK;
+    return true;
+  }
+  
   void save(int *data, int k) const {
-    FILE *fo = fopen(fileNameNew, "wb");
+    int N = 2 * W * H;
+    int wordsSize = sizeof(int) * N;    
+    int n = snprintf((char *) (data + N), 128, headerFormat, E, k, W, H, 0, checksum(data, N));
+    assert(n < 128);
+
+    remove(fileNameOld);
+    rename(fileNameSave, fileNameOld);
+    
+    FILE *fo = fopen(fileNameSave, "wb");
     if (fo) {
-      bool ok = fprintf(fo, saveHeader, E, k, W, H, 0) == 64 && fwrite(data, sizeof(int) * (2 * W * H), 1, fo) == 1;
+      int nWritten = fwrite(data, wordsSize + n, 1, fo);
       fclose(fo);
-      if (ok) {
-        rename(fileNameSave, fileNameOld);
-        rename(fileNameNew, fileNameSave);
-      } else {
-        log("Error saving checkpoint\n");
+      if (nWritten != 1) {
+        log("Error writing file '%s'\n", fileNameSave);
       }
     } else {
-      log("Can't open file '%s'\n", fileNameNew);
+      log("Can't write file '%s'\n", fileNameSave);
     }
-    // log("saved %d: %ld ms\n", k, q.time());
   }
 };
 
@@ -337,7 +376,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   assert(H == 2048);
 
   int startK = 0;
-  int *data = new int[N + 1]();
+  int *data = new int[N + 32]();
   int *saveData = new int[N];
   data[0]     = 4; // LL root.
   
