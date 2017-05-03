@@ -124,6 +124,9 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig2k) {
   fft4(u + 4);
 }
 
+// The fftPremul1K kernel merges two steps:
+// 1. Premultiply integer words with "A" (for IBDWT)
+// 2. FFT 1K.
 KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig1k) {
   uint g = get_group_id(0);
   uint step = g * 1024;

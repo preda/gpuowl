@@ -10,7 +10,7 @@
 #include <cstring>
 #include <ctime>
 
-#define K(program, name, ...) cl_kernel name = makeKernel(program, #name); setArgs(name, __VA_ARGS__)
+#define KERNEL(program, name, ...) cl_kernel name = makeKernel(program, #name); setArgs(name, __VA_ARGS__)
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -438,18 +438,18 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   cl_mem bufErr   = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
   cl_mem bufData  = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * N, data);
 
-  K(program, fftPremul1K, bufData, buf1, bufA, bufTrig1K);
-  K(program, transpose1K, buf1, bufBigTrig);
-  K(program, fft2K_1K, buf1, buf2, bufTrig2K);
+  KERNEL(program, fftPremul1K, bufData, buf1, bufA, bufTrig1K);
+  KERNEL(program, transpose1K, buf1, bufBigTrig);
+  KERNEL(program, fft2K_1K, buf1, buf2, bufTrig2K);
   
-  K(program, csquare2K, buf2, bufSins);
+  KERNEL(program, csquare2K, buf2, bufSins);
 
-  K(program, fft2K, buf2, bufTrig2K);
-  K(program, mtranspose2K, buf2, bufBigTrig);
-  K(program, fft1K_2K, buf2, buf1, bufTrig1K);
+  KERNEL(program, fft2K, buf2, bufTrig2K);
+  KERNEL(program, mtranspose2K, buf2, bufBigTrig);
+  KERNEL(program, fft1K_2K, buf2, buf1, bufTrig1K);
   
-  K(program, carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
-  K(program, carryB_2K,          bufData, bufCarry, bufBitlen, bufErr);
+  KERNEL(program, carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
+  KERNEL(program, carryB_2K,          bufData, bufCarry, bufBitlen, bufErr);
 
   log("OpenCL setup: %ld ms\n", timer.delta());
 
