@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 
 #define K(program, name, ...) cl_kernel name = makeKernel(program, #name); setArgs(name, __VA_ARGS__)
 
@@ -596,7 +597,9 @@ int main(int argc, char **argv) {
 #endif
 
   logFiles[1] = logf;
-  log("gpuOwL v" VERSION " GPU Lucas-Lehmer primality checker\n");
+  time_t t = time(NULL);
+  log("gpuOwL v" VERSION " GPU Lucas-Lehmer primality checker; %s", ctime(&t));
+
 
   const char *extraOpts = "";
   int forceDevice = -1;
