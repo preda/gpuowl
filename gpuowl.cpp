@@ -496,7 +496,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
 
     if (doTimeKernels) {
       const char *name[nKernels] = {
-        "fftPremul1K", "transpose1K", "fft2K_1K", "cquare2K", "fft2K", "mtranspose2K", "fft1K_2K", "carryA", "carryB",
+        "fftPremul1K", "transpose1K", "fft2K_1K", "csquare2K", "fft2K", "mtranspose2K", "fft1K_2K", "carryA", "carryB_2K",
       };
       u64 total = 0;
       for (int i = 0; i < nKernels; ++i) { total += counters[i]->get(); }
