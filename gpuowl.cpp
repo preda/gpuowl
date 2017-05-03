@@ -297,11 +297,13 @@ int worktodoReadExponent(char *AID) {
   char kind[32];
   int exp;
   int ret = 0;
+  *AID = 0;
   while (true) {
     if (fscanf(fi, "%255s\n", line) < 1) { break; }
-    if (sscanf(line, "%11[^=]=%32[0-9a-fA-F],%d,%*d,%*d", kind, AID, &exp) == 3 &&
-        (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")) &&
-        exp >= EXP_MIN_2M && exp <= EXP_MAX_4M) {
+    if (((sscanf(line, "%11[^=]=%32[0-9a-fA-F],%d,%*d,%*d", kind, AID, &exp) == 3
+          && (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")))
+         || sscanf(line, "Test=%d", &exp) == 1)
+        && exp >= EXP_MIN_2M && exp <= EXP_MAX_4M) {
       ret = exp;
       break;
     } else {
@@ -532,6 +534,21 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
         getDeviceInfo(devices[i], sizeof(info), info);
         log("    %d : %s\n", i, info);
       }
+
+      log("\nFiles used by gpuOwL:\n"
+          "    - worktodo.txt : contains exponents to test \"Test=N\", one per line\n"
+          "    - results.txt : contains LL results\n"
+          "    - cN.ll : the most recent checkpoint for exponent <N>; will resume from here\n"
+          "    - tN.ll : the previous checkpoint, to be used if cN.ll is lost or corrupted\n"
+          "    - bN.ll : a temporary checkpoint that is renamed to cN.ll once successfully written\n"
+          "    - sN.iteration.residue.ll : a persistent checkpoint at the given iteration\n");
+
+      log("\nThe lines in worktodo.txt must be of one of these forms:\n"
+          "Test=70100200\n"
+          "Test=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1\n"
+          "DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1\n"
+          "Test=0,70100200,0,0\n");
+      
       return false;
     } else if (!strcmp(arg, "-cl")) {
       if (i < argc - 1) {
@@ -644,11 +661,8 @@ int main(int argc, char **argv) {
     int E = worktodoReadExponent(AID);
     if (E <= 0) {
       if (!someSuccess) {
-        log("See http://www.mersenne.org/manual_assignment/\n"
-            "Please provide a 'worktodo.txt' file containing GIMPS manual test LL assignements "
-            "in the range %d to %d; e.g.\n\n"            
-            "Test=0,71561261,0,0\n"
-            "DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,71561261,75,1\n",
+        log("Please provide a 'worktodo.txt' file containing LL exponents to test in the range %d to %d.\n"
+            "See http://www.mersenne.org/manual_assignment/\n",
             EXP_MIN_4M, EXP_MAX_4M);
       }
       break;
