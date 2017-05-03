@@ -174,7 +174,7 @@ int checksum(int *data, unsigned words) {
 
 class FileSaver {
 private:
-  char fileNameSave[64], fileNameOld[64];
+  char fileNameSave[64];
   int E, W, H;
   // Header: "\nLL2 <exponent> <iteration> <width> <height> <offset> <sum> \n"
   const char *headerFormat = "\nLL2 %d %d %d %d %d %d\n";
@@ -182,7 +182,6 @@ private:
 public:
   FileSaver(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
     snprintf(fileNameSave, sizeof(fileNameSave), "c%d.ll", E);
-    snprintf(fileNameOld,  sizeof(fileNameOld),  "t%d.ll", E);
   }
 
   bool loadLL1(int *data, int *startK) {
@@ -207,7 +206,7 @@ public:
   bool load(int *data, int *startK) {
     FILE *fi = fopen(fileNameSave, "rb");    
     if (!fi) { 
-      log("Checkpoint file '%s' not found. You can use '%s'.\n", fileNameSave, fileNameOld);
+      log("Checkpoint file '%s' not found.\n", fileNameSave);
       return loadLL1(data, startK);
     }
     
@@ -240,17 +239,20 @@ public:
     return true;
   }
 
-  void write(int size, const void *data, const char *name) {
+  bool write(int size, const void *data, const char *name) {
     FILE *fo = fopen(name, "wb");
     if (fo) {
       int nWritten = fwrite(data, size, 1, fo);
-      fclose(fo);
-      if (nWritten != 1) {
+      fclose(fo);      
+      if (nWritten == 1) {
+        return true;
+      } else {
         log("Error writing file '%s'\n", name);
       }
     } else {
       log("Can't write file '%s'\n", name);
     }
+    return false;
   }
 
   int prepareHeader(int *data, int k) {
@@ -261,10 +263,16 @@ public:
   }
   
   void save(int *data, int k) {
-    int headerSize = prepareHeader(data, k);
-    remove(fileNameOld);
-    rename(fileNameSave, fileNameOld);
-    write(sizeof(int) * 2 * W * H + headerSize, data, fileNameSave);
+    char fileTemp[64], filePrev[64];
+    snprintf(fileTemp, sizeof(fileTemp), "b%d.ll", E);
+    snprintf(filePrev, sizeof(filePrev), "t%d.ll", E);
+
+    int headerSize = prepareHeader(data, k);    
+    if (write(sizeof(int) * 2 * W * H + headerSize, data, fileTemp)) {
+      remove(filePrev);
+      rename(fileNameSave, filePrev);
+      rename(fileTemp, fileNameSave);      
+    }
   }
 
   void savePersist(int *data, int k, u64 residue) {
