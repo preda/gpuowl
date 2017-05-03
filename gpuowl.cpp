@@ -16,10 +16,6 @@
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
-typedef unsigned char byte;
-typedef int64_t i64;
-typedef uint64_t u64;
-
 const int EXP_MIN_2M = 20000000, EXP_MAX_2M = 40000000, EXP_MIN_4M = 35000000, EXP_MAX_4M = 78000000;
 
 #define VERSION "0.1"
@@ -400,7 +396,7 @@ void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, c
 }
 
 bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_mem bufTrig1K, cl_mem bufTrig2K,
-                int E, int logStep, int saveStep, bool *outIsPrime, u64 *outResidue) {
+                int E, int logStep, int saveStep, bool doTimeKernels, bool *outIsPrime, u64 *outResidue) {
   const int W = 1024;
   const int N = 2 * W * H;
   assert(H == 2048);
@@ -451,28 +447,36 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   KERNEL(program, carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
   KERNEL(program, carryB_2K,          bufData, bufCarry, bufBitlen, bufErr);
 
-  log("OpenCL setup: %ld ms\n", timer.delta());
+  log("OpenCL setup: %ld ms\n", (long) timer.delta());
 
   float maxErr  = 0;  
   u64 res;
   int k = startK;
   int saveK = 0;
   bool isCheck = false;
+
+  const int nKernels = 9;
+  TimeCounter *counters[nKernels] = {nullptr};
+  MicroTimer microTimer;
+  if (doTimeKernels) {
+    for (int i = 0; i < nKernels; ++i) { counters[i] = new TimeCounter(&microTimer); }
+  }
   
   do {
+    microTimer.delta();
     for (int nextLog = std::min((k / logStep + 1) * logStep, E - 2); k < nextLog; ++k) {
-      run(q, fftPremul1K, N / 8);
-      run(q, transpose1K, N / 32);
-      run(q, fft2K_1K,    N / 16);
+      run(q, fftPremul1K,  N / 8,  counters[0]);
+      run(q, transpose1K,  N / 32, counters[1]);
+      run(q, fft2K_1K,     N / 16, counters[2]);
       
-      run(q, csquare2K,   N / 4);
+      run(q, csquare2K,    N / 4,  counters[3]);
       
-      run(q, fft2K,       N / 16);
-      run(q, mtranspose2K, N / 32);
-      run(q, fft1K_2K,    N / 8);
+      run(q, fft2K,        N / 16, counters[4]);
+      run(q, mtranspose2K, N / 32, counters[5]);
+      run(q, fft1K_2K,     N / 8,  counters[6]);
         
-      run(q, carryA,      N / 16);
-      run(q, carryB_2K,   N / 16);
+      run(q, carryA,       N / 16, counters[7]);
+      run(q, carryB_2K,    N / 16, counters[8]);
     }
     
     unsigned rawErr = 0;
@@ -490,6 +494,22 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
       fileSaver.savePersist(data, k, res);
     }
 
+    if (doTimeKernels) {
+      const char *name[nKernels] = {
+        "fftPremul1K", "transpose1K", "fft2K_1K", "cquare2K", "fft2K", "mtranspose2K", "fft1K_2K", "carryA", "carryB",
+      };
+      u64 total = 0;
+      for (int i = 0; i < nKernels; ++i) { total += counters[i]->get(); }
+      const float iLogStep = 1 / (float) logStep;
+      const float iTotal   = 1 / (float) total;
+      for (int i = 0; i < nKernels; ++i) {
+        u64 c = counters[i]->get();
+        counters[i]->reset();
+        log("  %-12s %.1fus, %2.1f%%\n", name[i], c * iLogStep, c * 100 * iTotal);
+      }
+      log("  %-12s %.1fus\n", "Total", total * iLogStep);
+    }
+    
     if (err >= .5f) {
       log("Error %g is way too large, stopping.\n", err);
       return false;
@@ -520,10 +540,11 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
 }
 
 // return false to stop.
-bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *saveStep, int *forceDevice) {
+bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *saveStep, int *forceDevice, bool *timeKernels) {
   const int DEFAULT_LOGSTEP = 20000;
   *logStep  = DEFAULT_LOGSTEP;
   *saveStep = 0;
+  *timeKernels = false;
 
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
@@ -533,6 +554,7 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
           "    e.g. -cl -save-temps or -cl -save-temps=prefix or -cl -save-temps=folder/ to save ISA code\n"
           "-logstep  <N> : to log every <N> iterations (default %d)\n"
           "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
+          "-time kernels : to benchmark kernels\n"
           "-device   <N> : select specific device among:\n", *logStep, 500 * *logStep);
 
       cl_device_id devices[16];
@@ -587,6 +609,13 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
         log("-savestep expects <N> argument\n");
         return false;
       }
+    } else if(!strcmp(arg, "-time")) {
+      if (i < argc - 1 && !strcmp(argv[++i], "kernels")) {
+        *timeKernels = true;
+      } else {
+        log("-time expects 'kernels'\n");
+        return false;
+      }
     } else if (!strcmp(arg, "-device")) {
       if (i < argc - 1) {
         *forceDevice = atoi(argv[++i]);
@@ -630,7 +659,8 @@ int main(int argc, char **argv) {
   int forceDevice = -1;
   int logStep = 0;
   int saveStep = 0;
-  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice)) { return 0; }
+  bool doTimeKernels = false;
+  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice, &doTimeKernels)) { return 0; }
   
   cl_device_id device;
   if (forceDevice >= 0) {
@@ -661,7 +691,6 @@ int main(int argc, char **argv) {
   
   cl_mem bufTrig1K = genSmallTrig1K(context);
   cl_mem bufTrig2K = genSmallTrig2K(context);
-
   
   bool someSuccess = false;
   while (true) {
@@ -679,7 +708,7 @@ int main(int argc, char **argv) {
 
     bool isPrime;
     u64 res;
-    if (checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, saveStep, &isPrime, &res)) {
+    if (checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, saveStep, doTimeKernels, &isPrime, &res)) {
       if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
       
       int lineBegin, lineEnd;

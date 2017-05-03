@@ -6,26 +6,62 @@
 #include <cstdarg>
 #include <sys/time.h>
 
-long timeMillis() {
+typedef unsigned char byte;
+typedef long long i64;
+typedef unsigned long long u64;
+// typedef int64_t i64;
+// typedef uint64_t u64;
+
+u64 timeMillis() {
   struct timeval tv;
   gettimeofday(&tv, 0);
   return tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
+u64 timeMicros() {
+  struct timeval tv;
+  gettimeofday(&tv, 0);
+  return tv.tv_usec;
+}
+
 class Timer {
-  long prevTime;
+  u64 prev;
   
  public:
-  
-  Timer() : prevTime (timeMillis()) { }
+  Timer() : prev (timeMillis()) { }
 
-  long delta() {
-    long now = timeMillis();
-    long d = now - prevTime;
-    prevTime = now;
+  u64 delta() {
+    u64 now = timeMillis();
+    u64 d   = now - prev;
+    prev    = now;
     return d;
   }
+};
+
+class MicroTimer {
+  u64 prev;
   
+ public:
+  MicroTimer() : prev(timeMicros()) { }
+
+  u64 delta() {
+    u64 now = timeMicros();
+    u64 d = (now > prev) ? now - prev : (1000000 + now - prev);
+    prev = now;
+    return d;
+  }
+};
+
+class TimeCounter {
+  MicroTimer *timer;
+  u64 us;
+  
+ public:
+  TimeCounter(MicroTimer *t) : timer(t) , us(0) { }
+
+  void tick() { us += timer->delta(); }
+  u64 get() { return us; }
+  void reset() { us = 0; }
 };
 
 #define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
@@ -171,9 +207,23 @@ cl_queue makeQueue(cl_device_id d, cl_context c) {
   return q;
 }
 
+/*
 void run(cl_queue queue, cl_kernel kernel, size_t workSize) {
   size_t groupSize = 256;
   CHECK(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
+}
+*/
+
+void flush( cl_queue q) { CHECK(clFlush(q)); }
+void finish(cl_queue q) { CHECK(clFinish(q)); }
+
+void run(cl_queue queue, cl_kernel kernel, size_t workSize, TimeCounter *counter = nullptr) {
+  size_t groupSize = 256;
+  CHECK(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
+  if (counter) { 
+    finish(queue);
+    counter->tick();
+  }
 }
 
 void run(cl_queue queue, cl_kernel kernel, size_t workSize, const auto &a) {
@@ -193,6 +243,3 @@ void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, si
 void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *data, size_t start = 0) {
   CHECK(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
-
-void flush( cl_queue q) { CHECK(clFlush(q)); }
-void finish(cl_queue q) { CHECK(clFinish(q)); }
