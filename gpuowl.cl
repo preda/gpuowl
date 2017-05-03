@@ -1,7 +1,7 @@
 // gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
 
-#define K(x, y) kernel __attribute__((reqd_work_group_size(x, y, 1))) void
+#define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 #define CONST const global
 #define SMALL_CONST constant
 
@@ -124,7 +124,7 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig2k) {
   fft4(u + 4);
 }
 
-K(256, 1) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig1k) {
+KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig1k) {
   uint g = get_group_id(0);
   uint step = g * 1024;
   in  += step;
@@ -163,12 +163,12 @@ void fft1Kt(local double *lds, uint W, CONST double2 *in, global double2 *out, S
   for (int i = 0; i < 4; ++i) { out[i * 256 + me] = u[i]; }
 }
 
-K(256, 1) fft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+KERNEL(256) fft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
   local double lds[1024];
   fft1Kt(lds, 2048, in, out, trig1k);
 }
 
-K(256, 1) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
+KERNEL(256) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
   in += g * 2048;
   
@@ -187,7 +187,7 @@ K(256, 1) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
 }
 
 // input 1024/64, output 2048.
-K(256, 1) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig2k) {
+KERNEL(256) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
   in  += g % 16 * 64 + g / 16 * 1024;
 
@@ -247,7 +247,7 @@ int2 car1(long *carry, int2 r, uchar2 bits) {
 }
 
 // conjugates input
-K(256, 1) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global long *carryOut,
+KERNEL(256) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global long *carryOut,
                  CONST uchar2 *bitlen, global uint *globalMaxErr) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
@@ -298,7 +298,7 @@ void carryBCore(uint H, global int2 *in, CONST long *carryIn, CONST uchar2 *bitl
   if (carry) { atomic_max(maxErr, (1 << 29)); }  // Assert no carry left at this point.
 }
 
-K(256, 1) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
+KERNEL(256) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
   carryBCore(2048, in, carryIn, bitlen, maxErr);
 }
 
@@ -338,7 +338,7 @@ void csquare(uint W, global double2 *in, CONST double2 *trig) {
   }
 }
 
-K(256, 1) csquare2K(global double2 *in, CONST double2 *trig)  { csquare(2048, in, trig); }
+KERNEL(256) csquare2K(global double2 *in, CONST double2 *trig)  { csquare(2048, in, trig); }
 
 void transposeCore(local double *lds, double2 *u) {
   uint me = get_local_id(0);
@@ -358,7 +358,7 @@ void transposeCore(local double *lds, double2 *u) {
   }
 }
 
-K(256, 1) transpose1K(global double2 *in, CONST double2 *trig) {
+KERNEL(256) transpose1K(global double2 *in, CONST double2 *trig) {
   uint W = 1024;
   uint g = get_group_id(0);
   uint gx = g % (W / 64);
@@ -386,7 +386,7 @@ K(256, 1) transpose1K(global double2 *in, CONST double2 *trig) {
 }
 
 // transpose with multiplication on output.
-K(256, 1) mtranspose2K(global double2 *in, CONST double2 *trig) {
+KERNEL(256) mtranspose2K(global double2 *in, CONST double2 *trig) {
   uint W = 2048;
   uint g = get_group_id(0);
   uint gx = g % (W / 64);
