@@ -298,7 +298,7 @@ void carryBCore(uint H, global int2 *in, CONST long *carryIn, CONST uchar2 *bitl
     if (!carry) { return; }
   }
   
-  if (carry) { atomic_max(maxErr, (1 << 29)); }  // Assert no carry left at this point.
+  if (carry) { atomic_max(maxErr, (3 << 28)); }  // Assert no carry left at this point.
 }
 
 KERNEL(256) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
