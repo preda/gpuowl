@@ -1,7 +1,6 @@
 gpuowl
 gpuowl.log
-save-*.bin
-save-*.old
+*.ll
 log*.txt
 isa/
 *.isa
