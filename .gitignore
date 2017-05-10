@@ -6,7 +6,10 @@ isa/
 *.isa
 worktodo.txt
 results.txt
+results.old
 *.bak
+tmp/
+tmp?/
 
 # Compiled Object files
 *.slo
