@@ -396,7 +396,8 @@ void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, c
 }
 
 bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_mem bufTrig1K, cl_mem bufTrig2K,
-                int E, int logStep, int saveStep, bool doTimeKernels, bool *outIsPrime, u64 *outResidue) {
+                int E, int logStep, int saveStep, bool doTimeKernels, bool doSelfTest,
+                bool *outIsPrime, u64 *outResidue) {
   const int W = 1024;
   const int N = 2 * W * H;
   assert(H == 2048);
@@ -407,7 +408,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   data[0]     = 4; // LL root.
   
   FileSaver fileSaver(E, W, H);
-  if (!fileSaver.load(data, &startK)) { return false; }
+  if (!doSelfTest && !fileSaver.load(data, &startK)) { return false; }
   
   log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) at iteration %d\n",
       N / 1024, W, H, E, E / (double) N, startK);
@@ -461,10 +462,12 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   if (doTimeKernels) {
     for (int i = 0; i < nKernels; ++i) { counters[i] = new TimeCounter(&microTimer); }
   }
+
+  const int kEnd = doSelfTest ? 20000 : (E - 2);
   
   do {
     microTimer.delta();
-    for (int nextLog = std::min((k / logStep + 1) * logStep, E - 2); k < nextLog; ++k) {
+    for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); k < nextLog; ++k) {
       run(q, fftPremul1K,  N / 8,  counters[0]);
       run(q, transpose1K,  N / 32, counters[1]);
       run(q, fft2K_1K,     N / 16, counters[2]);
@@ -489,9 +492,12 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     double msPerIter = timer.delta() * (1 / (double) logStep);
     res = residue(N, W, data, shiftTab);      
     doLog(E, k, err, maxErr, msPerIter, res);
-    fileSaver.save(data, k);
-    if (k / saveStep != (k - logStep) / saveStep) {
-      fileSaver.savePersist(data, k, res);
+    
+    if (!doSelfTest) {
+      fileSaver.save(data, k);
+      if (k / saveStep != (k - logStep) / saveStep) {
+        fileSaver.savePersist(data, k, res);
+      }
     }
 
     if (doTimeKernels) {
@@ -523,7 +529,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
         log("Consistency check FAILED, something is wrong, stopping.\n");
         return false;
       }
-    } else if (prevMaxErr > 0 && err > 1.166f * prevMaxErr) {
+    } else if (prevMaxErr > 0 && err > 1.166f * prevMaxErr && logStep >= 1000 && !doSelfTest) {
       log("Error jump by %.2f%%, doing a consistency check.\n", (err / prevMaxErr - 1) * 100);      
       isCheck = true;
       write(q, true, bufData, sizeof(int) * N, saveData);
@@ -532,7 +538,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     
     memcpy(saveData, data, sizeof(int) * N);
     saveK = k;
-  } while (k < E - 2);
+  } while (k < kEnd);
 
   *outIsPrime = isAllZero(data, N);
   *outResidue = res;
@@ -540,11 +546,13 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
 }
 
 // return false to stop.
-bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *saveStep, int *forceDevice, bool *timeKernels) {
+bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *saveStep, int *forceDevice, bool *timeKernels,
+               bool *selfTest) {
   const int DEFAULT_LOGSTEP = 20000;
   *logStep  = DEFAULT_LOGSTEP;
   *saveStep = 0;
   *timeKernels = false;
+  *selfTest = false;
 
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
@@ -555,6 +563,8 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
           "-logstep  <N> : to log every <N> iterations (default %d)\n"
           "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
           "-time kernels : to benchmark kernels\n"
+          "-selftest     : perform self tests from 'selftest.txt'\n"
+          "                Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n"
           "-device   <N> : select specific device among:\n", *logStep, 500 * *logStep);
 
       cl_device_id devices[16];
@@ -616,6 +626,8 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
         log("-time expects 'kernels'\n");
         return false;
       }
+    } else if (!strcmp(arg, "-selftest")) {
+      *selfTest = true;
     } else if (!strcmp(arg, "-device")) {
       if (i < argc - 1) {
         *forceDevice = atoi(argv[++i]);
@@ -659,8 +671,8 @@ int main(int argc, char **argv) {
   int forceDevice = -1;
   int logStep = 0;
   int saveStep = 0;
-  bool doTimeKernels = false;
-  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice, &doTimeKernels)) { return 0; }
+  bool doTimeKernels = false, doSelfTest = false;
+  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice, &doTimeKernels, &doSelfTest)) { return 0; }
   
   cl_device_id device;
   if (forceDevice >= 0) {
@@ -691,7 +703,33 @@ int main(int argc, char **argv) {
   
   cl_mem bufTrig1K = genSmallTrig1K(context);
   cl_mem bufTrig2K = genSmallTrig2K(context);
+
+  bool isPrime;
+  u64 res;
   
+  if (doSelfTest) {
+    FILE *fi = fopen("selftest.txt", "r");
+    bool testOK = true;
+    int E;
+    u64 expectedRes;
+    while (fscanf(fi, "%d %llx\n", &E, &expectedRes) == 2) {
+      log("self testing %d\n", E);
+      if (!checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, saveStep, doTimeKernels, true,
+                      &isPrime, &res)) {
+        testOK = false;
+        break;
+      }
+      if (res != expectedRes) {
+        testOK = false;
+        log("Expected %d 20K residue %016llx, got %016llx\n", E, expectedRes, res);
+        break;
+      } else {
+        log("OK %d\n", E);
+      }
+    }
+    log(testOK ? "Self test OK\n" : "Self test FAILED\n");
+    fclose(fi);
+  } else {
   bool someSuccess = false;
   while (true) {
     char AID[64];
@@ -706,9 +744,8 @@ int main(int argc, char **argv) {
     }
     someSuccess = true;
 
-    bool isPrime;
-    u64 res;
-    if (checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, saveStep, doTimeKernels, &isPrime, &res)) {
+    if (checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, saveStep, doTimeKernels, false,
+                   &isPrime, &res)) {
       if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
       
       int lineBegin, lineEnd;
@@ -720,6 +757,7 @@ int main(int argc, char **argv) {
     } else {
       break;
     }
+  }
   }
   
   release(program);
