@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <string>
 
 #define KERNEL(program, name, ...) cl_kernel name = makeKernel(program, #name); setArgs(name, __VA_ARGS__)
 
@@ -24,6 +25,40 @@ const char *AGENT = "gpuowl v" VERSION;
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
+
+class Kernel {
+  std::string name;
+  cl_kernel kernel;
+  int sizeShift;
+  TimeCounter *counter;
+
+public:
+  Kernel(cl_program program, const char *iniName, int iniSizeShift, MicroTimer *timer = nullptr) :
+    name(iniName),
+    sizeShift(iniSizeShift),
+    counter(timer ? new TimeCounter(timer) : 0)
+  {
+    
+    kernel = makeKernel(program, name.c_str());
+  }
+
+  ~Kernel() {
+    if (counter) { delete counter; }
+    release(kernel);
+  }
+
+  const char *getName() { return name.c_str(); }
+  void run(cl_queue q, int N) { ::run(q, kernel, N >> sizeShift); }
+  u64 getCounter() { return counter->get(); }
+  void resetCounter() { counter->reset(); }
+};
+
+class Buf {
+public:
+  cl_mem buf;
+  Buf(cl_mem iniBuf) : buf(iniBuf) { }
+  ~Buf() { release(buf); }
+};
 
 void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
   double *pa = aTab;
