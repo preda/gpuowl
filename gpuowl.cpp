@@ -53,11 +53,25 @@ public:
   void resetCounter() { counter->reset(); }
 };
 
-class Buf {
+template<typename T, void (*release)(T)>
+class Resource {
+  T p;
+  
 public:
-  cl_mem buf;
-  Buf(cl_mem iniBuf) : buf(iniBuf) { }
-  ~Buf() { release(buf); }
+  Resource(T inip) : p(inip) { }
+  ~Resource() { release(p); }
+  
+  T operator()() { return p; }
+};
+
+using Buffer = Resource<cl_mem, &release>;
+
+static_assert(sizeof(Buffer) == sizeof(cl_mem));
+
+struct CLState {
+  cl_context c;
+  cl_program p;
+  cl_queue q;
 };
 
 void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
@@ -450,25 +464,27 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     
   Timer timer;
   
-  cl_mem bufA, bufI, bufBitlen;
-  int shiftTab[32];
-  setupExponentBufs(context, E, W, H, &bufA, &bufI, &bufBitlen, shiftTab);
 
+  int shiftTab[32];
+  cl_mem pBufA, pBufI, pBufBitlen;
+  setupExponentBufs(context, E, W, H, &pBufA, &pBufI, &pBufBitlen, shiftTab);
+  Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
+  
   double *bigTrig = genBigTrig(W, H);
-  cl_mem bufBigTrig = makeBuf(context, BUF_CONST, sizeof(double) * N, bigTrig);
+  Buffer bufBigTrig = makeBuf(context, BUF_CONST, sizeof(double) * N, bigTrig);
   delete[] bigTrig;
   
   double *sins = genSin(H, W); // transposed W/H !
-  cl_mem bufSins = makeBuf(context, BUF_CONST, sizeof(double) * N / 2, sins);
+  Buffer bufSins = makeBuf(context, BUF_CONST, sizeof(double) * N / 2, sins);
   delete[] sins;
 
-  cl_mem buf1     = makeBuf(context, BUF_RW, sizeof(double) * N);
-  cl_mem buf2     = makeBuf(context, BUF_RW, sizeof(double) * N);
-  cl_mem bufCarry = makeBuf(context, BUF_RW, sizeof(long)   * N / 8);
+  Buffer buf1     = makeBuf(context, BUF_RW, sizeof(double) * N);
+  Buffer buf2     = makeBuf(context, BUF_RW, sizeof(double) * N);
+  Buffer bufCarry = makeBuf(context, BUF_RW, sizeof(long)   * N / 8);
 
   const unsigned zero = 0;
-  cl_mem bufErr   = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
-  cl_mem bufData  = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * N, data);
+  Buffer bufErr   = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
+  Buffer bufData  = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * N, data);
 
   KERNEL(program, fftPremul1K, bufData, buf1, bufA, bufTrig1K);
   KERNEL(program, transpose1K, buf1, bufBigTrig);
@@ -518,9 +534,9 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     }
     
     unsigned rawErr = 0;
-    read(q,  false, bufErr,  sizeof(unsigned), &rawErr);
-    write(q, false, bufErr,  sizeof(unsigned), &zero);
-    read(q,  true,  bufData, sizeof(int) * N, data);
+    read(q,  false, bufErr(),  sizeof(unsigned), &rawErr);
+    write(q, false, bufErr(),  sizeof(unsigned), &zero);
+    read(q,  true,  bufData(), sizeof(int) * N, data);
     float err = rawErr * (1 / (float) (1 << 30));
     float prevMaxErr = maxErr;
     maxErr = std::max(err, maxErr);
@@ -567,7 +583,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     } else if (prevMaxErr > 0 && err > 1.166f * prevMaxErr && logStep >= 1000 && !doSelfTest) {
       log("Error jump by %.2f%%, doing a consistency check.\n", (err / prevMaxErr - 1) * 100);      
       isCheck = true;
-      write(q, true, bufData, sizeof(int) * N, saveData);
+      write(q, true, bufData(), sizeof(int) * N, saveData);
       k = saveK;
     }
     
