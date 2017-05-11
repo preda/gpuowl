@@ -56,11 +56,14 @@ public:
 template<typename T, void (*release)(T)>
 class Resource {
   T p;
+
+  Resource(const Resource &) = delete;
+  void operator=(const Resource &) = delete;
   
 public:
   Resource(T inip) : p(inip) { }
   ~Resource() { release(p); }
-  
+
   T operator()() { return p; }
 };
 
@@ -471,20 +474,20 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
   
   double *bigTrig = genBigTrig(W, H);
-  Buffer bufBigTrig = makeBuf(context, BUF_CONST, sizeof(double) * N, bigTrig);
+  Buffer bufBigTrig{makeBuf(context, BUF_CONST, sizeof(double) * N, bigTrig)};
   delete[] bigTrig;
   
   double *sins = genSin(H, W); // transposed W/H !
-  Buffer bufSins = makeBuf(context, BUF_CONST, sizeof(double) * N / 2, sins);
+  Buffer bufSins{makeBuf(context, BUF_CONST, sizeof(double) * N / 2, sins)};
   delete[] sins;
 
-  Buffer buf1     = makeBuf(context, BUF_RW, sizeof(double) * N);
-  Buffer buf2     = makeBuf(context, BUF_RW, sizeof(double) * N);
-  Buffer bufCarry = makeBuf(context, BUF_RW, sizeof(long)   * N / 8);
+  Buffer buf1{makeBuf(context, BUF_RW, sizeof(double) * N)};
+  Buffer buf2{makeBuf(context, BUF_RW, sizeof(double) * N)};
+  Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(long)   * N / 8)};
 
   const unsigned zero = 0;
-  Buffer bufErr   = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero);
-  Buffer bufData  = makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * N, data);
+  Buffer bufErr{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero)};
+  Buffer bufData{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * N, data)};
 
   KERNEL(program, fftPremul1K, bufData, buf1, bufA, bufTrig1K);
   KERNEL(program, transpose1K, buf1, bufBigTrig);

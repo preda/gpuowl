@@ -180,17 +180,16 @@ cl_kernel makeKernel(cl_program program, const char *name) {
 }
 
 void setArg(cl_kernel k, int pos, const auto &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
-void setArgs(cl_kernel k, const auto &a) { setArg(k, 0, a); }
-void setArgs(cl_kernel k, const auto &a, const auto &b) { setArgs(k, a); setArg(k, 1, b); }
-void setArgs(cl_kernel k, const auto &a, const auto &b, const auto &c) { setArgs(k, a, b); setArg(k, 2, c); }
-void setArgs(cl_kernel k, const auto &a, const auto &b, const auto &c, const auto &d) { setArgs(k, a, b, c); setArg(k, 3, d); }
-void setArgs(cl_kernel k, const auto &a, const auto &b, const auto &c, const auto &d, const auto &e) {
-  setArgs(k, a, b, c, d);
-  setArg(k, 4, e);
+
+template<int pos> void setArgsAt(cl_kernel k) {}
+
+template<int pos, typename T, typename... V> void setArgsAt(cl_kernel k, const T &a, const V&... args) {
+  setArg(k, pos, a);
+  setArgsAt<pos + 1>(k, args...);
 }
-void setArgs(cl_kernel k, const auto &a, const auto &b, const auto &c, const auto &d, const auto &e, const auto &f) {
-  setArgs(k, a, b, c, d, e);
-  setArg(k, 5, f);
+
+template<typename... T> void setArgs(cl_kernel k, const T&... args) {
+  setArgsAt<0>(k, args...);
 }
 
 cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0) {
