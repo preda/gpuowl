@@ -2,6 +2,7 @@
 // Copyright (C) 2017 Mihai Preda.
 
 #include "clwrap.h"
+#include "timeutil.h"
 
 #include <memory>
 #include <cassert>
@@ -26,33 +27,6 @@ const char *AGENT = "gpuowl v" VERSION;
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
-class Kernel {
-  std::string name;
-  cl_kernel kernel;
-  int sizeShift;
-  TimeCounter *counter;
-
-public:
-  Kernel(cl_program program, const char *iniName, int iniSizeShift, MicroTimer *timer = nullptr) :
-    name(iniName),
-    sizeShift(iniSizeShift),
-    counter(timer ? new TimeCounter(timer) : 0)
-  {
-    
-    kernel = makeKernel(program, name.c_str());
-  }
-
-  ~Kernel() {
-    if (counter) { delete counter; }
-    release(kernel);
-  }
-
-  const char *getName() { return name.c_str(); }
-  void run(cl_queue q, int N) { ::run(q, kernel, N >> sizeShift); }
-  u64 getCounter() { return counter->get(); }
-  void resetCounter() { counter->reset(); }
-};
-
 template<typename T, void (*release)(T)>
 class Resource {
   T p;
@@ -70,6 +44,38 @@ public:
 using Buffer = Resource<cl_mem, &release>;
 
 static_assert(sizeof(Buffer) == sizeof(cl_mem));
+
+class Kernel {
+  using Kern = Resource<cl_kernel, &release>;
+  
+  std::string name;
+  Kern kernel;
+  TimeCounter counter;
+  int sizeShift;
+  bool doTime;
+
+public:
+  Kernel(cl_program program, const char *iniName, int iniSizeShift, MicroTimer &timer, bool doTime) :
+    name(iniName),
+    kernel(makeKernel(program, name.c_str())),
+    counter(&timer),
+    sizeShift(iniSizeShift),
+    doTime(doTime)
+  { }
+
+  void setArgs(auto&... args) { ::setArgs(kernel(), args...); }
+  
+  const char *getName() { return name.c_str(); }
+  void run(cl_queue q, int N) {
+    ::run(q, kernel(), N >> sizeShift);
+    if (doTime) {
+      finish(q);
+      counter.tick();
+    }
+  }
+  u64 getCounter() { return counter.get(); }
+  void resetCounter() { counter.reset(); }
+};
 
 struct CLState {
   cl_context c;
@@ -489,18 +495,33 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   Buffer bufErr{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero)};
   Buffer bufData{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * N, data)};
 
-  KERNEL(program, fftPremul1K, bufData, buf1, bufA, bufTrig1K);
-  KERNEL(program, transpose1K, buf1, bufBigTrig);
-  KERNEL(program, fft2K_1K, buf1, buf2, bufTrig2K);
-  
-  KERNEL(program, csquare2K, buf2, bufSins);
+  MicroTimer microTimer;
+  Kernel fftPremul1K(program, "fftPremul1K", 3, microTimer, doTimeKernels);
+  fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
 
-  KERNEL(program, fft2K, buf2, bufTrig2K);
-  KERNEL(program, mtranspose2K, buf2, bufBigTrig);
-  KERNEL(program, fft1K_2K, buf2, buf1, bufTrig1K);
-  
-  KERNEL(program, carryA, buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
-  KERNEL(program, carryB_2K,          bufData, bufCarry, bufBitlen, bufErr);
+  Kernel transpose1K(program, "transpose1K", 5, microTimer, doTimeKernels);
+  transpose1K.setArgs(buf1, bufBigTrig);
+
+  Kernel fft2K_1K(program, "fft2K_1K", 4, microTimer, doTimeKernels);
+  fft2K_1K.setArgs(buf1, buf2, bufTrig2K);
+
+  Kernel csquare2K(program, "csquare2K", 2, microTimer, doTimeKernels);
+  csquare2K.setArgs(buf2, bufSins);
+
+  Kernel fft2K(program, "fft2K", 4, microTimer, doTimeKernels);
+  fft2K.setArgs(buf2, bufTrig2K);
+
+  Kernel mtranspose2K(program, "mtranspose2K", 5, microTimer, doTimeKernels);
+  mtranspose2K.setArgs(buf2, bufBigTrig);
+
+  Kernel fft1K_2K(program, "fft1K_2K", 3, microTimer, doTimeKernels);
+  fft1K_2K.setArgs(buf2, buf1, bufTrig1K);
+
+  Kernel carryA(program, "carryA", 4, microTimer, doTimeKernels);
+  carryA.setArgs(buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
+
+  Kernel carryB_2K(program, "carryB_2K", 4, microTimer, doTimeKernels);
+  carryB_2K.setArgs(bufData, bufCarry, bufBitlen, bufErr);
 
   log("OpenCL setup: %ld ms\n", (long) timer.delta());
 
@@ -510,30 +531,14 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   int saveK = 0;
   bool isCheck = false;
 
-  const int nKernels = 9;
-  TimeCounter *counters[nKernels] = {nullptr};
-  MicroTimer microTimer;
-  if (doTimeKernels) {
-    for (int i = 0; i < nKernels; ++i) { counters[i] = new TimeCounter(&microTimer); }
-  }
+  Kernel *kernels[] = {&fftPremul1K, &transpose1K, &fft2K_1K, &csquare2K, &fft2K, &mtranspose2K, &fft1K_2K, &carryA, &carryB_2K};
 
   const int kEnd = doSelfTest ? 20000 : (E - 2);
   
   do {
-    microTimer.delta();
+    if (doTimeKernels) { microTimer.delta(); }
     for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); k < nextLog; ++k) {
-      run(q, fftPremul1K,  N / 8,  counters[0]);
-      run(q, transpose1K,  N / 32, counters[1]);
-      run(q, fft2K_1K,     N / 16, counters[2]);
-      
-      run(q, csquare2K,    N / 4,  counters[3]);
-      
-      run(q, fft2K,        N / 16, counters[4]);
-      run(q, mtranspose2K, N / 32, counters[5]);
-      run(q, fft1K_2K,     N / 8,  counters[6]);
-        
-      run(q, carryA,       N / 16, counters[7]);
-      run(q, carryB_2K,    N / 16, counters[8]);
+      for (Kernel *kernel : kernels) { kernel->run(q, N); }
     }
     
     unsigned rawErr = 0;
@@ -555,17 +560,14 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     }
 
     if (doTimeKernels) {
-      const char *name[nKernels] = {
-        "fftPremul1K", "transpose1K", "fft2K_1K", "csquare2K", "fft2K", "mtranspose2K", "fft1K_2K", "carryA", "carryB_2K",
-      };
       u64 total = 0;
-      for (int i = 0; i < nKernels; ++i) { total += counters[i]->get(); }
+      for (Kernel *kernel : kernels) { total += kernel->getCounter(); }
       const float iLogStep = 1 / (float) logStep;
       const float iTotal   = 1 / (float) total;
-      for (int i = 0; i < nKernels; ++i) {
-        u64 c = counters[i]->get();
-        counters[i]->reset();
-        log("  %-12s %.1fus, %02.1f%%\n", name[i], c * iLogStep, c * 100 * iTotal);
+      for (Kernel *kernel : kernels) {
+        u64 c = kernel->getCounter();
+        kernel->resetCounter();
+        log("  %-12s %.1fus, %02.1f%%\n", kernel->getName(), c * iLogStep, c * 100 * iTotal);
       }
       log("  %-12s %.1fus\n", "Total", total * iLogStep);
     }

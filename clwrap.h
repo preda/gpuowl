@@ -4,65 +4,6 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdarg>
-#include <sys/time.h>
-
-typedef unsigned char byte;
-typedef long long i64;
-typedef unsigned long long u64;
-// typedef int64_t i64;
-// typedef uint64_t u64;
-
-u64 timeMillis() {
-  struct timeval tv;
-  gettimeofday(&tv, 0);
-  return tv.tv_sec * 1000 + tv.tv_usec / 1000;
-}
-
-u64 timeMicros() {
-  struct timeval tv;
-  gettimeofday(&tv, 0);
-  return tv.tv_usec;
-}
-
-class Timer {
-  u64 prev;
-  
- public:
-  Timer() : prev (timeMillis()) { }
-
-  u64 delta() {
-    u64 now = timeMillis();
-    u64 d   = now - prev;
-    prev    = now;
-    return d;
-  }
-};
-
-class MicroTimer {
-  u64 prev;
-  
- public:
-  MicroTimer() : prev(timeMicros()) { }
-
-  u64 delta() {
-    u64 now = timeMicros();
-    u64 d = (now > prev) ? now - prev : (1000000 + now - prev);
-    prev = now;
-    return d;
-  }
-};
-
-class TimeCounter {
-  MicroTimer *timer;
-  u64 us;
-  
- public:
-  TimeCounter(MicroTimer *t) : timer(t) , us(0) { }
-
-  void tick() { us += timer->delta(); }
-  u64 get() { return us; }
-  void reset() { us = 0; }
-};
 
 #define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
 #define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d (%s)\n", e, mes); assert(false); }}
@@ -181,14 +122,17 @@ cl_kernel makeKernel(cl_program program, const char *name) {
 
 void setArg(cl_kernel k, int pos, const auto &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
 
-template<int pos> void setArgsAt(cl_kernel k) {}
+template<int pos>
+void setArgsAt(cl_kernel k) {}
 
-template<int pos, typename T, typename... V> void setArgsAt(cl_kernel k, const T &a, const V&... args) {
+template<int pos, typename T, typename... V>
+void setArgsAt(cl_kernel k, const T &a, const V&... args) {
   setArg(k, pos, a);
   setArgsAt<pos + 1>(k, args...);
 }
 
-template<typename... T> void setArgs(cl_kernel k, const T&... args) {
+template<typename... T>
+void setArgs(cl_kernel k, const T&... args) {
   setArgsAt<0>(k, args...);
 }
 
@@ -216,13 +160,9 @@ void run(cl_queue queue, cl_kernel kernel, size_t workSize) {
 void flush( cl_queue q) { CHECK(clFlush(q)); }
 void finish(cl_queue q) { CHECK(clFinish(q)); }
 
-void run(cl_queue queue, cl_kernel kernel, size_t workSize, TimeCounter *counter = nullptr) {
+void run(cl_queue queue, cl_kernel kernel, size_t workSize) {
   size_t groupSize = 256;
   CHECK(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
-  if (counter) { 
-    finish(queue);
-    counter->tick();
-  }
 }
 
 void run(cl_queue queue, cl_kernel kernel, size_t workSize, const auto &a) {
