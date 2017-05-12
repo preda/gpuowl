@@ -3,6 +3,8 @@
 
 #include "clwrap.h"
 #include "timeutil.h"
+#include "checkpoint.h"
+#include "common.h"
 
 #include <memory>
 #include <cassert>
@@ -215,10 +217,6 @@ u64 residue(int N, int W, int *data, const int *shiftTab) {
 
 FILE *logFiles[3] = {0, 0, 0};
 
-#ifdef __GNUC__
-void log(const char *fmt, ...) __attribute__ ((format(printf, 1, 2)));
-#endif
-
 void log(const char *fmt, ...) {
   va_list va;
   for (FILE **pf = logFiles; *pf; ++pf) {
@@ -227,103 +225,6 @@ void log(const char *fmt, ...) {
     va_end(va);
   }
 }
-
-FILE *open(const char *name, const char *mode) {
-  FILE *f = fopen(name, mode);
-  if (!f) { log("Can't open '%s' (mode '%s')\n", name, mode); }
-  return f;
-}
-
-int checksum(int *data, unsigned words) {
-  int sum = 0;
-  for (int *p = data, *end = data + words; p < end; ++p) { sum += *p; }
-  return sum;
-}
-
-class FileSaver {
-private:
-  char fileNameSave[64];
-  int E, W, H;
-  // Header: "\nLL2 <exponent> <iteration> <width> <height> <offset> <sum> \n"
-  const char *headerFormat = "\nLL2 %d %d %d %d %d %d\n";
-  
-public:
-  FileSaver(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
-    snprintf(fileNameSave, sizeof(fileNameSave), "c%d.ll", E);
-  }
-  
-  bool load(int *data, int *startK) {
-    FILE *fi = open(fileNameSave, "rb");    
-    if (!fi) { return false; }
-    
-    int N = 2 * W * H;
-    int wordsSize = sizeof(int) * N;
-    int n = fread(data, 1, wordsSize + 128, fi);
-    fclose(fi);
-
-    if (n < wordsSize || n >= wordsSize + 128) {
-      log("File '%s' has invalid size (%d)\n", fileNameSave, n);
-      return false;
-    }
-        
-    int fileE, fileK, fileW, fileH, fileOffset, fileSum;
-    char *header = (char *) (data + N);
-    header[n - wordsSize] = 0;
-    
-    if (sscanf(header, headerFormat, &fileE, &fileK, &fileW, &fileH, &fileOffset, &fileSum) != 6 ||
-        !(E == fileE && W == fileW && H == fileH && 0 == fileOffset)) {
-      log("File '%s' has wrong tailer '%s'\n", fileNameSave, header);
-      return false;
-    }
-    
-    if (fileSum != checksum(data, N)) {
-      log("File '%s' has wrong checksum (expected %d got %d)\n", fileNameSave, fileSum, checksum(data, N));
-      return false;
-    }
-    
-    *startK = fileK;
-    return true;
-  }
-
-  bool write(int size, const void *data, const char *name) {
-    if (FILE *fo = open(name, "wb")) {
-      int nWritten = fwrite(data, size, 1, fo);
-      fclose(fo);      
-      if (nWritten == 1) {
-        return true;
-      } else {
-        log("Error writing file '%s'\n", name);
-      }
-    }
-    return false;
-  }
-
-  int prepareHeader(int *data, int k) {
-    int N = 2 * W * H;
-    int n = snprintf((char *) (data + N), 128, headerFormat, E, k, W, H, 0, checksum(data, N));
-    assert(n < 128);
-    return n;
-  }
-  
-  void save(int *data, int k, bool savePersist, u64 residue) {
-    char fileTemp[64], filePrev[64];
-    snprintf(fileTemp, sizeof(fileTemp), "b%d.ll", E);
-    snprintf(filePrev, sizeof(filePrev), "t%d.ll", E);
-
-    int headerSize = prepareHeader(data, k);
-    const int totalSize = sizeof(int) * 2 * W * H + headerSize;
-    if (write(totalSize, data, fileTemp)) {
-      remove(filePrev);
-      rename(fileNameSave, filePrev);
-      rename(fileTemp, fileNameSave);      
-    }
-    if (savePersist) {
-      char name[64];
-      snprintf(name, sizeof(name), "s%d.%d.%016llx.ll", E, k, (unsigned long long) residue);
-      write(totalSize, data, name);
-    }
-  }
-};
 
 void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
   const float percent = 100 / (float) (E - 2);
@@ -457,8 +358,8 @@ bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, 
   std::unique_ptr<int[]> releaseSaveData(saveData);
 
   int startK = 0;
-  FileSaver fileSaver(E, W, H);
-  if (!doSelfTest && !fileSaver.load(data, &startK)) { return false; }
+  Checkpoint checkpoint(E, W, H);
+  if (!doSelfTest && !checkpoint.load(data, &startK)) { return false; }
   
   log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) at iteration %d\n",
       N / 1024, W, H, E, E / (double) N, startK);
@@ -496,7 +397,7 @@ bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, 
 
     if (!doSelfTest) {
       bool doSavePersist = (k / saveStep != (k - logStep) / saveStep);
-      fileSaver.save(data, k, doSavePersist, res);
+      checkpoint.save(data, k, doSavePersist, res);
     }
     
     float msPerIter = timer.delta() * (1 / (float) std::max(k - startK, 1));
@@ -709,8 +610,6 @@ int main(int argc, char **argv) {
   getDeviceInfo(device, sizeof(info), info);
   log("%s\n", info);
   
-  // log("Will log every %d iterations, and persist checkpoint every %d iterations.\n", logStep, saveStep);
-  
   cl_context context = createContext(device);
   cl_queue queue = makeQueue(device, context);
 
@@ -732,18 +631,6 @@ int main(int argc, char **argv) {
 
   std::vector<Kernel *> kernels{&fftPremul1K, &transpose1K, &fft2K_1K, &csquare2K, &fft2K, &mtranspose2K, &fft1K_2K, &carryA, &carryB_2K};
   
-  /*
-  Kernel fftPremul1K (program, "fftPremul1K",  3, microTimer, doTimeKernels);
-  Kernel transpose1K (program, "transpose1K",  5, microTimer, doTimeKernels);
-  Kernel fft2K_1K    (program, "fft2K_1K",     4, microTimer, doTimeKernels);
-  Kernel csquare2K   (program, "csquare2K",    2, microTimer, doTimeKernels);
-  Kernel fft2K       (program, "fft2K",        4, microTimer, doTimeKernels);
-  Kernel mtranspose2K(program, "mtranspose2K", 5, microTimer, doTimeKernels);
-  Kernel fft1K_2K    (program, "fft1K_2K",     3, microTimer, doTimeKernels);
-  Kernel carryA      (program, "carryA",       4, microTimer, doTimeKernels);
-  Kernel carryB_2K   (program, "carryB_2K",    4, microTimer, doTimeKernels);
-  */
-
   const int W = 1024, H = 2048;
   const int N = 2 * W * H;
   
