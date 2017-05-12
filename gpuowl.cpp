@@ -11,8 +11,7 @@
 #include <cstring>
 #include <ctime>
 #include <string>
-
-#define KERNEL(program, name, ...) cl_kernel name = makeKernel(program, #name); setArgs(name, __VA_ARGS__)
+#include <vector>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -75,6 +74,7 @@ public:
   }
   u64 getCounter() { return counter.get(); }
   void resetCounter() { counter.reset(); }
+  void tick() { counter.tick(); }
 };
 
 struct CLState {
@@ -109,9 +109,10 @@ void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab)
   }
 }
 
-double *genBigTrig(int W, int H) {
-  double *out = new double[2 * W * H];
-  double *p = out;
+cl_mem genBigTrig(cl_context context, int W, int H) {
+  const int size = 2 * W * H;
+  double *tab = new double[size];
+  double *p = tab;
   auto base = - M_PIl / (W * H / 2);
   for (int gy = 0; gy < H / 64; ++gy) {
     for (int gx = 0; gx < W / 64; ++gx) {
@@ -125,12 +126,16 @@ double *genBigTrig(int W, int H) {
       }
     }
   }
-  return out;
+
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;
 }
 
-double *genSin(int W, int H) {
-  double *data = new double[2 * (W / 2) * H]();
-  double *p = data;
+cl_mem genSin(cl_context context, int W, int H) {
+  const int size = 2 * (W / 2) * H;
+  double *tab = new double[size]();
+  double *p = tab;
   auto base = - M_PIl / (W * H);
   for (int line = 0; line < H; ++line) {
     for (int col = 0; col < (W / 2); ++col) {
@@ -140,7 +145,10 @@ double *genSin(int W, int H) {
       *p++ = cosl(angle);
     }
   }
-  return data;
+
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;
 }
 
 double *smallTrigBlock(int W, int H, double *out) {
@@ -220,6 +228,12 @@ void log(const char *fmt, ...) {
   }
 }
 
+FILE *open(const char *name, const char *mode) {
+  FILE *f = fopen(name, mode);
+  if (!f) { log("Can't open '%s' (mode '%s')\n", name, mode); }
+  return f;
+}
+
 int checksum(int *data, unsigned words) {
   int sum = 0;
   for (int *p = data, *end = data + words; p < end; ++p) { sum += *p; }
@@ -239,11 +253,8 @@ public:
   }
   
   bool load(int *data, int *startK) {
-    FILE *fi = fopen(fileNameSave, "rb");    
-    if (!fi) { 
-      log("Checkpoint file '%s' not found.\n", fileNameSave);
-      return false;
-    }
+    FILE *fi = open(fileNameSave, "rb");    
+    if (!fi) { return false; }
     
     int N = 2 * W * H;
     int wordsSize = sizeof(int) * N;
@@ -275,8 +286,7 @@ public:
   }
 
   bool write(int size, const void *data, const char *name) {
-    FILE *fo = fopen(name, "wb");
-    if (fo) {
+    if (FILE *fo = open(name, "wb")) {
       int nWritten = fwrite(data, size, 1, fo);
       fclose(fo);      
       if (nWritten == 1) {
@@ -284,8 +294,6 @@ public:
       } else {
         log("Error writing file '%s'\n", name);
       }
-    } else {
-      log("Can't write file '%s'\n", name);
     }
     return false;
   }
@@ -329,11 +337,8 @@ void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
 }
 
 int worktodoReadExponent(char *AID) {
-  FILE *fi = fopen("worktodo.txt", "r");
-  if (!fi) {
-    log("No 'worktodo.txt' file found\n");
-    return 0;
-  }
+  FILE *fi = open("worktodo.txt", "r");
+  if (!fi) { return 0; }
 
   char line[256];
   char kind[32];
@@ -357,11 +362,8 @@ int worktodoReadExponent(char *AID) {
 }
 
 bool worktodoGetLinePos(int E, int *begin, int *end) {
-  FILE *fi = fopen("worktodo.txt", "r");
-  if (!fi) {
-    log("No 'worktodo.txt' file found\n");
-    return false;
-  }
+  FILE *fi = open("worktodo.txt", "r");
+  if (!fi) { return false; }
 
   char line[256];
   char kind[32];
@@ -387,17 +389,16 @@ bool worktodoGetLinePos(int E, int *begin, int *end) {
 
 bool worktodoDelete(int begin, int end) {
   assert(begin >= 0 && end > begin);
-  FILE *fi = fopen("worktodo.txt", "r");
+  FILE *fi = open("worktodo.txt", "r");
+  if (!fi) { return true; }
   char buf[64 * 1024];
   int n = fread(buf, 1, sizeof(buf), fi);
-  if (n == sizeof(buf) || end > n) {
-    fclose(fi);
-    return false;
-  }
-  memmove(buf + begin, buf + end, n - end);
   fclose(fi);
+  if (n == sizeof(buf) || end > n) { return false; }
+  memmove(buf + begin, buf + end, n - end);
   
-  FILE *fo = fopen("worktodo-tmp.tmp", "w");
+  FILE *fo = open("worktodo-tmp.tmp", "w");
+  if (!fo) { return false; }
   int newSize = begin + n - end;
   bool ok = (newSize == 0) || (fwrite(buf, newSize, 1, fo) == 1);
   fclose(fo);
@@ -406,13 +407,23 @@ bool worktodoDelete(int begin, int end) {
     (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
 }
 
+bool worktodoDelete(int E) {
+  int lineBegin, lineEnd;
+  return worktodoGetLinePos(E, &lineBegin, &lineEnd) && worktodoDelete(lineBegin, lineEnd);
+}
+
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
-  FILE *fo = fopen("results.txt", "a");
-  if (!fo) { return false; }
-  fprintf(fo, "M( %d )%c, 0x%016llx, offset = 0, n = %dK, %s, AID: %s\n",
-          E, isPrime ? 'P' : 'C', (unsigned long long) residue, 4096, AGENT, AID);
-  fclose(fo);
-  return true;
+  char buf[128];
+  snprintf(buf, sizeof(buf), "M( %d )%c, 0x%016llx, offset = 0, n = %dK, %s, AID: %s",
+           E, isPrime ? 'P' : 'C', (unsigned long long) residue, 4096, AGENT, AID);
+  log("%s\n", buf);
+  if (FILE *fo = open("results.txt", "a")) {
+    fprintf(fo, "%s\n", buf);
+    fclose(fo);
+    return true;
+  } else {
+    return false;
+  }
 }
 
 void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, cl_mem *pBufI, cl_mem *pBufBitlen, int *shiftTab) {
@@ -433,18 +444,19 @@ void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, c
   delete[] bitlenTab;
 }
 
-bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_mem bufTrig1K, cl_mem bufTrig2K,
-                int E, int logStep, int saveStep, bool doTimeKernels, bool doSelfTest,
+bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, int E, int *shiftTab,
+                int logStep, int saveStep, bool doTimeKernels, bool doSelfTest,
+                cl_mem bufData, cl_mem bufErr,
                 bool *outIsPrime, u64 *outResidue) {
-  const int W = 1024;
   const int N = 2 * W * H;
-  assert(H == 2048);
+
+  int *data = new int[N + 32]{4};  // 4 is LL root.
+  int *saveData = new int[N];
+  
+  std::unique_ptr<int[]> releaseData(data);
+  std::unique_ptr<int[]> releaseSaveData(saveData);
 
   int startK = 0;
-  int *data = new int[N + 32]();
-  int *saveData = new int[N];
-  data[0]     = 4; // LL root.
-  
   FileSaver fileSaver(E, W, H);
   if (!doSelfTest && !fileSaver.load(data, &startK)) { return false; }
   
@@ -452,58 +464,11 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
       N / 1024, W, H, E, E / (double) N, startK);
     
   Timer timer;
-  
-
-  int shiftTab[32];
-  cl_mem pBufA, pBufI, pBufBitlen;
-  setupExponentBufs(context, E, W, H, &pBufA, &pBufI, &pBufBitlen, shiftTab);
-  Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
-  
-  double *bigTrig = genBigTrig(W, H);
-  Buffer bufBigTrig{makeBuf(context, BUF_CONST, sizeof(double) * N, bigTrig)};
-  delete[] bigTrig;
-  
-  double *sins = genSin(H, W); // transposed W/H !
-  Buffer bufSins{makeBuf(context, BUF_CONST, sizeof(double) * N / 2, sins)};
-  delete[] sins;
-
-  Buffer buf1{makeBuf(context, BUF_RW, sizeof(double) * N)};
-  Buffer buf2{makeBuf(context, BUF_RW, sizeof(double) * N)};
-  Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(long)   * N / 8)};
 
   const unsigned zero = 0;
-  Buffer bufErr{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &zero)};
-  Buffer bufData{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * N, data)};
-
-  MicroTimer microTimer;
-  Kernel fftPremul1K(program, "fftPremul1K", 3, microTimer, doTimeKernels);
-  fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
-
-  Kernel transpose1K(program, "transpose1K", 5, microTimer, doTimeKernels);
-  transpose1K.setArgs(buf1, bufBigTrig);
-
-  Kernel fft2K_1K(program, "fft2K_1K", 4, microTimer, doTimeKernels);
-  fft2K_1K.setArgs(buf1, buf2, bufTrig2K);
-
-  Kernel csquare2K(program, "csquare2K", 2, microTimer, doTimeKernels);
-  csquare2K.setArgs(buf2, bufSins);
-
-  Kernel fft2K(program, "fft2K", 4, microTimer, doTimeKernels);
-  fft2K.setArgs(buf2, bufTrig2K);
-
-  Kernel mtranspose2K(program, "mtranspose2K", 5, microTimer, doTimeKernels);
-  mtranspose2K.setArgs(buf2, bufBigTrig);
-
-  Kernel fft1K_2K(program, "fft1K_2K", 3, microTimer, doTimeKernels);
-  fft1K_2K.setArgs(buf2, buf1, bufTrig1K);
-
-  Kernel carryA(program, "carryA", 4, microTimer, doTimeKernels);
-  carryA.setArgs(buf1, bufI, bufData, bufCarry, bufBitlen, bufErr);
-
-  Kernel carryB_2K(program, "carryB_2K", 4, microTimer, doTimeKernels);
-  carryB_2K.setArgs(bufData, bufCarry, bufBitlen, bufErr);
-
-  log("OpenCL setup: %ld ms\n", (long) timer.delta());
+  
+  write(q, false, bufData, sizeof(int) * N,  data);
+  write(q, false, bufErr,  sizeof(unsigned), &zero);
 
   float maxErr  = 0;  
   u64 res;
@@ -511,32 +476,32 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
   int saveK = 0;
   bool isCheck = false;
 
-  Kernel *kernels[] = {&fftPremul1K, &transpose1K, &fft2K_1K, &csquare2K, &fft2K, &mtranspose2K, &fft1K_2K, &carryA, &carryB_2K};
-
   const int kEnd = doSelfTest ? 20000 : (E - 2);
   
   do {
-    if (doTimeKernels) { microTimer.delta(); }
+    startK = k;
+    if (doTimeKernels) { kernels[0]->tick(); kernels[0]->resetCounter(); }
     for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); k < nextLog; ++k) {
       for (Kernel *kernel : kernels) { kernel->run(q, N); }
     }
     
     unsigned rawErr = 0;
-    read(q,  false, bufErr(),  sizeof(unsigned), &rawErr);
-    write(q, false, bufErr(),  sizeof(unsigned), &zero);
-    read(q,  true,  bufData(), sizeof(int) * N, data);
+    read(q,  false, bufErr,  sizeof(unsigned), &rawErr);
+    write(q, false, bufErr,  sizeof(unsigned), &zero);
+    read(q,  true,  bufData, sizeof(int) * N, data);
     float err = rawErr * (1 / (float) (1 << 30));
     float prevMaxErr = maxErr;
     maxErr = std::max(err, maxErr);
-    double msPerIter = timer.delta() * (1 / (double) logStep);
-    res = residue(N, W, data, shiftTab);      
+    res = residue(N, W, data, shiftTab);
+
+    if (!doSelfTest) {
+      bool doSavePersist = (k / saveStep != (k - logStep) / saveStep);
+      fileSaver.save(data, k, doSavePersist, res);
+    }
+    
+    float msPerIter = timer.delta() * (1 / (float) std::max(k - startK, 1));
     doLog(E, k, err, maxErr, msPerIter, res);
     
-    if (!doSelfTest) {
-      bool savePersist = (k / saveStep != (k - logStep) / saveStep);
-      fileSaver.save(data, k, savePersist, res);
-    }
-
     if (doTimeKernels) {
       u64 total = 0;
       for (Kernel *kernel : kernels) { total += kernel->getCounter(); }
@@ -566,7 +531,7 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     } else if (prevMaxErr > 0 && err > 1.166f * prevMaxErr && logStep >= 1000 && !doSelfTest) {
       log("Error jump by %.2f%%, doing a consistency check.\n", (err / prevMaxErr - 1) * 100);      
       isCheck = true;
-      write(q, true, bufData(), sizeof(int) * N, saveData);
+      write(q, true, bufData, sizeof(int) * N, saveData);
       k = saveK;
     }
     
@@ -688,9 +653,28 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
   return true;
 }
 
+int getNextExponent(bool doSelfTest, u64 *expectedRes, char *AID) {
+  if (doSelfTest) {
+    static int nRead = 1;
+    FILE *fi = open("selftest.txt", "r");
+    if (!fi) { return 0; }
+    int E;
+    for (int i = 0; i < nRead; ++i) {
+      if (fscanf(fi, "%d %llx\n", &E, expectedRes) != 2) { E = 0; break; }
+    }
+    fclose(fi);
+    ++nRead;
+    return E;
+  } else {
+    return worktodoReadExponent(AID);
+  }
+}
+
+#define KERNEL(name, shift) Kernel name(program, #name, shift, microTimer, doTimeKernels)
+
 int main(int argc, char **argv) {
   logFiles[0] = stdout;
-  FILE *logf = fopen("gpuowl.log", "a");
+  FILE *logf = open("gpuowl.log", "a");
 
 #ifdef _DEFAULT_SOURCE
   if (logf) { setlinebuf(logf); }
@@ -699,7 +683,6 @@ int main(int argc, char **argv) {
   logFiles[1] = logf;
   time_t t = time(NULL);
   log("gpuOwL v" VERSION " GPU Lucas-Lehmer primality checker; %s", ctime(&t));
-
 
   const char *extraOpts = "";
   int forceDevice = -1;
@@ -726,77 +709,103 @@ int main(int argc, char **argv) {
   getDeviceInfo(device, sizeof(info), info);
   log("%s\n", info);
   
-  log("Will log every %d iterations, and persist checkpoint every %d iterations.\n", logStep, saveStep);
+  // log("Will log every %d iterations, and persist checkpoint every %d iterations.\n", logStep, saveStep);
   
   cl_context context = createContext(device);
-
   cl_queue queue = makeQueue(device, context);
 
+  Timer timer;
   cl_program program = compile(device, context, "gpuowl.cl", extraOpts);
   if (!program) { exit(1); }
   
-  cl_mem bufTrig1K = genSmallTrig1K(context);
-  cl_mem bufTrig2K = genSmallTrig2K(context);
+  MicroTimer microTimer;
+  KERNEL(fftPremul1K,  3);
+  KERNEL(transpose1K,  5);
+  KERNEL(fft2K_1K,     4);
+  KERNEL(csquare2K,    2);
+  KERNEL(fft2K,        4);
+  KERNEL(mtranspose2K, 5);
+  KERNEL(fft1K_2K,     3);
+  KERNEL(carryA,       4);
+  KERNEL(carryB_2K,    4);
+  log("Kernels setup : %4d ms\n", timer.delta());
 
-  bool isPrime;
-  u64 res;
+  std::vector<Kernel *> kernels{&fftPremul1K, &transpose1K, &fft2K_1K, &csquare2K, &fft2K, &mtranspose2K, &fft1K_2K, &carryA, &carryB_2K};
   
-  if (doSelfTest) {
-    FILE *fi = fopen("selftest.txt", "r");
-    bool testOK = true;
-    int E;
-    u64 expectedRes;
-    while (fscanf(fi, "%d %llx\n", &E, &expectedRes) == 2) {
-      log("self testing %d\n", E);
-      if (!checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, saveStep, doTimeKernels, true,
-                      &isPrime, &res)) {
-        testOK = false;
-        break;
-      }
-      if (res != expectedRes) {
-        testOK = false;
-        log("Expected %d 20K residue %016llx, got %016llx\n", E, expectedRes, res);
-        break;
-      } else {
-        log("OK %d\n", E);
-      }
-    }
-    log(testOK ? "Self test OK\n" : "Self test FAILED\n");
-    fclose(fi);
-  } else {
-  bool someSuccess = false;
+  /*
+  Kernel fftPremul1K (program, "fftPremul1K",  3, microTimer, doTimeKernels);
+  Kernel transpose1K (program, "transpose1K",  5, microTimer, doTimeKernels);
+  Kernel fft2K_1K    (program, "fft2K_1K",     4, microTimer, doTimeKernels);
+  Kernel csquare2K   (program, "csquare2K",    2, microTimer, doTimeKernels);
+  Kernel fft2K       (program, "fft2K",        4, microTimer, doTimeKernels);
+  Kernel mtranspose2K(program, "mtranspose2K", 5, microTimer, doTimeKernels);
+  Kernel fft1K_2K    (program, "fft1K_2K",     3, microTimer, doTimeKernels);
+  Kernel carryA      (program, "carryA",       4, microTimer, doTimeKernels);
+  Kernel carryB_2K   (program, "carryB_2K",    4, microTimer, doTimeKernels);
+  */
+
+  const int W = 1024, H = 2048;
+  const int N = 2 * W * H;
+  
+  Buffer bufTrig1K{genSmallTrig1K(context)};
+  Buffer bufTrig2K{genSmallTrig2K(context)};
+  Buffer bufBigTrig{genBigTrig(context, W, H)};
+  Buffer bufSins{genSin(context, H, W)}; // transposed W/H !
+
+  Buffer buf1{makeBuf(context,     BUF_RW, sizeof(double) * N)};
+  Buffer buf2{makeBuf(context,     BUF_RW, sizeof(double) * N)};
+  Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(long)   * N / 8)};
+
+  Buffer bufErr{makeBuf(context,  CL_MEM_READ_WRITE, sizeof(int))};
+  Buffer bufData{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N)};
+  log("General setup : %4d ms\n", timer.delta());
+
   while (true) {
+    u64 expectedRes;
     char AID[64];
-    int E = worktodoReadExponent(AID);
-    if (E <= 0) {
-      if (!someSuccess) {
-        log("Please provide a 'worktodo.txt' file containing LL exponents to test in the range %d to %d.\n"
-            "See http://www.mersenne.org/manual_assignment/\n",
-            EXP_MIN_4M, EXP_MAX_4M);
-      }
+    int E = getNextExponent(doSelfTest, &expectedRes, AID);
+    if (E <= 0) { break; }
+
+    int shiftTab[32];
+    cl_mem pBufA, pBufI, pBufBitlen;
+    timer.delta();
+    setupExponentBufs(context, E, W, H, &pBufA, &pBufI, &pBufBitlen, shiftTab);
+    Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
+    log("Exponent setup: %4d ms\n", timer.delta());
+
+    fftPremul1K.setArgs (bufData, buf1, bufA, bufTrig1K);
+    transpose1K.setArgs (buf1,    bufBigTrig);
+    fft2K_1K.setArgs    (buf1,    buf2, bufTrig2K);
+    csquare2K.setArgs   (buf2,    bufSins);
+    fft2K.setArgs       (buf2,    bufTrig2K);
+    mtranspose2K.setArgs(buf2,    bufBigTrig);
+    fft1K_2K.setArgs    (buf2,    buf1, bufTrig1K);
+    carryA.setArgs      (buf1,    bufI, bufData, bufCarry, bufBitlen, bufErr);
+    carryB_2K.setArgs   (bufData, bufCarry, bufBitlen, bufErr);
+
+    bool isPrime;
+    u64 residue;
+    if (!checkPrime(W, H, queue, kernels, E, shiftTab,
+                    logStep, saveStep, doTimeKernels, doSelfTest,
+                    bufData(), bufErr(),
+                    &isPrime, &residue)) {
       break;
     }
-    someSuccess = true;
-
-    if (checkPrime(2048, context, program, queue, bufTrig1K, bufTrig2K, E, logStep, saveStep, doTimeKernels, false,
-                   &isPrime, &res)) {
-      if (isPrime) { log("*****   M%d is prime!   *****\n", E); }
-      
-      int lineBegin, lineEnd;
-      if (!writeResult(E, isPrime, res, AID) ||
-          !worktodoGetLinePos(E, &lineBegin, &lineEnd) ||
-          !worktodoDelete(lineBegin, lineEnd)) {
+    
+    if (doSelfTest) {
+      if (expectedRes == residue) {
+        log("OK %d\n", E);
+      } else {
+        log("FAIL %d, expected %016llx, got %016llx\n", E, expectedRes, residue);
         break;
       }
     } else {
-      break;
+      if (!(writeResult(E, isPrime, residue, AID) && worktodoDelete(E))) { break; }
     }
   }
-  }
-  
+    
   release(program);
   release(context);
-  
   log("\nBye\n");
   if (logf) { fclose(logf); }
 }

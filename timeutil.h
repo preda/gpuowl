@@ -24,9 +24,9 @@ class Timer {
  public:
   Timer() : prev (timeMillis()) { }
 
-  u64 delta() {
+  int delta() {
     u64 now = timeMillis();
-    u64 d   = now - prev;
+    int d   = (int) (now - prev);
     prev    = now;
     return d;
   }
