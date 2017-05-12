@@ -237,31 +237,12 @@ public:
   FileSaver(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
     snprintf(fileNameSave, sizeof(fileNameSave), "c%d.ll", E);
   }
-
-  bool loadLL1(int *data, int *startK) {
-    char fileName[64];
-    snprintf(fileName, sizeof(fileName), "save-%d.bin", E);
-    FILE *fi = fopen(fileName, "rb");
-    if (!fi) { return true; }
-
-    int saveE, saveK, saveW, saveH, unused;
-    bool ok = false;
-    if (fscanf(fi, "LL1 %10d %10d %10d %10d %10d    \n\032", &saveE, &saveK, &saveW, &saveH, &unused) == 5 &&
-        E == saveE && W == saveW && H == saveH && unused == 0 &&
-        fread(data, sizeof(int) * (2 * W * H), 1, fi) == 1) {
-      *startK = saveK;
-      ok = true;
-    }
-    fclose(fi);
-    if (!ok) { log("Wrong '%s' file, please move it out of the way.\n", fileNameSave); }
-    return ok;
-  }
   
   bool load(int *data, int *startK) {
     FILE *fi = fopen(fileNameSave, "rb");    
     if (!fi) { 
       log("Checkpoint file '%s' not found.\n", fileNameSave);
-      return loadLL1(data, startK);
+      return false;
     }
     
     int N = 2 * W * H;
