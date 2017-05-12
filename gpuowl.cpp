@@ -316,24 +316,23 @@ public:
     return n;
   }
   
-  void save(int *data, int k) {
+  void save(int *data, int k, bool savePersist, u64 residue) {
     char fileTemp[64], filePrev[64];
     snprintf(fileTemp, sizeof(fileTemp), "b%d.ll", E);
     snprintf(filePrev, sizeof(filePrev), "t%d.ll", E);
 
-    int headerSize = prepareHeader(data, k);    
-    if (write(sizeof(int) * 2 * W * H + headerSize, data, fileTemp)) {
+    int headerSize = prepareHeader(data, k);
+    const int totalSize = sizeof(int) * 2 * W * H + headerSize;
+    if (write(totalSize, data, fileTemp)) {
       remove(filePrev);
       rename(fileNameSave, filePrev);
       rename(fileTemp, fileNameSave);      
     }
-  }
-
-  void savePersist(int *data, int k, u64 residue) {
-    int headerSize = prepareHeader(data, k);    
-    char name[64];
-    snprintf(name, sizeof(name), "s%d.%d.%016llx.ll", E, k, (unsigned long long) residue);
-    write(sizeof(int) * 2 * W * H + headerSize, data, name);
+    if (savePersist) {
+      char name[64];
+      snprintf(name, sizeof(name), "s%d.%d.%016llx.ll", E, k, (unsigned long long) residue);
+      write(totalSize, data, name);
+    }
   }
 };
 
@@ -553,10 +552,8 @@ bool checkPrime(int H, cl_context context, cl_program program, cl_queue q, cl_me
     doLog(E, k, err, maxErr, msPerIter, res);
     
     if (!doSelfTest) {
-      fileSaver.save(data, k);
-      if (k / saveStep != (k - logStep) / saveStep) {
-        fileSaver.savePersist(data, k, res);
-      }
+      bool savePersist = (k / saveStep != (k - logStep) / saveStep);
+      fileSaver.save(data, k, savePersist, res);
     }
 
     if (doTimeKernels) {
