@@ -28,26 +28,17 @@ const char *AGENT = "gpuowl v" VERSION;
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
-template<typename T, void (*release)(T)>
-class Resource {
-  T p;
-
-  Resource(const Resource &) = delete;
-  void operator=(const Resource &) = delete;
-  
-public:
-  Resource(T inip) : p(inip) { }
-  ~Resource() { release(p); }
-
-  T operator()() { return p; }
+template<typename T>
+struct ReleaseDelete {
+  using pointer = T;  
+  void operator()(T t) { release(t); }
 };
 
-using Buffer = Resource<cl_mem, &release>;
-
+using Buffer = std::unique_ptr<cl_mem, ReleaseDelete<cl_mem>>;
 static_assert(sizeof(Buffer) == sizeof(cl_mem));
 
 class Kernel {
-  using Kern = Resource<cl_kernel, &release>;
+  using Kern = std::unique_ptr<cl_kernel, ReleaseDelete<cl_kernel>>;
   
   std::string name;
   Kern kernel;
@@ -64,11 +55,11 @@ public:
     doTime(doTime)
   { }
 
-  void setArgs(auto&... args) { ::setArgs(kernel(), args...); }
+  void setArgs(auto&... args) { ::setArgs(kernel.get(), args...); }
   
   const char *getName() { return name.c_str(); }
   void run(cl_queue q, int N) {
-    ::run(q, kernel(), N >> sizeShift);
+    ::run(q, kernel.get(), N >> sizeShift);
     if (doTime) {
       finish(q);
       counter.tick();
@@ -674,7 +665,7 @@ int main(int argc, char **argv) {
     u64 residue;
     if (!checkPrime(W, H, queue, kernels, E, shiftTab,
                     logStep, saveStep, doTimeKernels, doSelfTest,
-                    bufData(), bufErr(),
+                    bufData.get(), bufErr.get(),
                     &isPrime, &residue)) {
       break;
     }
