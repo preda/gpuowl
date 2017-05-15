@@ -30,11 +30,20 @@ const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 template<typename T>
 struct ReleaseDelete {
-  using pointer = T;  
-  void operator()(T t) { log("release %s\n", typeid(T).name()); release(t); }
+  using pointer = T;
+  
+  void operator()(T t) {
+    // log("release %s\n", typeid(T).name());
+    release(t);
+  }
 };
 
-using Buffer = std::unique_ptr<cl_mem, ReleaseDelete<cl_mem>>;
+template<typename T> using Holder = std::unique_ptr<T, ReleaseDelete<T> >;
+
+using Buffer  = Holder<cl_mem>;
+using Context = Holder<cl_context>;
+using Queue   = Holder<cl_queue>;
+
 static_assert(sizeof(Buffer) == sizeof(cl_mem));
 
 class Kernel {
@@ -563,7 +572,7 @@ int getNextExponent(bool doSelfTest, u64 *expectedRes, char *AID) {
   }
 }
 
-#define KERNEL(name, shift) Kernel name(program, #name, shift, microTimer, doTimeKernels)
+#define KERNEL(program, name, shift) Kernel name(program, #name, shift, microTimer, doTimeKernels)
 
 int main(int argc, char **argv) {
   logFiles[0] = stdout;
@@ -603,25 +612,26 @@ int main(int argc, char **argv) {
   getDeviceInfo(device, sizeof(info), info);
   log("%s\n", info);
   
-  cl_context context = createContext(device);
-  cl_queue queue = makeQueue(device, context);
+  Context contextHolder{createContext(device)};
+  cl_context context = contextHolder.get();
 
   Timer timer;
-  cl_program program = compile(device, context, "gpuowl.cl", extraOpts);
-  if (!program) { exit(1); }
-  
   MicroTimer microTimer;
-  KERNEL(fftPremul1K,  3);
-  KERNEL(transpose1K,  5);
-  KERNEL(fft2K_1K,     4);
-  KERNEL(csquare2K,    2);
-  KERNEL(fft2K,        4);
-  KERNEL(mtranspose2K, 5);
-  KERNEL(fft1K_2K,     3);
-  KERNEL(carryA,       4);
-  KERNEL(carryB_2K,    4);
+  
+  cl_program p = compile(device, context, "gpuowl.cl", extraOpts);
+  if (!p) { exit(1); }
+  KERNEL(p, fftPremul1K,  3);
+  KERNEL(p, transpose1K,  5);
+  KERNEL(p, fft2K_1K,     4);
+  KERNEL(p, csquare2K,    2);
+  KERNEL(p, fft2K,        4);
+  KERNEL(p, mtranspose2K, 5);
+  KERNEL(p, fft1K_2K,     3);
+  KERNEL(p, carryA,       4);
+  KERNEL(p, carryB_2K,    4);
   log("Kernels setup : %4d ms\n", timer.delta());
-
+  release(p); p = nullptr;
+  
   std::vector<Kernel *> kernels{&fftPremul1K, &transpose1K, &fft2K_1K, &csquare2K, &fft2K, &mtranspose2K, &fft1K_2K, &carryA, &carryB_2K};
   
   const int W = 1024, H = 2048;
@@ -640,6 +650,7 @@ int main(int argc, char **argv) {
   Buffer bufData{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N)};
   log("General setup : %4d ms\n", timer.delta());
 
+  Queue queue{makeQueue(device, context)};
   while (true) {
     u64 expectedRes;
     char AID[64];
@@ -665,7 +676,7 @@ int main(int argc, char **argv) {
 
     bool isPrime;
     u64 residue;
-    if (!checkPrime(W, H, queue, kernels, E, shiftTab,
+    if (!checkPrime(W, H, queue.get(), kernels, E, shiftTab,
                     logStep, saveStep, doTimeKernels, doSelfTest,
                     bufData.get(), bufErr.get(),
                     &isPrime, &residue)) {
@@ -684,9 +695,6 @@ int main(int argc, char **argv) {
     }
   }
     
-  release(program);
-  release(context);
-  
   log("\nBye\n");
   FILE *f = logFiles[1];
   logFiles[1] = 0;

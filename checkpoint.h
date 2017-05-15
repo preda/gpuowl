@@ -50,7 +50,7 @@ public:
   
   bool load(int *data, int *startK) {
     FILE *fi = open(fileNameSave, "rb");    
-    if (!fi) { return false; }
+    if (!fi) { return true; }
     
     int N = 2 * W * H;
     int wordsSize = sizeof(int) * N;
