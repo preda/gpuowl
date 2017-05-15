@@ -8,11 +8,11 @@
 #define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
 #define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d (%s)\n", e, mes); assert(false); }}
 
-void getInfo(cl_device_id id, int what, size_t bufSize, char *buf) {
+void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) {
   size_t outSize = 0;
   CHECK(clGetDeviceInfo(id, what, bufSize, buf, &outSize));
-  assert(outSize < bufSize);
-  buf[outSize] = 0;
+  assert(outSize <= bufSize);
+  // buf[outSize] = 0;
 }
 
 int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
@@ -44,17 +44,17 @@ int getNumberOfDevices() {
 }
 
 void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
-  char name[128];
-  char version[128];
+  char name[64], version[64];
   getInfo(device, CL_DEVICE_NAME,    sizeof(name), name);
   getInfo(device, CL_DEVICE_VERSION, sizeof(version), version);
-  // getInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(version), version);
-  // getInfo(device, CL_DEVICE_MAX_FREQUENCY, sizeof(version), version);
+  unsigned computeUnits, frequency;
+  getInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits);
+  getInfo(device, CL_DEVICE_MAX_CLOCK_FREQUENCY, sizeof(frequency), &frequency);
 
   unsigned isEcc = 0;
   CHECK(clGetDeviceInfo(device, CL_DEVICE_ERROR_CORRECTION_SUPPORT, sizeof(isEcc), &isEcc, NULL));
   
-  snprintf(info, infoSize, "%s; %s%s", name, version, isEcc ? " (ECC)" : "");
+  snprintf(info, infoSize, "%2ux%4uMHz %s; %s%s", computeUnits, frequency, name, version, isEcc ? " (ECC)" : "");
 }
 
 cl_context createContext(cl_device_id device) {

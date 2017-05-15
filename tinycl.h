@@ -63,6 +63,8 @@ int clWaitForEvents(unsigned numEvents, const cl_event *);
 #define CL_DEVICE_TYPE_GPU      (1 << 2)
 #define CL_DEVICE_TYPE_ALL      0xFFFFFFFF
 #define CL_PLATFORM_VERSION     0x0901
+#define CL_DEVICE_MAX_COMPUTE_UNITS 0x1002
+#define CL_DEVICE_MAX_CLOCK_FREQUENCY 0x100C
 #define CL_DEVICE_ERROR_CORRECTION_SUPPORT 0x1024
 #define CL_DEVICE_NAME          0x102B
 #define CL_DEVICE_VERSION       0x102F
