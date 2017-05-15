@@ -14,15 +14,10 @@
 #include <ctime>
 #include <string>
 #include <vector>
-#include <csignal>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
-
-volatile sig_atomic_t stopRequested = false;
-
-void sighandler(int signal) { stopRequested = true; }
 
 const int EXP_MIN_2M = 20000000, EXP_MAX_2M = 40000000, EXP_MIN_4M = 35000000, EXP_MAX_4M = 78000000;
 
@@ -379,13 +374,8 @@ bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, 
     startK = k;
     if (doTimeKernels) { kernels[0]->tick(); kernels[0]->resetCounter(); }
     
-    for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); (k < nextLog) && !stopRequested; ++k) {
+    for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); k < nextLog; ++k) {
       for (Kernel *kernel : kernels) { kernel->run(q, N); }
-      if (!(k % 500)) {
-        putchar('.');
-        fflush(stdout);
-        finish(q);
-      }
     }
     
     unsigned rawErr = 0;
@@ -440,7 +430,7 @@ bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, 
     
     memcpy(saveData, data, sizeof(int) * N);
     saveK = k;
-  } while (k < kEnd && !stopRequested);
+  } while (k < kEnd);
 
   *outIsPrime = isAllZero(data, N);
   *outResidue = res;
@@ -650,8 +640,6 @@ int main(int argc, char **argv) {
   Buffer bufData{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N)};
   log("General setup : %4d ms\n", timer.delta());
 
-  signal(SIGINT, sighandler);
-  
   while (true) {
     u64 expectedRes;
     char AID[64];

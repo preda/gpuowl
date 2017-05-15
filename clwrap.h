@@ -48,6 +48,8 @@ void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
   char version[128];
   getInfo(device, CL_DEVICE_NAME,    sizeof(name), name);
   getInfo(device, CL_DEVICE_VERSION, sizeof(version), version);
+  // getInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(version), version);
+  // getInfo(device, CL_DEVICE_MAX_FREQUENCY, sizeof(version), version);
 
   unsigned isEcc = 0;
   CHECK(clGetDeviceInfo(device, CL_DEVICE_ERROR_CORRECTION_SUPPORT, sizeof(isEcc), &isEcc, NULL));
