@@ -149,7 +149,10 @@ KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, S
 }
 
 // Input is transposed.
-void fft1Kt(local double *lds, uint W, CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+KERNEL(256) fft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
+  local double lds[1024];
+
+  const uint W = 2048;
   uint g = get_group_id(0);
   in  += g % (W / 64) * 64 + g / (W / 64) * W;
 
@@ -164,11 +167,6 @@ void fft1Kt(local double *lds, uint W, CONST double2 *in, global double2 *out, S
   out += lg * 1024;
 
   for (int i = 0; i < 4; ++i) { out[i * 256 + me] = u[i]; }
-}
-
-KERNEL(256) fft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig1k) {
-  local double lds[1024];
-  fft1Kt(lds, 2048, in, out, trig1k);
 }
 
 KERNEL(256) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
