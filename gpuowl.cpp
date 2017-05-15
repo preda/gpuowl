@@ -14,10 +14,15 @@
 #include <ctime>
 #include <string>
 #include <vector>
+#include <csignal>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
+
+volatile sig_atomic_t stopRequested = false;
+
+void sighandler(int signal) { stopRequested = true; }
 
 const int EXP_MIN_2M = 20000000, EXP_MAX_2M = 40000000, EXP_MIN_4M = 35000000, EXP_MAX_4M = 78000000;
 
@@ -31,7 +36,7 @@ const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 template<typename T>
 struct ReleaseDelete {
   using pointer = T;  
-  void operator()(T t) { release(t); }
+  void operator()(T t) { log("release %s\n", typeid(T).name()); release(t); }
 };
 
 using Buffer = std::unique_ptr<cl_mem, ReleaseDelete<cl_mem>>;
@@ -373,8 +378,14 @@ bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, 
   do {
     startK = k;
     if (doTimeKernels) { kernels[0]->tick(); kernels[0]->resetCounter(); }
-    for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); k < nextLog; ++k) {
+    
+    for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); (k < nextLog) && !stopRequested; ++k) {
       for (Kernel *kernel : kernels) { kernel->run(q, N); }
+      if (!(k % 500)) {
+        putchar('.');
+        fflush(stdout);
+        finish(q);
+      }
     }
     
     unsigned rawErr = 0;
@@ -429,11 +440,11 @@ bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, 
     
     memcpy(saveData, data, sizeof(int) * N);
     saveK = k;
-  } while (k < kEnd);
+  } while (k < kEnd && !stopRequested);
 
   *outIsPrime = isAllZero(data, N);
   *outResidue = res;
-  return true;
+  return (k >= kEnd);
 }
 
 // return false to stop.
@@ -566,13 +577,14 @@ int getNextExponent(bool doSelfTest, u64 *expectedRes, char *AID) {
 
 int main(int argc, char **argv) {
   logFiles[0] = stdout;
-  FILE *logf = open("gpuowl.log", "a");
-
+  {
+    FILE *logf = open("gpuowl.log", "a");
 #ifdef _DEFAULT_SOURCE
-  if (logf) { setlinebuf(logf); }
+    if (logf) { setlinebuf(logf); }
 #endif
-
-  logFiles[1] = logf;
+    logFiles[1] = logf;
+  }
+  
   time_t t = time(NULL);
   log("gpuOwL v" VERSION " GPU Lucas-Lehmer primality checker; %s", ctime(&t));
 
@@ -638,6 +650,8 @@ int main(int argc, char **argv) {
   Buffer bufData{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N)};
   log("General setup : %4d ms\n", timer.delta());
 
+  signal(SIGINT, sighandler);
+  
   while (true) {
     u64 expectedRes;
     char AID[64];
@@ -684,6 +698,9 @@ int main(int argc, char **argv) {
     
   release(program);
   release(context);
+  
   log("\nBye\n");
-  if (logf) { fclose(logf); }
+  FILE *f = logFiles[1];
+  logFiles[1] = 0;
+  if (f) { fclose(f); }
 }
