@@ -79,12 +79,6 @@ public:
   void tick() { counter.tick(); }
 };
 
-struct CLState {
-  cl_context c;
-  cl_program p;
-  cl_queue q;
-};
-
 void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
   double *pa = aTab;
   double *pi = iTab;

@@ -12,7 +12,6 @@ void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) {
   size_t outSize = 0;
   CHECK(clGetDeviceInfo(id, what, bufSize, buf, &outSize));
   assert(outSize <= bufSize);
-  // buf[outSize] = 0;
 }
 
 int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
@@ -152,29 +151,12 @@ cl_queue makeQueue(cl_device_id d, cl_context c) {
   return q;
 }
 
-/*
-void run(cl_queue queue, cl_kernel kernel, size_t workSize) {
-  size_t groupSize = 256;
-  CHECK(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
-}
-*/
-
 void flush( cl_queue q) { CHECK(clFlush(q)); }
 void finish(cl_queue q) { CHECK(clFinish(q)); }
 
 void run(cl_queue queue, cl_kernel kernel, size_t workSize) {
   size_t groupSize = 256;
   CHECK(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
-}
-
-void run(cl_queue queue, cl_kernel kernel, size_t workSize, const auto &a) {
-  setArgs(kernel, a);
-  run(queue, kernel, workSize);
-}
-
-void run(cl_queue queue, cl_kernel kernel, size_t workSize, const auto &a, const auto &b) {
-  setArgs(kernel, a, b);
-  run(queue, kernel, workSize);
 }
 
 void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start = 0) {
