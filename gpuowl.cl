@@ -204,21 +204,21 @@ KERNEL(256) merged(CONST double2 *in, CONST double2 *out, SMALL_CONST double2 *t
 }
 */
 
-KERNEL(256) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
+KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
-  in += g * 2048;
+  io += g * 2048;
   
   uint me = get_local_id(0);
   double2 u[8];
 
-  for (int i = 0; i < 8; ++i) { u[i] = in[me + i * 256]; }
+  for (int i = 0; i < 8; ++i) { u[i] = io[me + i * 256]; }
 
   local double lds[2048];
   fft2kImpl(lds, u, trig2k);
 
   for (int i = 0; i < 4; ++i) {
-    in[me + i * 512]       = u[i];
-    in[me + i * 512 + 256] = u[i + 4];
+    io[me + i * 512]       = u[i];
+    io[me + i * 512 + 256] = u[i + 4];
   }  
 }
 
@@ -336,7 +336,7 @@ KERNEL(256) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitle
 }
 
 // Inputs normal (non-conjugate); outputs conjugate.
-void csquare(uint W, global double2 *in, CONST double2 *trig) {
+void csquare(uint W, global double2 *io, CONST double2 *trig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -345,8 +345,8 @@ void csquare(uint W, global double2 *in, CONST double2 *trig) {
   uint k = line * W + posInLine + ((line - 1) >> 31);
   uint v = ((1024 - line) & 1023) * W + (W - 1) - posInLine;
   
-  double2 a = in[k];
-  double2 b = conjugate(in[v]);
+  double2 a = io[k];
+  double2 b = conjugate(io[v]);
   double2 t = trig[g * 256 + me]; //equiv: [line * (W / 2) + posInLine];
   
   X2(a, b);
@@ -360,18 +360,18 @@ void csquare(uint W, global double2 *in, CONST double2 *trig) {
   M(b,  t);
   X2(a, b);
   
-  in[k] = conjugate(a);
-  in[v] = b;
+  io[k] = conjugate(a);
+  io[v] = b;
   
   if (g == 0 && me == 0) {
-    a = conjugate(in[0]);
+    a = conjugate(io[0]);
     double t = a.x * a.y;
     a *= a;
-    in[0] = (double2)((a.x + a.y) * 8, t * 16);
+    io[0] = (double2)((a.x + a.y) * 8, t * 16);
   }
 }
 
-KERNEL(256) csquare2K(global double2 *in, CONST double2 *trig)  { csquare(2048, in, trig); }
+KERNEL(256) csquare2K(global double2 *io, CONST double2 *trig)  { csquare(2048, io, trig); }
 
 void transposeCore(local double *lds, double2 *u) {
   uint me = get_local_id(0);
