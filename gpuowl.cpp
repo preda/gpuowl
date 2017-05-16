@@ -107,9 +107,19 @@ void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab)
 
 cl_mem genBigTrig(cl_context context, int W, int H) {
   int M = std::max(W, H);
-  const int size = 2 * M * M;
+  const int size = (M / 64) * (M / 64) * (2 * 64 * 64);
   double *tab = new double[size];
   auto base = - M_PIl / (W * H / 2);
+  
+  /*
+  for (int y = 0; y < std::min(W, H); ++y) {
+    for (int x = y; x < M; ++x) {
+      auto angle = (x * y) * base;
+      tab[(y * M + x) * 2 + 0] = tab[(x * M + y) * 2 + 0] = cosl(angle);
+      tab[(y * M + x) * 2 + 1] = tab[(x * M + y) * 2 + 1] = sinl(angle);
+    }
+  }
+  */
 
   for (int gy = 0; gy < std::min(W, H) / 64; ++gy) {
     for (int gx = gy; gx < M / 64; ++gx) {

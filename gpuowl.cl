@@ -372,25 +372,6 @@ void transposeCore(local double *lds, double2 *u) {
   }
 }
 
-// Same effect as transposeCore(), with half LDS but double LDS rounds.
-void transposeCore4(local uint *lds, double2 *u) {
-  uint me = get_local_id(0);
-  for (int b = 0; b < 4; ++b) {
-    if (b) { bar(); }
-    for (int i = 0; i < 16; ++i) {
-      uint l = i * 4 + me / 64;
-      uint c = me % 64;
-      lds[l * 64 + (c + l) % 64] = ((uint *)(u + i))[b];
-    }
-    bar();
-    for (int i = 0; i < 16; ++i) {
-      uint c = i * 4 + me / 64;
-      uint l = me % 64;
-      ((uint *)(u + i))[b] = lds[l * 64 + (c + l) % 64];
-    }
-  }
-}
-
 void transpose(uint W, uint H, local double *lds, CONST double2 *in, global double2 *out, CONST double2 *trig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
@@ -411,7 +392,7 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   
   for (int i = 0; i < 16; ++i) {
     uint p = (my + i * 4) * H + mx;
-    out[p] = mul(u[i], trig[i * 256 + me]);;
+    out[p] = mul(u[i], trig[i * 256 + me]);
   }
 }
 
