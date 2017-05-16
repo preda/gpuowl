@@ -391,19 +391,15 @@ void transposeCore4(local uint *lds, double2 *u) {
   }
 }
 
-KERNEL(256) transpose1K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
-  uint W = 1024;
-  uint g = get_group_id(0);
-  uint gx = g % (W / 64);
-  uint gy = g / (W / 64);
-  gy = (gy + gx) % 32;
+void transpose(uint W, uint H, local double *lds, CONST double2 *in, global double2 *out, CONST double2 *trig) {
+  uint GW = W / 64, GH = H / 64;
+  uint g = get_group_id(0), gx = g % GW, gy = g / GW;
+  gy = (gy + gx) % GH;
   in   += gy * 64 * W + gx * 64;
-  out  += gy * 64     + gx * 64 * 2048;
-  trig += (gy + gx * 32) * 4096;
+  out  += gy * 64     + gx * 64 * H;
+  trig += (gy + gx * 32) * (64 * 64);
   
-  uint me = get_local_id(0);
-  uint mx = me % 64;
-  uint my = me / 64;
+  uint me = get_local_id(0), mx = me % 64, my = me / 64;
   
   double2 u[16];
   for (int i = 0; i < 16; ++i) {
@@ -411,42 +407,20 @@ KERNEL(256) transpose1K(CONST double2 *in, global double2 *out, CONST double2 *t
     u[i] = in[p];
   }
 
-  local double lds[4096];
   transposeCore(lds, u);
   
   for (int i = 0; i < 16; ++i) {
-    uint p = (my + i * 4) * 2048 + mx;
+    uint p = (my + i * 4) * H + mx;
     out[p] = mul(u[i], trig[i * 256 + me]);;
   }
 }
 
-KERNEL(256) transpose2K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
-  uint W = 2048;
-  uint g = get_group_id(0);
-
-  uint gx = g % (W / 64);
-  uint gy = g / (W / 64);
-  gy = (gy + gx) % 16;
-  
-  in   += gy * 64 * W + gx * 64;
-  out  += gy * 64     + gx * 64 * 1024;
-  trig += (gy + gx * 32) * 4096;
-
-  uint me = get_local_id(0);
-  uint mx = me % 64;
-  uint my = me / 64;
-  
-  double2 u[16];
-  for (int i = 0; i < 16; ++i) {
-    uint p = (my + i * 4) * W + mx;
-    u[i] = in[p];
-  }
-
+KERNEL(256) transpose1K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
   local double lds[4096];
-  transposeCore(lds, u);
-  
-  for (int i = 0; i < 16; ++i) {
-    uint p = (my + i * 4) * 1024 + mx;
-    out[p] = mul(u[i], trig[i * 256 + me]);
-  }
+  transpose(1024, 2048, lds, in, out, trig);
+}
+
+KERNEL(256) transpose2K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+  local double lds[4096];
+  transpose(2048, 1024, lds, in, out, trig);
 }
