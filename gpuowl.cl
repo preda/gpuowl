@@ -169,6 +169,62 @@ KERNEL(256) fft1K_2K(CONST double2 *in, global double2 *out, SMALL_CONST double2
   for (int i = 0; i < 4; ++i) { out[i * 256 + me] = u[i]; }
 }
 
+KERNEL(256) fft1K(global double2 *io, SMALL_CONST double2 *trig1k) {
+  local double lds[1024];
+
+  uint g = get_group_id(0);
+  uint step = g * 1024;
+  io += step;
+
+  uint me = get_local_id(0);
+  double2 u[4];
+
+  for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
+
+  fft1kImpl(lds, u, trig1k);
+  
+  for (int i = 0; i < 4; ++i) { io[i * 256 + me] = u[i]; }
+}
+
+/*
+KERNEL(256) merged(CONST double2 *in, CONST double2 *out, SMALL_CONST double2 *trig1k,
+                   CONST double2 *A, CONST double2 *iA, CONST uchar2 *bitlen, global long *gCarry,
+                   global int *globalErr) {
+  local double lds[1024];
+
+  const uint W = 2048;
+  uint gt = get_group_id(0);
+  uint me = get_local_id(0);
+  uint gx = gt % (W / 64);
+  uint gy = gt / (W / 64);
+  uint g  = gy + gx * 64;  // uint g = gt / (W / 64) + gt % (W / 64) * 64;
+  uint gr = g % W;
+  
+  in  += gx * 64 + gy * W;
+  out    += g * 1024;
+  A      += g * 1024;
+  iA     += g * 1024;
+  bitlen += g * 1024;
+  gCarry += g * 1024;
+  
+  double2 u[4];
+  for (int i = 0; i < 4; ++i) { u[i] = in[me % 64 + (me / 64 + i * 4) * 64 * W]; }
+
+  fft1kImpl(lds, u, trig1k);
+
+  float err = 0;
+
+  for (int i = 0; i < 4; ++i) {
+    long carry = (i == 0 && g == 0 && me == 0) ? -2 : 0;
+    uint p = i * 256 + me;
+    
+  }
+  
+
+  // for (int i = 0; i < 4; ++i) { out[i * 256 + me] = u[i]; }
+}
+*/
+
 KERNEL(256) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
   in += g * 2048;
@@ -359,6 +415,24 @@ void transposeCore(local double *lds, double2 *u) {
   }
 }
 
+void transposeCore4(local uint *lds, double2 *u) {
+  uint me = get_local_id(0);
+  for (int b = 0; b < 4; ++b) {
+    if (b) { bar(); }
+    for (int i = 0; i < 16; ++i) {
+      uint l = i * 4 + me / 64;
+      uint c = me % 64;
+      lds[l * 64 + (c + l) % 64] = ((uint *)(u + i))[b];
+    }
+    bar();
+    for (int i = 0; i < 16; ++i) {
+      uint c = i * 4 + me / 64;
+      uint l = me % 64;
+      ((uint *)(u + i))[b] = lds[l * 64 + (c + l) % 64];
+    }
+  }
+}
+
 KERNEL(256) transpose1K(global double2 *in, CONST double2 *trig) {
   uint W = 1024;
   uint g = get_group_id(0);
@@ -383,6 +457,37 @@ KERNEL(256) transpose1K(global double2 *in, CONST double2 *trig) {
   for (int i = 0; i < 16; ++i) {
     uint p = (my + i * 4) * W + mx;
     in[p] = u[i];
+  }
+}
+
+KERNEL(256) transpose1KA(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+  uint W = 1024;
+  uint g = get_group_id(0);
+  uint gx = g % (W / 64);
+  uint gy = g / (W / 64);
+  gy = (gy + gx) % 32;
+  in   += gy * 64 * W + gx * 64;
+  out  += gy * 64     + gx * 64 * 2048;
+  trig += (gy + gx * 32) * 4096;
+    // (gx + gy * (W / 64)) * 4096;
+  
+  uint me = get_local_id(0);
+  uint mx = me % 64;
+  uint my = me / 64;
+  
+  double2 u[16];
+  for (int i = 0; i < 16; ++i) {
+    uint p = (my + i * 4) * W + mx;
+    u[i] = in[p];
+      // mul(in[p], trig[i * 256 + me]);
+  }
+
+  local double lds[4096];
+  transposeCore(lds, u);
+  
+  for (int i = 0; i < 16; ++i) {
+    uint p = (my + i * 4) * 2048 + mx;
+    out[p] = mul(u[i], trig[i * 256 + me]);;
   }
 }
 
@@ -414,3 +519,68 @@ KERNEL(256) mtranspose2K(global double2 *in, CONST double2 *trig) {
   }
 }
 
+KERNEL(256) transpose2KA(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+  uint W = 2048;
+  uint g = get_group_id(0);
+
+  uint gx = g % (W / 64);
+  uint gy = g / (W / 64);
+  gy = (gy + gx) % 16;
+  
+  in   += gy * 64 * W + gx * 64;
+  out  += gy * 64     + gx * 64 * 1024;
+  trig += (gy + gx * 32) * 4096;
+
+  uint me = get_local_id(0);
+  uint mx = me % 64;
+  uint my = me / 64;
+  
+  double2 u[16];
+  for (int i = 0; i < 16; ++i) {
+    uint p = (my + i * 4) * W + mx;
+    u[i] = in[p];
+  }
+
+  local double lds[4096];
+  transposeCore(lds, u);
+  
+  for (int i = 0; i < 16; ++i) {
+    // uint p = (my + i * 4) * W + mx;
+    uint p = (my + i * 4) * 1024 + mx;
+    out[p] = mul(u[i], trig[i * 256 + me]);
+  }
+}
+
+/*
+KERNEL(256) mtranspose2KB(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+  uint W = 2048;
+  uint g = get_group_id(0);
+
+  uint gx = g % (W / 32);
+  uint gy = g / (W / 32);
+  gy = (gy + gx) % 16;
+  
+  in   += gy * 64 * W + gx * 32;
+  trig += (gy + gx * 16) * 2048;
+  out  += gy * 32 + gx * 64 * 1024;
+  
+  uint me = get_local_id(0);
+  uint mx = me % 32;
+  uint my = me / 64;
+  
+  double2 u[8];
+  for (int i = 0; i < 8; ++i) {
+    uint p = (my + i * 4) * W + mx;
+    u[i] = in[p];
+  }
+
+  local double lds[4096];
+  transposeCore(lds, u);
+  
+  for (int i = 0; i < 16; ++i) {
+    // uint p = (my + i * 4) * W + mx;
+    uint p = (my + i * 4) * 1024 + mx;
+    out[p] = mul(u[i], trig[i * 256 + me]);
+  }
+}
+*/

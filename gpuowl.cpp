@@ -105,11 +105,38 @@ void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab)
   }
 }
 
+cl_mem genBigTrig2(cl_context context, int W, int H) {
+  int M = std::max(W, H);
+  const int size = 2 * M * M;
+  double *tab = new double[size];
+  auto base = - M_PIl / (W * H / 2);
+
+  for (int gy = 0; gy < std::min(W, H) / 64; ++gy) {
+    for (int gx = gy; gx < M / 64; ++gx) {
+      double *p1 = tab + (gy * (M / 64) + gx) * (2 * 64 * 64);
+      double *p2 = tab + (gx * (M / 64) + gy) * (2 * 64 * 64);           
+      for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 64; ++x) {
+          int k = (gy * 64 + y) * (gx * 64 + x);
+          auto angle = k * base;
+          p1[(y * 64 + x) * 2 + 0] = p2[(x * 64 + y) * 2 + 0] = cosl(angle);            
+          p1[(y * 64 + x) * 2 + 1] = p2[(x * 64 + y) * 2 + 1] = sinl(angle);            
+        }
+      }
+    }
+  }
+
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;
+}
+
 cl_mem genBigTrig(cl_context context, int W, int H) {
   const int size = 2 * W * H;
   double *tab = new double[size];
   double *p = tab;
   auto base = - M_PIl / (W * H / 2);
+
   for (int gy = 0; gy < H / 64; ++gy) {
     for (int gx = 0; gx < W / 64; ++gx) {
       for (int y = 0; y < 64; ++y) {
@@ -623,17 +650,22 @@ int main(int argc, char **argv) {
   KERNEL(p, fft1K_2K,     3);
   KERNEL(p, carryA,       4);
   KERNEL(p, carryB_2K,    4);
-  log("Kernels setup : %4d ms\n", timer.delta());
+
+  KERNEL(p, transpose2KA,  5);
+  KERNEL(p, transpose1KA,  5);
+  KERNEL(p, fft1K, 3);
+  
+  log("Compile       : %4d ms\n", timer.delta());
   release(p); p = nullptr;
-  
-  std::vector<Kernel *> kernels{&fftPremul1K, &transpose1K, &fft2K_1K, &csquare2K, &fft2K, &mtranspose2K, &fft1K_2K, &carryA, &carryB_2K};
-  
+    
   const int W = 1024, H = 2048;
   const int N = 2 * W * H;
   
   Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
-  Buffer bufBigTrig{genBigTrig(context, W, H)};
+  // Buffer bufBigTrig{genBigTrig(context,  W, H)};
+  // Buffer bufBigTrig2{genBigTrig(context, H, W)};
+  Buffer bufBigTrig{genBigTrig2(context, W, H)};
   Buffer bufSins{genSin(context, H, W)}; // transposed W/H !
 
   Buffer buf1{makeBuf(context,     BUF_RW, sizeof(double) * N)};
@@ -659,15 +691,22 @@ int main(int argc, char **argv) {
     log("Exponent setup: %4d ms\n", timer.delta());
 
     fftPremul1K.setArgs (bufData, buf1, bufA, bufTrig1K);
-    transpose1K.setArgs (buf1,    bufBigTrig);
+    // transpose1K.setArgs (buf1,    bufBigTrig);
     fft2K_1K.setArgs    (buf1,    buf2, bufTrig2K);
     csquare2K.setArgs   (buf2,    bufSins);
     fft2K.setArgs       (buf2,    bufTrig2K);
-    mtranspose2K.setArgs(buf2,    bufBigTrig);
+    // mtranspose2K.setArgs(buf2,    bufBigTrig);
     fft1K_2K.setArgs    (buf2,    buf1, bufTrig1K);
     carryA.setArgs      (buf1,    bufI, bufData, bufCarry, bufBitlen, bufErr);
     carryB_2K.setArgs   (bufData, bufCarry, bufBitlen, bufErr);
 
+    transpose1KA.setArgs(buf1, buf2, bufBigTrig);
+    transpose2KA.setArgs(buf2, buf1, bufBigTrig);
+    fft1K.setArgs(buf1, bufTrig1K);
+
+    // std::vector<Kernel *> kernels{&fftPremul1K, &transpose1K, &fft2K_1K, &csquare2K, &fft2K, &mtranspose2K, &fft1K_2K, &carryA, &carryB_2K};
+    std::vector<Kernel *> kernels{&fftPremul1K, &transpose1KA, &fft2K, &csquare2K, &fft2K, &transpose2KA, &fft1K, &carryA, &carryB_2K};
+    
     bool isPrime;
     u64 residue;
     if (!checkPrime(W, H, queue.get(), kernels, E, shiftTab,
