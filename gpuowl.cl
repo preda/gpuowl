@@ -222,6 +222,25 @@ KERNEL(256) fft2K(global double2 *in, SMALL_CONST double2 *trig2k) {
   }  
 }
 
+KERNEL(256) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig2k) {
+  uint g = get_group_id(0), gx = g % 16, gy = g / 16, lg = gy + gx * 64;
+  in  += g * 64;
+  out += lg * 2048;
+  
+  uint me = get_local_id(0), mx = me % 64, my = me / 64;
+  double2 u[8];
+
+  for (int i = 0; i < 8; ++i) { u[i] = in[mx + (i * 4 + my) * 64 * 1024]; }
+
+  local double lds[2048];
+  fft2kImpl(lds, u, trig2k);
+
+  for (int i = 0; i < 4; ++i) {
+    out[me + i * 512]       = u[i];
+    out[me + i * 512 + 256] = u[i + 4];
+  }
+}
+
 long toLong(double x, float *maxErr) {
   double rx = rint(x);
   *maxErr = max(*maxErr, fabs((float) (x - rx)));
@@ -378,7 +397,7 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   gy = (gy + gx) % GH;
   in   += gy * 64 * W + gx * 64;
   out  += gy * 64     + gx * 64 * H;
-  trig += (gy + gx * 32) * (64 * 64);
+  trig += (gy + gx * GH) * (64 * 64);
   
   uint me = get_local_id(0), mx = me % 64, my = me / 64;
   
@@ -396,10 +415,36 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   }
 }
 
+// in place
+KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
+  uint W = 1024, H = 2048, GW = W / 64;
+  uint g = get_group_id(0), gx = g % GW, gy = g / GW;
+  io   += gy * 64 * W + gx * 64;
+  trig += g * (64 * 64);
+  
+  uint me = get_local_id(0), mx = me % 64, my = me / 64;
+  
+  double2 u[16];
+  for (int i = 0; i < 16; ++i) {
+    uint p = (my + i * 4) * W + mx;
+    u[i] = mul(io[p], trig[i * 256 + me]);
+  }
+
+  local double lds[4096];
+  transposeCore(lds, u);
+  
+  for (int i = 0; i < 16; ++i) {
+    uint p = (my + i * 4) * W + mx;
+    io[p] = u[i];
+  }
+}
+
+/* // not used
 KERNEL(256) transpose1K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
   local double lds[4096];
   transpose(1024, 2048, lds, in, out, trig);
 }
+*/
 
 KERNEL(256) transpose2K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
   local double lds[4096];

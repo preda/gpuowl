@@ -106,31 +106,18 @@ void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab)
 }
 
 cl_mem genBigTrig(cl_context context, int W, int H) {
-  int M = std::max(W, H);
-  const int size = (M / 64) * (M / 64) * (2 * 64 * 64);
+  const int size = (W / 64) * (H / 64) * (2 * 64 * 64);
   double *tab = new double[size];
   auto base = - M_PIl / (W * H / 2);
-  
-  /*
-  for (int y = 0; y < std::min(W, H); ++y) {
-    for (int x = y; x < M; ++x) {
-      auto angle = (x * y) * base;
-      tab[(y * M + x) * 2 + 0] = tab[(x * M + y) * 2 + 0] = cosl(angle);
-      tab[(y * M + x) * 2 + 1] = tab[(x * M + y) * 2 + 1] = sinl(angle);
-    }
-  }
-  */
 
-  for (int gy = 0; gy < std::min(W, H) / 64; ++gy) {
-    for (int gx = gy; gx < M / 64; ++gx) {
-      double *p1 = tab + (gy * (M / 64) + gx) * (2 * 64 * 64);
-      double *p2 = tab + (gx * (M / 64) + gy) * (2 * 64 * 64);           
+  double *p = tab;
+  for (int gy = 0; gy < H / 64; ++gy) {
+    for (int gx = 0; gx < W / 64; ++gx) {
       for (int y = 0; y < 64; ++y) {
         for (int x = 0; x < 64; ++x) {
-          int k = (gy * 64 + y) * (gx * 64 + x);
-          auto angle = k * base;
-          p1[(y * 64 + x) * 2 + 0] = p2[(x * 64 + y) * 2 + 0] = cosl(angle);            
-          p1[(y * 64 + x) * 2 + 1] = p2[(x * 64 + y) * 2 + 1] = sinl(angle);            
+          auto angle = (gy * 64 + y) * (gx * 64 + x) * base;
+          *p++ = cosl(angle);
+          *p++ = sinl(angle);
         }
       }
     }
@@ -628,9 +615,10 @@ int main(int argc, char **argv) {
   cl_program p = compile(device, context, "gpuowl.cl", extraOpts);
   if (!p) { exit(1); }
   KERNEL(p, fftPremul1K, 3);
-  KERNEL(p, transpose1K, 5);
-  KERNEL(p, fft2K,       4);
+  KERNEL(p, transp1K,    5);
+  KERNEL(p, fft2K_1K,    4);
   KERNEL(p, csquare2K,   2);
+  KERNEL(p, fft2K,       4);
   KERNEL(p, transpose2K, 5);
   KERNEL(p, fft1K,       3);
   KERNEL(p, carryA,      4);
@@ -670,15 +658,16 @@ int main(int argc, char **argv) {
     log("Exponent setup: %4d ms\n", timer.delta());
 
     fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
-    transpose1K.setArgs(buf1,    buf2, bufBigTrig);
-    fft2K.setArgs      (buf2,    bufTrig2K);
+    transp1K.setArgs   (buf1,    bufBigTrig);
+    fft2K_1K.setArgs   (buf1,    buf2, bufTrig2K);
     csquare2K.setArgs  (buf2,    bufSins);
+    fft2K.setArgs      (buf2,    bufTrig2K);
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
     carryA.setArgs     (buf1,    bufI, bufData, bufCarry, bufBitlen, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen, bufErr);
 
-    std::vector<Kernel *> kernels{&fftPremul1K, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K, &fft1K, &carryA, &carryB_2K};
+    std::vector<Kernel *> kernels{&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K, &fft1K, &carryA, &carryB_2K};
     
     bool isPrime;
     u64 residue;
