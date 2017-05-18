@@ -166,10 +166,19 @@ KERNEL(256) fft1K(global double2 *io, SMALL_CONST double2 *trig1k) {
   for (int i = 0; i < 4; ++i) { io[i * 256 + me] = u[i]; }
 }
 
-long toLong(double x, float *maxErr) {
+double roundWithErr(double x, float *maxErr) {
   double rx = rint(x);
   *maxErr = max(*maxErr, fabs((float) (x - rx)));
   return rx;
+}
+
+long toLong(double x, float *maxErr) {
+  return roundWithErr(x, maxErr);
+  /*
+  double rx = rint(x);
+  *maxErr = max(*maxErr, fabs((float) (x - rx)));
+  return rx;
+  */
 }
 
 int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
@@ -186,6 +195,12 @@ int updateB(long *carry, long x, uint bits) {
   int w = lowBits(((int) u) - 1, bits) + 1;
   *carry = (u - w) >> bits;
   return w;
+}
+
+double updateD(double *carry, double a, int bits) {
+  double x = a + *carry;
+  *carry = rint(ldexp(x, -bits));
+  return x - ldexp(*carry, bits);
 }
 
 int2 update(long *carry, long2 r, uchar2 bits) {
@@ -216,7 +231,20 @@ double2 car2(long carry, int2 r, uchar2 bits) {
   return (double2) (a, b);
 }
 
-KERNEL(256) mega1K(global double2 *io, volatile global long *transfer, volatile global uint *ready, global int *globalErr,
+double2 dar0(double *carry, double2 u, double2 ia, uchar2 bits, float *maxErr) {
+  double a = updateD(carry, roundWithErr(u.x * ia.x, maxErr), bits.x);
+  double b = updateD(carry, roundWithErr(u.y * ia.y, maxErr), bits.y);
+  return (double2)(a, b);
+}
+
+double2 dar2(double carry, double2 r, uchar2 bits) {
+  double a = updateD(&carry, r.x, bits.x);
+  double b = carry + r.y;
+  return (double2) (a, b);
+}
+
+KERNEL(256) mega1K(global double2 *io, volatile global double *transfer, volatile global uint *ready,
+                   volatile global uint *globalErr,
                    CONST double2 *A, CONST double2 *iA, CONST uchar2 *bitlen, SMALL_CONST double2 *trig1k) {
   local double lds[1024];
   
@@ -237,14 +265,14 @@ KERNEL(256) mega1K(global double2 *io, volatile global long *transfer, volatile 
   fft1kImpl(lds, u, trig1k);
 
   float err = 0;
-  int2 r[4];
+  // int2 r[4];
   for (int i = 0; i < 4; ++i) {
-    long carry = (i == 0 && gm == 0 && me == 0) ? -2 : 0;
+    double carry = (i == 0 && gm == 0 && me == 0) ? -2 : 0;
     uint p = i * 256 + me;
-    r[i]   = car0(&carry, conjugate(u[i]), iA[p], bitlen[p], &err);
+    u[i] = dar0(&carry, conjugate(u[i]), iA[p], bitlen[p], &err);
     if (gr < 2048) { transfer[1024 + p] = carry; }
   }
-
+  
   /*
   local uint *maxErr = (local uint *) lds;
   if (me == 0) { *maxErr = 0; }
@@ -254,7 +282,8 @@ KERNEL(256) mega1K(global double2 *io, volatile global long *transfer, volatile 
 
   if (me == 0) { atomic_xchg(&ready[gr], 1); }
   if (gr == 0) { return; }
-
+  // atomic_max(globalErr, *(uint *)&err);
+  
   // atomic_max(maxErr, (uint) (err * (1 << 30))); bar();
   
   if (me == 0) {
@@ -271,13 +300,12 @@ KERNEL(256) mega1K(global double2 *io, volatile global long *transfer, volatile 
   }  
   bar();
 
-  // transfer -= 1024;
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
-    long carry = transfer[(p - gr / 2048) & 1023];
+    double carry = transfer[(p - gr / 2048) & 1023];
     // long carry = transfer[-1024 + (int) ((p - gr / 2048) & 1023)];
 
-    u[i] = car2(carry, r[i], bitlen[p]) * A[p];
+    u[i] = dar2(carry, u[i], bitlen[p]) * A[p];
   }
   
   fft1kImpl(lds, u, trig1k);
@@ -349,7 +377,7 @@ KERNEL(256) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global
   bar();
   atomic_max(&localMaxErr, (uint) (maxErr * (1 << 30)));
   bar();
-  if (me == 0) { atomic_max(globalMaxErr, localMaxErr); }
+  // if (me == 0) { atomic_max(globalMaxErr, localMaxErr); }
 }
 
 void carryBCore(uint H, global int2 *in, CONST long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {

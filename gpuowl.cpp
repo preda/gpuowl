@@ -407,11 +407,11 @@ bool checkPrime(int W, int H, cl_queue q,
       ++k;
     }
     
-    unsigned rawErr = 0;
-    read(q,  false, bufErr,  sizeof(unsigned), &rawErr);
+    float err = 0;
+    read(q,  false, bufErr,  sizeof(float), &err);
     write(q, false, bufErr,  sizeof(unsigned), &zero);
     read(q,  true,  bufData, sizeof(int) * N, data);
-    float err = rawErr * (1 / (float) (1 << 30));
+    // float err = rawErr * (1 / (float) (1 << 30));
     float prevMaxErr = maxErr;
     maxErr = std::max(err, maxErr);
     res = residue(N, W, data, shiftTab);
