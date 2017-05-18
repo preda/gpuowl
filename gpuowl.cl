@@ -73,14 +73,15 @@ void tabMul(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
 
 void shuffleMul(SMALL_CONST double2 *trig, local double *lds, double2 *u, uint n, uint f) {
   bar();
-  shufl(lds, u, n, f);
+  shufl(lds,   u, n, f);
   tabMul(trig, u, n, f);
 }
 
 void fft1kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig1k) {
   fft4(u);
-  shufl(lds,   u, 4, 64);
-  tabMul(trig1k, u, 4, 64);  
+  shuffleMul(trig1k, lds, u, 4, 64);
+  // shufl(lds,     u, 4, 64);
+  // tabMul(trig1k, u, 4, 64);  
   
   fft4(u);
   shuffleMul(trig1k, lds, u, 4, 16);
@@ -165,44 +166,124 @@ KERNEL(256) fft1K(global double2 *io, SMALL_CONST double2 *trig1k) {
   for (int i = 0; i < 4; ++i) { io[i * 256 + me] = u[i]; }
 }
 
-/*
-KERNEL(256) merged(CONST double2 *in, CONST double2 *out, SMALL_CONST double2 *trig1k,
-                   CONST double2 *A, CONST double2 *iA, CONST uchar2 *bitlen, global long *gCarry,
-                   global int *globalErr) {
-  local double lds[1024];
+long toLong(double x, float *maxErr) {
+  double rx = rint(x);
+  *maxErr = max(*maxErr, fabs((float) (x - rx)));
+  return rx;
+}
 
-  const uint W = 2048;
-  uint gt = get_group_id(0);
+int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
+
+int updateA(long *carry, long x, uint bits) {
+  long u = *carry + x;
+  int w = lowBits(u, bits);
+  *carry = (u - w) >> bits;
+  return w;
+}
+
+int updateB(long *carry, long x, uint bits) {
+  long u = *carry + x;
+  int w = lowBits(((int) u) - 1, bits) + 1;
+  *carry = (u - w) >> bits;
+  return w;
+}
+
+int2 update(long *carry, long2 r, uchar2 bits) {
+  int a = updateA(carry, r.x, bits.x);
+  int b = updateB(carry, r.y, bits.y);
+  return (int2) (a, b);
+}
+
+int2 car0(long *carry, double2 u, double2 a, uchar2 bits, float *maxErr) {
+  long a0 = toLong(u.x * a.x, maxErr);
+  long a1 = toLong(u.y * a.y, maxErr);
+  return update(carry, (long2)(a0, a1), bits);
+}
+
+int2 car0Fast(long *carry, double2 u, double2 a, uchar2 bits) {
+  long a0 = rint(u.x * a.x);
+  long a1 = rint(u.y * a.y);
+  return update(carry, (long2)(a0, a1), bits);
+}
+
+int2 car1(long *carry, int2 r, uchar2 bits) {
+  return update(carry, (long2)(r.x, r.y), bits);
+}
+
+double2 car2(long carry, int2 r, uchar2 bits) {
+  int a = updateA(&carry, r.x, bits.x);
+  int b = r.y + (int) carry;
+  return (double2) (a, b);
+}
+
+KERNEL(256) mega1K(global double2 *io, volatile global long *transfer, volatile global uint *ready, global int *globalErr,
+                   CONST double2 *A, CONST double2 *iA, CONST uchar2 *bitlen, SMALL_CONST double2 *trig1k) {
+  local double lds[1024];
+  
+  uint gr = get_group_id(0);
+  uint gm = gr % 2048;
   uint me = get_local_id(0);
-  uint gx = gt % (W / 64);
-  uint gy = gt / (W / 64);
-  uint g  = gy + gx * 64;  // uint g = gt / (W / 64) + gt % (W / 64) * 64;
-  uint gr = g % W;
+  uint step = gm * 1024;
   
-  in  += gx * 64 + gy * W;
-  out    += g * 1024;
-  A      += g * 1024;
-  iA     += g * 1024;
-  bitlen += g * 1024;
-  gCarry += g * 1024;
-  
+  io     += step;
+  A      += step;
+  iA     += step;
+  bitlen += step;
+  transfer += ((int)gr - 1) * 1024;
+
   double2 u[4];
-  for (int i = 0; i < 4; ++i) { u[i] = in[me % 64 + (me / 64 + i * 4) * 64 * W]; }
+  for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
 
   fft1kImpl(lds, u, trig1k);
 
   float err = 0;
-
+  int2 r[4];
   for (int i = 0; i < 4; ++i) {
-    long carry = (i == 0 && g == 0 && me == 0) ? -2 : 0;
+    long carry = (i == 0 && gm == 0 && me == 0) ? -2 : 0;
     uint p = i * 256 + me;
-    
+    r[i]   = car0(&carry, conjugate(u[i]), iA[p], bitlen[p], &err);
+    if (gr < 2048) { transfer[1024 + p] = carry; }
+  }
+
+  /*
+  local uint *maxErr = (local uint *) lds;
+  if (me == 0) { *maxErr = 0; }
+  */
+  
+  barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+
+  if (me == 0) { atomic_xchg(&ready[gr], 1); }
+  if (gr == 0) { return; }
+
+  // atomic_max(maxErr, (uint) (err * (1 << 30))); bar();
+  
+  if (me == 0) {
+    // atomic_max(globalErr, *maxErr);
+    // int spin = 0; while (!ready[gr - 1] && (spin < (1 << 30))) { ++spin; }
+    while(!atomic_xchg(&ready[gr - 1], 0));
+
+    /*
+    do {
+      read_mem_fence(CLK_GLOBAL_MEM_FENCE);
+    } while (!ready[gr - 1]);
+    ready[gr - 1] = 0;
+    */
+  }  
+  bar();
+
+  // transfer -= 1024;
+  for (int i = 0; i < 4; ++i) {
+    uint p = i * 256 + me;
+    long carry = transfer[(p - gr / 2048) & 1023];
+    // long carry = transfer[-1024 + (int) ((p - gr / 2048) & 1023)];
+
+    u[i] = car2(carry, r[i], bitlen[p]) * A[p];
   }
   
+  fft1kImpl(lds, u, trig1k);
 
-  // for (int i = 0; i < 4; ++i) { out[i * 256 + me] = u[i]; }
+  for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
 }
-*/
 
 KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
@@ -239,44 +320,6 @@ KERNEL(256) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2
     out[me + i * 512]       = u[i];
     out[me + i * 512 + 256] = u[i + 4];
   }
-}
-
-long toLong(double x, float *maxErr) {
-  double rx = rint(x);
-  *maxErr = max(*maxErr, fabs((float) (x - rx)));
-  return rx;
-}
-
-int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
-
-int updateA(long *carry, long x, uint bits) {
-  long u = *carry + x;
-  int w = lowBits(u, bits);
-  *carry = (u - w) >> bits;
-  return w;
-}
-
-int updateB(long *carry, long x, uint bits) {
-  long u = *carry + x;
-  int w = lowBits(((int) u) - 1, bits) + 1;
-  *carry = (u - w) >> bits;
-  return w;
-}
-
-int2 update(long *carry, long2 r, uchar2 bits) {
-  int a = updateA(carry, r.x, bits.x);
-  int b = updateB(carry, r.y, bits.y);
-  return (int2) (a, b);
-}
-
-int2 car0(long *carry, double2 u, double2 a, uchar2 bits, float *maxErr) {
-  long a0 = toLong(u.x * a.x, maxErr);
-  long a1 = toLong(u.y * a.y, maxErr);
-  return update(carry, (long2)(a0, a1), bits);
-}
-
-int2 car1(long *carry, int2 r, uchar2 bits) {
-  return update(carry, (long2)(r.x, r.y), bits);
 }
 
 // conjugates input
@@ -450,3 +493,77 @@ KERNEL(256) transpose2K(CONST double2 *in, global double2 *out, CONST double2 *t
   local double lds[4096];
   transpose(2048, 1024, lds, in, out, trig);
 }
+
+/*
+KERNEL(256) mega1K(double2 *io, global long *gCarry, global uint *ready, global int *globalErr,
+                   CONST double2 *A, CONST double2 *iA, CONST uchar2 *bitlen, SMALL_CONST double2 *trig1k) {
+  local double lds[1024];
+  
+  uint gr = get_group_id(0);
+  uint gm = gr % 1024;
+  uint me = get_local_id(0);
+
+  io     += gm * 2048;
+  A      += gm * 2048;
+  iA     += gm * 2048;
+  bitlen += gm * 2048;
+
+  double2 u[4];
+  for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
+
+  fft1kImpl(lds, u, trig1k);
+
+  float err = 0;
+  int2 r[8];
+  long carry[4];
+  for (int i = 0; i < 4; ++i) {
+    carry[i] = (i == 0 && g == 0 && me == 0) ? -2 : 0;
+    uint p   = i * 256 + me;
+    r[i]     = car0(carry + i, conjugate(u[i]), iA[p], bitlen[p], &err);
+    u[i]     = io[p + 1024];
+  }
+
+  fft1kImpl(lds, u, trig1k);
+  
+  int2 *r = (int2 *) &u;
+  for (int i = 0; i < 4; ++i) {
+    uint p   = i * 256 + me + 1024;
+    r[i + 4] = car0(carry + i, conjugate(u[i]), iA[p], bitlen[p], &err);
+    gCarry[gm * 1024 + i * 256 + me] = carry[i];
+  }
+
+  local uint *maxErr = &lds;
+  if (me == 0) { *maxErr = 0; }
+  
+  barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+  if (me == 0) { ready[gr] = 1; }
+  if (gr == 0) { return; }
+  atomic_max(maxErr, (uint) (err * (1 << 30)));
+  
+  bar();
+  if (me == 0) {
+    atomic_max(globalErr, *maxErr);
+    while(!ready[gr - 1]);  // busy wait
+    ready[gr - 1] = 0;
+  }  
+  bar();
+
+  for (int i = 0; i < 4; ++i) {
+    uint p = i * 256 + me;
+    carry[i] = gCarry[(gr * 1024 + p - 1) % (1024 * 1024)];
+    u[i] = car1(carry + i, r[i], bitlen[p]) * A[p];
+  }
+
+  fft1kImpl(lds, u, trig1k);
+
+  for (int i = 0; i < 4; ++i) {
+    io[i * 256 + me]  = u[i];
+    uint p = i * 256 + 1024 + me;
+    u[i]   = car2(carry + i, r[i + 4], bitlen[p]) * A[p];
+  }
+
+  fft1kImpl(lds, u, trig1K);
+
+  for (int i = 0; i < 4; ++i) { io[i * 256 + 1024 + me] = u[i]; }
+}
+*/

@@ -47,28 +47,28 @@ using Queue   = Holder<cl_queue>;
 static_assert(sizeof(Buffer) == sizeof(cl_mem));
 
 class Kernel {
-  using Kern = std::unique_ptr<cl_kernel, ReleaseDelete<cl_kernel>>;
-  
   std::string name;
-  Kern kernel;
+  Holder<cl_kernel> kernel;
   TimeCounter counter;
   int sizeShift;
   bool doTime;
+  int extraGroups;
 
 public:
-  Kernel(cl_program program, const char *iniName, int iniSizeShift, MicroTimer &timer, bool doTime) :
+  Kernel(cl_program program, const char *iniName, int iniSizeShift, MicroTimer &timer, bool doTime, int extraGroups = 0) :
     name(iniName),
     kernel(makeKernel(program, name.c_str())),
     counter(&timer),
     sizeShift(iniSizeShift),
-    doTime(doTime)
+    doTime(doTime),
+    extraGroups(extraGroups)
   { }
 
   void setArgs(auto&... args) { ::setArgs(kernel.get(), args...); }
   
   const char *getName() { return name.c_str(); }
   void run(cl_queue q, int N) {
-    ::run(q, kernel.get(), N >> sizeShift);
+    ::run(q, kernel.get(), (N >> sizeShift) + extraGroups * 256);
     if (doTime) {
       finish(q);
       counter.tick();
@@ -339,7 +339,29 @@ void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, c
   delete[] bitlenTab;
 }
 
-bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, int E, int *shiftTab,
+void run(const std::vector<Kernel *> &kerns, cl_queue q, int N) {
+  for (Kernel *k : kerns) { k->run(q, N); }
+}
+
+void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
+  if (nIters < 2) { return; }
+  u64 total = 0;
+  for (Kernel *k : kerns) { total += k->getCounter(); }
+  const float iIters = 1 / (float) (nIters - 1);
+  const float iTotal = 1 / (float) total;
+  for (Kernel *k : kerns) {
+    u64 c = k->getCounter();
+    k->resetCounter();
+    log("  %-12s %.1fus, %02.1f%%\n", k->getName(), c * iIters, c * 100 * iTotal);
+  }
+  log("  %-12s %.1fus\n", "Total", total * iIters);
+}
+
+bool checkPrime(int W, int H, cl_queue q,
+                const std::vector<Kernel *> &headKerns,
+                const std::vector<Kernel *> &tailKerns,
+                const std::vector<Kernel *> &coreKerns,
+                int E, int *shiftTab,
                 int logStep, int saveStep, bool doTimeKernels, bool doSelfTest,
                 cl_mem bufData, cl_mem bufErr,
                 bool *outIsPrime, u64 *outResidue) {
@@ -375,10 +397,14 @@ bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, 
   
   do {
     startK = k;
-    if (doTimeKernels) { kernels[0]->tick(); kernels[0]->resetCounter(); }
-    
-    for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); k < nextLog; ++k) {
-      for (Kernel *kernel : kernels) { kernel->run(q, N); }
+    if (k < kEnd) {
+      run(headKerns, q, N);
+      if (doTimeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
+      for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); k < nextLog - 1; ++k) {
+        run(coreKerns, q, N);
+      }
+      run(tailKerns, q, N);
+      ++k;
     }
     
     unsigned rawErr = 0;
@@ -394,22 +420,12 @@ bool checkPrime(int W, int H, cl_queue q, const std::vector<Kernel *> &kernels, 
       bool doSavePersist = (k / saveStep != (k - logStep) / saveStep);
       checkpoint.save(data, k, doSavePersist, res);
     }
-    
-    float msPerIter = timer.delta() * (1 / (float) std::max(k - startK, 1));
+
+    int nIters = k - startK;
+    float msPerIter = timer.delta() / (float) std::max(nIters, 1);
     doLog(E, k, err, maxErr, msPerIter, res);
-    
-    if (doTimeKernels) {
-      u64 total = 0;
-      for (Kernel *kernel : kernels) { total += kernel->getCounter(); }
-      const float iLogStep = 1 / (float) logStep;
-      const float iTotal   = 1 / (float) total;
-      for (Kernel *kernel : kernels) {
-        u64 c = kernel->getCounter();
-        kernel->resetCounter();
-        log("  %-12s %.1fus, %02.1f%%\n", kernel->getName(), c * iLogStep, c * 100 * iTotal);
-      }
-      log("  %-12s %.1fus\n", "Total", total * iLogStep);
-    }
+
+    if (doTimeKernels) { logTimeKernels(coreKerns, nIters); }
     
     if (err >= .5f) {
       log("Error %g is way too large, stopping.\n", err);
@@ -457,7 +473,7 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
           "    e.g. -cl -save-temps or -cl -save-temps=prefix or -cl -save-temps=folder/ to save ISA code\n"
           "-logstep  <N> : to log every <N> iterations (default %d)\n"
           "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
-          "-time kernels : to benchmark kernels\n"
+          "-time kernels : to benchmark kernels (logstep must be > 1)\n"
           "-selftest     : perform self tests from 'selftest.txt'\n"
           "                Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n"
           "-device   <N> : select specific device among:\n", *logStep, 500 * *logStep);
@@ -545,6 +561,10 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
   if (*saveStep < *logStep || *saveStep % *logStep) {
     log("It is recommended to use a persist step that is a multiple of the log step (you provided %d, %d)\n", *saveStep, *logStep);
   }
+  if (*timeKernels && *logStep == 1) {
+    log("Ignoring time kernels because logStep == 1\n");
+    *timeKernels = false;
+  }
   
   return true;
 }
@@ -565,8 +585,6 @@ int getNextExponent(bool doSelfTest, u64 *expectedRes, char *AID) {
     return worktodoReadExponent(AID);
   }
 }
-
-#define KERNEL(program, name, shift) Kernel name(program, #name, shift, microTimer, doTimeKernels)
 
 int main(int argc, char **argv) {
   logFiles[0] = stdout;
@@ -614,6 +632,7 @@ int main(int argc, char **argv) {
   
   cl_program p = compile(device, context, "gpuowl.cl", extraOpts);
   if (!p) { exit(1); }
+#define KERNEL(program, name, shift) Kernel name(program, #name, shift, microTimer, doTimeKernels)
   KERNEL(p, fftPremul1K, 3);
   KERNEL(p, transp1K,    5);
   KERNEL(p, fft2K_1K,    4);
@@ -623,6 +642,9 @@ int main(int argc, char **argv) {
   KERNEL(p, fft1K,       3);
   KERNEL(p, carryA,      4);
   KERNEL(p, carryB_2K,   4);
+  // KERNEL(p, mega1K,      3);
+#undef KERNEL
+  Kernel mega1K(p, "mega1K", 3, microTimer, doTimeKernels, 1);
   
   log("Compile       : %4d ms\n", timer.delta());
   release(p); p = nullptr;
@@ -637,10 +659,13 @@ int main(int argc, char **argv) {
 
   Buffer buf1{makeBuf(context,     BUF_RW, sizeof(double) * N)};
   Buffer buf2{makeBuf(context,     BUF_RW, sizeof(double) * N)};
-  Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(long)   * N / 8)};
+  Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(long)   * N)};  // ! /2
 
-  Buffer bufErr{makeBuf(context,  CL_MEM_READ_WRITE, sizeof(int))};
-  Buffer bufData{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N)};
+  Buffer bufErr{makeBuf(context,   CL_MEM_READ_WRITE, sizeof(int))};
+  Buffer bufData{makeBuf(context,  CL_MEM_READ_WRITE, sizeof(int) * N)};
+  int *zero = new int[2049]();
+  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * 2049, zero)};
+  delete[] zero;
   log("General setup : %4d ms\n", timer.delta());
 
   Queue queue{makeQueue(device, context)};
@@ -666,12 +691,17 @@ int main(int argc, char **argv) {
     fft1K.setArgs      (buf1,    bufTrig1K);
     carryA.setArgs     (buf1,    bufI, bufData, bufCarry, bufBitlen, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen, bufErr);
+    mega1K.setArgs     (buf1,    bufCarry, bufReady, bufErr, bufA, bufI, bufBitlen, bufTrig1K);
 
-    std::vector<Kernel *> kernels{&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K, &fft1K, &carryA, &carryB_2K};
+    std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
+    std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};
+    std::vector<Kernel *> coreKerns {&mega1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
     
     bool isPrime;
     u64 residue;
-    if (!checkPrime(W, H, queue.get(), kernels, E, shiftTab,
+    if (!checkPrime(W, H, queue.get(),
+                    headKerns, tailKerns, coreKerns,
+                    E, shiftTab,
                     logStep, saveStep, doTimeKernels, doSelfTest,
                     bufData.get(), bufErr.get(),
                     &isPrime, &residue)) {

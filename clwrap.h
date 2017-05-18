@@ -90,21 +90,27 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
 
   // First try CL2.0 compilation.
   snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size %s", opts);
-  if ((err = clBuildProgram(program, 1, &device, buf, NULL, NULL)) < 0) {
-    printf("Falling back to CL1.x compilation (error %d)\n", err);
-    snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math %s", opts);
-    err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
-  }
+  err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
+  
+  size_t logSize;
+  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
+  buf[logSize] = 0;
+  if (logSize > 2) { fprintf(stderr, "OpenCL compilation log:\n%s\n", buf); }
+  if (err == CL_SUCCESS) { return program; }
+  
+  printf("Falling back to CL1.x compilation (error %d)\n", err);
+  snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math %s", opts);
+  err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
+  
+  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
+  buf[logSize] = 0;
+  if (logSize > 2) { fprintf(stderr, "OpenCL compilation log:\n%s\n", buf); }
 
-  if (err != CL_SUCCESS) {
-    size_t logSize;
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
-    buf[logSize] = 0;
-    fprintf(stderr, "OpenCL compilation error %d, log:\n%s\n", err, buf);
-    return 0;
-  }
-
-  return program;
+  if (err == CL_SUCCESS) { return program; }
+  
+  fprintf(stderr, "OpenCL 1.x compilation error %d\n", err);
+  release(program);
+  return 0;
 }  
   // Other options:
   // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/
