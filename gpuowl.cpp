@@ -85,6 +85,7 @@ void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab)
   byte   *pb = bitlenTab;
 
   auto iN = 1 / (long double) (2 * W * H);
+  int baseBits = (int) floorl(E * iN);
   
   for (int line = 0; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
@@ -96,9 +97,11 @@ void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab)
         auto c1 = ceill(p1);
       
         int bits  = ((int) c1) - ((int) c0);
+        assert(bits == baseBits || bits == baseBits + 1);
         auto a    = exp2l(c0 - p0);
-        *pa++ = a;
-        *pi++ = 1 / (8 * W * H * a);
+        auto ia   = 1 / (8 * W * H * a);
+        *pa++ = (bits == baseBits) ? a  : -a;
+        *pi++ = (bits == baseBits) ? ia : -ia;
         *pb++ = bits;
       }
     }
@@ -680,7 +683,8 @@ int main(int argc, char **argv) {
     timer.delta();
     setupExponentBufs(context, E, W, H, &pBufA, &pBufI, &pBufBitlen, shiftTab);
     Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
-    log("Exponent setup: %4d ms\n", timer.delta());
+    uint baseBitlen = (int) floorl(E / (long double) N);
+    log("Exponent setup: %4d ms (%u)\n", timer.delta(), baseBitlen);
 
     fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
     transp1K.setArgs   (buf1,    bufBigTrig);
@@ -691,7 +695,7 @@ int main(int argc, char **argv) {
     fft1K.setArgs      (buf1,    bufTrig1K);
     carryA.setArgs     (buf1,    bufI, bufData, bufCarry, bufBitlen, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen, bufErr);
-    mega1K.setArgs     (buf1,    bufCarry, bufReady, bufErr, bufA, bufI, bufBitlen, bufTrig1K);
+    mega1K.setArgs     (baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
 
     std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};
