@@ -302,31 +302,26 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
     if (gr < 2048) { transfer[1024 + p] = carry; }
   }
   
-  /*
   local uint *maxErr = (local uint *) lds;
   if (me == 0) { *maxErr = 0; }
-  */
   
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
 
-  if (me == 0) { atomic_xchg(&ready[gr], 1); }
+  if (gr < 2048 && me == 0) { atomic_xchg(&ready[gr], 1); }
   if (gr == 0) { return; }
-  // atomic_max(globalErr, *(uint *)&err);
+  atomic_max(maxErr, *(uint *)&err);
   
-  // atomic_max(maxErr, (uint) (err * (1 << 30))); bar();
-  
-  if (me == 0) {
-    // atomic_max(globalErr, *maxErr);
-    while(!atomic_xchg(&ready[gr - 1], 0));
-  }  
+  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
   bar();
 
+  if (me == 0) { atomic_max(globalErr, *maxErr); }
+  
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
     double carry = transfer[(p - gr / 2048) & 1023];
     u[i] = dar2(carry, u[i], A[p], baseBitlen);
   }
-  
+
   fft1kBigLDS(lds, u, trig1k);
 
   for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
@@ -394,9 +389,9 @@ KERNEL(256) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global
   local uint localMaxErr;
   if (me == 0) { localMaxErr = 0; }
   bar();
-  atomic_max(&localMaxErr, (uint) (maxErr * (1 << 30)));
+  atomic_max(&localMaxErr, *(uint *)&maxErr);
   bar();
-  // if (me == 0) { atomic_max(globalMaxErr, localMaxErr); }
+  if (me == 0) { atomic_max(globalMaxErr, localMaxErr); }
 }
 
 void carryBCore(uint H, global int2 *in, CONST long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
