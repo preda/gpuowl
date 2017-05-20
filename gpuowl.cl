@@ -110,7 +110,6 @@ void fft1kBigLDS(local double2 *lds, double2 *u, SMALL_CONST double2 *trig1k) {
 
 void fft1kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig1k) {
   fft4(u);
-  // shuffleMul(trig1k, lds, u, 4, 64);
   shufl(lds,     u, 4, 64);
   tabMul(trig1k, u, 4, 64);  
   
@@ -181,8 +180,6 @@ KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, S
 }
 
 KERNEL(256) fft1K(global double2 *io, SMALL_CONST double2 *trig1k) {
-  local double lds[1024];
-
   uint g = get_group_id(0);
   uint step = g * 1024;
   io += step;
@@ -192,6 +189,7 @@ KERNEL(256) fft1K(global double2 *io, SMALL_CONST double2 *trig1k) {
 
   for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
 
+  local double lds[1024];
   fft1kImpl(lds, u, trig1k);
   
   for (int i = 0; i < 4; ++i) { io[i * 256 + me] = u[i]; }
@@ -276,7 +274,7 @@ double2 dar2(double carry, double2 r, double2 a, uint baseBits) {
 KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global double *transfer, volatile global uint *ready,
                    volatile global uint *globalErr,
                    CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
-  local double2 lds[1024];
+
   
   uint gr = get_group_id(0);
   uint gm = gr % 2048;
@@ -291,8 +289,14 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
   double2 u[4];
   for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
 
+#ifdef LOW_LDS
+  local double lds[1024];
+  fft1kImpl(lds, u, trig1k);
+#else
+  local double2 lds[1024];
   fft1kBigLDS(lds, u, trig1k);
-
+#endif
+  
   float err = 0;
   #pragma unroll 1
   for (int i = 0; i < 4; ++i) {
@@ -322,8 +326,12 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
     u[i] = dar2(carry, u[i], A[p], baseBitlen);
   }
 
+#ifdef LOW_LDS
+  fft1kImpl(lds, u, trig1k);
+#else
   fft1kBigLDS(lds, u, trig1k);
-
+#endif
+  
   for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
 }
 

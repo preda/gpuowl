@@ -480,7 +480,7 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n"
           "-cl <CL compiler options>\n"
-          "    e.g. -cl -save-temps or -cl -save-temps=prefix or -cl -save-temps=folder/ to save ISA code\n"
+          "    e.g. -cl \"-D LOW_LDS -save-temps=tmp -O2\"\n"
           "-logstep  <N> : to log every <N> iterations (default %d)\n"
           "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
           "-time kernels : to benchmark kernels (logstep must be > 1)\n"
