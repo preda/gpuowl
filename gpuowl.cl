@@ -219,12 +219,6 @@ int updateB(long *carry, long x, uint bits) {
   return w;
 }
 
-double updateD(double *carry, double a, int bits) {
-  double x = a + *carry;
-  *carry = rint(ldexp(x, -bits));
-  return x - ldexp(*carry, bits);
-}
-
 int2 update(long *carry, long2 r, uchar2 bits) {
   int a = updateA(carry, r.x, bits.x);
   int b = updateB(carry, r.y, bits.y);
@@ -241,14 +235,23 @@ int2 car1(long *carry, int2 r, uchar2 bits) {
   return update(carry, (long2)(r.x, r.y), bits);
 }
 
+double updateD(double *carry, double a, int bits) {
+  double x = a + *carry;
+  *carry = rint(ldexp(x, -bits));
+  return x - ldexp(*carry, bits);
+}
+
+// Simpler version of (a < 0).
+uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
+
 double2 dar0(double *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {
-  double a = updateD(carry, roundWithErr(u.x * fabs(ia.x), maxErr), baseBits + (ia.x < 0));
-  double b = updateD(carry, roundWithErr(u.y * fabs(ia.y), maxErr), baseBits + (ia.y < 0));
+  double a = updateD(carry, roundWithErr(u.x * fabs(ia.x), maxErr), baseBits + signBit(ia.x));
+  double b = updateD(carry, roundWithErr(u.y * fabs(ia.y), maxErr), baseBits + signBit(ia.y));
   return (double2)(a, b);
 }
 
 double2 dar2(double carry, double2 r, double2 a, uint baseBits) {
-  double x = updateD(&carry, r.x, baseBits + (a.x < 0));
+  double x = updateD(&carry, r.x, baseBits + signBit(a.x));
   return (double2) (x, carry + r.y) * fabs(a);
 }
 
@@ -286,20 +289,27 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
     u[i] = dar0(&carry, conjugate(u[i]), iA[p], &err, baseBitlen);
     if (gr < 2048) { transfer[1024 + p] = carry; }
   }
-  
+
+#ifndef NO_ERR  
   local uint *maxErr = (local uint *) lds;
   if (me == 0) { *maxErr = 0; }
+#endif
   
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
 
   if (gr < 2048 && me == 0) { atomic_xchg(&ready[gr], 1); }
   if (gr == 0) { return; }
+
+#ifndef NO_ERR
   atomic_max(maxErr, *(uint *)&err);
+#endif
   
   if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
   bar();
 
+#ifndef NO_ERR
   if (me == 0) { atomic_max(globalErr, *maxErr); }
+#endif
   
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
