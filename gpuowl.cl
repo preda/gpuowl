@@ -201,14 +201,7 @@ double roundWithErr(double x, float *maxErr) {
   return rx;
 }
 
-long toLong(double x, float *maxErr) {
-  return roundWithErr(x, maxErr);
-  /*
-  double rx = rint(x);
-  *maxErr = max(*maxErr, fabs((float) (x - rx)));
-  return rx;
-  */
-}
+long toLong(double x, float *maxErr) { return roundWithErr(x, maxErr); }
 
 int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
 
@@ -244,20 +237,8 @@ int2 car0(long *carry, double2 u, double2 a, uchar2 bits, float *maxErr) {
   return update(carry, (long2)(a0, a1), bits);
 }
 
-int2 car0Fast(long *carry, double2 u, double2 a, uchar2 bits) {
-  long a0 = rint(u.x * a.x);
-  long a1 = rint(u.y * a.y);
-  return update(carry, (long2)(a0, a1), bits);
-}
-
 int2 car1(long *carry, int2 r, uchar2 bits) {
   return update(carry, (long2)(r.x, r.y), bits);
-}
-
-double2 car2(long carry, int2 r, uchar2 bits) {
-  int a = updateA(&carry, r.x, bits.x);
-  int b = r.y + (int) carry;
-  return (double2) (a, b);
 }
 
 double2 dar0(double *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {
@@ -543,77 +524,3 @@ KERNEL(256) transpose2K(CONST double2 *in, global double2 *out, CONST double2 *t
   local double lds[4096];
   transpose(2048, 1024, lds, in, out, trig);
 }
-
-/*
-KERNEL(256) mega1K(double2 *io, global long *gCarry, global uint *ready, global int *globalErr,
-                   CONST double2 *A, CONST double2 *iA, CONST uchar2 *bitlen, SMALL_CONST double2 *trig1k) {
-  local double lds[1024];
-  
-  uint gr = get_group_id(0);
-  uint gm = gr % 1024;
-  uint me = get_local_id(0);
-
-  io     += gm * 2048;
-  A      += gm * 2048;
-  iA     += gm * 2048;
-  bitlen += gm * 2048;
-
-  double2 u[4];
-  for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
-
-  fft1kImpl(lds, u, trig1k);
-
-  float err = 0;
-  int2 r[8];
-  long carry[4];
-  for (int i = 0; i < 4; ++i) {
-    carry[i] = (i == 0 && g == 0 && me == 0) ? -2 : 0;
-    uint p   = i * 256 + me;
-    r[i]     = car0(carry + i, conjugate(u[i]), iA[p], bitlen[p], &err);
-    u[i]     = io[p + 1024];
-  }
-
-  fft1kImpl(lds, u, trig1k);
-  
-  int2 *r = (int2 *) &u;
-  for (int i = 0; i < 4; ++i) {
-    uint p   = i * 256 + me + 1024;
-    r[i + 4] = car0(carry + i, conjugate(u[i]), iA[p], bitlen[p], &err);
-    gCarry[gm * 1024 + i * 256 + me] = carry[i];
-  }
-
-  local uint *maxErr = &lds;
-  if (me == 0) { *maxErr = 0; }
-  
-  barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
-  if (me == 0) { ready[gr] = 1; }
-  if (gr == 0) { return; }
-  atomic_max(maxErr, (uint) (err * (1 << 30)));
-  
-  bar();
-  if (me == 0) {
-    atomic_max(globalErr, *maxErr);
-    while(!ready[gr - 1]);  // busy wait
-    ready[gr - 1] = 0;
-  }  
-  bar();
-
-  for (int i = 0; i < 4; ++i) {
-    uint p = i * 256 + me;
-    carry[i] = gCarry[(gr * 1024 + p - 1) % (1024 * 1024)];
-    u[i] = car1(carry + i, r[i], bitlen[p]) * A[p];
-  }
-
-  fft1kImpl(lds, u, trig1k);
-
-  for (int i = 0; i < 4; ++i) {
-    io[i * 256 + me]  = u[i];
-    uint p = i * 256 + 1024 + me;
-    u[i]   = car2(carry + i, r[i + 4], bitlen[p]) * A[p];
-  }
-
-  fft1kImpl(lds, u, trig1K);
-
-  for (int i = 0; i < 4; ++i) { io[i * 256 + 1024 + me] = u[i]; }
-}
-*/
