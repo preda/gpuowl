@@ -21,7 +21,7 @@
 
 const int EXP_MIN_2M = 20000000, EXP_MAX_2M = 40000000, EXP_MIN_4M = 35000000, EXP_MAX_4M = 78000000;
 
-#define VERSION "0.1"
+#define VERSION "0.2"
 
 const char *AGENT = "gpuowl v" VERSION;
 
@@ -365,7 +365,7 @@ bool checkPrime(int W, int H, cl_queue q,
                 const std::vector<Kernel *> &tailKerns,
                 const std::vector<Kernel *> &coreKerns,
                 int E, int *shiftTab,
-                int logStep, int saveStep, bool doTimeKernels, bool doSelfTest,
+                int logStep, int saveStep, bool doTimeKernels, bool doSelfTest, bool useLegacy,
                 cl_mem bufData, cl_mem bufErr,
                 bool *outIsPrime, u64 *outResidue) {
   const int N = 2 * W * H;
@@ -397,6 +397,12 @@ bool checkPrime(int W, int H, cl_queue q,
   bool isCheck = false;
 
   const int kEnd = doSelfTest ? 20000 : (E - 2);
+
+  std::vector<Kernel *> runKerns = coreKerns;
+  if (useLegacy) {
+    runKerns = tailKerns;
+    runKerns.insert(runKerns.end(), headKerns.begin(), headKerns.end());
+  }
   
   do {
     startK = k;
@@ -404,7 +410,7 @@ bool checkPrime(int W, int H, cl_queue q,
       run(headKerns, q, N);
       if (doTimeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
       for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); k < nextLog - 1; ++k) {
-        run(coreKerns, q, N);
+        run(runKerns, q, N);
       }
       run(tailKerns, q, N);
       ++k;
@@ -428,7 +434,7 @@ bool checkPrime(int W, int H, cl_queue q,
     float msPerIter = timer.delta() / (float) std::max(nIters, 1);
     doLog(E, k, err, maxErr, msPerIter, res);
 
-    if (doTimeKernels) { logTimeKernels(coreKerns, nIters); }
+    if (doTimeKernels) { logTimeKernels(runKerns, nIters); }
     
     if (err >= .5f) {
       log("Error %g is way too large, stopping.\n", err);
@@ -461,12 +467,13 @@ bool checkPrime(int W, int H, cl_queue q,
 
 // return false to stop.
 bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *saveStep, int *forceDevice, bool *timeKernels,
-               bool *selfTest) {
+               bool *selfTest, bool *useLegacy) {
   const int DEFAULT_LOGSTEP = 20000;
   *logStep  = DEFAULT_LOGSTEP;
   *saveStep = 0;
   *timeKernels = false;
-  *selfTest = false;
+  *selfTest    = false;
+  *useLegacy   = false;
 
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
@@ -478,6 +485,7 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
           "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
           "-time kernels : to benchmark kernels (logstep must be > 1)\n"
           "-selftest     : perform self tests from 'selftest.txt'\n"
+          "-legacy       : use legacy (old) kernels\n"
           "                Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n"
           "-device   <N> : select specific device among:\n", *logStep, 500 * *logStep);
 
@@ -554,6 +562,8 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
         log("-device expects <N> argument\n");
         return false;
       }
+    } else if (!strcmp(arg, "-legacy")) {
+      *useLegacy = true;
     } else {
       log("Argument '%s' not understood\n", arg);
       return false;
@@ -606,8 +616,8 @@ int main(int argc, char **argv) {
   int forceDevice = -1;
   int logStep = 0;
   int saveStep = 0;
-  bool doTimeKernels = false, doSelfTest = false;
-  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice, &doTimeKernels, &doSelfTest)) { return 0; }
+  bool doTimeKernels = false, doSelfTest = false, useLegacy = false;
+  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice, &doTimeKernels, &doSelfTest, &useLegacy)) { return 0; }
   
   cl_device_id device;
   if (forceDevice >= 0) {
@@ -706,7 +716,7 @@ int main(int argc, char **argv) {
     if (!checkPrime(W, H, queue.get(),
                     headKerns, tailKerns, coreKerns,
                     E, shiftTab,
-                    logStep, saveStep, doTimeKernels, doSelfTest,
+                    logStep, saveStep, doTimeKernels, doSelfTest, useLegacy,
                     bufData.get(), bufErr.get(),
                     &isPrime, &residue)) {
       break;
