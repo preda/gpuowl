@@ -17,7 +17,7 @@ g++ gpuowl.cpp -ogpuowl -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -lOpenCL
 
 ## gpuowl -help outputs:
 
-'''
+```
 gpuOwL v0.2 GPU Lucas-Lehmer primality checker; Sun May 21 20:58:26 2017
 Command line options:
 -cl "<OpenCL compiler options>"
@@ -49,4 +49,4 @@ Test=70100200
 Test=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1
 DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1
 Test=0,70100200,0,0
-'''
+```
