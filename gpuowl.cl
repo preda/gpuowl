@@ -235,15 +235,29 @@ int2 car1(long *carry, int2 r, uchar2 bits) {
   return update(carry, (long2)(r.x, r.y), bits);
 }
 
-double2 updateD(double x, int bits) {
-  double carry = rint(ldexp(x, -bits));
-  return (double2)(x - ldexp(carry, bits), carry);
-}
-
 // Simpler version of (a < 0).
 uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
 uint bitlen(uint base, double a) { return base + signBit(a); }
+
+/*
+int2 ear0(long *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {
+  u *= fabs(ia);
+  int a = updateA(carry, toLong(u.x, maxErr), bitlen(baseBits, ia.x));
+  int b = updateB(carry, toLong(u.y, maxErr), bitlen(baseBits, ia.y));
+  return (int2) (a, b);
+}
+
+double2 ear2(long carry, int2 r, double2 a, uint baseBits) {
+  int t = updateA(&carry, r.x, bitlen(baseBits, a.x));
+  return (double2) (t, r.y + (int) carry) * fabs(a);
+}
+*/
+
+double2 updateD(double x, int bits) {
+  double carry = rint(ldexp(x, -bits));
+  return (double2)(x - ldexp(carry, bits), carry);
+}
 
 double3 dar0(double2 u, double2 ia, float *maxErr, uint baseBits) {
   u *= fabs(ia);
@@ -257,7 +271,7 @@ double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
   return (double2) (r.x, r.y + u.y) * fabs(a);
 }
 
-KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global double *transfer, volatile global uint *ready,
+KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global double *carry, volatile global uint *ready,
                    volatile global uint *globalErr,
                    CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
 
@@ -267,10 +281,10 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
   uint me = get_local_id(0);
   uint step = gm * 1024;
   
-  io     += step;
-  A      += step;
-  iA     += step;
-  transfer += ((int)gr - 1) * 1024;
+  io    += step;
+  A     += step;
+  iA    += step;
+  carry += ((int)gr - 1) * 1024;
 
   double2 u[4];
   for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
@@ -284,16 +298,24 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
 #endif
   
   float err = 0;
+  double2 r[4];
+  
   #pragma unroll 1
   for (int i = 0; i < 4; ++i) {
-    // double carry; // = (i == 0 && gm == 0 && me == 0) ? -2 : 0;
     uint p = i * 256 + me;
-    double3 r = dar0(conjugate(u[i]), iA[p], &err, baseBitlen);
-    u[i] = r.xy;
-    if (gr < 2048) { transfer[1024 + p] = r.z; }
+
+    /*
+    long carry = 0;
+    r[i] = ear0(&carry, conjugate(u[i]), iA[p], &err, baseBitlen);
+    if (gr < 2048) { transfer[1024 + p] = carry; }
+    */
+    
+    double3 ret = dar0(conjugate(u[i]), iA[p], &err, baseBitlen);
+    r[i] = ret.xy;
+    if (gr < 2048) { carry[1024 + p] = ret.z; }
   }
 
-  if (gm == 0 && me == 0) { u[0].x -= 2; }
+  if (gm == 0 && me == 0) { r[0].x -= 2; }
 
 #ifndef NO_ERR  
   local uint *maxErr = (local uint *) lds;
@@ -318,8 +340,7 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
   
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
-    double carry = transfer[(p - gr / 2048) & 1023];
-    u[i] = dar2(carry, u[i], A[p], baseBitlen);
+    u[i] = dar2(carry[(p - gr / 2048) & 1023], r[i], A[p], baseBitlen);
   }
 
 #ifdef LOW_LDS
