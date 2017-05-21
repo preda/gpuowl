@@ -235,24 +235,26 @@ int2 car1(long *carry, int2 r, uchar2 bits) {
   return update(carry, (long2)(r.x, r.y), bits);
 }
 
-double updateD(double *carry, double a, int bits) {
-  double x = a + *carry;
-  *carry = rint(ldexp(x, -bits));
-  return x - ldexp(*carry, bits);
+double2 updateD(double x, int bits) {
+  double carry = rint(ldexp(x, -bits));
+  return (double2)(x - ldexp(carry, bits), carry);
 }
 
 // Simpler version of (a < 0).
 uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
-double2 dar0(double *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {
-  double a = updateD(carry, roundWithErr(u.x * fabs(ia.x), maxErr), baseBits + signBit(ia.x));
-  double b = updateD(carry, roundWithErr(u.y * fabs(ia.y), maxErr), baseBits + signBit(ia.y));
-  return (double2)(a, b);
+uint bitlen(uint base, double a) { return base + signBit(a); }
+
+double3 dar0(double2 u, double2 ia, float *maxErr, uint baseBits) {
+  u *= fabs(ia);
+  double2 r0 = updateD(       roundWithErr(u.x, maxErr), bitlen(baseBits, ia.x));
+  double2 r1 = updateD(r0.y + roundWithErr(u.y, maxErr), bitlen(baseBits, ia.y));
+  return (double3)(r0.x, r1);
 }
 
-double2 dar2(double carry, double2 r, double2 a, uint baseBits) {
-  double x = updateD(&carry, r.x, baseBits + signBit(a.x));
-  return (double2) (x, carry + r.y) * fabs(a);
+double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
+  double2 r = updateD(carry + u.x, bitlen(baseBits, a.x));
+  return (double2) (r.x, r.y + u.y) * fabs(a);
 }
 
 KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global double *transfer, volatile global uint *ready,
@@ -284,11 +286,14 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
   float err = 0;
   #pragma unroll 1
   for (int i = 0; i < 4; ++i) {
-    double carry = (i == 0 && gm == 0 && me == 0) ? -2 : 0;
+    // double carry; // = (i == 0 && gm == 0 && me == 0) ? -2 : 0;
     uint p = i * 256 + me;
-    u[i] = dar0(&carry, conjugate(u[i]), iA[p], &err, baseBitlen);
-    if (gr < 2048) { transfer[1024 + p] = carry; }
+    double3 r = dar0(conjugate(u[i]), iA[p], &err, baseBitlen);
+    u[i] = r.xy;
+    if (gr < 2048) { transfer[1024 + p] = r.z; }
   }
+
+  if (gm == 0 && me == 0) { u[0].x -= 2; }
 
 #ifndef NO_ERR  
   local uint *maxErr = (local uint *) lds;

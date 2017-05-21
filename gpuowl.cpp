@@ -694,7 +694,7 @@ int main(int argc, char **argv) {
     setupExponentBufs(context, E, W, H, &pBufA, &pBufI, &pBufBitlen, shiftTab);
     Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
     uint baseBitlen = (int) floorl(E / (long double) N);
-    log("Exponent setup: %4d ms (%u)\n", timer.delta(), baseBitlen);
+    log("Exponent setup: %4d ms\n", timer.delta());
 
     fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
     transp1K.setArgs   (buf1,    bufBigTrig);
