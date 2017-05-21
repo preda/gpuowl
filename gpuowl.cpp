@@ -479,8 +479,12 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n"
-          "-cl <CL compiler options>\n"
-          "    e.g. -cl \"-D LOW_LDS -save-temps=tmp -O2\"\n"
+          "-cl \"<OpenCL compiler options>\"\n"
+          "    All the cl options must be included in the single argument following -cl\n"
+          "    e.g. -cl \"-D LOW_LDS -D NO_ERR -save-temps=tmp/ -O2\"\n"
+          "        -save-temps or -save-temps=tmp or -save-temps=tmp/ : save ISA\n"
+          "        -D LOW_LDS : use a variant of the amalgamation kernel with lower LDS\n"
+          "        -D NO_ERR  : do not compute maximum rounding error\n"
           "-logstep  <N> : to log every <N> iterations (default %d)\n"
           "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
           "-time kernels : to benchmark kernels (logstep must be > 1)\n"
@@ -578,7 +582,9 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
     log("Ignoring time kernels because logStep == 1\n");
     *timeKernels = false;
   }
-  
+
+  log("Config: -logstep %d -savestep %d %s%s%s-cl \"%s\"\n", *logStep, *saveStep, *timeKernels ? "-time kernels " : "",
+      *selfTest ? "-selftest " : "", *useLegacy ? "-legacy " : "", *extraOpts);
   return true;
 }
 
