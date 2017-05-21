@@ -271,11 +271,10 @@ double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
   return (double2) (r.x, r.y + u.y) * fabs(a);
 }
 
+// The "amalgamation" kernel is equivalent to the sequence: fft1K, carryA, carryB, fftPremul1K.
 KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global double *carry, volatile global uint *ready,
                    volatile global uint *globalErr,
                    CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
-
-  
   uint gr = get_group_id(0);
   uint gm = gr % 2048;
   uint me = get_local_id(0);
@@ -299,7 +298,8 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
   
   float err = 0;
   double2 r[4];
-  
+
+  // Fight the LLVM OpenCL compiler who doesn't care about # of VGPRs used.
   #pragma unroll 1
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
