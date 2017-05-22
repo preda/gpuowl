@@ -430,16 +430,19 @@ bool checkPrime(int W, int H, cl_queue q,
 
     if (doTimeKernels) { logTimeKernels(runKerns, nIters); }
 
+    bool isLoop = k < kEnd && data[0] == 2 && isAllZero(data + 1, N - 1);
+    
     float MAX_ERR = 0.47f;
-    if (err > MAX_ERR) {
+    if (err > MAX_ERR || isLoop) {
+      const char *problem = isLoop ? "Loop on LL 0...002" : "Error is too large";
       if (!isRetry) {
-        log("Error %g is too large, retrying.\n", err);
+        log("%s; retrying\n", problem);
         isRetry = true;
         write(q, false, bufData, sizeof(int) * N, saveData);
         k = saveK;
         continue;  // but don't update maxErr yet.
       } else {
-        log("Error %g is still too large, stopping.\n", err);
+        log("%s persists, stopping.\n", problem);
         return false;
       }
     }
