@@ -1,4 +1,4 @@
-// gpuOWL, a GPU OpenCL Lucas-Lehmer primality checker.
+// gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
 
 #include "clwrap.h"

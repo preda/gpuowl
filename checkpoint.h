@@ -1,3 +1,4 @@
+// gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
 
 #include "common.h"
@@ -12,12 +13,12 @@ FILE *open(const char *name, const char *mode) {
 
 class Checkpoint {
 private:
-  char fileNameSave[64];
+  char fileNameSave[64], fileNamePrev[64], fileNameTemp[64];
   int E, W, H;
   // Header: "\nLL2 <exponent> <iteration> <width> <height> <offset> <sum> \n"
   const char *headerFormat = "\nLL2 %d %d %d %d %d %d\n";
 
-  bool write(int size, const void *data, const char *name) {
+  bool write(const char *name, int size, const void *data) {
     if (FILE *fo = open(name, "wb")) {
       int nWritten = fwrite(data, size, 1, fo);
       fclose(fo);      
@@ -43,13 +44,8 @@ private:
     return sum;
   }
 
-public:
-  Checkpoint(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
-    snprintf(fileNameSave, sizeof(fileNameSave), "c%d.ll", E);
-  }
-  
-  bool load(int *data, int *startK) {
-    FILE *fi = open(fileNameSave, "rb");    
+  bool loadFile(const char *name, int *data, int *startK) {
+    FILE *fi = open(name, "rb");
     if (!fi) { return true; }
     
     int N = 2 * W * H;
@@ -58,7 +54,7 @@ public:
     fclose(fi);
 
     if (n < wordsSize || n >= wordsSize + 128) {
-      log("File '%s' has invalid size (%d)\n", fileNameSave, n);
+      log("File '%s' has invalid size (%d)\n", name, n);
       return false;
     }
         
@@ -68,12 +64,12 @@ public:
     
     if (sscanf(header, headerFormat, &fileE, &fileK, &fileW, &fileH, &fileOffset, &fileSum) != 6 ||
         !(E == fileE && W == fileW && H == fileH && 0 == fileOffset)) {
-      log("File '%s' has wrong tailer '%s'\n", fileNameSave, header);
+      log("File '%s' has wrong tailer '%s'\n", name, header);
       return false;
     }
     
     if (fileSum != checksum(data, N)) {
-      log("File '%s' has wrong checksum (expected %d got %d)\n", fileNameSave, fileSum, checksum(data, N));
+      log("File '%s' has wrong checksum (expected %d got %d)\n", name, fileSum, checksum(data, N));
       return false;
     }
     
@@ -81,22 +77,29 @@ public:
     return true;
   }
   
+public:
+  Checkpoint(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
+    snprintf(fileNameSave, sizeof(fileNameSave), "c%d.ll", E);
+    snprintf(fileNamePrev, sizeof(fileNamePrev), "t%d.ll", E);
+    snprintf(fileNameTemp, sizeof(fileNameTemp), "b%d.ll", E);
+  }
+  
+  bool load(int *data, int *startK) {
+    return loadFile(fileNameSave, data, startK);
+  }
+  
   void save(int *data, int k, bool savePersist, u64 residue) {
-    char fileTemp[64], filePrev[64];
-    snprintf(fileTemp, sizeof(fileTemp), "b%d.ll", E);
-    snprintf(filePrev, sizeof(filePrev), "t%d.ll", E);
-
     int headerSize = prepareHeader(data, k);
     const int totalSize = sizeof(int) * 2 * W * H + headerSize;
-    if (write(totalSize, data, fileTemp)) {
-      remove(filePrev);
-      rename(fileNameSave, filePrev);
-      rename(fileTemp, fileNameSave);      
+    if (write(fileNameTemp, totalSize, data)) {
+      remove(fileNamePrev);
+      rename(fileNameSave, fileNamePrev);
+      rename(fileNameTemp, fileNameSave);      
     }
     if (savePersist) {
       char name[64];
       snprintf(name, sizeof(name), "s%d.%d.%016llx.ll", E, k, (unsigned long long) residue);
-      write(totalSize, data, name);
+      write(name, totalSize, data);
     }
   }
 };
