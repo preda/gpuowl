@@ -1,10 +1,8 @@
 // Copyright (C) 2017 Mihai Preda.
 
-#include <sys/time.h>
+#include "common.h"
 
-typedef unsigned char byte;
-typedef long long i64;
-typedef unsigned long long u64;
+#include <sys/time.h>
 
 u64 timeMillis() {
   struct timeval tv;

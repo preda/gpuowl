@@ -90,7 +90,7 @@ void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab)
   for (int line = 0; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
       for (int rep = 0; rep < 2; ++rep) {
-        long k = (line + col * H) * 2 + rep;
+        long long k = (line + col * H) * 2 + rep;
         auto p0 = k * E * iN;
         auto p1 = (k + 1) * E * iN;       
         auto c0 = ceill(p0);
