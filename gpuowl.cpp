@@ -395,6 +395,7 @@ bool checkPrime(int W, int H, cl_queue q,
   int k = startK;
   int saveK = 0;
   bool isCheck = false;
+  bool isRetry = false;
 
   const int kEnd = doSelfTest ? 20000 : (E - 2);
 
@@ -420,25 +421,36 @@ bool checkPrime(int W, int H, cl_queue q,
     read(q,  false, bufErr,  sizeof(float), &err);
     write(q, false, bufErr,  sizeof(unsigned), &zero);
     read(q,  true,  bufData, sizeof(int) * N, data);
-    // float err = rawErr * (1 / (float) (1 << 30));
-    float prevMaxErr = maxErr;
-    maxErr = std::max(err, maxErr);
+    
     res = residue(N, W, data, shiftTab);
-
-    if (!doSelfTest) {
-      bool doSavePersist = (k / saveStep != (k - logStep) / saveStep);
-      checkpoint.save(data, k, doSavePersist, res);
-    }
 
     int nIters = k - startK;
     float msPerIter = timer.delta() / (float) std::max(nIters, 1);
-    doLog(E, k, err, maxErr, msPerIter, res);
+    doLog(E, k, err, std::max(err, maxErr), msPerIter, res);
 
     if (doTimeKernels) { logTimeKernels(runKerns, nIters); }
-    
-    if (err >= .5f) {
-      log("Error %g is way too large, stopping.\n", err);
-      return false;
+
+    float MAX_ERR = 0.47f;
+    if (err > MAX_ERR) {
+      if (!isRetry) {
+        log("Error %g is too large, retrying.\n", err);
+        isRetry = true;
+        write(q, false, bufData, sizeof(int) * N, saveData);
+        k = saveK;
+        continue;  // but don't update maxErr yet.
+      } else {
+        log("Error %g is still too large, stopping.\n", err);
+        return false;
+      }
+    }
+    isRetry = false;
+        
+    if (!isCheck && maxErr > 0 && err > 1.2f * maxErr && logStep >= 1000 && !doSelfTest) {
+      log("Error jump by %.2f%%, doing a consistency check.\n", (err / maxErr - 1) * 100);      
+      isCheck = true;
+      write(q, false, bufData, sizeof(int) * N, saveData);
+      k = saveK;
+      continue;
     }
 
     if (isCheck) {
@@ -446,16 +458,17 @@ bool checkPrime(int W, int H, cl_queue q,
       if (!memcmp(data, saveData, sizeof(int) * N)) {
         log("Consistency checked OK, continuing.\n");
       } else {
-        log("Consistency check FAILED, something is wrong, stopping.\n");
+        log("Consistency check FAILED, stopping.\n");
         return false;
       }
-    } else if (prevMaxErr > 0 && err > 1.166f * prevMaxErr && logStep >= 1000 && !doSelfTest) {
-      log("Error jump by %.2f%%, doing a consistency check.\n", (err / prevMaxErr - 1) * 100);      
-      isCheck = true;
-      write(q, true, bufData, sizeof(int) * N, saveData);
-      k = saveK;
     }
-    
+
+    if (!doSelfTest) {
+      bool doSavePersist = (k / saveStep != (k - logStep) / saveStep);
+      checkpoint.save(data, k, doSavePersist, res);
+    }
+
+    maxErr = std::max(maxErr, err);
     memcpy(saveData, data, sizeof(int) * N);
     saveK = k;
   } while (k < kEnd);
