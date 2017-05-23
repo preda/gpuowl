@@ -90,7 +90,7 @@ void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab)
   for (int line = 0; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
       for (int rep = 0; rep < 2; ++rep) {
-        long long k = (line + col * H) * 2 + rep;
+        i64 k = (line + col * H) * 2 + rep;
         auto p0 = k * E * iN;
         auto p1 = (k + 1) * E * iN;       
         auto c0 = ceill(p0);
@@ -267,10 +267,10 @@ bool worktodoGetLinePos(int E, int *begin, int *end) {
   char kind[32];
   int exp;
   bool ret = false;
-  long p1 = 0;
+  i64 p1 = 0;
   while (true) {
     if (fscanf(fi, "%255s\n", line) < 1) { break; }
-    long p2 = ftell(fi);
+    i64 p2 = ftell(fi);
     if (sscanf(line, "%11[^=]=%*32[0-9a-fA-F],%d,%*d,%*d", kind, &exp) == 2 &&
         (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")) &&
         exp == E) {
@@ -694,7 +694,7 @@ int main(int argc, char **argv) {
 
   Buffer buf1{makeBuf(context,     BUF_RW, sizeof(double) * N)};
   Buffer buf2{makeBuf(context,     BUF_RW, sizeof(double) * N)};
-  Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(long)   * N)};  // ! /2
+  Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(double) * N)}; // could be N/2 as well.
 
   Buffer bufErr{makeBuf(context,   CL_MEM_READ_WRITE, sizeof(int))};
   Buffer bufData{makeBuf(context,  CL_MEM_READ_WRITE, sizeof(int) * N)};
