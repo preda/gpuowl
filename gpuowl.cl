@@ -415,7 +415,7 @@ KERNEL(256) carryA(const uint baseBits, CONST double2 *in, CONST double2 *A, glo
   if (me == 0) { atomic_max(globalMaxErr, localMaxErr); }
 }
 
-void carryBCore(uint H, global int2 *in, CONST long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
+void carryBCore(uint H, global int2 *in, CONST long *carryIn, CONST uchar2 *bitlen) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   
@@ -433,12 +433,10 @@ void carryBCore(uint H, global int2 *in, CONST long *carryIn, CONST uchar2 *bitl
     in[p] = car1(&carry, in[p], bitlen[p]);
     if (!carry) { return; }
   }
-  
-  if (carry) { atomic_max(maxErr, (3 << 28)); }  // Assert no carry left at this point.
 }
 
-KERNEL(256) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen, global uint *maxErr) {
-  carryBCore(2048, in, carryIn, bitlen, maxErr);
+KERNEL(256) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen) {
+  carryBCore(2048, in, carryIn, bitlen);
 }
 
 // Inputs normal (non-conjugate); outputs conjugate.

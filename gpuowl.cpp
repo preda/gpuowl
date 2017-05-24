@@ -726,7 +726,7 @@ int main(int argc, char **argv) {
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
     carryA.setArgs     (baseBitlen, buf1, bufI, bufData, bufCarry, bufErr);
-    carryB_2K.setArgs  (bufData, bufCarry, bufBitlen, bufErr);
+    carryB_2K.setArgs  (bufData, bufCarry, bufBitlen);
     mega1K.setArgs     (baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
 
     std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
