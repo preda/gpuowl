@@ -79,27 +79,27 @@ public:
   void tick() { counter.tick(); }
 };
 
-void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
+void genBitlen(unsigned E, unsigned W, unsigned H, double *aTab, double *iTab, byte *bitlenTab) {
   double *pa = aTab;
   double *pi = iTab;
   byte   *pb = bitlenTab;
 
-  auto iN = 1 / (long double) (2 * W * H);
-  int baseBits = (int) floorl(E * iN);
-  
-  for (int line = 0; line < H; ++line) {
-    for (int col = 0; col < W; ++col) {
-      for (int rep = 0; rep < 2; ++rep) {
-        i64 k = (line + col * H) * 2 + rep;
-        auto p0 = k * E * iN;
-        auto p1 = (k + 1) * E * iN;       
-        auto c0 = ceill(p0);
-        auto c1 = ceill(p1);
-      
-        int bits  = ((int) c1) - ((int) c0);
+  unsigned N = 2 * W * H;
+  unsigned baseBits = E / N;
+  auto iN = 1 / (long double) N;
+
+  for (unsigned line = 0; line < H; ++line) {
+    for (unsigned col = 0; col < W; ++col) {
+      for (unsigned rep = 0; rep < 2; ++rep) {
+        unsigned k = (line + col * H) * 2 + rep;
+        u64 kE = k * (u64) E;
+        auto p0 = kE * iN;
+        auto c0 = (unsigned)((kE - 1 + 0) / N) + 1;
+        auto c1 = (unsigned)((kE - 1 + E) / N) + 1;
+        auto bits  = c1 - c0;
         assert(bits == baseBits || bits == baseBits + 1);
-        auto a    = exp2l(c0 - p0);
-        auto ia   = 1 / (8 * W * H * a);
+        auto a = exp2l(c0 - p0);
+        auto ia = 1 / (4 * N * a);
         *pa++ = (bits == baseBits) ? a  : -a;
         *pi++ = (bits == baseBits) ? ia : -ia;
         *pb++ = bits;
@@ -715,7 +715,7 @@ int main(int argc, char **argv) {
     timer.delta();
     setupExponentBufs(context, E, W, H, &pBufA, &pBufI, &pBufBitlen, shiftTab);
     Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
-    unsigned baseBitlen = (unsigned) floorl(E / (long double) N);
+    unsigned baseBitlen = E / N;
     log("Exponent setup: %4d ms\n", timer.delta());
 
     fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
