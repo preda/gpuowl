@@ -725,7 +725,7 @@ int main(int argc, char **argv) {
     fft2K.setArgs      (buf2,    bufTrig2K);
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
-    carryA.setArgs     (buf1,    bufI, bufData, bufCarry, bufBitlen, bufErr);
+    carryA.setArgs     (baseBitlen, buf1, bufI, bufData, bufCarry, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen, bufErr);
     mega1K.setArgs     (baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
 

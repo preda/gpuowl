@@ -219,26 +219,23 @@ int updateB(long *carry, long x, uint bits) {
   return w;
 }
 
-int2 update(long *carry, long2 r, uchar2 bits) {
-  int a = updateA(carry, r.x, bits.x);
-  int b = updateB(carry, r.y, bits.y);
-  return (int2) (a, b);
-}
-
-int2 car0(long *carry, double2 u, double2 a, uchar2 bits, float *maxErr) {
-  long a0 = toLong(u.x * a.x, maxErr);
-  long a1 = toLong(u.y * a.y, maxErr);
-  return update(carry, (long2)(a0, a1), bits);
-}
-
-int2 car1(long *carry, int2 r, uchar2 bits) {
-  return update(carry, (long2)(r.x, r.y), bits);
-}
-
 // Simpler version of (a < 0).
 uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
 uint bitlen(uint base, double a) { return base + signBit(a); }
+
+int2 car0(long *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {
+  u *= fabs(ia);
+  int a = updateA(carry, toLong(u.x, maxErr), bitlen(baseBits, ia.x));
+  int b = updateB(carry, toLong(u.y, maxErr), bitlen(baseBits, ia.y));
+  return (int2) (a, b);
+}
+
+int2 car1(long *carry, int2 r, uchar2 bits) {
+  int a = updateA(carry, r.x, bits.x);
+  int b = updateB(carry, r.y, bits.y);
+  return (int2) (a, b);
+}
 
 /*
 int2 ear0(long *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {
@@ -390,8 +387,8 @@ KERNEL(256) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2
 }
 
 // conjugates input
-KERNEL(256) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global long *carryOut,
-                 CONST uchar2 *bitlen, global uint *globalMaxErr) {
+KERNEL(256) carryA(const uint baseBits, CONST double2 *in, CONST double2 *A, global int2 *out,
+                   global long *carryOut, global uint *globalMaxErr) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -399,14 +396,13 @@ KERNEL(256) carryA(CONST double2 *in, CONST double2 *A, global int2 *out, global
   in     += step;
   A      += step;
   out    += step;
-  bitlen += step;
 
   float maxErr = 0;
   long carry = (g == 0 && me == 0) ? -2 : 0;
 
   for (int i = 0; i < 8; ++i) {
     uint p = me + i * 1024;
-    out[p] = car0(&carry, conjugate(in[p]), fabs(A[p]), bitlen[p], &maxErr);
+    out[p] = car0(&carry, conjugate(in[p]), A[p], &maxErr, baseBits);
   }
 
   carryOut[me + g * 256] = carry;

@@ -1,5 +1,7 @@
 // Copyright (C) 2017 Mihai Preda.
 
+#include "common.h"
+
 #include <cstdint>
 #include <cstddef>
 
@@ -18,10 +20,9 @@ typedef unsigned cl_program_build_info;
 typedef unsigned cl_program_info;
 typedef unsigned cl_device_info;
 
-typedef unsigned long long ulong;
-typedef ulong cl_mem_flags;
-typedef ulong cl_device_type;
-typedef ulong cl_queue_properties;
+typedef u64 cl_mem_flags;
+typedef u64 cl_device_type;
+typedef u64 cl_queue_properties;
 
 extern "C" {
 
