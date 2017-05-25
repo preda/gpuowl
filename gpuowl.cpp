@@ -238,6 +238,22 @@ u64 residue(int W, int H, int E, int *data, int offset) {
   return r;
 }
 
+// 2**k mod m
+unsigned twoExpMod(unsigned k, unsigned m) {
+  unsigned r = 1;
+  for (int bit = 29; bit >= 0; --bit) {
+    u64 r2 = r * (u64) r;
+    if (k & (1 << bit)) { r2 *= 2; }
+    r = r2 % m;
+  }
+  return r;
+}
+
+int offsetAtIter(int E, int offset, int k) {
+  unsigned t = twoExpMod(k, E);
+  return ((unsigned) offset * (u64) t) % (unsigned) E;
+}
+
 FILE *logFiles[3] = {0, 0, 0};
 
 void log(const char *fmt, ...) {
@@ -701,7 +717,6 @@ int main(int argc, char **argv) {
   KERNEL(p, fft1K,       3);
   KERNEL(p, carryA,      4);
   KERNEL(p, carryB_2K,   4);
-  // KERNEL(p, mega1K,      3);
 #undef KERNEL
   Kernel mega1K(p, "mega1K", 3, microTimer, doTimeKernels, 1);
   
@@ -748,7 +763,9 @@ int main(int argc, char **argv) {
     fft2K.setArgs      (buf2,    bufTrig2K);
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
-    carryA.setArgs     (baseBitlen, buf1, bufI, bufData, bufCarry, bufErr);
+    unsigned offsetWord = 0;
+    i64 offsetVal       = -2;
+    carryA.setArgs     (baseBitlen, offsetWord, offsetVal, buf1, bufI, bufData, bufCarry, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen);
     mega1K.setArgs     (baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
 
