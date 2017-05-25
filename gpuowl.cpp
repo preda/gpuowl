@@ -417,8 +417,9 @@ bool checkPrime(int W, int H, cl_queue q,
   std::unique_ptr<int[]> releaseSaveData(saveData);
 
   int startK = 0;
+  int offset = 0;
   Checkpoint checkpoint(E, W, H);
-  if (!doSelfTest && !checkpoint.load(data, &startK)) { return false; }
+  if (!doSelfTest && !checkpoint.load(data, &startK, &offset)) { return false; }
   
   log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) at iteration %d\n",
       N / 1024, W, H, E, E / (double) N, startK);
@@ -508,7 +509,7 @@ bool checkPrime(int W, int H, cl_queue q,
 
     if (!doSelfTest) {
       bool doSavePersist = (k / saveStep != (k - logStep) / saveStep);
-      checkpoint.save(data, k, doSavePersist, res);
+      checkpoint.save(data, k, doSavePersist, res, offset);
     }
 
     maxErr = std::max(maxErr, err);
@@ -765,9 +766,10 @@ int main(int argc, char **argv) {
     fft1K.setArgs      (buf1,    bufTrig1K);
     unsigned offsetWord = 0;
     i64 offsetVal       = -2;
+    double offsetVald   = offsetVal;
     carryA.setArgs     (baseBitlen, offsetWord, offsetVal, buf1, bufI, bufData, bufCarry, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen);
-    mega1K.setArgs     (baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
+    mega1K.setArgs     (baseBitlen, offsetWord, offsetVald, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
 
     std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};

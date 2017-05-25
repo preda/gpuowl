@@ -31,9 +31,9 @@ private:
     return false;
   }
 
-  int prepareHeader(int *data, int k) {
+  int prepareHeader(int *data, int k, int offset) {
     int N = 2 * W * H;
-    int n = snprintf((char *) (data + N), 128, headerFormat, E, k, W, H, 0, checksum(data, N));
+    int n = snprintf((char *) (data + N), 128, headerFormat, E, k, W, H, offset, checksum(data, N));
     assert(n < 128);
     return n;
   }
@@ -44,9 +44,13 @@ private:
     return sum;
   }
 
-  bool loadFile(const char *name, int *data, int *startK) {
+  bool loadFile(const char *name, int *data, int *startK, int *offset) {
     FILE *fi = open(name, "rb");
-    if (!fi) { return true; }
+    if (!fi) {
+      *startK = 0;
+      *offset = 0;
+      return true;
+    }
     
     int N = 2 * W * H;
     int wordsSize = sizeof(int) * N;
@@ -58,12 +62,12 @@ private:
       return false;
     }
         
-    int fileE, fileK, fileW, fileH, fileOffset, fileSum;
+    int fileE, fileK, fileW, fileH, fileSum;
     char *header = (char *) (data + N);
     header[n - wordsSize] = 0;
     
-    if (sscanf(header, headerFormat, &fileE, &fileK, &fileW, &fileH, &fileOffset, &fileSum) != 6 ||
-        !(E == fileE && W == fileW && H == fileH && 0 == fileOffset)) {
+    if (sscanf(header, headerFormat, &fileE, &fileK, &fileW, &fileH, offset, &fileSum) != 6 ||
+        !(E == fileE && W == fileW && H == fileH && 0 <= *offset && *offset < E)) {
       log("File '%s' has wrong tailer '%s'\n", name, header);
       return false;
     }
@@ -84,12 +88,12 @@ public:
     snprintf(fileNameTemp, sizeof(fileNameTemp), "b%d.ll", E);
   }
   
-  bool load(int *data, int *startK) {
-    return loadFile(fileNameSave, data, startK);
+  bool load(int *data, int *startK, int *offset) {
+    return loadFile(fileNameSave, data, startK, offset);
   }
   
-  void save(int *data, int k, bool savePersist, u64 residue) {
-    int headerSize = prepareHeader(data, k);
+  void save(int *data, int k, bool savePersist, u64 residue, int offset) {
+    int headerSize = prepareHeader(data, k, offset);
     const int totalSize = sizeof(int) * 2 * W * H + headerSize;
     if (write(fileNameTemp, totalSize, data)) {
       remove(fileNamePrev);

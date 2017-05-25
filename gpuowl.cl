@@ -256,11 +256,12 @@ double2 updateD(double x, int bits) {
   return (double2)(x - ldexp(carry, bits), carry);
 }
 
-double3 dar0(double2 u, double2 ia, float *maxErr, uint baseBits) {
+double2 dar0(double *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {
   u *= fabs(ia);
-  double2 r0 = updateD(       roundWithErr(u.x, maxErr), bitlen(baseBits, ia.x));
-  double2 r1 = updateD(r0.y + roundWithErr(u.y, maxErr), bitlen(baseBits, ia.y));
-  return (double3)(r0.x, r1);
+  double2 r0 = updateD(*carry + roundWithErr(u.x, maxErr), bitlen(baseBits, ia.x));
+  double2 r1 = updateD(r0.y   + roundWithErr(u.y, maxErr), bitlen(baseBits, ia.y));
+  *carry = r1.y;
+  return (double2)(r0.x, r1.x);
 }
 
 double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
@@ -269,7 +270,8 @@ double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
 }
 
 // The "amalgamation" kernel is equivalent to the sequence: fft1K, carryA, carryB, fftPremul1K.
-KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global double *carry, volatile global uint *ready,
+KERNEL(256) mega1K(const uint baseBitlen, const uint offsetWord, const double offsetVal,
+                   global double2 *io, volatile global double *carry, volatile global uint *ready,
                    volatile global uint *globalErr,
                    CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
   uint gr = get_group_id(0);
@@ -300,19 +302,24 @@ KERNEL(256) mega1K(const uint baseBitlen, global double2 *io, volatile global do
   #pragma unroll 1
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
-
+    double c = (gm + i * 256 * 2048 + me * 2048 == offsetWord) ? offsetVal : 0;
+    r[i] = dar0(&c, conjugate(u[i]), iA[p], &err, baseBitlen);
+    if (gr < 2048) { carry[1024 + p] = c; }
+    
     /*
     long carry = 0;
     r[i] = ear0(&carry, conjugate(u[i]), iA[p], &err, baseBitlen);
     if (gr < 2048) { transfer[1024 + p] = carry; }
     */
-    
+
+    /*
     double3 ret = dar0(conjugate(u[i]), iA[p], &err, baseBitlen);
     r[i] = ret.xy;
     if (gr < 2048) { carry[1024 + p] = ret.z; }
+    */
   }
 
-  if (gm == 0 && me == 0) { r[0].x -= 2; }
+  // if (gm == 0 && me == 0) { r[0].x -= 2; }
 
 #ifndef NO_ERR  
   local uint *maxErr = (local uint *) lds;
