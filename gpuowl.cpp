@@ -82,8 +82,7 @@ public:
 int wordPos(int N, int E, int p) {
   // assert(N == (1 << 22));
   i64 x = p * (i64) E;
-  return (int) (x >> 22) + (bool) ((int) x << 10);
-  // return (int) (x >> 22) + ((int) (x & ((1 << 22) - 1)) != 0);
+  return (int) (x >> 22) + (bool) (((int) x) << 10);
 }
 
 int bitlen(int N, int E, int p) { return wordPos(N, E, p + 1) - wordPos(N, E, p); }
@@ -205,16 +204,6 @@ bool isAllZero(int *p, int size) {
   return true;
 }
 
-void getShiftTab(int W, byte *bitlenTab, int *shiftTab) {
-  int sh = 0;
-  for (int i = 0; i < 32; ++i) {
-    shiftTab[i] = sh;
-    if (sh >= 64) { return; }
-    sh += bitlenTab[i / 2 * 2 * W + i % 2];
-  }
-  assert(false);
-}
-
 int wordAt(int W, int H, int *data, int w) {
   int col  = w / 2 / H;
   int line = w / 2 % H;
@@ -246,20 +235,6 @@ u64 residue(int W, int H, int E, int *data, int offset) {
     if (p >= N) { p -= N; }
     r += (i64) wordAt(W, H, data, p) << haveBits;
   }
-  return r;
-  
-  /*
-  int haveBits = b1 - offset;  
-  while (haveBits < 64) {
-    r += (i64) wordAt(++w) << haveBits;
-    haveBits += bitlen(w);
-  }
-  */
-}
-
-u64 residueOld(int N, int W, int *data, const int *shiftTab) {
-  i64 r = ((data[N-1] < 0) ? -1 : 0);
-  for (int i = 0; shiftTab[i] < 64; ++i) { r += ((i64) data[i / 2 * 2 * W + i % 2]) << shiftTab[i]; }
   return r;
 }
 
@@ -375,14 +350,13 @@ bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
   }
 }
 
-void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, cl_mem *pBufI, cl_mem *pBufBitlen, int *shiftTab) {
+void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, cl_mem *pBufI, cl_mem *pBufBitlen) {
   int N = 2 * W * H;
   double *aTab    = new double[N];
   double *iTab    = new double[N];
   byte *bitlenTab = new byte[N];
   
   genBitlen(E, W, H, aTab, iTab, bitlenTab);
-  getShiftTab(W, bitlenTab, shiftTab);
   
   *pBufA      = makeBuf(context, BUF_CONST, sizeof(double) * N, aTab);
   *pBufI      = makeBuf(context, BUF_CONST, sizeof(double) * N, iTab);
@@ -415,8 +389,7 @@ bool checkPrime(int W, int H, cl_queue q,
                 const std::vector<Kernel *> &headKerns,
                 const std::vector<Kernel *> &tailKerns,
                 const std::vector<Kernel *> &coreKerns,
-                int E, int *shiftTab,
-                int logStep, int saveStep, bool doTimeKernels, bool doSelfTest, bool useLegacy,
+                int E, int logStep, int saveStep, bool doTimeKernels, bool doSelfTest, bool useLegacy,
                 cl_mem bufData, cl_mem bufErr,
                 bool *outIsPrime, u64 *outResidue) {
   const int N = 2 * W * H;
@@ -761,10 +734,9 @@ int main(int argc, char **argv) {
     int E = getNextExponent(doSelfTest, &expectedRes, AID);
     if (E <= 0) { break; }
 
-    int shiftTab[32];
     cl_mem pBufA, pBufI, pBufBitlen;
     timer.delta();
-    setupExponentBufs(context, E, W, H, &pBufA, &pBufI, &pBufBitlen, shiftTab);
+    setupExponentBufs(context, E, W, H, &pBufA, &pBufI, &pBufBitlen);
     Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
     unsigned baseBitlen = E / N;
     log("Exponent setup: %4d ms\n", timer.delta());
@@ -788,8 +760,7 @@ int main(int argc, char **argv) {
     u64 residue;
     if (!checkPrime(W, H, queue.get(),
                     headKerns, tailKerns, coreKerns,
-                    E, shiftTab,
-                    logStep, saveStep, doTimeKernels, doSelfTest, useLegacy,
+                    E, logStep, saveStep, doTimeKernels, doSelfTest, useLegacy,
                     bufData.get(), bufErr.get(),
                     &isPrime, &residue)) {
       break;
