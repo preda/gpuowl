@@ -79,26 +79,35 @@ public:
   void tick() { counter.tick(); }
 };
 
-void genBitlen(unsigned E, unsigned W, unsigned H, double *aTab, double *iTab, byte *bitlenTab) {
+int wordPos(int N, int E, int p) {
+  // assert(N == (1 << 22));
+  i64 x = p * (i64) E;
+  return (int) (x >> 22) + (bool) ((int) x << 10);
+  // return (int) (x >> 22) + ((int) (x & ((1 << 22) - 1)) != 0);
+}
+
+int bitlen(int N, int E, int p) { return wordPos(N, E, p + 1) - wordPos(N, E, p); }
+
+void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
   double *pa = aTab;
   double *pi = iTab;
   byte   *pb = bitlenTab;
 
-  unsigned N = 2 * W * H;
-  unsigned baseBits = E / N;
+  int N = 2 * W * H;
+  int baseBits = E / N;
   auto iN = 1 / (long double) N;
 
-  for (unsigned line = 0; line < H; ++line) {
-    for (unsigned col = 0; col < W; ++col) {
-      for (unsigned rep = 0; rep < 2; ++rep) {
-        unsigned k = (line + col * H) * 2 + rep;
-        u64 kE = k * (u64) E;
+  for (int line = 0; line < H; ++line) {
+    for (int col = 0; col < W; ++col) {
+      for (int rep = 0; rep < 2; ++rep) {
+        int k = (line + col * H) * 2 + rep;
+        i64 kE = k * (i64) E;
         auto p0 = kE * iN;
-        auto c0 = (unsigned)((kE - 1 + 0) / N) + 1;
-        auto c1 = (unsigned)((kE - 1 + E) / N) + 1;
-        auto bits  = c1 - c0;
+        int b0 = wordPos(N, E, k);
+        int b1 = wordPos(N, E, k + 1);
+        int bits  = b1 - b0;
         assert(bits == baseBits || bits == baseBits + 1);
-        auto a = exp2l(c0 - p0);
+        auto a = exp2l(b0 - p0);
         auto ia = 1 / (4 * N * a);
         *pa++ = (bits == baseBits) ? a  : -a;
         *pi++ = (bits == baseBits) ? ia : -ia;
@@ -206,7 +215,49 @@ void getShiftTab(int W, byte *bitlenTab, int *shiftTab) {
   assert(false);
 }
 
-u64 residue(int N, int W, int *data, const int *shiftTab) {
+int wordAt(int W, int H, int *data, int w) {
+  int col  = w / 2 / H;
+  int line = w / 2 % H;
+  return data[(line * W + col) * 2 + w % 2];
+}
+
+bool prevIsNegative(int W, int H, int *data, int p) {
+  int N = 2 * W * H;
+  assert(0 <= p && p < N);
+  for (int i = 0; i < 16; ++i) {
+    --p;
+    if (p < 0) { p += N; }
+    if (int word = wordAt(W, H, data, p)) { return (word < 0); }
+  }
+  return false;
+}
+
+u64 residue(int W, int H, int E, int *data, int offset) {
+  int N = 2 * W * H;
+  assert(0 <= offset && offset < E);
+  int p  = (offset * (i64) N) / E;
+  assert(0 <= p && p < N);
+  int b0 = wordPos(N, E, p);
+  int b1 = wordPos(N, E, p + 1);
+  assert(b0 <= offset && offset < b1);
+  i64 r = (wordAt(W, H, data, p) - prevIsNegative(W, H, data, p)) >> (offset - b0);
+  for (int haveBits = b1 - offset; haveBits < 64; haveBits += bitlen(N, E, p)) {
+    ++p;
+    if (p >= N) { p -= N; }
+    r += (i64) wordAt(W, H, data, p) << haveBits;
+  }
+  return r;
+  
+  /*
+  int haveBits = b1 - offset;  
+  while (haveBits < 64) {
+    r += (i64) wordAt(++w) << haveBits;
+    haveBits += bitlen(w);
+  }
+  */
+}
+
+u64 residueOld(int N, int W, int *data, const int *shiftTab) {
   i64 r = ((data[N-1] < 0) ? -1 : 0);
   for (int i = 0; shiftTab[i] < 64; ++i) { r += ((i64) data[i / 2 * 2 * W + i % 2]) << shiftTab[i]; }
   return r;
@@ -422,7 +473,7 @@ bool checkPrime(int W, int H, cl_queue q,
     write(q, false, bufErr,  sizeof(unsigned), &zero);
     read(q,  true,  bufData, sizeof(int) * N, data);
     
-    res = residue(N, W, data, shiftTab);
+    res = residue(W, H, E, data, 0);
 
     int nIters = k - startK;
     float msPerIter = timer.delta() / (float) std::max(nIters, 1);
