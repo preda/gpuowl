@@ -87,7 +87,7 @@ int wordPos(int N, int E, int p) {
 
 int bitlen(int N, int E, int p) { return wordPos(N, E, p + 1) - wordPos(N, E, p); }
 
-void genBitlen(int E, int W, int H, double *aTab, double *iTab, byte *bitlenTab) {
+void genBitlen(int W, int H, int E, double *aTab, double *iTab, byte *bitlenTab) {
   double *pa = aTab;
   double *pi = iTab;
   byte   *pb = bitlenTab;
@@ -350,13 +350,13 @@ bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
   }
 }
 
-void setupExponentBufs(cl_context context, int E, int W, int H, cl_mem *pBufA, cl_mem *pBufI, cl_mem *pBufBitlen) {
+void setupExponentBufs(cl_context context, int W, int H, int E, cl_mem *pBufA, cl_mem *pBufI, cl_mem *pBufBitlen) {
   int N = 2 * W * H;
   double *aTab    = new double[N];
   double *iTab    = new double[N];
   byte *bitlenTab = new byte[N];
   
-  genBitlen(E, W, H, aTab, iTab, bitlenTab);
+  genBitlen(W, H, E, aTab, iTab, bitlenTab);
   
   *pBufA      = makeBuf(context, BUF_CONST, sizeof(double) * N, aTab);
   *pBufI      = makeBuf(context, BUF_CONST, sizeof(double) * N, iTab);
@@ -736,7 +736,7 @@ int main(int argc, char **argv) {
 
     cl_mem pBufA, pBufI, pBufBitlen;
     timer.delta();
-    setupExponentBufs(context, E, W, H, &pBufA, &pBufI, &pBufBitlen);
+    setupExponentBufs(context, W, H, E, &pBufA, &pBufI, &pBufBitlen);
     Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
     unsigned baseBitlen = E / N;
     log("Exponent setup: %4d ms\n", timer.delta());
