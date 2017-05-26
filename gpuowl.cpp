@@ -367,10 +367,10 @@ bool worktodoDelete(int E) {
   return worktodoGetLinePos(E, &lineBegin, &lineEnd) && worktodoDelete(lineBegin, lineEnd);
 }
 
-bool writeResult(int E, bool isPrime, u64 residue, const char *AID) {
+bool writeResult(int E, bool isPrime, u64 residue, const char *AID, int offset) {
   char buf[128];
-  snprintf(buf, sizeof(buf), "M( %d )%c, 0x%016llx, offset = 0, n = %dK, %s, AID: %s",
-           E, isPrime ? 'P' : 'C', (unsigned long long) residue, 4096, AGENT, AID);
+  snprintf(buf, sizeof(buf), "M( %d )%c, 0x%016llx, offset = %d, n = %dK, %s, AID: %s",
+           E, isPrime ? 'P' : 'C', (unsigned long long) residue, offset, 4096, AGENT, AID);
   log("%s\n", buf);
   if (FILE *fo = open("results.txt", "a")) {
     fprintf(fo, "%s\n", buf);
@@ -449,7 +449,7 @@ bool checkPrime(int W, int H, cl_queue q,
                 int E, int logStep, int saveStep, bool doTimeKernels, bool doSelfTest, bool useLegacy,
                 cl_mem bufData, cl_mem bufErr,
                 Kernel *mega1K, Kernel *carryA,
-                bool *outIsPrime, u64 *outResidue) {
+                bool *outIsPrime, u64 *outResidue, int *outOffset) {
   const int N = 2 * W * H;
 
   int *data = new int[N + 32];
@@ -470,7 +470,8 @@ bool checkPrime(int W, int H, cl_queue q,
     int wordVal = oneShifted(N, E, false, rootOffset + 2, &wordPos);
     wordAt(W, H, data, wordPos) = wordVal;
   }
-
+  *outOffset = rootOffset;
+  
   memcpy(saveData, data, sizeof(int) * N);
   
   log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) offset %d iteration %d\n",
@@ -841,12 +842,13 @@ int main(int argc, char **argv) {
     
     bool isPrime;
     u64 residue;
+    int offset;
     if (!checkPrime(W, H, queue.get(),
                     headKerns, tailKerns, coreKerns,
                     E, logStep, saveStep, doTimeKernels, doSelfTest, useLegacy,
                     bufData.get(), bufErr.get(),
                     &mega1K, &carryA,
-                    &isPrime, &residue)) {
+                    &isPrime, &residue, &offset)) {
       break;
     }
     
@@ -858,7 +860,7 @@ int main(int argc, char **argv) {
         break;
       }
     } else {
-      if (!(writeResult(E, isPrime, residue, AID) && worktodoDelete(E))) { break; }
+      if (!(writeResult(E, isPrime, residue, AID, offset) && worktodoDelete(E))) { break; }
     }
   }
     
