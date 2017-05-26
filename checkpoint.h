@@ -1,6 +1,8 @@
 // gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
 
+#pragma once
+
 #include "common.h"
 
 #include <cstdio>
