@@ -449,7 +449,8 @@ bool checkPrime(int W, int H, cl_queue q,
                 int E, int logStep, int saveStep, bool doTimeKernels, bool doSelfTest, bool useLegacy,
                 cl_mem bufData, cl_mem bufErr,
                 Kernel *mega1K, Kernel *carryA,
-                bool *outIsPrime, u64 *outResidue, int *outOffset) {
+                bool *outIsPrime, u64 *outResidue,
+                int forceOffset, int *outOffset) {
   const int N = 2 * W * H;
 
   int *data = new int[N + 32];
@@ -464,7 +465,11 @@ bool checkPrime(int W, int H, cl_queue q,
   if (!doSelfTest && !checkpoint.load(data, &startK, &rootOffset)) { return false; }
 
   if (startK == 0) {
-    rootOffset = rand() % E;
+    if (forceOffset >= E) {
+      log("Invalid -offset %d for exponent %d\n", forceOffset, E);
+      return false;
+    }
+    rootOffset = (forceOffset >= 0) ? forceOffset : (rand() % E);
     memset(data, 0, sizeof(int) * N);
     int wordPos = 0;
     int wordVal = oneShifted(N, E, false, rootOffset + 2, &wordPos);
@@ -501,23 +506,27 @@ bool checkPrime(int W, int H, cl_queue q,
     runKerns.insert(runKerns.end(), headKerns.begin(), headKerns.end());
   }
   Kernel *coreCarry = useLegacy ? carryA : mega1K;
-
+  
   do {
     int nextLog = std::min((k / logStep + 1) * logStep, kEnd);
-    int nIters  = std::max(nextLog - k, 0);    
+    int nIters  = std::max(nextLog - k, 0);
     if (k < nextLog) {
       run(headKerns, q, N);
       if (doTimeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
       int wordPos;
       double wordVal;
       for (; k < nextLog - 1;) {
-        wordVal = - oneShifted(N, E, true, (++k).offset() + 1, &wordPos);
-        wordPos >>= 1;
-        coreCarry->setArg(1, wordPos);
-        coreCarry->setArg(2, wordVal);
+        ++k;
+        if (rootOffset != 0) {
+          wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
+          wordPos >>= 1;
+          coreCarry->setArg(1, wordPos);
+          coreCarry->setArg(2, wordVal);
+        }
         run(runKerns, q, N);
       }
-      wordVal = - oneShifted(N, E, true, (++k).offset() + 1, &wordPos);
+      ++k;
+      wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
       wordPos >>= 1;
       carryA->setArg(1, wordPos);
       carryA->setArg(2, wordVal);
@@ -589,13 +598,14 @@ bool checkPrime(int W, int H, cl_queue q,
 
 // return false to stop.
 bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *saveStep, int *forceDevice, bool *timeKernels,
-               bool *selfTest, bool *useLegacy) {
+               bool *selfTest, bool *useLegacy, int *forceOffset) {
   const int DEFAULT_LOGSTEP = 20000;
   *logStep  = DEFAULT_LOGSTEP;
   *saveStep = 0;
   *timeKernels = false;
   *selfTest    = false;
   *useLegacy   = false;
+  *forceOffset = -1;
 
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
@@ -610,11 +620,14 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
           "-logstep  <N> : to log every <N> iterations (default %d)\n"
           "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
           "-time kernels : to benchmark kernels (logstep must be > 1)\n"
-          "-selftest     : perform self tests from 'selftest.txt'\n"
           "-legacy       : use legacy (old) kernels\n"
-          "                Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n"
-          "-device   <N> : select specific device among:\n", *logStep, 500 * *logStep);
+          "-offset <N>   : set offset for newly started exponents (otherwise a random offset is used)\n"
+          "-selftest     : perform self tests from 'selftest.txt'\n"
+          "                Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n",
+          *logStep, 500 * *logStep);
 
+      log("-device   <N> : select specific device among:\n");
+      
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
       for (int i = 0; i < ndev; ++i) {
@@ -690,6 +703,17 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
       }
     } else if (!strcmp(arg, "-legacy")) {
       *useLegacy = true;
+    } else if (!strcmp(arg, "-offset")) {
+      if (i < argc - 1) {
+        *forceOffset = atoi(argv[++i]);
+        if (*forceOffset < 0) {
+          log("invalid -offset '%s'\n", argv[i]);
+          return false;
+        }
+      } else {
+        log("-offset expects <offset> argument\n");
+        return false;
+      }
     } else {
       log("Argument '%s' not understood\n", arg);
       return false;
@@ -705,8 +729,10 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
     *timeKernels = false;
   }
 
-  log("Config: -logstep %d -savestep %d %s%s%s-cl \"%s\"\n", *logStep, *saveStep, *timeKernels ? "-time kernels " : "",
-      *selfTest ? "-selftest " : "", *useLegacy ? "-legacy " : "", *extraOpts);
+  char buf[32] = {0};
+  if (*forceOffset >= 0) { snprintf(buf, sizeof(buf), "-offset %d ", *forceOffset); }
+  log("Config: -logstep %d -savestep %d %s%s%s%s-cl \"%s\"\n", *logStep, *saveStep, *timeKernels ? "-time kernels " : "",
+      *selfTest ? "-selftest " : "", *useLegacy ? "-legacy " : "", buf, *extraOpts);
   return true;
 }
 
@@ -745,8 +771,12 @@ int main(int argc, char **argv) {
   int forceDevice = -1;
   int logStep = 0;
   int saveStep = 0;
+  int forceOffset = -1;
   bool doTimeKernels = false, doSelfTest = false, useLegacy = false;
-  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice, &doTimeKernels, &doSelfTest, &useLegacy)) { return 0; }
+  
+  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice, &doTimeKernels, &doSelfTest, &useLegacy, &forceOffset)) {
+    return 0;
+  }
   
   cl_device_id device;
   if (forceDevice >= 0) {
@@ -842,13 +872,14 @@ int main(int argc, char **argv) {
     
     bool isPrime;
     u64 residue;
-    int offset;
+    int offset = 0;
     if (!checkPrime(W, H, queue.get(),
                     headKerns, tailKerns, coreKerns,
                     E, logStep, saveStep, doTimeKernels, doSelfTest, useLegacy,
                     bufData.get(), bufErr.get(),
                     &mega1K, &carryA,
-                    &isPrime, &residue, &offset)) {
+                    &isPrime, &residue,
+                    forceOffset, &offset)) {
       break;
     }
     
