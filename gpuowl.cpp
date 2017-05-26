@@ -22,7 +22,7 @@
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
-const int EXP_MIN_2M = 20000000, EXP_MAX_2M = 40000000, EXP_MIN_4M = 35000000, EXP_MAX_4M = 78000000;
+const int EXP_MIN = 50000000, EXP_MAX = 78000000;
 
 #define VERSION "0.3"
 
@@ -36,7 +36,6 @@ struct ReleaseDelete {
   using pointer = T;
   
   void operator()(T t) {
-    // log("release %s\n", typeid(T).name());
     release(t);
   }
 };
@@ -306,7 +305,7 @@ int worktodoReadExponent(char *AID) {
     if (((sscanf(line, "%11[^=]=%32[0-9a-fA-F],%d,%*d,%*d", kind, AID, &exp) == 3
           && (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")))
          || sscanf(line, "Test=%d", &exp) == 1)
-        && exp >= EXP_MIN_2M && exp <= EXP_MAX_4M) {
+        && exp >= EXP_MIN && exp <= EXP_MAX) {
       ret = exp;
       break;
     } else {
