@@ -442,15 +442,40 @@ public:
   int offset() { return off; }
 };
 
+struct Args {
+  static constexpr int DEFAULT_LOGSTEP = 20000;
+  std::string clArgs;
+  int logStep, saveStep, device, offset;
+  bool timeKernels, selfTest, useLegacy;
+  
+  Args() {
+    clArgs = "";
+    logStep  = DEFAULT_LOGSTEP;
+    saveStep = 0;
+    device   = -1;
+    offset   = -1;
+    
+    timeKernels = false;
+    selfTest    = false;
+    useLegacy   = false;    
+  }
+
+  void logConfig() {
+    char buf[32] = {0};
+    if (offset >= 0) { snprintf(buf, sizeof(buf), "-offset %d ", offset); }
+    log("Config: -logstep %d -savestep %d %s%s%s%s-cl \"%s\"\n", logStep, saveStep, timeKernels ? "-time kernels " : "",
+        selfTest ? "-selftest " : "", useLegacy ? "-legacy " : "", buf, clArgs.c_str());
+  }
+};
+
 bool checkPrime(int W, int H, cl_queue q,
                 const std::vector<Kernel *> &headKerns,
                 const std::vector<Kernel *> &tailKerns,
                 const std::vector<Kernel *> &coreKerns,
-                int E, int logStep, int saveStep, bool doTimeKernels, bool doSelfTest, bool useLegacy,
+                int E, const Args &args,
                 cl_mem bufData, cl_mem bufErr,
                 Kernel *mega1K, Kernel *carryA,
-                bool *outIsPrime, u64 *outResidue,
-                int forceOffset, int *outOffset) {
+                bool *outIsPrime, u64 *outResidue, int *outOffset) {
   const int N = 2 * W * H;
 
   int *data = new int[N + 32];
@@ -462,14 +487,14 @@ bool checkPrime(int W, int H, cl_queue q,
   int startK = 0;
   int rootOffset = 0;
   Checkpoint checkpoint(E, W, H);
-  if (!doSelfTest && !checkpoint.load(data, &startK, &rootOffset)) { return false; }
+  if (!args.selfTest && !checkpoint.load(data, &startK, &rootOffset)) { return false; }
 
   if (startK == 0) {
-    if (forceOffset >= E) {
-      log("Invalid -offset %d for exponent %d\n", forceOffset, E);
+    if (args.offset >= E) {
+      log("Invalid -offset %d for exponent %d\n", args.offset, E);
       return false;
     }
-    rootOffset = (forceOffset >= 0) ? forceOffset : (rand() % E);
+    rootOffset = (args.offset >= 0) ? args.offset : (rand() % E);
     memset(data, 0, sizeof(int) * N);
     int wordPos = 0;
     int wordVal = oneShifted(N, E, false, rootOffset + 2, &wordPos);
@@ -498,21 +523,21 @@ bool checkPrime(int W, int H, cl_queue q,
   bool isCheck = false;
   bool isRetry = false;
 
-  const int kEnd = doSelfTest ? 20000 : (E - 2);
+  const int kEnd = args.selfTest ? 20000 : (E - 2);
 
   std::vector<Kernel *> runKerns = coreKerns;
-  if (useLegacy) {
+  if (args.useLegacy) {
     runKerns = tailKerns;
     runKerns.insert(runKerns.end(), headKerns.begin(), headKerns.end());
   }
-  Kernel *coreCarry = useLegacy ? carryA : mega1K;
+  Kernel *coreCarry = args.useLegacy ? carryA : mega1K;
   
   do {
-    int nextLog = std::min((k / logStep + 1) * logStep, kEnd);
+    int nextLog = std::min((k / args.logStep + 1) * args.logStep, kEnd);
     int nIters  = std::max(nextLog - k, 0);
     if (k < nextLog) {
       run(headKerns, q, N);
-      if (doTimeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
+      if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
       int wordPos;
       double wordVal;
       for (; k < nextLog - 1;) {
@@ -543,7 +568,7 @@ bool checkPrime(int W, int H, cl_queue q,
     float msPerIter = timer.delta() / (float) std::max(nIters, 1);
     doLog(E, k, err, std::max(err, maxErr), msPerIter, res);
 
-    if (doTimeKernels) { logTimeKernels(runKerns, nIters); }
+    if (args.timeKernels) { logTimeKernels(runKerns, nIters); }
 
     bool isLoop = k < kEnd && data[0] == 2 && isAllZero(data + 1, N - 1);
     
@@ -563,7 +588,7 @@ bool checkPrime(int W, int H, cl_queue q,
     }
     isRetry = false;
         
-    if (!isCheck && maxErr > 0 && err > 1.2f * maxErr && logStep >= 1000 && !doSelfTest) {
+    if (!isCheck && maxErr > 0 && err > 1.2f * maxErr && args.logStep >= 1000 && !args.selfTest) {
       log("Error jump by %.2f%%, doing a consistency check.\n", (err / maxErr - 1) * 100);      
       isCheck = true;
       write(q, false, bufData, sizeof(int) * N, saveData);
@@ -581,8 +606,8 @@ bool checkPrime(int W, int H, cl_queue q,
       }
     }
 
-    if (!doSelfTest) {
-      bool doSavePersist = (k / saveStep != (k - logStep) / saveStep);
+    if (!args.selfTest) {
+      bool doSavePersist = (k / args.saveStep != (k - args.logStep) / args.saveStep);
       checkpoint.save(data, k, doSavePersist, res, rootOffset);
     }
 
@@ -597,16 +622,20 @@ bool checkPrime(int W, int H, cl_queue q,
 }
 
 // return false to stop.
-bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int *saveStep, int *forceDevice, bool *timeKernels,
-               bool *selfTest, bool *useLegacy, int *forceOffset) {
-  const int DEFAULT_LOGSTEP = 20000;
+bool parseArgs(int argc, char **argv, Args *args) {
+  // const char **extraOpts, int *logStep, int *saveStep, int *forceDevice, bool *timeKernels,
+  // bool *selfTest, bool *useLegacy, int *forceOffset) {
+  /*
   *logStep  = DEFAULT_LOGSTEP;
   *saveStep = 0;
   *timeKernels = false;
   *selfTest    = false;
   *useLegacy   = false;
   *forceOffset = -1;
-
+  */
+  
+  // args->reset();
+  
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
@@ -624,7 +653,7 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
           "-offset <N>   : set offset for newly started exponents (otherwise a random offset is used)\n"
           "-selftest     : perform self tests from 'selftest.txt'\n"
           "                Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n",
-          *logStep, 500 * *logStep);
+          args->logStep, 500 * args->logStep);
 
       log("-device   <N> : select specific device among:\n");
       
@@ -653,15 +682,15 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
       return false;
     } else if (!strcmp(arg, "-cl")) {
       if (i < argc - 1) {
-        *extraOpts = argv[++i];
+        args->clArgs = argv[++i];
       } else {
         log("-cl expects options string to pass to CL compiler\n");
         return false;
       }
     } else if (!strcmp(arg, "-logstep")) {
       if (i < argc - 1) {
-        *logStep = atoi(argv[++i]);
-        if (*logStep <= 0) {
+        args->logStep = atoi(argv[++i]);
+        if (args->logStep <= 0) {
           log("invalid -logstep '%s'\n", argv[i]);
           return false;
         }
@@ -671,8 +700,8 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
       }
     } else if (!strcmp(arg, "-savestep")) {
       if (i < argc - 1) {
-        *saveStep = atoi(argv[++i]);
-        if (*saveStep <= 0) {
+        args->saveStep = atoi(argv[++i]);
+        if (args->saveStep <= 0) {
           log("invalid -savestep '%s'\n", argv[i]);
           return false;
         }
@@ -682,19 +711,19 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
       }
     } else if(!strcmp(arg, "-time")) {
       if (i < argc - 1 && !strcmp(argv[++i], "kernels")) {
-        *timeKernels = true;
+        args->timeKernels = true;
       } else {
         log("-time expects 'kernels'\n");
         return false;
       }
     } else if (!strcmp(arg, "-selftest")) {
-      *selfTest = true;
+      args->selfTest = true;
     } else if (!strcmp(arg, "-device")) {
       if (i < argc - 1) {
-        *forceDevice = atoi(argv[++i]);
+        args->device = atoi(argv[++i]);
         int nDevices = getNumberOfDevices();
-        if (*forceDevice < 0 || *forceDevice >= nDevices) {
-          log("invalid -device %d (must be between [0, %d]\n", *forceDevice, nDevices - 1);
+        if (args->device < 0 || args->device >= nDevices) {
+          log("invalid -device %d (must be between [0, %d]\n", args->device, nDevices - 1);
           return false;
         }        
       } else {
@@ -702,11 +731,11 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
         return false;
       }
     } else if (!strcmp(arg, "-legacy")) {
-      *useLegacy = true;
+      args->useLegacy = true;
     } else if (!strcmp(arg, "-offset")) {
       if (i < argc - 1) {
-        *forceOffset = atoi(argv[++i]);
-        if (*forceOffset < 0) {
+        args->offset = atoi(argv[++i]);
+        if (args->offset < 0) {
           log("invalid -offset '%s'\n", argv[i]);
           return false;
         }
@@ -720,19 +749,18 @@ bool parseArgs(int argc, char **argv, const char **extraOpts, int *logStep, int 
     }
   }
 
-  if (!*saveStep) { *saveStep = 500 * *logStep; }
-  if (*saveStep < *logStep || *saveStep % *logStep) {
-    log("It is recommended to use a persist step that is a multiple of the log step (you provided %d, %d)\n", *saveStep, *logStep);
+  if (!args->saveStep) { args->saveStep = 500 * args->logStep; }
+  if (args->saveStep < args->logStep || args->saveStep % args->logStep) {
+    log("It is recommended to use a persist step that is a multiple of the log step (you provided %d, %d)\n",
+        args->saveStep, args->logStep);
   }
-  if (*timeKernels && *logStep == 1) {
+  if (args->timeKernels && args->logStep == 1) {
     log("Ignoring time kernels because logStep == 1\n");
-    *timeKernels = false;
+    args->timeKernels = false;
   }
 
-  char buf[32] = {0};
-  if (*forceOffset >= 0) { snprintf(buf, sizeof(buf), "-offset %d ", *forceOffset); }
-  log("Config: -logstep %d -savestep %d %s%s%s%s-cl \"%s\"\n", *logStep, *saveStep, *timeKernels ? "-time kernels " : "",
-      *selfTest ? "-selftest " : "", *useLegacy ? "-legacy " : "", buf, *extraOpts);
+  args->logConfig();
+  
   return true;
 }
 
@@ -767,27 +795,29 @@ int main(int argc, char **argv) {
   srand(t);
   log("gpuOwL v" VERSION " GPU Lucas-Lehmer primality checker; %s", ctime(&t));
 
+  Args args;
+  /*
   const char *extraOpts = "";
   int forceDevice = -1;
   int logStep = 0;
   int saveStep = 0;
   int forceOffset = -1;
   bool doTimeKernels = false, doSelfTest = false, useLegacy = false;
+  */
   
-  if (!parseArgs(argc, argv, &extraOpts, &logStep, &saveStep, &forceDevice, &doTimeKernels, &doSelfTest, &useLegacy, &forceOffset)) {
-    return 0;
-  }
+  if (!parseArgs(argc, argv, &args)) { return 0; }
+  // &extraOpts, &logStep, &saveStep, &forceDevice, &doTimeKernels, &doSelfTest, &useLegacy, &forceOffset)) {
   
   cl_device_id device;
-  if (forceDevice >= 0) {
+  if (args.device >= 0) {
     cl_device_id devices[16];
     int n = getDeviceIDs(false, 16, devices);
-    assert(n > forceDevice);
-    device = devices[forceDevice];
+    assert(n > args.device);
+    device = devices[args.device];
   } else {
     int n = getDeviceIDs(true, 1, &device);
     if (n <= 0) {
-      log("No GPU device found. See --help for how to select a specific device.\n");
+      log("No GPU device found. See -h for how to select a specific device.\n");
       return 8;
     }
   }
@@ -802,9 +832,9 @@ int main(int argc, char **argv) {
   Timer timer;
   MicroTimer microTimer;
   
-  cl_program p = compile(device, context, "gpuowl.cl", extraOpts);
+  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs.c_str());
   if (!p) { exit(1); }
-#define KERNEL(program, name, shift) Kernel name(program, #name, shift, microTimer, doTimeKernels)
+#define KERNEL(program, name, shift) Kernel name(program, #name, shift, microTimer, args.timeKernels)
   KERNEL(p, fftPremul1K, 3);
   KERNEL(p, transp1K,    5);
   KERNEL(p, fft2K_1K,    4);
@@ -815,7 +845,7 @@ int main(int argc, char **argv) {
   KERNEL(p, carryA,      4);
   KERNEL(p, carryB_2K,   4);
 #undef KERNEL
-  Kernel mega1K(p, "mega1K", 3, microTimer, doTimeKernels, 1);
+  Kernel mega1K(p, "mega1K", 3, microTimer, args.timeKernels, 1);
   
   log("Compile       : %4d ms\n", timer.delta());
   release(p); p = nullptr;
@@ -843,7 +873,7 @@ int main(int argc, char **argv) {
   while (true) {
     u64 expectedRes;
     char AID[64];
-    int E = getNextExponent(doSelfTest, &expectedRes, AID);
+    int E = getNextExponent(args.selfTest, &expectedRes, AID);
     if (E <= 0) { break; }
 
     cl_mem pBufA, pBufI, pBufBitlen;
@@ -875,15 +905,15 @@ int main(int argc, char **argv) {
     int offset = 0;
     if (!checkPrime(W, H, queue.get(),
                     headKerns, tailKerns, coreKerns,
-                    E, logStep, saveStep, doTimeKernels, doSelfTest, useLegacy,
+                    E, args,
+                    /*logStep, saveStep, doTimeKernels, doSelfTest, useLegacy,*/
                     bufData.get(), bufErr.get(),
                     &mega1K, &carryA,
-                    &isPrime, &residue,
-                    forceOffset, &offset)) {
+                    &isPrime, &residue, &offset)) {
       break;
     }
     
-    if (doSelfTest) {
+    if (args.selfTest) {
       if (expectedRes == residue) {
         log("OK %d\n", E);
       } else {
