@@ -6,12 +6,14 @@
 #include "checkpoint.h"
 #include "common.h"
 
-#include <memory>
 #include <cassert>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <cstdlib>
+
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -21,7 +23,7 @@
 
 const int EXP_MIN_2M = 20000000, EXP_MAX_2M = 40000000, EXP_MIN_4M = 35000000, EXP_MAX_4M = 78000000;
 
-#define VERSION "0.2"
+#define VERSION "0.3"
 
 const char *AGENT = "gpuowl v" VERSION;
 
@@ -65,6 +67,7 @@ public:
   { }
 
   void setArgs(auto&... args) { ::setArgs(kernel.get(), args...); }
+  void setArg(int pos, auto &arg) { ::setArg(kernel.get(), pos, arg); }
   
   const char *getName() { return name.c_str(); }
   void run(cl_queue q, int N) {
@@ -204,7 +207,7 @@ bool isAllZero(int *p, int size) {
   return true;
 }
 
-int wordAt(int W, int H, int *data, int w) {
+int &wordAt(int W, int H, int *data, int w) {
   int col  = w / 2 / H;
   int line = w / 2 % H;
   return data[(line * W + col) * 2 + w % 2];
@@ -236,6 +239,18 @@ u64 residue(int W, int H, int E, int *data, int offset) {
     r += (i64) wordAt(W, H, data, p) << haveBits;
   }
   return r;
+}
+
+i64 oneShifted(int N, int E, bool forceEvenWord, int offset, int *outWord) {
+  if (offset >= E) { offset -= E; }
+  assert(0 <= offset && offset < E);
+  int p = (offset * (i64) N) / E;
+  assert(0 <= p && p < N);
+  if (forceEvenWord && (p & 1)) { --p; }
+  int b0 = wordPos(N, E, p);
+  assert(b0 <= offset);
+  *outWord = p;
+  return ((i64) 1) << (offset - b0);
 }
 
 // 2**k mod m
@@ -401,28 +416,65 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   log("  %-12s %.1fus\n", "Total", total * iIters);
 }
 
+class Iteration {
+  int E;
+  int k;
+  int off;
+
+public:
+  Iteration(int E, int k, int off) : E(E), k(k), off(off) {
+    assert(0 <= off && off < E);
+    assert(0 <= k && k < E - 1);
+  }
+
+  constexpr Iteration &operator=(const Iteration &o) = default;
+  Iteration(const Iteration &o) = default;
+
+  operator int() { return k; }
+  
+  Iteration &operator++() {
+    off += off;
+    if (off >= E) { off -= E; }
+    ++k;
+    return *this;
+  }
+
+  int offset() { return off; }
+};
+
 bool checkPrime(int W, int H, cl_queue q,
                 const std::vector<Kernel *> &headKerns,
                 const std::vector<Kernel *> &tailKerns,
                 const std::vector<Kernel *> &coreKerns,
                 int E, int logStep, int saveStep, bool doTimeKernels, bool doSelfTest, bool useLegacy,
                 cl_mem bufData, cl_mem bufErr,
+                Kernel *mega1K, Kernel *carryA,
                 bool *outIsPrime, u64 *outResidue) {
   const int N = 2 * W * H;
 
-  int *data = new int[N + 32]{4};  // 4 is LL root.
+  int *data = new int[N + 32];
   int *saveData = new int[N];
   
   std::unique_ptr<int[]> releaseData(data);
   std::unique_ptr<int[]> releaseSaveData(saveData);
 
   int startK = 0;
-  int offset = 0;
+  int rootOffset = 0;
   Checkpoint checkpoint(E, W, H);
-  if (!doSelfTest && !checkpoint.load(data, &startK, &offset)) { return false; }
+  if (!doSelfTest && !checkpoint.load(data, &startK, &rootOffset)) { return false; }
+
+  if (startK == 0) {
+    rootOffset = rand() % E;
+    memset(data, 0, sizeof(int) * N);
+    int wordPos = 0;
+    int wordVal = oneShifted(N, E, false, rootOffset + 2, &wordPos);
+    wordAt(W, H, data, wordPos) = wordVal;
+  }
+
+  memcpy(saveData, data, sizeof(int) * N);
   
-  log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) at iteration %d\n",
-      N / 1024, W, H, E, E / (double) N, startK);
+  log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) offset %d iteration %d\n",
+      N / 1024, W, H, E, E / (double) N, rootOffset, startK);
     
   Timer timer;
 
@@ -433,8 +485,10 @@ bool checkPrime(int W, int H, cl_queue q,
 
   float maxErr  = 0;  
   u64 res;
-  int k = startK;
-  int saveK = 0;
+  
+  Iteration k(E, startK, offsetAtIter(E, rootOffset, startK));
+  Iteration saveK(k);
+  
   bool isCheck = false;
   bool isRetry = false;
 
@@ -445,17 +499,28 @@ bool checkPrime(int W, int H, cl_queue q,
     runKerns = tailKerns;
     runKerns.insert(runKerns.end(), headKerns.begin(), headKerns.end());
   }
-  
+  Kernel *coreCarry = useLegacy ? carryA : mega1K;
+
   do {
-    startK = k;
-    if (k < kEnd) {
+    int nextLog = std::min((k / logStep + 1) * logStep, kEnd);
+    int nIters  = std::max(nextLog - k, 0);    
+    if (k < nextLog) {
       run(headKerns, q, N);
       if (doTimeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
-      for (int nextLog = std::min((k / logStep + 1) * logStep, kEnd); k < nextLog - 1; ++k) {
+      int wordPos;
+      double wordVal;
+      for (; k < nextLog - 1;) {
+        wordVal = - oneShifted(N, E, true, (++k).offset() + 1, &wordPos);
+        wordPos >>= 1;
+        coreCarry->setArg(1, wordPos);
+        coreCarry->setArg(2, wordVal);
         run(runKerns, q, N);
       }
+      wordVal = - oneShifted(N, E, true, (++k).offset() + 1, &wordPos);
+      wordPos >>= 1;
+      carryA->setArg(1, wordPos);
+      carryA->setArg(2, wordVal);
       run(tailKerns, q, N);
-      ++k;
     }
     
     float err = 0;
@@ -463,9 +528,8 @@ bool checkPrime(int W, int H, cl_queue q,
     write(q, false, bufErr,  sizeof(unsigned), &zero);
     read(q,  true,  bufData, sizeof(int) * N, data);
     
-    res = residue(W, H, E, data, 0);
+    res = residue(W, H, E, data, k.offset());
 
-    int nIters = k - startK;
     float msPerIter = timer.delta() / (float) std::max(nIters, 1);
     doLog(E, k, err, std::max(err, maxErr), msPerIter, res);
 
@@ -509,7 +573,7 @@ bool checkPrime(int W, int H, cl_queue q,
 
     if (!doSelfTest) {
       bool doSavePersist = (k / saveStep != (k - logStep) / saveStep);
-      checkpoint.save(data, k, doSavePersist, res, offset);
+      checkpoint.save(data, k, doSavePersist, res, rootOffset);
     }
 
     maxErr = std::max(maxErr, err);
@@ -673,6 +737,7 @@ int main(int argc, char **argv) {
   }
   
   time_t t = time(NULL);
+  srand(t);
   log("gpuOwL v" VERSION " GPU Lucas-Lehmer primality checker; %s", ctime(&t));
 
   const char *extraOpts = "";
@@ -765,11 +830,10 @@ int main(int argc, char **argv) {
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
     unsigned offsetWord = 0;
-    i64 offsetVal       = -2;
-    double offsetVald   = offsetVal;
+    double offsetVal    = -2;
     carryA.setArgs     (baseBitlen, offsetWord, offsetVal, buf1, bufI, bufData, bufCarry, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen);
-    mega1K.setArgs     (baseBitlen, offsetWord, offsetVald, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
+    mega1K.setArgs     (baseBitlen, offsetWord, offsetVal, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
 
     std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};
@@ -781,6 +845,7 @@ int main(int argc, char **argv) {
                     headKerns, tailKerns, coreKerns,
                     E, logStep, saveStep, doTimeKernels, doSelfTest, useLegacy,
                     bufData.get(), bufErr.get(),
+                    &mega1K, &carryA,
                     &isPrime, &residue)) {
       break;
     }
