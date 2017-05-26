@@ -1,6 +1,9 @@
 // Copyright (C) 2017 Mihai Preda.
 
+#pragma once
+
 #include "tinycl.h"
+
 #include <cassert>
 #include <cstdio>
 #include <cstdarg>
