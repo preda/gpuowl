@@ -42,7 +42,6 @@ struct Args {
           "    All the cl options must be included in the single argument following -cl\n"
           "    e.g. -cl \"-D LOW_LDS -D NO_ERR -save-temps=tmp/ -O2\"\n"
           "        -save-temps or -save-temps=tmp or -save-temps=tmp/ : save ISA\n"
-          "        -D LOW_LDS : use a variant of the amalgamation kernel with lower LDS\n"
           "        -D NO_ERR  : do not compute maximum rounding error\n"
           "-logstep  <N> : to log every <N> iterations (default %d)\n"
           "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"

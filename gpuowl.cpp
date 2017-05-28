@@ -365,40 +365,22 @@ public:
   int offset() { return off; }
 };
 
-bool checkPrime(int W, int H, cl_queue q,
+using OffsetUpdateFun = void(*)(int, double);
+
+bool checkPrime(int W, int H, int E, cl_queue q,
                 const std::vector<Kernel *> &headKerns,
                 const std::vector<Kernel *> &tailKerns,
                 const std::vector<Kernel *> &coreKerns,
-                int E, const Args &args,
+                const Args &args,
+                int *data, int startK, int rootOffset,
                 cl_mem bufData, cl_mem bufErr,
-                Kernel *mega1K, Kernel *carryA,
-                bool *outIsPrime, u64 *outResidue, int *outOffset) {
+                auto updateOffset,
+                bool *outIsPrime, u64 *outResidue) {
   const int N = 2 * W * H;
 
-  int *data = new int[N + 32];
-  int *saveData = new int[N];
-  
-  std::unique_ptr<int[]> releaseData(data);
+  int *saveData = new int[N];  
   std::unique_ptr<int[]> releaseSaveData(saveData);
 
-  int startK = 0;
-  int rootOffset = 0;
-  Checkpoint checkpoint(E, W, H);
-  if (!args.selfTest && !checkpoint.load(data, &startK, &rootOffset)) { return false; }
-
-  if (startK == 0) {
-    if (args.offset >= E) {
-      log("Invalid -offset %d for exponent %d\n", args.offset, E);
-      return false;
-    }
-    rootOffset = (args.offset >= 0) ? args.offset : (rand() % E);
-    memset(data, 0, sizeof(int) * N);
-    int wordPos = 0;
-    int wordVal = oneShifted(N, E, false, rootOffset + 2, &wordPos);
-    wordAt(W, H, data, wordPos) = wordVal;
-  }
-  *outOffset = rootOffset;
-  
   memcpy(saveData, data, sizeof(int) * N);
   
   log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) offset %d iteration %d\n",
@@ -420,14 +402,9 @@ bool checkPrime(int W, int H, cl_queue q,
   bool isCheck = false;
   bool isRetry = false;
 
+  Checkpoint checkpoint(E, W, H);
+  
   const int kEnd = args.selfTest ? 20000 : (E - 2);
-
-  std::vector<Kernel *> runKerns = coreKerns;
-  if (args.useLegacy) {
-    runKerns = tailKerns;
-    runKerns.insert(runKerns.end(), headKerns.begin(), headKerns.end());
-  }
-  Kernel *coreCarry = args.useLegacy ? carryA : mega1K;
   
   do {
     int nextLog = std::min((k / args.logStep + 1) * args.logStep, kEnd);
@@ -439,19 +416,15 @@ bool checkPrime(int W, int H, cl_queue q,
       double wordVal;
       for (; k < nextLog - 1;) {
         ++k;
-        if (rootOffset != 0) {
-          wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
-          wordPos >>= 1;
-          coreCarry->setArg(1, wordPos);
-          coreCarry->setArg(2, wordVal);
-        }
-        run(runKerns, q, N);
+        wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
+        wordPos >>= 1;
+        updateOffset(wordPos, wordVal);
+        run(coreKerns, q, N);
       }
       ++k;
       wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
       wordPos >>= 1;
-      carryA->setArg(1, wordPos);
-      carryA->setArg(2, wordVal);
+      updateOffset(wordPos, wordVal);
       run(tailKerns, q, N);
     }
     
@@ -465,7 +438,7 @@ bool checkPrime(int W, int H, cl_queue q,
     float msPerIter = timer.delta() / (float) std::max(nIters, 1);
     doLog(E, k, err, std::max(err, maxErr), msPerIter, res);
 
-    if (args.timeKernels) { logTimeKernels(runKerns, nIters); }
+    if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
 
     bool isLoop = k < kEnd && data[0] == 2 && isAllZero(data + 1, N - 1);
     
@@ -591,6 +564,7 @@ int main(int argc, char **argv) {
   KERNEL(p, carryB_2K,   4);
 #undef KERNEL
   Kernel mega1K(p, "mega1K", 3, microTimer, args.timeKernels, 1);
+  Kernel megaNoOffset(p, "megaNoOffset", 3, microTimer, args.timeKernels, 1);
   
   log("Compile       : %4d ms\n", timer.delta());
   release(p); p = nullptr;
@@ -615,6 +589,9 @@ int main(int argc, char **argv) {
   log("General setup : %4d ms\n", timer.delta());
 
   Queue queue{makeQueue(device, context)};
+  int *data = new int[N + 32];
+  std::unique_ptr<int[]> releaseData(data);
+  
   while (true) {
     u64 expectedRes;
     char AID[64];
@@ -640,21 +617,48 @@ int main(int argc, char **argv) {
     carryA.setArgs     (baseBitlen, offsetWord, offsetVal, buf1, bufI, bufData, bufCarry, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen);
     mega1K.setArgs     (baseBitlen, offsetWord, offsetVal, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
-
-    std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
-    std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};
-    std::vector<Kernel *> coreKerns {&mega1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
+    megaNoOffset.setArgs(baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
     
     bool isPrime;
     u64 residue;
     int offset = 0;
-    if (!checkPrime(W, H, queue.get(),
+    int startK = 0;
+    
+    Checkpoint checkpoint(E, W, H);
+    if (!args.selfTest && !checkpoint.load(data, &startK, &offset)) { break; }
+    
+    if (startK == 0) {
+      if (args.offset >= E) {
+        log("Invalid -offset %d for exponent %d\n", args.offset, E);
+        return false;
+      }
+      offset = (args.offset >= 0) ? args.offset : (rand() % E);
+      memset(data, 0, sizeof(int) * N);
+      int wordPos = 0;
+      int wordVal = oneShifted(N, E, false, offset + 2, &wordPos);
+      wordAt(W, H, data, wordPos) = wordVal;
+    }
+
+    Kernel *mega = offset ? &mega1K : &megaNoOffset;
+    std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
+    std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
+    std::vector<Kernel *> coreKerns {mega, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
+    if (args.useLegacy) {
+      coreKerns = tailKerns;
+      coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
+    }
+
+    if (!checkPrime(W, H, E, queue.get(),
                     headKerns, tailKerns, coreKerns,
-                    E, args,
-                    /*logStep, saveStep, doTimeKernels, doSelfTest, useLegacy,*/
+                    args, data, startK, offset,
                     bufData.get(), bufErr.get(),
-                    &mega1K, &carryA,
-                    &isPrime, &residue, &offset)) {
+                    [&mega1K, &carryA](int wordPos, double wordVal) {
+                      mega1K.setArg(1, wordPos);
+                      mega1K.setArg(2, wordVal);
+                      carryA.setArg(1, wordPos);
+                      carryA.setArg(2, wordVal);      
+                    },
+                    &isPrime, &residue)) {
       break;
     }
     
