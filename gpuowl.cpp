@@ -416,9 +416,11 @@ bool checkPrime(int W, int H, int E, cl_queue q,
       double wordVal;
       while (k < nextLog) {
         ++k;
-        wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
-        wordPos >>= 1;
-        updateOffset(wordPos, wordVal);
+        if (rootOffset) {
+          wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
+          wordPos >>= 1;
+          updateOffset(wordPos, wordVal);
+        }
         run((k < nextLog) ? coreKerns : tailKerns, q, N);
       }
     }

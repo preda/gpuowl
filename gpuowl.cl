@@ -526,7 +526,7 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
 
 // in place
 KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
-  uint W = 1024, H = 2048, GW = W / 64;
+  uint W = 1024, GW = W / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   io   += gy * 64 * W + gx * 64;
   trig += g * (64 * 64);
