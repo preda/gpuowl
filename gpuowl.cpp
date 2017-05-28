@@ -414,18 +414,13 @@ bool checkPrime(int W, int H, int E, cl_queue q,
       if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
       int wordPos;
       double wordVal;
-      for (; k < nextLog - 1;) {
+      while (k < nextLog) {
         ++k;
         wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
         wordPos >>= 1;
         updateOffset(wordPos, wordVal);
-        run(coreKerns, q, N);
+        run((k < nextLog) ? coreKerns : tailKerns, q, N);
       }
-      ++k;
-      wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
-      wordPos >>= 1;
-      updateOffset(wordPos, wordVal);
-      run(tailKerns, q, N);
     }
     
     float err = 0;
