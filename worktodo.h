@@ -26,10 +26,13 @@ int worktodoReadExponent(char *AID) {
     if (fscanf(fi, "%255s\n", line) < 1) { break; }
     if (((sscanf(line, "%11[^=]=%32[0-9a-fA-F],%d,%*d,%*d", kind, AID, &exp) == 3
           && (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")))
-         || sscanf(line, "Test=%d", &exp) == 1)
-        && exp >= EXP_MIN && exp <= EXP_MAX) {
-      ret = exp;
-      break;
+         || sscanf(line, "Test=%d", &exp) == 1)) {
+      if (exp >= EXP_MIN && exp <= EXP_MAX) {
+        ret = exp;
+        break;
+      } else {
+        log("Exponent %d skipped: must be between %d and %d\n", exp, EXP_MIN, EXP_MAX);
+      }
     } else {
       log("worktodo.txt line '%s' skipped\n", line);
     }
