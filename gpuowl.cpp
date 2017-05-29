@@ -399,9 +399,9 @@ bool checkPrime(int W, int H, int E, cl_queue q,
   Iteration k(E, startK, offsetAtIter(E, rootOffset, startK));
   Iteration saveK(k);
   
-  bool isCheck = false;
-  bool isRetry = false;
-
+  bool isCheck = false, isRetry = false;
+  int kData = -1;
+  
   Checkpoint checkpoint(E, W, H);
   
   const int kEnd = args.selfTest ? 20000 : (E - 2);
@@ -424,11 +424,17 @@ bool checkPrime(int W, int H, int E, cl_queue q,
         run((k < nextLog) ? coreKerns : tailKerns, q, N);
       }
     }
+
+    if (kData > 0 && !isCheck && !isRetry && !args.selfTest) {
+      bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
+      checkpoint.save(data, kData, doSavePersist, res, rootOffset);
+    }
     
     float err = 0;
     read(q,  false, bufErr,  sizeof(float), &err);
     write(q, false, bufErr,  sizeof(unsigned), &zero);
     read(q,  true,  bufData, sizeof(int) * N, data);
+    kData = k;
     
     res = residue(W, H, E, data, k.offset());
 
@@ -471,11 +477,6 @@ bool checkPrime(int W, int H, int E, cl_queue q,
         log("Consistency check FAILED, stopping.\n");
         return false;
       }
-    }
-
-    if (!args.selfTest) {
-      bool doSavePersist = (k / args.saveStep != (k - args.logStep) / args.saveStep);
-      checkpoint.save(data, k, doSavePersist, res, rootOffset);
     }
 
     maxErr = std::max(maxErr, err);
