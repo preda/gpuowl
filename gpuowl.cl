@@ -79,6 +79,14 @@ void tabMul(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
 }
 
+void tabMul2(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
+  uint me = get_local_id(0);
+  for (int i = 1; i < n; ++i) {
+    uint k = (uint) i * ((me / f) * f);    
+    M(u[i], mul(trig[k % 32], trig[32 + k / 32]));
+  }
+}
+
 void shuffleMul(SMALL_CONST double2 *trig, local double *lds, double2 *u, uint n, uint f) {
   bar();
   shufl(lds,   u, n, f);
@@ -506,7 +514,7 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   gy = (gy + gx) % GH;
   in   += gy * 64 * W + gx * 64;
   out  += gy * 64     + gx * 64 * H;
-  trig += (gy + gx * GH) * (64 * 64);
+  // trig += (gy + gx * GH) * (64 * 64);
   
   uint me = get_local_id(0), mx = me % 64, my = me / 64;
   
@@ -519,8 +527,18 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   transposeCore(lds, u);
   
   for (int i = 0; i < 16; ++i) {
+    uint k = (gy * 64 + mx) * (gx * 64 + my + i * 4);
+    // uint k = gy * gx * (64 * 64) + gy * i * 256 +
+
+    M(u[i], trig[(k & 127)]);
+    M(u[i], trig[128 + ((k >> 7) & 127)]);
+    M(u[i], trig[256 + (k >> 14)]);
+
     uint p = (my + i * 4) * H + mx;
-    out[p] = mul(u[i], trig[i * 256 + me]);
+    out[p] = u[i];
+      // mul(u[i], trig[i * 256 + me]);
+    // u[i];
+    // 
   }
 }
 
