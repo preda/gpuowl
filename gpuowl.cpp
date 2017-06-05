@@ -23,7 +23,7 @@
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
-#define VERSION "0.3"
+#define VERSION "0.4"
 
 const char *AGENT = "gpuowl v" VERSION;
 
@@ -129,7 +129,8 @@ double *trig(int n, int B, double *out) {
   return p;
 }
 
-cl_mem genBigTrig2(cl_context context) {
+cl_mem genBigTrig(cl_context context, int W, int H) {
+  assert(W == 1024 && H == 2048);
   const int size = 2 * 3 * 128;
   double *tab = new double[size];
   double *end = tab;
@@ -137,29 +138,6 @@ cl_mem genBigTrig2(cl_context context) {
   end = trig(128,    8 * 1024, end);
   end = trig(128,          64, end);
   assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
-cl_mem genBigTrig(cl_context context, int W, int H) {
-  const int size = (W / 64) * (H / 64) * (2 * 64 * 64);
-  double *tab = new double[size];
-  auto base = - M_PIl / (W * H / 2);
-
-  double *p = tab;
-  for (int gy = 0; gy < H / 64; ++gy) {
-    for (int gx = 0; gx < W / 64; ++gx) {
-      for (int y = 0; y < 64; ++y) {
-        for (int x = 0; x < 64; ++x) {
-          auto angle = (gy * 64 + y) * (gx * 64 + x) * base;
-          *p++ = cosl(angle);
-          *p++ = sinl(angle);
-        }
-      }
-    }
-  }
-
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
   return buf;
@@ -610,7 +588,6 @@ int main(int argc, char **argv) {
   Buffer bufTrig2K{genSmallTrig2K(context)};
   // Buffer bufTrig1K2{genTrig1K(context)};
   Buffer bufBigTrig{genBigTrig(context, W, H)};
-  Buffer bufBigTrig2{genBigTrig2(context)};
   Buffer bufSins{genSin(context, H, W)}; // transposed W/H !
 
   Buffer buf1{makeBuf(context,     BUF_RW, sizeof(double) * N)};
@@ -646,7 +623,7 @@ int main(int argc, char **argv) {
     fft2K_1K.setArgs   (buf1,    buf2, bufTrig2K);
     csquare2K.setArgs  (buf2,    bufSins);
     fft2K.setArgs      (buf2,    bufTrig2K);
-    transpose2K.setArgs(buf2,    buf1, bufBigTrig2);
+    transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
     unsigned offsetWord = 0;
     double offsetVal    = -2;

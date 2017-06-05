@@ -514,8 +514,6 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   gy = (gy + gx) % GH;
   in   += gy * 64 * W + gx * 64;
   out  += gy * 64     + gx * 64 * H;
-  // trig += (gy + gx * GH) * (64 * 64);
-  
   uint me = get_local_id(0), mx = me % 64, my = me / 64;
   
   double2 u[16];
@@ -527,18 +525,13 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   transposeCore(lds, u);
   
   for (int i = 0; i < 16; ++i) {
-    uint k = (gy * 64 + mx) * (gx * 64 + my + i * 4);
-    // uint k = gy * gx * (64 * 64) + gy * i * 256 +
-
+    uint k = (gy * 64 + mx) * (gx * 64 + my + (uint) i * 4);
     M(u[i], trig[(k & 127)]);
     M(u[i], trig[128 + ((k >> 7) & 127)]);
     M(u[i], trig[256 + (k >> 14)]);
 
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];
-      // mul(u[i], trig[i * 256 + me]);
-    // u[i];
-    // 
   }
 }
 
@@ -547,20 +540,23 @@ KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
   uint W = 1024, GW = W / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   io   += gy * 64 * W + gx * 64;
-  trig += g * (64 * 64);
-  
   uint me = get_local_id(0), mx = me % 64, my = me / 64;
   
   double2 u[16];
   for (int i = 0; i < 16; ++i) {
     uint p = (my + i * 4) * W + mx;
-    u[i] = mul(io[p], trig[i * 256 + me]);
+    u[i] = io[p];
   }
 
   local double lds[4096];
   transposeCore(lds, u);
   
   for (int i = 0; i < 16; ++i) {
+    uint k = (gy * 64 + mx) * (gx * 64 + my + (uint) i * 4);
+    M(u[i], trig[(k & 127)]);
+    M(u[i], trig[128 + ((k >> 7) & 127)]);
+    M(u[i], trig[256 + (k >> 14)]);
+        
     uint p = (my + i * 4) * W + mx;
     io[p] = u[i];
   }
