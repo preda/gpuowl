@@ -81,10 +81,11 @@ void tabMul(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
 
 void tabMul2(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
-  for (int i = 1; i < n; ++i) {
-    uint k = (uint) i * ((me / f) * f);    
-    M(u[i], mul(trig[k % 32], trig[32 + k / 32]));
-  }
+  // n == 4
+  uint p = me & ~(f - 1);
+  M(u[1], trig[p]);
+  M(u[2], trig[p + 256]);
+  M(u[3], trig[p + 512]);
 }
 
 void shuffleMul(SMALL_CONST double2 *trig, local double *lds, double2 *u, uint n, uint f) {
@@ -525,7 +526,7 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   transposeCore(lds, u);
   
   for (int i = 0; i < 16; ++i) {
-    uint k = (gy * 64 + mx) * (gx * 64 + my + (uint) i * 4);
+    uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
     M(u[i], trig[(k & 127)]);
     M(u[i], trig[128 + ((k >> 7) & 127)]);
     M(u[i], trig[256 + (k >> 14)]);
@@ -552,7 +553,7 @@ KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
   transposeCore(lds, u);
   
   for (int i = 0; i < 16; ++i) {
-    uint k = (gy * 64 + mx) * (gx * 64 + my + (uint) i * 4);
+    uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
     M(u[i], trig[(k & 127)]);
     M(u[i], trig[128 + ((k >> 7) & 127)]);
     M(u[i], trig[256 + (k >> 14)]);

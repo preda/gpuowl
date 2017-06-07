@@ -162,18 +162,6 @@ cl_mem genSin(cl_context context, int W, int H) {
   return buf;
 }
 
-cl_mem genTrig1K(cl_context context) {
-  int size = 4 * 32;
-  double *tab = new double[size];
-  double *end = tab;
-  end = trig(32, 512, end);
-  end = trig(32,  16, end);
-  assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
 double *smallTrigBlock(int W, int H, double *out) {
   double *p = out;
   for (int line = 1; line < H; ++line) {
@@ -207,6 +195,18 @@ cl_mem genSmallTrig1K(cl_context context) {
   p = smallTrigBlock(  4, 4, p);
   p = smallTrigBlock( 16, 4, p);
   p = smallTrigBlock( 64, 4, p);
+  p = smallTrigBlock(256, 4, p);
+  assert(p - tab == size);
+
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;
+}
+
+cl_mem genTrig1K(cl_context context) {
+  int size = 2 * 3 * 256;
+  double *tab = new double[size];
+  double *p   = tab;
   p = smallTrigBlock(256, 4, p);
   assert(p - tab == size);
 
@@ -586,7 +586,7 @@ int main(int argc, char **argv) {
   
   Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
-  // Buffer bufTrig1K2{genTrig1K(context)};
+  Buffer bufTrig1K2{genTrig1K(context)};
   Buffer bufBigTrig{genBigTrig(context, W, H)};
   Buffer bufSins{genSin(context, H, W)}; // transposed W/H !
 
