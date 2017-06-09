@@ -373,26 +373,34 @@ double2 foo(double2 a) {
   return 8 * (double2)(s * s - t, t);
 }
 
-void reverse(local double2 *lds, double2 *u, bool bump) {
+void reverse1(local double2 *lds, double2 *u, bool bump) {
   uint me = get_local_id(0);
   uint rm = 255 - me + bump;
   
   bar();
-  /*
-  lds[rm + 0 * 256] = u[7];
-  lds[rm + 1 * 256] = u[3];
-  lds[rm + 2 * 256] = u[6];
-  lds[(rm + 3 * 256) & 1023] = u[2];
-  u[2] = u[1];
-  u[1] = u[4];
-  u[3] = u[5];
-  */
 
   lds[rm + 0 * 256] = u[7];
   lds[rm + 1 * 256] = u[6];
   lds[rm + 2 * 256] = u[5];
   lds[bump ? ((rm + 3 * 256) & 1023) : (rm + 3 * 256)] = u[4];
   
+  bar();
+  for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
+}
+
+void reverse2(local double2 *lds, double2 *u, bool bump) {
+  uint me = get_local_id(0);
+  uint rm = 255 - me + bump;
+  
+  bar();
+  lds[rm + 0 * 256] = u[7];
+  lds[rm + 1 * 256] = u[3];
+  lds[rm + 2 * 256] = u[6];
+  lds[bump ? ((rm + 3 * 256) & 1023) : (rm + 3 * 256)] = u[2];
+  u[2] = u[1];
+  u[1] = u[4];
+  u[3] = u[5];
+
   bar();
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
 }
@@ -404,16 +412,16 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig2k, CONST double2 
   
   double2 u[8];  
   for (int i = 0; i < 8; ++i) { u[i] = io[g * 2048 + i * 256 + me]; }
-  // fft2kImpl(lds, u, trig2k);
+  fft2kImpl(lds, u, trig2k);
 
-  reverse((local double2 *) lds, u, g == 0);
+  reverse2((local double2 *) lds, u, g == 0);
 
   double2 v[8];
   uint line2 = g ? 1024 - g : 512;
   for (int i = 0; i < 8; ++i) { v[i] = io[line2 * 2048 + i * 256 + me]; }
-  // bar(); fft2kImpl(lds, v, trig2k);
+  bar(); fft2kImpl(lds, v, trig2k);
 
-  reverse((local double2 *) lds, v, false);
+  reverse2((local double2 *) lds, v, false);
   
   if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
   
@@ -456,11 +464,19 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig2k, CONST double2 
 
   if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
 
-  reverse((local double2 *) lds, u, g == 0);
-  reverse((local double2 *) lds, v, false);
-
-  for (int i = 0; i < 8; ++i) { io[g * 2048     + i * 256 + me] = u[i]; }
-  for (int i = 0; i < 8; ++i) { io[line2 * 2048 + i * 256 + me] = v[i]; }
+  reverse1((local double2 *) lds, u, g == 0);
+  bar(); fft2kImpl(lds, u, trig2k);
+  for (int i = 0; i < 4; ++i) {
+    io[g * 2048 + i * 512 + me]       = u[i];
+    io[g * 2048 + i * 512 + 256 + me] = u[i + 4];
+  }
+  
+  reverse1((local double2 *) lds, v, false);
+  bar(); fft2kImpl(lds, v, trig2k);
+  for (int i = 0; i < 4; ++i) {
+    io[line2 * 2048 + i * 512 + me]       = v[i];
+    io[line2 * 2048 + i * 512 + 256 + me] = v[i + 4];
+  }
 }
 
 KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {

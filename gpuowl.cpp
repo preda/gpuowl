@@ -661,7 +661,7 @@ int main(int argc, char **argv) {
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
     // std::vector<Kernel *> coreKerns {mega, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
     // std::vector<Kernel *> coreKerns {mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
-    std::vector<Kernel *> coreKerns {mega, &transpose1K, &fft2K, &tail, &fft2K, &transpose2K};
+    std::vector<Kernel *> coreKerns {mega, &transpose1K, &tail, &transpose2K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
