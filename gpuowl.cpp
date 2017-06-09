@@ -575,6 +575,7 @@ int main(int argc, char **argv) {
   KERNEL(p, fft1K,       3);
   KERNEL(p, carryA,      4);
   KERNEL(p, carryB_2K,   4);
+  KERNEL(p, tail,        5);
 #undef KERNEL
   Kernel mega1K(p, "mega1K", 3, microTimer, args.timeKernels, 1);
   Kernel megaNoOffset(p, "megaNoOffset", 3, microTimer, args.timeKernels, 1);
@@ -623,6 +624,7 @@ int main(int argc, char **argv) {
     transp1K.setArgs   (buf1,    bufBigTrig);
     fft2K_1K.setArgs   (buf1,    buf2, bufTrig2K);
     csquare2K.setArgs  (buf2,    bufSins);
+    tail.setArgs       (buf2,    bufTrig2K, bufSins);
     fft2K.setArgs      (buf2,    bufTrig2K);
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     transpose1K.setArgs(buf1,    buf2, bufBigTrig);
@@ -658,7 +660,8 @@ int main(int argc, char **argv) {
     std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
     // std::vector<Kernel *> coreKerns {mega, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
-    std::vector<Kernel *> coreKerns {mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
+    // std::vector<Kernel *> coreKerns {mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
+    std::vector<Kernel *> coreKerns {mega, &transpose1K, &fft2K, &tail, &fft2K, &transpose2K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());

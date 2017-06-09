@@ -391,7 +391,7 @@ void reverse(local double2 *lds, double2 *u, bool bump) {
   lds[rm + 0 * 256] = u[7];
   lds[rm + 1 * 256] = u[6];
   lds[rm + 2 * 256] = u[5];
-  lds[bump ? (rm + 3 * 256) & 1023 : (rm + 3 * 256)] = u[4];
+  lds[bump ? ((rm + 3 * 256) & 1023) : (rm + 3 * 256)] = u[4];
   
   bar();
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
@@ -401,7 +401,6 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig2k, CONST double2 
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   local double lds[2048];
-  // local double2 *dlds = (local double2 *) lds;
   
   double2 u[8];  
   for (int i = 0; i < 8; ++i) { u[i] = io[g * 2048 + i * 256 + me]; }
@@ -424,7 +423,7 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig2k, CONST double2 
     double2 t = bigTrig[g * 1024 + 256 * i + me];
     if (i == 0 && g == 0 && me == 0) {
       a = foo(a);
-      b = sq(b);
+      b = 8 * sq(b);
     } else {
       X2(a, b);
       M(b, conjugate(t));
