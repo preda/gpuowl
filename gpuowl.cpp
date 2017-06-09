@@ -150,7 +150,7 @@ cl_mem genSin(cl_context context, int W, int H) {
   auto base = - M_PIl / (W * H);
   for (int line = 0; line < H; ++line) {
     for (int col = 0; col < (W / 2); ++col) {
-      int k = line + (col + ((line == 0) ? 1 : 0)) * H;
+      int k = line + col * H;
       auto angle = k * base;
       *p++ = sinl(angle);
       *p++ = cosl(angle);
@@ -571,6 +571,7 @@ int main(int argc, char **argv) {
   KERNEL(p, csquare2K,   2);
   KERNEL(p, fft2K,       4);
   KERNEL(p, transpose2K, 5);
+  KERNEL(p, transpose1K, 5);
   KERNEL(p, fft1K,       3);
   KERNEL(p, carryA,      4);
   KERNEL(p, carryB_2K,   4);
@@ -624,6 +625,7 @@ int main(int argc, char **argv) {
     csquare2K.setArgs  (buf2,    bufSins);
     fft2K.setArgs      (buf2,    bufTrig2K);
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
+    transpose1K.setArgs(buf1,    buf2, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
     unsigned offsetWord = 0;
     double offsetVal    = -2;
@@ -655,7 +657,8 @@ int main(int argc, char **argv) {
     Kernel *mega = offset ? &mega1K : &megaNoOffset;
     std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
-    std::vector<Kernel *> coreKerns {mega, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
+    // std::vector<Kernel *> coreKerns {mega, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
+    std::vector<Kernel *> coreKerns {mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());

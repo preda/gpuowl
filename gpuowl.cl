@@ -361,6 +361,109 @@ KERNEL(256) megaNoOffset(const uint baseBitlen,
   amalgamation1k(lds, false, baseBitlen, 0, 0, io, carry, ready, globalErr, A, iA, trig1k);
 }
 
+// computes 8*[x^2+y^2 + i*(2*x*y)]. Needs a name.
+double2 foo(double2 a) {
+  /*
+    double t = a.x * a.y;
+    a *= a;
+    return (double2)((a.x + a.y) * 8, t * 16);
+  */
+  double t = a.x * a.y * 2;
+  double s = a.x + a.y;
+  return 8 * (double2)(s * s - t, t);
+}
+
+void reverse(local double2 *lds, double2 *u, bool bump) {
+  uint me = get_local_id(0);
+  uint rm = 255 - me + bump;
+  
+  bar();
+  /*
+  lds[rm + 0 * 256] = u[7];
+  lds[rm + 1 * 256] = u[3];
+  lds[rm + 2 * 256] = u[6];
+  lds[(rm + 3 * 256) & 1023] = u[2];
+  u[2] = u[1];
+  u[1] = u[4];
+  u[3] = u[5];
+  */
+
+  lds[rm + 0 * 256] = u[7];
+  lds[rm + 1 * 256] = u[6];
+  lds[rm + 2 * 256] = u[5];
+  lds[bump ? (rm + 3 * 256) & 1023 : (rm + 3 * 256)] = u[4];
+  
+  bar();
+  for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
+}
+
+KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig2k, CONST double2 *bigTrig) {
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+  local double lds[2048];
+  // local double2 *dlds = (local double2 *) lds;
+  
+  double2 u[8];  
+  for (int i = 0; i < 8; ++i) { u[i] = io[g * 2048 + i * 256 + me]; }
+  // fft2kImpl(lds, u, trig2k);
+
+  reverse((local double2 *) lds, u, g == 0);
+
+  double2 v[8];
+  uint line2 = g ? 1024 - g : 512;
+  for (int i = 0; i < 8; ++i) { v[i] = io[line2 * 2048 + i * 256 + me]; }
+  // bar(); fft2kImpl(lds, v, trig2k);
+
+  reverse((local double2 *) lds, v, false);
+  
+  if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
+  
+  for (int i = 0; i < 4; ++i) {
+    double2 a = u[i];
+    double2 b = conjugate(v[4 + i]);
+    double2 t = bigTrig[g * 1024 + 256 * i + me];
+    if (i == 0 && g == 0 && me == 0) {
+      a = foo(a);
+      b = sq(b);
+    } else {
+      X2(a, b);
+      M(b, conjugate(t));
+      X2(a, b);
+      a = sq(a);
+      b = sq(b);
+      X2(a, b);
+      M(b,  t);
+      X2(a, b);
+    }
+    u[i]     = conjugate(a);
+    v[4 + i] = b;
+  }
+
+  for (int i = 0; i < 4; ++i) {
+    double2 a = v[i];
+    double2 b = conjugate(u[4 + i]);
+    double2 t = bigTrig[line2 * 1024 + 256 * i + me];
+    X2(a, b);
+    M(b, conjugate(t));
+    X2(a, b);
+    a = sq(a);
+    b = sq(b);
+    X2(a, b);
+    M(b,  t);
+    X2(a, b);
+    v[i]     = conjugate(a);
+    u[4 + i] = b;
+  }
+
+  if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
+
+  reverse((local double2 *) lds, u, g == 0);
+  reverse((local double2 *) lds, v, false);
+
+  for (int i = 0; i < 8; ++i) { io[g * 2048     + i * 256 + me] = u[i]; }
+  for (int i = 0; i < 8; ++i) { io[line2 * 2048 + i * 256 + me] = v[i]; }
+}
+
 KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
   io += g * 2048;
@@ -458,14 +561,20 @@ void csquare(uint W, global double2 *io, CONST double2 *trig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
+  if (g == 0 && me == 0) {
+    io[0]    = foo(conjugate(io[0]));
+    io[1024] = 8 * sq(conjugate(io[1024]));
+    return;
+  }
+  
   uint line = g / (W / 512);
   uint posInLine = g % (W / 512) * 256 + me;
-  uint k = line * W + posInLine + ((line - 1) >> 31);
-  uint v = ((1024 - line) & 1023) * W + (W - 1) - posInLine;
+  uint k = line * W + posInLine;
+  uint v = ((1024 - line) & 1023) * W + (W - 1) - posInLine + ((line - 1) >> 31);
   
   double2 a = io[k];
   double2 b = conjugate(io[v]);
-  double2 t = trig[g * 256 + me]; //equiv: [line * (W / 2) + posInLine];
+  double2 t = trig[g * 256 + me];
   
   X2(a, b);
   M(b, conjugate(t));
@@ -480,13 +589,6 @@ void csquare(uint W, global double2 *io, CONST double2 *trig) {
   
   io[k] = conjugate(a);
   io[v] = b;
-  
-  if (g == 0 && me == 0) {
-    a = conjugate(io[0]);
-    double t = a.x * a.y;
-    a *= a;
-    io[0] = (double2)((a.x + a.y) * 8, t * 16);
-  }
 }
 
 KERNEL(256) csquare2K(global double2 *io, CONST double2 *trig)  { csquare(2048, io, trig); }
@@ -563,12 +665,10 @@ KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
   }
 }
 
-/* // not used
 KERNEL(256) transpose1K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
   local double lds[4096];
   transpose(1024, 2048, lds, in, out, trig);
 }
-*/
 
 KERNEL(256) transpose2K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
   local double lds[4096];
