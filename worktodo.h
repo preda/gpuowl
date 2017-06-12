@@ -82,9 +82,9 @@ bool worktodoDelete(int begin, int end) {
   int newSize = begin + n - end;
   bool ok = (newSize == 0) || (fwrite(buf, newSize, 1, fo) == 1);
   fclose(fo);
-  return ok &&
-    (rename("worktodo.txt",     "worktodo.bak") == 0) &&
-    (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
+  if (!ok) { return false; }
+  remove("worktodo.bak");
+  return (rename("worktodo.txt", "worktodo.bak") == 0) && (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
 }
 
 bool worktodoDelete(int E) {
