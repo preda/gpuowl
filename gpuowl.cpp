@@ -462,7 +462,7 @@ bool checkPrime(int W, int H, int E, cl_queue q,
     float MAX_ERR = 0.47f;
     if (err > MAX_ERR || isLoop) {
       const char *problem = isLoop ? "Loop on LL 0...002" : "Error is too large";
-      if (!isRetry) {
+      if (!isRetry && !isCheck) {
         log("%s; retrying\n", problem);
         isRetry = true;
         write(q, false, bufData, sizeof(int) * N, saveData);
@@ -478,8 +478,9 @@ bool checkPrime(int W, int H, int E, cl_queue q,
     if (!isCheck && maxErr > 0 && err > 1.2f * maxErr && args.logStep >= 1000 && !args.selfTest) {
       log("Error jump by %.2f%%, doing a consistency check.\n", (err / maxErr - 1) * 100);      
       isCheck = true;
-      write(q, false, bufData, sizeof(int) * N, saveData);
+      write(q, true, bufData, sizeof(int) * N, saveData);
       k = saveK;
+      memcpy(saveData, data, sizeof(int) * N);
       continue;
     }
 
