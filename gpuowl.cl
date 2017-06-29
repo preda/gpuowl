@@ -74,11 +74,55 @@ void shuflBig(local double2 *lds, double2 *u, uint n, uint f) {
   for (uint i = 0; i < n; ++i) { u[i] = lds[i * 256 + me]; }
 }
 
-void tabMul(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
+#define SWAP(a, b) { uint t = a; a = b; b = t; }
+
+// returns e ^ (- 2 * pi * i / 2048)
+// len(cosTab) == 513.
+double2 cosSin2K(local double *tab, uint i) {
+  uint pos  = i & 511;
+  bool b0 = i & 512;
+  bool b1 = i >> 10;  // i & 1024;
+  uint p1 = b0 ? 512 - pos : pos;
+  uint p2 = b0 ? pos : 512 - pos;
+  double a = tab[p1];
+  double b = tab[p2];
+  return (double2) ((b0 == b1) ? a : -a, b1 ? b : -b);
+  /*
+  double a = (b0 == b1) ? tab[p1] : -tab[p1];
+  double b = b1 ? tab[p2] : -tab[p2];
+  return (double2) (a, b);
+  */
+}
+/* 
+  if (b0) {
+    double a = b1 ? cosTab[pos2] : -cosTab[pos2];
+    double b = b1 ? cosTab[pos] : -cosTab[pos];
+  } else {
+    double a = b1 ? -cosTab[pos] : cosTab[pos];
+    double b = b1 ? cosTab[pos2] : -cosTab[pos2];
+  }
+  if (b0) { SWAP(pos, pos2); }
+  double a = cosTab[pos];
+  double b = cosTab[pos2];
+  if (b0 != b1) { a = -a; }
+  if (b1) { b = -b; }
+  uint b0  = (i >> 9) & 1;
+  uint b1  = (i >> 10) & 1;
+}
+*/
+
+void tabMulNew(local double *trig, double2 *u, uint n, uint f) {
+  uint me = get_local_id(0);
+  #pragma unroll 1
+  for (int i = 1; i < n; ++i) { M(u[i], cosSin2K(trig, i * (me / f * f))); }
+}
+
+void tabMulOld(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
 }
 
+/*
 void tabMul2(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   // n == 4
@@ -87,23 +131,26 @@ void tabMul2(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
   M(u[2], trig[p + 256]);
   M(u[3], trig[p + 512]);
 }
+*/
 
-void shuffleMul(SMALL_CONST double2 *trig, local double *lds, double2 *u, uint n, uint f) {
+/*
+void shuffleMul(local double *trig, local double *lds, double2 *u, uint n, uint f) {
   bar();
   shufl(lds,   u, n, f);
   tabMul(trig, u, n, f);
 }
+*/
 
 void shuffleMulBig(SMALL_CONST double2 *trig, local double2 *lds, double2 *u, uint n, uint f) {
   bar();
   shuflBig(lds, u, n, f);
-  tabMul(trig,  u, n, f);
+  tabMulOld(trig,  u, n, f);
 }
 
 void fft1kBigLDS(local double2 *lds, double2 *u, SMALL_CONST double2 *trig1k) {
   fft4(u);
   shuflBig(lds,  u, 4, 64);
-  tabMul(trig1k, u, 4, 64);
+  tabMulOld(trig1k, u, 4, 64);
   
   fft4(u);
   shuffleMulBig(trig1k, lds, u, 4, 16);
@@ -117,31 +164,39 @@ void fft1kBigLDS(local double2 *lds, double2 *u, SMALL_CONST double2 *trig1k) {
   fft4(u);
 }
 
-void fft1kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig1k) {
+void fft1kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   fft4(u);
-  shufl(lds,     u, 4, 64);
-  tabMul(trig1k, u, 4, 64);  
+  shufl(lds,      u, 4, 64);
+  tabMulOld(trig, u, 4, 64);
   
   fft4(u);
-  shuffleMul(trig1k, lds, u, 4, 16);
+  bar();
+  shufl(lds,      u, 4, 16);
+  tabMulOld(trig, u, 4, 16);
   
   fft4(u);
-  shuffleMul(trig1k, lds, u, 4, 4);
+  bar();
+  shufl(lds,      u, 4, 4);
+  tabMulOld(trig, u, 4, 4);
 
   fft4(u);
-  shuffleMul(trig1k, lds, u, 4, 1);
+  bar();
+  shufl(lds,      u, 4, 1);
+  tabMulOld(trig, u, 4, 1);
 
   fft4(u);
 }
 
-void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig2k) {
+void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   fft8(u);
-  shufl(lds,   u, 8, 32);
-  tabMul(trig2k, u, 8, 32);
+  shufl(lds,      u, 8, 32);
+  tabMulOld(trig, u, 8, 32);
 
   fft8(u);
-  shuffleMul(trig2k, lds, u, 8, 4);
-
+  bar();
+  shufl(lds,      u, 8, 4);
+  tabMulOld(trig, u, 8, 4);
+  
   fft8(u);
 
   uint me = get_local_id(0);
@@ -156,8 +211,10 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig2k) {
   }
 
   for (int i = 1; i < 4; ++i) {
-    M(u[i],     trig2k[i * 512 + me]);
-    M(u[i + 4], trig2k[i * 512 + me + 256]);
+    M(u[i],     trig[i * 512 + me]);
+    M(u[i + 4], trig[i * 512 + me + 256]);
+    // M(u[i],     cosSin2K(trig, i * me));
+    // M(u[i + 4], cosSin2K(trig, i * (me + 256)));
   }
      
   fft4(u);
@@ -245,20 +302,6 @@ int2 car1(long *carry, int2 r, uchar2 bits) {
   int b = updateB(carry, r.y, bits.y);
   return (int2) (a, b);
 }
-
-/*
-int2 ear0(long *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {
-  u *= fabs(ia);
-  int a = updateA(carry, toLong(u.x, maxErr), bitlen(baseBits, ia.x));
-  int b = updateB(carry, toLong(u.y, maxErr), bitlen(baseBits, ia.y));
-  return (int2) (a, b);
-}
-
-double2 ear2(long carry, int2 r, double2 a, uint baseBits) {
-  int t = updateA(&carry, r.x, bitlen(baseBits, a.x));
-  return (double2) (t, r.y + (int) carry) * fabs(a);
-}
-*/
 
 double2 updateD(double x, int bits) {
   double carry = rint(ldexp(x, -bits));
@@ -405,21 +448,44 @@ void reverse2(local double2 *lds, double2 *u, bool bump) {
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
 }
 
-KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig2k, CONST double2 *bigTrig) {
+/*
+KERNEL(256) test(global double2 *out, global double *cos2k) {
+  local trig[513];
+  
+  for (int i = 0; i < 8; ++i) {
+    
+  }
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+  // out[get_global_id(0)] = -in[get_global_id(0)];
+  // local double lds[2048];
+  double2 u[8];
+  for (int i = 0; i < 8; ++i) { u[i] = in[g * 2048 + i * 256 + me]; }
+  fft8(u);
+  for (int i = 0; i < 8; ++i) { out[g * 2048 + i * 256 + me] = u[i]; }  
+  // fft2kImpl(lds, u, trig2k);
+}
+*/
+
+KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *bigTrig) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   local double lds[2048];
+  // local double trig[513];
   
   double2 u[8];  
   for (int i = 0; i < 8; ++i) { u[i] = io[g * 2048 + i * 256 + me]; }
-  fft2kImpl(lds, u, trig2k);
+  // trig[me]       = cos2k[me];
+  // trig[me + 256] = cos2k[me + 256];
+  // if (me == 0) { trig[512] = 0; }
+  fft2kImpl(lds, u, trig);
 
   reverse2((local double2 *) lds, u, g == 0);
 
   double2 v[8];
   uint line2 = g ? 1024 - g : 512;
   for (int i = 0; i < 8; ++i) { v[i] = io[line2 * 2048 + i * 256 + me]; }
-  bar(); fft2kImpl(lds, v, trig2k);
+  bar(); fft2kImpl(lds, v, trig);
 
   reverse2((local double2 *) lds, v, false);
   
@@ -465,20 +531,21 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig2k, CONST double2 
   if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
 
   reverse1((local double2 *) lds, u, g == 0);
-  bar(); fft2kImpl(lds, u, trig2k);
+  bar(); fft2kImpl(lds, u, trig);
   for (int i = 0; i < 4; ++i) {
     io[g * 2048 + i * 512 + me]       = u[i];
     io[g * 2048 + i * 512 + 256 + me] = u[i + 4];
   }
   
   reverse1((local double2 *) lds, v, false);
-  bar(); fft2kImpl(lds, v, trig2k);
+  bar(); fft2kImpl(lds, v, trig);
   for (int i = 0; i < 4; ++i) {
     io[line2 * 2048 + i * 512 + me]       = v[i];
     io[line2 * 2048 + i * 512 + 256 + me] = v[i + 4];
   }
 }
 
+/*
 KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
   io += g * 2048;
@@ -515,6 +582,7 @@ KERNEL(256) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2
     out[me + i * 512 + 256] = u[i + 4];
   }
 }
+*/
 
 // conjugates input
 KERNEL(256) carryA(const uint baseBits, const uint offsetWord, const double offsetVal,
@@ -571,6 +639,7 @@ KERNEL(256) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitle
   carryBCore(2048, in, carryIn, bitlen);
 }
 
+/*
 // Inputs normal (non-conjugate); outputs conjugate.
 void csquare(uint W, global double2 *io, CONST double2 *trig) {
   uint g  = get_group_id(0);
@@ -607,6 +676,7 @@ void csquare(uint W, global double2 *io, CONST double2 *trig) {
 }
 
 KERNEL(256) csquare2K(global double2 *io, CONST double2 *trig)  { csquare(2048, io, trig); }
+*/
 
 void transposeCore(local double *lds, double2 *u) {
   uint me = get_local_id(0);
@@ -654,6 +724,7 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
 }
 
 // in place
+/*
 KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
   uint W = 1024, GW = W / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
@@ -679,6 +750,7 @@ KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
     io[p] = u[i];
   }
 }
+*/
 
 KERNEL(256) transpose1K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
   local double lds[4096];

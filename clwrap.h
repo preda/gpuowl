@@ -74,35 +74,75 @@ void release(cl_mem buf)         { CHECK(clReleaseMemObject(buf)); }
 void release(cl_queue queue)     { CHECK(clReleaseCommandQueue(queue)); }
 void release(cl_kernel k)        { CHECK(clReleaseKernel(k)); }
 
-cl_program compile(cl_device_id device, cl_context context, const char *fileName, const char *opts) {
+bool dumpBinary(cl_program program, const char *fileName) {
+  FILE *fo = open(fileName, "w");
+  if (!fo) {
+    fprintf(stderr, "Could not create file '%s'\n", fileName);
+    return false;
+  }
+  
+  size_t size;
+  CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
+  char *buf = new char[size + 1];
+  CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &buf, NULL));
+  fwrite(buf, 1, size, fo);
+  fclose(fo);
+  delete[] buf;
+  return true;
+}
+
+size_t getFileSize(FILE *f) {
+  int err = fseek(f, 0, SEEK_END);
+  assert(!err);
+  long size = ftell(f);
+  assert(size >= 0);
+  rewind(f);
+  return size;  
+}
+
+cl_program readProgram(cl_device_id device, cl_context context, const char *fileName, bool isBin, size_t *outSize) {
   FILE *fi = fopen(fileName, "r");
   if (!fi) {
-    fprintf(stderr, "Could not open cl source file '%s'\n", fileName);
+    fprintf(stderr, "Could not open cl file '%s'\n", fileName);
     return 0;
   }
-    
-  char buf[64 * 1024];
-  size_t size = fread(buf, 1, sizeof(buf), fi);
+  size_t fileSize = getFileSize(fi);
+  char *fileBuf = new char[fileSize];
+  size_t nRead = fread(fileBuf, fileSize, 1, fi);
   fclose(fi);
-  assert(size < sizeof(buf));
-
-  char *pbuf = buf;
+  assert(nRead == 1);
+  
+  const char *pbuf = fileBuf;
   int err;
-  cl_program program = clCreateProgramWithSource(context, 1, (const char **)&pbuf, &size, &err);
+  cl_program program = isBin
+    ? clCreateProgramWithBinary(context, 1, &device, &fileSize, (const unsigned char **) &pbuf, NULL, &err)
+    : clCreateProgramWithSource(context, 1, &pbuf, &fileSize, &err);
   CHECK(err);
+  delete[] fileBuf;
+  return program;
+}
 
+cl_program compile(cl_device_id device, cl_context context, const char *fileName, const char *opts, bool useCL2, bool isBin = false) {
+  size_t size = 0;
+  cl_program program = readProgram(device, context, fileName, isBin, &size);
+  if (!program) { return program; }
+
+  char buf[4096];
+  size_t logSize;
+  int err;
+  if (useCL2) {
   // First try CL2.0 compilation.
   snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math -cl-std=CL2.0 %s", opts);
   err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
   
-  size_t logSize;
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
   buf[logSize] = 0;
   if (logSize > 2) { fprintf(stderr, "OpenCL compilation log:\n%s\n", buf); }
   if (err == CL_SUCCESS) { return program; }
   
   printf("Falling back to CL1.x compilation (error %d)\n", err);
-  snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math %s", opts);
+  }
+  snprintf(buf, sizeof(buf), "-fno-bin-llvmir -fno-bin-amdil -fno-bin-source -cl-fast-relaxed-math %s", opts);
   err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
   
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);

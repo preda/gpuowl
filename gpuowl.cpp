@@ -134,9 +134,9 @@ cl_mem genBigTrig(cl_context context, int W, int H) {
   const int size = 2 * 3 * 128;
   double *tab = new double[size];
   double *end = tab;
-  end = trig(128, 1024 * 1024, end);
-  end = trig(128,    8 * 1024, end);
-  end = trig(128,          64, end);
+  end = trig(128, 64 * 128 * 128, end);
+  end = trig(128, 64 * 128,       end);
+  end = trig(128, 64,             end);
   assert(end - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
@@ -174,6 +174,15 @@ double *smallTrigBlock(int W, int H, double *out) {
   return p;
 }
 
+cl_mem genCos2K(cl_context context) {
+  double *tab = new double[513];
+  double *p = tab;
+  for (int i = 0; i < 513; ++i) { *p++ = cosl(M_PIl / 1024 * i); }
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * 513, tab);
+  delete[] tab;
+  return buf;
+}
+
 cl_mem genSmallTrig2K(cl_context context) {
   int size = 2 * 4 * 512;
   double *tab = new double[size]();
@@ -203,6 +212,7 @@ cl_mem genSmallTrig1K(cl_context context) {
   return buf;
 }
 
+/*
 cl_mem genTrig1K(cl_context context) {
   int size = 2 * 3 * 256;
   double *tab = new double[size];
@@ -214,6 +224,7 @@ cl_mem genTrig1K(cl_context context) {
   delete[] tab;
   return buf;
 }
+*/
 
 bool isAllZero(int *p, int size) {
   for (int *end = p + size; p < end; ++p) { if (*p) { return false; } }
@@ -560,17 +571,31 @@ int main(int argc, char **argv) {
   Context contextHolder{createContext(device)};
   cl_context context = contextHolder.get();
 
+  /*
+  cl_program test = compile(device, context, "test.cl", "-save-temps=test/", false);
+  assert(test);
+  printf("test compiled\n");
+  assert(dumpBinary(test, "test.bin"));
+  printf("bin dumped\n");
+  cl_program test2 = compile(device, context, "test.bin", "", false, true);
+  assert(test2);
+  printf("test2 compiled\n");
+  assert(dumpBinary(test2, "test2.bin"));
+  printf("bin2 dumped\n");
+  exit(0);
+  */
+  
   Timer timer;
   MicroTimer microTimer;
   
-  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs.c_str());
+  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs.c_str(), true);
   if (!p) { exit(1); }
 #define KERNEL(program, name, shift) Kernel name(program, #name, shift, microTimer, args.timeKernels)
   KERNEL(p, fftPremul1K, 3);
-  KERNEL(p, transp1K,    5);
-  KERNEL(p, fft2K_1K,    4);
-  KERNEL(p, csquare2K,   2);
-  KERNEL(p, fft2K,       4);
+  // KERNEL(p, transp1K,    5);
+  // KERNEL(p, fft2K_1K,    4);
+  // KERNEL(p, csquare2K,   2);
+  // KERNEL(p, fft2K,       4);
   KERNEL(p, transpose2K, 5);
   KERNEL(p, transpose1K, 5);
   KERNEL(p, fft1K,       3);
@@ -589,7 +614,7 @@ int main(int argc, char **argv) {
   
   Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
-  Buffer bufTrig1K2{genTrig1K(context)};
+  Buffer bufCos2K{genCos2K(context)};
   Buffer bufBigTrig{genBigTrig(context, W, H)};
   Buffer bufSins{genSin(context, H, W)}; // transposed W/H !
 
@@ -622,11 +647,11 @@ int main(int argc, char **argv) {
     log("Exponent setup: %4d ms\n", timer.delta());
 
     fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
-    transp1K.setArgs   (buf1,    bufBigTrig);
-    fft2K_1K.setArgs   (buf1,    buf2, bufTrig2K);
-    csquare2K.setArgs  (buf2,    bufSins);
+    // transp1K.setArgs   (buf1,    bufBigTrig);
+    // fft2K_1K.setArgs   (buf1,    buf2, bufTrig2K);
+    // csquare2K.setArgs  (buf2,    bufSins);
     tail.setArgs       (buf2,    bufTrig2K, bufSins);
-    fft2K.setArgs      (buf2,    bufTrig2K);
+    // fft2K.setArgs      (buf2,    bufTrig2K);
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     transpose1K.setArgs(buf1,    buf2, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
@@ -658,7 +683,7 @@ int main(int argc, char **argv) {
     }
 
     Kernel *mega = offset ? &mega1K : &megaNoOffset;
-    std::vector<Kernel *> headKerns {&fftPremul1K, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
+    std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
     // std::vector<Kernel *> coreKerns {mega, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
     // std::vector<Kernel *> coreKerns {mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
