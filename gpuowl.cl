@@ -575,7 +575,7 @@ KERNEL(256) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2
 */
 
 // conjugates input
-KERNEL(256) carryA(const uint baseBits, const uint offsetWord, const double offsetVal,
+KERNEL(256) carryA(const uint baseBits,
                    CONST double2 *in, CONST double2 *A, global int2 *out,
                    global long *carryOut, global uint *globalMaxErr) {
   uint g  = get_group_id(0);
@@ -587,11 +587,10 @@ KERNEL(256) carryA(const uint baseBits, const uint offsetWord, const double offs
   out    += step;
 
   float maxErr = 0;
-  long carry   = 0;
+  long carry   = (g == 0 && me == 0) ? -2 : 0;
 
   for (int i = 0; i < 8; ++i) {    
     uint p = me + i * 1024;
-    if (g / 4 * 8 + g % 4 * 256 * 2048 + i + me * 2048 == offsetWord) { carry += (long) offsetVal; }
     out[p] = car0(&carry, conjugate(in[p]), A[p], &maxErr, baseBits);
   }
 

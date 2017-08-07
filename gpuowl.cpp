@@ -606,9 +606,7 @@ int main(int argc, char **argv) {
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     transpose1K.setArgs(buf1,    buf2, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
-    unsigned offsetWord = 0;
-    double offsetVal    = -2;
-    carryA.setArgs     (baseBitlen, offsetWord, offsetVal, buf1, bufI, bufData, bufCarry, bufErr);
+    carryA.setArgs     (baseBitlen, buf1, bufI, bufData, bufCarry, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen);
     megaNoOffset.setArgs(baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
     
