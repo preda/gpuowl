@@ -9,7 +9,7 @@
 
 struct Args {
   static constexpr int DEFAULT_LOGSTEP = 20000;
-  std::string clArgs;
+  std::string clArgs, uid;
   int logStep, saveStep, device, offset;
   bool timeKernels, selfTest, useLegacy;
   
@@ -26,10 +26,19 @@ struct Args {
   }
 
   void logConfig() {
-    char buf[32] = {0};
-    if (offset >= 0) { snprintf(buf, sizeof(buf), "-offset %d ", offset); }
-    log("Config: -logstep %d -savestep %d %s%s%s%s-cl \"%s\"\n", logStep, saveStep, timeKernels ? "-time kernels " : "",
-        selfTest ? "-selftest " : "", useLegacy ? "-legacy " : "", buf, clArgs.c_str());
+    std::string offsetStr = (offset == -1   ? "" : " -offset " + std::to_string(offset));
+    std::string uidStr    = (uid.empty()    ? "" : " -uid "    + uid);
+    std::string clStr     = (clArgs.empty() ? "" : " -cl \""   + clArgs + "\"");
+    
+    std::string tailStr =
+      offsetStr
+      + uidStr
+      + clStr
+      + (selfTest    ? " -selftest"     : "")
+      + (timeKernels ? " -time kernels" : "")
+      + (useLegacy   ? " -legacy"       : "");
+      
+    log("Config: -logstep %d -savestep %d%s\n", logStep, saveStep, tailStr.c_str());
   }
 
   // return false to stop.
@@ -38,18 +47,19 @@ struct Args {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n"
+          "-logstep  <N> : to log every <N> iterations (default %d)\n"
+          "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
+          "-offset   <N> : set offset for newly started exponents (otherwise a random offset is used)\n"
+          "-uid user/machine : set UID: string to be prepended to the result line\n"
           "-cl \"<OpenCL compiler options>\"\n"
           "    All the cl options must be included in the single argument following -cl\n"
           "    e.g. -cl \"-D LOW_LDS -D NO_ERR -save-temps=tmp/ -O2\"\n"
           "        -save-temps or -save-temps=tmp or -save-temps=tmp/ : save ISA\n"
           "        -D NO_ERR  : do not compute maximum rounding error\n"
-          "-logstep  <N> : to log every <N> iterations (default %d)\n"
-          "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
-          "-time kernels : to benchmark kernels (logstep must be > 1)\n"
-          "-legacy       : use legacy (old) kernels\n"
-          "-offset <N>   : set offset for newly started exponents (otherwise a random offset is used)\n"
           "-selftest     : perform self tests from 'selftest.txt'\n"
-          "                Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n",
+          "                Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n"
+          "-time kernels : to benchmark kernels (logstep must be > 1)\n"
+          "-legacy       : use legacy kernels\n",
           logStep, 500 * logStep);
 
       log("-device   <N> : select specific device among:\n");
@@ -77,13 +87,6 @@ struct Args {
           "Test=0,70100200,0,0\n");
       
       return false;
-    } else if (!strcmp(arg, "-cl")) {
-      if (i < argc - 1) {
-        clArgs = argv[++i];
-      } else {
-        log("-cl expects options string to pass to CL compiler\n");
-        return false;
-      }
     } else if (!strcmp(arg, "-logstep")) {
       if (i < argc - 1) {
         logStep = atoi(argv[++i]);
@@ -106,6 +109,33 @@ struct Args {
         log("-savestep expects <N> argument\n");
         return false;
       }
+    } else if (!strcmp(arg, "-offset")) {
+      if (i < argc - 1) {
+        offset = atoi(argv[++i]);
+        if (offset < 0) {
+          log("invalid -offset '%s'\n", argv[i]);
+          return false;
+        }
+      } else {
+        log("-offset expects <offset> argument\n");
+        return false;
+      }
+    } else if (!strcmp(arg, "-uid")) {
+      if (i < argc - 1) {
+        uid = argv[++i];
+      } else {
+        log("-uid expects userName/computerName\n");
+        return false;
+      }
+    } else if (!strcmp(arg, "-cl")) {
+      if (i < argc - 1) {
+        clArgs = argv[++i];
+      } else {
+        log("-cl expects options string to pass to CL compiler\n");
+        return false;
+      }
+    } else if (!strcmp(arg, "-selftest")) {
+      selfTest = true;
     } else if(!strcmp(arg, "-time")) {
       if (i < argc - 1 && !strcmp(argv[++i], "kernels")) {
         timeKernels = true;
@@ -113,8 +143,8 @@ struct Args {
         log("-time expects 'kernels'\n");
         return false;
       }
-    } else if (!strcmp(arg, "-selftest")) {
-      selfTest = true;
+    } else if (!strcmp(arg, "-legacy")) {
+      useLegacy = true;
     } else if (!strcmp(arg, "-device")) {
       if (i < argc - 1) {
         device = atoi(argv[++i]);
@@ -125,19 +155,6 @@ struct Args {
         }        
       } else {
         log("-device expects <N> argument\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-legacy")) {
-      useLegacy = true;
-    } else if (!strcmp(arg, "-offset")) {
-      if (i < argc - 1) {
-        offset = atoi(argv[++i]);
-        if (offset < 0) {
-          log("invalid -offset '%s'\n", argv[i]);
-          return false;
-        }
-      } else {
-        log("-offset expects <offset> argument\n");
         return false;
       }
     } else {
