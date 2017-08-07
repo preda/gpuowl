@@ -315,10 +315,10 @@ void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
       k, E, k * percent, msPerIter, days, hours, mins, (unsigned long long) res, err, maxErr);
 }
 
-bool writeResult(int E, bool isPrime, u64 residue, const char *AID, int offset) {
+bool writeResult(int E, bool isPrime, u64 residue, const char *AID, int offset, const std::string &uid) {
   char buf[128];
-  snprintf(buf, sizeof(buf), "M( %d )%c, 0x%016llx, offset = %d, n = %dK, %s, AID: %s",
-           E, isPrime ? 'P' : 'C', (unsigned long long) residue, offset, 4096, AGENT, AID);
+  snprintf(buf, sizeof(buf), "%sM( %d )%c, 0x%016llx, offset = %d, n = %dK, %s, AID: %s",
+           uid.c_str(), E, isPrime ? 'P' : 'C', (unsigned long long) residue, offset, 4096, AGENT, AID);
   log("%s\n", buf);
   if (FILE *fo = open("results.txt", "a")) {
     fprintf(fo, "%s\n", buf);
@@ -715,7 +715,8 @@ int main(int argc, char **argv) {
         break;
       }
     } else {
-      if (!(writeResult(E, isPrime, residue, AID, offset) && worktodoDelete(E))) { break; }
+      std::string uid = args.uid.empty() ? "" : "UID: " + args.uid + " ";
+      if (!(writeResult(E, isPrime, residue, AID, offset, uid) && worktodoDelete(E))) { break; }
     }
   }
     
