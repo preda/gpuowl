@@ -46,11 +46,10 @@ private:
     return sum;
   }
 
-  bool loadFile(const char *name, int *data, int *startK, int *offset) {
+  bool loadFile(const char *name, int *data, int *startK) {
     FILE *fi = open(name, "rb");
     if (!fi) {
       *startK = 0;
-      *offset = 0;
       return true;
     }
     
@@ -67,10 +66,15 @@ private:
     int fileE, fileK, fileW, fileH, fileSum;
     char *header = (char *) (data + N);
     header[n - wordsSize] = 0;
-    
-    if (sscanf(header, headerFormat, &fileE, &fileK, &fileW, &fileH, offset, &fileSum) != 6 ||
-        !(E == fileE && W == fileW && H == fileH && 0 <= *offset && *offset < E)) {
+
+    int offset = 0;
+    if (sscanf(header, headerFormat, &fileE, &fileK, &fileW, &fileH, &offset, &fileSum) != 6 ||
+        !(E == fileE && W == fileW && H == fileH && 0 <= offset && offset < E)) {
       log("File '%s' has wrong tailer '%s'\n", name, header);
+      return false;
+    }
+    if (offset) {
+      log("Offset %d not supported (must be 0)\n", offset);
       return false;
     }
     
@@ -90,12 +94,12 @@ public:
     snprintf(fileNameTemp, sizeof(fileNameTemp), "b%d.ll", E);
   }
   
-  bool load(int *data, int *startK, int *offset) {
-    return loadFile(fileNameSave, data, startK, offset);
+  bool load(int *data, int *startK) {
+    return loadFile(fileNameSave, data, startK);
   }
   
-  void save(int *data, int k, bool savePersist, u64 residue, int offset) {
-    int headerSize = prepareHeader(data, k, offset);
+  void save(int *data, int k, bool savePersist, u64 residue) {
+    int headerSize = prepareHeader(data, k, 0);
     const int totalSize = sizeof(int) * 2 * W * H + headerSize;
     if (write(fileNameTemp, totalSize, data)) {
       remove(fileNamePrev);

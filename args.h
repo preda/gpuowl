@@ -10,7 +10,7 @@
 struct Args {
   static constexpr int DEFAULT_LOGSTEP = 20000;
   std::string clArgs, uid;
-  int logStep, saveStep, device, offset;
+  int logStep, saveStep, device;
   bool timeKernels, selfTest, useLegacy;
   
   Args() {
@@ -18,7 +18,6 @@ struct Args {
     logStep  = DEFAULT_LOGSTEP;
     saveStep = 0;
     device   = -1;
-    offset   = -1;
     
     timeKernels = false;
     selfTest    = false;
@@ -26,13 +25,11 @@ struct Args {
   }
 
   void logConfig() {
-    std::string offsetStr = (offset == -1   ? "" : " -offset " + std::to_string(offset));
     std::string uidStr    = (uid.empty()    ? "" : " -uid "    + uid);
     std::string clStr     = (clArgs.empty() ? "" : " -cl \""   + clArgs + "\"");
     
     std::string tailStr =
-      offsetStr
-      + uidStr
+      uidStr
       + clStr
       + (selfTest    ? " -selftest"     : "")
       + (timeKernels ? " -time kernels" : "")
@@ -49,7 +46,6 @@ struct Args {
       log("Command line options:\n"
           "-logstep  <N> : to log every <N> iterations (default %d)\n"
           "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
-          "-offset   <N> : set offset for newly started exponents (otherwise a random offset is used)\n"
           "-uid user/machine : set UID: string to be prepended to the result line\n"
           "-cl \"<OpenCL compiler options>\"\n"
           "    All the cl options must be included in the single argument following -cl\n"
@@ -107,17 +103,6 @@ struct Args {
         }
       } else {
         log("-savestep expects <N> argument\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-offset")) {
-      if (i < argc - 1) {
-        offset = atoi(argv[++i]);
-        if (offset < 0) {
-          log("invalid -offset '%s'\n", argv[i]);
-          return false;
-        }
-      } else {
-        log("-offset expects <offset> argument\n");
         return false;
       }
     } else if (!strcmp(arg, "-uid")) {

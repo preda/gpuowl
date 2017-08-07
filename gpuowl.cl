@@ -322,8 +322,7 @@ double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
 }
 
 // The "amalgamation" kernel is equivalent to the sequence: fft1K, carryA, carryB, fftPremul1K.
-void amalgamation1k(local double2 *lds, bool useOffset,
-                    const uint baseBitlen, const uint offsetWord, const double offsetVal,
+void amalgamation1k(local double2 *lds, const uint baseBitlen,
                     global double2 *io, volatile global double *carry, volatile global uint *ready,
                     volatile global uint *globalErr,
                     CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
@@ -350,12 +349,11 @@ void amalgamation1k(local double2 *lds, bool useOffset,
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
     double c = 0;
-    if (useOffset) { if (gm + i * 256 * 2048 + me * 2048 == offsetWord) { c = offsetVal; } }
     r[i] = dar0(&c, conjugate(u[i]), iA[p], &err, baseBitlen);
     if (gr < 2048) { carry[1024 + p] = c; }
   }
 
-  if (!useOffset) { if (gm == 0 && me == 0) { r[0].x -= 2; } }
+  if (gm == 0 && me == 0) { r[0].x -= 2; }
 
 #ifndef NO_ERR  
   local uint *maxErr = (local uint *) lds;
@@ -388,20 +386,12 @@ void amalgamation1k(local double2 *lds, bool useOffset,
   for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
 }
 
-KERNEL(256) mega1K(const uint baseBitlen, const uint offsetWord, const double offsetVal,
-                   global double2 *io, volatile global double *carry, volatile global uint *ready,
-                   volatile global uint *globalErr,
-                   CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
-  local double2 lds[1024];
-  amalgamation1k(lds, true, baseBitlen, offsetWord, offsetVal, io, carry, ready, globalErr, A, iA, trig1k);
-}
-
 KERNEL(256) megaNoOffset(const uint baseBitlen,
                          global double2 *io, volatile global double *carry, volatile global uint *ready,
                          volatile global uint *globalErr,
                          CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
   local double2 lds[1024];
-  amalgamation1k(lds, false, baseBitlen, 0, 0, io, carry, ready, globalErr, A, iA, trig1k);
+  amalgamation1k(lds, baseBitlen, io, carry, ready, globalErr, A, iA, trig1k);
 }
 
 // computes 8*[x^2+y^2 + i*(2*x*y)]. Needs a name.

@@ -23,7 +23,7 @@
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
-#define VERSION "0.5"
+#define VERSION "0.6"
 
 const char *AGENT = "gpuowl v" VERSION;
 
@@ -248,49 +248,15 @@ bool prevIsNegative(int W, int H, int *data, int p) {
   return false;
 }
 
-u64 residue(int W, int H, int E, int *data, int offset) {
+u64 residue(int W, int H, int E, int *data) {
   int N = 2 * W * H;
-  assert(0 <= offset && offset < E);
-  int p  = (offset * (i64) N) / E;
-  assert(0 <= p && p < N);
-  int b0 = wordPos(N, E, p);
-  int b1 = wordPos(N, E, p + 1);
-  assert(b0 <= offset && offset < b1);
-  i64 r = (wordAt(W, H, data, p) - prevIsNegative(W, H, data, p)) >> (offset - b0);
-  for (int haveBits = b1 - offset; haveBits < 64; haveBits += bitlen(N, E, p)) {
-    ++p;
-    if (p >= N) { p -= N; }
+  i64 r = - prevIsNegative(W, H, data, 0);
+  for (int p = 0, haveBits = 0; haveBits < 64;) {
     r += (i64) wordAt(W, H, data, p) << haveBits;
-  }
+    haveBits += bitlen(N, E, p);
+    if (++p >= N) { p -= N; }
+  }  
   return r;
-}
-
-i64 oneShifted(int N, int E, bool forceEvenWord, int offset, int *outWord) {
-  if (offset >= E) { offset -= E; }
-  assert(0 <= offset && offset < E);
-  int p = (offset * (i64) N) / E;
-  assert(0 <= p && p < N);
-  if (forceEvenWord && (p & 1)) { --p; }
-  int b0 = wordPos(N, E, p);
-  assert(b0 <= offset);
-  *outWord = p;
-  return ((i64) 1) << (offset - b0);
-}
-
-// 2**k mod m
-unsigned twoExpMod(unsigned k, unsigned m) {
-  unsigned r = 1;
-  for (int bit = 29; bit >= 0; --bit) {
-    u64 r2 = r * (u64) r;
-    if (k & (1 << bit)) { r2 *= 2; }
-    r = r2 % m;
-  }
-  return r;
-}
-
-int offsetAtIter(int E, int offset, int k) {
-  unsigned t = twoExpMod(k, E);
-  return ((unsigned) offset * (u64) t) % (unsigned) E;
 }
 
 FILE *logFiles[3] = {0, 0, 0};
@@ -315,10 +281,10 @@ void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
       k, E, k * percent, msPerIter, days, hours, mins, (unsigned long long) res, err, maxErr);
 }
 
-bool writeResult(int E, bool isPrime, u64 residue, const char *AID, int offset, const std::string &uid) {
+bool writeResult(int E, bool isPrime, u64 residue, const char *AID, const std::string &uid) {
   char buf[128];
-  snprintf(buf, sizeof(buf), "%sM( %d )%c, 0x%016llx, offset = %d, n = %dK, %s, AID: %s",
-           uid.c_str(), E, isPrime ? 'P' : 'C', (unsigned long long) residue, offset, 4096, AGENT, AID);
+  snprintf(buf, sizeof(buf), "%sM( %d )%c, 0x%016llx, offset = 0, n = %dK, %s, AID: %s",
+           uid.c_str(), E, isPrime ? 'P' : 'C', (unsigned long long) residue, 4096, AGENT, AID);
   log("%s\n", buf);
   if (FILE *fo = open("results.txt", "a")) {
     fprintf(fo, "%s\n", buf);
@@ -367,11 +333,9 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
 class Iteration {
   int E;
   int k;
-  int off;
 
 public:
-  Iteration(int E, int k, int off) : E(E), k(k), off(off) {
-    assert(0 <= off && off < E);
+  Iteration(int E, int k) : E(E), k(k) {
     assert(0 <= k && k < E - 1);
   }
 
@@ -381,13 +345,9 @@ public:
   operator int() { return k; }
   
   Iteration &operator++() {
-    off += off;
-    if (off >= E) { off -= E; }
     ++k;
     return *this;
   }
-
-  int offset() { return off; }
 };
 
 using OffsetUpdateFun = void(*)(int, double);
@@ -397,9 +357,8 @@ bool checkPrime(int W, int H, int E, cl_queue q,
                 const std::vector<Kernel *> &tailKerns,
                 const std::vector<Kernel *> &coreKerns,
                 const Args &args,
-                int *data, int startK, int rootOffset,
+                int *data, int startK,
                 cl_mem bufData, cl_mem bufErr,
-                auto updateOffset,
                 bool *outIsPrime, u64 *outResidue) {
   const int N = 2 * W * H;
 
@@ -408,8 +367,8 @@ bool checkPrime(int W, int H, int E, cl_queue q,
 
   memcpy(saveData, data, sizeof(int) * N);
   
-  log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) offset %d iteration %d\n",
-      N / 1024, W, H, E, E / (double) N, rootOffset, startK);
+  log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n",
+      N / 1024, W, H, E, E / (double) N, startK);
     
   Timer timer;
 
@@ -421,7 +380,7 @@ bool checkPrime(int W, int H, int E, cl_queue q,
   float maxErr  = 0;  
   u64 res;
   
-  Iteration k(E, startK, offsetAtIter(E, rootOffset, startK));
+  Iteration k(E, startK);
   Iteration saveK(k);
   
   bool isCheck = false, isRetry = false;
@@ -437,22 +396,15 @@ bool checkPrime(int W, int H, int E, cl_queue q,
     if (k < nextLog) {
       run(headKerns, q, N);
       if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
-      int wordPos;
-      double wordVal;
       while (k < nextLog) {
         ++k;
-        if (rootOffset) {
-          wordVal = - oneShifted(N, E, true, k.offset() + 1, &wordPos);
-          wordPos >>= 1;
-          updateOffset(wordPos, wordVal);
-        }
         run((k < nextLog) ? coreKerns : tailKerns, q, N);
       }
     }
 
     if (kData > 0 && !isCheck && !isRetry && !args.selfTest) {
       bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
-      checkpoint.save(data, kData, doSavePersist, res, rootOffset);
+      checkpoint.save(data, kData, doSavePersist, res);
     }
     
     float err = 0;
@@ -461,7 +413,7 @@ bool checkPrime(int W, int H, int E, cl_queue q,
     read(q,  true,  bufData, sizeof(int) * N, data);
     kData = k;
     
-    res = residue(W, H, E, data, k.offset());
+    res = residue(W, H, E, data);
 
     float msPerIter = timer.delta() / (float) std::max(nIters, 1);
     doLog(E, k, err, std::max(err, maxErr), msPerIter, res);
@@ -603,7 +555,6 @@ int main(int argc, char **argv) {
   KERNEL(p, carryB_2K,   4);
   KERNEL(p, tail,        5);
 #undef KERNEL
-  Kernel mega1K(p, "mega1K", 3, microTimer, args.timeKernels, 1);
   Kernel megaNoOffset(p, "megaNoOffset", 3, microTimer, args.timeKernels, 1);
   
   log("Compile       : %4d ms\n", timer.delta());
@@ -659,35 +610,25 @@ int main(int argc, char **argv) {
     double offsetVal    = -2;
     carryA.setArgs     (baseBitlen, offsetWord, offsetVal, buf1, bufI, bufData, bufCarry, bufErr);
     carryB_2K.setArgs  (bufData, bufCarry, bufBitlen);
-    mega1K.setArgs     (baseBitlen, offsetWord, offsetVal, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
     megaNoOffset.setArgs(baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
     
     bool isPrime;
     u64 residue;
-    int offset = 0;
     int startK = 0;
     
     Checkpoint checkpoint(E, W, H);
-    if (!args.selfTest && !checkpoint.load(data, &startK, &offset)) { break; }
+    if (!args.selfTest && !checkpoint.load(data, &startK)) { break; }
     
     if (startK == 0) {
-      if (args.offset >= E) {
-        log("Invalid -offset %d for exponent %d\n", args.offset, E);
-        return false;
-      }
-      offset = (args.offset >= 0) ? args.offset : (rand() % E);
       memset(data, 0, sizeof(int) * N);
-      int wordPos = 0;
-      int wordVal = oneShifted(N, E, false, offset + 2, &wordPos);
-      wordAt(W, H, data, wordPos) = wordVal;
+      wordAt(W, H, data, 0) = 4; // LL start value is 4.
     }
 
-    Kernel *mega = offset ? &mega1K : &megaNoOffset;
     std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
     // std::vector<Kernel *> coreKerns {mega, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
     // std::vector<Kernel *> coreKerns {mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
-    std::vector<Kernel *> coreKerns {mega, &transpose1K, &tail, &transpose2K};
+    std::vector<Kernel *> coreKerns {&megaNoOffset, &transpose1K, &tail, &transpose2K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
@@ -695,14 +636,8 @@ int main(int argc, char **argv) {
 
     if (!checkPrime(W, H, E, queue.get(),
                     headKerns, tailKerns, coreKerns,
-                    args, data, startK, offset,
+                    args, data, startK,
                     bufData.get(), bufErr.get(),
-                    [&mega1K, &carryA](int wordPos, double wordVal) {
-                      mega1K.setArg(1, wordPos);
-                      mega1K.setArg(2, wordVal);
-                      carryA.setArg(1, wordPos);
-                      carryA.setArg(2, wordVal);      
-                    },
                     &isPrime, &residue)) {
       break;
     }
@@ -716,7 +651,7 @@ int main(int argc, char **argv) {
       }
     } else {
       std::string uid = args.uid.empty() ? "" : "UID: " + args.uid + " ";
-      if (!(writeResult(E, isPrime, residue, AID, offset, uid) && worktodoDelete(E))) { break; }
+      if (!(writeResult(E, isPrime, residue, AID, uid) && worktodoDelete(E))) { break; }
     }
   }
     
