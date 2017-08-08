@@ -11,7 +11,7 @@ struct Args {
   static constexpr int DEFAULT_LOGSTEP = 20000;
   std::string clArgs, uid;
   int logStep, saveStep, device;
-  bool timeKernels, selfTest, useLegacy;
+  bool timeKernels, selfTest, useLegacy, safe;
   
   Args() {
     clArgs = "";
@@ -21,7 +21,8 @@ struct Args {
     
     timeKernels = false;
     selfTest    = false;
-    useLegacy   = false;    
+    useLegacy   = false;
+    safe        = false;
   }
 
   void logConfig() {
@@ -30,6 +31,7 @@ struct Args {
     
     std::string tailStr =
       uidStr
+      + (safe ? " -supersafe" : "")
       + clStr
       + (selfTest    ? " -selftest"     : "")
       + (timeKernels ? " -time kernels" : "")
@@ -44,21 +46,17 @@ struct Args {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n"
-          "-logstep  <N> : to log every <N> iterations (default %d)\n"
-          "-savestep <N> : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
+          "-logstep  <N>     : to log every <N> iterations (default %d)\n"
+          "-savestep <N>     : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
           "-uid user/machine : set UID: string to be prepended to the result line\n"
-          "-cl \"<OpenCL compiler options>\"\n"
-          "    All the cl options must be included in the single argument following -cl\n"
-          "    e.g. -cl \"-D LOW_LDS -D NO_ERR -save-temps=tmp/ -O2\"\n"
-          "        -save-temps or -save-temps=tmp or -save-temps=tmp/ : save ISA\n"
-          "        -D NO_ERR  : do not compute maximum rounding error\n"
-          "-selftest     : perform self tests from 'selftest.txt'\n"
-          "                Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n"
-          "-time kernels : to benchmark kernels (logstep must be > 1)\n"
-          "-legacy       : use legacy kernels\n",
+          "-supersafe        : use iterative double-check for reliable results on unreliable hardware\n"
+          "-cl \"<OpenCL compiler options>\", e.g. -cl \"-save-temps=tmp/ -O2\"\n"
+          "-selftest         : perform self tests from 'selftest.txt'\n"
+          "                    Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n"
+          "-time kernels     : to benchmark kernels (logstep must be > 1)\n"
+          "-legacy           : use legacy kernels\n\n"
+          "-device <N>       : select specific device among:\n",
           logStep, 500 * logStep);
-
-      log("-device   <N> : select specific device among:\n");
       
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
@@ -112,6 +110,8 @@ struct Args {
         log("-uid expects userName/computerName\n");
         return false;
       }
+    } else if (!strcmp(arg, "-supersafe")) {
+      safe = true;
     } else if (!strcmp(arg, "-cl")) {
       if (i < argc - 1) {
         clArgs = argv[++i];

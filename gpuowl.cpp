@@ -350,7 +350,122 @@ public:
   }
 };
 
-using OffsetUpdateFun = void(*)(int, double);
+bool checkPrimeSafe(int W, int H, int E, cl_queue q,
+                const std::vector<Kernel *> &headKerns,
+                const std::vector<Kernel *> &tailKerns,
+                const std::vector<Kernel *> &coreKerns,
+                const Args &args,
+                int *data, int startK,
+                cl_mem bufData, cl_mem bufErr,
+                bool *outIsPrime, u64 *outResidue) {
+  const int N = 2 * W * H;
+
+  int *saveData = new int[N];  
+  std::unique_ptr<int[]> releaseSaveData(saveData);
+
+  memcpy(saveData, data, sizeof(int) * N);
+  
+  log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n",
+      N / 1024, W, H, E, E / (double) N, startK);
+    
+  Timer timer;
+
+  const unsigned zero = 0;
+  
+  write(q, false, bufData, sizeof(int) * N,  data);
+  write(q, false, bufErr,  sizeof(unsigned), &zero);
+
+  float maxErr  = 0;  
+  u64 res;
+  
+  Iteration k(E, startK);
+  Iteration saveK(k);
+  
+  bool isCheck = false, isRetry = false;
+  int kData = -1;
+  
+  Checkpoint checkpoint(E, W, H);
+  
+  const int kEnd = args.selfTest ? 20000 : (E - 2);
+  
+  do {
+    int nextLog = std::min((k / args.logStep + 1) * args.logStep, kEnd);
+    int nIters  = std::max(nextLog - k, 0);
+    if (k < nextLog) {
+      run(headKerns, q, N);
+      if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
+      while (k < nextLog) {
+        ++k;
+        run((k < nextLog) ? coreKerns : tailKerns, q, N);
+      }
+    }
+
+    // Write the 'previous' data corresponding to iteration kData.
+    const bool isFirstPass = (kData <= 0);
+    if (!isFirstPass && !isCheck && !isRetry && !args.selfTest) {
+      bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
+      checkpoint.save(data, kData, doSavePersist, res);
+    }
+    
+    float err = 0;
+    read(q,  false, bufErr,  sizeof(float), &err);
+    write(q, false, bufErr,  sizeof(unsigned), &zero);
+    read(q,  true,  bufData, sizeof(int) * N, data);
+    kData = k;
+    
+    res = residue(W, H, E, data);
+
+    float msPerIter = timer.delta() / (float) std::max(nIters, 1);
+    doLog(E, k, err, std::max(err, maxErr), msPerIter, res);
+
+    if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
+
+    bool isLoop = k < kEnd && data[0] == 2 && isAllZero(data + 1, N - 1);
+    
+    float MAX_ERR = 0.47f;
+    if (err > MAX_ERR || isLoop) {
+      const char *problem = isLoop ? "Loop on LL 0...002" : "Error is too large";
+      if (!isRetry && !isCheck) {
+        log("%s; retrying\n", problem);
+        isRetry = true;
+        write(q, false, bufData, sizeof(int) * N, saveData);
+        k = saveK;
+        continue;  // but don't update maxErr yet.
+      } else {
+        log("%s persists, stopping.\n", problem);
+        return false;
+      }
+    }
+    isRetry = false;
+        
+    if (!isCheck && maxErr > 0 && err > 1.2f * maxErr && args.logStep >= 1000 && !args.selfTest) {
+      log("Error jump by %.2f%%, doing a consistency check.\n", (err / maxErr - 1) * 100);      
+      isCheck = true;
+      write(q, true, bufData, sizeof(int) * N, saveData);
+      k = saveK;
+      memcpy(saveData, data, sizeof(int) * N);
+      continue;
+    }
+
+    if (isCheck) {
+      isCheck = false;
+      if (!memcmp(data, saveData, sizeof(int) * N)) {
+        log("Consistency checked OK, continuing.\n");
+      } else {
+        log("Consistency check FAILED, stopping.\n");
+        return false;
+      }
+    }
+
+    maxErr = std::max(maxErr, err);
+    memcpy(saveData, data, sizeof(int) * N);
+    saveK = k;
+  } while (k < kEnd);
+
+  *outIsPrime = isAllZero(data, N);
+  *outResidue = res;
+  return (k >= kEnd);
+}
 
 bool checkPrime(int W, int H, int E, cl_queue q,
                 const std::vector<Kernel *> &headKerns,
@@ -402,7 +517,9 @@ bool checkPrime(int W, int H, int E, cl_queue q,
       }
     }
 
-    if (kData > 0 && !isCheck && !isRetry && !args.selfTest) {
+    // Write the 'previous' data corresponding to iteration kData.
+    const bool isFirstPass = (kData <= 0);
+    if (!isFirstPass && !isCheck && !isRetry && !args.selfTest) {
       bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
       checkpoint.save(data, kData, doSavePersist, res);
     }
