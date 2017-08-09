@@ -424,7 +424,7 @@ bool jacobiCheck(int W, int H, int E, int *data) {
   }
   int jacobi = mpz_jacobi(compact, mp);
   if (jacobi == -1) {
-    log("Jacobi-symbol OK (%d ms)\n", timer.delta());
+    log("Jacobi-symbol check OK (%d ms)\n", timer.delta());
   } else {
     log("Jacobi-symbol %d\n", jacobi);
   }
@@ -432,16 +432,29 @@ bool jacobiCheck(int W, int H, int E, int *data) {
 #endif
 }
 
-bool checkPrime(int W, int H, int E, cl_queue q,
+bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
                 const std::vector<Kernel *> &headKerns,
                 const std::vector<Kernel *> &tailKerns,
                 const std::vector<Kernel *> &coreKerns,
-                const Args &args,
-                int *data, int startK,
-                cl_mem bufData, cl_mem bufErr,
-                bool *outIsPrime, u64 *outResidue) {
+                const Args &args, cl_mem bufErr,
+                bool *outIsPrime, u64 *outResidue, auto setDataBuf) {
   const int N = 2 * W * H;
 
+  int startK = 0;
+  Checkpoint checkpoint(E, W, H);
+  int *data = new int[N + 32];
+  std::unique_ptr<int[]> releaseData(data);
+
+  if (!args.selfTest && !checkpoint.load(data, &startK)) { return false; }
+  if (startK == 0) {
+    memset(data, 0, sizeof(int) * N);
+    wordAt(W, H, data, 0) = 4; // LL start value is 4.
+  }
+
+  Buffer bufData{makeBuf(context,  CL_MEM_READ_WRITE, sizeof(int) * N)};
+
+  setDataBuf(bufData.get());
+  
   /*
   int *saveData = new int[N];
   std::unique_ptr<int[]> releaseSaveData(saveData);
@@ -455,7 +468,7 @@ bool checkPrime(int W, int H, int E, cl_queue q,
 
   const unsigned zero = 0;
   
-  write(q, false, bufData, sizeof(int) * N,  data);
+  write(q, false, bufData.get(), sizeof(int) * N,  data);
   write(q, false, bufErr,  sizeof(unsigned), &zero);
 
   float maxErr  = 0;  
@@ -464,7 +477,7 @@ bool checkPrime(int W, int H, int E, cl_queue q,
   Iteration k(E, startK);
   int kData = -1;
   
-  Checkpoint checkpoint(E, W, H);
+
   
   const int kEnd = args.selfTest ? 20000 : (E - 2);
   
@@ -496,7 +509,7 @@ bool checkPrime(int W, int H, int E, cl_queue q,
     float err = 0;
     read(q,  false, bufErr,  sizeof(float), &err);
     write(q, false, bufErr,  sizeof(unsigned), &zero);
-    read(q,  true,  bufData, sizeof(int) * N, data);
+    read(q,  true,  bufData.get(), sizeof(int) * N, data);
     kData = k;
     
     res = residue(W, H, E, data);
@@ -605,10 +618,6 @@ int main(int argc, char **argv) {
   if (!p) { exit(1); }
 #define KERNEL(program, name, shift) Kernel name(program, #name, shift, microTimer, args.timeKernels)
   KERNEL(p, fftPremul1K, 3);
-  // KERNEL(p, transp1K,    5);
-  // KERNEL(p, fft2K_1K,    4);
-  // KERNEL(p, csquare2K,   2);
-  // KERNEL(p, fft2K,       4);
   KERNEL(p, transpose2K, 5);
   KERNEL(p, transpose1K, 5);
   KERNEL(p, fft1K,       3);
@@ -635,15 +644,12 @@ int main(int argc, char **argv) {
   Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(double) * N)}; // could be N/2 as well.
 
   Buffer bufErr{makeBuf(context,   CL_MEM_READ_WRITE, sizeof(int))};
-  Buffer bufData{makeBuf(context,  CL_MEM_READ_WRITE, sizeof(int) * N)};
   int *zero = new int[2049]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * 2049, zero)};
   delete[] zero;
   log("General setup : %4d ms\n", timer.delta());
 
   Queue queue{makeQueue(device, context)};
-  int *data = new int[N + 32];
-  std::unique_ptr<int[]> releaseData(data);
   
   while (true) {
     u64 expectedRes;
@@ -658,46 +664,38 @@ int main(int argc, char **argv) {
     unsigned baseBitlen = E / N;
     log("Exponent setup: %4d ms\n", timer.delta());
 
-    fftPremul1K.setArgs(bufData, buf1, bufA, bufTrig1K);
-    // transp1K.setArgs   (buf1,    bufBigTrig);
-    // fft2K_1K.setArgs   (buf1,    buf2, bufTrig2K);
-    // csquare2K.setArgs  (buf2,    bufSins);
+    Buffer dummyData;
+    
+    fftPremul1K.setArgs(dummyData, buf1, bufA, bufTrig1K);
     tail.setArgs       (buf2,    bufTrig2K, bufSins);
-    // fft2K.setArgs      (buf2,    bufTrig2K);
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     transpose1K.setArgs(buf1,    buf2, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
-    carryA.setArgs     (baseBitlen, buf1, bufI, bufData, bufCarry, bufErr);
-    carryB_2K.setArgs  (bufData, bufCarry, bufBitlen);
+    carryA.setArgs     (baseBitlen, buf1, bufI, dummyData, bufCarry, bufErr);
+    carryB_2K.setArgs  (dummyData, bufCarry, bufBitlen);
     megaNoOffset.setArgs(baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
     
     bool isPrime;
     u64 residue;
-    int startK = 0;
-    
-    Checkpoint checkpoint(E, W, H);
-    if (!args.selfTest && !checkpoint.load(data, &startK)) { break; }
-    
-    if (startK == 0) {
-      memset(data, 0, sizeof(int) * N);
-      wordAt(W, H, data, 0) = 4; // LL start value is 4.
-    }
 
     std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
-    // std::vector<Kernel *> coreKerns {mega, &transp1K, &fft2K_1K, &csquare2K, &fft2K, &transpose2K};
-    // std::vector<Kernel *> coreKerns {mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
     std::vector<Kernel *> coreKerns {&megaNoOffset, &transpose1K, &tail, &transpose2K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
     }
 
-    if (!checkPrime(W, H, E, queue.get(),
+    if (!checkPrime(W, H, E, queue.get(), context,
                     headKerns, tailKerns, coreKerns,
-                    args, data, startK,
-                    bufData.get(), bufErr.get(),
-                    &isPrime, &residue)) {
+                    args, bufErr.get(),
+                    &isPrime, &residue,
+                    [&fftPremul1K, &carryA, &carryB_2K](cl_mem data) {
+                      fftPremul1K.setArg(0, data);
+                      carryA.setArg(3, data);
+                      carryB_2K.setArg(0, data);
+                    }
+                    )) {
       break;
     }
     
