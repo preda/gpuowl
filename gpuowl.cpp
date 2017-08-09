@@ -374,26 +374,6 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   log("  %-12s %.1fus\n", "Total", total * iIters);
 }
 
-class Iteration {
-  int E;
-  int k;
-
-public:
-  Iteration(int E, int k) : E(E), k(k) {
-    assert(0 <= k && k < E - 1);
-  }
-
-  constexpr Iteration &operator=(const Iteration &o) = default;
-  Iteration(const Iteration &o) = default;
-
-  operator int() { return k; }
-  
-  Iteration &operator++() {
-    ++k;
-    return *this;
-  }
-};
-
 #ifndef NO_GMP
 #include <gmp.h>
 #endif
@@ -442,18 +422,23 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
 
   int startK = 0;
   Checkpoint checkpoint(E, W, H);
-  int *data = new int[N + 32];
-  std::unique_ptr<int[]> releaseData(data);
+  int *goodData = new int[N + 32];
+  std::unique_ptr<int[]> releaseData(goodData);
 
-  if (!args.selfTest && !checkpoint.load(data, &startK)) { return false; }
+  if (!args.selfTest && !checkpoint.load(goodData, &startK)) { return false; }
   if (startK == 0) {
-    memset(data, 0, sizeof(int) * N);
-    wordAt(W, H, data, 0) = 4; // LL start value is 4.
+    memset(goodData, 0, sizeof(int) * N);
+    wordAt(W, H, goodData, 0) = 4; // LL start value is 4.
   }
 
-  Buffer bufData{makeBuf(context,  CL_MEM_READ_WRITE, sizeof(int) * N)};
+  Buffer bufData1{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N)};
+  Buffer bufData2;
 
-  setDataBuf(bufData.get());
+  if (args.superSafe) {
+    bufData2.reset(makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N));
+  }
+
+  setDataBuf(bufData1.get());
   
   /*
   int *saveData = new int[N];
@@ -468,29 +453,26 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
 
   const unsigned zero = 0;
   
-  write(q, false, bufData.get(), sizeof(int) * N,  data);
-  write(q, false, bufErr,  sizeof(unsigned), &zero);
+  write(q, false, bufData1.get(), sizeof(int) * N,  goodData);
+
 
   float maxErr  = 0;  
   u64 res;
   
-  Iteration k(E, startK);
+  int k = startK;
   int kData = -1;
-  
-
-  
+    
   const int kEnd = args.selfTest ? 20000 : (E - 2);
   
   do {
     int nextLog = std::min((k / args.logStep + 1) * args.logStep, kEnd);
     int nIters  = std::max(nextLog - k, 0);
     if (k < nextLog) {
+      write(q, false, bufErr,  sizeof(unsigned), &zero);
       run(headKerns, q, N);
       if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
-      while (k < nextLog) {
-        ++k;
-        run((k < nextLog) ? coreKerns : tailKerns, q, N);
-      }
+      for (++k; k < nextLog; ++k) { run(coreKerns, q, N); }
+      run(tailKerns, q, N);
     }
 
     // Write the 'previous' data corresponding to iteration kData.
@@ -499,20 +481,19 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
       bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
       bool doJacobiCheck = (kData / args.checkStep != (kData - args.logStep) / args.checkStep);
       
-      if (!args.selfTest) { checkpoint.save(data, kData, doSavePersist, res); }
-      if (doJacobiCheck && !jacobiCheck(W, H, E, data)) {
+      if (!args.selfTest) { checkpoint.save(goodData, kData, doSavePersist, res); }
+      if (doJacobiCheck && !jacobiCheck(W, H, E, goodData)) {
         log("Jacobi-symbol check failed: the computation is unreliable, will stop.\n");
         return false;
       }
     }
     
     float err = 0;
-    read(q,  false, bufErr,  sizeof(float), &err);
-    write(q, false, bufErr,  sizeof(unsigned), &zero);
-    read(q,  true,  bufData.get(), sizeof(int) * N, data);
+    read(q, false, bufErr,  sizeof(float), &err);
+    read(q, true,  bufData1.get(), sizeof(int) * N, goodData);
     kData = k;
     
-    res = residue(W, H, E, data);
+    res = residue(W, H, E, goodData);
 
     float msPerIter = timer.delta() / (float) std::max(nIters, 1);
     doLog(E, k, err, std::max(err, maxErr), msPerIter, res);
@@ -536,7 +517,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     // saveK = k;
   } while (k < kEnd);
 
-  *outIsPrime = isAllZero(data, N);
+  *outIsPrime = isAllZero(goodData, N);
   *outResidue = res;
   return (k >= kEnd);
 }

@@ -12,7 +12,7 @@ struct Args {
   std::string clArgs, uid;
   int logStep, saveStep, checkStep;
   int device;
-  bool timeKernels, selfTest, useLegacy, safe;
+  bool timeKernels, selfTest, useLegacy, superSafe;
   
   Args() {
     clArgs = "";
@@ -24,7 +24,7 @@ struct Args {
     timeKernels = false;
     selfTest    = false;
     useLegacy   = false;
-    safe        = false;
+    superSafe        = false;
   }
 
   void logConfig() {
@@ -33,7 +33,7 @@ struct Args {
     
     std::string tailStr =
       uidStr
-      + (safe ? " -supersafe" : "")
+      + (superSafe   ? " -supersafe" : "")
       + clStr
       + (selfTest    ? " -selftest"     : "")
       + (timeKernels ? " -time kernels" : "")
@@ -125,7 +125,7 @@ struct Args {
         return false;
       }
     } else if (!strcmp(arg, "-supersafe")) {
-      safe = true;
+      superSafe = true;
     } else if (!strcmp(arg, "-cl")) {
       if (i < argc - 1) {
         clArgs = argv[++i];
