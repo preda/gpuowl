@@ -394,12 +394,14 @@ public:
   }
 };
 
-#ifdef JACOBI
+#ifndef NO_GMP
 #include <gmp.h>
 #endif
 
 bool jacobiCheck(int W, int H, int E, int *data) {
-#ifdef JACOBI
+#ifdef NO_GMP
+  return true;
+#else
   Timer timer;
   mpz_t compact, mp;
   mpz_init(compact);
@@ -423,8 +425,6 @@ bool jacobiCheck(int W, int H, int E, int *data) {
   int jacobi = mpz_jacobi(compact, mp);
   log("Jacobi symbol %d (%d ms)\n", jacobi, timer.delta());
   return (jacobi == -1);
-#else
-  return true;
 #endif
 }
 
@@ -483,9 +483,12 @@ bool checkPrime(int W, int H, int E, cl_queue q,
     if (hasData && !isCheck && !isRetry && !args.selfTest) {
       bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
       checkpoint.save(data, kData, doSavePersist, res);
-      
-      if (doSavePersist && !jacobiCheck(W, H, E, data)) {
-        log("Error detected through Jacobi symbol check, will stop.");
+    }
+
+    if (hasData) {
+      bool doJacobiCheck = (kData / args.checkStep != (kData - args.logStep) / args.checkStep);
+      if (doJacobiCheck && !jacobiCheck(W, H, E, data)) {
+        log("Jacobi-symbol check failed: the hardware is unreliable, will stop.\n");
         return false;
       }
     }

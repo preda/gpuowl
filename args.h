@@ -10,14 +10,16 @@
 struct Args {
   static constexpr int DEFAULT_LOGSTEP = 20000;
   std::string clArgs, uid;
-  int logStep, saveStep, device;
+  int logStep, saveStep, checkStep;
+  int device;
   bool timeKernels, selfTest, useLegacy, safe;
   
   Args() {
     clArgs = "";
-    logStep  = DEFAULT_LOGSTEP;
-    saveStep = 0;
-    device   = -1;
+    logStep   = DEFAULT_LOGSTEP;
+    saveStep  = 0;
+    checkStep = 0;
+    device    = -1;
     
     timeKernels = false;
     selfTest    = false;
@@ -37,7 +39,7 @@ struct Args {
       + (timeKernels ? " -time kernels" : "")
       + (useLegacy   ? " -legacy"       : "");
       
-    log("Config: -logstep %d -savestep %d%s\n", logStep, saveStep, tailStr.c_str());
+    log("Config: -logstep %d -savestep %d -checkstep %d%s\n", logStep, saveStep, checkStep, tailStr.c_str());
   }
 
   // return false to stop.
@@ -48,6 +50,7 @@ struct Args {
       log("Command line options:\n"
           "-logstep  <N>     : to log every <N> iterations (default %d)\n"
           "-savestep <N>     : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
+          "-checkstep <N>    : do Jacobi-symbol check every <N> iterations (default 10*logstep == %d)\n"
           "-uid user/machine : set UID: string to be prepended to the result line\n"
           "-supersafe        : use iterative double-check for reliable results on unreliable hardware\n"
           "-cl \"<OpenCL compiler options>\", e.g. -cl \"-save-temps=tmp/ -O2\"\n"
@@ -56,7 +59,7 @@ struct Args {
           "-time kernels     : to benchmark kernels (logstep must be > 1)\n"
           "-legacy           : use legacy kernels\n\n"
           "-device <N>       : select specific device among:\n",
-          logStep, 500 * logStep);
+          logStep, 500 * logStep, 10 * logStep);
       
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
@@ -101,6 +104,17 @@ struct Args {
         }
       } else {
         log("-savestep expects <N> argument\n");
+        return false;
+      }
+    } else if (!strcmp(arg, "-checkstep")) {
+      if (i < argc - 1) {
+        checkStep = atoi(argv[++i]);
+        if (checkStep <= 0) {
+          log("invalid -checkstep '%s'\n", argv[i]);
+          return false;
+        }
+      } else {
+        log("-checkstep expects <N> argument\n");
         return false;
       }
     } else if (!strcmp(arg, "-uid")) {
@@ -148,11 +162,17 @@ struct Args {
     }
   }
 
-  if (!saveStep) { saveStep = 500 * logStep; }
-  if (saveStep < logStep || saveStep % logStep) {
-    log("It is recommended to use a persist step that is a multiple of the log step (you provided %d, %d)\n",
-        saveStep, logStep);
-  }
+  assert(logStep > 0);
+  if (!saveStep)  { saveStep  = logStep * 500; }
+  if (!checkStep) { checkStep = logStep * 10;  }
+  
+  if (saveStep < logStep)  { saveStep = logStep; }
+  if (checkStep < logStep) { checkStep = logStep; }
+
+  // make them multiple of logStep
+  saveStep  -= saveStep % logStep;
+  checkStep -= checkStep % logStep;
+
   if (timeKernels && logStep == 1) {
     log("Ignoring time kernels because logStep == 1\n");
     timeKernels = false;
