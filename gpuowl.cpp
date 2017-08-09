@@ -423,7 +423,11 @@ bool jacobiCheck(int W, int H, int E, int *data) {
     mpz_add_ui(compact, compact, carry);
   }
   int jacobi = mpz_jacobi(compact, mp);
-  log("Jacobi symbol %d (%d ms)\n", jacobi, timer.delta());
+  if (jacobi == -1) {
+    log("Jacobi-symbol OK (%d ms)\n", timer.delta());
+  } else {
+    log("Jacobi-symbol %d\n", jacobi);
+  }
   return (jacobi == -1);
 #endif
 }
@@ -438,10 +442,11 @@ bool checkPrime(int W, int H, int E, cl_queue q,
                 bool *outIsPrime, u64 *outResidue) {
   const int N = 2 * W * H;
 
-  int *saveData = new int[N];  
+  /*
+  int *saveData = new int[N];
   std::unique_ptr<int[]> releaseSaveData(saveData);
-
   memcpy(saveData, data, sizeof(int) * N);
+  */
   
   log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n",
       N / 1024, W, H, E, E / (double) N, startK);
@@ -457,9 +462,6 @@ bool checkPrime(int W, int H, int E, cl_queue q,
   u64 res;
   
   Iteration k(E, startK);
-  Iteration saveK(k);
-  
-  bool isCheck = false, isRetry = false;
   int kData = -1;
   
   Checkpoint checkpoint(E, W, H);
@@ -480,15 +482,13 @@ bool checkPrime(int W, int H, int E, cl_queue q,
 
     // Write the 'previous' data corresponding to iteration kData.
     const bool hasData = (kData > 0);
-    if (hasData && !isCheck && !isRetry && !args.selfTest) {
-      bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
-      checkpoint.save(data, kData, doSavePersist, res);
-    }
-
     if (hasData) {
+      bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
       bool doJacobiCheck = (kData / args.checkStep != (kData - args.logStep) / args.checkStep);
+      
+      if (!args.selfTest) { checkpoint.save(data, kData, doSavePersist, res); }
       if (doJacobiCheck && !jacobiCheck(W, H, E, data)) {
-        log("Jacobi-symbol check failed: the hardware is unreliable, will stop.\n");
+        log("Jacobi-symbol check failed: the computation is unreliable, will stop.\n");
         return false;
       }
     }
@@ -506,46 +506,21 @@ bool checkPrime(int W, int H, int E, cl_queue q,
 
     if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
 
-    bool isLoop = k < kEnd && data[0] == 2 && isAllZero(data + 1, N - 1);
-    
     float MAX_ERR = 0.47f;
-    if (err > MAX_ERR || isLoop) {
-      const char *problem = isLoop ? "Loop on LL 0...002" : "Error is too large";
-      if (!isRetry && !isCheck) {
-        log("%s; retrying\n", problem);
-        isRetry = true;
-        write(q, false, bufData, sizeof(int) * N, saveData);
-        k = saveK;
-        continue;  // but don't update maxErr yet.
-      } else {
-        log("%s persists, stopping.\n", problem);
-        return false;
-      }
-    }
-    isRetry = false;
-        
-    if (!isCheck && maxErr > 0 && err > 1.2f * maxErr && args.logStep >= 1000 && !args.selfTest) {
-      log("Error jump by %.2f%%, doing a consistency check.\n", (err / maxErr - 1) * 100);      
-      isCheck = true;
-      write(q, true, bufData, sizeof(int) * N, saveData);
-      k = saveK;
-      memcpy(saveData, data, sizeof(int) * N);
-      continue;
+    if (err > MAX_ERR) {
+      log("Error is too large: will stop.\n");
+      return false;
     }
 
-    if (isCheck) {
-      isCheck = false;
+    /*
       if (!memcmp(data, saveData, sizeof(int) * N)) {
         log("Consistency checked OK, continuing.\n");
-      } else {
-        log("Consistency check FAILED, stopping.\n");
-        return false;
       }
-    }
+    */
 
     maxErr = std::max(maxErr, err);
-    memcpy(saveData, data, sizeof(int) * N);
-    saveK = k;
+    // memcpy(saveData, data, sizeof(int) * N);
+    // saveK = k;
   } while (k < kEnd);
 
   *outIsPrime = isAllZero(data, N);
