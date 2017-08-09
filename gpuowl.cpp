@@ -259,6 +259,50 @@ u64 residue(int W, int H, int E, int *data) {
   return r;
 }
 
+std::vector<u32> compactBits(int W, int H, int E, int *data, int *outCarry) {
+  std::vector<u32> out;
+
+  int carry = 0;
+  u32 outWord = 0;
+  int haveBits = 0;
+  
+  int N = 2 * W * H;
+  for (int p = 0; p < N; ++p) {
+    int w = wordAt(W, H, data, p) + carry;
+    carry = 0;
+    int bits = bitlen(N, E, p);
+    while (w < 0) {
+      w += 1 << bits;
+      carry -= 1;
+    }
+    while (w >= (1 << bits)) {
+      w -= 1 << bits;
+      carry += 1;
+    }
+    assert(0 <= w && w < (1 << bits));
+    while (bits) {
+      assert(haveBits < 32);
+      outWord |= w << haveBits;
+      if (haveBits + bits >= 32) {
+        w >>= (32 - haveBits);
+        bits -= (32 - haveBits);
+        out.push_back(outWord);
+        outWord = 0;
+        haveBits = 0;
+      } else {
+        haveBits += bits;
+        bits = 0;
+      }
+    }
+  }
+  if (haveBits) {
+    out.push_back(outWord);
+    haveBits = 0;
+  }
+  *outCarry = carry;
+  return out;
+}
+
 FILE *logFiles[3] = {0, 0, 0};
 
 void log(const char *fmt, ...) {
@@ -350,6 +394,39 @@ public:
   }
 };
 
+#ifdef JACOBI
+#include <gmp.h>
+#endif
+
+bool jacobiCheck(int W, int H, int E, int *data) {
+#ifdef JACOBI
+  Timer timer;
+  mpz_t compact, mp;
+  mpz_init(compact);
+  mpz_init(mp);
+  // set mp = 2^E-1
+  mpz_ui_pow_ui(mp, 2, E);
+  mpz_sub_ui(mp, mp, 1);
+
+  int carry = 0;
+  std::vector<u32> cv = compactBits(W, H, E, data, &carry);
+  
+  // mpz set from vector<u32>: least significant word first, 4 bytes per word, native endianess, 0 bits nails.
+  mpz_import(compact, cv.size(), -1, 4, 0, 0, &cv[0]);
+  
+  carry -= 2;
+  if (carry < 0) {
+    mpz_sub_ui(compact, compact, -carry);
+  } else if (carry > 0) {
+    mpz_add_ui(compact, compact, carry);
+  }
+  int jacobi = mpz_jacobi(compact, mp);
+  log("Jacobi symbol %d (%d ms)\n", jacobi, timer.delta());
+  return (jacobi == -1);
+#else
+  return true;
+#endif
+}
 
 bool checkPrime(int W, int H, int E, cl_queue q,
                 const std::vector<Kernel *> &headKerns,
@@ -402,10 +479,15 @@ bool checkPrime(int W, int H, int E, cl_queue q,
     }
 
     // Write the 'previous' data corresponding to iteration kData.
-    const bool isFirstPass = (kData <= 0);
-    if (!isFirstPass && !isCheck && !isRetry && !args.selfTest) {
+    const bool hasData = (kData > 0);
+    if (hasData && !isCheck && !isRetry && !args.selfTest) {
       bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
       checkpoint.save(data, kData, doSavePersist, res);
+      
+      if (doSavePersist && !jacobiCheck(W, H, E, data)) {
+        log("Error detected through Jacobi symbol check, will stop.");
+        return false;
+      }
     }
     
     float err = 0;
