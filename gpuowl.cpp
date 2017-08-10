@@ -412,6 +412,23 @@ bool jacobiCheck(int W, int H, int E, int *data) {
 #endif
 }
 
+void runKerns(int N, cl_queue q,
+              const auto &headKerns, const auto &tailKerns, const auto &coreKerns,
+              auto setBuffers,
+              cl_mem bufData, cl_mem bufErr,
+              int nTimes, float *outErr, int *outData) {
+  setBuffers(bufData, bufErr);
+  const float zero = 0;
+  write(q, false, bufErr, sizeof(float), &zero);
+        
+  run(headKerns, q, N);
+  for (int i = 1; i < nTimes; ++i) { run(coreKerns, q, N); }
+  run(tailKerns, q, N);
+  read(q, false, bufErr, sizeof(float), outErr);
+  read(q, false, bufData, sizeof(int) * N, outData);
+}
+              
+
 bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
                 const std::vector<Kernel *> &headKerns,
                 const std::vector<Kernel *> &tailKerns,
@@ -445,43 +462,24 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     
   Timer timer;
 
-  const unsigned zero = 0;
-  
   write(q, false, bufData1, dataSize, goodData);
   write(q, false, bufData2, dataSize, goodData);
   
   const int kEnd = args.selfTest ? 20000 : (E - 2);
 
-  float maxErr  = 0;
+  float err1 = 0, err2 = 0, maxErr  = 0;
   int prevK = -1;
   
   while (true) {
     int nextK = std::min((k / args.logStep + 1) * args.logStep, kEnd);
     if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
 
-    float err1 = 0, err2 = 0;
-
     if (k < nextK) {
       if (args.superSafe) {
-        setBuffers(bufData1, bufErr1);
-        write(q, false, bufErr1,  sizeof(unsigned), &zero);
-        
-        run(headKerns, q, N);
-        for (int i = k + 1; i < nextK; ++i) { run(coreKerns, q, N); }
-        run(tailKerns, q, N);
-        read(q, false, bufErr1, sizeof(float), &err1);
-        read(q, false, bufData1, dataSize, data1);
+        runKerns(N, q, headKerns, tailKerns, coreKerns, setBuffers, bufData1, bufErr1, nextK - k, &err1, data1);
       }
-
       {
-        setBuffers(bufData2, bufErr2);
-        write(q, false, bufErr2, sizeof(unsigned), &zero);
-        
-        run(headKerns, q, N);
-        for (int i = k + 1; i < nextK; ++i) { run(coreKerns, q, N); }
-        run(tailKerns, q, N);
-        read(q, false, bufErr2, sizeof(float), &err2);
-        read(q, false, bufData2, dataSize, data2);
+        runKerns(N, q, headKerns, tailKerns, coreKerns, setBuffers, bufData2, bufErr2, nextK - k, &err2, data2);
       }
     }
 
