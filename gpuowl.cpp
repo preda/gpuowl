@@ -326,7 +326,7 @@ void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
 }
 
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID, const std::string &uid) {
-  char buf[128];
+  char buf[256];
   snprintf(buf, sizeof(buf), "%sM( %d )%c, 0x%016llx, offset = 0, n = %dK, %s, AID: %s",
            uid.c_str(), E, isPrime ? 'P' : 'C', (unsigned long long) residue, 4096, AGENT, AID);
   log("%s\n", buf);
@@ -416,109 +416,122 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
                 const std::vector<Kernel *> &headKerns,
                 const std::vector<Kernel *> &tailKerns,
                 const std::vector<Kernel *> &coreKerns,
-                const Args &args, cl_mem bufErr,
-                bool *outIsPrime, u64 *outResidue, auto setDataBuf) {
+                const Args &args,
+                bool *outIsPrime, u64 *outResidue, auto setBuffers) {
   const int N = 2 * W * H;
-
-  int startK = 0;
+  const int dataSize = sizeof(int) * N;
+  
+  std::unique_ptr<int[]> goodDataHolder(new int[N + 32]), data1Holder(new int[N + 32]), data2Holder(new int[N + 32]);
+  int *goodData = goodDataHolder.get(), *data1 = data1Holder.get(), *data2 = data2Holder.get();
+  
+  Buffer bufData1Holder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
+  Buffer bufData2Holder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
+  Buffer bufErr1Holder{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int))};
+  Buffer bufErr2Holder{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int))};
+  cl_mem bufData1 = bufData1Holder.get(), bufData2 = bufData2Holder.get(), bufErr1 = bufErr1Holder.get(), bufErr2 = bufErr2Holder.get();
+  
+  int k = 0;
   Checkpoint checkpoint(E, W, H);
-  int *goodData = new int[N + 32];
-  std::unique_ptr<int[]> releaseData(goodData);
 
-  if (!args.selfTest && !checkpoint.load(goodData, &startK)) { return false; }
-  if (startK == 0) {
-    memset(goodData, 0, sizeof(int) * N);
+  if (!args.selfTest && !checkpoint.load(goodData, &k)) { return false; }
+  
+  if (k == 0) {
+    memset(goodData, 0, dataSize);
     wordAt(W, H, goodData, 0) = 4; // LL start value is 4.
   }
-
-  Buffer bufData1{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N)};
-  Buffer bufData2;
-
-  if (args.superSafe) {
-    bufData2.reset(makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N));
-  }
-
-  setDataBuf(bufData1.get());
-  
-  /*
-  int *saveData = new int[N];
-  std::unique_ptr<int[]> releaseSaveData(saveData);
-  memcpy(saveData, data, sizeof(int) * N);
-  */
-  
+    
   log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n",
-      N / 1024, W, H, E, E / (double) N, startK);
+      N / 1024, W, H, E, E / (double) N, k);
     
   Timer timer;
 
   const unsigned zero = 0;
   
-  write(q, false, bufData1.get(), sizeof(int) * N,  goodData);
-
-
-  float maxErr  = 0;  
-  u64 res;
+  write(q, false, bufData1, dataSize, goodData);
+  write(q, false, bufData2, dataSize, goodData);
   
-  int k = startK;
-  int kData = -1;
-    
   const int kEnd = args.selfTest ? 20000 : (E - 2);
+
+  float maxErr  = 0;
+  int prevK = -1;
   
-  do {
-    int nextLog = std::min((k / args.logStep + 1) * args.logStep, kEnd);
-    int nIters  = std::max(nextLog - k, 0);
-    if (k < nextLog) {
-      write(q, false, bufErr,  sizeof(unsigned), &zero);
-      run(headKerns, q, N);
-      if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
-      for (++k; k < nextLog; ++k) { run(coreKerns, q, N); }
-      run(tailKerns, q, N);
+  while (true) {
+    int nextK = std::min((k / args.logStep + 1) * args.logStep, kEnd);
+    if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
+
+    float err1 = 0, err2 = 0;
+
+    if (k < nextK) {
+      if (args.superSafe) {
+        setBuffers(bufData1, bufErr1);
+        write(q, false, bufErr1,  sizeof(unsigned), &zero);
+        
+        run(headKerns, q, N);
+        for (int i = k + 1; i < nextK; ++i) { run(coreKerns, q, N); }
+        run(tailKerns, q, N);
+        read(q, false, bufErr1, sizeof(float), &err1);
+        read(q, false, bufData1, dataSize, data1);
+      }
+
+      {
+        setBuffers(bufData2, bufErr2);
+        write(q, false, bufErr2, sizeof(unsigned), &zero);
+        
+        run(headKerns, q, N);
+        for (int i = k + 1; i < nextK; ++i) { run(coreKerns, q, N); }
+        run(tailKerns, q, N);
+        read(q, false, bufErr2, sizeof(float), &err2);
+        read(q, false, bufData2, dataSize, data2);
+      }
     }
 
-    // Write the 'previous' data corresponding to iteration kData.
-    const bool hasData = (kData > 0);
+    bool hasData = (prevK >= 0);
     if (hasData) {
-      bool doSavePersist = (kData / args.saveStep != (kData - args.logStep) / args.saveStep);
-      bool doJacobiCheck = (kData / args.checkStep != (kData - args.logStep) / args.checkStep);
+      u64 res = residue(W, H, E, goodData);
+      float msPerIter = timer.delta() / float(k - prevK);
+      maxErr = std::max(err2, maxErr);
+      doLog(E, k, err2, maxErr, msPerIter, res);
+      if (args.timeKernels) { logTimeKernels(coreKerns, k - prevK); }
+
+      bool doSavePersist = (k == kEnd) || (k / args.saveStep  != (k - args.logStep) / args.saveStep);
+      bool doJacobiCheck = (k == kEnd) || (k / args.checkStep != (k - args.logStep) / args.checkStep);
       
-      if (!args.selfTest) { checkpoint.save(goodData, kData, doSavePersist, res); }
-      if (doJacobiCheck && !jacobiCheck(W, H, E, goodData)) {
-        log("Jacobi-symbol check failed: the computation is unreliable, will stop.\n");
+      if (!args.selfTest) {
+        checkpoint.save(goodData, k, doSavePersist, res);
+        if (doJacobiCheck && !jacobiCheck(W, H, E, goodData)) {
+          log("%08d / %08d : Jacobi-symbol check failed: please run with -supersafe\n", k, E);
+          return false;
+        }
+      }
+    }
+
+    if (k >= nextK) { break; }
+    
+    finish(q);
+
+    if (args.superSafe && memcmp(data1, data2, dataSize)) {
+      u64 res1 = residue(W, H, E, data1);
+      u64 res2 = residue(W, H, E, data2);
+      log("%08d / %08d : mismatch %016llx vs %016llx, will retry\n", nextK, E, (unsigned long long) res1, (unsigned long long) res2);
+      
+      // Retry. Write the same data again in case the GPU memory is corrupted.
+      // Do not update k & prevK.
+      write(q, false, bufData1, dataSize, goodData);
+      write(q, false, bufData2, dataSize, goodData);
+    } else {
+      if (err2 > 0.47f) {
+        log("Error is too large: please run with -supersafe\n");
         return false;
       }
-    }
-    
-    float err = 0;
-    read(q, false, bufErr,  sizeof(float), &err);
-    read(q, true,  bufData1.get(), sizeof(int) * N, goodData);
-    kData = k;
-    
-    res = residue(W, H, E, goodData);
 
-    float msPerIter = timer.delta() / (float) std::max(nIters, 1);
-    doLog(E, k, err, std::max(err, maxErr), msPerIter, res);
-
-    if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
-
-    float MAX_ERR = 0.47f;
-    if (err > MAX_ERR) {
-      log("Error is too large: will stop.\n");
-      return false;
-    }
-
-    /*
-      if (!memcmp(data, saveData, sizeof(int) * N)) {
-        log("Consistency checked OK, continuing.\n");
-      }
-    */
-
-    maxErr = std::max(maxErr, err);
-    // memcpy(saveData, data, sizeof(int) * N);
-    // saveK = k;
-  } while (k < kEnd);
+      std::swap(goodData, data2);
+      prevK = k;
+      k = nextK;
+    }    
+  }
 
   *outIsPrime = isAllZero(goodData, N);
-  *outResidue = res;
+  *outResidue = residue(W, H, E, goodData);
   return (k >= kEnd);
 }
 
@@ -624,7 +637,6 @@ int main(int argc, char **argv) {
   Buffer buf2{makeBuf(context,     BUF_RW, sizeof(double) * N)};
   Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(double) * N)}; // could be N/2 as well.
 
-  Buffer bufErr{makeBuf(context,   CL_MEM_READ_WRITE, sizeof(int))};
   int *zero = new int[2049]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * 2049, zero)};
   delete[] zero;
@@ -645,16 +657,16 @@ int main(int argc, char **argv) {
     unsigned baseBitlen = E / N;
     log("Exponent setup: %4d ms\n", timer.delta());
 
-    Buffer dummyData;
+    Buffer dummy;
     
-    fftPremul1K.setArgs(dummyData, buf1, bufA, bufTrig1K);
+    fftPremul1K.setArgs(dummy, buf1, bufA, bufTrig1K);
     tail.setArgs       (buf2,    bufTrig2K, bufSins);
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     transpose1K.setArgs(buf1,    buf2, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
-    carryA.setArgs     (baseBitlen, buf1, bufI, dummyData, bufCarry, bufErr);
-    carryB_2K.setArgs  (dummyData, bufCarry, bufBitlen);
-    megaNoOffset.setArgs(baseBitlen, buf1, bufCarry, bufReady, bufErr, bufA, bufI, bufTrig1K);
+    carryA.setArgs     (baseBitlen, buf1, bufI, dummy, bufCarry, dummy);
+    carryB_2K.setArgs  (dummy, bufCarry, bufBitlen);
+    megaNoOffset.setArgs(baseBitlen, buf1, bufCarry, bufReady, dummy, bufA, bufI, bufTrig1K);
     
     bool isPrime;
     u64 residue;
@@ -669,12 +681,14 @@ int main(int argc, char **argv) {
 
     if (!checkPrime(W, H, E, queue.get(), context,
                     headKerns, tailKerns, coreKerns,
-                    args, bufErr.get(),
+                    args,
                     &isPrime, &residue,
-                    [&fftPremul1K, &carryA, &carryB_2K](cl_mem data) {
+                    [&fftPremul1K, &carryA, &carryB_2K, &megaNoOffset](cl_mem data, cl_mem err) {
                       fftPremul1K.setArg(0, data);
                       carryA.setArg(3, data);
+                      carryA.setArg(5, err);
                       carryB_2K.setArg(0, data);
+                      megaNoOffset.setArg(4, err);
                     }
                     )) {
       break;
