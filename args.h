@@ -24,7 +24,7 @@ struct Args {
     timeKernels = false;
     selfTest    = false;
     useLegacy   = false;
-    superSafe        = false;
+    superSafe   = false;
   }
 
   void logConfig() {
@@ -50,7 +50,7 @@ struct Args {
       log("Command line options:\n"
           "-logstep  <N>     : to log every <N> iterations (default %d)\n"
           "-savestep <N>     : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
-          "-checkstep <N>    : do Jacobi-symbol check every <N> iterations (default 10*logstep == %d)\n"
+          "-checkstep <N>    : do Jacobi-symbol check every <N> iterations (default 50*logstep == %d)\n"
           "-uid user/machine : set UID: string to be prepended to the result line\n"
           "-supersafe        : use iterative double-check for reliable results on unreliable hardware\n"
           "-cl \"<OpenCL compiler options>\", e.g. -cl \"-save-temps=tmp/ -O2\"\n"
@@ -59,7 +59,7 @@ struct Args {
           "-time kernels     : to benchmark kernels (logstep must be > 1)\n"
           "-legacy           : use legacy kernels\n\n"
           "-device <N>       : select specific device among:\n",
-          logStep, 500 * logStep, 10 * logStep);
+          logStep, 500 * logStep, 50 * logStep);
       
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
@@ -164,7 +164,7 @@ struct Args {
 
   assert(logStep > 0);
   if (!saveStep)  { saveStep  = logStep * 500; }
-  if (!checkStep) { checkStep = logStep * 10;  }
+  if (!checkStep) { checkStep = logStep * 50;  }
   
   if (saveStep < logStep)  { saveStep = logStep; }
   if (checkStep < logStep) { checkStep = logStep; }

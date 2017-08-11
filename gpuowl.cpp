@@ -384,8 +384,7 @@ bool jacobiCheck(int W, int H, int E, int *data) {
 #else
   Timer timer;
   mpz_t compact, mp;
-  mpz_init(compact);
-  mpz_init(mp);
+  mpz_inits(compact, mp, 0);
   // set mp = 2^E-1
   mpz_ui_pow_ui(mp, 2, E);
   mpz_sub_ui(mp, mp, 1);
@@ -403,6 +402,7 @@ bool jacobiCheck(int W, int H, int E, int *data) {
     mpz_add_ui(compact, compact, carry);
   }
   int jacobi = mpz_jacobi(compact, mp);
+  mpz_clears(compact, mp, 0);
   if (jacobi == -1) {
     log("Jacobi-symbol check OK (%d ms)\n", timer.delta());
   } else {
