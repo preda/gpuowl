@@ -164,7 +164,7 @@ struct Args {
 
   assert(logStep > 0);
   if (!saveStep)  { saveStep  = logStep * 500; }
-  if (!checkStep) { checkStep = logStep * 50;  }
+  if (!checkStep) { checkStep = superSafe ? 100000000 : (logStep * 25);  }
   
   if (saveStep < logStep)  { saveStep = logStep; }
   if (checkStep < logStep) { checkStep = logStep; }
