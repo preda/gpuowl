@@ -386,10 +386,10 @@ void amalgamation1k(local double2 *lds, const uint baseBitlen,
   for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
 }
 
-KERNEL(256) megaNoOffset(const uint baseBitlen,
-                         global double2 *io, volatile global double *carry, volatile global uint *ready,
-                         volatile global uint *globalErr,
-                         CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
+KERNEL(256) mega(const uint baseBitlen,
+                 global double2 *io, volatile global double *carry, volatile global uint *ready,
+                 volatile global uint *globalErr,
+                 CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
   local double2 lds[1024];
   amalgamation1k(lds, baseBitlen, io, carry, ready, globalErr, A, iA, trig1k);
 }

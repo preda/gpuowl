@@ -323,7 +323,7 @@ void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
   
-  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d; %016llx error %g (max %g)\n",
+  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d; %016llx roundoff %g (max %g)\n",
       k, E, k * percent, msPerIter, days, hours, mins, (unsigned long long) res, err, maxErr);
 }
 
@@ -406,9 +406,9 @@ bool jacobiCheck(int W, int H, int E, int *data) {
   int jacobi = mpz_jacobi(compact, mp);
   mpz_clears(compact, mp, nullptr);
   if (jacobi == -1) {
-    log("Jacobi-symbol check OK (%d ms)\n", timer.delta());
+    log("Jacobi check OK (%d ms)\n", timer.delta());
   } else {
-    log("Jacobi-symbol %d\n", jacobi);
+    log("Jacobi check FAIL (%d)\n", jacobi);
   }
   return (jacobi == -1);
 #endif
@@ -465,8 +465,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     wordAt(W, H, goodData, 0) = 4; // LL start value is 4.
   }
     
-  log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n",
-      N / 1024, W, H, E, E / (double) N, k);
+  log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
     
   Timer timer;
 
@@ -536,7 +535,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     finish(q);
 
     bool doRetry = false;
-    char mes[64];
+    char mes[64] = {0};
     
     if (args.superSafe && memcmp(data1, data2, dataSize)) {              
       u64 res1 = residue(W, H, E, data1);
@@ -659,7 +658,7 @@ int main(int argc, char **argv) {
   KERNEL(p, carryB_2K,   4);
   KERNEL(p, tail,        5);
 #undef KERNEL
-  Kernel megaNoOffset(p, "megaNoOffset", 3, microTimer, args.timeKernels, 1);
+  Kernel mega(p, "mega", 3, microTimer, args.timeKernels, 1);
   
   log("Compile       : %4d ms\n", timer.delta());
   release(p); p = nullptr;
@@ -706,14 +705,14 @@ int main(int argc, char **argv) {
     fft1K.setArgs      (buf1,    bufTrig1K);
     carryA.setArgs     (baseBitlen, buf1, bufI, dummy, bufCarry, dummy);
     carryB_2K.setArgs  (dummy, bufCarry, bufBitlen);
-    megaNoOffset.setArgs(baseBitlen, buf1, bufCarry, bufReady, dummy, bufA, bufI, bufTrig1K);
+    mega.setArgs(baseBitlen, buf1, bufCarry, bufReady, dummy, bufA, bufI, bufTrig1K);
     
     bool isPrime;
     u64 residue;
 
     std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
-    std::vector<Kernel *> coreKerns {&megaNoOffset, &transpose1K, &tail, &transpose2K};
+    std::vector<Kernel *> coreKerns {&mega, &transpose1K, &tail, &transpose2K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
@@ -723,12 +722,12 @@ int main(int argc, char **argv) {
                     headKerns, tailKerns, coreKerns,
                     args,
                     &isPrime, &residue,
-                    [&fftPremul1K, &carryA, &carryB_2K, &megaNoOffset](cl_mem data, cl_mem err) {
+                    [&fftPremul1K, &carryA, &carryB_2K, &mega](cl_mem data, cl_mem err) {
                       fftPremul1K.setArg(0, data);
                       carryA.setArg(3, data);
                       carryA.setArg(5, err);
                       carryB_2K.setArg(0, data);
-                      megaNoOffset.setArg(4, err);
+                      mega.setArg(4, err);
                     }
                     )) {
       break;
