@@ -463,7 +463,7 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *b
   local double lds[2048];
   // local double trig[513];
   
-  double2 u[8];  
+  double2 u[8];
   for (int i = 0; i < 8; ++i) { u[i] = io[g * 2048 + i * 256 + me]; }
   // trig[me]       = cos2k[me];
   // trig[me + 256] = cos2k[me + 256];

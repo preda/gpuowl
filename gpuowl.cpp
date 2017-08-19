@@ -442,18 +442,13 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
   
   std::unique_ptr<int[]>
     goodDataHolder(new int[N + 32]),
-    data1Holder(new int[N + 32]),
-    data2Holder(new int[N + 32]),
+    dataHolder(new int[N + 32]),
     jacobiDataHolder(new int[N + 32]);
-  int *goodData = goodDataHolder.get(), *data1 = data1Holder.get(), *data2 = data2Holder.get(),
-    *jacobiData = jacobiDataHolder.get();
+  int *goodData = goodDataHolder.get(), *data = dataHolder.get(), *jacobiData = jacobiDataHolder.get();
   
-  Buffer bufData1Holder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
-  Buffer bufData2Holder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
-  Buffer bufErr1Holder{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int))};
-  Buffer bufErr2Holder{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int))};
-  cl_mem bufData1 = bufData1Holder.get(), bufData2 = bufData2Holder.get();
-  cl_mem bufErr1 = bufErr1Holder.get(), bufErr2 = bufErr2Holder.get();
+  Buffer bufDataHolder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
+  Buffer bufErrHolder{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int))};
+  cl_mem bufData = bufDataHolder.get(), bufErr = bufErrHolder.get();
   
   int k = 0, jacobiK = -1;
   Checkpoint checkpoint(E, W, H);
@@ -469,12 +464,11 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     
   Timer timer;
 
-  write(q, false, bufData1, dataSize, goodData);
-  write(q, false, bufData2, dataSize, goodData);
+  write(q, false, bufData, dataSize, goodData);
   
   const int kEnd = args.selfTest ? 20000 : (E - 2);
 
-  float err1 = 0, err2 = 0, maxErr  = 0;
+  float err = 0, maxErr  = 0;
   int prevK = -1;
   bool isRetry = false;
   
@@ -483,8 +477,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
 
     if (k < nextK) {
-      if (args.superSafe) { runKerns(N, q, headKerns, tailKerns, coreKerns, setBuffers, bufData1, bufErr1, nextK - k, &err1, data1); }
-      runKerns(N, q, headKerns, tailKerns, coreKerns, setBuffers, bufData2, bufErr2, nextK - k, &err2, data2);
+      runKerns(N, q, headKerns, tailKerns, coreKerns, setBuffers, bufData, bufErr, nextK - k, &err, data);
     }
 
     if (prevK < 0) {
@@ -499,8 +492,8 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     } else {
       u64 res = residue(W, H, E, goodData);
       float msPerIter = timer.delta() / float(k - prevK);
-      maxErr = std::max(err2, maxErr);
-      doLog(E, k, err2, maxErr, msPerIter, res);
+      maxErr = std::max(err, maxErr);
+      doLog(E, k, err, maxErr, msPerIter, res);
       if (args.timeKernels) { logTimeKernels(coreKerns, k - prevK); }
       
       if (!args.selfTest) {
@@ -518,8 +511,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
             //rollback
             finish(q);
             memcpy(goodData, jacobiData, dataSize);
-            write(q, false, bufData1, dataSize, goodData);
-            write(q, false, bufData2, dataSize, goodData);
+            write(q, false, bufData, dataSize, goodData);
             prevK = -1;
             k = jacobiK;
             continue;
@@ -534,24 +526,22 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     
     finish(q);
 
+    // fprintf(stderr, "-- %d %f\n", k, err2);
+    
     bool doRetry = false;
     char mes[64] = {0};
     
-    if (args.superSafe && memcmp(data1, data2, dataSize)) {              
-      u64 res1 = residue(W, H, E, data1);
-      snprintf(mes, sizeof(mes), "mismatch %016llx", u64(res1));
-      doRetry = true;
-    } else if (isLoop(data2, N)) {
+    if (isLoop(data, N)) {
       snprintf(mes, sizeof(mes), "loop detected");
       doRetry = true;
-    } else if (err2 > 0.44f) {
-      snprintf(mes, sizeof(mes), "error %f is too large", err2);
+    } else if (err > 0.44f) {
+      snprintf(mes, sizeof(mes), "error %f is too large", err);
       doRetry = true;
     } 
 
     if (doRetry) {
-      u64 res2 = residue(W, H, E, data2);
-      log("%08d / %08d : %016llx %s; retry\n", nextK, E, u64(res2), mes);
+      u64 res = residue(W, H, E, data);
+      log("%08d / %08d : %016llx %s; retry\n", nextK, E, u64(res), mes);
       
       if (isRetry) {
         log("Retry failed to recover, will exit\n");
@@ -559,10 +549,9 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
       }
 
       // Retry. Do not update k & prevK.
-      write(q, false, bufData1, dataSize, goodData);
-      write(q, false, bufData2, dataSize, goodData);
+      write(q, false, bufData, dataSize, goodData);
     } else {
-      std::swap(goodData, data2);
+      std::swap(goodData, data);
       prevK = k;
       k = nextK;
     }

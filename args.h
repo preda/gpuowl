@@ -12,7 +12,7 @@ struct Args {
   std::string clArgs, uid;
   int logStep, saveStep, checkStep;
   int device;
-  bool timeKernels, selfTest, useLegacy, superSafe;
+  bool timeKernels, selfTest, useLegacy;
   
   Args() {
     clArgs = "";
@@ -24,7 +24,6 @@ struct Args {
     timeKernels = false;
     selfTest    = false;
     useLegacy   = false;
-    superSafe   = false;
   }
 
   void logConfig() {
@@ -33,7 +32,6 @@ struct Args {
     
     std::string tailStr =
       uidStr
-      + (superSafe   ? " -supersafe" : "")
       + clStr
       + (selfTest    ? " -selftest"     : "")
       + (timeKernels ? " -time kernels" : "")
@@ -52,7 +50,6 @@ struct Args {
           "-savestep <N>     : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
           "-checkstep <N>    : do Jacobi-symbol check every <N> iterations (default 50*logstep == %d)\n"
           "-uid user/machine : set UID: string to be prepended to the result line\n"
-          "-supersafe        : use iterative double-check for reliable results on unreliable hardware\n"
           "-cl \"<OpenCL compiler options>\", e.g. -cl \"-save-temps=tmp/ -O2\"\n"
           "-selftest         : perform self tests from 'selftest.txt'\n"
           "                    Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n"
@@ -124,8 +121,6 @@ struct Args {
         log("-uid expects userName/computerName\n");
         return false;
       }
-    } else if (!strcmp(arg, "-supersafe")) {
-      superSafe = true;
     } else if (!strcmp(arg, "-cl")) {
       if (i < argc - 1) {
         clArgs = argv[++i];
@@ -164,7 +159,7 @@ struct Args {
 
   assert(logStep > 0);
   if (!saveStep)  { saveStep  = logStep * 500; }
-  if (!checkStep) { checkStep = superSafe ? 100000000 : (logStep * 25);  }
+  if (!checkStep) { checkStep = logStep * 25;  }
   
   if (saveStep < logStep)  { saveStep = logStep; }
   if (checkStep < logStep) { checkStep = logStep; }
