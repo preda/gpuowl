@@ -414,23 +414,6 @@ bool jacobiCheck(int W, int H, int E, int *data) {
 #endif
 }
 
-void runKerns(int N, cl_queue q,
-              const auto &headKerns, const auto &tailKerns, const auto &coreKerns,
-              auto setBuffers,
-              cl_mem bufData, cl_mem bufErr,
-              int nTimes, float *outErr, int *outData) {
-  setBuffers(bufData, bufErr);
-  const float zero = 0;
-  write(q, false, bufErr, sizeof(float), &zero);
-        
-  run(headKerns, q, N);
-  for (int i = 1; i < nTimes; ++i) { run(coreKerns, q, N); }
-  run(tailKerns, q, N);
-  read(q, false, bufErr, sizeof(float), outErr);
-  read(q, false, bufData, sizeof(int) * N, outData);
-}
-              
-
 bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
                 const std::vector<Kernel *> &headKerns,
                 const std::vector<Kernel *> &tailKerns,
@@ -468,16 +451,20 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
   
   const int kEnd = args.selfTest ? 20000 : (E - 2);
 
-  float err = 0, maxErr  = 0;
+  float err = 0, maxErr = 0, zero = 0;
   int prevK = -1;
   bool isRetry = false;
+  setBuffers(bufData, bufErr);
   
   while (true) {
     int nextK = std::min((k / args.logStep + 1) * args.logStep, kEnd);
     if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
 
     if (k < nextK) {
-      runKerns(N, q, headKerns, tailKerns, coreKerns, setBuffers, bufData, bufErr, nextK - k, &err, data);
+      write(q, false, bufErr, sizeof(float), &zero);
+      run(headKerns, q, N);
+      for (int i = 1; i < nextK - k; ++i) { run(coreKerns, q, N); }
+      run(tailKerns, q, N);
     }
 
     if (prevK < 0) {
@@ -523,8 +510,9 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     }
 
     if (k >= nextK) { break; }
-    
-    finish(q);
+
+    read(q, false, bufErr, sizeof(float), &err);
+    read(q, true, bufData, sizeof(int) * N, data);
 
     // fprintf(stderr, "-- %d %f\n", k, err2);
     
@@ -535,13 +523,13 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
       snprintf(mes, sizeof(mes), "loop detected");
       doRetry = true;
     } else if (err > 0.44f) {
-      snprintf(mes, sizeof(mes), "error %f is too large", err);
+      snprintf(mes, sizeof(mes), "roundoff %f is too large", err);
       doRetry = true;
     } 
 
     if (doRetry) {
       u64 res = residue(W, H, E, data);
-      log("%08d / %08d : %016llx %s; retry\n", nextK, E, u64(res), mes);
+      log("%08d / %08d %016llx; Error (will retry) : %s\n", nextK, E, u64(res), mes);
       
       if (isRetry) {
         log("Retry failed to recover, will exit\n");
