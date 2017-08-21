@@ -322,10 +322,12 @@ double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
 }
 
 // The "amalgamation" kernel is equivalent to the sequence: fft1K, carryA, carryB, fftPremul1K.
-void amalgamation1k(local double2 *lds, const uint baseBitlen,
-                    global double2 *io, volatile global double *carry, volatile global uint *ready,
-                    volatile global uint *globalErr,
-                    CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
+KERNEL(256) mega(const uint baseBitlen,
+                 global double2 *io, volatile global double *carry, volatile global uint *ready,
+                 global uint *globalErr,
+                 CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
+  local double2 lds[1024];
+
   uint gr = get_group_id(0);
   uint gm = gr % 2048;
   uint me = get_local_id(0);
@@ -334,7 +336,6 @@ void amalgamation1k(local double2 *lds, const uint baseBitlen,
   io    += step;
   A     += step;
   iA    += step;
-  carry += ((int)gr - 1) * 1024;
 
   double2 u[4];
   for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
@@ -350,48 +351,56 @@ void amalgamation1k(local double2 *lds, const uint baseBitlen,
     uint p = i * 256 + me;
     double c = 0;
     r[i] = dar0(&c, conjugate(u[i]), iA[p], &err, baseBitlen);
-    if (gr < 2048) { carry[1024 + p] = c; }
+    if (gr < 2048) { carry[gr * 1024 + p] = c; }
+    /*
+    if (gr < 2048) {
+      atomic_store_explicit((volatile global atomic_double *)&carry[gr * 1024 + p], c, memory_order_release, memory_scope_device);
+    }
+    */
   }
 
   if (gm == 0 && me == 0) { r[0].x -= 2; }
 
-#ifndef NO_ERR  
+#ifndef NO_ERR
   local uint *maxErr = (local uint *) lds;
   if (me == 0) { *maxErr = 0; }
 #endif
-  
+
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
 
   if (gr < 2048 && me == 0) { atomic_xchg(&ready[gr], 1); }
+  /*
+  if (gr < 2048 && me == 0) {
+    atomic_store_explicit((volatile global atomic_uint *)&ready[gr], 1, memory_order_release, memory_scope_device);
+  }
+  */
   if (gr == 0) { return; }
 
 #ifndef NO_ERR
   atomic_max(maxErr, *(uint *)&err);
 #endif
-  
-  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
+
+  if (me == 0) {
+    while(!atomic_xchg(&ready[gr - 1], 0));
+    // while (!atomic_load_explicit((global atomic_uint *)&ready[gr - 1], memory_order_acquire, memory_scope_device));
+    // ready[gr - 1] = 0;
+  }
   bar();
 
 #ifndef NO_ERR
   if (me == 0) { atomic_max(globalErr, *maxErr); }
 #endif
-  
+
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
-    u[i] = dar2(carry[(p - gr / 2048) & 1023], r[i], A[p], baseBitlen);
+    double d = carry[(gr - 1) * 1024 + ((p - gr / 2048) & 1023)];
+    // double d = atomic_load_explicit((volatile global atomic_double *)&carry[((p - gr / 2048) & 1023) + (gr - 1) * 1024], memory_order_acquire, memory_scope_device);
+    u[i] = dar2(d, r[i], A[p], baseBitlen);
   }
 
   fft1kBigLDS(lds, u, trig1k);
   
   for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
-}
-
-KERNEL(256) mega(const uint baseBitlen,
-                 global double2 *io, volatile global double *carry, volatile global uint *ready,
-                 volatile global uint *globalErr,
-                 CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
-  local double2 lds[1024];
-  amalgamation1k(lds, baseBitlen, io, carry, ready, globalErr, A, iA, trig1k);
 }
 
 // computes 8*[x^2+y^2 + i*(2*x*y)]. Needs a name.

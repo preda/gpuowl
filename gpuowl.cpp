@@ -324,13 +324,13 @@ void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
   int mins  = etaMins % 60;
   
   log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d; %016llx roundoff %g (max %g)\n",
-      k, E, k * percent, msPerIter, days, hours, mins, (unsigned long long) res, err, maxErr);
+      k, E, k * percent, msPerIter, days, hours, mins, u64(res), err, maxErr);
 }
 
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID, const std::string &uid) {
   char buf[256];
   snprintf(buf, sizeof(buf), "%sM( %d )%c, 0x%016llx, offset = 0, n = %dK, %s, AID: %s",
-           uid.c_str(), E, isPrime ? 'P' : 'C', (unsigned long long) residue, 4096, AGENT, AID);
+           uid.c_str(), E, isPrime ? 'P' : 'C', u64(residue), 4096, AGENT, AID);
   log("%s\n", buf);
   if (FILE *fo = open("results.txt", "a")) {
     fprintf(fo, "%s\n", buf);
@@ -476,7 +476,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
         log("%08d / %08d : *initial* Jacobi check failed. Restart from an earlier checkpoint\n", k, E);
         return false;
       }
-    } else {
+    } else if (!isRetry) {
       u64 res = residue(W, H, E, goodData);
       float msPerIter = timer.delta() / float(k - prevK);
       maxErr = std::max(err, maxErr);
@@ -520,16 +520,16 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     char mes[64] = {0};
     
     if (isLoop(data, N)) {
-      snprintf(mes, sizeof(mes), "loop detected");
+      snprintf(mes, sizeof(mes), "loop");
       doRetry = true;
     } else if (err > 0.44f) {
-      snprintf(mes, sizeof(mes), "roundoff %f is too large", err);
+      snprintf(mes, sizeof(mes), "roundoff %g is too large", err);
       doRetry = true;
     } 
 
     if (doRetry) {
       u64 res = residue(W, H, E, data);
-      log("%08d / %08d %016llx; Error (will retry) : %s\n", nextK, E, u64(res), mes);
+      log("%08d / %08d %016llx Retry : %s\n", nextK, E, u64(res), mes);
       
       if (isRetry) {
         log("Retry failed to recover, will exit\n");
