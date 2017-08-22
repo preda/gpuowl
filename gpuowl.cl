@@ -4,21 +4,31 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
+
+// used to investigate perf difference between "const global" and "constant".
 #define CONST const global
 #define SMALL_CONST constant
 
+// add-sub: (a, b) = (a + b, a - b)
 #define X1(a, b) { double  t = a; a = t + b; b = t - b; }
 #define X2(a, b) { double2 t = a; a = t + b; b = t - b; }
+
+// swap: (a, b) = (b, a)
 #define S2(a, b) { double2 t = a; a = b; b = t; }
 
 void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
+
+// complex multiplication
 double2 muld(double2 u, double a, double b) { return (double2) { u.x * a - u.y * b, u.x * b + u.y * a}; }
 double2 mul(double2 u, double2 v) { return muld(u, v.x, v.y); }
 
+// complex mul mutating the first argument.
 #define MUL(x, a, b) x = muld(x, a, b)
-#define MUL_2(x, a, b) x = muld(x, a, b) * M_SQRT1_2
 #define M(x, t) x = mul(x, t)
 
+#define MUL_2(x, a, b) x = muld(x, a, b) * M_SQRT1_2
+
+// complex square.
 double2 sq(double2 u) {
   double t = u.x * u.y;
   X1(u.x, u.y);
@@ -76,72 +86,10 @@ void shuflBig(local double2 *lds, double2 *u, uint n, uint f) {
   for (uint i = 0; i < n; ++i) { u[i] = lds[i * 256 + me]; }
 }
 
-#define SWAP(a, b) { uint t = a; a = b; b = t; }
-
-// returns e ^ (- 2 * pi * i / 2048)
-// len(cosTab) == 513.
-double2 cosSin2K(local double *tab, uint i) {
-  uint pos  = i & 511;
-  bool b0 = i & 512;
-  bool b1 = i >> 10;  // i & 1024;
-  uint p1 = b0 ? 512 - pos : pos;
-  uint p2 = b0 ? pos : 512 - pos;
-  double a = tab[p1];
-  double b = tab[p2];
-  return (double2) ((b0 == b1) ? a : -a, b1 ? b : -b);
-  /*
-  double a = (b0 == b1) ? tab[p1] : -tab[p1];
-  double b = b1 ? tab[p2] : -tab[p2];
-  return (double2) (a, b);
-  */
-}
-/* 
-  if (b0) {
-    double a = b1 ? cosTab[pos2] : -cosTab[pos2];
-    double b = b1 ? cosTab[pos] : -cosTab[pos];
-  } else {
-    double a = b1 ? -cosTab[pos] : cosTab[pos];
-    double b = b1 ? cosTab[pos2] : -cosTab[pos2];
-  }
-  if (b0) { SWAP(pos, pos2); }
-  double a = cosTab[pos];
-  double b = cosTab[pos2];
-  if (b0 != b1) { a = -a; }
-  if (b1) { b = -b; }
-  uint b0  = (i >> 9) & 1;
-  uint b1  = (i >> 10) & 1;
-}
-*/
-
-void tabMulNew(local double *trig, double2 *u, uint n, uint f) {
-  uint me = get_local_id(0);
-  #pragma unroll 1
-  for (int i = 1; i < n; ++i) { M(u[i], cosSin2K(trig, i * (me / f * f))); }
-}
-
 void tabMulOld(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
 }
-
-/*
-void tabMul2(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
-  uint me = get_local_id(0);
-  // n == 4
-  uint p = me & ~(f - 1);
-  M(u[1], trig[p]);
-  M(u[2], trig[p + 256]);
-  M(u[3], trig[p + 512]);
-}
-*/
-
-/*
-void shuffleMul(local double *trig, local double *lds, double2 *u, uint n, uint f) {
-  bar();
-  shufl(lds,   u, n, f);
-  tabMul(trig, u, n, f);
-}
-*/
 
 void shuffleMulBig(SMALL_CONST double2 *trig, local double2 *lds, double2 *u, uint n, uint f) {
   bar();
@@ -215,8 +163,6 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   for (int i = 1; i < 4; ++i) {
     M(u[i],     trig[i * 512 + me]);
     M(u[i + 4], trig[i * 512 + me + 256]);
-    // M(u[i],     cosSin2K(trig, i * me));
-    // M(u[i + 4], cosSin2K(trig, i * (me + 256)));
   }
      
   fft4(u);
@@ -449,36 +395,13 @@ void reverse2(local double2 *lds, double2 *u, bool bump) {
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
 }
 
-/*
-KERNEL(256) test(global double2 *out, global double *cos2k) {
-  local trig[513];
-  
-  for (int i = 0; i < 8; ++i) {
-    
-  }
-  uint g = get_group_id(0);
-  uint me = get_local_id(0);
-  // out[get_global_id(0)] = -in[get_global_id(0)];
-  // local double lds[2048];
-  double2 u[8];
-  for (int i = 0; i < 8; ++i) { u[i] = in[g * 2048 + i * 256 + me]; }
-  fft8(u);
-  for (int i = 0; i < 8; ++i) { out[g * 2048 + i * 256 + me] = u[i]; }  
-  // fft2kImpl(lds, u, trig2k);
-}
-*/
-
 KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *bigTrig) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   local double lds[2048];
-  // local double trig[513];
   
   double2 u[8];
   for (int i = 0; i < 8; ++i) { u[i] = io[g * 2048 + i * 256 + me]; }
-  // trig[me]       = cos2k[me];
-  // trig[me + 256] = cos2k[me + 256];
-  // if (me == 0) { trig[512] = 0; }
   fft2kImpl(lds, u, trig);
 
   reverse2((local double2 *) lds, u, g == 0);
