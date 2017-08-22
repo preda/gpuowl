@@ -1,6 +1,8 @@
 // gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
 
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 #define CONST const global
 #define SMALL_CONST constant
