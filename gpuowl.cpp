@@ -634,6 +634,10 @@ int main(int argc, char **argv) {
   KERNEL(p, carryA,      4);
   KERNEL(p, carryB_2K,   4);
   KERNEL(p, tail,        5);
+
+  KERNEL(p, fft2K, 4);
+  KERNEL(p, csquare2K, 2);
+  KERNEL(p, cmul2K, 2);
 #undef KERNEL
   Kernel mega(p, "mega", 3, microTimer, args.timeKernels, 1);
   
@@ -683,11 +687,16 @@ int main(int argc, char **argv) {
     carryA.setArgs     (baseBitlen, buf1, bufI, dummy, bufCarry, dummy);
     carryB_2K.setArgs  (dummy, bufCarry, bufBitlen);
     mega.setArgs(baseBitlen, buf1, bufCarry, bufReady, dummy, bufA, bufI, bufTrig1K);
+
+    fft2K.setArgs(buf2, bufTrig2K);
+    csquare2K.setArgs(buf2, bufSins);
+    cmul2K.setArgs(buf2, buf2, bufSins);
     
     bool isPrime;
     u64 residue;
 
-    std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
+    // std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
+    std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
     std::vector<Kernel *> coreKerns {&mega, &transpose1K, &tail, &transpose2K};
     if (args.useLegacy) {

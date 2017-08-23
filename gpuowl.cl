@@ -363,6 +363,14 @@ double2 foo(double2 a) {
   return 8 * (double2)(s * s - t, t);
 }
 
+double2 addsub(double2 a) { return (double2) (a.x + a.y, a.x - a.y); }
+// remark: foo(a) == 8*foo2(a, a). foo2() is for multiplication what foo() is for squaring.
+double2 foo2(double2 a, double2 b) {
+  a = addsub(a);
+  b = addsub(b);
+  return addsub(a * b);
+}
+
 void reverse1(local double2 *lds, double2 *u, bool bump) {
   uint me = get_local_id(0);
   uint rm = 255 - me + bump;
@@ -395,6 +403,8 @@ void reverse2(local double2 *lds, double2 *u, bool bump) {
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
 }
 
+// This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
+// It does less global memory transfers, but uses more VGPRs.
 KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *bigTrig) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
@@ -469,7 +479,6 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *b
   }
 }
 
-/*
 KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
   io += g * 2048;
@@ -488,6 +497,7 @@ KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   }  
 }
 
+/*
 KERNEL(256) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0), gx = g % 16, gy = g / 16, lg = gy + gx * 64;
   in  += g * 64;
@@ -562,7 +572,6 @@ KERNEL(256) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitle
   carryBCore(2048, in, carryIn, bitlen);
 }
 
-/*
 // Inputs normal (non-conjugate); outputs conjugate.
 void csquare(uint W, global double2 *io, CONST double2 *trig) {
   uint g  = get_group_id(0);
@@ -598,8 +607,48 @@ void csquare(uint W, global double2 *io, CONST double2 *trig) {
   io[v] = b;
 }
 
+// Like csquare(), but for multiplication.
+void cmul(uint W, global double2 *io, CONST double2 *in, CONST double2 *trig) {
+  uint g  = get_group_id(0);
+  uint me = get_local_id(0);
+
+  if (g == 0 && me == 0) {
+    io[0]    = 4 * (foo2(conjugate(io[0]), conjugate(in[0])));
+    io[1024] = 8 * conjugate(mul(io[1024], in[1024]));
+    return;
+  }
+  
+  uint line = g / (W / 512);
+  uint posInLine = g % (W / 512) * 256 + me;
+  uint k = line * W + posInLine;
+  uint v = ((1024 - line) & 1023) * W + (W - 1) - posInLine + ((line - 1) >> 31);
+  
+  double2 a = io[k];
+  double2 b = conjugate(io[v]);
+  double2 t = trig[g * 256 + me];
+  X2(a, b);
+  M(b, conjugate(t));
+  X2(a, b);
+  
+  double2 c = in[k];
+  double2 d = conjugate(in[v]);
+  X2(c, d);
+  M(d, conjugate(t));
+  X2(c, d);
+
+  M(a, c);
+  M(b, d);
+
+  X2(a, b);
+  M(b,  t);
+  X2(a, b);
+  
+  io[k] = conjugate(a);
+  io[v] = b;
+}
+
 KERNEL(256) csquare2K(global double2 *io, CONST double2 *trig)  { csquare(2048, io, trig); }
-*/
+KERNEL(256) cmul2K(global double2 *io, CONST double2 *in, CONST double2 *trig)  { cmul(2048, io, in, trig); }
 
 void transposeCore(local double *lds, double2 *u) {
   uint me = get_local_id(0);
