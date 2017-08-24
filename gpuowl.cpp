@@ -415,7 +415,7 @@ bool jacobiCheck(int W, int H, int E, int *data) {
 }
 
 bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args &args,
-                bool *outIsPrime, u64 *outResidue, auto runLoop) {
+                bool *outIsPrime, u64 *outResidue, auto squareLoop, auto checkMul) {
   const int N = 2 * W * H;
   const int dataSize = sizeof(int) * N;
   
@@ -458,14 +458,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   while (true) {
     int nextK = std::min((k / args.logStep + 1) * args.logStep, kEnd);
 
-    if (k < nextK) {
-      runLoop(q, bufData, bufErr, nextK - k);
-      /*
-      run(headKerns, q, N);
-      for (int i = 1; i < nextK - k; ++i) { run(coreKerns, q, N); }
-      run(tailKerns, q, N);
-      */
-    }
+    if (k < nextK) { squareLoop(q, bufData, bufErr, nextK - k, false); }
 
     if (prevK < 0) {
       // the first time through, check initial Jacobi symbol and set Jacobi rollback point.
@@ -684,34 +677,69 @@ int main(int argc, char **argv) {
     u64 residue;
 
     // std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
-    std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
-    std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};    
+
+    // the weighting + direct FFT only, stops before square/mul.
+    std::vector<Kernel *> directFftKerns {&fftPremul1K, &transpose1K, &fft2K};
+
+    // sequence of: direct FFT, square, first-half of inverse FFT.
+    std::vector<Kernel *> headKerns(directFftKerns);
+    headKerns.insert(headKerns.end(), { &csquare2K, &fft2K, &transpose2K });
+
+    // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
+    std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};
+
+    // kernel-fusion equivalent of: tailKerns, headKerns.
     std::vector<Kernel *> coreKerns {&mega, &transpose1K, &tail, &transpose2K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
     }
 
-    auto runLoop = [&args, &fftPremul1K, &carryA, &carryB_2K, &mega,
-                    &headKerns, &tailKerns, &coreKerns](cl_queue q, cl_mem data, cl_mem err, int nIters) {
+    // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
+    // Optional multiply-by-3 at the end.
+    auto squareLoop = [&](cl_queue q, cl_mem data, cl_mem err, int nIters, bool doMul3) {
       assert(nIters > 0);
-      
+            
+      if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
+
       fftPremul1K.setArg(0, data);
+      run(headKerns, q, N);
+
       carryA.setArg(3, data);
       carryA.setArg(5, err);
       carryB_2K.setArg(0, data);
       mega.setArg(4, err);
-      
-      if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
-      
-      run(headKerns, q, N);
+
       for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q, N); }
-      run(tailKerns, q, N);
+      if (doMul3) {
+        carryMul3.setArg(3, data);
+        carryMul3.setArg(5, err);
+        run({&fft1K, &carryMul3, &carryB_2K}, q, N);
+      } else {
+        run(tailKerns, q, N);
+      }
 
       if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
     };
-    
-    if (!checkPrime(W, H, E, queue.get(), context, args, &isPrime, &residue, std::move(runLoop))) {
+
+    // The modular multiplication update of the check bits, check = check * data.
+    auto checkMul = [&](cl_queue q, cl_mem check, cl_mem data, cl_mem err) {
+      fftPremul1K.setArg(0, data);
+      run(directFftKerns, q, N);
+      
+      fftPremul1K.setArg(0, check);
+      run(directFftKerns, q, N);
+      
+      cmul2K.setArgs(check, data, bufSins);
+      run({&cmul2K, &fft2K, &transpose2K}, q, N);
+
+      carryA.setArg(3, check);
+      carryA.setArg(5, err);
+      carryB_2K.setArg(0, check);
+      run(tailKerns, q, N);
+    };
+
+    if (!checkPrime(W, H, E, queue.get(), context, args, &isPrime, &residue, std::move(squareLoop), std::move(checkMul))) {
       break;
     }
     
