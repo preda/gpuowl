@@ -440,7 +440,9 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
   
   if (k == 0) {
     memset(goodData, 0, dataSize);
-    wordAt(W, H, goodData, 0) = 4; // LL start value is 4.
+    // LL start value is 4.
+    // PRP-3 start value is 3.
+    wordAt(W, H, goodData, 0) = 3;
   }
     
   log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
