@@ -229,17 +229,6 @@ int updateMul(int mul, long *carry, long x, uint bits) {
   return w;
 }
 
-/*
-// The difference between updateDown and updateUp is how they "balance" half the values in the balanced representation
-// around 0 (whether more values are negative or positive).
-int updateUp(long *carry, long x, uint bits) {
-  long u = *carry + x;
-  int w = lowBits(((int) u) - 1, bits) + 1;
-  *carry = (u - w) >> bits;
-  return w;
-}
-*/
-
 // Simpler version of (a < 0).
 uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
@@ -506,27 +495,6 @@ KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   }  
 }
 
-/*
-KERNEL(256) fft2K_1K(CONST double2 *in, global double2 *out, SMALL_CONST double2 *trig2k) {
-  uint g = get_group_id(0), gx = g % 16, gy = g / 16, lg = gy + gx * 64;
-  in  += g * 64;
-  out += lg * 2048;
-  
-  uint me = get_local_id(0), mx = me % 64, my = me / 64;
-  double2 u[8];
-
-  for (int i = 0; i < 8; ++i) { u[i] = in[mx + (i * 4 + my) * 64 * 1024]; }
-
-  local double lds[2048];
-  fft2kImpl(lds, u, trig2k);
-
-  for (int i = 0; i < 4; ++i) {
-    out[me + i * 512]       = u[i];
-    out[me + i * 512 + 256] = u[i + 4];
-  }
-}
-*/
-
 // Carry propagation with optional MUL.
 void carryMul(const int mul, local uint *localMaxErr, const uint baseBits,
               CONST double2 *in, CONST double2 *A, global int2 *out,
@@ -564,8 +532,8 @@ KERNEL(256) carryA(const uint baseBits,
   carryMul(1, &localMaxErr, baseBits, in, A, out, carryOut, globalMaxErr);
 }
 
-// Carry propagation + MUL 3.
-KERNEL(256) carryAMul3(const uint baseBits,
+// Carry propagation + MUL 3. conjugates input.
+KERNEL(256) carryMul3(const uint baseBits,
                    CONST double2 *in, CONST double2 *A, global int2 *out,
                    global long *carryOut, global uint *globalMaxErr) {
   local uint localMaxErr;

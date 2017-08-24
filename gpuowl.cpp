@@ -414,12 +414,8 @@ bool jacobiCheck(int W, int H, int E, int *data) {
 #endif
 }
 
-bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
-                const std::vector<Kernel *> &headKerns,
-                const std::vector<Kernel *> &tailKerns,
-                const std::vector<Kernel *> &coreKerns,
-                const Args &args,
-                bool *outIsPrime, u64 *outResidue, auto setBuffers) {
+bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args &args,
+                bool *outIsPrime, u64 *outResidue, auto runLoop) {
   const int N = 2 * W * H;
   const int dataSize = sizeof(int) * N;
   
@@ -449,24 +445,26 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
     
   Timer timer;
 
+  const float zero = 0;
   write(q, false, bufData, dataSize, goodData);
+  write(q, false, bufErr, sizeof(float), &zero);
   
   const int kEnd = args.selfTest ? 20000 : (E - 2);
 
-  float err = 0, maxErr = 0, zero = 0;
+  float err = 0, maxErr = 0;
   int prevK = -1;
   bool isRetry = false;
-  setBuffers(bufData, bufErr);
   
   while (true) {
     int nextK = std::min((k / args.logStep + 1) * args.logStep, kEnd);
-    if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
 
     if (k < nextK) {
-      write(q, false, bufErr, sizeof(float), &zero);
+      runLoop(q, bufData, bufErr, nextK - k);
+      /*
       run(headKerns, q, N);
       for (int i = 1; i < nextK - k; ++i) { run(coreKerns, q, N); }
       run(tailKerns, q, N);
+      */
     }
 
     if (prevK < 0) {
@@ -483,7 +481,6 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
       float msPerIter = timer.delta() / float(k - prevK);
       maxErr = std::max(err, maxErr);
       doLog(E, k, err, maxErr, msPerIter, res);
-      if (args.timeKernels) { logTimeKernels(coreKerns, k - prevK); }
       
       if (!args.selfTest) {
         bool doSavePersist = (k == kEnd) || (k / args.saveStep  != (k - args.logStep) / args.saveStep);
@@ -513,8 +510,9 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context,
 
     if (k >= nextK) { break; }
 
-    read(q, false, bufErr, sizeof(float), &err);
-    read(q, true, bufData, sizeof(int) * N, data);
+    read(q,  false, bufErr,  sizeof(float), &err);
+    read(q,  true,  bufData, sizeof(int) * N, data);
+    write(q, false, bufErr,  sizeof(float), &zero);
 
     // fprintf(stderr, "-- %d %f\n", k, err2);
     
@@ -608,20 +606,6 @@ int main(int argc, char **argv) {
   
   Context contextHolder{createContext(device)};
   cl_context context = contextHolder.get();
-
-  /*
-  cl_program test = compile(device, context, "test.cl", "-save-temps=test/", false);
-  assert(test);
-  printf("test compiled\n");
-  assert(dumpBinary(test, "test.bin"));
-  printf("bin dumped\n");
-  cl_program test2 = compile(device, context, "test.bin", "", false, true);
-  assert(test2);
-  printf("test2 compiled\n");
-  assert(dumpBinary(test2, "test2.bin"));
-  printf("bin2 dumped\n");
-  exit(0);
-  */
   
   Timer timer;
   MicroTimer microTimer;
@@ -637,17 +621,18 @@ int main(int argc, char **argv) {
   KERNEL(p, carryB_2K,   4);
   KERNEL(p, tail,        5);
 
-  KERNEL(p, fft2K, 4);
+  KERNEL(p, fft2K,     4);
   KERNEL(p, csquare2K, 2);
-  KERNEL(p, cmul2K, 2);
+  KERNEL(p, cmul2K,    2);
+  KERNEL(p, carryMul3,  4);
 #undef KERNEL
   Kernel mega(p, "mega", 3, microTimer, args.timeKernels, 1);
   
   log("Compile       : %4d ms\n", timer.delta());
   release(p); p = nullptr;
     
-  const int W = 1024, H = 2048;
-  const int N = 2 * W * H;
+  constexpr int W = 1024, H = 2048;
+  constexpr int N = 2 * W * H;
   
   Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
@@ -687,6 +672,7 @@ int main(int argc, char **argv) {
     transpose1K.setArgs(buf1,    buf2, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
     carryA.setArgs     (baseBitlen, buf1, bufI, dummy, bufCarry, dummy);
+    carryMul3.setArgs   (baseBitlen, buf1, bufI, dummy, bufCarry, dummy);
     carryB_2K.setArgs  (dummy, bufCarry, bufBitlen);
     mega.setArgs(baseBitlen, buf1, bufCarry, bufReady, dummy, bufA, bufI, bufTrig1K);
 
@@ -706,18 +692,26 @@ int main(int argc, char **argv) {
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
     }
 
-    if (!checkPrime(W, H, E, queue.get(), context,
-                    headKerns, tailKerns, coreKerns,
-                    args,
-                    &isPrime, &residue,
-                    [&fftPremul1K, &carryA, &carryB_2K, &mega](cl_mem data, cl_mem err) {
-                      fftPremul1K.setArg(0, data);
-                      carryA.setArg(3, data);
-                      carryA.setArg(5, err);
-                      carryB_2K.setArg(0, data);
-                      mega.setArg(4, err);
-                    }
-                    )) {
+    auto runLoop = [&args, &fftPremul1K, &carryA, &carryB_2K, &mega,
+                    &headKerns, &tailKerns, &coreKerns](cl_queue q, cl_mem data, cl_mem err, int nIters) {
+      assert(nIters > 0);
+      
+      fftPremul1K.setArg(0, data);
+      carryA.setArg(3, data);
+      carryA.setArg(5, err);
+      carryB_2K.setArg(0, data);
+      mega.setArg(4, err);
+      
+      if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
+      
+      run(headKerns, q, N);
+      for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q, N); }
+      run(tailKerns, q, N);
+
+      if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
+    };
+    
+    if (!checkPrime(W, H, E, queue.get(), context, args, &isPrime, &residue, std::move(runLoop))) {
       break;
     }
     
