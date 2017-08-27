@@ -45,16 +45,14 @@ struct Args {
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
-      log("Command line options:\n"
+      log("Command line options:\n\n"
           "-logstep  <N>     : to log every <N> iterations (default %d)\n"
           "-savestep <N>     : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
           "-checkstep <N>    : do Jacobi-symbol check every <N> iterations (default 50*logstep == %d)\n"
           "-uid user/machine : set UID: string to be prepended to the result line\n"
           "-cl \"<OpenCL compiler options>\", e.g. -cl \"-save-temps=tmp/ -O2\"\n"
-          "-selftest         : perform self tests from 'selftest.txt'\n"
-          "                    Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.\n"
           "-time kernels     : to benchmark kernels (logstep must be > 1)\n"
-          "-legacy           : use legacy kernels\n\n"
+          "-legacy           : use legacy kernels\n"
           "-device <N>       : select specific device among:\n",
           logStep, 500 * logStep, 50 * logStep);
       
@@ -64,22 +62,7 @@ struct Args {
         char info[256];
         getDeviceInfo(devices[i], sizeof(info), info);
         log("    %d : %s\n", i, info);
-      }
-
-      log("\nFiles used by gpuOwL:\n"
-          "    - worktodo.txt : contains exponents to test \"Test=N\", one per line\n"
-          "    - results.txt : contains LL results\n"
-          "    - cN.ll : the most recent checkpoint for exponent <N>; will resume from here\n"
-          "    - tN.ll : the previous checkpoint, to be used if cN.ll is lost or corrupted\n"
-          "    - bN.ll : a temporary checkpoint that is renamed to cN.ll once successfully written\n"
-          "    - sN.iteration.residue.ll : a persistent checkpoint at the given iteration\n");
-
-      log("\nThe lines in worktodo.txt must be of one of these forms:\n"
-          "Test=70100200\n"
-          "Test=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1\n"
-          "DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1\n"
-          "Test=0,70100200,0,0\n");
-      
+      }      
       return false;
     } else if (!strcmp(arg, "-logstep")) {
       if (i < argc - 1) {

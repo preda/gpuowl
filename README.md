@@ -2,6 +2,25 @@
 gpuOwL is a Mersenne prime tester for GPUs (OpenCL).
 See the GIMPS project for context: http://mersenne.org/
 
+## History
+gpuOwl initially implemented the Lucas-Lehmer (LL) primality test, which is a rigurous prime criteria for
+mersenne numbers. In version 0.7 gpuOwl switched to using a probable-prime test (PRP).
+While the PRP test is "weaker" than the LL test, it has the advantage that there is a simple side-computation
+which validates the main computation and thus protects from hardware errors.
+
+## Files used by gpuOwl
+* worktodo.txt : contains exponents to test "Test=N", one per line
+* results.txt : contains the results
+* cN.ll : the most recent checkpoint for exponent <N>; will resume from here
+* tN.ll : the previous checkpoint, to be used if cN.ll is lost or corrupted
+* sN.iteration.ll : a persistent checkpoint at the given iteration
+
+The lines in worktodo.txt must be of one of these forms:
+* Test=70100200
+* Test=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1
+* DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1
+* Test=0,70100200,0,0
+
 ## Selftest
 To test the correct function of the software and to validate the GPU, run a selftest:
 ```

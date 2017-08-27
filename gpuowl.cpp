@@ -23,7 +23,7 @@
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
-#define VERSION "0.6"
+#define VERSION "0.7"
 
 const char *AGENT = "gpuowl v" VERSION;
 
