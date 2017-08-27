@@ -1,4 +1,4 @@
-// gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
+// gpuOwL, a GPU OpenCL primality tester for Mersenne numbers.
 // Copyright (C) 2017 Mihai Preda.
 
 #include "worktodo.h"
@@ -589,7 +589,7 @@ int main(int argc, char **argv) {
   while (true) {
     u64 expectedRes;
     char AID[64];
-    int E = getNextExponent(args.selfTest, &expectedRes, AID);
+    int E = getNextExponent(false, &expectedRes, AID);
     if (E <= 0) { break; }
 
     cl_mem pBufA, pBufI, pBufBitlen;
@@ -683,7 +683,8 @@ int main(int argc, char **argv) {
     if (!checkPrime(W, H, E, queue.get(), context, args, &isPrime, &residue, std::move(squareLoop), std::move(checkMul))) {
       break;
     }
-    
+
+    /*
     if (args.selfTest) {
       if (expectedRes == residue) {
         log("OK %d\n", E);
@@ -692,9 +693,9 @@ int main(int argc, char **argv) {
         break;
       }
     } else {
-      std::string uid = args.uid.empty() ? "" : "UID: " + args.uid + ", ";
-      if (!(writeResult(E, isPrime, residue, AID, uid) && worktodoDelete(E))) { break; }
-    }
+    */
+    std::string uid = args.uid.empty() ? "" : "UID: " + args.uid + ", ";
+    if (!(writeResult(E, isPrime, residue, AID, uid) && worktodoDelete(E))) { break; }
   }
     
   log("\nBye\n");

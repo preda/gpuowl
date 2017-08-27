@@ -8,23 +8,12 @@
 #include <cstring>
 
 struct Args {
-  static constexpr int DEFAULT_LOGSTEP = 20000;
   std::string clArgs, uid;
-  int logStep, saveStep, checkStep;
+  int step, saveStep;
   int device;
-  bool timeKernels, selfTest, useLegacy;
+  bool timeKernels, useLegacy;
   
-  Args() {
-    clArgs = "";
-    logStep   = DEFAULT_LOGSTEP;
-    saveStep  = 0;
-    checkStep = 0;
-    device    = -1;
-    
-    timeKernels = false;
-    selfTest    = false;
-    useLegacy   = false;
-  }
+  Args() : step(100000), saveStep(10000000), device(-1), timeKernels(false), useLegacy(false) { }
 
   void logConfig() {
     std::string uidStr    = (uid.empty()    ? "" : " -uid "    + uid);
@@ -33,11 +22,12 @@ struct Args {
     std::string tailStr =
       uidStr
       + clStr
-      + (selfTest    ? " -selftest"     : "")
       + (timeKernels ? " -time kernels" : "")
-      + (useLegacy   ? " -legacy"       : "");
+      + (useLegacy   ? " -legacy"       : "")
+      + (device >= 0 ? " -device " + device : "")
+      ;
       
-    log("Config: -logstep %d -savestep %d -checkstep %d%s\n", logStep, saveStep, checkStep, tailStr.c_str());
+    log("Config: -step %d -savestep %d %s\n", step, saveStep, tailStr.c_str());
   }
 
   // return false to stop.
@@ -46,15 +36,12 @@ struct Args {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n\n"
-          "-logstep  <N>     : to log every <N> iterations (default %d)\n"
-          "-savestep <N>     : to persist checkpoint every <N> iterations (default 500*logstep == %d)\n"
-          "-checkstep <N>    : do Jacobi-symbol check every <N> iterations (default 50*logstep == %d)\n"
+          "-step     <N>     : to log, validate and save every <N> [default 100K] iterations.\n"
+          "-savestep <N>     : to persist checkpoint every <N> [default 10M] iterations.\n"
           "-uid user/machine : set UID: string to be prepended to the result line\n"
           "-cl \"<OpenCL compiler options>\", e.g. -cl \"-save-temps=tmp/ -O2\"\n"
-          "-time kernels     : to benchmark kernels (logstep must be > 1)\n"
           "-legacy           : use legacy kernels\n"
-          "-device <N>       : select specific device among:\n",
-          logStep, 500 * logStep, 50 * logStep);
+          "-device <N>       : select specific device among:\n");
       
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
@@ -64,15 +51,15 @@ struct Args {
         log("    %d : %s\n", i, info);
       }      
       return false;
-    } else if (!strcmp(arg, "-logstep")) {
+    } else if (!strcmp(arg, "-step")) {
       if (i < argc - 1) {
-        logStep = atoi(argv[++i]);
-        if (logStep <= 0) {
-          log("invalid -logstep '%s'\n", argv[i]);
+        step = atoi(argv[++i]);
+        if (step <= 0 || step % 1000) {
+          log("invalid -step '%s', must be positive and multiple of 1000.\n", argv[i]);
           return false;
         }
       } else {
-        log("-logstep expects <N> argument\n");
+        log("-step expects <N> argument\n");
         return false;
       }
     } else if (!strcmp(arg, "-savestep")) {
@@ -84,17 +71,6 @@ struct Args {
         }
       } else {
         log("-savestep expects <N> argument\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-checkstep")) {
-      if (i < argc - 1) {
-        checkStep = atoi(argv[++i]);
-        if (checkStep <= 0) {
-          log("invalid -checkstep '%s'\n", argv[i]);
-          return false;
-        }
-      } else {
-        log("-checkstep expects <N> argument\n");
         return false;
       }
     } else if (!strcmp(arg, "-uid")) {
@@ -111,8 +87,6 @@ struct Args {
         log("-cl expects options string to pass to CL compiler\n");
         return false;
       }
-    } else if (!strcmp(arg, "-selftest")) {
-      selfTest = true;
     } else if(!strcmp(arg, "-time")) {
       if (i < argc - 1 && !strcmp(argv[++i], "kernels")) {
         timeKernels = true;
@@ -140,21 +114,12 @@ struct Args {
     }
   }
 
-  assert(logStep > 0);
-  if (!saveStep)  { saveStep  = logStep * 500; }
-  if (!checkStep) { checkStep = logStep * 25;  }
+  assert(step > 0 && !(step % 1000));
   
-  if (saveStep < logStep)  { saveStep = logStep; }
-  if (checkStep < logStep) { checkStep = logStep; }
+  if (saveStep < step)  { saveStep = step; }
 
   // make them multiple of logStep
-  saveStep  -= saveStep % logStep;
-  checkStep -= checkStep % logStep;
-
-  if (timeKernels && logStep == 1) {
-    log("Ignoring time kernels because logStep == 1\n");
-    timeKernels = false;
-  }
+  saveStep  -= saveStep % step;
 
   logConfig();
   return true;
