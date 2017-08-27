@@ -212,22 +212,8 @@ cl_mem genSmallTrig1K(cl_context context) {
   return buf;
 }
 
-/*
-cl_mem genTrig1K(cl_context context) {
-  int size = 2 * 3 * 256;
-  double *tab = new double[size];
-  double *p   = tab;
-  p = smallTrigBlock(256, 4, p);
-  assert(p - tab == size);
-
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
-  delete[] tab;
-  return buf;
-}
-*/
-
-bool isAllZero(int *p, int size) {
-  for (int *end = p + size; p < end; ++p) { if (*p) { return false; } }
+bool isAllZero(const int *p, int size) {
+  for (const int *end = p + size; p < end; ++p) { if (*p) { return false; } }
   return true;
 }
 
@@ -376,172 +362,134 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   log("  %-12s %.1fus\n", "Total", total * iIters);
 }
 
-#ifndef NO_GMP
-#include <gmp.h>
-#endif
-
-bool jacobiCheck(int W, int H, int E, int *data) {
-#ifdef NO_GMP
-  return true;
-#else
+bool validate(int N, cl_mem bufData, cl_mem bufCheck, cl_mem bufErr,
+              cl_queue q, auto squareLoop, auto checkMul,
+              const int *data, const int *check) {
+  const int dataSize = sizeof(int) * N;
+  
+  if (isAllZero(data, N)) { return false; }
+  
   Timer timer;
-  mpz_t compact, mp;
-  mpz_inits(compact, mp, nullptr);
-  // set mp = 2^E-1
-  mpz_ui_pow_ui(mp, 2, E);
-  mpz_sub_ui(mp, mp, 1);
-
-  int carry = 0;
-  std::vector<u32> cv = compactBits(W, H, E, data, &carry);
-  
-  // mpz set from vector<u32>: least significant word first, 4 bytes per word, native endianess, 0 bits nails.
-  mpz_import(compact, cv.size(), -1, 4, 0, 0, &cv[0]);
-  
-  carry -= 2;
-  if (carry < 0) {
-    mpz_sub_ui(compact, compact, -carry);
-  } else if (carry > 0) {
-    mpz_add_ui(compact, compact, carry);
-  }
-  int jacobi = mpz_jacobi(compact, mp);
-  mpz_clears(compact, mp, nullptr);
-  if (jacobi == -1) {
-    log("Jacobi check OK (%d ms)\n", timer.delta());
-  } else {
-    log("Jacobi check FAIL (%d)\n", jacobi);
-  }
-  return (jacobi == -1);
-#endif
+  write(q, false, bufCheck, dataSize, check);
+  write(q, false, bufData,  dataSize, data);
+  checkMul(q, bufData, bufCheck, bufErr);
+  squareLoop(q, bufCheck, bufErr, 1000, true);
+  int *tmpA(new int[N]), *tmpB(new int[N]);
+  read(q, false, bufData, dataSize, tmpA);
+  read(q, true, bufCheck, dataSize, tmpB);
+  bool ok = !memcmp(tmpA, tmpB, dataSize);
+  delete[] tmpA;
+  delete[] tmpB;
+  write(q, false, bufCheck, dataSize, check);
+  write(q, false, bufData, dataSize, data);
+  log("Check %d (%d ms)\n", int(ok), timer.delta());
+  return ok;
 }
 
 bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args &args,
                 bool *outIsPrime, u64 *outResidue, auto squareLoop, auto checkMul) {
   const int N = 2 * W * H;
   const int dataSize = sizeof(int) * N;
-  
+
   std::unique_ptr<int[]>
-    goodDataHolder(new int[N + 32]),
-    dataHolder(new int[N + 32]),
-    jacobiDataHolder(new int[N + 32]);
-  int *goodData = goodDataHolder.get(), *data = dataHolder.get(), *jacobiData = jacobiDataHolder.get();
+    goodDataHolder(new int[N]),
+    goodCheckHolder(new int[N]),
+    dataHolder(new int[N]),
+    checkHolder(new int[N]);
+  int *goodData  = goodDataHolder.get();
+  int *goodCheck = goodCheckHolder.get();
+  int *data  = dataHolder.get();
+  int *check = checkHolder.get();
   
   Buffer bufDataHolder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
+  Buffer bufCheckHolder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
   Buffer bufErrHolder{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int))};
-  cl_mem bufData = bufDataHolder.get(), bufErr = bufErrHolder.get();
   
-  int k = 0, jacobiK = -1;
+  cl_mem bufData  = bufDataHolder.get();
+  cl_mem bufCheck = bufCheckHolder.get();
+  cl_mem bufErr   = bufErrHolder.get();
+  
+  int k = 0, goodK = 0;
   Checkpoint checkpoint(E, W, H);
 
-  if (!args.selfTest && !checkpoint.load(goodData, &k)) { return false; }
+  if (!checkpoint.load(&k, data, check)) { return false; }
+  assert((k % 1000) == 0);
   
   if (k == 0) {
-    memset(goodData, 0, dataSize);
-    // LL start value is 4.
-    // PRP-3 start value is 3.
-    wordAt(W, H, goodData, 0) = 3;
+    memset(data,  0, dataSize);
+    memset(check, 0, dataSize);
+    data[0]  = 3;
+    check[0] = 1;
   }
     
-  log("LL FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
-    
-  Timer timer;
+  log("PRP-3 FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
+
+  auto setRollback = [=, &goodK, &k]() {
+    memcpy(goodData,  data,  dataSize);
+    memcpy(goodCheck, check, dataSize);
+    goodK = k;
+  };
+  
+  auto rollback = [=, &goodK, &k]() {
+    log("rolling back to %d\n", goodK);
+    write(q, false, bufData, dataSize, goodData);
+    write(q, false, bufCheck, dataSize, goodCheck);
+    k = goodK;
+  };
 
   const float zero = 0;
-  write(q, false, bufData, dataSize, goodData);
   write(q, false, bufErr, sizeof(float), &zero);
   
-  const int kEnd = args.selfTest ? 20000 : (E - 2);
+  setRollback();
+  rollback();
 
-  float err = 0, maxErr = 0;
-  int prevK = -1;
-  bool isRetry = false;
-  
-  while (true) {
-    int nextK = std::min((k / args.logStep + 1) * args.logStep, kEnd);
-
-    if (k < nextK) { squareLoop(q, bufData, bufErr, nextK - k, false); }
-
-    if (prevK < 0) {
-      // the first time through, check initial Jacobi symbol and set Jacobi rollback point.
-      if (!k || jacobiCheck(W, H, E, goodData)) {
-        memcpy(jacobiData, goodData, dataSize);
-        jacobiK = k;
-      } else {
-        log("%08d / %08d : *initial* Jacobi check failed. Restart from an earlier checkpoint\n", k, E);
-        return false;
-      }
-    } else if (!isRetry) {
-      u64 res = residue(W, H, E, goodData);
-      float msPerIter = timer.delta() / float(k - prevK);
-      maxErr = std::max(err, maxErr);
-      doLog(E, k, err, maxErr, msPerIter, res);
-      
-      if (!args.selfTest) {
-        bool doSavePersist = (k == kEnd) || (k / args.saveStep  != (k - args.logStep) / args.saveStep);
-        bool doJacobiCheck = (k == kEnd) || (k / args.checkStep != (k - args.logStep) / args.checkStep);
-        
-        if (doJacobiCheck) {
-          if (jacobiCheck(W, H, E, goodData)) {
-            // set Jacobi rollback point to current.
-            memcpy(jacobiData, goodData, dataSize);
-            jacobiK = k;
-          } else {
-            log("%08d / %08d : Jacobi check failed: rolling back to iteration %08d\n", k, E, jacobiK);
-          
-            //rollback
-            finish(q);
-            memcpy(goodData, jacobiData, dataSize);
-            write(q, false, bufData, dataSize, goodData);
-            prevK = -1;
-            k = jacobiK;
-            continue;
-          }
-        }
-        
-        checkpoint.save(goodData, k, doSavePersist, res);
-      }
-    }
-
-    if (k >= nextK) { break; }
-
-    read(q,  false, bufErr,  sizeof(float), &err);
-    read(q,  true,  bufData, sizeof(int) * N, data);
-    write(q, false, bufErr,  sizeof(float), &zero);
-
-    // fprintf(stderr, "-- %d %f\n", k, err2);
-    
-    bool doRetry = false;
-    char mes[64] = {0};
-    
-    if (isLoop(data, N)) {
-      snprintf(mes, sizeof(mes), "loop");
-      doRetry = true;
-    } else if (err > 0.44f) {
-      snprintf(mes, sizeof(mes), "roundoff %g is too large", err);
-      doRetry = true;
-    } 
-
-    if (doRetry) {
-      u64 res = residue(W, H, E, data);
-      log("%08d / %08d %016llx Retry : %s\n", nextK, E, u64(res), mes);
-      
-      if (isRetry) {
-        log("Retry failed to recover, will exit\n");
-        return false;
-      }
-
-      // Retry. Do not update k & prevK.
-      write(q, false, bufData, dataSize, goodData);
-    } else {
-      std::swap(goodData, data);
-      prevK = k;
-      k = nextK;
-    }
-    isRetry = doRetry;
+  if (!validate(N, bufData, bufCheck, bufErr, q, squareLoop, checkMul, data, check)) {
+    log("Error: invalid loaded data. Restart from an earlier checkpoint.\n");
+    return false;
   }
+  
+  Timer timer;
 
-  *outIsPrime = isAllZero(goodData, N);
-  *outResidue = residue(W, H, E, goodData);
-  return (k >= kEnd);
+  const int kEnd = E - 1;
+
+  // float err = 0, maxErr = 0;
+  
+  while (k < kEnd) {
+    assert(k % 1000 == 0);
+    checkMul(q, bufCheck, bufData, bufErr);    
+    squareLoop(q, bufData, bufErr, std::min(1000, kEnd - k), false);
+    if (kEnd - k <= 1000) {
+      read(q, true, bufData, dataSize, data);
+      *outResidue = residue(W, H, E, data);
+      *outIsPrime = data[0] == -3 && isAllZero(data + 1, N - 1);
+        
+      int left = 1000 - (kEnd - k);
+      assert(left >= 0);
+      if (left) { squareLoop(q, bufData, bufErr, left, false); }
+    }
+
+    finish(q);
+    k += 1000;
+    fprintf(stderr, ".");
+
+    if (k % 2000 == 0) {
+      fprintf(stderr, "\n");
+      read(q, false, bufCheck, dataSize, check);
+      read(q, true, bufData, dataSize, data);
+      u64 res = residue(W, H, E, data);
+      bool ok = validate(N, bufData, bufCheck, bufErr, q, squareLoop, checkMul, data, check);
+      float msPerIter = timer.delta() / 2000.0f;
+      log("%08d / %08d %016llx : %.2f ms/it; %s\n", k, E, res, msPerIter, ok ? "valid" : "invalid");
+
+      if (!ok) {
+        rollback();
+      } else {
+        setRollback();
+        checkpoint.save(k, data, check, k % 10'000'000 == 0, res);
+      }
+    }
+  }
+  return true;
 }
 
 int getNextExponent(bool doSelfTest, u64 *expectedRes, char *AID) {
@@ -633,8 +581,9 @@ int main(int argc, char **argv) {
   Buffer bufBigTrig{genBigTrig(context, W, H)};
   Buffer bufSins{genSin(context, H, W)}; // transposed W/H !
 
-  Buffer buf1{makeBuf(context,     BUF_RW, sizeof(double) * N)};
-  Buffer buf2{makeBuf(context,     BUF_RW, sizeof(double) * N)};
+  Buffer buf1{makeBuf(context, BUF_RW, sizeof(double) * N)};
+  Buffer buf2{makeBuf(context, BUF_RW, sizeof(double) * N)};
+  Buffer buf3{makeBuf(context, BUF_RW, sizeof(double) * N)};
   Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(double) * N)}; // could be N/2 as well.
 
   int *zero = new int[2049]();
@@ -671,7 +620,7 @@ int main(int argc, char **argv) {
 
     fft2K.setArgs(buf2, bufTrig2K);
     csquare2K.setArgs(buf2, bufSins);
-    cmul2K.setArgs(buf2, buf2, bufSins);
+    cmul2K.setArgs(buf2, buf3, bufSins);
     
     bool isPrime;
     u64 residue;
@@ -722,20 +671,23 @@ int main(int argc, char **argv) {
       if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
     };
 
-    // The modular multiplication update of the check bits, check = check * data.
-    auto checkMul = [&](cl_queue q, cl_mem check, cl_mem data, cl_mem err) {
-      fftPremul1K.setArg(0, data);
+    // The modular multiplication a = a * b. Output in 'a'.
+    auto checkMul = [&](cl_queue q, cl_mem a, cl_mem b, cl_mem err) {
+      fftPremul1K.setArg(0, b);
+      transpose1K.setArg(1, buf3);
+      fft2K.setArg(0, buf3);
       run(directFftKerns, q, N);
       
-      fftPremul1K.setArg(0, check);
+      fftPremul1K.setArg(0, a);
+      transpose1K.setArg(1, buf2);
+      fft2K.setArg(0, buf2);
       run(directFftKerns, q, N);
       
-      cmul2K.setArgs(check, data, bufSins);
       run({&cmul2K, &fft2K, &transpose2K}, q, N);
 
-      carryA.setArg(3, check);
+      carryA.setArg(3, a);
       carryA.setArg(5, err);
-      carryB_2K.setArg(0, check);
+      carryB_2K.setArg(0, a);
       run(tailKerns, q, N);
     };
 

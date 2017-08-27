@@ -17,74 +17,27 @@ class Checkpoint {
 private:
   char fileNameSave[64], fileNamePrev[64], fileNameTemp[64];
   int E, W, H;
-  // Header: "\nLL2 <exponent> <iteration> <width> <height> <offset> <sum> \n"
-  const char *headerFormat = "\nLL2 %d %d %d %d %d %d\n";
+  // Header: "\nLL3 <exponent> <iteration> <width> <height> <sum> \n"
+  const char *headerFormat = "\nLL3 %d %d %d %d %d\n";
 
-  bool write(const char *name, int size, const void *data) {
+  bool write(const char *name, int k, const int *data, const int *checkBits) {
     if (FILE *fo = open(name, "wb")) {
-      int nWritten = fwrite(data, size, 1, fo);
-      fclose(fo);      
-      if (nWritten == 1) {
-        return true;
-      } else {
-        log("Error writing file '%s'\n", name);
-      }
+      int N = 2 * W * H;
+      int dataSize = sizeof(int) * N;
+      int sum = checksum(checksum(0, data, N), checkBits, N);
+      bool ok = fwrite(data, dataSize, 1, fo)
+        && fwrite(checkBits, dataSize, 1, fo)
+        && (fprintf(fo, headerFormat, E, k, W, H, sum) > 0);
+      fclose(fo);
+      if (ok) { return true; }
+      log("File '%s': error writing\n", name);
     }
     return false;
   }
 
-  int prepareHeader(int *data, int k, int offset) {
-    int N = 2 * W * H;
-    int n = snprintf((char *) (data + N), 128, headerFormat, E, k, W, H, offset, checksum(data, N));
-    assert(n < 128);
-    return n;
-  }
-
-  static int checksum(int *data, unsigned words) {
-    int sum = 0;
-    for (int *p = data, *end = data + words; p < end; ++p) { sum += *p; }
+  static int checksum(int sum, const int *data, size_t size) {
+    for (const int *p = data, *end = data + size; p < end; ++p) { sum += *p; }
     return sum;
-  }
-
-  bool loadFile(const char *name, int *data, int *startK) {
-    FILE *fi = open(name, "rb");
-    if (!fi) {
-      *startK = 0;
-      return true;
-    }
-    
-    int N = 2 * W * H;
-    int wordsSize = sizeof(int) * N;
-    int n = fread(data, 1, wordsSize + 128, fi);
-    fclose(fi);
-
-    if (n < wordsSize || n >= wordsSize + 128) {
-      log("File '%s' has invalid size (%d)\n", name, n);
-      return false;
-    }
-        
-    int fileE, fileK, fileW, fileH, fileSum;
-    char *header = (char *) (data + N);
-    header[n - wordsSize] = 0;
-
-    int offset = 0;
-    if (sscanf(header, headerFormat, &fileE, &fileK, &fileW, &fileH, &offset, &fileSum) != 6 ||
-        !(E == fileE && W == fileW && H == fileH && 0 <= offset && offset < E)) {
-      log("File '%s' has wrong tailer '%s'\n", name, header);
-      return false;
-    }
-    if (offset) {
-      log("Offset %d not supported (must be 0)\n", offset);
-      return false;
-    }
-    
-    if (fileSum != checksum(data, N)) {
-      log("File '%s' has wrong checksum (expected %d got %d)\n", name, fileSum, checksum(data, N));
-      return false;
-    }
-    
-    *startK = fileK;
-    return true;
   }
   
 public:
@@ -94,22 +47,41 @@ public:
     snprintf(fileNameTemp, sizeof(fileNameTemp), "b%d.ll", E);
   }
   
-  bool load(int *data, int *startK) {
-    return loadFile(fileNameSave, data, startK);
+  bool load(int *startK, int *data, int *checkBits) {
+    *startK = 0;
+    if (FILE *fi = open(fileNameSave, "rb")) {
+      int N = 2 * W * H;
+      int dataSize = sizeof(int) * N;
+    
+      if (!fread(data, dataSize, 1, fi) || !fread(checkBits, dataSize, 1, fi)) {
+        fclose(fi);
+        log("File '%s': wrong size\n", fileNameSave);
+        return false;
+      }
+
+      int expectedSum = checksum(checksum(0, data, N), checkBits, N);
+      int fileE, fileK, fileW, fileH, fileSum;
+      int nRead = fscanf(fi, headerFormat, &fileE, &fileK, &fileW, &fileH, &fileSum);
+      fclose(fi);
+      if (nRead != 5 || E != fileE || W != fileW || H != fileH || fileSum != expectedSum) {
+        log("File '%s': invalid\n", fileNameSave);
+        return false;
+      }
+      *startK = fileK;
+    }
+    return true;
   }
   
-  void save(int *data, int k, bool savePersist, u64 residue) {
-    int headerSize = prepareHeader(data, k, 0);
-    const int totalSize = sizeof(int) * 2 * W * H + headerSize;
-    if (write(fileNameTemp, totalSize, data)) {
+  void save(int k, int *data, int *checkBits, bool savePersist, u64 residue) {
+    if (write(fileNameTemp, k, data, checkBits)) {
       remove(fileNamePrev);
       rename(fileNameSave, fileNamePrev);
       rename(fileNameTemp, fileNameSave);      
     }
     if (savePersist) {
       char name[64];
-      snprintf(name, sizeof(name), "s%d.%d.%016llx.ll", E, k, (unsigned long long) residue);
-      write(name, totalSize, data);
+      snprintf(name, sizeof(name), "s%d.%d.%016llx.ll", E, k, residue);
+      write(name, k, data, checkBits);
     }
   }
 };
