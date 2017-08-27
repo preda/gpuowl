@@ -209,15 +209,8 @@ KERNEL(256) fft1K(global double2 *io, SMALL_CONST double2 *trig1k) {
   for (int i = 0; i < 4; ++i) { io[i * 256 + me] = u[i]; }
 }
 
-// Round x to integral double, and update maxErr to max rounding error.
-double roundWithErr(double x, float *maxErr) {
-  double rx = rint(x);
-  *maxErr = max(*maxErr, fabs((float) (x - rx)));
-  return rx;
-}
-
-// Round x to long and update maxErr to max rounding error.
-long toLong(double x, float *maxErr) { return roundWithErr(x, maxErr); }
+// Round x to long.
+long toLong(double x) { return rint(x); }
 
 int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
 
@@ -235,10 +228,10 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 uint bitlen(uint base, double a) { return base + signBit(a); }
 
 // Reverse weighting, round, carry propagation for a pair of doubles; with optional MUL.
-int2 car0Mul(int mul, long *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {  
+int2 car0Mul(int mul, long *carry, double2 u, double2 ia, uint baseBits) {  
   u *= fabs(ia); // Reverse weighting by multiply with "ia"
-  int a = updateMul(mul, carry, toLong(u.x, maxErr), bitlen(baseBits, ia.x));
-  int b = updateMul(mul, carry, toLong(u.y, maxErr), bitlen(baseBits, ia.y));
+  int a = updateMul(mul, carry, toLong(u.x), bitlen(baseBits, ia.x));
+  int b = updateMul(mul, carry, toLong(u.y), bitlen(baseBits, ia.y));
   return (int2) (a, b);
 }
 
@@ -254,10 +247,10 @@ double2 updateD(double x, int bits) {
   return (double2)(x - ldexp(carry, bits), carry);
 }
 
-double2 dar0(double *carry, double2 u, double2 ia, float *maxErr, uint baseBits) {
+double2 dar0(double *carry, double2 u, double2 ia, uint baseBits) {
   u *= fabs(ia);
-  double2 r0 = updateD(*carry + roundWithErr(u.x, maxErr), bitlen(baseBits, ia.x));
-  double2 r1 = updateD(r0.y   + roundWithErr(u.y, maxErr), bitlen(baseBits, ia.y));
+  double2 r0 = updateD(*carry + rint(u.x), bitlen(baseBits, ia.x));
+  double2 r1 = updateD(r0.y   + rint(u.y), bitlen(baseBits, ia.y));
   *carry = r1.y;
   return (double2)(r0.x, r1.x);
 }
@@ -270,7 +263,6 @@ double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
 // The "amalgamation" kernel is equivalent to the sequence: fft1K, carryA, carryB, fftPremul1K.
 KERNEL(256) mega(const uint baseBitlen,
                  global double2 *io, volatile global double *carry, volatile global uint *ready,
-                 global uint *globalErr,
                  CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
   local double2 lds[1024];
 
@@ -288,7 +280,6 @@ KERNEL(256) mega(const uint baseBitlen,
 
   fft1kBigLDS(lds, u, trig1k);
   
-  float err = 0;
   double2 r[4];
 
   // Fight the LLVM OpenCL compiler who doesn't care about # of VGPRs used.
@@ -296,7 +287,7 @@ KERNEL(256) mega(const uint baseBitlen,
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
     double c = 0;
-    r[i] = dar0(&c, conjugate(u[i]), iA[p], &err, baseBitlen);
+    r[i] = dar0(&c, conjugate(u[i]), iA[p], baseBitlen);
     if (gr < 2048) { carry[gr * 1024 + p] = c; }
     /*
     if (gr < 2048) {
@@ -304,13 +295,6 @@ KERNEL(256) mega(const uint baseBitlen,
     }
     */
   }
-
-  // if (gm == 0 && me == 0) { r[0].x -= 2; }
-
-#ifndef NO_ERR
-  local uint *maxErr = (local uint *) lds;
-  if (me == 0) { *maxErr = 0; }
-#endif
 
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
 
@@ -322,20 +306,12 @@ KERNEL(256) mega(const uint baseBitlen,
   */
   if (gr == 0) { return; }
 
-#ifndef NO_ERR
-  atomic_max(maxErr, *(uint *)&err);
-#endif
-
   if (me == 0) {
     while(!atomic_xchg(&ready[gr - 1], 0));
     // while (!atomic_load_explicit((global atomic_uint *)&ready[gr - 1], memory_order_acquire, memory_scope_device));
     // ready[gr - 1] = 0;
   }
   bar();
-
-#ifndef NO_ERR
-  if (me == 0) { atomic_max(globalErr, *maxErr); }
-#endif
 
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
@@ -496,9 +472,9 @@ KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
 }
 
 // Carry propagation with optional MUL.
-void carryMul(const int mul, local uint *localMaxErr, const uint baseBits,
+void carryMul(const int mul, const uint baseBits,
               CONST double2 *in, CONST double2 *A, global int2 *out,
-              global long *carryOut, global uint *globalMaxErr) {
+              global long *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -507,37 +483,28 @@ void carryMul(const int mul, local uint *localMaxErr, const uint baseBits,
   A      += step;
   out    += step;
 
-  float maxErr = 0;
-  long carry   = 0; // LL: (g == 0 && me == 0) ? -2 : 0;
+  long carry = 0;
 
   for (int i = 0; i < 8; ++i) {    
     uint p = me + i * 1024;
-    out[p] = car0Mul(mul, &carry, conjugate(in[p]), A[p], &maxErr, baseBits);
+    out[p] = car0Mul(mul, &carry, conjugate(in[p]), A[p], baseBits);
   }
 
   carryOut[me + g * 256] = carry;
-
-  if (me == 0) { *localMaxErr = 0; }
-  bar();
-  atomic_max(localMaxErr, *(uint *)&maxErr);
-  bar();
-  if (me == 0) { atomic_max(globalMaxErr, *localMaxErr); }
 }
 
 // Carry propagation. conjugates input.
 KERNEL(256) carryA(const uint baseBits,
                    CONST double2 *in, CONST double2 *A, global int2 *out,
-                   global long *carryOut, global uint *globalMaxErr) {
-  local uint localMaxErr;
-  carryMul(1, &localMaxErr, baseBits, in, A, out, carryOut, globalMaxErr);
+                   global long *carryOut) {
+  carryMul(1, baseBits, in, A, out, carryOut);
 }
 
 // Carry propagation + MUL 3. conjugates input.
 KERNEL(256) carryMul3(const uint baseBits,
                    CONST double2 *in, CONST double2 *A, global int2 *out,
-                   global long *carryOut, global uint *globalMaxErr) {
-  local uint localMaxErr;
-  carryMul(3, &localMaxErr, baseBits, in, A, out, carryOut, globalMaxErr);
+                   global long *carryOut) {
+  carryMul(3, baseBits, in, A, out, carryOut);
 }
 
 void carryBCore(uint H, global int2 *io, CONST long *carryIn, CONST uchar2 *bitlen) {

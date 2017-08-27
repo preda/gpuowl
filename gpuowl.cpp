@@ -302,15 +302,15 @@ void log(const char *fmt, ...) {
   }
 }
 
-void doLog(int E, int k, float err, float maxErr, double msPerIter, u64 res) {
+void doLog(int E, int k, double msPerIter, u64 res) {
   const float percent = 100 / (float) (E - 2);
   int etaMins = (E - 2 - k) * msPerIter * (1 / (double) 60000) + .5;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
   
-  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d; %016llx roundoff %g (max %g)\n",
-      k, E, k * percent, msPerIter, days, hours, mins, u64(res), err, maxErr);
+  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d; %016llx\n",
+      k, E, k * percent, msPerIter, days, hours, mins, u64(res));
 }
 
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID, const std::string &uid) {
@@ -362,7 +362,7 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   log("  %-12s %.1fus\n", "Total", total * iIters);
 }
 
-bool validate(int N, cl_mem bufData, cl_mem bufCheck, cl_mem bufErr,
+bool validate(int N, cl_mem bufData, cl_mem bufCheck,
               cl_queue q, auto squareLoop, auto checkMul,
               const int *data, const int *check) {
   const int dataSize = sizeof(int) * N;
@@ -372,8 +372,8 @@ bool validate(int N, cl_mem bufData, cl_mem bufCheck, cl_mem bufErr,
   Timer timer;
   write(q, false, bufCheck, dataSize, check);
   write(q, false, bufData,  dataSize, data);
-  checkMul(q, bufData, bufCheck, bufErr);
-  squareLoop(q, bufCheck, bufErr, 1000, true);
+  checkMul(q, bufData, bufCheck);
+  squareLoop(q, bufCheck, 1000, true);
   int *tmpA(new int[N]), *tmpB(new int[N]);
   read(q, false, bufData, dataSize, tmpA);
   read(q, true, bufCheck, dataSize, tmpB);
@@ -403,11 +403,9 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   
   Buffer bufDataHolder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
   Buffer bufCheckHolder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
-  Buffer bufErrHolder{makeBuf(context, CL_MEM_READ_WRITE, sizeof(int))};
   
   cl_mem bufData  = bufDataHolder.get();
   cl_mem bufCheck = bufCheckHolder.get();
-  cl_mem bufErr   = bufErrHolder.get();
   
   int k = 0, goodK = 0;
   Checkpoint checkpoint(E, W, H);
@@ -437,13 +435,10 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
     k = goodK;
   };
 
-  const float zero = 0;
-  write(q, false, bufErr, sizeof(float), &zero);
-  
   setRollback();
   rollback();
 
-  if (!validate(N, bufData, bufCheck, bufErr, q, squareLoop, checkMul, data, check)) {
+  if (!validate(N, bufData, bufCheck, q, squareLoop, checkMul, data, check)) {
     log("Error: invalid loaded data. Restart from an earlier checkpoint.\n");
     return false;
   }
@@ -452,12 +447,10 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
   const int kEnd = E - 1;
 
-  // float err = 0, maxErr = 0;
-  
   while (k < kEnd) {
     assert(k % 1000 == 0);
-    checkMul(q, bufCheck, bufData, bufErr);    
-    squareLoop(q, bufData, bufErr, std::min(1000, kEnd - k), false);
+    checkMul(q, bufCheck, bufData);    
+    squareLoop(q, bufData, std::min(1000, kEnd - k), false);
     if (kEnd - k <= 1000) {
       read(q, true, bufData, dataSize, data);
       *outResidue = residue(W, H, E, data);
@@ -465,7 +458,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
         
       int left = 1000 - (kEnd - k);
       assert(left >= 0);
-      if (left) { squareLoop(q, bufData, bufErr, left, false); }
+      if (left) { squareLoop(q, bufData, left, false); }
     }
 
     finish(q);
@@ -477,7 +470,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
       read(q, false, bufCheck, dataSize, check);
       read(q, true, bufData, dataSize, data);
       u64 res = residue(W, H, E, data);
-      bool ok = validate(N, bufData, bufCheck, bufErr, q, squareLoop, checkMul, data, check);
+      bool ok = validate(N, bufData, bufCheck, q, squareLoop, checkMul, data, check);
       float msPerIter = timer.delta() / 2000.0f;
       log("%08d / %08d %016llx : %.2f ms/it; %s\n", k, E, res, msPerIter, ok ? "valid" : "invalid");
 
@@ -613,10 +606,10 @@ int main(int argc, char **argv) {
     transpose2K.setArgs(buf2,    buf1, bufBigTrig);
     transpose1K.setArgs(buf1,    buf2, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
-    carryA.setArgs     (baseBitlen, buf1, bufI, dummy, bufCarry, dummy);
-    carryMul3.setArgs   (baseBitlen, buf1, bufI, dummy, bufCarry, dummy);
+    carryA.setArgs     (baseBitlen, buf1, bufI, dummy, bufCarry);
+    carryMul3.setArgs   (baseBitlen, buf1, bufI, dummy, bufCarry);
     carryB_2K.setArgs  (dummy, bufCarry, bufBitlen);
-    mega.setArgs(baseBitlen, buf1, bufCarry, bufReady, dummy, bufA, bufI, bufTrig1K);
+    mega.setArgs(baseBitlen, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
 
     fft2K.setArgs(buf2, bufTrig2K);
     csquare2K.setArgs(buf2, bufSins);
@@ -646,7 +639,7 @@ int main(int argc, char **argv) {
 
     // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
     // Optional multiply-by-3 at the end.
-    auto squareLoop = [&](cl_queue q, cl_mem data, cl_mem err, int nIters, bool doMul3) {
+    auto squareLoop = [&](cl_queue q, cl_mem data, int nIters, bool doMul3) {
       assert(nIters > 0);
             
       if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
@@ -655,14 +648,11 @@ int main(int argc, char **argv) {
       run(headKerns, q, N);
 
       carryA.setArg(3, data);
-      carryA.setArg(5, err);
       carryB_2K.setArg(0, data);
-      mega.setArg(4, err);
 
       for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q, N); }
       if (doMul3) {
         carryMul3.setArg(3, data);
-        carryMul3.setArg(5, err);
         run({&fft1K, &carryMul3, &carryB_2K}, q, N);
       } else {
         run(tailKerns, q, N);
@@ -672,7 +662,7 @@ int main(int argc, char **argv) {
     };
 
     // The modular multiplication a = a * b. Output in 'a'.
-    auto checkMul = [&](cl_queue q, cl_mem a, cl_mem b, cl_mem err) {
+    auto checkMul = [&](cl_queue q, cl_mem a, cl_mem b) {
       fftPremul1K.setArg(0, b);
       transpose1K.setArg(1, buf3);
       fft2K.setArg(0, buf3);
@@ -686,7 +676,6 @@ int main(int argc, char **argv) {
       run({&cmul2K, &fft2K, &transpose2K}, q, N);
 
       carryA.setArg(3, a);
-      carryA.setArg(5, err);
       carryB_2K.setArg(0, a);
       run(tailKerns, q, N);
     };
