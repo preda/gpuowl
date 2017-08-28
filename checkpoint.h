@@ -72,7 +72,7 @@ public:
     return true;
   }
   
-  void save(int k, int *data, int *checkBits, bool savePersist, u64 residue) {
+  void save(int k, int *data, int *checkBits, bool savePersist) {
     if (write(fileNameTemp, k, data, checkBits)) {
       remove(fileNamePrev);
       rename(fileNameSave, fileNamePrev);
@@ -80,7 +80,7 @@ public:
     }
     if (savePersist) {
       char name[64];
-      snprintf(name, sizeof(name), "s%d.%d.%016llx.ll", E, k, residue);
+      snprintf(name, sizeof(name), "s%d.%d.ll", E, k);
       write(name, k, data, checkBits);
     }
   }

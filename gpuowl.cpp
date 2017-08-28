@@ -23,7 +23,7 @@
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
-#define VERSION "0.7"
+#define VERSION "1.0"
 
 const char *AGENT = "gpuowl v" VERSION;
 
@@ -302,20 +302,21 @@ void log(const char *fmt, ...) {
   }
 }
 
-void doLog(int E, int k, double msPerIter, u64 res) {
-  const float percent = 100 / (float) (E - 2);
-  int etaMins = (E - 2 - k) * msPerIter * (1 / (double) 60000) + .5;
+void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
+  int end = ((E - 1) / 1000 + 1) * 1000;
+  const float percent = 100 / float(end);
+  int etaMins = (end - k) * msPerIter * (1 / (float) 60000) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
   
-  log("%08d / %08d [%.2f%%], ms/iter: %.3f, ETA: %dd %02d:%02d; %016llx\n",
-      k, E, k * percent, msPerIter, days, hours, mins, u64(res));
+  log("%s %08d / %08d [%.2f%%], %.2f ms/it, ETA: %dd %02d:%02d; P3-%016llx\n",
+      checkOK ? "OK" : "*E", k, E, k * percent, msPerIter, days, hours, mins, u64(res));
 }
 
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID, const std::string &uid) {
   char buf[256];
-  snprintf(buf, sizeof(buf), "%sM( %d )%c, 0x%016llx, offset = 0, n = %dK, %s, AID: %s",
+  snprintf(buf, sizeof(buf), "%sM( %d )%c, P3-%016llx, offset = 0, n = %dK, %s, AID: %s",
            uid.c_str(), E, isPrime ? 'P' : 'C', u64(residue), 4096, AGENT, AID);
   log("%s\n", buf);
   if (FILE *fo = open("results.txt", "a")) {
@@ -382,12 +383,12 @@ bool validate(int N, cl_mem bufData, cl_mem bufCheck,
   delete[] tmpB;
   write(q, false, bufCheck, dataSize, check);
   write(q, false, bufData, dataSize, data);
-  log("Check %d (%d ms)\n", int(ok), timer.delta());
+  // log("Check %d (%d ms)\n", int(ok), timer.delta());
   return ok;
 }
 
 bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args &args,
-                bool *outIsPrime, u64 *outResidue, auto squareLoop, auto checkMul) {
+                bool *outIsPrime, u64 *outResidue, auto modSqLoop, auto modMul) {
   const int N = 2 * W * H;
   const int dataSize = sizeof(int) * N;
 
@@ -436,9 +437,8 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   };
 
   setRollback();
-  rollback();
 
-  if (!validate(N, bufData, bufCheck, q, squareLoop, checkMul, data, check)) {
+  if (!validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check)) {
     log("Error: invalid loaded data. Restart from an earlier checkpoint.\n");
     return false;
   }
@@ -449,8 +449,8 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
   while (k < kEnd) {
     assert(k % 1000 == 0);
-    checkMul(q, bufCheck, bufData);    
-    squareLoop(q, bufData, std::min(1000, kEnd - k), false);
+    modMul(q, bufCheck, bufData);    
+    modSqLoop(q, bufData, std::min(1000, kEnd - k), false);
     if (kEnd - k <= 1000) {
       read(q, true, bufData, dataSize, data);
       *outResidue = residue(W, H, E, data);
@@ -458,27 +458,27 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
         
       int left = 1000 - (kEnd - k);
       assert(left >= 0);
-      if (left) { squareLoop(q, bufData, left, false); }
+      if (left) { modSqLoop(q, bufData, left, false); }
     }
 
     finish(q);
     k += 1000;
     fprintf(stderr, ".");
 
-    if (k % 2000 == 0) {
+    if (k % args.step == 0) {
       fprintf(stderr, "\n");
       read(q, false, bufCheck, dataSize, check);
       read(q, true, bufData, dataSize, data);
       u64 res = residue(W, H, E, data);
-      bool ok = validate(N, bufData, bufCheck, q, squareLoop, checkMul, data, check);
-      float msPerIter = timer.delta() / 2000.0f;
-      log("%08d / %08d %016llx : %.2f ms/it; %s\n", k, E, res, msPerIter, ok ? "valid" : "invalid");
-
+      bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
+      float msPerIter = timer.delta() / float(args.step);
+      doLog(E, k, msPerIter, res, ok);
+      
       if (!ok) {
         rollback();
       } else {
         setRollback();
-        checkpoint.save(k, data, check, k % 10'000'000 == 0, res);
+        checkpoint.save(k, data, check, k % args.saveStep == 0);
       }
     }
   }
@@ -639,7 +639,7 @@ int main(int argc, char **argv) {
 
     // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
     // Optional multiply-by-3 at the end.
-    auto squareLoop = [&](cl_queue q, cl_mem data, int nIters, bool doMul3) {
+    auto modSqLoop = [&](cl_queue q, cl_mem data, int nIters, bool doMul3) {
       assert(nIters > 0);
             
       if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
@@ -662,7 +662,7 @@ int main(int argc, char **argv) {
     };
 
     // The modular multiplication a = a * b. Output in 'a'.
-    auto checkMul = [&](cl_queue q, cl_mem a, cl_mem b) {
+    auto modMul = [&](cl_queue q, cl_mem a, cl_mem b) {
       fftPremul1K.setArg(0, b);
       transpose1K.setArg(1, buf3);
       fft2K.setArg(0, buf3);
@@ -680,20 +680,10 @@ int main(int argc, char **argv) {
       run(tailKerns, q, N);
     };
 
-    if (!checkPrime(W, H, E, queue.get(), context, args, &isPrime, &residue, std::move(squareLoop), std::move(checkMul))) {
+    if (!checkPrime(W, H, E, queue.get(), context, args, &isPrime, &residue, std::move(modSqLoop), std::move(modMul))) {
       break;
     }
 
-    /*
-    if (args.selfTest) {
-      if (expectedRes == residue) {
-        log("OK %d\n", E);
-      } else {
-        log("FAIL %d, expected %016llx, got %016llx\n", E, expectedRes, residue);
-        break;
-      }
-    } else {
-    */
     std::string uid = args.uid.empty() ? "" : "UID: " + args.uid + ", ";
     if (!(writeResult(E, isPrime, residue, AID, uid) && worktodoDelete(E))) { break; }
   }
