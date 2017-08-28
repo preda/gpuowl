@@ -310,8 +310,8 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
   
-  log("%s %08d / %08d [%.2f%%], %.2f ms/it, ETA: %dd %02d:%02d; P3-%016llx\n",
-      checkOK ? "OK" : "*E", k, E, k * percent, msPerIter, days, hours, mins, u64(res));
+  log("%s %04.1fM [%05.2f%%], %.2f ms/it, ETA %dd %02d:%02d; P3-%08d-%016llx\n",
+      checkOK ? "OK" : "EE", k / 1000000.f, k * percent, msPerIter, days, hours, mins, E, u64(res));
 }
 
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID, const std::string &uid) {
@@ -412,23 +412,15 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   Checkpoint checkpoint(E, W, H);
 
   if (!checkpoint.load(&k, data, check)) { return false; }
-  assert((k % 1000) == 0);
-  
-  if (k == 0) {
-    memset(data,  0, dataSize);
-    memset(check, 0, dataSize);
-    data[0]  = 3;
-    check[0] = 1;
-  }
-    
   log("PRP-3 FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
-
+  assert(k % 1000 == 0);
+  
   auto setRollback = [=, &goodK, &k]() {
     memcpy(goodData,  data,  dataSize);
     memcpy(goodCheck, check, dataSize);
     goodK = k;
   };
-  
+
   auto rollback = [=, &goodK, &k]() {
     log("rolling back to %d\n", goodK);
     write(q, false, bufData, dataSize, goodData);
@@ -436,14 +428,30 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
     k = goodK;
   };
 
-  setRollback();
-
-  if (!validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check)) {
-    log("Error: invalid loaded data. Restart from an earlier checkpoint.\n");
-    return false;
+  if (k == 0) {
+    memset(data,  0, dataSize);
+    memset(check, 0, dataSize);
+    data[0]  = 3;
+    check[0] = 1;    
   }
   
   Timer timer;
+
+  // Establish a known-good roolback point by initial verification of loaded data.
+  while (true) {
+    bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
+    doLog(E, k, timer.delta() / 1000.f, residue(W, H, E, data), ok);
+    if (ok) { break; }
+    assert(k > 0);
+    log("Loaded checkpoint failed validation. Restarting from zero.\n");
+    k = 0;
+    memset(data,  0, dataSize);
+    memset(check, 0, dataSize);
+    data[0]  = 3;
+    check[0] = 1;        
+  }
+  
+  setRollback();
 
   const int kEnd = E - 1;
 
@@ -453,6 +461,10 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
     modSqLoop(q, bufData, std::min(1000, kEnd - k), false);
     if (kEnd - k <= 1000) {
       read(q, true, bufData, dataSize, data);
+      // The write() below may seem redundant, but it protects against memory errors on the read() above,
+      // by making sure that any eventual errors are visible GPU-side and caught by verification.
+      write(q, false, bufData, dataSize, data);
+
       *outResidue = residue(W, H, E, data);
       *outIsPrime = data[0] == -3 && isAllZero(data + 1, N - 1);
         
@@ -469,16 +481,13 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
       fprintf(stderr, "\n");
       read(q, false, bufCheck, dataSize, check);
       read(q, true, bufData, dataSize, data);
-      u64 res = residue(W, H, E, data);
       bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
-      float msPerIter = timer.delta() / float(args.step);
-      doLog(E, k, msPerIter, res, ok);
-      
-      if (!ok) {
-        rollback();
-      } else {
+      doLog(E, k, timer.delta() / float(args.step), residue(W, H, E, data), ok);      
+      if (ok) {
         setRollback();
         checkpoint.save(k, data, check, k % args.saveStep == 0);
+      } else {
+        rollback();
       }
     }
   }
@@ -514,7 +523,7 @@ int main(int argc, char **argv) {
   
   time_t t = time(NULL);
   srand(t);
-  log("gpuOwL v" VERSION " GPU Lucas-Lehmer primality checker; %s", ctime(&t));
+  log("gpuOwL v" VERSION " GPU Mersenne primality checker; %s", ctime(&t));
 
   Args args;
   

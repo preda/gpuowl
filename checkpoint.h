@@ -49,7 +49,7 @@ public:
   
   bool load(int *startK, int *data, int *checkBits) {
     *startK = 0;
-    if (FILE *fi = open(fileNameSave, "rb")) {
+    if (FILE *fi = fopen(fileNameSave, "rb")) {
       int N = 2 * W * H;
       int dataSize = sizeof(int) * N;
     
