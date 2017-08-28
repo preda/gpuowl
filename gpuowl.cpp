@@ -302,6 +302,21 @@ void log(const char *fmt, ...) {
   }
 }
 
+u32 crc32(const void *data, size_t size) {
+  u32 tab[16] = {
+    0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC,
+    0x76DC4190, 0x6B6B51F4, 0x4DB26158, 0x5005713C,
+    0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C,
+    0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C,
+  };
+  u32 crc = ~0;
+  for (auto *p = (const unsigned char *) data, *end = p + size; p < end; ++p) {
+    crc = tab[(crc ^  *p      ) & 0xf] ^ (crc >> 4);
+    crc = tab[(crc ^ (*p >> 4)) & 0xf] ^ (crc >> 4);
+  }
+  return ~crc;
+}
+
 void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
   int end = ((E - 1) / 1000 + 1) * 1000;
   const float percent = 100 / float(end);
@@ -309,9 +324,13 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
+
+  char buf[64];
+  snprintf(buf, sizeof(buf), "P3-%d-%d-%016llx", E, k, res);
+  u32 crc = crc32(buf, strlen(buf));
   
-  log("%s %04.1fM [%05.2f%%], %.2f ms/it, ETA %dd %02d:%02d; P3-%08d-%016llx\n",
-      checkOK ? "OK" : "EE", k / 1000000.f, k * percent, msPerIter, days, hours, mins, E, u64(res));
+  log("%s %04.1fM (%05.2f%%) of %d, %.2f ms/it, ETA %dd %02d:%02d; P3-%016llx-%08x\n",
+      checkOK ? "OK" : "EE", k / 1000000.f, k * percent, E, msPerIter, days, hours, mins, res, crc);
 }
 
 bool writeResult(int E, bool isPrime, u64 residue, const char *AID, const std::string &uid) {
@@ -640,6 +659,7 @@ int main(int argc, char **argv) {
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};
 
     // kernel-fusion equivalent of: tailKerns, headKerns.
+    // std::vector<Kernel *> coreKerns {&mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
     std::vector<Kernel *> coreKerns {&mega, &transpose1K, &tail, &transpose2K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
