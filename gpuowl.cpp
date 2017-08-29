@@ -71,7 +71,8 @@ public:
     extraGroups(extraGroups)
   { }
 
-  void setArg(int pos, auto &arg) { ::setArg(kernel.get(), pos, arg); }  
+  void setArg(int pos, Buffer &buf) { setArg(pos, buf.get()); }
+  void setArg(int pos, const auto &arg) { ::setArg(kernel.get(), pos, arg); } 
   void setArgs(auto&... args) { setArgsAt<0>(args...); }
 
   
