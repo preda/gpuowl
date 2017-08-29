@@ -329,14 +329,17 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
   snprintf(buf, sizeof(buf), "P3-%d-%d-%016llx", E, k, res);
   u32 crc = crc32(buf, strlen(buf));
   
-  log("%s %04.1fM (%05.2f%%) of %d, %.2f ms/it, ETA %dd %02d:%02d; P3-%016llx-%08x\n",
-      checkOK ? "OK" : "EE", k / 1000000.f, k * percent, E, msPerIter, days, hours, mins, res, crc);
+  log("%s %05dK (%05.2f%%) of %d, %.2f ms/it, ETA %dd %02d:%02d; P3-%016llx%02x\n",
+      checkOK ? "OK" : "EE", k / 1000, k * percent, E, msPerIter, days, hours, mins, res, crc & 0xff);
 }
 
-bool writeResult(int E, bool isPrime, u64 residue, const char *AID, const std::string &uid) {
+bool writeResult(int E, bool isPrime, u64 res, const char *AID, const std::string &uid) {
   char buf[256];
-  snprintf(buf, sizeof(buf), "%sM( %d )%c, P3-%016llx, offset = 0, n = %dK, %s, AID: %s",
-           uid.c_str(), E, isPrime ? 'P' : 'C', u64(residue), 4096, AGENT, AID);
+  snprintf(buf, sizeof(buf), "P3-%d-%d-%016llx", E, E-1, res);
+  u32 crc = crc32(buf, strlen(buf));
+  
+  snprintf(buf, sizeof(buf), "%sM( %d )%c, P3-%016llx%02x, n = %dK, %s, AID: %s",
+           uid.c_str(), E, isPrime ? 'P' : 'C', res, crc & 0xff, 4096, AGENT, AID);
   log("%s\n", buf);
   if (FILE *fo = open("results.txt", "a")) {
     fprintf(fo, "%s\n", buf);
@@ -383,7 +386,7 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
 }
 
 bool validate(int N, cl_mem bufData, cl_mem bufCheck,
-              cl_queue q, auto squareLoop, auto checkMul,
+              cl_queue q, auto squareLoop, auto modMul,
               const int *data, const int *check) {
   const int dataSize = sizeof(int) * N;
   
@@ -392,7 +395,7 @@ bool validate(int N, cl_mem bufData, cl_mem bufCheck,
   Timer timer;
   write(q, false, bufCheck, dataSize, check);
   write(q, false, bufData,  dataSize, data);
-  checkMul(q, bufData, bufCheck);
+  modMul(q, bufData, bufCheck);
   squareLoop(q, bufCheck, 1000, true);
   int *tmpA(new int[N]), *tmpB(new int[N]);
   read(q, false, bufData, dataSize, tmpA);
@@ -433,6 +436,8 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   if (!checkpoint.load(&k, data, check)) { return false; }
   log("PRP-3 FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
   assert(k % 1000 == 0);
+  const int kEnd = E - 1;
+  assert(k < kEnd);
   
   auto setRollback = [=, &goodK, &k]() {
     memcpy(goodData,  data,  dataSize);
@@ -469,10 +474,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
     data[0]  = 3;
     check[0] = 1;        
   }
-  
   setRollback();
-
-  const int kEnd = E - 1;
 
   while (k < kEnd) {
     assert(k % 1000 == 0);
@@ -481,7 +483,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
     if (kEnd - k <= 1000) {
       read(q, true, bufData, dataSize, data);
       // The write() below may seem redundant, but it protects against memory errors on the read() above,
-      // by making sure that any eventual errors are visible GPU-side and caught by verification.
+      // by making sure that any eventual errors are visible to the GPU-side verification.
       write(q, false, bufData, dataSize, data);
 
       *outResidue = residue(W, H, E, data);
@@ -494,17 +496,16 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
     finish(q);
     k += 1000;
-    fprintf(stderr, ".");
+    fprintf(stderr, " %2.0f%%\r", k % args.step * (100.f / args.step));
 
-    if (k % args.step == 0) {
-      fprintf(stderr, "\n");
+    if ((k % args.step == 0) || (k >= kEnd)) {
       read(q, false, bufCheck, dataSize, check);
       read(q, true, bufData, dataSize, data);
       bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
       doLog(E, k, timer.delta() / float(args.step), residue(W, H, E, data), ok);      
       if (ok) {
         setRollback();
-        checkpoint.save(k, data, check, k % args.saveStep == 0);
+        if (k < kEnd) { checkpoint.save(k, data, check, k % args.saveStep == 0); }
       } else {
         rollback();
       }
@@ -635,7 +636,7 @@ int main(int argc, char **argv) {
     transpose1K.setArgs(buf1,    buf2, bufBigTrig);
     fft1K.setArgs      (buf1,    bufTrig1K);
     carryA.setArgs     (baseBitlen, buf1, bufI, dummy, bufCarry);
-    carryMul3.setArgs   (baseBitlen, buf1, bufI, dummy, bufCarry);
+    carryMul3.setArgs  (baseBitlen, buf1, bufI, dummy, bufCarry);
     carryB_2K.setArgs  (dummy, bufCarry, bufBitlen);
     mega.setArgs(baseBitlen, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
 

@@ -13,23 +13,28 @@ FILE *open(const char *name, const char *mode);
 
 const int EXP_MIN = 50000000, EXP_MAX = 78000000;
 
+int parseLine(const char *line, char *outAID) {
+  char kind[32];
+  int exp;
+  if (sscanf(line, "%11[^=]=%32[0-9a-fA-F],%d,%*d,%*d", kind, outAID, &exp) == 3
+      && (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck"))) {
+    return exp;
+  }
+  outAID[0] = 0;
+  return (sscanf(line, "Test=%d", &exp) == 1) ? exp : 0;
+}
+
 int worktodoReadExponent(char *AID) {
   FILE *fi = open("worktodo.txt", "r");
   if (!fi) { return 0; }
 
   char line[256];
-  char kind[32];
-  int exp;
-  int ret = 0;
-  *AID = 0;
   while (true) {
     if (fscanf(fi, "%255s\n", line) < 1) { break; }
-    if (((sscanf(line, "%11[^=]=%32[0-9a-fA-F],%d,%*d,%*d", kind, AID, &exp) == 3
-          && (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")))
-         || sscanf(line, "Test=%d", &exp) == 1)) {
+    if (int exp = parseLine(line, AID)) {
       if (exp >= EXP_MIN && exp <= EXP_MAX) {
-        ret = exp;
-        break;
+        fclose(fi);
+        return exp;
       } else {
         log("Exponent %d skipped: must be between %d and %d\n", exp, EXP_MIN, EXP_MAX);
       }
@@ -38,7 +43,7 @@ int worktodoReadExponent(char *AID) {
     }
   }
   fclose(fi);
-  return ret;
+  return 0;
 }
 
 bool worktodoGetLinePos(int E, int *begin, int *end) {
@@ -46,25 +51,21 @@ bool worktodoGetLinePos(int E, int *begin, int *end) {
   if (!fi) { return false; }
 
   char line[256];
-  char kind[32];
-  int exp;
-  bool ret = false;
+  char AID[64];
   i64 p1 = 0;
   while (true) {
     if (fscanf(fi, "%255s\n", line) < 1) { break; }
     i64 p2 = ftell(fi);
-    if (sscanf(line, "%11[^=]=%*32[0-9a-fA-F],%d,%*d,%*d", kind, &exp) == 2 &&
-        (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck")) &&
-        exp == E) {
+    if (parseLine(line, AID) == E) {      
       *begin = p1;
       *end = p2;
-      ret = true;
-      break;
+      fclose(fi);
+      return true;
     }
     p1 = p2;
   }
   fclose(fi);
-  return ret;
+  return false;
 }
 
 bool worktodoDelete(int begin, int end) {
