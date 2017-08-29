@@ -172,20 +172,6 @@ cl_kernel makeKernel(cl_program program, const char *name) {
 
 void setArg(cl_kernel k, int pos, const auto &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
 
-template<int pos>
-void setArgsAt(cl_kernel k) {}
-
-template<int pos, typename T, typename... V>
-void setArgsAt(cl_kernel k, const T &a, const V&... args) {
-  setArg(k, pos, a);
-  setArgsAt<pos + 1>(k, args...);
-}
-
-template<typename... T>
-void setArgs(cl_kernel k, const T&... args) {
-  setArgsAt<0>(k, args...);
-}
-
 cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0) {
   int err;
   cl_mem buf = clCreateBuffer(context, kind, size, (void *) ptr, &err);

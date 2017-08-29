@@ -55,6 +55,12 @@ class Kernel {
   bool doTime;
   int extraGroups;
 
+  template<int P> void setArgsAt() {}  
+  template<int P> void setArgsAt(auto &a, auto&... args) {
+    setArg(P, a);
+    setArgsAt<P + 1>(args...);
+  }
+  
 public:
   Kernel(cl_program program, const char *iniName, int iniSizeShift, MicroTimer &timer, bool doTime, int extraGroups = 0) :
     name(iniName),
@@ -65,8 +71,9 @@ public:
     extraGroups(extraGroups)
   { }
 
-  void setArgs(auto&... args) { ::setArgs(kernel.get(), args...); }
-  void setArg(int pos, auto &arg) { ::setArg(kernel.get(), pos, arg); }
+  void setArg(int pos, auto &arg) { ::setArg(kernel.get(), pos, arg); }  
+  void setArgs(auto&... args) { setArgsAt<0>(args...); }
+
   
   const char *getName() { return name.c_str(); }
   void run(cl_queue q, int N) {
