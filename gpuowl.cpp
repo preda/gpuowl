@@ -71,7 +71,7 @@ public:
     extraGroups(extraGroups)
   { }
 
-  void setArg(int pos, Buffer &buf) { setArg(pos, buf.get()); }
+  void setArg(int pos, const Buffer &buf) { setArg(pos, buf.get()); }
   void setArg(int pos, const auto &arg) { ::setArg(kernel.get(), pos, arg); } 
   void setArgs(auto&... args) { setArgsAt<0>(args...); }
 
@@ -97,10 +97,10 @@ int wordPos(int N, int E, int p) {
 
 int bitlen(int N, int E, int p) { return wordPos(N, E, p + 1) - wordPos(N, E, p); }
 
-void genBitlen(int W, int H, int E, double *aTab, double *iTab, byte *bitlenTab) {
+// Sets the weighting vectors direct A and inverse iA (as per IBDWT).
+void genWeights(int W, int H, int E, double *aTab, double *iTab) {
   double *pa = aTab;
   double *pi = iTab;
-  byte   *pb = bitlenTab;
 
   int N = 2 * W * H;
   int baseBits = E / N;
@@ -120,7 +120,6 @@ void genBitlen(int W, int H, int E, double *aTab, double *iTab, byte *bitlenTab)
         auto ia = 1 / (4 * N * a);
         *pa++ = (bits == baseBits) ? a  : -a;
         *pi++ = (bits == baseBits) ? ia : -ia;
-        *pb++ = bits;
       }
     }
   }
@@ -358,21 +357,18 @@ bool writeResult(int E, bool isPrime, u64 res, const char *AID, const std::strin
   }
 }
 
-void setupExponentBufs(cl_context context, int W, int H, int E, cl_mem *pBufA, cl_mem *pBufI, cl_mem *pBufBitlen) {
+void setupExponentBufs(cl_context context, int W, int H, int E, cl_mem *pBufA, cl_mem *pBufI) {
   int N = 2 * W * H;
   double *aTab    = new double[N];
   double *iTab    = new double[N];
-  byte *bitlenTab = new byte[N];
   
-  genBitlen(W, H, E, aTab, iTab, bitlenTab);
+  genWeights(W, H, E, aTab, iTab);
   
   *pBufA      = makeBuf(context, BUF_CONST, sizeof(double) * N, aTab);
   *pBufI      = makeBuf(context, BUF_CONST, sizeof(double) * N, iTab);
-  *pBufBitlen = makeBuf(context, BUF_CONST, sizeof(byte)   * N, bitlenTab);
 
   delete[] aTab;
   delete[] iTab;
-  delete[] bitlenTab;
 }
 
 void run(const std::vector<Kernel *> &kerns, cl_queue q, int N) {
@@ -629,10 +625,10 @@ int main(int argc, char **argv) {
     int E = getNextExponent(false, &expectedRes, AID);
     if (E <= 0) { break; }
 
-    cl_mem pBufA, pBufI, pBufBitlen;
+    cl_mem pBufA, pBufI;
     timer.delta();
-    setupExponentBufs(context, W, H, E, &pBufA, &pBufI, &pBufBitlen);
-    Buffer bufA(pBufA), bufI(pBufI), bufBitlen(pBufBitlen);
+    setupExponentBufs(context, W, H, E, &pBufA, &pBufI);
+    Buffer bufA(pBufA), bufI(pBufI);
     unsigned baseBitlen = E / N;
     log("Exponent setup: %4d ms\n", timer.delta());
 
@@ -645,7 +641,7 @@ int main(int argc, char **argv) {
     fft1K.setArgs      (buf1,    bufTrig1K);
     carryA.setArgs     (baseBitlen, buf1, bufI, dummy, bufCarry);
     carryMul3.setArgs  (baseBitlen, buf1, bufI, dummy, bufCarry);
-    carryB_2K.setArgs  (dummy, bufCarry, bufBitlen);
+    carryB_2K.setArgs  (baseBitlen, dummy, bufCarry, bufI);
     mega.setArgs(baseBitlen, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
 
     fft2K.setArgs(buf2, bufTrig2K);
@@ -686,7 +682,7 @@ int main(int argc, char **argv) {
       run(headKerns, q, N);
 
       carryA.setArg(3, data);
-      carryB_2K.setArg(0, data);
+      carryB_2K.setArg(1, data);
 
       for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q, N); }
       if (doMul3) {
@@ -714,7 +710,7 @@ int main(int argc, char **argv) {
       run({&cmul2K, &fft2K, &transpose2K}, q, N);
 
       carryA.setArg(3, a);
-      carryB_2K.setArg(0, a);
+      carryB_2K.setArg(1, a);
       run(tailKerns, q, N);
     };
 

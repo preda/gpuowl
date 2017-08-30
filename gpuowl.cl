@@ -236,9 +236,9 @@ int2 car0Mul(int mul, long *carry, double2 u, double2 ia, uint baseBits) {
 }
 
 // Carry propagation.
-int2 car1(long *carry, int2 r, uchar2 bits) {
-  int a = updateMul(1, carry, r.x, bits.x);
-  int b = updateMul(1, carry, r.y, bits.y);
+int2 car1(long *carry, int2 r, double2 ia, uint base) {
+  int a = updateMul(1, carry, r.x, bitlen(base, ia.x));
+  int b = updateMul(1, carry, r.y, bitlen(base, ia.y));
   return (int2) (a, b);
 }
 
@@ -507,13 +507,13 @@ KERNEL(256) carryMul3(const uint baseBits,
   carryMul(3, baseBits, in, A, out, carryOut);
 }
 
-void carryBCore(uint H, global int2 *io, CONST long *carryIn, CONST uchar2 *bitlen) {
+void carryBCore(uint H, const uint baseBits, global int2 *io, CONST long *carryIn, CONST double2 *A) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   
   uint step = g % 4 * 256 + g / 4 * 8 * 1024;
-  io     += step;
-  bitlen += step;
+  io += step;
+  A  += step;
   
   uint prev = (g / 4 + (g % 4 * 256 + me) * (H / 8) - 1) & ((H / 8) * 1024 - 1);
   uint line = prev % (H / 8);
@@ -522,13 +522,13 @@ void carryBCore(uint H, global int2 *io, CONST long *carryIn, CONST uchar2 *bitl
   
   for (int i = 0; i < 8; ++i) {
     uint p = me + i * 1024;
-    io[p] = car1(&carry, io[p], bitlen[p]);
+    io[p] = car1(&carry, io[p], A[p], baseBits);
     if (!carry) { return; }
   }
 }
 
-KERNEL(256) carryB_2K(global int2 *in, global long *carryIn, CONST uchar2 *bitlen) {
-  carryBCore(2048, in, carryIn, bitlen);
+KERNEL(256) carryB_2K(const uint baseBits, global int2 *io, global long *carryIn, CONST double2 *A) {
+  carryBCore(2048, baseBits, io, carryIn, A);
 }
 
 // Inputs normal (non-conjugate); outputs conjugate.
