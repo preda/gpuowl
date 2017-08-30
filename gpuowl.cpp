@@ -364,7 +364,7 @@ void setupExponentBufs(cl_queue q, int W, int H, int E, cl_mem bufA, cl_mem bufI
   
   genWeights(W, H, E, aTab, iTab);
   write(q, false, bufA, sizeof(double) * N, aTab);
-  write(q, false, bufI, sizeof(double) * N, iTab);
+  write(q, true, bufI, sizeof(double) * N, iTab);
 
   delete[] aTab;
   delete[] iTab;
