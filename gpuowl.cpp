@@ -35,6 +35,7 @@ struct ReleaseDelete {
   using pointer = T;
   
   void operator()(T t) {
+    fprintf(stderr, "Release %s %llx\n", typeid(T).name(), u64(t));
     release(t);
   }
 };
@@ -407,7 +408,7 @@ bool validate(int N, cl_mem bufData, cl_mem bufCheck,
   delete[] tmpA;
   delete[] tmpB;
   write(q, false, bufCheck, dataSize, check);
-  write(q, false, bufData, dataSize, data);
+  write(q, true, bufData, dataSize, data);
   // log("Check %d (%d ms)\n", int(ok), timer.delta());
   return ok;
 }
@@ -451,7 +452,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   auto rollback = [=, &goodK, &k]() {
     log("rolling back to %d\n", goodK);
     write(q, false, bufData, dataSize, goodData);
-    write(q, false, bufCheck, dataSize, goodCheck);
+    write(q, true, bufCheck, dataSize, goodCheck);
     k = goodK;
   };
 
@@ -462,7 +463,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
     check[0] = 1;    
   }
   
-  Timer timer;
+  Timer timer, smallTimer;
 
   // Establish a known-good roolback point by initial verification of loaded data.
   while (true) {
@@ -481,6 +482,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
   while (k < kEnd) {
     assert(k % 1000 == 0);
+    smallTimer.delta();
     modMul(q, bufCheck, bufData);    
     modSqLoop(q, bufData, std::min(1000, kEnd - k), false);
     if (kEnd - k <= 1000) {
@@ -499,7 +501,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
     finish(q);
     k += 1000;
-    fprintf(stderr, " %2.0f%%\r", k % args.step * (100.f / args.step));
+    fprintf(stderr, " %2.0f%% of %d (%.2f ms/it)\r", k % args.step * (100.f / args.step), args.step, smallTimer.delta() / 1000.f);
 
     if ((k % args.step == 0) || (k >= kEnd)) {
       read(q, false, bufCheck, dataSize, check);
@@ -514,6 +516,8 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
       }
     }
   }
+
+  finish(q); // Redundant. Queue must be empty before buffers release.
   return true;
 }
 
@@ -612,8 +616,8 @@ int main(int argc, char **argv) {
   Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(double) * N)}; // could be N/2 as well.
 
   // Weights (direct and inverse) for the IBDWT.
-  Buffer bufA{makeBuf(context, CL_MEM_READ_ONLY, sizeof(double) * N)};
-  Buffer bufI{makeBuf(context, CL_MEM_READ_ONLY, sizeof(double) * N)};
+  Buffer bufA{makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, sizeof(double) * N)};
+  Buffer bufI{makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, sizeof(double) * N)};
   
   int *zero = new int[2049]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * 2049, zero)};

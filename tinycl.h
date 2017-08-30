@@ -75,9 +75,18 @@ int clWaitForEvents(unsigned numEvents, const cl_event *);
 #define CL_PROGRAM_BINARY_SIZES 0x1165
 #define CL_PROGRAM_BINARIES     0x1166
 #define CL_PROGRAM_BUILD_LOG    0x1183
+
 #define CL_MEM_READ_WRITE       (1 << 0)
+#define CL_MEM_WRITE_ONLY       (1 << 1)
 #define CL_MEM_READ_ONLY        (1 << 2)
+
+#define CL_MEM_USE_HOST_PTR     (1 << 3)
+#define CL_MEM_ALLOC_HOST_PTR   (1 << 4)
 #define CL_MEM_COPY_HOST_PTR    (1 << 5)
+
+#define CL_MEM_HOST_WRITE_ONLY  (1 << 7)
+#define CL_MEM_HOST_READ_ONLY   (1 << 8)
 #define CL_MEM_HOST_NO_ACCESS   (1 << 9)
+
 #define CL_INVALID_COMPILER_OPTIONS -66
 
