@@ -73,7 +73,7 @@ public:
 
   void setArg(int pos, const Buffer &buf) { setArg(pos, buf.get()); }
   void setArg(int pos, const auto &arg) { ::setArg(kernel.get(), pos, arg); } 
-  void setArgs(auto&... args) { setArgsAt<0>(args...); }
+  void setArgs(const auto&... args) { setArgsAt<0>(args...); }
 
   
   const char *getName() { return name.c_str(); }
@@ -357,15 +357,14 @@ bool writeResult(int E, bool isPrime, u64 res, const char *AID, const std::strin
   }
 }
 
-void setupExponentBufs(cl_context context, int W, int H, int E, cl_mem *pBufA, cl_mem *pBufI) {
+void setupExponentBufs(cl_queue q, int W, int H, int E, cl_mem bufA, cl_mem bufI) {
   int N = 2 * W * H;
   double *aTab    = new double[N];
   double *iTab    = new double[N];
   
   genWeights(W, H, E, aTab, iTab);
-  
-  *pBufA      = makeBuf(context, BUF_CONST, sizeof(double) * N, aTab);
-  *pBufI      = makeBuf(context, BUF_CONST, sizeof(double) * N, iTab);
+  write(q, false, bufA, sizeof(double) * N, aTab);
+  write(q, false, bufI, sizeof(double) * N, iTab);
 
   delete[] aTab;
   delete[] iTab;
@@ -612,9 +611,30 @@ int main(int argc, char **argv) {
   Buffer buf3{makeBuf(context, BUF_RW, sizeof(double) * N)};
   Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(double) * N)}; // could be N/2 as well.
 
+  // Weights (direct and inverse) for the IBDWT.
+  Buffer bufA{makeBuf(context, CL_MEM_READ_ONLY, sizeof(double) * N)};
+  Buffer bufI{makeBuf(context, CL_MEM_READ_ONLY, sizeof(double) * N)};
+  
   int *zero = new int[2049]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * 2049, zero)};
   delete[] zero;
+
+  Buffer dummy;
+    
+  fftPremul1K.setArgs(dummy, buf1, bufA, bufTrig1K);
+  tail.setArgs       (buf2,    bufTrig2K, bufSins);
+  transpose2K.setArgs(buf2,    buf1, bufBigTrig);
+  transpose1K.setArgs(buf1,    buf2, bufBigTrig);
+  fft1K.setArgs      (buf1,    bufTrig1K);
+  carryA.setArgs     (0, buf1, bufI, dummy, bufCarry);
+  carryMul3.setArgs  (0, buf1, bufI, dummy, bufCarry);
+  carryB_2K.setArgs  (0, dummy, bufCarry, bufI);
+  mega.setArgs(0, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
+
+  fft2K.setArgs(buf2, bufTrig2K);
+  csquare2K.setArgs(buf2, bufSins);
+  cmul2K.setArgs(buf2, buf3, bufSins);
+
   log("General setup : %4d ms\n", timer.delta());
 
   Queue queue{makeQueue(device, context)};
@@ -625,28 +645,12 @@ int main(int argc, char **argv) {
     int E = getNextExponent(false, &expectedRes, AID);
     if (E <= 0) { break; }
 
-    cl_mem pBufA, pBufI;
-    timer.delta();
-    setupExponentBufs(context, W, H, E, &pBufA, &pBufI);
-    Buffer bufA(pBufA), bufI(pBufI);
+    setupExponentBufs(queue.get(), W, H, E, bufA.get(), bufI.get());
     unsigned baseBitlen = E / N;
-    log("Exponent setup: %4d ms\n", timer.delta());
-
-    Buffer dummy;
-    
-    fftPremul1K.setArgs(dummy, buf1, bufA, bufTrig1K);
-    tail.setArgs       (buf2,    bufTrig2K, bufSins);
-    transpose2K.setArgs(buf2,    buf1, bufBigTrig);
-    transpose1K.setArgs(buf1,    buf2, bufBigTrig);
-    fft1K.setArgs      (buf1,    bufTrig1K);
-    carryA.setArgs     (baseBitlen, buf1, bufI, dummy, bufCarry);
-    carryMul3.setArgs  (baseBitlen, buf1, bufI, dummy, bufCarry);
-    carryB_2K.setArgs  (baseBitlen, dummy, bufCarry, bufI);
-    mega.setArgs(baseBitlen, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
-
-    fft2K.setArgs(buf2, bufTrig2K);
-    csquare2K.setArgs(buf2, bufSins);
-    cmul2K.setArgs(buf2, buf3, bufSins);
+    carryA.setArg(0, baseBitlen);
+    carryMul3.setArg(0, baseBitlen);
+    carryB_2K.setArg(0, baseBitlen);
+    mega.setArg(0, baseBitlen);
     
     bool isPrime;
     u64 residue;
