@@ -35,7 +35,7 @@ struct ReleaseDelete {
   using pointer = T;
   
   void operator()(T t) {
-    fprintf(stderr, "Release %s %llx\n", typeid(T).name(), u64(t));
+    // fprintf(stderr, "Release %s %llx\n", typeid(T).name(), u64(t));
     release(t);
   }
 };
@@ -325,6 +325,18 @@ u32 crc32(const void *data, size_t size) {
   return ~crc;
 }
 
+u32 checksum(int E, int k, u64 res) {
+  char buf[64];
+  snprintf(buf, sizeof(buf), "P3-%d-%d-%016llx", E, k, res);
+  return crc32(buf, strlen(buf));
+} 
+
+std::string resStr(int E, int k, u64 res) {
+  char buf[64];
+  snprintf(buf, sizeof(buf), "P3-%016llx%02x", res, checksum(E, k, res) & 0xff);
+  return std::string(buf);
+}
+
 void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
   int end = ((E - 1) / 1000 + 1) * 1000;
   const float percent = 100 / float(end);
@@ -332,22 +344,15 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
-
-  char buf[64];
-  snprintf(buf, sizeof(buf), "P3-%d-%d-%016llx", E, k, res);
-  u32 crc = crc32(buf, strlen(buf));
   
-  log("%s %05dK (%05.2f%%) of %d, %.2f ms/it, ETA %dd %02d:%02d; P3-%016llx%02x\n",
-      checkOK ? "OK" : "EE", k / 1000, k * percent, E, msPerIter, days, hours, mins, res, crc & 0xff);
+  log("%s %8d / %d [%6.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s\n",
+      checkOK ? "OK" : "EE", k, E, k * percent, msPerIter, days, hours, mins, resStr(E, k, res).c_str());
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const char *AID, const std::string &uid) {
   char buf[256];
-  snprintf(buf, sizeof(buf), "P3-%d-%d-%016llx", E, E-1, res);
-  u32 crc = crc32(buf, strlen(buf));
-  
-  snprintf(buf, sizeof(buf), "%sM( %d )%c, P3-%016llx%02x, n = %dK, %s, AID: %s",
-           uid.c_str(), E, isPrime ? 'P' : 'C', res, crc & 0xff, 4096, AGENT, AID);
+  snprintf(buf, sizeof(buf), "%sM( %d )%c, %s, n = %dK, %s, AID: %s",
+           uid.c_str(), E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), 4096, AGENT, AID);
   log("%s\n", buf);
   if (FILE *fo = open("results.txt", "a")) {
     fprintf(fo, "%s\n", buf);
@@ -490,9 +495,12 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
       // The write() below may seem redundant, but it protects against memory errors on the read() above,
       // by making sure that any eventual errors are visible to the GPU-side verification.
       write(q, false, bufData, dataSize, data);
-
-      *outResidue = residue(W, H, E, data);
-      *outIsPrime = data[0] == -3 && isAllZero(data + 1, N - 1);
+      
+      bool isPrime = (data[0] == -3 && isAllZero(data + 1, N - 1));
+      u64 res = residue(W, H, E, data);
+      log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, resStr(E, kEnd, res).c_str());      
+      *outIsPrime = isPrime;
+      *outResidue = res;
         
       int left = 1000 - (kEnd - k);
       assert(left >= 0);
@@ -501,13 +509,13 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
     finish(q);
     k += 1000;
-    fprintf(stderr, " %2.0f%% of %d (%.2f ms/it)\r", k % args.step * (100.f / args.step), args.step, smallTimer.delta() / 1000.f);
+    fprintf(stderr, " %5d / %d, %.2f ms/it\r", k % args.step, args.step, smallTimer.delta() / 1000.f);
 
     if ((k % args.step == 0) || (k >= kEnd)) {
       read(q, false, bufCheck, dataSize, check);
       read(q, true, bufData, dataSize, data);
       bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
-      doLog(E, k, timer.delta() / float(args.step), residue(W, H, E, data), ok);      
+      doLog(E, k, timer.delta() / float((k - 1) % args.step + 1), residue(W, H, E, data), ok);      
       if (ok) {
         setRollback();
         if (k < kEnd) { checkpoint.save(k, data, check, k % args.saveStep == 0); }
