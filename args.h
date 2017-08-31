@@ -8,13 +8,15 @@
 #include <cstring>
 
 struct Args {
-  std::string clArgs, uid;
+  std::string clArgs;
+  std::string user, cpu;
   int step, saveStep;
   int device;
   bool timeKernels, useLegacy;
   
   Args() : step(100000), saveStep(10000000), device(-1), timeKernels(false), useLegacy(false) { }
 
+  /*
   void logConfig() {
     std::string uidStr    = (uid.empty()    ? "" : " -uid "    + uid);
     std::string clStr     = (clArgs.empty() ? "" : " -cl \""   + clArgs + "\"");
@@ -29,6 +31,7 @@ struct Args {
       
     log("Config: -step %d -savestep %d %s\n", step, saveStep, tailStr.c_str());
   }
+  */
 
   // return false to stop.
   bool parse(int argc, char **argv) {
@@ -36,12 +39,13 @@ struct Args {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n\n"
-          "-step     <N>     : to log, validate and save every <N> [default 100K] iterations.\n"
-          "-savestep <N>     : to persist checkpoint every <N> [default 10M] iterations.\n"
-          "-uid user/machine : set UID: string to be prepended to the result line\n"
+          "-step     <N> : to log, validate and save every <N> [default 100K] iterations.\n"
+          "-savestep <N> : to persist checkpoint every <N> [default 10M] iterations.\n"
+          "-user <name>  : specify the user name.\n"
+          "-cpu  <name>  : specify the hardware name.\n"  
           "-cl \"<OpenCL compiler options>\", e.g. -cl \"-save-temps=tmp/ -O2\"\n"
-          "-legacy           : use legacy kernels\n"
-          "-device <N>       : select specific device among:\n");
+          "-legacy       : use legacy kernels\n"
+          "-device <N>   : select specific device among:\n");
       
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
@@ -73,11 +77,18 @@ struct Args {
         log("-savestep expects <N> argument\n");
         return false;
       }
-    } else if (!strcmp(arg, "-uid")) {
+    } else if (!strcmp(arg, "-user")) {
       if (i < argc - 1) {
-        uid = argv[++i];
+        user = argv[++i];
       } else {
-        log("-uid expects userName/computerName\n");
+        log("-user expects name\n");
+        return false;
+      }
+    } else if (!strcmp(arg, "-cpu")) {
+      if (i < argc - 1) {
+        cpu = argv[++i];
+      } else {
+        log("-cpu expects name\n");
         return false;
       }
     } else if (!strcmp(arg, "-cl")) {
@@ -121,7 +132,7 @@ struct Args {
   // make them multiple of logStep
   saveStep  -= saveStep % step;
 
-  logConfig();
+  // logConfig();
   return true;
 }
 

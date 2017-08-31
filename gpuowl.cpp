@@ -333,7 +333,7 @@ u32 checksum(int E, int k, u64 res) {
 
 std::string resStr(int E, int k, u64 res) {
   char buf[64];
-  snprintf(buf, sizeof(buf), "P3-%016llx%02x", res, checksum(E, k, res) & 0xff);
+  snprintf(buf, sizeof(buf), "%016llx-%02x", res, checksum(E, k, res) & 0xff);
   return std::string(buf);
 }
 
@@ -345,14 +345,23 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
   
-  log("%s %8d / %d [%6.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s\n",
+  log("%s %8d / %d [%5.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s\n",
       checkOK ? "OK" : "EE", k, E, k * percent, msPerIter, days, hours, mins, resStr(E, k, res).c_str());
 }
 
-bool writeResult(int E, bool isPrime, u64 res, const char *AID, const std::string &uid) {
+bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu) {
+  std::string uid;
+  if (!user.empty()) { uid += ", \"user\": \"" + user + '"'; }
+  if (!cpu.empty())  { uid += ", \"cpu\": \"" + cpu + '"'; }
+  std::string aidJson = AID.empty() ? "" : ", \"aid\": \"" + AID + '"';
+  
   char buf[256];
-  snprintf(buf, sizeof(buf), "%sM( %d )%c, %s, n = %dK, %s, AID: %s",
-           uid.c_str(), E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), 4096, AGENT, AID);
+  snprintf(buf, sizeof(buf),
+           R"-({ "exponent": %d, "worktype": "P3", "status": "%c", "res64": "%s"%s, "program": "%s"%s })-",
+           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), uid.c_str(), AGENT, aidJson.c_str());
+  
+  // snprintf(buf, sizeof(buf), "%sM( %d )%c, %s, n = %dK, %s, AID: %s",
+  //          uid.c_str(), E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), 4096, AGENT, AID);
   log("%s\n", buf);
   if (FILE *fo = open("results.txt", "a")) {
     fprintf(fo, "%s\n", buf);
@@ -509,7 +518,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
     finish(q);
     k += 1000;
-    fprintf(stderr, " %5d / %d, %.2f ms/it\r", k % args.step, args.step, smallTimer.delta() / 1000.f);
+    fprintf(stderr, " %5d / %d, %.2f ms/it\r", (k - 1) % args.step + 1, args.step, smallTimer.delta() / 1000.f);
 
     if ((k % args.step == 0) || (k >= kEnd)) {
       read(q, false, bufCheck, dataSize, check);
@@ -563,7 +572,7 @@ int main(int argc, char **argv) {
   Args args;
   
   if (!args.parse(argc, argv)) { return 0; }
-  
+
   cl_device_id device;
   if (args.device >= 0) {
     cl_device_id devices[16];
@@ -734,8 +743,7 @@ int main(int argc, char **argv) {
       break;
     }
 
-    std::string uid = args.uid.empty() ? "" : "UID: " + args.uid + ", ";
-    if (!(writeResult(E, isPrime, residue, AID, uid) && worktodoDelete(E))) { break; }
+    if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu) && worktodoDelete(E))) { break; }
   }
     
   log("\nBye\n");
