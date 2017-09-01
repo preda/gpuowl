@@ -354,11 +354,15 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   if (!user.empty()) { uid += ", \"user\": \"" + user + '"'; }
   if (!cpu.empty())  { uid += ", \"cpu\": \"" + cpu + '"'; }
   std::string aidJson = AID.empty() ? "" : ", \"aid\": \"" + AID + '"';
+
+  time_t t = time(NULL);
+  std::string timeUtc = asctime(gmtime(&t));
+  timeUtc.resize(timeUtc.size() - 1); // remove trailing newline.
   
   char buf[256];
   snprintf(buf, sizeof(buf),
-           R"-({ "exponent": %d, "worktype": "P3", "status": "%c", "res64": "%s"%s, "program": "%s"%s })-",
-           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), uid.c_str(), AGENT, aidJson.c_str());
+           R"-({ "exponent": %d, "worktype": "P3", "status": "%c", "res64": "%s"%s, "program": "%s" "time": "%s"%s })-",
+           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), uid.c_str(), AGENT, timeUtc.c_str(), aidJson.c_str());
   
   // snprintf(buf, sizeof(buf), "%sM( %d )%c, %s, n = %dK, %s, AID: %s",
   //          uid.c_str(), E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), 4096, AGENT, AID);
@@ -573,6 +577,8 @@ int main(int argc, char **argv) {
   
   if (!args.parse(argc, argv)) { return 0; }
 
+  // writeResult(25000000, false, -3, "FF00AA00", "meme", "vega");
+  
   cl_device_id device;
   if (args.device >= 0) {
     cl_device_id devices[16];
