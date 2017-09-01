@@ -90,3 +90,13 @@ int clWaitForEvents(unsigned numEvents, const cl_event *);
 
 #define CL_INVALID_COMPILER_OPTIONS -66
 
+
+// AMD
+#define CL_DEVICE_TOPOLOGY_AMD    0x4037
+#define CL_DEVICE_BOARD_NAME_AMD  0x4038
+
+typedef union
+{
+    struct { u32 type; u32 data[5]; } raw;
+    struct { u32 type; char unused[17]; char bus; char device; char function; } pcie;
+} cl_device_topology_amd;

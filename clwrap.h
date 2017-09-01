@@ -17,6 +17,18 @@ void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) {
   assert(outSize <= bufSize);
 }
 
+bool getInfoMaybe(cl_device_id id, int what, size_t bufSize, void *buf) {
+  return clGetDeviceInfo(id, what, bufSize, buf, NULL) == CL_SUCCESS;
+}
+
+bool getTopology(cl_device_id id, size_t bufSize, char *buf) {
+  cl_device_topology_amd top;
+  if (!getInfoMaybe(id, CL_DEVICE_TOPOLOGY_AMD, sizeof(top), &top)) { return false; }
+  snprintf(buf, bufSize, "%x:%u.%u",
+           (unsigned) (unsigned char) top.pcie.bus, (unsigned) top.pcie.device, (unsigned) top.pcie.function);
+  return true;
+}
+
 int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
   cl_platform_id platforms[8];
   unsigned nPlatforms;
@@ -55,8 +67,18 @@ void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
 
   unsigned isEcc = 0;
   CHECK(clGetDeviceInfo(device, CL_DEVICE_ERROR_CORRECTION_SUPPORT, sizeof(isEcc), &isEcc, NULL));
-  
-  snprintf(info, infoSize, "%2ux%4uMHz %s; %s%s", computeUnits, frequency, name, version, isEcc ? " (ECC)" : "");
+
+  char boardName[64];
+  bool hasBoardName = getInfoMaybe(device, CL_DEVICE_BOARD_NAME_AMD, sizeof(boardName), boardName);
+
+  char topology[64];
+  bool hasTopology = getTopology(device, sizeof(topology), topology);
+
+  if (hasBoardName && hasTopology) {
+    snprintf(info, infoSize, "%s @%s, %s, %2ux%4uMHz", boardName, topology, name, computeUnits, frequency);
+  } else {
+    snprintf(info, infoSize, "%s, %2ux%4uMHz", name, computeUnits, frequency);
+  }
 }
 
 cl_context createContext(cl_device_id device) {
