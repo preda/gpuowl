@@ -583,8 +583,6 @@ int main(int argc, char **argv) {
   Args args;
   
   if (!args.parse(argc, argv)) { return 0; }
-
-  //writeResult(25000000, false, -3, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", "vega", 5);
   
   cl_device_id device;
   if (args.device >= 0) {
@@ -599,6 +597,10 @@ int main(int argc, char **argv) {
       return 8;
     }
   }
+
+  if (args.cpu.empty()) { args.cpu = getDeviceName(device); }
+
+  // writeResult(25000000, false, -3, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", args.cpu, 5);
   
   char info[256];
   getDeviceInfo(device, sizeof(info), info);

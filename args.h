@@ -128,8 +128,6 @@ struct Args {
   assert(step > 0 && !(step % 1000));
   
   if (saveStep < step)  { saveStep = step; }
-
-  // make them multiple of logStep
   saveStep  -= saveStep % step;
 
   // logConfig();

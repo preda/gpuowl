@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <cstdarg>
 
+#include <string>
+
 #define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
 #define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d (%s)\n", e, mes); assert(false); }}
 
@@ -57,6 +59,19 @@ int getNumberOfDevices() {
   return n;
 }
 
+std::string getDeviceName(cl_device_id id) {
+  char boardName[64];
+  bool hasBoardName = getInfoMaybe(id, CL_DEVICE_BOARD_NAME_AMD, sizeof(boardName), boardName);
+
+  char topology[64];
+  bool hasTopology = getTopology(id, sizeof(topology), topology);
+
+  unsigned computeUnits;
+  getInfo(id, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits);
+  
+  return (hasBoardName && hasTopology) ? std::string(boardName) + " " + std::to_string(computeUnits) + " @ " + topology : "";
+}
+
 void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
   char name[64], version[64];
   getInfo(device, CL_DEVICE_NAME,    sizeof(name), name);
@@ -68,14 +83,10 @@ void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
   unsigned isEcc = 0;
   CHECK(clGetDeviceInfo(device, CL_DEVICE_ERROR_CORRECTION_SUPPORT, sizeof(isEcc), &isEcc, NULL));
 
-  char boardName[64];
-  bool hasBoardName = getInfoMaybe(device, CL_DEVICE_BOARD_NAME_AMD, sizeof(boardName), boardName);
+  std::string board = getDeviceName(device);
 
-  char topology[64];
-  bool hasTopology = getTopology(device, sizeof(topology), topology);
-
-  if (hasBoardName && hasTopology) {
-    snprintf(info, infoSize, "%s @%s, %s, %2ux%4uMHz", boardName, topology, name, computeUnits, frequency);
+  if (!board.empty()) {
+    snprintf(info, infoSize, "%s, %s %4uMHz", board.c_str(), name, frequency);
   } else {
     snprintf(info, infoSize, "%s, %2ux%4uMHz", name, computeUnits, frequency);
   }
