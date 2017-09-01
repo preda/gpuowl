@@ -24,8 +24,8 @@
 #endif
 
 #define VERSION "1.0"
-
-const char *AGENT = "gpuowl v" VERSION;
+#define PROGRAM "gpuowl"
+const char *AGENT = PROGRAM " v" VERSION;
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
@@ -333,7 +333,8 @@ u32 checksum(int E, int k, u64 res) {
 
 std::string resStr(int E, int k, u64 res) {
   char buf[64];
-  snprintf(buf, sizeof(buf), "%016llx-%02x", res, checksum(E, k, res) & 0xff);
+  // snprintf(buf, sizeof(buf), "%016llx-%02x", res, checksum(E, k, res) & 0xff);
+  snprintf(buf, sizeof(buf), "%016llx", res);
   return std::string(buf);
 }
 
@@ -351,9 +352,9 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu) {
   std::string uid;
-  if (!user.empty()) { uid += ", \"user\": \"" + user + '"'; }
-  if (!cpu.empty())  { uid += ", \"cpu\": \"" + cpu + '"'; }
-  std::string aidJson = AID.empty() ? "" : ", \"aid\": \"" + AID + '"';
+  if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
+  if (!cpu.empty())  { uid += ", \"cpu\":\"" + cpu + '"'; }
+  std::string aidJson = AID.empty() ? "" : ", \"aid\":\"" + AID + '"';
 
   time_t t = time(NULL);
   std::string timeUtc = asctime(gmtime(&t));
@@ -361,8 +362,8 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   
   char buf[256];
   snprintf(buf, sizeof(buf),
-           R"-({ "exponent": %d, "worktype": "P3", "status": "%c", "res64": "%s"%s, "program": "%s" "time": "%s"%s })-",
-           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), uid.c_str(), AGENT, timeUtc.c_str(), aidJson.c_str());
+           R"-({ "exponent":%d, "worktype":"PPR-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":"%s", "program-version":"%s", "time":"%s"%s%s })-",
+           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeUtc.c_str(), uid.c_str(), aidJson.c_str());
   
   // snprintf(buf, sizeof(buf), "%sM( %d )%c, %s, n = %dK, %s, AID: %s",
   //          uid.c_str(), E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), 4096, AGENT, AID);
