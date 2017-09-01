@@ -17,17 +17,17 @@ class Checkpoint {
 private:
   char fileNameSave[64], fileNamePrev[64], fileNameTemp[64];
   int E, W, H;
-  // Header: "\nLL3 <exponent> <iteration> <width> <height> <sum> \n"
-  const char *headerFormat = "\nLL3 %d %d %d %d %d\n";
+  // Header: "\n<signature> <exponent> <iteration> <width> <height> <sum> <nErrors>\n"
+  const char *headerFormat = "\nLL4 %d %d %d %d %d %d\n";
 
-  bool write(const char *name, int k, const int *data, const int *checkBits) {
+  bool write(const char *name, int k, const int *data, const int *checkBits, int nErrors) {
     if (FILE *fo = open(name, "wb")) {
       int N = 2 * W * H;
       int dataSize = sizeof(int) * N;
       int sum = checksum(checksum(0, data, N), checkBits, N);
       bool ok = fwrite(data, dataSize, 1, fo)
         && fwrite(checkBits, dataSize, 1, fo)
-        && (fprintf(fo, headerFormat, E, k, W, H, sum) > 0);
+        && (fprintf(fo, headerFormat, E, k, W, H, sum, nErrors) > 0);
       fclose(fo);
       if (ok) { return true; }
       log("File '%s': error writing\n", name);
@@ -42,12 +42,12 @@ private:
   
 public:
   Checkpoint(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
-    snprintf(fileNameSave, sizeof(fileNameSave), "c%d.ll", E);
-    snprintf(fileNamePrev, sizeof(fileNamePrev), "t%d.ll", E);
-    snprintf(fileNameTemp, sizeof(fileNameTemp), "b%d.ll", E);
+    snprintf(fileNameSave, sizeof(fileNameSave), "%d.ll", E);
+    snprintf(fileNamePrev, sizeof(fileNamePrev), "%d-prev.ll", E);
+    snprintf(fileNameTemp, sizeof(fileNameTemp), "%d-temp.ll", E);
   }
   
-  bool load(int *startK, int *data, int *checkBits) {
+  bool load(int *startK, int *data, int *checkBits, int *nErrors) {
     *startK = 0;
     if (FILE *fi = fopen(fileNameSave, "rb")) {
       int N = 2 * W * H;
@@ -61,9 +61,9 @@ public:
 
       int expectedSum = checksum(checksum(0, data, N), checkBits, N);
       int fileE, fileK, fileW, fileH, fileSum;
-      int nRead = fscanf(fi, headerFormat, &fileE, &fileK, &fileW, &fileH, &fileSum);
+      int nRead = fscanf(fi, headerFormat, &fileE, &fileK, &fileW, &fileH, &fileSum, nErrors);
       fclose(fi);
-      if (nRead != 5 || E != fileE || W != fileW || H != fileH || fileSum != expectedSum) {
+      if (nRead != 6 || E != fileE || W != fileW || H != fileH || fileSum != expectedSum) {
         log("File '%s': invalid\n", fileNameSave);
         return false;
       }
@@ -72,16 +72,16 @@ public:
     return true;
   }
   
-  void save(int k, int *data, int *checkBits, bool savePersist) {
-    if (write(fileNameTemp, k, data, checkBits)) {
+  void save(int k, int *data, int *checkBits, bool savePersist, int nErrors) {
+    if (write(fileNameTemp, k, data, checkBits, nErrors)) {
       remove(fileNamePrev);
       rename(fileNameSave, fileNamePrev);
       rename(fileNameTemp, fileNameSave);      
     }
     if (savePersist) {
       char name[64];
-      snprintf(name, sizeof(name), "s%d.%d.ll", E, k);
-      write(name, k, data, checkBits);
+      snprintf(name, sizeof(name), "%d.%d.ll", E, k);
+      write(name, k, data, checkBits, nErrors);
     }
   }
 };

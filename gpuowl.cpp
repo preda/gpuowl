@@ -23,7 +23,7 @@
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
-#define VERSION "1.0"
+#define VERSION "1.1"
 #define PROGRAM "gpuowl"
 const char *AGENT = PROGRAM " v" VERSION;
 
@@ -338,32 +338,36 @@ std::string resStr(int E, int k, u64 res) {
   return std::string(buf);
 }
 
-void doLog(int E, int k, float msPerIter, u64 res, bool checkOK) {
+void doLog(int E, int k, float msPerIter, u64 res, bool checkOK, int nErrors) {
   int end = ((E - 1) / 1000 + 1) * 1000;
   const float percent = 100 / float(end);
   int etaMins = (end - k) * msPerIter * (1 / (float) 60000) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
+
+  std::string errors = !nErrors ? "" : " (%d errors)";
   
-  log("%s %8d / %d [%5.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s\n",
-      checkOK ? "OK" : "EE", k, E, k * percent, msPerIter, days, hours, mins, resStr(E, k, res).c_str());
+  log("%s %8d / %d [%5.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s%s\n",
+      checkOK ? "OK" : "EE", k, E, k * percent, msPerIter, days, hours, mins, resStr(E, k, res).c_str(), errors.c_str());
 }
 
-bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu) {
+bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors) {
   std::string uid;
   if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
   if (!cpu.empty())  { uid += ", \"cpu\":\"" + cpu + '"'; }
   std::string aidJson = AID.empty() ? "" : ", \"aid\":\"" + AID + '"';
-
-  time_t t = time(NULL);
-  std::string timeUtc = asctime(gmtime(&t));
-  timeUtc.resize(timeUtc.size() - 1); // remove trailing newline.
+  std::string errors = !nErrors ? "" : ", \"errors\":{\"rollback\":" + std::to_string(nErrors) + "}";
   
-  char buf[256];
+  time_t t = time(NULL);
+  char timeBuf[64];
+  strftime(timeBuf, sizeof(timeBuf), "%F %T", gmtime(&t));
+  
+  char buf[512];
   snprintf(buf, sizeof(buf),
-           R"-({ "exponent":%d, "worktype":"PPR-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":"%s", "program-version":"%s", "time":"%s"%s%s })-",
-           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeUtc.c_str(), uid.c_str(), aidJson.c_str());
+           R"-({"exponent":%d, "worktype":"PPR-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":"%s", "program-version":"%s", "time":"%s"%s%s%s})-",
+           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeBuf,
+           errors.c_str(), uid.c_str(), aidJson.c_str());
   
   // snprintf(buf, sizeof(buf), "%sM( %d )%c, %s, n = %dK, %s, AID: %s",
   //          uid.c_str(), E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), 4096, AGENT, AID);
@@ -433,7 +437,7 @@ bool validate(int N, cl_mem bufData, cl_mem bufCheck,
 }
 
 bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args &args,
-                bool *outIsPrime, u64 *outResidue, auto modSqLoop, auto modMul) {
+                bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul) {
   const int N = 2 * W * H;
   const int dataSize = sizeof(int) * N;
 
@@ -454,9 +458,10 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   cl_mem bufCheck = bufCheckHolder.get();
   
   int k = 0, goodK = 0;
+  int nErrors = 0;
   Checkpoint checkpoint(E, W, H);
 
-  if (!checkpoint.load(&k, data, check)) { return false; }
+  if (!checkpoint.load(&k, data, check, &nErrors)) { return false; }
   log("PRP-3 FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
   assert(k % 1000 == 0);
   const int kEnd = E - 1;
@@ -487,7 +492,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   // Establish a known-good roolback point by initial verification of loaded data.
   while (true) {
     bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
-    doLog(E, k, timer.delta() / 1000.f, residue(W, H, E, data), ok);
+    doLog(E, k, timer.delta() / 1000.f, residue(W, H, E, data), ok, nErrors);
     if (ok) { break; }
     assert(k > 0);
     log("Loaded checkpoint failed validation. Restarting from zero.\n");
@@ -515,7 +520,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, resStr(E, kEnd, res).c_str());      
       *outIsPrime = isPrime;
       *outResidue = res;
-        
+      *outNErrors = nErrors;
       int left = 1000 - (kEnd - k);
       assert(left >= 0);
       if (left) { modSqLoop(q, bufData, left, false); }
@@ -529,12 +534,13 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
       read(q, false, bufCheck, dataSize, check);
       read(q, true, bufData, dataSize, data);
       bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
-      doLog(E, k, timer.delta() / float((k - 1) % args.step + 1), residue(W, H, E, data), ok);      
+      doLog(E, k, timer.delta() / float((k - 1) % args.step + 1), residue(W, H, E, data), ok, nErrors);      
       if (ok) {
         setRollback();
-        if (k < kEnd) { checkpoint.save(k, data, check, k % args.saveStep == 0); }
+        if (k < kEnd) { checkpoint.save(k, data, check, k % args.saveStep == 0, nErrors); }
       } else {
         rollback();
+        ++nErrors;
       }
     }
   }
@@ -578,7 +584,7 @@ int main(int argc, char **argv) {
   
   if (!args.parse(argc, argv)) { return 0; }
 
-  // writeResult(25000000, false, -3, "FF00AA00", "meme", "vega");
+  //writeResult(25000000, false, -3, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", "vega", 5);
   
   cl_device_id device;
   if (args.device >= 0) {
@@ -746,11 +752,12 @@ int main(int argc, char **argv) {
       run(tailKerns, q, N);
     };
 
-    if (!checkPrime(W, H, E, queue.get(), context, args, &isPrime, &residue, std::move(modSqLoop), std::move(modMul))) {
+    int nErrors = 0;
+    if (!checkPrime(W, H, E, queue.get(), context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul))) {
       break;
     }
 
-    if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu) && worktodoDelete(E))) { break; }
+    if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu, nErrors) && worktodoDelete(E))) { break; }
   }
     
   log("\nBye\n");

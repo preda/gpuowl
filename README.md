@@ -11,9 +11,9 @@ which validates the main computation and thus protects from hardware errors.
 ## Files used by gpuOwl
 * worktodo.txt : contains exponents to test "Test=N", one per line
 * results.txt : contains the results
-* cN.ll : the most recent checkpoint for exponent <N>; will resume from here
-* tN.ll : the previous checkpoint, to be used if cN.ll is lost or corrupted
-* sN.iteration.ll : a persistent checkpoint at the given iteration
+* N.ll : the most recent checkpoint for exponent <N>; will resume from here
+* N-prev.ll : the previous checkpoint, to be used if N.ll is lost or corrupted
+* N.iteration.ll : a persistent checkpoint at the given iteration
 
 The lines in worktodo.txt must be of one of these forms:
 * Test=70100200
