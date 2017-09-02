@@ -69,7 +69,7 @@ std::string getDeviceName(cl_device_id id) {
   unsigned computeUnits;
   getInfo(id, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits);
   
-  return (hasBoardName && hasTopology) ? std::string(boardName) + " " + std::to_string(computeUnits) + " @ " + topology : "";
+  return (hasBoardName && hasTopology) ? std::string(boardName) + " " + std::to_string(computeUnits) + " @" + topology : "";
 }
 
 void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {

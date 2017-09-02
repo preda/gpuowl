@@ -365,7 +365,7 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   
   char buf[512];
   snprintf(buf, sizeof(buf),
-           R"-({"exponent":%d, "worktype":"PPR-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":"%s", "program-version":"%s", "time":"%s"%s%s%s})-",
+           R"-({"exponent":%d, "worktype":"PPR-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "time":"%s"%s%s%s})-",
            E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeBuf,
            errors.c_str(), uid.c_str(), aidJson.c_str());
   
@@ -697,9 +697,11 @@ int main(int argc, char **argv) {
     std::vector<Kernel *> directFftKerns {&fftPremul1K, &transpose1K, &fft2K};
 
     // sequence of: direct FFT, square, first-half of inverse FFT.
-    std::vector<Kernel *> headKerns(directFftKerns);
-    headKerns.insert(headKerns.end(), { &csquare2K, &fft2K, &transpose2K });
+    // std::vector<Kernel *> headKerns(directFftKerns);
+    // headKerns.insert(headKerns.end(), { &csquare2K, &fft2K, &transpose2K });
 
+    std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
+    
     // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};
 
