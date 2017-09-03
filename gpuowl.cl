@@ -167,6 +167,8 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
      
   fft4(u);
   fft4(u + 4);
+
+  // fix order: interleave u[0:4] and u[4:8], like (u.even, u.odd) = (u.lo, u.hi).
   S2(u[1], u[2]);
   S2(u[1], u[4]);
   S2(u[5], u[6]);
@@ -225,11 +227,6 @@ KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   fft2kImpl(lds, u, trig2k);
 
   for (int i = 0; i < 8; ++i) { io[me + i * 256] = u[i]; }
-  /*
-  for (int i = 0; i < 4; ++i) {
-    io[me + i * 512]       = u[i];
-    io[me + i * 512 + 256] = u[i + 4];
-    }*/  
 }
 
 // Round x to long.
@@ -374,23 +371,6 @@ void reverse1(local double2 *lds, double2 *u, bool bump) {
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
 }
 
-void reverse2(local double2 *lds, double2 *u, bool bump) {
-  uint me = get_local_id(0);
-  uint rm = 255 - me + bump;
-  
-  bar();
-  lds[rm + 0 * 256] = u[7];
-  lds[rm + 1 * 256] = u[3];
-  lds[rm + 2 * 256] = u[6];
-  lds[bump ? ((rm + 3 * 256) & 1023) : (rm + 3 * 256)] = u[2];
-  u[2] = u[1];
-  u[1] = u[4];
-  u[3] = u[5];
-
-  bar();
-  for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
-}
-
 // This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
 // It does less global memory transfers, but uses more VGPRs.
 KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *bigTrig) {
@@ -457,22 +437,12 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *b
   for (int i = 0; i < 8; ++i) {
     io[g * 2048 + i * 256  + me] = u[i];
   }
-  /*
-  for (int i = 0; i < 4; ++i) {
-    io[g * 2048 + i * 512 + me]       = u[i];
-    io[g * 2048 + i * 512 + 256 + me] = u[i + 4];
-    }*/
   
   reverse1((local double2 *) lds, v, false);
   bar(); fft2kImpl(lds, v, trig);
   for (int i = 0; i < 8; ++i) {
     io[line2 * 2048 + i * 256 + me] = v[i];
   }
-  /*
-  for (int i = 0; i < 4; ++i) {
-    io[line2 * 2048 + i * 512 + me]       = v[i];
-    io[line2 * 2048 + i * 512 + 256 + me] = v[i + 4];
-    }*/
 }
 
 // Carry propagation with optional MUL.
