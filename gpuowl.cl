@@ -175,20 +175,30 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   S2(u[3], u[6]);
 }
 
-KERNEL(256) fft1K(global double2 * io, SMALL_CONST double2 * trig1k) {
+void fft(uint N, double2 *u, local double *lds, global double2 * io, SMALL_CONST double2 * trig) {
   uint g = get_group_id(0);
-  uint step = g * 1024;
+  uint step = g * (N * 256);
   io += step;
 
   uint me = get_local_id(0);
+
+  for (int i = 0; i < N; ++i) { u[i] = io[i * 256 + me]; }
+
+  if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
+
+  for (int i = 0; i < N; ++i) { io[i * 256 + me] = u[i]; }
+}
+
+KERNEL(256) fft1K(global double2 * io, SMALL_CONST double2 * trig1k) {
+  local double lds[4 * 256];
   double2 u[4];
+  fft(4, u, lds, io, trig1k);
+}
 
-  for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
-
-  local double lds[1024];
-  fft1kImpl(lds, u, trig1k);
-  
-  for (int i = 0; i < 4; ++i) { io[i * 256 + me] = u[i]; }
+KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
+  local double lds[8 * 256];
+  double2 u[8];
+  fft(8, u, lds, io, trig2k);
 }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
@@ -211,22 +221,6 @@ KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, S
   fft1kImpl(lds, u, trig1k);
 
   for (int i = 0; i < 4; ++i) { out[me + i * 256] = u[i]; }  
-}
-
-KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
-  uint g = get_group_id(0);
-  uint step = g * 2048;
-  io += step;
-  
-  uint me = get_local_id(0);
-  double2 u[8];
-
-  for (int i = 0; i < 8; ++i) { u[i] = io[me + i * 256]; }
-
-  local double lds[2048];
-  fft2kImpl(lds, u, trig2k);
-
-  for (int i = 0; i < 8; ++i) { io[me + i * 256] = u[i]; }
 }
 
 // Round x to long.
