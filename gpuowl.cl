@@ -169,9 +169,23 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   fft4(u + 4);
 }
 
-// The fftPremul1K kernel merges two steps:
-// 1. Premultiply integer words with "A" (for IBDWT)
-// 2. FFT 1K.
+KERNEL(256) fft1K(global double2 * io, SMALL_CONST double2 * trig1k) {
+  uint g = get_group_id(0);
+  uint step = g * 1024;
+  io += step;
+
+  uint me = get_local_id(0);
+  double2 u[4];
+
+  for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
+
+  local double lds[1024];
+  fft1kImpl(lds, u, trig1k);
+  
+  for (int i = 0; i < 4; ++i) { io[i * 256 + me] = u[i]; }
+}
+
+// fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig1k) {
   uint g = get_group_id(0);
   uint step = g * 1024;
@@ -193,20 +207,23 @@ KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, S
   for (int i = 0; i < 4; ++i) { out[me + i * 256] = u[i]; }  
 }
 
-KERNEL(256) fft1K(global double2 *io, SMALL_CONST double2 *trig1k) {
+KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   uint g = get_group_id(0);
-  uint step = g * 1024;
+  uint step = g * 2048;
   io += step;
-
-  uint me = get_local_id(0);
-  double2 u[4];
-
-  for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
-
-  local double lds[1024];
-  fft1kImpl(lds, u, trig1k);
   
-  for (int i = 0; i < 4; ++i) { io[i * 256 + me] = u[i]; }
+  uint me = get_local_id(0);
+  double2 u[8];
+
+  for (int i = 0; i < 8; ++i) { u[i] = io[me + i * 256]; }
+
+  local double lds[2048];
+  fft2kImpl(lds, u, trig2k);
+
+  for (int i = 0; i < 4; ++i) {
+    io[me + i * 512]       = u[i];
+    io[me + i * 512 + 256] = u[i + 4];
+  }  
 }
 
 // Round x to long.
@@ -325,25 +342,25 @@ KERNEL(256) mega(const uint baseBitlen,
   for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
 }
 
-// computes 8*[x^2+y^2 + i*(2*x*y)]. Needs a name.
-double2 foo(double2 a) {
-  /*
-    double t = a.x * a.y;
-    a *= a;
-    return (double2)((a.x + a.y) * 8, t * 16);
-  */
-  double t = a.x * a.y * 2;
-  double s = a.x + a.y;
-  return 8 * (double2)(s * s - t, t);
-}
-
 double2 addsub(double2 a) { return (double2) (a.x + a.y, a.x - a.y); }
-// remark: foo(a) == 8*foo2(a, a). foo2() is for multiplication what foo() is for squaring.
+
 double2 foo2(double2 a, double2 b) {
   a = addsub(a);
   b = addsub(b);
   return addsub(a * b);
 }
+
+// computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
+double2 foo(double2 a) { return foo2(a, a); }
+/*
+  double t = a.x * a.y;
+  a *= a;
+  return (double2)((a.x + a.y) * 8, t * 16);
+
+  double t = a.x * a.y * 2;
+  double s = a.x + a.y;
+  return 8 * (double2)(s * s - t, t);
+*/
 
 void reverse1(local double2 *lds, double2 *u, bool bump) {
   uint me = get_local_id(0);
@@ -404,7 +421,7 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *b
     double2 b = conjugate(v[4 + i]);
     double2 t = bigTrig[g * 1024 + 256 * i + me];
     if (i == 0 && g == 0 && me == 0) {
-      a = foo(a);
+      a = 4 * foo(a);
       b = 8 * sq(b);
     } else {
       X2(a, b);
@@ -451,24 +468,6 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *b
     io[line2 * 2048 + i * 512 + me]       = v[i];
     io[line2 * 2048 + i * 512 + 256 + me] = v[i + 4];
   }
-}
-
-KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
-  uint g = get_group_id(0);
-  io += g * 2048;
-  
-  uint me = get_local_id(0);
-  double2 u[8];
-
-  for (int i = 0; i < 8; ++i) { u[i] = io[me + i * 256]; }
-
-  local double lds[2048];
-  fft2kImpl(lds, u, trig2k);
-
-  for (int i = 0; i < 4; ++i) {
-    io[me + i * 512]       = u[i];
-    io[me + i * 512 + 256] = u[i + 4];
-  }  
 }
 
 // Carry propagation with optional MUL.
@@ -537,7 +536,7 @@ void csquare(uint W, global double2 *io, CONST double2 *trig) {
   uint me = get_local_id(0);
 
   if (g == 0 && me == 0) {
-    io[0]    = foo(conjugate(io[0]));
+    io[0]    = 4 * foo(conjugate(io[0]));
     io[1024] = 8 * sq(conjugate(io[1024]));
     return;
   }

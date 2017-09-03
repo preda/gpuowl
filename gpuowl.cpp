@@ -365,7 +365,7 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   
   char buf[512];
   snprintf(buf, sizeof(buf),
-           R"-({"exponent":%d, "worktype":"PPR-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "time":"%s"%s%s%s})-",
+           R"-({"exponent":%d, "worktype":"PPR-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
            E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeBuf,
            errors.c_str(), uid.c_str(), aidJson.c_str());
   
@@ -600,7 +600,7 @@ int main(int argc, char **argv) {
 
   if (args.cpu.empty()) { args.cpu = getDeviceName(device); }
 
-  // writeResult(25000000, false, -3, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", args.cpu, 5);
+  // writeResult(25000000, false, 0, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", args.cpu, 5);
   
   char info[256];
   getDeviceInfo(device, sizeof(info), info);
@@ -690,8 +690,6 @@ int main(int argc, char **argv) {
     
     bool isPrime;
     u64 residue;
-
-    // std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
 
     // the weighting + direct FFT only, stops before square/mul.
     std::vector<Kernel *> directFftKerns {&fftPremul1K, &transpose1K, &fft2K};
