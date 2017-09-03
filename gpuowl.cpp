@@ -357,7 +357,7 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
   if (!cpu.empty())  { uid += ", \"cpu\":\"" + cpu + '"'; }
   std::string aidJson = AID.empty() ? "" : ", \"aid\":\"" + AID + '"';
-  std::string errors = !nErrors ? "" : ", \"errors\":{\"rollback\":" + std::to_string(nErrors) + "}";
+  std::string errors = ", \"errors\":{\"gerbicz\":" + std::to_string(nErrors) + "}";
   
   time_t t = time(NULL);
   char timeBuf[64];
@@ -365,7 +365,7 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   
   char buf[512];
   snprintf(buf, sizeof(buf),
-           R"-({"exponent":%d, "worktype":"PPR-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
+           R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
            E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeBuf,
            errors.c_str(), uid.c_str(), aidJson.c_str());
   
