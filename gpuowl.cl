@@ -175,6 +175,10 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   S2(u[3], u[6]);
 }
 
+void fftImpl(uint N, local double *lds, double2 *u, SMALL_CONST double2 *trig) {
+  if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
+}
+
 void fft(uint N, double2 *u, local double *lds, global double2 * io, SMALL_CONST double2 * trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
@@ -184,9 +188,28 @@ void fft(uint N, double2 *u, local double *lds, global double2 * io, SMALL_CONST
 
   for (int i = 0; i < N; ++i) { u[i] = io[i * 256 + me]; }
 
-  if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
+  fftImpl(N, lds, u, trig);
 
   for (int i = 0; i < N; ++i) { io[i * 256 + me] = u[i]; }
+}
+
+double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
+
+// fftPremul: weight words with "A" (for IBDWT) followed by FFT.
+void fftPremul(uint N, double2 *u, local double *lds, CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig) {
+  uint g = get_group_id(0);
+  uint step = g * (N * 256);
+  in  += step;
+  A   += step;
+  out += step;
+  
+  uint me = get_local_id(0);
+
+  for (int i = 0; i < N; ++i) { u[i] = toDouble(in[me + i * 256]) * fabs(A[me + i * 256]); }
+
+  fftImpl(N, lds, u, trig);
+
+  for (int i = 0; i < N; ++i) { out[me + i * 256] = u[i]; }
 }
 
 KERNEL(256) fft1K(global double2 * io, SMALL_CONST double2 * trig1k) {
@@ -201,26 +224,16 @@ KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   fft(8, u, lds, io, trig2k);
 }
 
-// fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig1k) {
-  uint g = get_group_id(0);
-  uint step = g * 1024;
-  in  += step;
-  A   += step;
-  out += step;
-  
-  uint me = get_local_id(0);
+  local double lds[4 * 256];
   double2 u[4];
+  fftPremul(4, u, lds, in, out, A, trig1k);
+}
 
-  for (int i = 0; i < 4; ++i) {
-    int2 r = in[me + i * 256];
-    u[i] = (double2)(r.x, r.y) * fabs(A[me + i * 256]);
-  }
-
-  local double lds[1024];
-  fft1kImpl(lds, u, trig1k);
-
-  for (int i = 0; i < 4; ++i) { out[me + i * 256] = u[i]; }  
+KERNEL(256) fftPremul2K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig2k) {
+  local double lds[8 * 256];
+  double2 u[8];
+  fftPremul(8, u, lds, in, out, A, trig2k);
 }
 
 // Round x to long.
