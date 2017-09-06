@@ -20,6 +20,7 @@ void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
 
 // complex multiplication
 double2 muld(double2 u, double a, double b) { return (double2) { u.x * a - u.y * b, u.x * b + u.y * a}; }
+// double2 muld(double2 u, double a, double b) { return (double2) { fma(u.x, a, - u.y * b), fma(u.x, b, u.y * a)}; }
 double2 mul(double2 u, double2 v) { return muld(u, v.x, v.y); }
 
 // complex mul mutating the first argument.
@@ -179,6 +180,7 @@ void fftImpl(uint N, local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
+// FFT of size N * 256.
 void fft(uint N, double2 *u, local double *lds, global double2 * io, SMALL_CONST double2 * trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
@@ -288,6 +290,7 @@ double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
 }
 
 // The "amalgamation" kernel is equivalent to the sequence: fft1K, carryA, carryB, fftPremul1K.
+// This kernel uses "starway" carry data forwarding from group K to group K+1.
 KERNEL(256) mega(const uint baseBitlen,
                  global double2 *io, volatile global double *carry, volatile global uint *ready,
                  CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
@@ -664,12 +667,17 @@ KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
 }
 */
 
-KERNEL(256) transpose1K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+KERNEL(256) transpose1K_2K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
   local double lds[4096];
   transpose(1024, 2048, lds, in, out, trig);
 }
 
-KERNEL(256) transpose2K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+KERNEL(256) transpose2K_1K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
   local double lds[4096];
   transpose(2048, 1024, lds, in, out, trig);
+}
+
+KERNEL(256) transpose2K_2K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+  local double lds[4096];
+  transpose(2048, 2048, lds, in, out, trig);
 }

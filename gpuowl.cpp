@@ -346,7 +346,7 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK, int nErrors) {
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
 
-  std::string errors = !nErrors ? "" : " (%d errors)";
+  std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
   
   log("%s %8d / %d [%5.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s%s\n",
       checkOK ? "OK" : "EE", k, E, k * percent, msPerIter, days, hours, mins, resStr(E, k, res).c_str(), errors.c_str());
@@ -600,7 +600,7 @@ int main(int argc, char **argv) {
 
   if (args.cpu.empty()) { args.cpu = getDeviceName(device); }
 
-  // writeResult(25000000, false, 0, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", args.cpu, 5);
+  writeResult(25000000, false, 0, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", args.cpu, 0);
   
   char info[256];
   getDeviceInfo(device, sizeof(info), info);
@@ -616,8 +616,9 @@ int main(int argc, char **argv) {
   if (!p) { exit(1); }
 #define KERNEL(program, name, shift) Kernel name(program, #name, shift, microTimer, args.timeKernels)
   KERNEL(p, fftPremul1K, 3);
-  KERNEL(p, transpose2K, 5);
-  KERNEL(p, transpose1K, 5);
+  KERNEL(p, transpose1K_2K, 5);
+  KERNEL(p, transpose2K_1K, 5);
+  KERNEL(p, transpose2K_2K, 5);
   KERNEL(p, fft1K,       3);
   KERNEL(p, carryA,      4);
   KERNEL(p, carryB_2K,   4);
@@ -659,8 +660,8 @@ int main(int argc, char **argv) {
     
   fftPremul1K.setArgs(dummy, buf1, bufA, bufTrig1K);
   tail.setArgs       (buf2,    bufTrig2K, bufSins);
-  transpose2K.setArgs(buf2,    buf1, bufBigTrig);
-  transpose1K.setArgs(buf1,    buf2, bufBigTrig);
+  transpose1K_2K.setArgs(buf1, buf2, bufBigTrig);
+  transpose2K_1K.setArgs(buf2, buf1, bufBigTrig);
   fft1K.setArgs      (buf1,    bufTrig1K);
   carryA.setArgs     (0, buf1, bufI, dummy, bufCarry);
   carryMul3.setArgs  (0, buf1, bufI, dummy, bufCarry);
@@ -692,20 +693,20 @@ int main(int argc, char **argv) {
     u64 residue;
 
     // the weighting + direct FFT only, stops before square/mul.
-    std::vector<Kernel *> directFftKerns {&fftPremul1K, &transpose1K, &fft2K};
+    std::vector<Kernel *> directFftKerns {&fftPremul1K, &transpose1K_2K, &fft2K};
 
     // sequence of: direct FFT, square, first-half of inverse FFT.
     // std::vector<Kernel *> headKerns(directFftKerns);
     // headKerns.insert(headKerns.end(), { &csquare2K, &fft2K, &transpose2K });
 
-    std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K, &tail, &transpose2K};
+    std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K_2K, &tail, &transpose2K_1K};
     
     // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
     std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};
 
     // kernel-fusion equivalent of: tailKerns, headKerns.
     // std::vector<Kernel *> coreKerns {&mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
-    std::vector<Kernel *> coreKerns {&mega, &transpose1K, &tail, &transpose2K};
+    std::vector<Kernel *> coreKerns {&mega, &transpose1K_2K, &tail, &transpose2K_1K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
@@ -738,16 +739,16 @@ int main(int argc, char **argv) {
     // The modular multiplication a = a * b. Output in 'a'.
     auto modMul = [&](cl_queue q, cl_mem a, cl_mem b) {
       fftPremul1K.setArg(0, b);
-      transpose1K.setArg(1, buf3);
+      transpose1K_2K.setArg(1, buf3);
       fft2K.setArg(0, buf3);
       run(directFftKerns, q, N);
       
       fftPremul1K.setArg(0, a);
-      transpose1K.setArg(1, buf2);
+      transpose1K_2K.setArg(1, buf2);
       fft2K.setArg(0, buf2);
       run(directFftKerns, q, N);
       
-      run({&cmul2K, &fft2K, &transpose2K}, q, N);
+      run({&cmul2K, &fft2K, &transpose2K_1K}, q, N);
 
       carryA.setArg(3, a);
       carryB_2K.setArg(1, a);
