@@ -137,27 +137,13 @@ double *trig(int n, int B, double *out) {
   return p;
 }
 
-cl_mem genBigTrig3x7(cl_context context, int W, int H) {
-  assert(W == 1024 && H == 2048);
-  const int size = 2 * 3 * 128;
-  double *tab = new double[size];
-  double *end = tab;
-  end = trig(128, 128 * 128 * 128, end);
-  end = trig(128, 128 * 128,       end);
-  end = trig(128, 128,             end);
-  assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
 cl_mem genBigTrig(cl_context context, int W, int H) {
-  assert(W == 1024 && H == 2048);
-  const int size = 2 * (2048 + 1024);
+  assert((W == 1024 || W == 2048) && H == 2048);
+  const int size = 2 * (W + H);
   double *tab = new double[size];
   double *end = tab;
-  end = trig(2048, 2048 * 1024, end);
-  end = trig(1024, 1024,        end);
+  end = trig(2048, W * H, end);
+  end = trig(W,    W,     end);
   assert(end - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
@@ -351,6 +337,20 @@ std::string resStr(int E, int k, u64 res) {
   return std::string(buf);
 }
 
+std::string timeStr() {
+  time_t t = time(NULL);
+  char buf[64];
+  strftime(buf, sizeof(buf), "%F %T", gmtime(&t));
+  return buf;
+}
+
+std::string localTimeStr() {
+  time_t t = time(NULL);
+  char buf[64];
+  strftime(buf, sizeof(buf), "%F %T %z", localtime(&t));
+  return buf;
+}
+
 void doLog(int E, int k, float msPerIter, u64 res, bool checkOK, int nErrors) {
   int end = ((E - 1) / 1000 + 1) * 1000;
   const float percent = 100 / float(end);
@@ -361,8 +361,9 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK, int nErrors) {
 
   std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
   
-  log("%s %8d / %d [%5.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s%s\n",
-      checkOK ? "OK" : "EE", k, E, k * percent, msPerIter, days, hours, mins, resStr(E, k, res).c_str(), errors.c_str());
+  log("%s %8d / %d [%5.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s [%s]%s\n",
+      checkOK ? "OK" : "EE", k, E, k * percent, msPerIter, days, hours, mins,
+      resStr(E, k, res).c_str(), localTimeStr().c_str(), errors.c_str());
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors) {
@@ -371,15 +372,11 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   if (!cpu.empty())  { uid += ", \"cpu\":\"" + cpu + '"'; }
   std::string aidJson = AID.empty() ? "" : ", \"aid\":\"" + AID + '"';
   std::string errors = ", \"errors\":{\"gerbicz\":" + std::to_string(nErrors) + "}";
-  
-  time_t t = time(NULL);
-  char timeBuf[64];
-  strftime(timeBuf, sizeof(timeBuf), "%F %T", gmtime(&t));
-  
+    
   char buf[512];
   snprintf(buf, sizeof(buf),
            R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
-           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeBuf,
+           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeStr().c_str(),
            errors.c_str(), uid.c_str(), aidJson.c_str());
   
   // snprintf(buf, sizeof(buf), "%sM( %d )%c, %s, n = %dK, %s, AID: %s",
@@ -589,9 +586,7 @@ int main(int argc, char **argv) {
     logFiles[1] = logf;
   }
   
-  time_t t = time(NULL);
-  srand(t);
-  log("gpuOwL v" VERSION " GPU Mersenne primality checker; %s", ctime(&t));
+  log("gpuOwL v" VERSION " GPU Mersenne primality checker\n");
 
   Args args;
   
@@ -613,7 +608,7 @@ int main(int argc, char **argv) {
 
   if (args.cpu.empty()) { args.cpu = getDeviceName(device); }
 
-  writeResult(25000000, false, 0, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", args.cpu, 0);
+  // writeResult(25000000, false, 0, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", args.cpu, 0);
   
   char info[256];
   getDeviceInfo(device, sizeof(info), info);
