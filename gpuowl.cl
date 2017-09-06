@@ -629,9 +629,8 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   
   for (int i = 0; i < 16; ++i) {
     uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
-    M(u[i], trig[(k & 127)]);
-    M(u[i], trig[128 + ((k >> 7) & 127)]);
-    M(u[i], trig[256 + (k >> 14)]);
+    M(u[i], trig[(k & 2047)]);
+    M(u[i], trig[2048 + (k >> 11)]);
 
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];

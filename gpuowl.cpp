@@ -128,7 +128,7 @@ void genWeights(int W, int H, int E, double *aTab, double *iTab) {
 
 double *trig(int n, int B, double *out) {
   auto *p = out;
-  auto base = - M_PIl / B;
+  auto base = - M_PIl / (B / 2);  // == 2*pi/B
   for (int i = 0; i < n; ++i) {
     auto angle = i * base;
     *p++ = cosl(angle);
@@ -137,14 +137,27 @@ double *trig(int n, int B, double *out) {
   return p;
 }
 
-cl_mem genBigTrig(cl_context context, int W, int H) {
+cl_mem genBigTrig3x7(cl_context context, int W, int H) {
   assert(W == 1024 && H == 2048);
   const int size = 2 * 3 * 128;
   double *tab = new double[size];
   double *end = tab;
-  end = trig(128, 64 * 128 * 128, end);
-  end = trig(128, 64 * 128,       end);
-  end = trig(128, 64,             end);
+  end = trig(128, 128 * 128 * 128, end);
+  end = trig(128, 128 * 128,       end);
+  end = trig(128, 128,             end);
+  assert(end - tab == size);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;
+}
+
+cl_mem genBigTrig(cl_context context, int W, int H) {
+  assert(W == 1024 && H == 2048);
+  const int size = 2 * (2048 + 1024);
+  double *tab = new double[size];
+  double *end = tab;
+  end = trig(2048, 2048 * 1024, end);
+  end = trig(1024, 1024,        end);
   assert(end - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
