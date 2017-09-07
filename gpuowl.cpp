@@ -77,27 +77,29 @@ public:
 };
 
 class Kernel : public BaseKernel {
-  TimeCounter counter;
-  bool doTime;
+  bool measureTime;
+  u64 timeAcc;
   
 public:
-  Kernel(cl_program program, const std::string &name, int sizeShift, MicroTimer &timer, bool doTime, int extraGroups = 0) :
+  Kernel(cl_program program, const std::string &name, int sizeShift, bool measureTime, int extraGroups = 0) :
     BaseKernel(program, name, sizeShift, extraGroups),
-    counter(&timer),
-    doTime(doTime)
+    measureTime(measureTime),
+    timeAcc(0)
   { }
 
   void run(cl_queue q, int N) {
-    BaseKernel::run(q, N);
-    if (doTime) {
+    if (!measureTime) {
+      BaseKernel::run(q, N);
+    } else {
+      Timer timer;
+      BaseKernel::run(q, N);
       finish(q);
-      counter.tick();
+      timeAcc += timer.deltaMicros();
     }
   }
   
-  u64 getCounter() { return counter.get(); }
-  void resetCounter() { counter.reset(); }
-  void tick() { counter.tick(); }
+  u64 getTime() { return timeAcc; }
+  void resetTime() { timeAcc = 0; }
 };
 
 int wordPos(int N, int E, int p) {
@@ -412,12 +414,12 @@ void run(const std::vector<Kernel *> &kerns, cl_queue q, int N) {
 void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   if (nIters < 2) { return; }
   u64 total = 0;
-  for (Kernel *k : kerns) { total += k->getCounter(); }
+  for (Kernel *k : kerns) { total += k->getTime(); }
   const float iIters = 1 / (float) (nIters - 1);
   const float iTotal = 1 / (float) total;
   for (Kernel *k : kerns) {
-    u64 c = k->getCounter();
-    k->resetCounter();
+    u64 c = k->getTime();
+    k->resetTime();
     log("  %-12s %.1fus, %02.1f%%\n", k->name.c_str(), c * iIters, c * 100 * iTotal);
   }
   log("  %-12s %.1fus\n", "Total", total * iIters);
@@ -498,12 +500,12 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
     check[0] = 1;    
   }
   
-  Timer timer, smallTimer;
+  Timer timer;
 
   // Establish a known-good roolback point by initial verification of loaded data.
   while (true) {
     bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
-    doLog(E, k, timer.delta() / 1000.f, residue(W, H, E, data), ok, nErrors);
+    doLog(E, k, timer.deltaMillis() / 1000.f, residue(W, H, E, data), ok, nErrors);
     if (ok) { break; }
     assert(k > 0);
     log("Loaded checkpoint failed validation. Restarting from zero.\n");
@@ -517,7 +519,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
   while (k < kEnd) {
     assert(k % 1000 == 0);
-    smallTimer.delta();
+    Timer smallTimer;
     modMul(q, bufCheck, bufData);    
     modSqLoop(q, bufData, std::min(1000, kEnd - k), false);
     if (kEnd - k <= 1000) {
@@ -539,13 +541,13 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
     finish(q);
     k += 1000;
-    fprintf(stderr, " %5d / %d, %.2f ms/it\r", (k - 1) % args.step + 1, args.step, smallTimer.delta() / 1000.f);
+    fprintf(stderr, " %5d / %d, %.2f ms/it\r", (k - 1) % args.step + 1, args.step, smallTimer.deltaMillis() / 1000.f);
 
     if ((k % args.step == 0) || (k >= kEnd)) {
       read(q, false, bufCheck, dataSize, check);
       read(q, true, bufData, dataSize, data);
       bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
-      doLog(E, k, timer.delta() / float((k - 1) % args.step + 1), residue(W, H, E, data), ok, nErrors);      
+      doLog(E, k, timer.deltaMillis() / float((k - 1) % args.step + 1), residue(W, H, E, data), ok, nErrors);      
       if (ok) {
         setRollback();
         if (k < kEnd) { checkpoint.save(k, data, check, k % args.saveStep == 0, nErrors); }
@@ -619,11 +621,10 @@ int main(int argc, char **argv) {
   cl_context context = contextHolder.get();
   
   Timer timer;
-  MicroTimer microTimer;
   
   cl_program p = compile(device, context, "gpuowl.cl", args.clArgs.c_str(), true);
   if (!p) { exit(1); }
-#define KERNEL(program, name, shift) Kernel name(program, #name, shift, microTimer, args.timeKernels)
+#define KERNEL(program, name, shift) Kernel name(program, #name, shift, args.timeKernels)
   KERNEL(p, fftPremul1K, 3);
   KERNEL(p, transpose1K_2K, 5);
   KERNEL(p, transpose2K_1K, 5);
@@ -638,9 +639,9 @@ int main(int argc, char **argv) {
   KERNEL(p, cmul2K,    2);
   KERNEL(p, carryMul3,  4);
 #undef KERNEL
-  Kernel mega(p, "mega", 3, microTimer, args.timeKernels, 1);
+  Kernel mega(p, "mega", 3, args.timeKernels, 1);
   
-  log("Compile       : %4d ms\n", timer.delta());
+  log("Compile       : %4d ms\n", timer.deltaMillis());
   release(p); p = nullptr;
     
   constexpr int W = 1024, H = 2048;
@@ -680,7 +681,7 @@ int main(int argc, char **argv) {
   csquare2K.setArgs(buf2, bufSins);
   cmul2K.setArgs(buf2, buf3, bufSins);
 
-  log("General setup : %4d ms\n", timer.delta());
+  log("General setup : %4d ms\n", timer.deltaMillis());
 
   Queue queue{makeQueue(device, context)};
   
@@ -725,8 +726,6 @@ int main(int argc, char **argv) {
     auto modSqLoop = [&](cl_queue q, cl_mem data, int nIters, bool doMul3) {
       assert(nIters > 0);
             
-      if (args.timeKernels) { headKerns[0]->tick(); headKerns[0]->resetCounter(); }
-
       fftPremul1K.setArg(0, data);
       run(headKerns, q, N);
 
