@@ -301,13 +301,13 @@ std::vector<u32> compactBits(int W, int H, int E, int *data, int *outCarry) {
   return out;
 }
 
-FILE *logFiles[3] = {0, 0, 0};
+std::vector<FILE *> logFiles;
 
 void log(const char *fmt, ...) {
   va_list va;
-  for (FILE **pf = logFiles; *pf; ++pf) {
+  for (FILE *f : logFiles) {
     va_start(va, fmt);
-    vfprintf(*pf, fmt, va);
+    vfprintf(f, fmt, va);
     va_end(va);
   }
 }
@@ -580,13 +580,12 @@ int getNextExponent(bool doSelfTest, u64 *expectedRes, char *AID) {
 }
 
 int main(int argc, char **argv) {
-  logFiles[0] = stdout;
-  {
-    FILE *logf = open("gpuowl.log", "a");
+  logFiles.push_back(stdout);
+  if (FILE *logf = open("gpuowl.log", "a")) {
 #ifdef _DEFAULT_SOURCE
-    if (logf) { setlinebuf(logf); }
+    setlinebuf(logf);
 #endif
-    logFiles[1] = logf;
+    logFiles.push_back(logf);
   }
   
   log("gpuOwL v" VERSION " GPU Mersenne primality checker\n");
@@ -771,7 +770,5 @@ int main(int argc, char **argv) {
   }
     
   log("\nBye\n");
-  FILE *f = logFiles[1];
-  logFiles[1] = 0;
-  if (f) { fclose(f); }
+  for (FILE *f : logFiles) { fclose(f); }
 }
