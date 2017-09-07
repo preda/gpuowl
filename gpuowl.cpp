@@ -48,12 +48,9 @@ using Queue   = Holder<cl_queue>;
 
 static_assert(sizeof(Buffer) == sizeof(cl_mem));
 
-class Kernel {
-  std::string name;
+class BaseKernel {
   Holder<cl_kernel> kernel;
-  TimeCounter counter;
   int sizeShift;
-  bool doTime;
   int extraGroups;
 
   template<int P> void setArgsAt() {}  
@@ -63,28 +60,41 @@ class Kernel {
   }
   
 public:
-  Kernel(cl_program program, const char *iniName, int iniSizeShift, MicroTimer &timer, bool doTime, int extraGroups = 0) :
-    name(iniName),
+  const std::string name;
+  
+  BaseKernel(cl_program program, const std::string &name, int sizeShift, int extraGroups = 0) :
     kernel(makeKernel(program, name.c_str())),
-    counter(&timer),
-    sizeShift(iniSizeShift),
-    doTime(doTime),
-    extraGroups(extraGroups)
+    sizeShift(sizeShift),
+    extraGroups(extraGroups),
+    name(name)
   { }
 
   void setArg(int pos, const Buffer &buf) { setArg(pos, buf.get()); }
   void setArg(int pos, const auto &arg) { ::setArg(kernel.get(), pos, arg); } 
   void setArgs(const auto&... args) { setArgsAt<0>(args...); }
 
+  void run(cl_queue q, int N) { ::run(q, kernel.get(), (N >> sizeShift) + extraGroups * 256); }
+};
+
+class Kernel : public BaseKernel {
+  TimeCounter counter;
+  bool doTime;
   
-  const char *getName() { return name.c_str(); }
+public:
+  Kernel(cl_program program, const std::string &name, int sizeShift, MicroTimer &timer, bool doTime, int extraGroups = 0) :
+    BaseKernel(program, name, sizeShift, extraGroups),
+    counter(&timer),
+    doTime(doTime)
+  { }
+
   void run(cl_queue q, int N) {
-    ::run(q, kernel.get(), (N >> sizeShift) + extraGroups * 256);
+    BaseKernel::run(q, N);
     if (doTime) {
       finish(q);
       counter.tick();
     }
   }
+  
   u64 getCounter() { return counter.get(); }
   void resetCounter() { counter.reset(); }
   void tick() { counter.tick(); }
@@ -179,15 +189,6 @@ double *smallTrigBlock(int W, int H, double *out) {
     }
   }
   return p;
-}
-
-cl_mem genCos2K(cl_context context) {
-  double *tab = new double[513];
-  double *p = tab;
-  for (int i = 0; i < 513; ++i) { *p++ = cosl(M_PIl / 1024 * i); }
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * 513, tab);
-  delete[] tab;
-  return buf;
 }
 
 cl_mem genSmallTrig2K(cl_context context) {
@@ -347,7 +348,7 @@ std::string timeStr() {
 std::string localTimeStr() {
   time_t t = time(NULL);
   char buf[64];
-  strftime(buf, sizeof(buf), "%F %T %z", localtime(&t));
+  strftime(buf, sizeof(buf), "%F %T %Z", localtime(&t));
   return buf;
 }
 
@@ -417,7 +418,7 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   for (Kernel *k : kerns) {
     u64 c = k->getCounter();
     k->resetCounter();
-    log("  %-12s %.1fus, %02.1f%%\n", k->getName(), c * iIters, c * 100 * iTotal);
+    log("  %-12s %.1fus, %02.1f%%\n", k->name.c_str(), c * iIters, c * 100 * iTotal);
   }
   log("  %-12s %.1fus\n", "Total", total * iIters);
 }
@@ -647,7 +648,6 @@ int main(int argc, char **argv) {
   
   Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
-  Buffer bufCos2K{genCos2K(context)};
   Buffer bufBigTrig{genBigTrig(context, W, H)};
   Buffer bufSins{genSin(context, H, W)}; // transposed W/H !
 
