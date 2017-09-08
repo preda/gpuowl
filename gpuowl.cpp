@@ -171,8 +171,8 @@ cl_mem genSin(cl_context context, int W, int H) {
     for (int col = 0; col < (W / 2); ++col) {
       int k = line + col * H;
       auto angle = k * base;
-      *p++ = sinl(angle);
       *p++ = cosl(angle);
+      *p++ = sinl(angle);
     }
   }
 
@@ -381,9 +381,7 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
            R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
            E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeStr().c_str(),
            errors.c_str(), uid.c_str(), aidJson.c_str());
-  
-  // snprintf(buf, sizeof(buf), "%sM( %d )%c, %s, n = %dK, %s, AID: %s",
-  //          uid.c_str(), E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), 4096, AGENT, AID);
+
   log("%s\n", buf);
   if (FILE *fo = open("results.txt", "a")) {
     fprintf(fo, "%s\n", buf);
@@ -420,9 +418,9 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   for (Kernel *k : kerns) {
     u64 c = k->getTime();
     k->resetTime();
-    log("  %-12s %.1fus, %02.1f%%\n", k->name.c_str(), c * iIters, c * 100 * iTotal);
+    log("%4d us, %02d%% : %s\n", int(c * iIters + .5f), int(c * 100 * iTotal + .5f), k->name.c_str());
   }
-  log("  %-12s %.1fus\n", "Total", total * iIters);
+  log("%4d us total\n", int(total * iIters + .5f));
 }
 
 bool validate(int N, cl_mem bufData, cl_mem bufCheck,
@@ -445,7 +443,6 @@ bool validate(int N, cl_mem bufData, cl_mem bufCheck,
   delete[] tmpB;
   write(q, false, bufCheck, dataSize, check);
   write(q, true, bufData, dataSize, data);
-  // log("Check %d (%d ms)\n", int(ok), timer.delta());
   return ok;
 }
 
@@ -618,6 +615,10 @@ int main(int argc, char **argv) {
   
   Context contextHolder{createContext(device)};
   cl_context context = contextHolder.get();
+  Queue queue{makeQueue(device, context)};
+  
+  constexpr int W = 1024, H = 2048;
+  constexpr int N = 2 * W * H;
   
   Timer timer;
   
@@ -642,10 +643,7 @@ int main(int argc, char **argv) {
   
   log("Compile       : %4d ms\n", timer.deltaMillis());
   release(p); p = nullptr;
-    
-  constexpr int W = 1024, H = 2048;
-  constexpr int N = 2 * W * H;
-  
+      
   Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
   Buffer bufBigTrig{genBigTrig(context, W, H)};
@@ -681,8 +679,6 @@ int main(int argc, char **argv) {
   cmul2K.setArgs(buf2, buf3, bufSins);
 
   log("General setup : %4d ms\n", timer.deltaMillis());
-
-  Queue queue{makeQueue(device, context)};
   
   while (true) {
     u64 expectedRes;
