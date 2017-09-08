@@ -252,8 +252,13 @@ int updateMul(int mul, long *carry, long x, uint bits) {
   return w;
 }
 
-// Simpler version of (a < 0).
+// Simpler version of signbit(a).
 uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
+
+// double xorSign(double a, uint bit) { ((uint *)&a)[1] ^= (bit << 31); return a; }
+// double2 xorSign2(double2 a, uint bit) { return (double2) (xorSign(a.x, bit), xorSign(a.y, bit)); }
+
+double2 xorSign2(double2 a, uint bit) { return bit ? -a : a; }
 
 uint bitlen(uint base, double a) { return base + signBit(a); }
 
@@ -631,8 +636,12 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   
   for (int i = 0; i < 16; ++i) {
     uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
-    M(u[i], trig[(k & 2047)]);
-    M(u[i], trig[2048 + (k >> 11)]);
+    // u[i] = xorSign2(u[i], k >> 20);
+    // M(u[i], trig[(k & 2047)]);
+    // M(u[i], trig[2048 + (k >> 11)]);
+
+    M(u[i], trig[4096 + (k & 511)]);
+    M(u[i], trig[(k >> 9)]);
 
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];

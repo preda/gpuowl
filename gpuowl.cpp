@@ -23,6 +23,8 @@
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
+#define TAU (2 * M_PIl)
+
 #define VERSION "1.1"
 #define PROGRAM "gpuowl"
 const char *AGENT = PROGRAM " v" VERSION;
@@ -140,7 +142,7 @@ void genWeights(int W, int H, int E, double *aTab, double *iTab) {
 
 double *trig(int n, int B, double *out) {
   auto *p = out;
-  auto base = - M_PIl / (B / 2);  // == 2*pi/B
+  auto base = - TAU / B;  // == 2*pi/B
   for (int i = 0; i < n; ++i) {
     auto angle = i * base;
     *p++ = cosl(angle);
@@ -148,14 +150,28 @@ double *trig(int n, int B, double *out) {
   }
   return p;
 }
-
+/*
 cl_mem genBigTrig(cl_context context, int W, int H) {
   assert((W == 1024 || W == 2048) && H == 2048);
   const int size = 2 * (W + H);
   double *tab = new double[size];
   double *end = tab;
-  end = trig(2048, W * H, end);
-  end = trig(W,    W,     end);
+  end = trig(H, W * H, end);
+  end = trig(W, W,     end);
+  assert(end - tab == size);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;
+}
+*/
+
+cl_mem genBigTrig(cl_context context, int W, int H) {
+  assert((W == 1024 || W == 2048) && H == 2048);
+  const int size = 2 * (W * H / 512 + 512);
+  double *tab = new double[size];
+  double *end = tab;
+  end = trig(W * H / 512, W * H / 512, end);
+  end = trig(512, W * H, end);
   assert(end - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
@@ -163,10 +179,10 @@ cl_mem genBigTrig(cl_context context, int W, int H) {
 }
 
 cl_mem genSin(cl_context context, int W, int H) {
-  const int size = 2 * (W / 2) * H;
+  const int size = W * H;
   double *tab = new double[size]();
   double *p = tab;
-  auto base = - M_PIl / (W * H);
+  auto base = - TAU / (2 * W * H);
   for (int line = 0; line < H; ++line) {
     for (int col = 0; col < (W / 2); ++col) {
       int k = line + col * H;
