@@ -408,11 +408,12 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *b
   reverse1((local double2 *) lds, v, false);
   
   if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
-  
+
+  double2 tt = bigTrig[4096 + (g >> 1) + (g & 1) * 512];
   for (int i = 0; i < 4; ++i) {
     double2 a = u[i];
     double2 b = conjugate(v[4 + i]);
-    double2 t = swap(bigTrig[g * 1024 + 256 * i + me]);
+    double2 t = swap(mul(tt, bigTrig[256 * i + me]));
     if (i == 0 && g == 0 && me == 0) {
       a = 4 * foo(a);
       b = 8 * sq(b);
@@ -430,10 +431,11 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *b
     v[4 + i] = b;
   }
 
+  tt = bigTrig[4096 + (line2 >> 1) + (line2 & 1) * 512];
   for (int i = 0; i < 4; ++i) {
     double2 a = v[i];
     double2 b = conjugate(u[4 + i]);
-    double2 t = swap(bigTrig[line2 * 1024 + 256 * i + me]);
+    double2 t = swap(mul(tt, bigTrig[256 * i + me]));
     X2(a, b);
     M(b, conjugate(t));
     X2(a, b);
@@ -539,8 +541,7 @@ void csquare(uint W, global double2 *io, CONST double2 *trig) {
   
   double2 a = io[k];
   double2 b = conjugate(io[v]);
-  double2 t = swap(trig[g * 256 + me]);
-  
+  double2 t = swap(mul(trig[4096 + (line>>1) + (line&1)*512], trig[posInLine]));
   
   X2(a, b);
   M(b, conjugate(t));
@@ -575,7 +576,8 @@ void cmul(uint W, global double2 *io, CONST double2 *in, CONST double2 *trig) {
   
   double2 a = io[k];
   double2 b = conjugate(io[v]);
-  double2 t = swap(trig[g * 256 + me]);
+  double2 t = swap(mul(trig[4096 + (line>>1) + (line&1)*512], trig[posInLine]));
+  
   X2(a, b);
   M(b, conjugate(t));
   X2(a, b);
