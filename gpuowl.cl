@@ -300,7 +300,7 @@ double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
 KERNEL(256) mega(const uint baseBitlen,
                  global double2 *io, volatile global double *carry, volatile global uint *ready,
                  CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
-  local double2 lds[1024];
+  local double lds[1024];
 
   uint gr = get_group_id(0);
   uint gm = gr % 2048;
@@ -314,7 +314,7 @@ KERNEL(256) mega(const uint baseBitlen,
   double2 u[4];
   for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
 
-  fft1kBigLDS(lds, u, trig1k);
+  fft1kImpl(lds, u, trig1k);
   
   double2 r[4];
 
@@ -356,7 +356,7 @@ KERNEL(256) mega(const uint baseBitlen,
     u[i] = dar2(d, r[i], A[p], baseBitlen);
   }
 
-  fft1kBigLDS(lds, u, trig1k);
+  fft1kImpl(lds, u, trig1k);
   
   for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
 }
@@ -642,8 +642,8 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
     // M(u[i], trig[(k & 2047)]);
     // M(u[i], trig[2048 + (k >> 11)]);
 
-    M(u[i], trig[4096 + (k & 511)]);
-    M(u[i], trig[(k >> 9)]);
+    M(u[i], trig[4096 + k % (W * H / 4096)]);
+    M(u[i], trig[k / (W * H / 4096)]);
 
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];

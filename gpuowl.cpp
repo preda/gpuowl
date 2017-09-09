@@ -25,7 +25,7 @@
 
 #define TAU (2 * M_PIl)
 
-#define VERSION "1.1"
+#define VERSION "1.2"
 #define PROGRAM "gpuowl"
 const char *AGENT = PROGRAM " v" VERSION;
 
