@@ -88,53 +88,30 @@ void shuflBig(local double2 *lds, double2 *u, uint n, uint f) {
   for (uint i = 0; i < n; ++i) { u[i] = lds[i * 256 + me]; }
 }
 
-void tabMulOld(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
+void tabMul(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
-}
-
-void shuffleMulBig(SMALL_CONST double2 *trig, local double2 *lds, double2 *u, uint n, uint f) {
-  bar();
-  shuflBig(lds, u, n, f);
-  tabMulOld(trig,  u, n, f);
-}
-
-void fft1kBigLDS(local double2 *lds, double2 *u, SMALL_CONST double2 *trig1k) {
-  fft4(u);
-  shuflBig(lds,  u, 4, 64);
-  tabMulOld(trig1k, u, 4, 64);
-  
-  fft4(u);
-  shuffleMulBig(trig1k, lds, u, 4, 16);
-  
-  fft4(u);
-  shuffleMulBig(trig1k, lds, u, 4, 4);
-
-  fft4(u);
-  shuffleMulBig(trig1k, lds, u, 4, 1);
-
-  fft4(u);
 }
 
 void fft1kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   fft4(u);
   shufl(lds,      u, 4, 64);
-  tabMulOld(trig, u, 4, 64);
+  tabMul(trig, u, 4, 64);
   
   fft4(u);
   bar();
   shufl(lds,      u, 4, 16);
-  tabMulOld(trig, u, 4, 16);
+  tabMul(trig, u, 4, 16);
   
   fft4(u);
   bar();
   shufl(lds,      u, 4, 4);
-  tabMulOld(trig, u, 4, 4);
+  tabMul(trig, u, 4, 4);
 
   fft4(u);
   bar();
   shufl(lds,      u, 4, 1);
-  tabMulOld(trig, u, 4, 1);
+  tabMul(trig, u, 4, 1);
 
   fft4(u);
 }
@@ -142,12 +119,12 @@ void fft1kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
 void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   fft8(u);
   shufl(lds,      u, 8, 32);
-  tabMulOld(trig, u, 8, 32);
+  tabMul(trig, u, 8, 32);
 
   fft8(u);
   bar();
   shufl(lds,      u, 8, 4);
-  tabMulOld(trig, u, 8, 4);
+  tabMul(trig, u, 8, 4);
   
   fft8(u);
 
