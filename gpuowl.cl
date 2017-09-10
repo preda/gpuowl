@@ -21,7 +21,6 @@ void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
 
 // complex multiplication
 double2 muld(double2 u, double a, double b) { return (double2) { u.x * a - u.y * b, u.x * b + u.y * a}; }
-// double2 muld(double2 u, double a, double b) { return (double2) { fma(u.x, a, - u.y * b), fma(u.x, b, u.y * a)}; }
 double2 mul(double2 u, double2 v) { return muld(u, v.x, v.y); }
 
 // complex mul mutating the first argument.
@@ -349,7 +348,7 @@ double2 foo2(double2 a, double2 b) {
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 double2 foo(double2 a) { return foo2(a, a); }
 
-void reverse1(local double2 *lds, double2 *u, bool bump) {
+void reverse(local double2 *lds, double2 *u, bool bump) {
   uint me = get_local_id(0);
   uint rm = 255 - me + bump;
   
@@ -366,7 +365,7 @@ void reverse1(local double2 *lds, double2 *u, bool bump) {
 
 // This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
 // It does less global memory transfers, but uses more VGPRs.
-KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *bigTrig) {
+KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 * restrict bigTrig) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   local double lds[2048];
@@ -375,14 +374,14 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *b
   for (int i = 0; i < 8; ++i) { u[i] = io[g * 2048 + i * 256 + me]; }
   fft2kImpl(lds, u, trig);
 
-  reverse1((local double2 *) lds, u, g == 0);
+  reverse((local double2 *) lds, u, g == 0);
 
   double2 v[8];
   uint line2 = g ? 1024 - g : 512;
   for (int i = 0; i < 8; ++i) { v[i] = io[line2 * 2048 + i * 256 + me]; }
   bar(); fft2kImpl(lds, v, trig);
 
-  reverse1((local double2 *) lds, v, false);
+  reverse((local double2 *) lds, v, false);
   
   if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
 
@@ -427,13 +426,13 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 *b
 
   if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
 
-  reverse1((local double2 *) lds, u, g == 0);
+  reverse((local double2 *) lds, u, g == 0);
   bar(); fft2kImpl(lds, u, trig);
   for (int i = 0; i < 8; ++i) {
     io[g * 2048 + i * 256  + me] = u[i];
   }
   
-  reverse1((local double2 *) lds, v, false);
+  reverse((local double2 *) lds, v, false);
   bar(); fft2kImpl(lds, v, trig);
   for (int i = 0; i < 8; ++i) {
     io[line2 * 2048 + i * 256 + me] = v[i];

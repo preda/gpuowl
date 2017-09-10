@@ -167,9 +167,10 @@ cl_mem genBigTrig(cl_context context, int W, int H) {
 
 double *smallTrigBlock(int W, int H, double *out) {
   double *p = out;
+  auto base = - TAU / (W * H);
   for (int line = 1; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
-      auto angle = - M_PIl * line * col / (W * H / 2);
+      auto angle = line * col * base;
       *p++ = cosl(angle);
       *p++ = sinl(angle);
     }
