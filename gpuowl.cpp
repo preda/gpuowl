@@ -140,8 +140,7 @@ void genWeights(int W, int H, int E, double *aTab, double *iTab) {
   }
 }
 
-double *trig(double *out, int n, int B, int phase = 0, int step = 1) {
-  auto *p = out;
+double *trig(double *p, int n, int B, int phase = 0, int step = 1) {
   auto base = - TAU / B;
   for (int i = 0; i < n; ++i) {
     auto angle = (phase + i * step) * base;
@@ -165,8 +164,29 @@ cl_mem genBigTrig(cl_context context, int W, int H) {
   return buf;
 }
 
-double *smallTrigBlock(int W, int H, double *out) {
-  double *p = out;
+/*
+cl_mem genTrig4K(cl_context context) {
+  int size = 2 * 4096;
+  double *tab = new double[size];
+  double *end = trig(tab, 4096, 4096);
+  assert(end - tab == size);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;
+}
+
+cl_mem genHairTrig(cl_context context, int n) {
+  int size = 2 * n;
+  double *tab = new double[size];
+  double *end = trig(tab, n, n * 4096);
+  assert(end - tab == size);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  delete[] tab;
+  return buf;  
+}
+*/
+
+double *smallTrigBlock(int W, int H, double *p) {
   auto base = - TAU / (W * H);
   for (int line = 1; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
@@ -632,7 +652,7 @@ int main(int argc, char **argv) {
   Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
   Buffer bufBigTrig{genBigTrig(context, W, H)};
-
+  
   Buffer buf1{makeBuf(context, BUF_RW, sizeof(double) * N)};
   Buffer buf2{makeBuf(context, BUF_RW, sizeof(double) * N)};
   Buffer buf3{makeBuf(context, BUF_RW, sizeof(double) * N)};
