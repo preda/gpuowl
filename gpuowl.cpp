@@ -153,12 +153,12 @@ double *trig(double *out, int n, int B, int phase = 0, int step = 1) {
 
 cl_mem genBigTrig(cl_context context, int W, int H) {
   assert((W == 1024 || W == 2048) && H == 2048);
-  const int size = 2 * (W * H / 512 + 512 + 512);
+  const int size = 2 * (W * H / 512 + 512 + 1024);
   double *tab = new double[size];
   double *end = tab;
   end = trig(end, W * H / 512, W * H / 512);
   end = trig(end, 512, W * H);
-  end = trig(end, 512, W * H * 2, 1, 2);
+  end = trig(end, 1024, W * H * 2);
   assert(end - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
