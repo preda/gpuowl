@@ -295,7 +295,7 @@ KERNEL(256) mega(const uint baseBitlen,
   double2 r[4];
 
   // Fight the LLVM OpenCL compiler who doesn't care about # of VGPRs used.
-  #pragma unroll 1
+  // #pragma unroll 1
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
     double c = 0;
