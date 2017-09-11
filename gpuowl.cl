@@ -150,7 +150,7 @@ void fftImpl(uint N, local double *lds, double2 *u, SMALL_CONST double2 *trig) {
 }
 
 // FFT of size N * 256.
-void fft(uint N, double2 *u, local double *lds, global double2 * io, SMALL_CONST double2 * trig) {
+void fft(uint N, local double *lds, double2 *u, global double2 * io, SMALL_CONST double2 * trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   io += step;
@@ -167,7 +167,7 @@ void fft(uint N, double2 *u, local double *lds, global double2 * io, SMALL_CONST
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-void fftPremul(uint N, double2 *u, local double *lds, CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig) {
+void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   in  += step;
@@ -186,25 +186,25 @@ void fftPremul(uint N, double2 *u, local double *lds, CONST int2 *in, global dou
 KERNEL(256) fft1K(global double2 * io, SMALL_CONST double2 * trig1k) {
   local double lds[4 * 256];
   double2 u[4];
-  fft(4, u, lds, io, trig1k);
+  fft(4, lds, u, io, trig1k);
 }
 
 KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
   local double lds[8 * 256];
   double2 u[8];
-  fft(8, u, lds, io, trig2k);
+  fft(8, lds, u, io, trig2k);
 }
 
 KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig1k) {
   local double lds[4 * 256];
   double2 u[4];
-  fftPremul(4, u, lds, in, out, A, trig1k);
+  fftPremul(4, lds, u, in, out, A, trig1k);
 }
 
 KERNEL(256) fftPremul2K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig2k) {
   local double lds[8 * 256];
   double2 u[8];
-  fftPremul(8, u, lds, in, out, A, trig2k);
+  fftPremul(8, lds, u, in, out, A, trig2k);
 }
 
 // Round x to long.
@@ -282,7 +282,7 @@ KERNEL(256) mega(const uint baseBitlen,
   double2 u[4];
   for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
 
-  fft1kImpl(lds, u, trig1k);
+  fftImpl(4, lds, u, trig1k);
   
   double2 r[4];
 
@@ -295,10 +295,12 @@ KERNEL(256) mega(const uint baseBitlen,
 
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
 
+  // Signal that this group is done computing and writing the carry.
   if (gr < 2048 && me == 0) { atomic_xchg(&ready[gr], 1); }
 
   if (gr == 0) { return; }
 
+  // Wait until the previous group is done with the carry.
   if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
 
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
@@ -309,7 +311,7 @@ KERNEL(256) mega(const uint baseBitlen,
     u[i] = dar2(d, r[i], A[p], baseBitlen);
   }
 
-  fft1kImpl(lds, u, trig1k);
+  fftImpl(4, lds, u, trig1k);
   
   for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
 }
@@ -405,18 +407,18 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 * 
 
   reverse((local double2 *) lds, u, g == 0);
   bar(); fft2kImpl(lds, u, trig);
-  for (int i = 0; i < 8; ++i) {
-    io[g * 2048 + i * 256  + me] = u[i];
-  }
+  
+  for (int i = 0; i < 8; ++i) { io[g * 2048 + i * 256  + me] = u[i]; }
   
   reverse((local double2 *) lds, v, false);
   bar(); fft2kImpl(lds, v, trig);
-  for (int i = 0; i < 8; ++i) {
-    io[line2 * 2048 + i * 256 + me] = v[i];
-  }
+  
+  for (int i = 0; i < 8; ++i) { io[line2 * 2048 + i * 256 + me] = v[i]; }
 }
 
-// Carry propagation with optional MUL.
+// Carry propagation with optional MUL, over 16 words.
+// Input is doubles. They are weighted with the "inverse weight" A
+// and rounded to output ints and to left-over carryOut.
 void carryMul(const int mul, const uint baseBits,
               CONST double2 *in, CONST double2 *A, global int2 *out,
               global long *carryOut) {
@@ -452,6 +454,10 @@ KERNEL(256) carryMul3(const uint baseBits,
   carryMul(3, baseBits, in, A, out, carryOut);
 }
 
+// The second round of carry propagation (16 words), needed to "link the chain" after carryA.
+// Input is int words and the left-over carry from carryA.
+// Output is int words.
+// The weights "A" are needed only to derive the bit size of each word (encoded in the sign of its elements).
 void carryBCore(uint H, const uint baseBits, global int2 *io, CONST long *carryIn, CONST double2 *A) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
