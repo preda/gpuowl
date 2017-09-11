@@ -251,21 +251,25 @@ int2 car1(long *carry, int2 r, double2 ia, uint base) {
   return (int2) (a, b);
 }
 
-double2 updateD(double x, int bits) {
+// Returns a pair (reduced x, carryOut).
+double2 carryStep(double x, int bits) {
   double carry = rint(ldexp(x, -bits));
   return (double2)(x - ldexp(carry, bits), carry);
 }
 
-double2 dar0(double *carry, double2 u, double2 ia, uint baseBits) {
-  u *= fabs(ia);
-  double2 r0 = updateD(*carry + rint(u.x), bitlen(baseBits, ia.x));
-  double2 r1 = updateD(r0.y   + rint(u.y), bitlen(baseBits, ia.y));
+// Applies inverse weight "iA" and rounding, and propagates carry over the two words.
+// has carry out.
+double2 weightAndCarry(double *carry, double2 u, double2 iA, uint baseBits) {
+  u *= fabs(iA);
+  double2 r0 = carryStep(*carry + rint(u.x), bitlen(baseBits, iA.x));
+  double2 r1 = carryStep(r0.y   + rint(u.y), bitlen(baseBits, iA.y));
   *carry = r1.y;
   return (double2)(r0.x, r1.x);
 }
 
-double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
-  double2 r = updateD(carry + u.x, bitlen(baseBits, a.x));
+// No carry out.
+double2 carryAndWeight(double carry, double2 u, double2 a, uint baseBits) {
+  double2 r = carryStep(carry + u.x, bitlen(baseBits, a.x));
   return (double2) (r.x, r.y + u.y) * fabs(a);
 }
 
@@ -280,7 +284,7 @@ KERNEL(256) mega(const uint baseBitlen,
   uint gm = gr % 2048;
   uint me = get_local_id(0);
   uint step = gm * 1024;
-  
+
   io    += step;
   A     += step;
   iA    += step;
@@ -295,7 +299,7 @@ KERNEL(256) mega(const uint baseBitlen,
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
     double c = 0;
-    r[i] = dar0(&c, conjugate(u[i]), iA[p], baseBitlen);
+    r[i] = weightAndCarry(&c, conjugate(u[i]), iA[p], baseBitlen);
     if (gr < 2048) { carry[gr * 1024 + p] = c; }
   }
 
@@ -314,7 +318,7 @@ KERNEL(256) mega(const uint baseBitlen,
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
     double d = carry[(gr - 1) * 1024 + ((p - gr / 2048) & 1023)];
-    u[i] = dar2(d, r[i], A[p], baseBitlen);
+    u[i] = carryAndWeight(d, r[i], A[p], baseBitlen);
   }
 
   fftImpl(4, lds, u, trig1k);
