@@ -149,19 +149,25 @@ void fftImpl(uint N, local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
+void read(uint N, double2 *u, global double2 *in) {
+  for (int i = 0; i < N; ++i) { u[i] = in[i * 256 + (uint) get_local_id(0)]; }
+}
+
+void write(uint N, double2 *u, global double2 *out) {
+  for (int i = 0; i < N; ++i) { out[i * 256 + (uint) get_local_id(0)] = u[i]; }
+}
+
 // FFT of size N * 256.
-void fft(uint N, local double *lds, double2 *u, global double2 * io, SMALL_CONST double2 * trig) {
+void fft(uint N, local double *lds, double2 *u, global double2 *io, SMALL_CONST double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   io += step;
 
-  uint me = get_local_id(0);
-
-  for (int i = 0; i < N; ++i) { u[i] = io[i * 256 + me]; }
-
+  read(N, u, io);
+  
   fftImpl(N, lds, u, trig);
 
-  for (int i = 0; i < N; ++i) { io[i * 256 + me] = u[i]; }
+  write(N, u, io);
 }
 
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
@@ -180,7 +186,7 @@ void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global dou
 
   fftImpl(N, lds, u, trig);
 
-  for (int i = 0; i < N; ++i) { out[me + i * 256] = u[i]; }
+  write(N, u, out);
 }
 
 KERNEL(256) fft1K(global double2 * io, SMALL_CONST double2 * trig1k) {
@@ -280,7 +286,7 @@ KERNEL(256) mega(const uint baseBitlen,
   iA    += step;
 
   double2 u[4];
-  for (int i = 0; i < 4; ++i) { u[i] = io[i * 256 + me]; }
+  read(4, u, io);
 
   fftImpl(4, lds, u, trig1k);
   
@@ -313,7 +319,7 @@ KERNEL(256) mega(const uint baseBitlen,
 
   fftImpl(4, lds, u, trig1k);
   
-  for (int i = 0; i < 4; ++i) { io[i * 256 + me]  = u[i]; }
+  write(4, u, io);
 }
 
 double2 addsub(double2 a) { return (double2) (a.x + a.y, a.x - a.y); }
@@ -597,10 +603,6 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
   
   for (int i = 0; i < 16; ++i) {
     uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
-    // u[i] = xorSign2(u[i], k >> 20);
-    // M(u[i], trig[(k & 2047)]);
-    // M(u[i], trig[2048 + (k >> 11)]);
-
     M(u[i], trig[4096 + k % (W * H / 4096)]);
     M(u[i], trig[k / (W * H / 4096)]);
 
