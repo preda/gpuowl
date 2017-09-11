@@ -79,14 +79,6 @@ void shufl(local double *lds, double2 *u, uint n, uint f) {
   }
 }
 
-void shuflBig(local double2 *lds, double2 *u, uint n, uint f) {
-  uint me = get_local_id(0);
-  uint m = me / f;
-  for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = u[i]; }
-  bar();
-  for (uint i = 0; i < n; ++i) { u[i] = lds[i * 256 + me]; }
-}
-
 void tabMul(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
@@ -133,14 +125,14 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
     for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = ((double *) (u + i))[b]; }
     bar();
     for (int i = 0; i < 4; ++i) {
-      ((double *) (u + i))[b]     = lds[i * 512 + me];
-      ((double *) (u + i + 4))[b] = lds[i * 512 + me + 256];
+      ((double *) (u + i))[b]     = lds[i * 512       + me];
+      ((double *) (u + i + 4))[b] = lds[i * 512 + 256 + me];
     }
   }
 
   for (int i = 1; i < 4; ++i) {
-    M(u[i],     trig[i * 512 + me]);
-    M(u[i + 4], trig[i * 512 + me + 256]);
+    M(u[i],     trig[i * 512       + me]);
+    M(u[i + 4], trig[i * 512 + 256 + me]);
   }
      
   fft4(u);
@@ -274,7 +266,7 @@ double2 dar2(double carry, double2 u, double2 a, uint baseBits) {
 // The "amalgamation" kernel is equivalent to the sequence: fft1K, carryA, carryB, fftPremul1K.
 // This kernel uses "starway" carry data forwarding from group K to group K+1.
 KERNEL(256) mega(const uint baseBitlen,
-                 global double2 *io, volatile global double *carry, volatile global uint *ready,
+                 global double2 *io, global double *carry, volatile global uint *ready,
                  CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
   local double lds[1024];
 
@@ -294,41 +286,26 @@ KERNEL(256) mega(const uint baseBitlen,
   
   double2 r[4];
 
-  // Fight the LLVM OpenCL compiler who doesn't care about # of VGPRs used.
-  // #pragma unroll 1
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
     double c = 0;
     r[i] = dar0(&c, conjugate(u[i]), iA[p], baseBitlen);
     if (gr < 2048) { carry[gr * 1024 + p] = c; }
-    /*
-    if (gr < 2048) {
-      atomic_store_explicit((volatile global atomic_double *)&carry[gr * 1024 + p], c, memory_order_release, memory_scope_device);
-    }
-    */
   }
 
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
 
   if (gr < 2048 && me == 0) { atomic_xchg(&ready[gr], 1); }
-  /*
-  if (gr < 2048 && me == 0) {
-    atomic_store_explicit((volatile global atomic_uint *)&ready[gr], 1, memory_order_release, memory_scope_device);
-  }
-  */
+
   if (gr == 0) { return; }
 
-  if (me == 0) {
-    while(!atomic_xchg(&ready[gr - 1], 0));
-    // while (!atomic_load_explicit((global atomic_uint *)&ready[gr - 1], memory_order_acquire, memory_scope_device));
-    // ready[gr - 1] = 0;
-  }
-  bar();
+  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
 
+  barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
+  
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
     double d = carry[(gr - 1) * 1024 + ((p - gr / 2048) & 1023)];
-    // double d = atomic_load_explicit((volatile global atomic_double *)&carry[((p - gr / 2048) & 1023) + (gr - 1) * 1024], memory_order_acquire, memory_scope_device);
     u[i] = dar2(d, r[i], A[p], baseBitlen);
   }
 
