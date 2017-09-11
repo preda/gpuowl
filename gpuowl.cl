@@ -149,12 +149,12 @@ void fftImpl(uint N, local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
-void read(uint N, double2 *u, global double2 *in) {
-  for (int i = 0; i < N; ++i) { u[i] = in[i * 256 + (uint) get_local_id(0)]; }
+void read(uint N, double2 *u, global double2 *in, uint base) {
+  for (int i = 0; i < N; ++i) { u[i] = in[base + i * 256 + (uint) get_local_id(0)]; }
 }
 
-void write(uint N, double2 *u, global double2 *out) {
-  for (int i = 0; i < N; ++i) { out[i * 256 + (uint) get_local_id(0)] = u[i]; }
+void write(uint N, double2 *u, global double2 *out, uint base) {
+  for (int i = 0; i < N; ++i) { out[base + i * 256 + (uint) get_local_id(0)] = u[i]; }
 }
 
 // FFT of size N * 256.
@@ -163,11 +163,11 @@ void fft(uint N, local double *lds, double2 *u, global double2 *io, SMALL_CONST 
   uint step = g * (N * 256);
   io += step;
 
-  read(N, u, io);
+  read(N, u, io, 0);
   
   fftImpl(N, lds, u, trig);
 
-  write(N, u, io);
+  write(N, u, io, 0);
 }
 
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
@@ -186,7 +186,7 @@ void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global dou
 
   fftImpl(N, lds, u, trig);
 
-  write(N, u, out);
+  write(N, u, out, 0);
 }
 
 KERNEL(256) fft1K(global double2 * io, SMALL_CONST double2 * trig1k) {
@@ -286,7 +286,7 @@ KERNEL(256) mega(const uint baseBitlen,
   iA    += step;
 
   double2 u[4];
-  read(4, u, io);
+  read(4, u, io, 0);
 
   fftImpl(4, lds, u, trig1k);
   
@@ -319,7 +319,7 @@ KERNEL(256) mega(const uint baseBitlen,
 
   fftImpl(4, lds, u, trig1k);
   
-  write(4, u, io);
+  write(4, u, io, 0);
 }
 
 double2 addsub(double2 a) { return (double2) (a.x + a.y, a.x - a.y); }
@@ -356,14 +356,14 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 * 
   local double lds[2048];
   
   double2 u[8];
-  for (int i = 0; i < 8; ++i) { u[i] = io[g * 2048 + i * 256 + me]; }
+  read(8, u, io, g * 2048);
   fft2kImpl(lds, u, trig);
 
   reverse((local double2 *) lds, u, g == 0);
 
   double2 v[8];
   uint line2 = g ? 1024 - g : 512;
-  for (int i = 0; i < 8; ++i) { v[i] = io[line2 * 2048 + i * 256 + me]; }
+  read(8, v, io, line2 * 2048);
   bar(); fft2kImpl(lds, v, trig);
 
   reverse((local double2 *) lds, v, false);
@@ -413,13 +413,13 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 * 
 
   reverse((local double2 *) lds, u, g == 0);
   bar(); fft2kImpl(lds, u, trig);
-  
-  for (int i = 0; i < 8; ++i) { io[g * 2048 + i * 256  + me] = u[i]; }
+
+  write(8, u, io, g * 2048);
   
   reverse((local double2 *) lds, v, false);
   bar(); fft2kImpl(lds, v, trig);
-  
-  for (int i = 0; i < 8; ++i) { io[line2 * 2048 + i * 256 + me] = v[i]; }
+
+  write(8, v, io, line2 * 2048);
 }
 
 // Carry propagation with optional MUL, over 16 words.
