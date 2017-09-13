@@ -5,13 +5,12 @@
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-// "overloadable" works on LLVM only.
+// "overloadable" would be really useful, but it works on LLVM only.
 #define OVERLOAD __attribute__((overloadable))
-
-// used to investigate the perf and VGPR difference between "const global" and "constant".
 #define CONST const global
-#define FFT_CONST constant
-#define TRANSPOSE_CONST constant
+
+typedef global double2 * restrict d2ptr;
+typedef global int2 * restrict i2ptr;
 
 // add-sub: (a, b) = (a + b, a - b)
 #define X1(a, b) { double  t = a; a = t + b; b = t - b; }
@@ -84,12 +83,12 @@ void shufl(local double *lds, double2 *u, uint n, uint f) {
   }
 }
 
-void tabMul(FFT_CONST double2 *trig, double2 *u, uint n, uint f) {
+void tabMul(CONST double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
 }
 
-void fft1kImpl(local double *lds, double2 *u, FFT_CONST double2 *trig) {
+void fft1kImpl(local double *lds, double2 *u, CONST double2 *trig) {
   fft4(u);
   shufl(lds,      u, 4, 64);
   tabMul(trig, u, 4, 64);
@@ -112,7 +111,7 @@ void fft1kImpl(local double *lds, double2 *u, FFT_CONST double2 *trig) {
   fft4(u);
 }
 
-void fft2kImpl(local double *lds, double2 *u, FFT_CONST double2 *trig) {
+void fft2kImpl(local double *lds, double2 *u, CONST double2 *trig) {
   fft8(u);
   shufl(lds,      u, 8, 32);
   tabMul(trig, u, 8, 32);
@@ -150,7 +149,7 @@ void fft2kImpl(local double *lds, double2 *u, FFT_CONST double2 *trig) {
   S2(u[3], u[6]);
 }
 
-void fftImpl(uint N, local double *lds, double2 *u, FFT_CONST double2 *trig) {
+void fftImpl(uint N, local double *lds, double2 *u, CONST double2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
@@ -163,7 +162,7 @@ void write(uint N, double2 *u, global double2 *out, uint base) {
 }
 
 // FFT of size N * 256.
-void fft(uint N, local double *lds, double2 *u, global double2 *io, FFT_CONST double2 *trig) {
+void fft(uint N, local double *lds, double2 *u, global double2 *io, CONST double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   io += step;
@@ -178,7 +177,7 @@ void fft(uint N, local double *lds, double2 *u, global double2 *io, FFT_CONST do
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global double2 *out, CONST double2 *A, FFT_CONST double2 *trig) {
+void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global double2 *out, CONST double2 *A, CONST double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   in  += step;
@@ -194,25 +193,25 @@ void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global dou
   write(N, u, out, 0);
 }
 
-KERNEL(256) fft1K(global double2 * io, FFT_CONST double2 * trig1k) {
+KERNEL(256) fft1K(d2ptr io, const d2ptr trig1k) {
   local double lds[4 * 256];
   double2 u[4];
   fft(4, lds, u, io, trig1k);
 }
 
-KERNEL(256) fft2K(global double2 *io, FFT_CONST double2 *trig2k) {
+KERNEL(256) fft2K(d2ptr io, const d2ptr trig2k) {
   local double lds[8 * 256];
   double2 u[8];
   fft(8, lds, u, io, trig2k);
 }
 
-KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, FFT_CONST double2 *trig1k) {
+KERNEL(256) fftPremul1K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr trig1k) {
   local double lds[4 * 256];
   double2 u[4];
   fftPremul(4, lds, u, in, out, A, trig1k);
 }
 
-KERNEL(256) fftPremul2K(CONST int2 *in, global double2 *out, CONST double2 *A, FFT_CONST double2 *trig2k) {
+KERNEL(256) fftPremul2K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr trig2k) {
   local double lds[8 * 256];
   double2 u[8];
   fftPremul(8, lds, u, in, out, A, trig2k);
@@ -291,7 +290,7 @@ double2 carryAndWeightFinal(double carry, double2 u, double2 a, uint baseBits) {
 void carryConvolution(uint N, uint H, local double *lds, double2 *u,
                   uint baseBitlen,
                   global double2 *io, global double *carryShuttle, volatile global uint *ready,
-                  CONST double2 *A, CONST double2 *iA, FFT_CONST double2 *trig) {
+                  CONST double2 *A, CONST double2 *iA, CONST double2 * restrict trig) {
   uint W = N * 256;
 
   uint gr = get_group_id(0);
@@ -335,9 +334,9 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
   write(N, u, io, 0);
 }
 
-KERNEL(256) carryConv1K_2K(uint baseBitlen,
-                 global double2 *io, global double *carryShuttle, volatile global uint *ready,
-                 CONST double2 *A, CONST double2 *iA, FFT_CONST double2 *trig1k) {
+KERNEL(256) carryConv1K_2K(uint baseBitlen, d2ptr io,
+                           global double * restrict carryShuttle, volatile global uint * restrict ready,
+                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
   local double lds[4 * 256];
   double2 u[4];
   carryConvolution(4, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
@@ -345,9 +344,9 @@ KERNEL(256) carryConv1K_2K(uint baseBitlen,
 
 #ifdef ENABLE_BUG
 
-KERNEL(256) carryConv2K_2K(uint baseBitlen,
-                 global double2 *io, global double *carryShuttle, volatile global uint *ready,
-                 CONST double2 *A, CONST double2 *iA, FFT_CONST double2 *trig1k) {
+KERNEL(256) carryConv2K_2K(uint baseBitlen, d2ptr io,
+                           global double * restrict carryShuttle, volatile global uint * restrict ready,
+                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
   local double lds[8 * 256];
   double2 u[8];
   carryConvolution(8, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
@@ -383,7 +382,7 @@ void reverse(local double2 *lds, double2 *u, bool bump) {
 
 // This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
 // It does less global memory transfers, but uses more VGPRs.
-KERNEL(256) tail(global double2 *io, FFT_CONST double2 *trig, constant double2 * restrict bigTrig) {
+KERNEL(256) tail(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   local double lds[2048];
@@ -480,16 +479,12 @@ void carryMul(const int mul, const uint baseBits,
 }
 
 // Carry propagation. conjugates input.
-KERNEL(256) carryA(const uint baseBits,
-                   CONST double2 *in, CONST double2 *A, global int2 *out,
-                   global long *carryOut) {
+KERNEL(256) carryA(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
   carryMul(1, baseBits, in, A, out, carryOut);
 }
 
 // Carry propagation + MUL 3. conjugates input.
-KERNEL(256) carryMul3(const uint baseBits,
-                   CONST double2 *in, CONST double2 *A, global int2 *out,
-                   global long *carryOut) {
+KERNEL(256) carryMul3(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
   carryMul(3, baseBits, in, A, out, carryOut);
 }
 
@@ -517,7 +512,7 @@ void carryBCore(uint H, const uint baseBits, global int2 *io, CONST long *carryI
   }
 }
 
-KERNEL(256) carryB_2K(const uint baseBits, global int2 *io, global long *carryIn, CONST double2 *A) {
+KERNEL(256) carryB_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
   carryBCore(2048, baseBits, io, carryIn, A);
 }
 
@@ -597,8 +592,8 @@ void cmul(uint W, global double2 *io, CONST double2 *in, CONST double2 *trig) {
   io[v] = b;
 }
 
-KERNEL(256) csquare2K(global double2 *io, CONST double2 *trig)  { csquare(2048, io, trig); }
-KERNEL(256) cmul2K(global double2 *io, CONST double2 *in, CONST double2 *trig)  { cmul(2048, io, in, trig); }
+KERNEL(256) csquare2K(d2ptr io, const d2ptr trig)  { csquare(2048, io, trig); }
+KERNEL(256) cmul2K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, io, in, trig); }
 
 void transposeCore(local double *lds, double2 *u) {
   uint me = get_local_id(0);
@@ -618,7 +613,7 @@ void transposeCore(local double *lds, double2 *u) {
   }
 }
 
-void transpose(uint W, uint H, local double *lds, CONST double2 *in, global double2 *out, TRANSPOSE_CONST double2 *trig) {
+void transpose(uint W, uint H, local double *lds, CONST double2 *in, global double2 *out, CONST double2 * trig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   gy = (gy + gx) % GH;
@@ -642,6 +637,21 @@ void transpose(uint W, uint H, local double *lds, CONST double2 *in, global doub
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];
   }
+}
+
+KERNEL(256) transpose1K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
+  local double lds[4096];
+  transpose(1024, 2048, lds, in, out, trig);
+}
+
+KERNEL(256) transpose2K_1K(const d2ptr in, d2ptr out, const d2ptr trig) {
+  local double lds[4096];
+  transpose(2048, 1024, lds, in, out, trig);
+}
+
+KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
+  local double lds[4096];
+  transpose(2048, 2048, lds, in, out, trig);
 }
 
 // in place
@@ -672,18 +682,3 @@ KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
   }
 }
 */
-
-KERNEL(256) transpose1K_2K(CONST double2 *in, global double2 *out, TRANSPOSE_CONST double2 *trig) {
-  local double lds[4096];
-  transpose(1024, 2048, lds, in, out, trig);
-}
-
-KERNEL(256) transpose2K_1K(CONST double2 *in, global double2 *out, TRANSPOSE_CONST double2 *trig) {
-  local double lds[4096];
-  transpose(2048, 1024, lds, in, out, trig);
-}
-
-KERNEL(256) transpose2K_2K(CONST double2 *in, global double2 *out, TRANSPOSE_CONST double2 *trig) {
-  local double lds[4096];
-  transpose(2048, 2048, lds, in, out, trig);
-}
