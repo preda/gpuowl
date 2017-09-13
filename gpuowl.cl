@@ -284,33 +284,11 @@ double2 carryAndWeightFinal(double carry, double2 u, double2 a, uint baseBits) {
   return (double2) (r.x, r.y + u.y) * fabs(a);
 }
 
-/*
-int2 weightAndCarry(double *carry, double2 u, double2 iA, uint baseBits) {
-  u = rint(u * fabs(iA)); // reverse weight and round.
-  double2 r0 = carryStep(*carry + u.x, bitlen(baseBits, iA.x));
-  double2 r1 = carryStep(r0.y   + u.y, bitlen(baseBits, iA.y));
-  *carry = r1.y;
-  return (int2)(r0.x, r1.x);
-}
-
-double2 carryAndWeight(double *carry, int2 u, double2 a, uint baseBits) {
-  double2 r0 = carryStep(*carry + u.x, bitlen(baseBits, a.x));
-  double2 r1 = carryStep(r0.y   + u.y, bitlen(baseBits, a.y));
-  *carry = r1.y;
-  return (double2) (r0.x, r1.x) * fabs(a);
-}
-
-double2 carryAndWeightFinal(double carry, int2 u, double2 a, uint baseBits) {
-  double2 r = carryStep(carry + u.x, bitlen(baseBits, a.x));
-  return (double2) (r.x, r.y + u.y) * fabs(a);
-}
-*/
-
-// The "amalgamation" is equivalent to the sequence: fft, carryA, carryB, fftPremul.
+// The "carryConvolution" is equivalent to the sequence: fft, carryA, carryB, fftPremul.
 // It uses "stareway" carry data forwarding from group K to group K+1.
 // N gives the FFT size, W = N * 256.
 // H gives the nuber of "lines" of FFT.
-void amalgamation(uint N, uint H, local double *lds, double2 *u,
+void carryConvolution(uint N, uint H, local double *lds, double2 *u,
                   uint baseBitlen,
                   global double2 *io, global double *carryShuttle, volatile global uint *ready,
                   CONST double2 *A, CONST double2 *iA, FFT_CONST double2 *trig) {
@@ -357,73 +335,25 @@ void amalgamation(uint N, uint H, local double *lds, double2 *u,
   write(N, u, io, 0);
 }
 
-KERNEL(256) mega(uint baseBitlen,
+KERNEL(256) carryConv1K_2K(uint baseBitlen,
                  global double2 *io, global double *carryShuttle, volatile global uint *ready,
                  CONST double2 *A, CONST double2 *iA, FFT_CONST double2 *trig1k) {
   local double lds[4 * 256];
   double2 u[4];
-  amalgamation(4, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
+  carryConvolution(4, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
 }
 
-/*
-KERNEL(256) mega(const uint baseBitlenUnused,
+#ifdef ENABLE_BUG
+
+KERNEL(256) carryConv2K_2K(uint baseBitlen,
                  global double2 *io, global double *carryShuttle, volatile global uint *ready,
                  CONST double2 *A, CONST double2 *iA, FFT_CONST double2 *trig1k) {
-  local double lds[1024];
-
-  uint gr = get_group_id(0);
-  uint gm = gr % 1024;
-  uint me = get_local_id(0);
-  uint step = gm * 2048;
-
-  io    += step;
-  A     += step;
-  iA    += step;
-
+  local double lds[8 * 256];
   double2 u[8];
-  read(8, u, io, 0);
-  // double2 v[4];
-  // read(4, v, io, 1024);
-  
-  fftImpl(4, lds, u,     trig1k);
-  bar();
-  fftImpl(4, lds, u + 4, trig1k);
-  
-  // int2 *r = (int2 *)u;
-  for (int i = 0; i < 4; ++i) {
-    uint p = i * 256 + me;
-    double carry = 0;
-    u[i]     = weightAndCarry(&carry, conjugate(u[i]), iA[p], BITLEN);
-    u[i + 4] = weightAndCarry(&carry, conjugate(u[i + 4]), iA[1024 + p], BITLEN);
-    if (gr < 1024) { carryShuttle[gr * 1024 + p] = carry; }    
-  }
-  
-  barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
-
-  // Signal that this group is done computing and writing the carry.
-  if (gr < 1024 && me == 0) { atomic_xchg(&ready[gr], 1); }
-
-  if (gr == 0) { return; }
-
-  // Wait until the previous group is done with the carry.
-  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
-
-  barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
-  
-  for (int i = 0; i < 4; ++i) {
-    uint p = i * 256 + me;
-    double carry = carryShuttle[(gr - 1) * 1024 + ((p - gr / 1024) & 1023)];
-    u[i] = carryAndWeight(&carry, u[i], A[p], BITLEN);
-    u[4 + i] = carryAndWeightFinal(carry, u[i + 4], A[1024 + p], BITLEN);
-  }
-
-  fftImpl(4, lds, u,     trig1k);
-  bar();
-  fftImpl(4, lds, u + 4, trig1k);
-  
-  write(8, u, io, 0);
+  carryConvolution(8, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
 }
-*/
+
+#endif
 
 double2 addsub(double2 a) { return (double2) (a.x + a.y, a.x - a.y); }
 

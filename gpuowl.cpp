@@ -644,7 +644,7 @@ int main(int argc, char **argv) {
   KERNEL(p, cmul2K,    2);
   KERNEL(p, carryMul3,  4);
 #undef KERNEL
-  Kernel mega(p, "mega", 3, args.timeKernels, 1);
+  Kernel carryConv1K_2K(p, "carryConv1K_2K", 3, args.timeKernels, 1);
   
   log("Compile       : %4d ms\n", timer.deltaMillis());
   release(p); p = nullptr;
@@ -676,7 +676,7 @@ int main(int argc, char **argv) {
   carryA.setArgs     (0, buf1, bufI, dummy, bufCarry);
   carryMul3.setArgs  (0, buf1, bufI, dummy, bufCarry);
   carryB_2K.setArgs  (0, dummy, bufCarry, bufI);
-  mega.setArgs(0, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
+  carryConv1K_2K.setArgs(0, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
 
   fft2K.setArgs(buf2, bufTrig2K);
   csquare2K.setArgs(buf2, bufBigTrig);
@@ -695,7 +695,7 @@ int main(int argc, char **argv) {
     carryA.setArg(0, baseBitlen);
     carryMul3.setArg(0, baseBitlen);
     carryB_2K.setArg(0, baseBitlen);
-    mega.setArg(0, baseBitlen);
+    carryConv1K_2K.setArg(0, baseBitlen);
     
     bool isPrime;
     u64 residue;
@@ -714,7 +714,7 @@ int main(int argc, char **argv) {
 
     // kernel-fusion equivalent of: tailKerns, headKerns.
     // std::vector<Kernel *> coreKerns {&mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
-    std::vector<Kernel *> coreKerns {&mega, &transpose1K_2K, &tail, &transpose2K_1K};
+    std::vector<Kernel *> coreKerns {&carryConv1K_2K, &transpose1K_2K, &tail, &transpose2K_1K};
     if (args.useLegacy) {
       coreKerns = tailKerns;
       coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
