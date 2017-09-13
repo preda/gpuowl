@@ -164,18 +164,18 @@ cl_program compile(cl_device_id device, cl_context context, const char *fileName
   size_t logSize;
   int err;
   if (useCL2) {
-  // First try CL2.0 compilation.
-  snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math -cl-std=CL2.0 %s", opts);
-  err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
+    // First try CL2.0 compilation.
+    snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math -cl-std=CL2.0 %s", opts);
+    err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
   
-  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
-  buf[logSize] = 0;
-  if (logSize > 2) { fprintf(stderr, "OpenCL compilation log:\n%s\n", buf); }
-  if (err == CL_SUCCESS) { return program; }
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
+    buf[logSize] = 0;
+    if (logSize > 2) { fprintf(stderr, "OpenCL compilation log:\n%s\n", buf); }
+    if (err == CL_SUCCESS) { return program; }
   
-  printf("Falling back to CL1.x compilation (error %d)\n", err);
+    printf("Falling back to CL1.x compilation (error %d)\n", err);
   }
-  snprintf(buf, sizeof(buf), "-fno-bin-llvmir -fno-bin-amdil -fno-bin-source -cl-fast-relaxed-math %s", opts);
+  snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math %s", opts);
   err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
   
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);

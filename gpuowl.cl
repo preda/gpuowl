@@ -5,9 +5,13 @@
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-// used to investigate perf difference between "const global" and "constant".
+// "overloadable" works on LLVM only.
+#define OVERLOAD __attribute__((overloadable))
+
+// used to investigate the perf and VGPR difference between "const global" and "constant".
 #define CONST const global
-#define SMALL_CONST constant
+#define FFT_CONST constant
+#define TRANSPOSE_CONST constant
 
 // add-sub: (a, b) = (a + b, a - b)
 #define X1(a, b) { double  t = a; a = t + b; b = t - b; }
@@ -17,13 +21,14 @@
 #define S2(a, b) { double2 t = a; a = b; b = t; }
 double2 swap(double2 u) { return (double2) (u.y, u.x); }
 
-void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
+void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
+void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
 
-// complex multiplication
+// complex multiplication.
 double2 muld(double2 u, double a, double b) { return (double2) { u.x * a - u.y * b, u.x * b + u.y * a}; }
 double2 mul(double2 u, double2 v) { return muld(u, v.x, v.y); }
 
-// complex mul mutating the first argument.
+// mutating complex multiplication.
 #define MUL(x, a, b) x = muld(x, a, b)
 #define M(x, t) x = mul(x, t)
 
@@ -79,12 +84,12 @@ void shufl(local double *lds, double2 *u, uint n, uint f) {
   }
 }
 
-void tabMul(SMALL_CONST double2 *trig, double2 *u, uint n, uint f) {
+void tabMul(FFT_CONST double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
 }
 
-void fft1kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
+void fft1kImpl(local double *lds, double2 *u, FFT_CONST double2 *trig) {
   fft4(u);
   shufl(lds,      u, 4, 64);
   tabMul(trig, u, 4, 64);
@@ -107,7 +112,7 @@ void fft1kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   fft4(u);
 }
 
-void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
+void fft2kImpl(local double *lds, double2 *u, FFT_CONST double2 *trig) {
   fft8(u);
   shufl(lds,      u, 8, 32);
   tabMul(trig, u, 8, 32);
@@ -145,7 +150,7 @@ void fft2kImpl(local double *lds, double2 *u, SMALL_CONST double2 *trig) {
   S2(u[3], u[6]);
 }
 
-void fftImpl(uint N, local double *lds, double2 *u, SMALL_CONST double2 *trig) {
+void fftImpl(uint N, local double *lds, double2 *u, FFT_CONST double2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
@@ -158,7 +163,7 @@ void write(uint N, double2 *u, global double2 *out, uint base) {
 }
 
 // FFT of size N * 256.
-void fft(uint N, local double *lds, double2 *u, global double2 *io, SMALL_CONST double2 *trig) {
+void fft(uint N, local double *lds, double2 *u, global double2 *io, FFT_CONST double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   io += step;
@@ -173,7 +178,7 @@ void fft(uint N, local double *lds, double2 *u, global double2 *io, SMALL_CONST 
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig) {
+void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global double2 *out, CONST double2 *A, FFT_CONST double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   in  += step;
@@ -189,25 +194,25 @@ void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global dou
   write(N, u, out, 0);
 }
 
-KERNEL(256) fft1K(global double2 * io, SMALL_CONST double2 * trig1k) {
+KERNEL(256) fft1K(global double2 * io, FFT_CONST double2 * trig1k) {
   local double lds[4 * 256];
   double2 u[4];
   fft(4, lds, u, io, trig1k);
 }
 
-KERNEL(256) fft2K(global double2 *io, SMALL_CONST double2 *trig2k) {
+KERNEL(256) fft2K(global double2 *io, FFT_CONST double2 *trig2k) {
   local double lds[8 * 256];
   double2 u[8];
   fft(8, lds, u, io, trig2k);
 }
 
-KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig1k) {
+KERNEL(256) fftPremul1K(CONST int2 *in, global double2 *out, CONST double2 *A, FFT_CONST double2 *trig1k) {
   local double lds[4 * 256];
   double2 u[4];
   fftPremul(4, lds, u, in, out, A, trig1k);
 }
 
-KERNEL(256) fftPremul2K(CONST int2 *in, global double2 *out, CONST double2 *A, SMALL_CONST double2 *trig2k) {
+KERNEL(256) fftPremul2K(CONST int2 *in, global double2 *out, CONST double2 *A, FFT_CONST double2 *trig2k) {
   local double lds[8 * 256];
   double2 u[8];
   fftPremul(8, lds, u, in, out, A, trig2k);
@@ -258,55 +263,145 @@ double2 carryStep(double x, int bits) {
 }
 
 // Applies inverse weight "iA" and rounding, and propagates carry over the two words.
-// has carry out.
 double2 weightAndCarry(double *carry, double2 u, double2 iA, uint baseBits) {
-  u *= fabs(iA);
-  double2 r0 = carryStep(*carry + rint(u.x), bitlen(baseBits, iA.x));
-  double2 r1 = carryStep(r0.y   + rint(u.y), bitlen(baseBits, iA.y));
+  u = rint(u * fabs(iA)); // reverse weight and round.
+  double2 r0 = carryStep(*carry + u.x, bitlen(baseBits, iA.x));
+  double2 r1 = carryStep(r0.y   + u.y, bitlen(baseBits, iA.y));
   *carry = r1.y;
-  return (double2)(r0.x, r1.x);
+  return (double2) (r0.x, r1.x);
 }
 
-// No carry out.
-double2 carryAndWeight(double carry, double2 u, double2 a, uint baseBits) {
+double2 carryAndWeight(double *carry, double2 u, double2 a, uint baseBits) {
+  double2 r0 = carryStep(*carry + u.x, bitlen(baseBits, a.x));
+  double2 r1 = carryStep(r0.y   + u.y, bitlen(baseBits, a.y));
+  *carry = r1.y;
+  return (double2) (r0.x, r1.x) * fabs(a);
+}
+
+// No carry out. The final carry is "absorbed" in the last word.
+double2 carryAndWeightFinal(double carry, double2 u, double2 a, uint baseBits) {
   double2 r = carryStep(carry + u.x, bitlen(baseBits, a.x));
   return (double2) (r.x, r.y + u.y) * fabs(a);
 }
 
-// The "amalgamation" kernel is equivalent to the sequence: fft1K, carryA, carryB, fftPremul1K.
-// This kernel uses "starway" carry data forwarding from group K to group K+1.
-KERNEL(256) mega(const uint baseBitlen,
-                 global double2 *io, global double *carry, volatile global uint *ready,
-                 CONST double2 *A, CONST double2 *iA, SMALL_CONST double2 *trig1k) {
-  local double lds[1024];
+/*
+int2 weightAndCarry(double *carry, double2 u, double2 iA, uint baseBits) {
+  u = rint(u * fabs(iA)); // reverse weight and round.
+  double2 r0 = carryStep(*carry + u.x, bitlen(baseBits, iA.x));
+  double2 r1 = carryStep(r0.y   + u.y, bitlen(baseBits, iA.y));
+  *carry = r1.y;
+  return (int2)(r0.x, r1.x);
+}
+
+double2 carryAndWeight(double *carry, int2 u, double2 a, uint baseBits) {
+  double2 r0 = carryStep(*carry + u.x, bitlen(baseBits, a.x));
+  double2 r1 = carryStep(r0.y   + u.y, bitlen(baseBits, a.y));
+  *carry = r1.y;
+  return (double2) (r0.x, r1.x) * fabs(a);
+}
+
+double2 carryAndWeightFinal(double carry, int2 u, double2 a, uint baseBits) {
+  double2 r = carryStep(carry + u.x, bitlen(baseBits, a.x));
+  return (double2) (r.x, r.y + u.y) * fabs(a);
+}
+*/
+
+// The "amalgamation" is equivalent to the sequence: fft, carryA, carryB, fftPremul.
+// It uses "stareway" carry data forwarding from group K to group K+1.
+// N gives the FFT size, W = N * 256.
+// H gives the nuber of "lines" of FFT.
+void amalgamation(uint N, uint H, local double *lds, double2 *u,
+                  uint baseBitlen,
+                  global double2 *io, global double *carryShuttle, volatile global uint *ready,
+                  CONST double2 *A, CONST double2 *iA, FFT_CONST double2 *trig) {
+  uint W = N * 256;
 
   uint gr = get_group_id(0);
-  uint gm = gr % 2048;
+  uint gm = gr % H;
   uint me = get_local_id(0);
-  uint step = gm * 1024;
+  uint step = gm * W;
 
   io    += step;
   A     += step;
   iA    += step;
 
-  double2 u[4];
-  read(4, u, io, 0);
+  read(N, u, io, 0);
+  fftImpl(N, lds, u, trig);
 
-  fftImpl(4, lds, u, trig1k);
-  
-  double2 r[4];
-
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < N; ++i) {
     uint p = i * 256 + me;
-    double c = 0;
-    r[i] = weightAndCarry(&c, conjugate(u[i]), iA[p], baseBitlen);
-    if (gr < 2048) { carry[gr * 1024 + p] = c; }
+    double carry = 0;
+    u[i] = weightAndCarry(&carry, conjugate(u[i]), iA[p], baseBitlen);
+    if (gr < H) { carryShuttle[gr * W + p] = carry; }
   }
 
+  bigBar();
+
+  // Signal that this group is done writing the carry.
+  if (gr < H && me == 0) { atomic_xchg(&ready[gr], 1); }
+
+  if (gr == 0) { return; }
+
+  // Wait until the previous group is ready with the carry.
+  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
+
+  bigBar();
+  
+  for (int i = 0; i < N; ++i) {
+    uint p = i * 256 + me;
+    double carry = carryShuttle[(gr - 1) * W + ((p - gr / H) & (W - 1))];
+    u[i] = carryAndWeightFinal(carry, u[i], A[p], baseBitlen);
+  }
+
+  fftImpl(N, lds, u, trig);
+  write(N, u, io, 0);
+}
+
+KERNEL(256) mega(uint baseBitlen,
+                 global double2 *io, global double *carryShuttle, volatile global uint *ready,
+                 CONST double2 *A, CONST double2 *iA, FFT_CONST double2 *trig1k) {
+  local double lds[4 * 256];
+  double2 u[4];
+  amalgamation(4, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
+}
+
+/*
+KERNEL(256) mega(const uint baseBitlenUnused,
+                 global double2 *io, global double *carryShuttle, volatile global uint *ready,
+                 CONST double2 *A, CONST double2 *iA, FFT_CONST double2 *trig1k) {
+  local double lds[1024];
+
+  uint gr = get_group_id(0);
+  uint gm = gr % 1024;
+  uint me = get_local_id(0);
+  uint step = gm * 2048;
+
+  io    += step;
+  A     += step;
+  iA    += step;
+
+  double2 u[8];
+  read(8, u, io, 0);
+  // double2 v[4];
+  // read(4, v, io, 1024);
+  
+  fftImpl(4, lds, u,     trig1k);
+  bar();
+  fftImpl(4, lds, u + 4, trig1k);
+  
+  // int2 *r = (int2 *)u;
+  for (int i = 0; i < 4; ++i) {
+    uint p = i * 256 + me;
+    double carry = 0;
+    u[i]     = weightAndCarry(&carry, conjugate(u[i]), iA[p], BITLEN);
+    u[i + 4] = weightAndCarry(&carry, conjugate(u[i + 4]), iA[1024 + p], BITLEN);
+    if (gr < 1024) { carryShuttle[gr * 1024 + p] = carry; }    
+  }
+  
   barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE);
 
   // Signal that this group is done computing and writing the carry.
-  if (gr < 2048 && me == 0) { atomic_xchg(&ready[gr], 1); }
+  if (gr < 1024 && me == 0) { atomic_xchg(&ready[gr], 1); }
 
   if (gr == 0) { return; }
 
@@ -317,14 +412,18 @@ KERNEL(256) mega(const uint baseBitlen,
   
   for (int i = 0; i < 4; ++i) {
     uint p = i * 256 + me;
-    double d = carry[(gr - 1) * 1024 + ((p - gr / 2048) & 1023)];
-    u[i] = carryAndWeight(d, r[i], A[p], baseBitlen);
+    double carry = carryShuttle[(gr - 1) * 1024 + ((p - gr / 1024) & 1023)];
+    u[i] = carryAndWeight(&carry, u[i], A[p], BITLEN);
+    u[4 + i] = carryAndWeightFinal(carry, u[i + 4], A[1024 + p], BITLEN);
   }
 
-  fftImpl(4, lds, u, trig1k);
+  fftImpl(4, lds, u,     trig1k);
+  bar();
+  fftImpl(4, lds, u + 4, trig1k);
   
-  write(4, u, io, 0);
+  write(8, u, io, 0);
 }
+*/
 
 double2 addsub(double2 a) { return (double2) (a.x + a.y, a.x - a.y); }
 
@@ -354,21 +453,21 @@ void reverse(local double2 *lds, double2 *u, bool bump) {
 
 // This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
 // It does less global memory transfers, but uses more VGPRs.
-KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 * restrict bigTrig) {
+KERNEL(256) tail(global double2 *io, FFT_CONST double2 *trig, constant double2 * restrict bigTrig) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   local double lds[2048];
   
   double2 u[8];
   read(8, u, io, g * 2048);
-  fft2kImpl(lds, u, trig);
+  fftImpl(8, lds, u, trig);
 
   reverse((local double2 *) lds, u, g == 0);
 
   double2 v[8];
   uint line2 = g ? 1024 - g : 512;
   read(8, v, io, line2 * 2048);
-  bar(); fft2kImpl(lds, v, trig);
+  bar(); fftImpl(8, lds, v, trig);
 
   reverse((local double2 *) lds, v, false);
   
@@ -416,12 +515,12 @@ KERNEL(256) tail(global double2 *io, SMALL_CONST double2 *trig, CONST double2 * 
   if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
 
   reverse((local double2 *) lds, u, g == 0);
-  bar(); fft2kImpl(lds, u, trig);
+  bar(); fftImpl(8, lds, u, trig);
 
   write(8, u, io, g * 2048);
   
   reverse((local double2 *) lds, v, false);
-  bar(); fft2kImpl(lds, v, trig);
+  bar(); fftImpl(8, lds, v, trig);
 
   write(8, v, io, line2 * 2048);
 }
@@ -589,7 +688,7 @@ void transposeCore(local double *lds, double2 *u) {
   }
 }
 
-void transpose(uint W, uint H, local double *lds, CONST double2 *in, global double2 *out, CONST double2 *trig) {
+void transpose(uint W, uint H, local double *lds, CONST double2 *in, global double2 *out, TRANSPOSE_CONST double2 *trig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   gy = (gy + gx) % GH;
@@ -644,17 +743,17 @@ KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
 }
 */
 
-KERNEL(256) transpose1K_2K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+KERNEL(256) transpose1K_2K(CONST double2 *in, global double2 *out, TRANSPOSE_CONST double2 *trig) {
   local double lds[4096];
   transpose(1024, 2048, lds, in, out, trig);
 }
 
-KERNEL(256) transpose2K_1K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+KERNEL(256) transpose2K_1K(CONST double2 *in, global double2 *out, TRANSPOSE_CONST double2 *trig) {
   local double lds[4096];
   transpose(2048, 1024, lds, in, out, trig);
 }
 
-KERNEL(256) transpose2K_2K(CONST double2 *in, global double2 *out, CONST double2 *trig) {
+KERNEL(256) transpose2K_2K(CONST double2 *in, global double2 *out, TRANSPOSE_CONST double2 *trig) {
   local double lds[4096];
   transpose(2048, 2048, lds, in, out, trig);
 }

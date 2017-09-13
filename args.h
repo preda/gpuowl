@@ -14,7 +14,7 @@ struct Args {
   int device;
   bool timeKernels, useLegacy;
   
-  Args() : step(100000), saveStep(10000000), device(-1), timeKernels(false), useLegacy(false) { }
+  Args() : step(500000), saveStep(10000000), device(-1), timeKernels(false), useLegacy(false) { }
 
   /*
   void logConfig() {
@@ -39,7 +39,7 @@ struct Args {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n\n"
-          "-step     <N> : to log, validate and save every <N> [default 100K] iterations.\n"
+          "-step     <N> : to log, validate and save every <N> [default 500K] iterations.\n"
           "-savestep <N> : to persist checkpoint every <N> [default 10M] iterations.\n"
           "-user <name>  : specify the user name.\n"
           "-cpu  <name>  : specify the hardware name.\n"  
