@@ -7,7 +7,6 @@
 
 // "overloadable" would be really useful, but it works on LLVM only.
 #define OVERLOAD __attribute__((overloadable))
-#define CONST const global
 
 typedef global double2 * restrict d2ptr;
 typedef global int2 * restrict i2ptr;
@@ -83,12 +82,12 @@ void shufl(local double *lds, double2 *u, uint n, uint f) {
   }
 }
 
-void tabMul(CONST double2 *trig, double2 *u, uint n, uint f) {
+void tabMul(const double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
 }
 
-void fft1kImpl(local double *lds, double2 *u, CONST double2 *trig) {
+void fft1kImpl(local double *lds, double2 *u, const double2 *trig) {
   fft4(u);
   shufl(lds,      u, 4, 64);
   tabMul(trig, u, 4, 64);
@@ -111,7 +110,7 @@ void fft1kImpl(local double *lds, double2 *u, CONST double2 *trig) {
   fft4(u);
 }
 
-void fft2kImpl(local double *lds, double2 *u, CONST double2 *trig) {
+void fft2kImpl(local double *lds, double2 *u, const double2 *trig) {
   fft8(u);
   shufl(lds,      u, 8, 32);
   tabMul(trig, u, 8, 32);
@@ -149,7 +148,7 @@ void fft2kImpl(local double *lds, double2 *u, CONST double2 *trig) {
   S2(u[3], u[6]);
 }
 
-void fftImpl(uint N, local double *lds, double2 *u, CONST double2 *trig) {
+void fftImpl(uint N, local double *lds, double2 *u, const double2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
@@ -162,7 +161,7 @@ void write(uint N, double2 *u, global double2 *out, uint base) {
 }
 
 // FFT of size N * 256.
-void fft(uint N, local double *lds, double2 *u, global double2 *io, CONST double2 *trig) {
+void fft(uint N, local double *lds, double2 *u, global double2 *io, const double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   io += step;
@@ -177,7 +176,7 @@ void fft(uint N, local double *lds, double2 *u, global double2 *io, CONST double
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-void fftPremul(uint N, local double *lds, double2 *u, CONST int2 *in, global double2 *out, CONST double2 *A, CONST double2 *trig) {
+void fftPremul(uint N, local double *lds, double2 *u, const int2 *in, global double2 *out, const double2 *A, const double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   in  += step;
@@ -290,7 +289,7 @@ double2 carryAndWeightFinal(double carry, double2 u, double2 a, uint baseBits) {
 void carryConvolution(uint N, uint H, local double *lds, double2 *u,
                   uint baseBitlen,
                   global double2 *io, global double *carryShuttle, volatile global uint *ready,
-                  CONST double2 *A, CONST double2 *iA, CONST double2 * restrict trig) {
+                  const double2 *A, const double2 *iA, const double2 *trig) {
   uint W = N * 256;
 
   uint gr = get_group_id(0);
@@ -458,7 +457,7 @@ KERNEL(256) tail(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
 // Input is doubles. They are weighted with the "inverse weight" A
 // and rounded to output ints and to left-over carryOut.
 void carryMul(const int mul, const uint baseBits,
-              CONST double2 *in, CONST double2 *A, global int2 *out,
+              const double2 *in, const double2 *A, global int2 *out,
               global long *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
@@ -492,7 +491,7 @@ KERNEL(256) carryMul3(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr 
 // Input is int words and the left-over carry from carryA.
 // Output is int words.
 // The weights "A" are needed only to derive the bit size of each word (encoded in the sign of its elements).
-void carryBCore(uint H, const uint baseBits, global int2 *io, CONST long *carryIn, CONST double2 *A) {
+void carryBCore(uint H, const uint baseBits, global int2 *io, const long *carryIn, const double2 *A) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   
@@ -517,7 +516,7 @@ KERNEL(256) carryB_2K(const uint baseBits, i2ptr io, const global long * restric
 }
 
 // Inputs normal (non-conjugate); outputs conjugate.
-void csquare(uint W, global double2 *io, CONST double2 *trig) {
+void csquare(uint W, global double2 *io, const double2 *trig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -552,7 +551,7 @@ void csquare(uint W, global double2 *io, CONST double2 *trig) {
 }
 
 // Like csquare(), but for multiplication.
-void cmul(uint W, global double2 *io, CONST double2 *in, CONST double2 *trig) {
+void cmul(uint W, global double2 *io, const double2 *in, const double2 *trig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -613,7 +612,7 @@ void transposeCore(local double *lds, double2 *u) {
   }
 }
 
-void transpose(uint W, uint H, local double *lds, CONST double2 *in, global double2 *out, CONST double2 * trig) {
+void transpose(uint W, uint H, local double *lds, const double2 *in, global double2 *out, const double2 * trig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   gy = (gy + gx) % GH;
@@ -656,7 +655,7 @@ KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
 
 // in place
 /*
-KERNEL(256) transp1K(global double2 *io, CONST double2 *trig) {
+KERNEL(256) transp1K(global double2 *io, const d2ptr trig) {
   uint W = 1024, GW = W / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   io   += gy * 64 * W + gx * 64;
