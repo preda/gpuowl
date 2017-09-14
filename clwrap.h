@@ -133,60 +133,41 @@ size_t getFileSize(FILE *f) {
   return size;  
 }
 
-cl_program readProgram(cl_device_id device, cl_context context, const char *fileName, bool isBin, size_t *outSize) {
-  FILE *fi = fopen(fileName, "r");
-  if (!fi) {
-    fprintf(stderr, "Could not open cl file '%s'\n", fileName);
-    return 0;
-  }
-  size_t fileSize = getFileSize(fi);
-  char *fileBuf = new char[fileSize];
-  size_t nRead = fread(fileBuf, fileSize, 1, fi);
-  fclose(fi);
-  assert(nRead == 1);
+static cl_program createProgram(cl_device_id device, cl_context context, const std::string &fileName) {
+  std::string stub = std::string("#include \"") + fileName + "\"\n";
   
-  const char *pbuf = fileBuf;
+  const char *ptr = stub.c_str();
+  size_t size = stub.size();
   int err;
-  cl_program program = isBin
-    ? clCreateProgramWithBinary(context, 1, &device, &fileSize, (const unsigned char **) &pbuf, NULL, &err)
-    : clCreateProgramWithSource(context, 1, &pbuf, &fileSize, &err);
+  cl_program program = clCreateProgramWithSource(context, 1, &ptr, &size, &err);
   CHECK(err);
-  delete[] fileBuf;
   return program;
 }
 
-cl_program compile(cl_device_id device, cl_context context, const char *fileName, const char *opts, bool useCL2, bool isBin = false) {
-  size_t size = 0;
-  cl_program program = readProgram(device, context, fileName, isBin, &size);
-  if (!program) { return program; }
-
+static bool build(cl_program program, cl_device_id device, const std::string &extraArgs) {
+  std::string args = std::string("-I. -cl-fast-relaxed-math ") + extraArgs;
+  int err = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
   char buf[4096];
   size_t logSize;
-  int err;
-  if (useCL2) {
-    // First try CL2.0 compilation.
-    snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math -cl-std=CL2.0 %s", opts);
-    err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
-  
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
-    buf[logSize] = 0;
-    if (logSize > 2) { fprintf(stderr, "OpenCL compilation log:\n%s\n", buf); }
-    if (err == CL_SUCCESS) { return program; }
-  
-    printf("Falling back to CL1.x compilation (error %d)\n", err);
-  }
-  snprintf(buf, sizeof(buf), "-cl-fast-relaxed-math %s", opts);
-  err = clBuildProgram(program, 1, &device, buf, NULL, NULL);
-  
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
   buf[logSize] = 0;
-  if (logSize > 2) { fprintf(stderr, "OpenCL compilation log:\n%s\n", buf); }
+  if (logSize > 2) { fprintf(stderr, "OpenCL compilation log (error %d):\n%s\n", err, buf); }
+  return (err == CL_SUCCESS);
+}
 
-  if (err == CL_SUCCESS) { return program; }
-  
-  fprintf(stderr, "OpenCL 1.x compilation error %d\n", err);
-  release(program);
-  return 0;
+cl_program compile(cl_device_id device, cl_context context, const std::string &fileName, const std::string &extraArgs) {
+  cl_program program = createProgram(device, context, fileName);
+  if (!program) { return program; }
+
+  // First try CL2.0 compilation.
+  if (build(program, device, std::string("-cl-std=CL2.0 ") + extraArgs)) {
+    return program;
+  } else if (build(program, device, extraArgs)) {
+    return program;
+  } else {
+    release(program);
+    return 0;
+  }
 }  
   // Other options:
   // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/
