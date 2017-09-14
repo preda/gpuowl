@@ -5,15 +5,15 @@
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-// "overloadable" would be really useful, but it works on LLVM only.
+// "overloadable" would be really useful, but it only works on LLVM.
 #define OVERLOAD __attribute__((overloadable))
 
 typedef global double2 * restrict d2ptr;
 typedef global int2 * restrict i2ptr;
 
 // add-sub: (a, b) = (a + b, a - b)
-#define X1(a, b) { double  t = a; a = t + b; b = t - b; }
 #define X2(a, b) { double2 t = a; a = t + b; b = t - b; }
+double2 addsub(double2 a) { return (double2) (a.x + a.y, a.x - a.y); }
 
 // swap: (a, b) = (b, a)
 #define S2(a, b) { double2 t = a; a = b; b = t; }
@@ -34,9 +34,9 @@ double2 mul(double2 u, double2 v) { return muld(u, v.x, v.y); }
 
 // complex square.
 double2 sq(double2 u) {
-  double t = u.x * u.y;
-  X1(u.x, u.y);
-  return (double2) (u.x * u.y, t + t);
+  double t = u.x * u.y * 2;
+  u = addsub(u);
+  return (double2) (u.x * u.y, t);
 }
 
 double2 conjugate(double2 u) { return (double2)(u.x, -u.y); }
@@ -352,8 +352,6 @@ KERNEL(256) carryConv2K_2K(uint baseBitlen, d2ptr io,
 }
 
 #endif
-
-double2 addsub(double2 a) { return (double2) (a.x + a.y, a.x - a.y); }
 
 double2 foo2(double2 a, double2 b) {
   a = addsub(a);
