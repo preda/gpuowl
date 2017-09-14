@@ -627,7 +627,7 @@ int main(int argc, char **argv) {
   
   Timer timer;
   
-  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs.c_str());
+  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs);
   if (!p) { exit(1); }
 #define KERNEL(program, name, shift) Kernel name(program, #name, shift, args.timeKernels)
   KERNEL(p, fftPremul1K, 3);
