@@ -95,7 +95,7 @@ void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
 cl_context createContext(cl_device_id device) {
   int err;
   cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
-  CHECK(err);
+  CHECK2(err, "clCreateContext");
   return context;
 }
 
@@ -124,15 +124,6 @@ bool dumpBinary(cl_program program, const char *fileName) {
   return true;
 }
 
-size_t getFileSize(FILE *f) {
-  int err = fseek(f, 0, SEEK_END);
-  assert(!err);
-  long size = ftell(f);
-  assert(size >= 0);
-  rewind(f);
-  return size;  
-}
-
 static cl_program createProgram(cl_device_id device, cl_context context, const std::string &fileName) {
   std::string stub = std::string("#include \"") + fileName + "\"\n";
   
@@ -140,7 +131,7 @@ static cl_program createProgram(cl_device_id device, cl_context context, const s
   size_t size = stub.size();
   int err;
   cl_program program = clCreateProgramWithSource(context, 1, &ptr, &size, &err);
-  CHECK(err);
+  CHECK2(err, "clCreateProgram");
   return program;
 }
 
@@ -189,14 +180,14 @@ void setArg(cl_kernel k, int pos, const auto &value) { CHECK(clSetKernelArg(k, p
 cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0) {
   int err;
   cl_mem buf = clCreateBuffer(context, kind, size, (void *) ptr, &err);
-  CHECK(err);
+  CHECK2(err, "clCreateBuffer");
   return buf;
 }
 
 cl_queue makeQueue(cl_device_id d, cl_context c) {
   int err;
   cl_queue q = clCreateCommandQueue(c, d, 0, &err);
-  CHECK(err);
+  CHECK2(err, "clCreateCommandQueue");
   return q;
 }
 
