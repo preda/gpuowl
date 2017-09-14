@@ -1,9 +1,27 @@
-// gpuOwL, an OpenCL Mersenne primality test.
+// gpuOwl, an OpenCL Mersenne primality test.
 // Copyright (C) 2017 Mihai Preda.
 
 #include "base.cl"
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
+
+// Carry propagation. conjugates input.
+KERNEL(256) carryA(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryMul(1, baseBits, in, A, out, carryOut);
+}
+
+// Carry propagation + MUL 3. conjugates input.
+KERNEL(256) carryMul3(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryMul(3, baseBits, in, A, out, carryOut);
+}
+
+KERNEL(256) carryB_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
+  carryBCore(2048, baseBits, io, carryIn, A);
+}
+
+// ---- 1Ki Kernels
+
+#ifdef GPUOWL_1K
 
 KERNEL(256) fft1K(d2ptr io, const d2ptr trig1k) {
   local double lds[4 * 256];
@@ -11,16 +29,23 @@ KERNEL(256) fft1K(d2ptr io, const d2ptr trig1k) {
   fft(4, lds, u, io, trig1k);
 }
 
-KERNEL(256) fft2K(d2ptr io, const d2ptr trig2k) {
-  local double lds[8 * 256];
-  double2 u[8];
-  fft(8, lds, u, io, trig2k);
-}
 
 KERNEL(256) fftPremul1K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr trig1k) {
   local double lds[4 * 256];
   double2 u[4];
   fftPremul(4, lds, u, in, out, A, trig1k);
+}
+
+#endif
+
+// ---- 2Ki Kernels
+
+#ifdef GPUOWL_2K
+
+KERNEL(256) fft2K(d2ptr io, const d2ptr trig2k) {
+  local double lds[8 * 256];
+  double2 u[8];
+  fft(8, lds, u, io, trig2k);
 }
 
 KERNEL(256) fftPremul2K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr trig2k) {
@@ -29,40 +54,15 @@ KERNEL(256) fftPremul2K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr tr
   fftPremul(8, lds, u, in, out, A, trig2k);
 }
 
-KERNEL(256) carryConv1K_2K(uint baseBitlen, d2ptr io,
-                           global double * restrict carryShuttle, volatile global uint * restrict ready,
-                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
-  local double lds[4 * 256];
-  double2 u[4];
-  carryConvolution(4, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
-}
-
-#ifdef ENABLE_BUG
-
-KERNEL(256) carryConv2K_2K(uint baseBitlen, d2ptr io,
-                           global double * restrict carryShuttle, volatile global uint * restrict ready,
-                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
-  local double lds[8 * 256];
-  double2 u[8];
-  carryConvolution(8, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
-}
+KERNEL(256) csquare2K(d2ptr io, const d2ptr trig)  { csquare(2048, io, trig); }
+KERNEL(256) cmul2K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, io, in, trig); }
 
 #endif
 
-void reverse(local double2 *lds, double2 *u, bool bump) {
-  uint me = get_local_id(0);
-  uint rm = 255 - me + bump;
-  
-  bar();
 
-  lds[rm + 0 * 256] = u[7];
-  lds[rm + 1 * 256] = u[6];
-  lds[rm + 2 * 256] = u[5];
-  lds[bump ? ((rm + 3 * 256) & 1023) : (rm + 3 * 256)] = u[4];
-  
-  bar();
-  for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
-}
+// ---- The kernels for the 4Mi convolution (1Ki * 2Ki * 2).
+
+#ifdef GPUOWL_4M
 
 // This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
 // It does less global memory transfers, but uses more VGPRs.
@@ -138,22 +138,13 @@ KERNEL(256) tail(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
   write(8, v, io, line2 * 2048);
 }
 
-// Carry propagation. conjugates input.
-KERNEL(256) carryA(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(1, baseBits, in, A, out, carryOut);
+KERNEL(256) carryConv1K_2K(uint baseBitlen, d2ptr io,
+                           global double * restrict carryShuttle, volatile global uint * restrict ready,
+                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
+  local double lds[4 * 256];
+  double2 u[4];
+  carryConvolution(4, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
 }
-
-// Carry propagation + MUL 3. conjugates input.
-KERNEL(256) carryMul3(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(3, baseBits, in, A, out, carryOut);
-}
-
-KERNEL(256) carryB_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
-  carryBCore(2048, baseBits, io, carryIn, A);
-}
-
-KERNEL(256) csquare2K(d2ptr io, const d2ptr trig)  { csquare(2048, io, trig); }
-KERNEL(256) cmul2K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, io, in, trig); }
 
 KERNEL(256) transpose1K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
   local double lds[4096];
@@ -165,7 +156,23 @@ KERNEL(256) transpose2K_1K(const d2ptr in, d2ptr out, const d2ptr trig) {
   transpose(2048, 1024, lds, in, out, trig);
 }
 
+#endif
+
+// ---- The kernels for the 8Mi convolution (2Ki*2Ki*2).
+
+#ifdef GPUOWL_8M
+
+KERNEL(256) carryConv2K_2K(uint baseBitlen, d2ptr io,
+                           global double * restrict carryShuttle, volatile global uint * restrict ready,
+                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
+  local double lds[8 * 256];
+  double2 u[8];
+  carryConvolution(8, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
+}
+
 KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
   local double lds[4096];
   transpose(2048, 2048, lds, in, out, trig);
 }
+
+#endif

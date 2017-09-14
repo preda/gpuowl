@@ -626,14 +626,15 @@ int main(int argc, char **argv) {
   constexpr int N = 2 * W * H;
   
   Timer timer;
-  
-  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs);
+
+  std::string myArgs = "-DGPUOWL_1K -DGPUOWL_2K -DGPUOWL_4M";
+  cl_program p = compile(device, context, "gpuowl.cl", myArgs + " " + args.clArgs);
   if (!p) { exit(1); }
 #define KERNEL(program, name, shift) Kernel name(program, #name, shift, args.timeKernels)
   KERNEL(p, fftPremul1K, 3);
   KERNEL(p, transpose1K_2K, 5);
   KERNEL(p, transpose2K_1K, 5);
-  KERNEL(p, transpose2K_2K, 5);
+  // KERNEL(p, transpose2K_2K, 5);
   KERNEL(p, fft1K,       3);
   KERNEL(p, carryA,      4);
   KERNEL(p, carryB_2K,   4);

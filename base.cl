@@ -190,6 +190,21 @@ void fftPremul(uint N, local double *lds, double2 *u, const int2 *in, global dou
   write(N, u, out, 0);
 }
 
+void reverse(local double2 *lds, double2 *u, bool bump) {
+  uint me = get_local_id(0);
+  uint rm = 255 - me + bump;
+  
+  bar();
+
+  lds[rm + 0 * 256] = u[7];
+  lds[rm + 1 * 256] = u[6];
+  lds[rm + 2 * 256] = u[5];
+  lds[bump ? ((rm + 3 * 256) & 1023) : (rm + 3 * 256)] = u[4];
+  
+  bar();
+  for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
+}
+
 // Round x to long.
 long toLong(double x) { return rint(x); }
 
