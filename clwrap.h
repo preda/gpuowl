@@ -3,15 +3,20 @@
 #pragma once
 
 #include "tinycl.h"
+#include "timeutil.h"
 
 #include <cassert>
 #include <cstdio>
 #include <cstdarg>
 
 #include <string>
+#include <vector>
 
-#define CHECK(err) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d\n", e); assert(false); }}
-#define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { fprintf(stderr, "error %d (%s)\n", e, mes); assert(false); }}
+using std::string;
+using std::vector;
+
+#define CHECK(err) { int e = err; if (e != CL_SUCCESS) { log("error %d\n", e); assert(false); }}
+#define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { log("error %d (%s)\n", e, mes); assert(false); }}
 
 void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) {
   size_t outSize = 0;
@@ -59,7 +64,7 @@ int getNumberOfDevices() {
   return n;
 }
 
-std::string getDeviceName(cl_device_id id) {
+string getDeviceName(cl_device_id id) {
   char boardName[64];
   bool hasBoardName = getInfoMaybe(id, CL_DEVICE_BOARD_NAME_AMD, sizeof(boardName), boardName);
 
@@ -69,7 +74,7 @@ std::string getDeviceName(cl_device_id id) {
   unsigned computeUnits;
   getInfo(id, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits);
   
-  return (hasBoardName && hasTopology) ? std::string(boardName) + " " + std::to_string(computeUnits) + " @" + topology : "";
+  return (hasBoardName && hasTopology) ? string(boardName) + " " + std::to_string(computeUnits) + " @" + topology : "";
 }
 
 void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
@@ -83,7 +88,7 @@ void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
   unsigned isEcc = 0;
   CHECK(clGetDeviceInfo(device, CL_DEVICE_ERROR_CORRECTION_SUPPORT, sizeof(isEcc), &isEcc, NULL));
 
-  std::string board = getDeviceName(device);
+  string board = getDeviceName(device);
 
   if (!board.empty()) {
     snprintf(info, infoSize, "%s, %s %4uMHz", board.c_str(), name, frequency);
@@ -110,7 +115,7 @@ void release(cl_kernel k)        { CHECK(clReleaseKernel(k)); }
 bool dumpBinary(cl_program program, const char *fileName) {
   FILE *fo = open(fileName, "w");
   if (!fo) {
-    fprintf(stderr, "Could not create file '%s'\n", fileName);
+    log("Could not create file '%s'\n", fileName);
     return false;
   }
   
@@ -124,8 +129,8 @@ bool dumpBinary(cl_program program, const char *fileName) {
   return true;
 }
 
-static cl_program createProgram(cl_device_id device, cl_context context, const std::string &fileName) {
-  std::string stub = std::string("#include \"") + fileName + "\"\n";
+static cl_program createProgram(cl_device_id device, cl_context context, const string &fileName) {
+  string stub = string("#include \"") + fileName + "\"\n";
   
   const char *ptr = stub.c_str();
   size_t size = stub.size();
@@ -135,30 +140,37 @@ static cl_program createProgram(cl_device_id device, cl_context context, const s
   return program;
 }
 
-static bool build(cl_program program, cl_device_id device, const std::string &extraArgs) {
-  std::string args = std::string("-I. -cl-fast-relaxed-math ") + extraArgs;
+static bool build(cl_program program, cl_device_id device, const string &extraArgs) {
+  string args = string("-I. -cl-fast-relaxed-math ") + extraArgs;
   int err = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
   char buf[4096];
   size_t logSize;
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
   buf[logSize] = 0;
-  if (logSize > 2) { fprintf(stderr, "OpenCL compilation log (error %d):\n%s\n", err, buf); }
+  if (logSize > 2) { log("OpenCL compilation log (error %d):\n%s\n", err, buf); }
   return (err == CL_SUCCESS);
 }
 
-cl_program compile(cl_device_id device, cl_context context, const std::string &fileName, const std::string &extraArgs) {
+string join(const string &prefix, const vector<string> &elems) {
+  string big = "";
+  for (auto s : elems) { big += prefix + s; }
+  return big;
+}
+
+cl_program compile(cl_device_id device, cl_context context, const string &fileName, const string &extraArgs,
+                   const vector<string> &defVect = {}) {
+  Timer timer;
   cl_program program = createProgram(device, context, fileName);
   if (!program) { return program; }
 
-  // First try CL2.0 compilation.
-  if (build(program, device, std::string("-cl-std=CL2.0 ") + extraArgs)) {
-    return program;
-  } else if (build(program, device, extraArgs)) {
-    return program;
-  } else {
+  std::string args = join(" -D", defVect) + " " + extraArgs;
+  if (!build(program, device, std::string("-cl-std=CL2.0 ") + args) &&
+      !build(program, device, args)) {
     release(program);
     return 0;
   }
+  log("Compiled \"%s\" in %d ms with args \"%s\"\n", fileName.c_str(), timer.deltaMillis(), args.c_str());
+  return program;
 }  
   // Other options:
   // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/

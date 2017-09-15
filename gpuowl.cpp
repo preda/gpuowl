@@ -612,8 +612,6 @@ int main(int argc, char **argv) {
 
   if (args.cpu.empty()) { args.cpu = getDeviceName(device); }
 
-  // writeResult(25000000, false, 0, "FF00AA00FF00AA00FF00AA00FF00AA00", "meme", args.cpu, 0);
-  
   char info[256];
   getDeviceInfo(device, sizeof(info), info);
   log("%s\n", info);
@@ -625,10 +623,7 @@ int main(int argc, char **argv) {
   constexpr int W = 1024, H = 2048;
   constexpr int N = 2 * W * H;
   
-  Timer timer;
-
-  std::string myArgs = "-DGPUOWL_1K -DGPUOWL_2K -DGPUOWL_4M";
-  cl_program p = compile(device, context, "gpuowl.cl", myArgs + " " + args.clArgs);
+  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, {"GPUOWL_1K", "GPUOWL_2K", "GPUOWL_4M"});
   if (!p) { exit(1); }
 #define KERNEL(program, name, shift) Kernel name(program, #name, shift, args.timeKernels)
   KERNEL(p, fftPremul1K, 3);
@@ -647,7 +642,7 @@ int main(int argc, char **argv) {
 #undef KERNEL
   Kernel carryConv1K_2K(p, "carryConv1K_2K", 3, args.timeKernels, 1);
   
-  log("Compile       : %4d ms\n", timer.deltaMillis());
+
   release(p); p = nullptr;
       
   Buffer bufTrig1K{genSmallTrig1K(context)};
@@ -683,8 +678,6 @@ int main(int argc, char **argv) {
   csquare2K.setArgs(buf2, bufBigTrig);
   cmul2K.setArgs(buf2, buf3, bufBigTrig);
 
-  log("General setup : %4d ms\n", timer.deltaMillis());
-  
   while (true) {
     u64 expectedRes;
     char AID[64];

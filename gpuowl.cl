@@ -29,7 +29,6 @@ KERNEL(256) fft1K(d2ptr io, const d2ptr trig1k) {
   fft(4, lds, u, io, trig1k);
 }
 
-
 KERNEL(256) fftPremul1K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr trig1k) {
   local double lds[4 * 256];
   double2 u[4];
