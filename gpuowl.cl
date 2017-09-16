@@ -350,21 +350,23 @@ void carryMul(uint N, uint mul, uint baseBits,
 // Input is int words and the left-over carry from carryA.
 // Output is int words.
 // The weights "A" are needed only to derive the bit size of each word (encoded in the sign of its elements).
-void carryBCore(uint H, const uint baseBits, global int2 *io, const long *carryIn, const double2 *A) {
+// Width = N * 256
+void carryBCore(uint N, uint H, const uint baseBits, global int2 *io, const long *carryIn, const double2 *A) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
-  
-  uint step = g % 4 * 256 + g / 4 * 8 * 1024;
+
+  const uint L = 8;
+  uint step = g % N * 256 + g / N * (N * L * 256);
   io += step;
   A  += step;
   
-  uint prev = (g / 4 + (g % 4 * 256 + me) * (H / 8) - 1) & ((H / 8) * 1024 - 1);
-  uint line = prev % (H / 8);
-  uint col  = prev / (H / 8);
-  long carry = carryIn[line * 1024 + col];
+  uint prev = (g / N + (g % N * 256 + me) * (H / L) - 1) & ((H / L) * N * 256 - 1);
+  uint line = prev % (H / L);
+  uint col  = prev / (H / L);
+  long carry = carryIn[line * N * 256 + col];
   
-  for (int i = 0; i < 8; ++i) {
-    uint p = me + i * 1024;
+  for (int i = 0; i < L; ++i) {
+    uint p = me + i * N * 256;
     io[p] = car1(&carry, io[p], A[p], baseBits);
     if (!carry) { return; }
   }
@@ -501,10 +503,6 @@ void transpose(uint W, uint H, local double *lds, const double2 *in, global doub
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(256) carryB_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
-  carryBCore(2048, baseBits, io, carryIn, A);
-}
-
 // ---- 1Ki Kernels
 
 #ifdef GPUOWL_1K
@@ -639,6 +637,10 @@ KERNEL(256) carryConv1K_2K(uint baseBitlen, d2ptr io,
   local double lds[4 * 256];
   double2 u[4];
   carryConvolution(4, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
+}
+
+KERNEL(256) carryB1K_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
+  carryBCore(4, 2048, baseBits, io, carryIn, A);
 }
 
 KERNEL(256) transpose1K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {

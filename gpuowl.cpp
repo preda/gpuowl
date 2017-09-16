@@ -633,7 +633,7 @@ int main(int argc, char **argv) {
   // KERNEL(p, transpose2K_2K, 5);
   KERNEL(p, fft1K,       3);
   KERNEL(p, carryA_1K,      4);
-  KERNEL(p, carryB_2K,   4);
+  KERNEL(p, carryB1K_2K,   4);
   KERNEL(p, tail,        5);
 
   KERNEL(p, fft2K,     4);
@@ -672,7 +672,7 @@ int main(int argc, char **argv) {
   fft1K.setArgs      (buf1,    bufTrig1K);
   carryA_1K.setArgs     (0, buf1, bufI, dummy, bufCarry);
   carryMul3_1K.setArgs  (0, buf1, bufI, dummy, bufCarry);
-  carryB_2K.setArgs  (0, dummy, bufCarry, bufI);
+  carryB1K_2K.setArgs  (0, dummy, bufCarry, bufI);
   carryConv1K_2K.setArgs(0, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
 
   fft2K.setArgs(buf2, bufTrig2K);
@@ -689,7 +689,7 @@ int main(int argc, char **argv) {
     unsigned baseBitlen = E / N;
     carryA_1K.setArg(0, baseBitlen);
     carryMul3_1K.setArg(0, baseBitlen);
-    carryB_2K.setArg(0, baseBitlen);
+    carryB1K_2K.setArg(0, baseBitlen);
     carryConv1K_2K.setArg(0, baseBitlen);
     
     bool isPrime;
@@ -705,7 +705,7 @@ int main(int argc, char **argv) {
     std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K_2K, &tail, &transpose2K_1K};
     
     // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
-    std::vector<Kernel *> tailKerns {&fft1K, &carryA_1K, &carryB_2K};
+    std::vector<Kernel *> tailKerns {&fft1K, &carryA_1K, &carryB1K_2K};
 
     // kernel-fusion equivalent of: tailKerns, headKerns.
     // std::vector<Kernel *> coreKerns {&mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
@@ -724,12 +724,12 @@ int main(int argc, char **argv) {
       run(headKerns, q, N);
 
       carryA_1K.setArg(3, data);
-      carryB_2K.setArg(1, data);
+      carryB1K_2K.setArg(1, data);
 
       for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q, N); }
       if (doMul3) {
         carryMul3_1K.setArg(3, data);
-        run({&fft1K, &carryMul3_1K, &carryB_2K}, q, N);
+        run({&fft1K, &carryMul3_1K, &carryB1K_2K}, q, N);
       } else {
         run(tailKerns, q, N);
       }
@@ -752,7 +752,7 @@ int main(int argc, char **argv) {
       run({&cmul2K, &fft2K, &transpose2K_1K}, q, N);
 
       carryA_1K.setArg(3, a);
-      carryB_2K.setArg(1, a);
+      carryB1K_2K.setArg(1, a);
       run(tailKerns, q, N);
     };
 
