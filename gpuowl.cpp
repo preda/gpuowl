@@ -624,6 +624,7 @@ int main(int argc, char **argv) {
   constexpr int N = 2 * W * H;
   
   cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, {"GPUOWL_1K", "GPUOWL_2K", "GPUOWL_4M"});
+  // cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, {"GPUOWL_8M"});
   if (!p) { exit(1); }
 #define KERNEL(program, name, shift) Kernel name(program, #name, shift, args.timeKernels)
   KERNEL(p, fftPremul1K, 3);
@@ -631,14 +632,14 @@ int main(int argc, char **argv) {
   KERNEL(p, transpose2K_1K, 5);
   // KERNEL(p, transpose2K_2K, 5);
   KERNEL(p, fft1K,       3);
-  KERNEL(p, carryA,      4);
+  KERNEL(p, carryA_1K,      4);
   KERNEL(p, carryB_2K,   4);
   KERNEL(p, tail,        5);
 
   KERNEL(p, fft2K,     4);
   KERNEL(p, csquare2K, 2);
   KERNEL(p, cmul2K,    2);
-  KERNEL(p, carryMul3,  4);
+  KERNEL(p, carryMul3_1K,  4);
 #undef KERNEL
   Kernel carryConv1K_2K(p, "carryConv1K_2K", 3, args.timeKernels, 1);
   
@@ -669,8 +670,8 @@ int main(int argc, char **argv) {
   transpose1K_2K.setArgs(buf1, buf2, bufBigTrig);
   transpose2K_1K.setArgs(buf2, buf1, bufBigTrig);
   fft1K.setArgs      (buf1,    bufTrig1K);
-  carryA.setArgs     (0, buf1, bufI, dummy, bufCarry);
-  carryMul3.setArgs  (0, buf1, bufI, dummy, bufCarry);
+  carryA_1K.setArgs     (0, buf1, bufI, dummy, bufCarry);
+  carryMul3_1K.setArgs  (0, buf1, bufI, dummy, bufCarry);
   carryB_2K.setArgs  (0, dummy, bufCarry, bufI);
   carryConv1K_2K.setArgs(0, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
 
@@ -686,8 +687,8 @@ int main(int argc, char **argv) {
 
     setupExponentBufs(queue.get(), W, H, E, bufA.get(), bufI.get());
     unsigned baseBitlen = E / N;
-    carryA.setArg(0, baseBitlen);
-    carryMul3.setArg(0, baseBitlen);
+    carryA_1K.setArg(0, baseBitlen);
+    carryMul3_1K.setArg(0, baseBitlen);
     carryB_2K.setArg(0, baseBitlen);
     carryConv1K_2K.setArg(0, baseBitlen);
     
@@ -704,7 +705,7 @@ int main(int argc, char **argv) {
     std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K_2K, &tail, &transpose2K_1K};
     
     // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
-    std::vector<Kernel *> tailKerns {&fft1K, &carryA, &carryB_2K};
+    std::vector<Kernel *> tailKerns {&fft1K, &carryA_1K, &carryB_2K};
 
     // kernel-fusion equivalent of: tailKerns, headKerns.
     // std::vector<Kernel *> coreKerns {&mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
@@ -722,13 +723,13 @@ int main(int argc, char **argv) {
       fftPremul1K.setArg(0, data);
       run(headKerns, q, N);
 
-      carryA.setArg(3, data);
+      carryA_1K.setArg(3, data);
       carryB_2K.setArg(1, data);
 
       for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q, N); }
       if (doMul3) {
-        carryMul3.setArg(3, data);
-        run({&fft1K, &carryMul3, &carryB_2K}, q, N);
+        carryMul3_1K.setArg(3, data);
+        run({&fft1K, &carryMul3_1K, &carryB_2K}, q, N);
       } else {
         run(tailKerns, q, N);
       }
@@ -750,7 +751,7 @@ int main(int argc, char **argv) {
       
       run({&cmul2K, &fft2K, &transpose2K_1K}, q, N);
 
-      carryA.setArg(3, a);
+      carryA_1K.setArg(3, a);
       carryB_2K.setArg(1, a);
       run(tailKerns, q, N);
     };
