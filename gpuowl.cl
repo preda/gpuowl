@@ -501,9 +501,77 @@ void transpose(uint W, uint H, local double *lds, const double2 *in, global doub
   }
 }
 
+void tail(uint N, uint H, local double *lds, double2 *u, double2 *v, d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
+  uint W = N * 256;
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+  read(N, u, io, g * W);
+  fftImpl(N, lds, u, trig);
+  reverse((local double2 *) lds, u, g == 0);
+
+  uint line2 = g ? H - g : (H / 2);
+  read(N, v, io, line2 * W);
+  bar();
+  fftImpl(N, lds, v, trig);
+  reverse((local double2 *) lds, v, false);
+  
+  if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
+
+  double2 tt = bigTrig[4096 + (W * H / 4096) + g];
+  for (int i = 0; i < N / 2; ++i) {
+    double2 a = u[i];
+    double2 b = conjugate(v[N / 2 + i]);
+    double2 t = swap(mul(tt, bigTrig[256 * i + me]));  // assert(N == 8); !! 
+    if (i == 0 && g == 0 && me == 0) {
+      a = 4 * foo(a);
+      b = 8 * sq(b);
+    } else {
+      X2(a, b);
+      M(b, conjugate(t));
+      X2(a, b);
+      a = sq(a);
+      b = sq(b);
+      X2(a, b);
+      M(b,  t);
+      X2(a, b);
+    }
+    u[i] = conjugate(a);
+    v[N / 2 + i] = b;
+  }
+
+  tt = bigTrig[4096 + (W * H / 4096) +  line2];
+  for (int i = 0; i < N / 2; ++i) {
+    double2 a = v[i];
+    double2 b = conjugate(u[N / 2 + i]);
+    double2 t = swap(mul(tt, bigTrig[256 * i + me]));  // assert(N == 8);
+    X2(a, b);
+    M(b, conjugate(t));
+    X2(a, b);
+    a = sq(a);
+    b = sq(b);
+    X2(a, b);
+    M(b,  t);
+    X2(a, b);
+    v[i] = conjugate(a);
+    u[N / 2 + i] = b;
+  }
+
+  if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
+
+  reverse((local double2 *) lds, u, g == 0);
+  bar();
+  fftImpl(N, lds, u, trig);
+  write(N, u, io, g * W);
+  
+  reverse((local double2 *) lds, v, false);
+  bar();
+  fftImpl(N, lds, v, trig);
+  write(N, v, io, line2 * W);
+}
+
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-// ---- 1Ki Kernels
+
 
 #ifdef GPUOWL_1K
 
@@ -519,19 +587,17 @@ KERNEL(256) fftPremul1K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr tr
   fftPremul(4, lds, u, in, out, A, trig1k);
 }
 
-// Carry propagation. conjugates input.
-KERNEL(256) carryA_1K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+KERNEL(256) carryA1K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
   carryMul(4, 1, baseBits, in, A, out, carryOut);
 }
 
-// Carry propagation + MUL 3. conjugates input.
-KERNEL(256) carryMul3_1K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+KERNEL(256) carryMul1K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
   carryMul(4, 3, baseBits, in, A, out, carryOut);
 }
 
 #endif
 
-// ---- 2Ki Kernels
+
 
 #ifdef GPUOWL_2K
 
@@ -550,85 +616,26 @@ KERNEL(256) fftPremul2K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr tr
 KERNEL(256) csquare2K(d2ptr io, const d2ptr trig)  { csquare(2048, io, trig); }
 KERNEL(256) cmul2K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, io, in, trig); }
 
+KERNEL(256) carryA2K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryMul(8, 1, baseBits, in, A, out, carryOut);
+}
+
+KERNEL(256) carryMul2K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryMul(8, 3, baseBits, in, A, out, carryOut);
+}
+
 #endif
 
-
-// ---- The kernels for the 4Mi convolution (1Ki * 2Ki * 2).
 
 #ifdef GPUOWL_4M
 
 // This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
 // It does less global memory transfers, but uses more VGPRs.
-KERNEL(256) tail(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
-  uint g = get_group_id(0);
-  uint me = get_local_id(0);
-  local double lds[2048];
-  
+KERNEL(256) tail2K_1K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
+  local double lds[8 * 256];
   double2 u[8];
-  read(8, u, io, g * 2048);
-  fftImpl(8, lds, u, trig);
-
-  reverse((local double2 *) lds, u, g == 0);
-
   double2 v[8];
-  uint line2 = g ? 1024 - g : 512;
-  read(8, v, io, line2 * 2048);
-  bar(); fftImpl(8, lds, v, trig);
-
-  reverse((local double2 *) lds, v, false);
-  
-  if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
-
-  double2 tt = bigTrig[4096 + 512 + g];
-  for (int i = 0; i < 4; ++i) {
-    double2 a = u[i];
-    double2 b = conjugate(v[4 + i]);
-    double2 t = swap(mul(tt, bigTrig[256 * i + me]));
-    if (i == 0 && g == 0 && me == 0) {
-      a = 4 * foo(a);
-      b = 8 * sq(b);
-    } else {
-      X2(a, b);
-      M(b, conjugate(t));
-      X2(a, b);
-      a = sq(a);
-      b = sq(b);
-      X2(a, b);
-      M(b,  t);
-      X2(a, b);
-    }
-    u[i]     = conjugate(a);
-    v[4 + i] = b;
-  }
-
-  tt = bigTrig[4096 + 512 +  line2];
-  for (int i = 0; i < 4; ++i) {
-    double2 a = v[i];
-    double2 b = conjugate(u[4 + i]);
-    double2 t = swap(mul(tt, bigTrig[256 * i + me]));
-    X2(a, b);
-    M(b, conjugate(t));
-    X2(a, b);
-    a = sq(a);
-    b = sq(b);
-    X2(a, b);
-    M(b,  t);
-    X2(a, b);
-    v[i]     = conjugate(a);
-    u[4 + i] = b;
-  }
-
-  if (g == 0) { for (int i = 0; i < 4; ++i) { S2(u[4 + i], v[4 + i]); } }
-
-  reverse((local double2 *) lds, u, g == 0);
-  bar(); fftImpl(8, lds, u, trig);
-
-  write(8, u, io, g * 2048);
-  
-  reverse((local double2 *) lds, v, false);
-  bar(); fftImpl(8, lds, v, trig);
-
-  write(8, v, io, line2 * 2048);
+  tail(8, 1024, lds, u, v, io, trig, bigTrig);
 }
 
 KERNEL(256) carryConv1K_2K(uint baseBitlen, d2ptr io,
@@ -665,6 +672,10 @@ KERNEL(256) carryConv2K_2K(uint baseBitlen, d2ptr io,
   local double lds[8 * 256];
   double2 u[8];
   carryConvolution(8, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
+}
+
+KERNEL(256) carryB2K_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
+  carryBCore(8, 2048, baseBits, io, carryIn, A);
 }
 
 KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
