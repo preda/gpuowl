@@ -501,6 +501,31 @@ void transpose(uint W, uint H, local double *lds, const double2 *in, global doub
   }
 }
 
+void halfSq(uint N, double2 *u, double2 *v, double2 tt, const double2 *bigTrig, bool special) {
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+  for (int i = 0; i < N / 2; ++i) {
+    double2 a = u[i];
+    double2 b = conjugate(v[N / 2 + i]);
+    double2 t = swap(mul(tt, bigTrig[256 * i + me]));  // assert(N == 8); !! 
+    if (special && i == 0 && g == 0 && me == 0) {
+      a = 4 * foo(a);
+      b = 8 * sq(b);
+    } else {
+      X2(a, b);
+      M(b, conjugate(t));
+      X2(a, b);
+      a = sq(a);
+      b = sq(b);
+      X2(a, b);
+      M(b,  t);
+      X2(a, b);
+    }
+    u[i] = conjugate(a);
+    v[N / 2 + i] = b;
+  }
+}
+
 void tail(uint N, uint H, local double *lds, double2 *u, double2 *v, d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
   uint W = N * 256;
   uint g = get_group_id(0);
@@ -517,44 +542,9 @@ void tail(uint N, uint H, local double *lds, double2 *u, double2 *v, d2ptr io, c
   
   if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
 
-  double2 tt = bigTrig[4096 + (W * H / 4096) + g];
-  for (int i = 0; i < N / 2; ++i) {
-    double2 a = u[i];
-    double2 b = conjugate(v[N / 2 + i]);
-    double2 t = swap(mul(tt, bigTrig[256 * i + me]));  // assert(N == 8); !! 
-    if (i == 0 && g == 0 && me == 0) {
-      a = 4 * foo(a);
-      b = 8 * sq(b);
-    } else {
-      X2(a, b);
-      M(b, conjugate(t));
-      X2(a, b);
-      a = sq(a);
-      b = sq(b);
-      X2(a, b);
-      M(b,  t);
-      X2(a, b);
-    }
-    u[i] = conjugate(a);
-    v[N / 2 + i] = b;
-  }
-
-  tt = bigTrig[4096 + (W * H / 4096) +  line2];
-  for (int i = 0; i < N / 2; ++i) {
-    double2 a = v[i];
-    double2 b = conjugate(u[N / 2 + i]);
-    double2 t = swap(mul(tt, bigTrig[256 * i + me]));  // assert(N == 8);
-    X2(a, b);
-    M(b, conjugate(t));
-    X2(a, b);
-    a = sq(a);
-    b = sq(b);
-    X2(a, b);
-    M(b,  t);
-    X2(a, b);
-    v[i] = conjugate(a);
-    u[N / 2 + i] = b;
-  }
+  halfSq(N, u, v, bigTrig[4096 + (W * H / 4096) + g],      bigTrig, true);
+  
+  halfSq(N, v, u, bigTrig[4096 + (W * H / 4096) +  line2], bigTrig, false);
 
   if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
 
