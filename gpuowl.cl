@@ -391,7 +391,7 @@ double2 foo2(double2 a, double2 b) {
 double2 foo(double2 a) { return foo2(a, a); }
 
 // Inputs normal (non-conjugate); outputs conjugate.
-void csquare(uint W, G double2 *io, const G double2 *trig) {
+void csquare(uint W, G double2 *io, const G double2 *bigTrig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -408,7 +408,7 @@ void csquare(uint W, G double2 *io, const G double2 *trig) {
   
   double2 a = io[k];
   double2 b = conjugate(io[v]);
-  double2 t = swap(mul(trig[4096 + 512 + line], trig[posInLine]));
+  double2 t = swap(mul(bigTrig[4096 + 512 + line], bigTrig[posInLine]));
   
   X2(a, b);
   M(b, conjugate(t));
@@ -426,7 +426,7 @@ void csquare(uint W, G double2 *io, const G double2 *trig) {
 }
 
 // Like csquare(), but for multiplication.
-void cmul(uint W, G double2 *io, const G double2 *in, const G double2 *trig) {
+void cmul(uint W, G double2 *io, const G double2 *in, const G double2 *bigTrig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -443,7 +443,7 @@ void cmul(uint W, G double2 *io, const G double2 *in, const G double2 *trig) {
   
   double2 a = io[k];
   double2 b = conjugate(io[v]);
-  double2 t = swap(mul(trig[4096 + 512 + line], trig[posInLine]));
+  double2 t = swap(mul(bigTrig[4096 + 512 + line], bigTrig[posInLine]));
   
   X2(a, b);
   M(b, conjugate(t));
@@ -484,7 +484,7 @@ void transposeCore(local double *lds, double2 *u) {
   }
 }
 
-void transpose(uint W, uint H, local double *lds, const G double2 *in, G double2 *out, const G double2 * trig) {
+void transpose(uint W, uint H, local double *lds, const G double2 *in, G double2 *out, const G double2 *bigTrig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   gy = (gy + gx) % GH;
@@ -502,8 +502,8 @@ void transpose(uint W, uint H, local double *lds, const G double2 *in, G double2
   
   for (int i = 0; i < 16; ++i) {
     uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
-    M(u[i], trig[4096 + k % (W * H / 4096)]);
-    M(u[i], trig[k / (W * H / 4096)]);
+    M(u[i], bigTrig[4096 + k % (W * H / 4096)]);
+    M(u[i], bigTrig[k / (W * H / 4096)]);
 
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];
