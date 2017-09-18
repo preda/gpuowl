@@ -80,12 +80,12 @@ void shufl(local double *lds, double2 *u, uint n, uint f) {
   }
 }
 
-void tabMul(const double2 *trig, double2 *u, uint n, uint f) {
+void tabMul(const global double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
 }
 
-void fft1kImpl(local double *lds, double2 *u, const double2 *trig) {
+void fft1kImpl(local double *lds, double2 *u, const global double2 *trig) {
   fft4(u);
   shufl(lds,      u, 4, 64);
   tabMul(trig, u, 4, 64);
@@ -108,7 +108,7 @@ void fft1kImpl(local double *lds, double2 *u, const double2 *trig) {
   fft4(u);
 }
 
-void fft2kImpl(local double *lds, double2 *u, const double2 *trig) {
+void fft2kImpl(local double *lds, double2 *u, const global double2 *trig) {
   fft8(u);
   shufl(lds,      u, 8, 32);
   tabMul(trig, u, 8, 32);
@@ -146,7 +146,7 @@ void fft2kImpl(local double *lds, double2 *u, const double2 *trig) {
   S2(u[3], u[6]);
 }
 
-void fftImpl(uint N, local double *lds, double2 *u, const double2 *trig) {
+void fftImpl(uint N, local double *lds, double2 *u, const global double2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
@@ -159,7 +159,7 @@ void write(uint N, double2 *u, global double2 *out, uint base) {
 }
 
 // FFT of size N * 256.
-void fft(uint N, local double *lds, double2 *u, global double2 *io, const double2 *trig) {
+void fft(uint N, local double *lds, double2 *u, global double2 *io, const global double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   io += step;
@@ -174,7 +174,8 @@ void fft(uint N, local double *lds, double2 *u, global double2 *io, const double
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-void fftPremul(uint N, local double *lds, double2 *u, const int2 *in, global double2 *out, const double2 *A, const double2 *trig) {
+void fftPremul(uint N, local double *lds, double2 *u, const global int2 *in, global double2 *out, const global double2 *A,
+               const global double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   in  += step;
@@ -278,7 +279,7 @@ double2 carryAndWeightFinal(double carry, double2 u, double2 a, uint baseBits) {
 void carryConvolution(uint N, uint H, local double *lds, double2 *u,
                   uint baseBitlen,
                   global double2 *io, global double *carryShuttle, volatile global uint *ready,
-                  const double2 *A, const double2 *iA, const double2 *trig) {
+                  const global double2 *A, const global double2 *iA, const global double2 *trig) {
   uint W = N * 256;
 
   uint gr = get_group_id(0);
@@ -327,7 +328,7 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
 // and rounded to output ints and to left-over carryOut.
 // Width = N * 256
 void carryMul(uint N, uint mul, uint baseBits,
-              const double2 *in, const double2 *A, global int2 *out, global long *carryOut) {
+              const global double2 *in, const global double2 *A, global int2 *out, global long *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -351,7 +352,7 @@ void carryMul(uint N, uint mul, uint baseBits,
 // Output is int words.
 // The weights "A" are needed only to derive the bit size of each word (encoded in the sign of its elements).
 // Width = N * 256
-void carryBCore(uint N, uint H, const uint baseBits, global int2 *io, const long *carryIn, const double2 *A) {
+void carryBCore(uint N, uint H, const uint baseBits, global int2 *io, const global long *carryIn, const global double2 *A) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -382,7 +383,7 @@ double2 foo2(double2 a, double2 b) {
 double2 foo(double2 a) { return foo2(a, a); }
 
 // Inputs normal (non-conjugate); outputs conjugate.
-void csquare(uint W, global double2 *io, const double2 *trig) {
+void csquare(uint W, global double2 *io, const global double2 *trig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -417,7 +418,7 @@ void csquare(uint W, global double2 *io, const double2 *trig) {
 }
 
 // Like csquare(), but for multiplication.
-void cmul(uint W, global double2 *io, const double2 *in, const double2 *trig) {
+void cmul(uint W, global double2 *io, const global double2 *in, const global double2 *trig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -475,7 +476,7 @@ void transposeCore(local double *lds, double2 *u) {
   }
 }
 
-void transpose(uint W, uint H, local double *lds, const double2 *in, global double2 *out, const double2 * trig) {
+void transpose(uint W, uint H, local double *lds, const global double2 *in, global double2 *out, const global double2 * trig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   gy = (gy + gx) % GH;
@@ -501,7 +502,7 @@ void transpose(uint W, uint H, local double *lds, const double2 *in, global doub
   }
 }
 
-void halfSq(uint N, double2 *u, double2 *v, double2 tt, const double2 *bigTrig, bool special) {
+void halfSq(uint N, double2 *u, double2 *v, double2 tt, const global double2 *bigTrig, bool special) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   for (int i = 0; i < N / 2; ++i) {
@@ -671,6 +672,13 @@ KERNEL(256) carryB2K_2K(const uint baseBits, i2ptr io, const global long * restr
 KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
   local double lds[4096];
   transpose(2048, 2048, lds, in, out, trig);
+}
+
+KERNEL(256) tail2K_2K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
+  local double lds[8 * 256];
+  double2 u[8];
+  double2 v[8];
+  tail(8, 2048, lds, u, v, io, trig, bigTrig);
 }
 
 #endif

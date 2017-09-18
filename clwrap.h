@@ -141,6 +141,7 @@ static cl_program createProgram(cl_device_id device, cl_context context, const s
 }
 
 static bool build(cl_program program, cl_device_id device, const string &extraArgs) {
+  Timer timer;
   string args = string("-I. -cl-fast-relaxed-math ") + extraArgs;
   int err = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
   char buf[4096];
@@ -148,7 +149,9 @@ static bool build(cl_program program, cl_device_id device, const string &extraAr
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
   buf[logSize] = 0;
   if (logSize > 2) { log("OpenCL compilation log (error %d):\n%s\n", err, buf); }
-  return (err == CL_SUCCESS);
+  bool ok = (err == CL_SUCCESS);
+  if (ok) { log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str()); }
+  return ok;
 }
 
 string join(const string &prefix, const vector<string> &elems) {
@@ -159,18 +162,18 @@ string join(const string &prefix, const vector<string> &elems) {
 
 cl_program compile(cl_device_id device, cl_context context, const string &fileName, const string &extraArgs,
                    const vector<string> &defVect = {}) {
-  Timer timer;
   cl_program program = createProgram(device, context, fileName);
   if (!program) { return program; }
 
-  std::string args = join(" -D", defVect) + " " + extraArgs;
-  if (!build(program, device, std::string("-cl-std=CL2.0 ") + args) &&
-      !build(program, device, args)) {
+  string args = join(" -D", defVect) + " " + extraArgs;
+  bool tryCL20 = true;
+  if ((tryCL20 && build(program, device, string("-cl-std=CL2.0 ") + args))
+      || build(program, device, args)) {
+    return program;
+  } else {
     release(program);
     return 0;
   }
-  log("Compiled \"%s\" in %d ms with args \"%s\"\n", fileName.c_str(), timer.deltaMillis(), args.c_str());
-  return program;
 }  
   // Other options:
   // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/
