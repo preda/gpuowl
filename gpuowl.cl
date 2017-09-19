@@ -95,22 +95,22 @@ void tabMul(const G double2 *trig, double2 *u, uint n, uint f) {
 
 void fft1kImpl(local double *lds, double2 *u, const G double2 *trig) {
   fft4(u);
-  shufl(lds,      u, 4, 64);
+  shufl(lds,   u, 4, 64);
   tabMul(trig, u, 4, 64);
   
   fft4(u);
   bar();
-  shufl(lds,      u, 4, 16);
+  shufl(lds,   u, 4, 16);
   tabMul(trig, u, 4, 16);
   
   fft4(u);
   bar();
-  shufl(lds,      u, 4, 4);
+  shufl(lds,   u, 4, 4);
   tabMul(trig, u, 4, 4);
 
   fft4(u);
   bar();
-  shufl(lds,      u, 4, 1);
+  shufl(lds,   u, 4, 1);
   tabMul(trig, u, 4, 1);
 
   fft4(u);
@@ -118,12 +118,12 @@ void fft1kImpl(local double *lds, double2 *u, const G double2 *trig) {
 
 void fft2kImpl(local double *lds, double2 *u, const G double2 *trig) {
   fft8(u);
-  shufl(lds,      u, 8, 32);
+  shufl(lds,   u, 8, 32);
   tabMul(trig, u, 8, 32);
 
   fft8(u);
   bar();
-  shufl(lds,      u, 8, 4);
+  shufl(lds,   u, 8, 4);
   tabMul(trig, u, 8, 4);
   
   fft8(u);
@@ -154,6 +154,7 @@ void fft2kImpl(local double *lds, double2 *u, const G double2 *trig) {
   S2(u[3], u[6]);
 }
 
+// choose between 1K and 2K based on N.
 void fftImpl(uint N, local double *lds, double2 *u, const G double2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
