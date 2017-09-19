@@ -50,9 +50,8 @@ struct Args {
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
       for (int i = 0; i < ndev; ++i) {
-        char info[256];
-        getDeviceInfo(devices[i], sizeof(info), info);
-        log("    %d : %s\n", i, info);
+        std::string info = getDeviceInfo(devices[i]);
+        log("    %d : %s\n", i, info.c_str());
       }      
       return false;
     } else if (!strcmp(arg, "-step")) {

@@ -77,7 +77,7 @@ string getDeviceName(cl_device_id id) {
   return (hasBoardName && hasTopology) ? string(boardName) + " " + std::to_string(computeUnits) + " @" + topology : "";
 }
 
-void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
+string getDeviceInfo(cl_device_id device) {
   char name[64], version[64];
   getInfo(device, CL_DEVICE_NAME,    sizeof(name), name);
   getInfo(device, CL_DEVICE_VERSION, sizeof(version), version);
@@ -85,16 +85,15 @@ void getDeviceInfo(cl_device_id device, size_t infoSize, char *info) {
   getInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits);
   getInfo(device, CL_DEVICE_MAX_CLOCK_FREQUENCY, sizeof(frequency), &frequency);
 
-  unsigned isEcc = 0;
-  CHECK(clGetDeviceInfo(device, CL_DEVICE_ERROR_CORRECTION_SUPPORT, sizeof(isEcc), &isEcc, NULL));
-
   string board = getDeviceName(device);
 
+  char info[256];
   if (!board.empty()) {
-    snprintf(info, infoSize, "%s, %s %4uMHz", board.c_str(), name, frequency);
+    snprintf(info, sizeof(info), "%s, %s %4uMHz", board.c_str(), name, frequency);
   } else {
-    snprintf(info, infoSize, "%s, %2ux%4uMHz", name, computeUnits, frequency);
+    snprintf(info, sizeof(info), "%s, %2ux%4uMHz", name, computeUnits, frequency);
   }
+  return info;
 }
 
 cl_context createContext(cl_device_id device) {

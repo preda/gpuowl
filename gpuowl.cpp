@@ -150,41 +150,23 @@ double *trig(double *p, int n, int B, int phase = 0, int step = 1) {
   return p;
 }
 
+// The generated trig table has three regions:
+// - a 4096 "full trig table" (a full circle).
+// - a region of granularity TAU / (W * H), used in transpose.
+// - a region of granularity TAU / (2 * W * H), used in squaring.
 cl_mem genBigTrig(cl_context context, int W, int H) {
   assert((W == 1024 || W == 2048) && H == 2048);
-  const int size = 2 * (W * H / 512 + 512 + 1024);
+  const int size = 2 * (4096 + 3 * W * H / 4096);
   double *tab = new double[size];
   double *end = tab;
-  end = trig(end, W * H / 512, W * H / 512);
-  end = trig(end, 512, W * H);
-  end = trig(end, 1024, W * H * 2);
+  end = trig(end, 4096, 4096);
+  end = trig(end,     W * H / 4096,     W * H);
+  end = trig(end, 2 * W * H / 4096, 2 * W * H);
   assert(end - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
   return buf;
 }
-
-/*
-cl_mem genTrig4K(cl_context context) {
-  int size = 2 * 4096;
-  double *tab = new double[size];
-  double *end = trig(tab, 4096, 4096);
-  assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
-cl_mem genHairTrig(cl_context context, int n) {
-  int size = 2 * n;
-  double *tab = new double[size];
-  double *end = trig(tab, n, n * 4096);
-  assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
-  delete[] tab;
-  return buf;  
-}
-*/
 
 double *smallTrigBlock(int W, int H, double *p) {
   auto base = - TAU / (W * H);
@@ -612,13 +594,14 @@ int main(int argc, char **argv) {
 
   if (args.cpu.empty()) { args.cpu = getDeviceName(device); }
 
-  char info[256];
-  getDeviceInfo(device, sizeof(info), info);
-  log("%s\n", info);
+  std::string info = getDeviceInfo(device);
+  log("%s\n", info.c_str());
   
   Context contextHolder{createContext(device)};
   cl_context context = contextHolder.get();
   Queue queue{makeQueue(device, context)};
+
+  
   
   constexpr int W = 1024, H = 2048;
   constexpr int N = 2 * W * H;
