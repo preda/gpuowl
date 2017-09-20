@@ -16,23 +16,6 @@ struct Args {
   
   Args() : step(500000), saveStep(10000000), device(-1), timeKernels(false), useLegacy(false) { }
 
-  /*
-  void logConfig() {
-    std::string uidStr    = (uid.empty()    ? "" : " -uid "    + uid);
-    std::string clStr     = (clArgs.empty() ? "" : " -cl \""   + clArgs + "\"");
-    
-    std::string tailStr =
-      uidStr
-      + clStr
-      + (timeKernels ? " -time kernels" : "")
-      + (useLegacy   ? " -legacy"       : "")
-      + (device >= 0 ? " -device " + device : "")
-      ;
-      
-    log("Config: -step %d -savestep %d %s\n", step, saveStep, tailStr.c_str());
-  }
-  */
-
   // return false to stop.
   bool parse(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {

@@ -50,55 +50,61 @@ using Queue   = Holder<cl_queue>;
 
 static_assert(sizeof(Buffer) == sizeof(cl_mem));
 
-class BaseKernel {
-  Holder<cl_kernel> kernel;
-  int sizeShift;
-  int extraGroups;
-
+class Kernel {  
   template<int P> void setArgsAt() {}  
   template<int P> void setArgsAt(auto &a, auto&... args) {
     setArg(P, a);
     setArgsAt<P + 1>(args...);
   }
-  
+
 public:
-  const std::string name;
+  virtual ~Kernel() {};
+  virtual void run(cl_queue q) = 0;
+  virtual string getName() = 0;
+  virtual cl_kernel getKernel() = 0;
   
-  BaseKernel(cl_program program, const std::string &name, int sizeShift, int extraGroups = 0) :
+  void setArg(int pos, const auto &arg) { ::setArg(getKernel(), pos, arg); }
+  void setArg(int pos, const Buffer &buf) { setArg(pos, buf.get()); }
+  void setArgs(const auto&... args) { setArgsAt<0>(args...); }
+};
+
+class BaseKernel : public Kernel {
+  Holder<cl_kernel> kernel;
+  int N;
+  int sizeShift;
+  std::string name;
+
+public:
+  BaseKernel(cl_program program, int N, const std::string &name, int sizeShift) :
     kernel(makeKernel(program, name.c_str())),
+    N(N),
     sizeShift(sizeShift),
-    extraGroups(extraGroups),
     name(name)
   { }
 
-  void setArg(int pos, const Buffer &buf) { setArg(pos, buf.get()); }
-  void setArg(int pos, const auto &arg) { ::setArg(kernel.get(), pos, arg); } 
-  void setArgs(const auto&... args) { setArgsAt<0>(args...); }
+  virtual void run(cl_queue q) { ::run(q, kernel.get(), N >> sizeShift); }
 
-  void run(cl_queue q, int N) { ::run(q, kernel.get(), (N >> sizeShift) + extraGroups * 256); }
+  virtual string getName() { return name; }
+
+  virtual cl_kernel getKernel() { return kernel.get(); }
 };
 
-class Kernel : public BaseKernel {
-  bool measureTime;
+class TimedKernel : public Kernel {
+  std::unique_ptr<Kernel> kernel;
   u64 timeAcc;
-  
-public:
-  Kernel(cl_program program, const std::string &name, int sizeShift, bool measureTime, int extraGroups = 0) :
-    BaseKernel(program, name, sizeShift, extraGroups),
-    measureTime(measureTime),
-    timeAcc(0)
-  { }
 
-  void run(cl_queue q, int N) {
-    if (!measureTime) {
-      BaseKernel::run(q, N);
-    } else {
-      Timer timer;
-      BaseKernel::run(q, N);
-      finish(q);
-      timeAcc += timer.deltaMicros();
-    }
+public:
+  TimedKernel(Kernel *k) : kernel(k), timeAcc(0) { }
+
+  virtual void run(cl_queue q) {
+    Timer timer;
+    kernel->run(q);
+    finish(q);
+    timeAcc += timer.deltaMicros();
   }
+
+  virtual string getName() { return kernel->getName(); }
+  virtual cl_kernel getKernel() { return kernel->getKernel(); }
   
   u64 getTime() { return timeAcc; }
   void resetTime() { timeAcc = 0; }
@@ -207,6 +213,19 @@ cl_mem genSmallTrig1K(cl_context context) {
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
   return buf;
+}
+
+void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
+  int N = 2 * W * H;
+  double *aTab    = new double[N];
+  double *iTab    = new double[N];
+  
+  genWeights(W, H, E, aTab, iTab);
+  bufA.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, aTab));
+  bufI.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, iTab));
+  
+  delete[] aTab;
+  delete[] iTab;
 }
 
 bool isAllZero(const int *p, int size) {
@@ -379,33 +398,19 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   }
 }
 
-void setupExponentBufs(cl_queue q, int W, int H, int E, cl_mem bufA, cl_mem bufI) {
-  int N = 2 * W * H;
-  double *aTab    = new double[N];
-  double *iTab    = new double[N];
-  
-  genWeights(W, H, E, aTab, iTab);
-  write(q, false, bufA, sizeof(double) * N, aTab);
-  write(q, true, bufI, sizeof(double) * N, iTab);
-
-  delete[] aTab;
-  delete[] iTab;
-}
-
-void run(const std::vector<Kernel *> &kerns, cl_queue q, int N) {
-  for (Kernel *k : kerns) { k->run(q, N); }
-}
+void run(const std::vector<Kernel *> &kerns, cl_queue q) { for (Kernel *k : kerns) { k->run(q); } }
 
 void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   if (nIters < 2) { return; }
   u64 total = 0;
-  for (Kernel *k : kerns) { total += k->getTime(); }
+  for (Kernel *k : kerns) { total += dynamic_cast<TimedKernel *>(k)->getTime(); }
   const float iIters = 1 / (float) (nIters - 1);
   const float iTotal = 1 / (float) total;
-  for (Kernel *k : kerns) {
+  for (Kernel *kk : kerns) {
+    TimedKernel *k = dynamic_cast<TimedKernel *>(kk);
     u64 c = k->getTime();
     k->resetTime();
-    log("%4d us, %02d%% : %s\n", int(c * iIters + .5f), int(c * 100 * iTotal + .5f), k->name.c_str());
+    log("%4d us, %02d%% : %s\n", int(c * iIters + .5f), int(c * 100 * iTotal + .5f), k->getName().c_str());
   }
   log("%4d us total\n", int(total * iIters + .5f));
 }
@@ -546,24 +551,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   return true;
 }
 
-int getNextExponent(bool doSelfTest, u64 *expectedRes, char *AID) {
-  if (doSelfTest) {
-    static int nRead = 1;
-    FILE *fi = open("selftest.txt", "r");
-    if (!fi) { return 0; }
-    int E;
-    for (int i = 0; i < nRead; ++i) {
-      if (fscanf(fi, "%d %llx\n", &E, expectedRes) != 2) { E = 0; break; }
-    }
-    fclose(fi);
-    ++nRead;
-    return E;
-  } else {
-    return worktodoReadExponent(AID);
-  }
-}
-
-int main(int argc, char **argv) {
+void initLog() {
   logFiles.push_back(stdout);
   if (FILE *logf = open("gpuowl.log", "a")) {
 #ifdef _DEFAULT_SOURCE
@@ -571,14 +559,10 @@ int main(int argc, char **argv) {
 #endif
     logFiles.push_back(logf);
   }
-  
-  log("gpuOwL v" VERSION " GPU Mersenne primality checker\n");
+}
 
-  Args args;
-  
-  if (!args.parse(argc, argv)) { return 0; }
-  
-  cl_device_id device;
+cl_device_id getDevice(const Args &args) {
+  cl_device_id device = nullptr;
   if (args.device >= 0) {
     cl_device_id devices[16];
     int n = getDeviceIDs(false, 16, devices);
@@ -588,49 +572,80 @@ int main(int argc, char **argv) {
     int n = getDeviceIDs(true, 1, &device);
     if (n <= 0) {
       log("No GPU device found. See -h for how to select a specific device.\n");
-      return 8;
+      return 0;
+    }
+  }
+  return device;
+}
+
+bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
+  assert(W == 1024 || W == 2048);
+  assert(H == 2048);
+  int N = 2 * W * H;
+  
+  std::unique_ptr<Kernel> fftP, fftW, fftH, transpose, transposeT, carryA, carryB, carryM, square, mul, carryConv, squareConv;
+
+  {
+    cl_program p = (W == 1024) ?
+      compile(device, context, "gpuowl.cl", args.clArgs, {"GPUOWL_1K", "GPUOWL_2K", "GPUOWL_4M"}) :
+      compile(device, context, "gpuowl.cl", args.clArgs, {"GPUOWL_2K", "GPUOWL_8M"});
+    
+    Holder<cl_program> programHolder(p);    
+    if (!p) { return false; }
+  
+    if (W == 1024) {
+      fftP.reset(new BaseKernel(p, N, "fftPremul1K", 3));
+      fftW.reset(new BaseKernel(p, N, "fft1K",       3));
+
+      transpose.reset(new BaseKernel(p, N, "transpose1K_2K", 5));
+      transposeT.reset(new BaseKernel(p, N, "transpose2K_1K", 5));
+
+      carryA.reset(new BaseKernel(p, N, "carryA1K",    4));
+      carryB.reset(new BaseKernel(p, N, "carryB1K_2K", 4));
+      carryM.reset(new BaseKernel(p, N, "carryMul1K",  4));
+
+      carryConv.reset(new BaseKernel(p, N + (256 << 3), "carryConv1K_2K", 3));
+      squareConv.reset(new BaseKernel(p, N, "tail2K_1K", 5));
+      
+  } else {
+      fftP.reset(new BaseKernel(p, N, "fftPremul2K", 4));
+      fftW.reset(new BaseKernel(p, N, "fft2K",       4));
+
+      transpose.reset(new BaseKernel(p, N, "transpose2K_2K", 5));
+      transposeT.reset(new BaseKernel(p, N, "transpose2K_2K", 5));
+
+      carryA.reset(new BaseKernel(p, N, "carryA2K",    4));
+      carryB.reset(new BaseKernel(p, N, "carryB2K_2K", 4));
+      carryM.reset(new BaseKernel(p, N, "carryMul2K",  4));
+
+      carryConv.reset(new BaseKernel(p, N + (256 << 4), "carryConv2K_2K", 4));
+      squareConv.reset(new BaseKernel(p, N, "tail2K_2K", 5));
+    }
+    
+    fftH.reset(new BaseKernel(p, N, "fft2K", 4));
+    square.reset(new BaseKernel(p, N, "csquare2K", 2));
+    mul.reset(new BaseKernel(p, N, "cmul2K", 2));
+
+    if (args.timeKernels) {
+      for (auto k : {&fftP, &fftW, &fftH, &transpose, &transposeT, &carryA, &carryB, &carryM, &square, &mul, &carryConv, &squareConv}) {
+        k->reset(new TimedKernel(k->release()));
+      }
     }
   }
 
-  if (args.cpu.empty()) { args.cpu = getDeviceName(device); }
-
-  std::string info = getDeviceInfo(device);
-  log("%s\n", info.c_str());
-  
-  Context contextHolder{createContext(device)};
-  cl_context context = contextHolder.get();
-  Queue queue{makeQueue(device, context)};
-
-  
-  
-  constexpr int W = 1024, H = 2048;
-  constexpr int N = 2 * W * H;
-  
-  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, {"GPUOWL_1K", "GPUOWL_2K", "GPUOWL_4M"});
-  // cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, {"GPUOWL_8M"});
-  if (!p) { exit(1); }
-#define KERNEL(program, name, shift) Kernel name(program, #name, shift, args.timeKernels)
-  KERNEL(p, fftPremul1K, 3);
-  KERNEL(p, transpose1K_2K, 5);
-  KERNEL(p, transpose2K_1K, 5);
-  // KERNEL(p, transpose2K_2K, 5);
-  KERNEL(p, fft1K,       3);
-  KERNEL(p, carryA1K,      4);
-  KERNEL(p, carryB1K_2K,   4);
-  KERNEL(p, tail2K_1K,        5);
-
-  KERNEL(p, fft2K,     4);
-  KERNEL(p, csquare2K, 2);
-  KERNEL(p, cmul2K,    2);
-  KERNEL(p, carryMul1K,  4);
-#undef KERNEL
-  Kernel carryConv1K_2K(p, "carryConv1K_2K", 3, args.timeKernels, 1);
-  
-
-  release(p); p = nullptr;
-      
-  Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
+  cl_mem trigH = bufTrig2K.get();
+
+  Buffer bufTrig1K;
+  cl_mem trigW = nullptr;
+  
+  if (W == 1024) {
+    bufTrig1K.reset(genSmallTrig1K(context));
+    trigW = bufTrig1K.get();
+  } else {
+    trigW = bufTrig2K.get();
+  }
+
   Buffer bufBigTrig{genBigTrig(context, W, H)};
   
   Buffer buf1{makeBuf(context, BUF_RW, sizeof(double) * N)};
@@ -639,114 +654,136 @@ int main(int argc, char **argv) {
   Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(double) * N)}; // could be N/2 as well.
 
   // Weights (direct and inverse) for the IBDWT.
-  Buffer bufA{makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, sizeof(double) * N)};
-  Buffer bufI{makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, sizeof(double) * N)};
+  Buffer bufA, bufI;
+  setupWeights(context, bufA, bufI, W, H, E);
   
-  int *zero = new int[2049]();
-  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * 2049, zero)};
+  int *zero = new int[H + 1]();
+  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 1), zero)};
   delete[] zero;
 
   Buffer dummy;
-    
-  fftPremul1K.setArgs(dummy, buf1, bufA, bufTrig1K);
-  tail2K_1K.setArgs       (buf2,    bufTrig2K, bufBigTrig);
-  transpose1K_2K.setArgs(buf1, buf2, bufBigTrig);
-  transpose2K_1K.setArgs(buf2, buf1, bufBigTrig);
-  fft1K.setArgs      (buf1,    bufTrig1K);
-  carryA1K.setArgs     (0, buf1, bufI, dummy, bufCarry);
-  carryMul1K.setArgs  (0, buf1, bufI, dummy, bufCarry);
-  carryB1K_2K.setArgs  (0, dummy, bufCarry, bufI);
-  carryConv1K_2K.setArgs(0, buf1, bufCarry, bufReady, bufA, bufI, bufTrig1K);
+  unsigned baseBitlen = E / N;
+  
+  fftP->setArgs(dummy, buf1, bufA, trigW);
+  fftW->setArgs(buf1, trigW);
+  fftH->setArgs(buf2, trigH);
+  
+  transpose->setArgs(buf1, buf2, bufBigTrig);
+  transposeT->setArgs(buf2, buf1, bufBigTrig);
+  
+  carryA->setArgs(baseBitlen, buf1, bufI, dummy, bufCarry);
+  carryM->setArgs(baseBitlen, buf1, bufI, dummy, bufCarry);
+  carryB->setArgs(baseBitlen, dummy, bufCarry, bufI);
 
-  fft2K.setArgs(buf2, bufTrig2K);
-  csquare2K.setArgs(buf2, bufBigTrig);
-  cmul2K.setArgs(buf2, buf3, bufBigTrig);
+  square->setArgs(buf2, bufBigTrig);
+  mul->setArgs(buf2, buf3, bufBigTrig);
+
+  carryConv->setArgs(baseBitlen, buf1, bufCarry, bufReady, bufA, bufI, trigW);
+  squareConv->setArgs(buf2, trigH, bufBigTrig);
+
+  // the weighting + direct FFT only, stops before square/mul.
+  std::vector<Kernel *> directFftKerns {fftP.get(), transpose.get(), fftH.get()};
+
+  // sequence of: direct FFT, square, first-half of inverse FFT.
+  std::vector<Kernel *> headKerns {fftP.get(), transpose.get(), squareConv.get(), transposeT.get()};
+    
+  // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
+  std::vector<Kernel *> tailKerns {fftW.get(), carryA.get(), carryB.get()};
+
+  // equivalent to sequence of: tailKerns, headKerns.
+  std::vector<Kernel *> coreKerns;
+  if (args.useLegacy) {
+    coreKerns = tailKerns;
+    coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
+  } else {
+    coreKerns = {carryConv.get(), transpose.get(), squareConv.get(), transposeT.get()};
+  }
+
+  // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
+  // Optional multiply-by-3 at the end.
+  auto modSqLoop = [&](cl_queue q, cl_mem data, int nIters, bool doMul3) {
+    assert(nIters > 0);
+            
+    fftP->setArg(0, data);
+    run(headKerns, q);
+
+    carryA->setArg(3, data);
+    carryB->setArg(1, data);
+
+    for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q); }
+    
+    if (doMul3) {
+      carryM->setArg(3, data);
+      run({fftW.get(), carryM.get(), carryB.get()}, q);
+    } else {
+      run(tailKerns, q);
+    }
+
+    if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
+  };
+
+  // The modular multiplication a = a * b. Output in 'a'.
+  auto modMul = [&](cl_queue q, cl_mem a, cl_mem b) {
+    fftP->setArg(0, b);
+    transpose->setArg(1, buf3);
+    fftH->setArg(0, buf3);
+    run(directFftKerns, q);
+
+    fftP->setArg(0, a);
+    transpose->setArg(1, buf2);
+    fftH->setArg(0, buf2);
+    run(directFftKerns, q);
+
+    run({mul.get(), fftH.get(), transposeT.get()}, q);
+
+    carryA->setArg(3, a);
+    carryB->setArg(1, a);
+    run(tailKerns, q);
+  };
+
+  bool isPrime;
+  u64 residue;
+  int nErrors = 0;
+  if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul))) {
+    return false;
+  }
+  
+  if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu, nErrors) && worktodoDelete(E))) { return false; }
+
+  return true;
+}
+
+int main(int argc, char **argv) {
+  initLog();
+  
+  log("gpuOwL v" VERSION " GPU Mersenne primality checker\n");
+
+  Args args;
+  
+  if (!args.parse(argc, argv)) { return -1; }
+
+  cl_device_id device = getDevice(args);  
+  if (!device) { return -1; }
+
+  if (args.cpu.empty()) { args.cpu = getDeviceName(device); }
+
+  std::string info = getDeviceInfo(device);
+  log("%s\n", info.c_str());
+  
+  Context contextHolder{createContext(device)};
+  cl_context context = contextHolder.get();
+  Queue queueHolder{makeQueue(device, context)};
+  cl_queue queue = queueHolder.get();
 
   while (true) {
-    u64 expectedRes;
     char AID[64];
-    int E = getNextExponent(false, &expectedRes, AID);
+    int E = worktodoReadExponent(AID);
     if (E <= 0) { break; }
-
-    setupExponentBufs(queue.get(), W, H, E, bufA.get(), bufI.get());
-    unsigned baseBitlen = E / N;
-    carryA1K.setArg(0, baseBitlen);
-    carryMul1K.setArg(0, baseBitlen);
-    carryB1K_2K.setArg(0, baseBitlen);
-    carryConv1K_2K.setArg(0, baseBitlen);
-    
-    bool isPrime;
-    u64 residue;
-
-    // the weighting + direct FFT only, stops before square/mul.
-    std::vector<Kernel *> directFftKerns {&fftPremul1K, &transpose1K_2K, &fft2K};
-
-    // sequence of: direct FFT, square, first-half of inverse FFT.
-    // std::vector<Kernel *> headKerns(directFftKerns);
-    // headKerns.insert(headKerns.end(), { &csquare2K, &fft2K, &transpose2K });
-
-    std::vector<Kernel *> headKerns {&fftPremul1K, &transpose1K_2K, &tail2K_1K, &transpose2K_1K};
-    
-    // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
-    std::vector<Kernel *> tailKerns {&fft1K, &carryA1K, &carryB1K_2K};
-
-    // kernel-fusion equivalent of: tailKerns, headKerns.
-    // std::vector<Kernel *> coreKerns {&mega, &transpose1K, &fft2K, &csquare2K, &fft2K, &transpose2K};
-    std::vector<Kernel *> coreKerns {&carryConv1K_2K, &transpose1K_2K, &tail2K_1K, &transpose2K_1K};
-    if (args.useLegacy) {
-      coreKerns = tailKerns;
-      coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
-    }
-
-    // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
-    // Optional multiply-by-3 at the end.
-    auto modSqLoop = [&](cl_queue q, cl_mem data, int nIters, bool doMul3) {
-      assert(nIters > 0);
-            
-      fftPremul1K.setArg(0, data);
-      run(headKerns, q, N);
-
-      carryA1K.setArg(3, data);
-      carryB1K_2K.setArg(1, data);
-
-      for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q, N); }
-      if (doMul3) {
-        carryMul1K.setArg(3, data);
-        run({&fft1K, &carryMul1K, &carryB1K_2K}, q, N);
-      } else {
-        run(tailKerns, q, N);
-      }
-
-      if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
-    };
-
-    // The modular multiplication a = a * b. Output in 'a'.
-    auto modMul = [&](cl_queue q, cl_mem a, cl_mem b) {
-      fftPremul1K.setArg(0, b);
-      transpose1K_2K.setArg(1, buf3);
-      fft2K.setArg(0, buf3);
-      run(directFftKerns, q, N);
-      
-      fftPremul1K.setArg(0, a);
-      transpose1K_2K.setArg(1, buf2);
-      fft2K.setArg(0, buf2);
-      run(directFftKerns, q, N);
-      
-      run({&cmul2K, &fft2K, &transpose2K_1K}, q, N);
-
-      carryA1K.setArg(3, a);
-      carryB1K_2K.setArg(1, a);
-      run(tailKerns, q, N);
-    };
-
-    int nErrors = 0;
-    if (!checkPrime(W, H, E, queue.get(), context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul))) {
-      break;
-    }
-
-    if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu, nErrors) && worktodoDelete(E))) { break; }
+    bool use4M = E < 78000000;
+    if (!doIt(device, context, queue, args, AID, E, use4M ? 1024 : 2048, 2048)) { break; }
   }
-    
+
   log("\nBye\n");
   for (FILE *f : logFiles) { fclose(f); }
 }
+
