@@ -25,7 +25,7 @@
 
 #define TAU (2 * M_PIl)
 
-#define VERSION "1.3"
+#define VERSION "1.4"
 #define PROGRAM "gpuowl"
 const char *AGENT = PROGRAM " v" VERSION;
 
@@ -111,9 +111,13 @@ public:
 };
 
 int wordPos(int N, int E, int p) {
-  // assert(N == (1 << 22));
+  assert(N == (1 << 22) || N == (1 << 23));
+  
   i64 x = p * (i64) E;
-  return (int) (x >> 22) + (bool) (((int) x) << 10);
+  
+  return (N == (1 << 22)) ?
+    (int) (x >> 22) + (bool) (((int) x) << 10) :
+    (int) (x >> 23) + (bool) (((int) x) << 9);
 }
 
 int bitlen(int N, int E, int p) { return wordPos(N, E, p + 1) - wordPos(N, E, p); }
@@ -135,7 +139,7 @@ void genWeights(int W, int H, int E, double *aTab, double *iTab) {
         auto p0 = kE * iN;
         int b0 = wordPos(N, E, k);
         int b1 = wordPos(N, E, k + 1);
-        int bits  = b1 - b0;
+        int bits  = b1 - b0;        
         assert(bits == baseBits || bits == baseBits + 1);
         auto a = exp2l(b0 - p0);
         auto ia = 1 / (4 * N * a);
@@ -431,6 +435,7 @@ bool validate(int N, cl_mem bufData, cl_mem bufCheck,
   read(q, false, bufData, dataSize, tmpA);
   read(q, true, bufCheck, dataSize, tmpB);
   bool ok = !memcmp(tmpA, tmpB, dataSize);
+  // fprintf(stderr, "%d %d\n", tmpA[0], tmpB[0]);
   delete[] tmpA;
   delete[] tmpB;
   write(q, false, bufCheck, dataSize, check);
@@ -606,7 +611,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
       carryConv.reset(new BaseKernel(p, N + (256 << 3), "carryConv1K_2K", 3));
       squareConv.reset(new BaseKernel(p, N, "tail2K_1K", 5));
-      
+
+      square.reset(new BaseKernel(p, N, "csquare2K_1K", 2));
+      mul.reset(new BaseKernel(p, N, "cmul2K_1K", 2));
   } else {
       fftP.reset(new BaseKernel(p, N, "fftPremul2K", 4));
       fftW.reset(new BaseKernel(p, N, "fft2K",       4));
@@ -620,11 +627,12 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
       carryConv.reset(new BaseKernel(p, N + (256 << 4), "carryConv2K_2K", 4));
       squareConv.reset(new BaseKernel(p, N, "tail2K_2K", 5));
+
+      square.reset(new BaseKernel(p, N, "csquare2K_2K", 2));
+      mul.reset(new BaseKernel(p, N, "cmul2K_2K", 2));
     }
     
     fftH.reset(new BaseKernel(p, N, "fft2K", 4));
-    square.reset(new BaseKernel(p, N, "csquare2K", 2));
-    mul.reset(new BaseKernel(p, N, "cmul2K", 2));
 
     if (args.timeKernels) {
       for (auto k : {&fftP, &fftW, &fftH, &transpose, &transposeT, &carryA, &carryB, &carryM, &square, &mul, &carryConv, &squareConv}) {

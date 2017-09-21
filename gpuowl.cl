@@ -392,24 +392,24 @@ double2 foo2(double2 a, double2 b) {
 double2 foo(double2 a) { return foo2(a, a); }
 
 // Inputs normal (non-conjugate); outputs conjugate.
-void csquare(uint W, G double2 *io, const G double2 *bigTrig) {
+void csquare(uint W, uint H, G double2 *io, const G double2 *bigTrig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
   if (g == 0 && me == 0) {
     io[0]    = 4 * foo(conjugate(io[0]));
-    io[1024] = 8 * sq(conjugate(io[1024]));
+    io[W / 2] = 8 * sq(conjugate(io[W / 2]));
     return;
   }
   
   uint line = g / (W / 512);
   uint posInLine = g % (W / 512) * 256 + me;
   uint k = line * W + posInLine;
-  uint v = ((1024 - line) & 1023) * W + (W - 1) - posInLine + ((line - 1) >> 31);
+  uint v = ((H - line) & (H - 1)) * W + (W - 1) - posInLine + ((line - 1) >> 31);
   
   double2 a = io[k];
   double2 b = conjugate(io[v]);
-  double2 t = swap(mul(bigTrig[4096 + 512 + line], bigTrig[posInLine]));
+  double2 t = swap(mul(bigTrig[4096 + (W * H / 4096) + line], bigTrig[posInLine]));
   
   X2(a, b);
   M(b, conjugate(t));
@@ -427,24 +427,24 @@ void csquare(uint W, G double2 *io, const G double2 *bigTrig) {
 }
 
 // Like csquare(), but for multiplication.
-void cmul(uint W, G double2 *io, const G double2 *in, const G double2 *bigTrig) {
+void cmul(uint W, uint H, G double2 *io, const G double2 *in, const G double2 *bigTrig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
   if (g == 0 && me == 0) {
     io[0]    = 4 * (foo2(conjugate(io[0]), conjugate(in[0])));
-    io[1024] = 8 * conjugate(mul(io[1024], in[1024]));
+    io[W / 2] = 8 * conjugate(mul(io[W / 2], in[W / 2]));
     return;
   }
   
   uint line = g / (W / 512);
   uint posInLine = g % (W / 512) * 256 + me;
   uint k = line * W + posInLine;
-  uint v = ((1024 - line) & 1023) * W + (W - 1) - posInLine + ((line - 1) >> 31);
+  uint v = ((H - line) & (H - 1)) * W + (W - 1) - posInLine + ((line - 1) >> 31);
   
   double2 a = io[k];
   double2 b = conjugate(io[v]);
-  double2 t = swap(mul(bigTrig[4096 + 512 + line], bigTrig[posInLine]));
+  double2 t = swap(mul(bigTrig[4096 + (W * H / 4096) + line], bigTrig[posInLine]));
   
   X2(a, b);
   M(b, conjugate(t));
@@ -613,9 +613,6 @@ KERNEL(256) fftPremul2K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr tr
   fftPremul(8, lds, u, in, out, A, trig2k);
 }
 
-KERNEL(256) csquare2K(d2ptr io, const d2ptr trig)  { csquare(2048, io, trig); }
-KERNEL(256) cmul2K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, io, in, trig); }
-
 KERNEL(256) carryA2K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
   carryMul(8, 1, baseBits, in, A, out, carryOut);
 }
@@ -629,14 +626,8 @@ KERNEL(256) carryMul2K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr
 
 #ifdef GPUOWL_4M
 
-// This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
-// It does less global memory transfers, but uses more VGPRs.
-KERNEL(256) tail2K_1K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
-  local double lds[8 * 256];
-  double2 u[8];
-  double2 v[8];
-  tail(8, 1024, lds, u, v, io, trig, bigTrig);
-}
+KERNEL(256) csquare2K_1K(d2ptr io, const d2ptr trig)  { csquare(2048, 1024, io, trig); }
+KERNEL(256) cmul2K_1K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, 1024, io, in, trig); }
 
 KERNEL(256) carryConv1K_2K(uint baseBitlen, d2ptr io,
                            global double * restrict carryShuttle, volatile global uint * restrict ready,
@@ -644,6 +635,15 @@ KERNEL(256) carryConv1K_2K(uint baseBitlen, d2ptr io,
   local double lds[4 * 256];
   double2 u[4];
   carryConvolution(4, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
+}
+
+// This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
+// It does less global memory transfers, but uses more VGPRs.
+KERNEL(256) tail2K_1K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
+  local double lds[8 * 256];
+  double2 u[8];
+  double2 v[8];
+  tail(8, 1024, lds, u, v, io, trig, bigTrig);
 }
 
 KERNEL(256) carryB1K_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
@@ -666,12 +666,22 @@ KERNEL(256) transpose2K_1K(const d2ptr in, d2ptr out, const d2ptr trig) {
 
 #ifdef GPUOWL_8M
 
+KERNEL(256) csquare2K_2K(d2ptr io, const d2ptr trig)  { csquare(2048, 2048, io, trig); }
+KERNEL(256) cmul2K_2K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, 2048, io, in, trig); }
+
 KERNEL(256) carryConv2K_2K(uint baseBitlen, d2ptr io,
                            global double * restrict carryShuttle, volatile global uint * restrict ready,
                            const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
   local double lds[8 * 256];
   double2 u[8];
   carryConvolution(8, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
+}
+
+KERNEL(256) tail2K_2K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
+  local double lds[8 * 256];
+  double2 u[8];
+  double2 v[8];
+  tail(8, 2048, lds, u, v, io, trig, bigTrig);
 }
 
 KERNEL(256) carryB2K_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
@@ -681,13 +691,6 @@ KERNEL(256) carryB2K_2K(const uint baseBits, i2ptr io, const global long * restr
 KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
   local double lds[4096];
   transpose(2048, 2048, lds, in, out, trig);
-}
-
-KERNEL(256) tail2K_2K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
-  local double lds[8 * 256];
-  double2 u[8];
-  double2 v[8];
-  tail(8, 2048, lds, u, v, io, trig, bigTrig);
 }
 
 #endif

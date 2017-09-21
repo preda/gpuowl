@@ -11,7 +11,7 @@
 
 FILE *open(const char *name, const char *mode);
 
-const int EXP_MIN = 50000000, EXP_MAX = 78000000;
+const int EXP_MIN = 50000000, EXP_MAX = 155000000;
 
 int parseLine(const char *line, char *outAID) {
   char kind[32];
