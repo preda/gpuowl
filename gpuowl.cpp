@@ -591,10 +591,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   std::unique_ptr<Kernel> fftP, fftW, fftH, transpose, transposeT, carryA, carryB, carryM, square, mul, carryConv, squareConv;
 
   {
-    cl_program p = (W == 1024) ?
-      compile(device, context, "gpuowl.cl", args.clArgs, {"GPUOWL_1K", "GPUOWL_2K", "GPUOWL_4M"}) :
-      compile(device, context, "gpuowl.cl", args.clArgs, {"GPUOWL_2K", "GPUOWL_8M"});
-    
+    unsigned baseBitlen = E / N;
+    std::vector<string> defines{string("BASE_BITLEN=") + std::to_string(baseBitlen)};
+    if (W == 1024) {
+      defines.insert(defines.end(), {"GPUOWL_1K", "GPUOWL_2K", "GPUOWL_4M"});
+    } else {
+      defines.insert(defines.end(), {"GPUOWL_2K", "GPUOWL_8M"});
+    }
+    cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, defines);
     Holder<cl_program> programHolder(p);    
     if (!p) { return false; }
   
@@ -670,7 +674,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   delete[] zero;
 
   Buffer dummy;
-  unsigned baseBitlen = E / N;
   
   fftP->setArgs(dummy, buf1, bufA, trigW);
   fftW->setArgs(buf1, trigW);
@@ -679,14 +682,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   transpose->setArgs(buf1, buf2, bufBigTrig);
   transposeT->setArgs(buf2, buf1, bufBigTrig);
   
-  carryA->setArgs(baseBitlen, buf1, bufI, dummy, bufCarry);
-  carryM->setArgs(baseBitlen, buf1, bufI, dummy, bufCarry);
-  carryB->setArgs(baseBitlen, dummy, bufCarry, bufI);
+  carryA->setArgs(buf1, bufI, dummy, bufCarry);
+  carryM->setArgs(buf1, bufI, dummy, bufCarry);
+  carryB->setArgs(dummy, bufCarry, bufI);
 
   square->setArgs(buf2, bufBigTrig);
   mul->setArgs(buf2, buf3, bufBigTrig);
 
-  carryConv->setArgs(baseBitlen, buf1, bufCarry, bufReady, bufA, bufI, trigW);
+  carryConv->setArgs(buf1, bufCarry, bufReady, bufA, bufI, trigW);
   squareConv->setArgs(buf2, trigH, bufBigTrig);
 
   // the weighting + direct FFT only, stops before square/mul.
@@ -715,13 +718,13 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     fftP->setArg(0, data);
     run(headKerns, q);
 
-    carryA->setArg(3, data);
-    carryB->setArg(1, data);
+    carryA->setArg(2, data);
+    carryB->setArg(0, data);
 
     for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q); }
     
     if (doMul3) {
-      carryM->setArg(3, data);
+      carryM->setArg(2, data);
       run({fftW.get(), carryM.get(), carryB.get()}, q);
     } else {
       run(tailKerns, q);
@@ -744,8 +747,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
     run({mul.get(), fftH.get(), transposeT.get()}, q);
 
-    carryA->setArg(3, a);
-    carryB->setArg(1, a);
+    carryA->setArg(2, a);
+    carryB->setArg(0, a);
     run(tailKerns, q);
   };
 

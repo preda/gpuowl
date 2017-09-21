@@ -587,12 +587,12 @@ KERNEL(256) fftPremul1K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr tr
   fftPremul(4, lds, u, in, out, A, trig1k);
 }
 
-KERNEL(256) carryA1K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(4, 1, baseBits, in, A, out, carryOut);
+KERNEL(256) carryA1K(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryMul(4, 1, BASE_BITLEN, in, A, out, carryOut);
 }
 
-KERNEL(256) carryMul1K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(4, 3, baseBits, in, A, out, carryOut);
+KERNEL(256) carryMul1K(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryMul(4, 3, BASE_BITLEN, in, A, out, carryOut);
 }
 
 #endif
@@ -613,12 +613,12 @@ KERNEL(256) fftPremul2K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr tr
   fftPremul(8, lds, u, in, out, A, trig2k);
 }
 
-KERNEL(256) carryA2K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(8, 1, baseBits, in, A, out, carryOut);
+KERNEL(256) carryA2K(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryMul(8, 1, BASE_BITLEN, in, A, out, carryOut);
 }
 
-KERNEL(256) carryMul2K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(8, 3, baseBits, in, A, out, carryOut);
+KERNEL(256) carryMul2K(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryMul(8, 3, BASE_BITLEN, in, A, out, carryOut);
 }
 
 #endif
@@ -629,12 +629,12 @@ KERNEL(256) carryMul2K(const uint baseBits, const d2ptr in, const d2ptr A, i2ptr
 KERNEL(256) csquare2K_1K(d2ptr io, const d2ptr trig)  { csquare(2048, 1024, io, trig); }
 KERNEL(256) cmul2K_1K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, 1024, io, in, trig); }
 
-KERNEL(256) carryConv1K_2K(uint baseBitlen, d2ptr io,
+KERNEL(256) carryConv1K_2K(d2ptr io,
                            global double * restrict carryShuttle, volatile global uint * restrict ready,
                            const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
   local double lds[4 * 256];
   double2 u[4];
-  carryConvolution(4, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
+  carryConvolution(4, 2048, lds, u, BASE_BITLEN, io, carryShuttle, ready, A, iA, trig1k);
 }
 
 // This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
@@ -646,8 +646,8 @@ KERNEL(256) tail2K_1K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
   tail(8, 1024, lds, u, v, io, trig, bigTrig);
 }
 
-KERNEL(256) carryB1K_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
-  carryBCore(4, 2048, baseBits, io, carryIn, A);
+KERNEL(256) carryB1K_2K(i2ptr io, const global long * restrict carryIn, const d2ptr A) {
+  carryBCore(4, 2048, BASE_BITLEN, io, carryIn, A);
 }
 
 KERNEL(256) transpose1K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
@@ -669,12 +669,12 @@ KERNEL(256) transpose2K_1K(const d2ptr in, d2ptr out, const d2ptr trig) {
 KERNEL(256) csquare2K_2K(d2ptr io, const d2ptr trig)  { csquare(2048, 2048, io, trig); }
 KERNEL(256) cmul2K_2K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, 2048, io, in, trig); }
 
-KERNEL(256) carryConv2K_2K(uint baseBitlen, d2ptr io,
+KERNEL(256) carryConv2K_2K(d2ptr io,
                            global double * restrict carryShuttle, volatile global uint * restrict ready,
                            const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
   local double lds[8 * 256];
   double2 u[8];
-  carryConvolution(8, 2048, lds, u, baseBitlen, io, carryShuttle, ready, A, iA, trig1k);
+  carryConvolution(8, 2048, lds, u, BASE_BITLEN, io, carryShuttle, ready, A, iA, trig1k);
 }
 
 KERNEL(256) tail2K_2K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
@@ -684,8 +684,8 @@ KERNEL(256) tail2K_2K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
   tail(8, 2048, lds, u, v, io, trig, bigTrig);
 }
 
-KERNEL(256) carryB2K_2K(const uint baseBits, i2ptr io, const global long * restrict carryIn, const d2ptr A) {
-  carryBCore(8, 2048, baseBits, io, carryIn, A);
+KERNEL(256) carryB2K_2K(i2ptr io, const global long * restrict carryIn, const d2ptr A) {
+  carryBCore(8, 2048, BASE_BITLEN, io, carryIn, A);
 }
 
 KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
