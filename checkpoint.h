@@ -42,9 +42,9 @@ private:
   
 public:
   Checkpoint(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
-    snprintf(fileNameSave, sizeof(fileNameSave), "%d.ll", E);
-    snprintf(fileNamePrev, sizeof(fileNamePrev), "%d-prev.ll", E);
-    snprintf(fileNameTemp, sizeof(fileNameTemp), "%d-temp.ll", E);
+    snprintf(fileNameSave, sizeof(fileNameSave), "%d.owl", E);
+    snprintf(fileNamePrev, sizeof(fileNamePrev), "%d-prev.owl", E);
+    snprintf(fileNameTemp, sizeof(fileNameTemp), "%d-temp.owl", E);
   }
   
   bool load(int *startK, int *data, int *checkBits, int *nErrors) {
@@ -80,7 +80,7 @@ public:
     }
     if (savePersist) {
       char name[64];
-      snprintf(name, sizeof(name), "%d.%d.ll", E, k);
+      snprintf(name, sizeof(name), "%d.%d.owl", E, k);
       write(name, k, data, checkBits, nErrors);
     }
   }
