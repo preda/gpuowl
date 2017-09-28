@@ -200,7 +200,7 @@ void fftPremul(uint N, local double *lds, double2 *u, const G int2 *in, G double
   write(N, u, out, 0);
 }
 
-void reverse(local double2 *lds, double2 *u, bool bump) {
+void reverse8(local double2 *lds, double2 *u, bool bump) {
   uint me = get_local_id(0);
   uint rm = 255 - me + bump;
   
@@ -214,6 +214,29 @@ void reverse(local double2 *lds, double2 *u, bool bump) {
   bar();
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
 }
+
+void reverse4(local double2 *lds, double2 *u, bool bump) {
+  uint me = get_local_id(0);
+  uint rm = 255 - me + bump;
+  
+  bar();
+
+  lds[rm + 0 * 256] = u[3];
+  lds[bump ? ((rm + 256) & 511) : (rm + 256)] = u[2];
+  
+  bar();
+  u[2] = lds[me];
+  u[3] = lds[me + 256];
+}
+
+void reverse(uint N, local double2 *lds, double2 *u, bool bump) {
+  if (N == 4) {
+    reverse4(lds, u, bump);
+  } else {
+    reverse8(lds, u, bump);
+  }
+}
+
 
 // Round x to long.
 long toLong(double x) { return rint(x); }
@@ -397,7 +420,7 @@ void csquare(uint W, uint H, G double2 *io, const G double2 *bigTrig) {
   uint me = get_local_id(0);
 
   if (g == 0 && me == 0) {
-    io[0]    = 4 * foo(conjugate(io[0]));
+    io[0]     = 4 * foo(conjugate(io[0]));
     io[W / 2] = 8 * sq(conjugate(io[W / 2]));
     return;
   }
@@ -409,7 +432,7 @@ void csquare(uint W, uint H, G double2 *io, const G double2 *bigTrig) {
   
   double2 a = io[k];
   double2 b = conjugate(io[v]);
-  double2 t = swap(mul(bigTrig[4096 + (W * H / 4096) + line], bigTrig[posInLine]));
+  double2 t = swap(mul(bigTrig[W * 2 + H / 2 + line], bigTrig[posInLine]));
   
   X2(a, b);
   M(b, conjugate(t));
@@ -444,7 +467,7 @@ void cmul(uint W, uint H, G double2 *io, const G double2 *in, const G double2 *b
   
   double2 a = io[k];
   double2 b = conjugate(io[v]);
-  double2 t = swap(mul(bigTrig[4096 + (W * H / 4096) + line], bigTrig[posInLine]));
+  double2 t = swap(mul(bigTrig[W * 2 + H / 2 + line], bigTrig[posInLine]));
   
   X2(a, b);
   M(b, conjugate(t));
@@ -485,7 +508,8 @@ void transposeCore(local double *lds, double2 *u) {
   }
 }
 
-void transpose(uint W, uint H, local double *lds, const G double2 *in, G double2 *out, const G double2 *bigTrig) {
+// M == max(W, H)
+void transpose(uint W, uint H, uint M, local double *lds, const G double2 *in, G double2 *out, const G double2 *bigTrig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   gy = (gy + gx) % GH;
@@ -503,8 +527,8 @@ void transpose(uint W, uint H, local double *lds, const G double2 *in, G double2
   
   for (int i = 0; i < 16; ++i) {
     uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
-    M(u[i], bigTrig[4096 + k % (W * H / 4096)]);
-    M(u[i], bigTrig[k / (W * H / 4096)]);
+    M(u[i], bigTrig[M * 2 + k % (W * H / (M * 2))]);
+    M(u[i], bigTrig[k / (W * H / (M * 2))]);
 
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];
@@ -542,28 +566,28 @@ void tail(uint N, uint H, local double *lds, double2 *u, double2 *v, G double2 *
   uint me = get_local_id(0);
   read(N, u, io, g * W);
   fftImpl(N, lds, u, trig);
-  reverse((local double2 *) lds, u, g == 0);
+  reverse(N, (local double2 *) lds, u, g == 0);
 
   uint line2 = g ? H - g : (H / 2);
   read(N, v, io, line2 * W);
   bar();
   fftImpl(N, lds, v, trig);
-  reverse((local double2 *) lds, v, false);
+  reverse(N, (local double2 *) lds, v, false);
   
   if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
 
-  halfSq(N, u, v, bigTrig[4096 + (W * H / 4096) + g],      bigTrig, true);
+  halfSq(N, u, v, bigTrig[W * 2 + (H / 2) + g],      bigTrig, true);
   
-  halfSq(N, v, u, bigTrig[4096 + (W * H / 4096) +  line2], bigTrig, false);
+  halfSq(N, v, u, bigTrig[W * 2 + (H / 2) +  line2], bigTrig, false);
 
   if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
 
-  reverse((local double2 *) lds, u, g == 0);
+  reverse(N, (local double2 *) lds, u, g == 0);
   bar();
   fftImpl(N, lds, u, trig);
   write(N, u, io, g * W);
   
-  reverse((local double2 *) lds, v, false);
+  reverse(N, (local double2 *) lds, v, false);
   bar();
   fftImpl(N, lds, v, trig);
   write(N, v, io, line2 * W);
@@ -624,10 +648,42 @@ KERNEL(256) carryMul2K(const d2ptr in, const d2ptr A, i2ptr out, global long *ca
 #endif
 
 
+#ifdef GPUOWL_2M
+
+KERNEL(256) csquare1K_1K(d2ptr io, const d2ptr bigTrig)  { csquare(1024, 1024, io, bigTrig); }
+KERNEL(256) cmul1K_1K(d2ptr io, const d2ptr in, const d2ptr bigTrig)  { cmul(1024, 1024, io, in, bigTrig); }
+
+KERNEL(256) carryConv1K_1K(d2ptr io,
+                           global double * restrict carryShuttle, volatile global uint * restrict ready,
+                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
+  local double lds[4 * 256];
+  double2 u[4];
+  carryConvolution(4, 1024, lds, u, BASE_BITLEN, io, carryShuttle, ready, A, iA, trig1k);
+}
+
+KERNEL(256) tail1K_1K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
+  local double lds[4 * 256];
+  double2 u[4];
+  double2 v[4];
+  tail(4, 1024, lds, u, v, io, trig, bigTrig);
+}
+
+KERNEL(256) carryB1K_1K(i2ptr io, const global long * restrict carryIn, const d2ptr A) {
+  carryBCore(4, 1024, BASE_BITLEN, io, carryIn, A);
+}
+
+KERNEL(256) transpose1K_1K(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
+  local double lds[4096];
+  transpose(1024, 1024, 1024, lds, in, out, bigTrig);
+}
+
+#endif
+
+
 #ifdef GPUOWL_4M
 
-KERNEL(256) csquare2K_1K(d2ptr io, const d2ptr trig)  { csquare(2048, 1024, io, trig); }
-KERNEL(256) cmul2K_1K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, 1024, io, in, trig); }
+KERNEL(256) csquare2K_1K(d2ptr io, const d2ptr bigTrig)  { csquare(2048, 1024, io, bigTrig); }
+KERNEL(256) cmul2K_1K(d2ptr io, const d2ptr in, const d2ptr bigTrig)  { cmul(2048, 1024, io, in, bigTrig); }
 
 KERNEL(256) carryConv1K_2K(d2ptr io,
                            global double * restrict carryShuttle, volatile global uint * restrict ready,
@@ -637,8 +693,6 @@ KERNEL(256) carryConv1K_2K(d2ptr io,
   carryConvolution(4, 2048, lds, u, BASE_BITLEN, io, carryShuttle, ready, A, iA, trig1k);
 }
 
-// This kernel is equivalent to the sequence: fft2K, csquare2K, fft2K.
-// It does less global memory transfers, but uses more VGPRs.
 KERNEL(256) tail2K_1K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
   local double lds[8 * 256];
   double2 u[8];
@@ -650,24 +704,23 @@ KERNEL(256) carryB1K_2K(i2ptr io, const global long * restrict carryIn, const d2
   carryBCore(4, 2048, BASE_BITLEN, io, carryIn, A);
 }
 
-KERNEL(256) transpose1K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
+KERNEL(256) transpose1K_2K(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
   local double lds[4096];
-  transpose(1024, 2048, lds, in, out, trig);
+  transpose(1024, 2048, 2048, lds, in, out, bigTrig);
 }
 
-KERNEL(256) transpose2K_1K(const d2ptr in, d2ptr out, const d2ptr trig) {
+KERNEL(256) transpose2K_1K(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
   local double lds[4096];
-  transpose(2048, 1024, lds, in, out, trig);
+  transpose(2048, 1024, 2048, lds, in, out, bigTrig);
 }
 
 #endif
 
-// ---- The kernels for the 8Mi convolution (2Ki*2Ki*2).
 
 #ifdef GPUOWL_8M
 
-KERNEL(256) csquare2K_2K(d2ptr io, const d2ptr trig)  { csquare(2048, 2048, io, trig); }
-KERNEL(256) cmul2K_2K(d2ptr io, const d2ptr in, const d2ptr trig)  { cmul(2048, 2048, io, in, trig); }
+KERNEL(256) csquare2K_2K(d2ptr io, const d2ptr bigTrig)  { csquare(2048, 2048, io, bigTrig); }
+KERNEL(256) cmul2K_2K(d2ptr io, const d2ptr in, const d2ptr bigTrig)  { cmul(2048, 2048, io, in, bigTrig); }
 
 KERNEL(256) carryConv2K_2K(d2ptr io,
                            global double * restrict carryShuttle, volatile global uint * restrict ready,
@@ -688,9 +741,9 @@ KERNEL(256) carryB2K_2K(i2ptr io, const global long * restrict carryIn, const d2
   carryBCore(8, 2048, BASE_BITLEN, io, carryIn, A);
 }
 
-KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr trig) {
+KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
   local double lds[4096];
-  transpose(2048, 2048, lds, in, out, trig);
+  transpose(2048, 2048, 2048, lds, in, out, bigTrig);
 }
 
 #endif

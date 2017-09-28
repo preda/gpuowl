@@ -111,12 +111,13 @@ public:
 };
 
 int wordPos(int N, int E, int p) {
-  assert(N == (1 << 22) || N == (1 << 23));
+  assert(N == (1 << 21) || N == (1 << 22) || N == (1 << 23));
   
   i64 x = p * (i64) E;
   
-  return (N == (1 << 22)) ?
-    (int) (x >> 22) + (bool) (((int) x) << 10) :
+  return
+    (N == (1 << 21)) ? (int) (x >> 21) + (bool) (((int) x) << 11) :
+    (N == (1 << 22)) ? (int) (x >> 22) + (bool) (((int) x) << 10) :
     (int) (x >> 23) + (bool) (((int) x) << 9);
 }
 
@@ -165,13 +166,13 @@ double *trig(double *p, int n, int B, int phase = 0, int step = 1) {
 // - a region of granularity TAU / (W * H), used in transpose.
 // - a region of granularity TAU / (2 * W * H), used in squaring.
 cl_mem genBigTrig(cl_context context, int W, int H) {
-  assert((W == 1024 || W == 2048) && H == 2048);
-  const int size = 2 * (4096 + 3 * W * H / 4096);
+  assert((W == 1024 || W == 2048) && (H == 1024 || H == 2048));
+  const int size = 2 * (H * 2 + W / 2 + W);
   double *tab = new double[size];
   double *end = tab;
-  end = trig(end, 4096, 4096);
-  end = trig(end,     W * H / 4096,     W * H);
-  end = trig(end, 2 * W * H / 4096, 2 * W * H);
+  end = trig(end, H * 2, H * 2);
+  end = trig(end, W / 2, W * H);
+  end = trig(end, W,     W * H * 2);
   assert(end - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
   delete[] tab;
@@ -583,9 +584,11 @@ cl_device_id getDevice(const Args &args) {
   return device;
 }
 
+void append(auto &vect, auto what) { vect.insert(vect.end(), what); }
+
 bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
   assert(W == 1024 || W == 2048);
-  assert(H == 2048);
+  assert(H == 1024 || H == 2048);
   int N = 2 * W * H;
   
   std::unique_ptr<Kernel> fftP, fftW, fftH, transpose, transposeT, carryA, carryB, carryM, square, mul, carryConv, squareConv;
@@ -593,50 +596,89 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   {
     unsigned baseBitlen = E / N;
     std::vector<string> defines{string("BASE_BITLEN=") + std::to_string(baseBitlen)};
-    if (W == 1024) {
-      defines.insert(defines.end(), {"GPUOWL_1K", "GPUOWL_2K", "GPUOWL_4M"});
-    } else {
-      defines.insert(defines.end(), {"GPUOWL_2K", "GPUOWL_8M"});
-    }
+    
+    if (W == 1024) { append(defines, "GPUOWL_1K"); }
+    if (H == 2048) { append(defines, "GPUOWL_2K"); }
+
+    switch (N / (1024 * 1024)) {
+    case 2:
+      append(defines, "GPUOWL_2M");
+      break;
+    case 4:
+      append(defines, "GPUOWL_4M");
+      break;
+    case 8:
+      append(defines, "GPUOWL_8M");
+      break;
+    };
+
     cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, defines);
     Holder<cl_program> programHolder(p);    
     if (!p) { return false; }
-  
+
     if (W == 1024) {
       fftP.reset(new BaseKernel(p, N, "fftPremul1K", 3));
       fftW.reset(new BaseKernel(p, N, "fft1K",       3));
+      
+      carryA.reset(new BaseKernel(p, N, "carryA1K",   4));
+      carryM.reset(new BaseKernel(p, N, "carryMul1K", 4));
+    } else {
+      fftP.reset(new BaseKernel(p, N, "fftPremul2K", 4));
+      fftW.reset(new BaseKernel(p, N, "fft2K",       4));
 
-      transpose.reset(new BaseKernel(p, N, "transpose1K_2K", 5));
+      carryA.reset(new BaseKernel(p, N, "carryA2K",   4));
+      carryM.reset(new BaseKernel(p, N, "carryMul2K", 4));
+    }
+
+    if (H == 1024) {
+      fftH.reset(new BaseKernel(p, N, "fft1K", 3));
+    } else {
+      fftH.reset(new BaseKernel(p, N, "fft2K", 4));
+    }
+
+    switch (N / (1024 * 1024)) {
+    case 2:
+      transpose.reset( new BaseKernel(p, N, "transpose1K_1K", 5));
+      transposeT.reset(new BaseKernel(p, N, "transpose1K_1K", 5));
+
+      carryB.reset(new BaseKernel(p, N, "carryB1K_1K", 4));
+
+      carryConv.reset( new BaseKernel(p, N + (256 << 3), "carryConv1K_1K", 3));
+      squareConv.reset(new BaseKernel(p, N, "tail1K_1K", 4));
+
+      square.reset(new BaseKernel(p, N, "csquare1K_1K", 2));
+      mul.reset(   new BaseKernel(p, N, "cmul1K_1K",    2));
+      break;
+
+    case 4:
+      transpose.reset( new BaseKernel(p, N, "transpose1K_2K", 5));
       transposeT.reset(new BaseKernel(p, N, "transpose2K_1K", 5));
 
-      carryA.reset(new BaseKernel(p, N, "carryA1K",    4));
       carryB.reset(new BaseKernel(p, N, "carryB1K_2K", 4));
-      carryM.reset(new BaseKernel(p, N, "carryMul1K",  4));
 
       carryConv.reset(new BaseKernel(p, N + (256 << 3), "carryConv1K_2K", 3));
       squareConv.reset(new BaseKernel(p, N, "tail2K_1K", 5));
 
       square.reset(new BaseKernel(p, N, "csquare2K_1K", 2));
-      mul.reset(new BaseKernel(p, N, "cmul2K_1K", 2));
-  } else {
-      fftP.reset(new BaseKernel(p, N, "fftPremul2K", 4));
-      fftW.reset(new BaseKernel(p, N, "fft2K",       4));
+      mul.reset(   new BaseKernel(p, N, "cmul2K_1K",    2));
+      break;
 
-      transpose.reset(new BaseKernel(p, N, "transpose2K_2K", 5));
+    case 8:
+      transpose.reset( new BaseKernel(p, N, "transpose2K_2K", 5));
       transposeT.reset(new BaseKernel(p, N, "transpose2K_2K", 5));
 
-      carryA.reset(new BaseKernel(p, N, "carryA2K",    4));
       carryB.reset(new BaseKernel(p, N, "carryB2K_2K", 4));
-      carryM.reset(new BaseKernel(p, N, "carryMul2K",  4));
 
       carryConv.reset(new BaseKernel(p, N + (256 << 4), "carryConv2K_2K", 4));
       squareConv.reset(new BaseKernel(p, N, "tail2K_2K", 5));
 
       square.reset(new BaseKernel(p, N, "csquare2K_2K", 2));
-      mul.reset(new BaseKernel(p, N, "cmul2K_2K", 2));
-    }
-    
-    fftH.reset(new BaseKernel(p, N, "fft2K", 4));
+      mul.reset(   new BaseKernel(p, N, "cmul2K_2K",    2));
+      break;
+
+    default:
+      assert(false);
+    }    
 
     if (args.timeKernels) {
       for (auto k : {&fftP, &fftW, &fftH, &transpose, &transposeT, &carryA, &carryB, &carryM, &square, &mul, &carryConv, &squareConv}) {
@@ -645,18 +687,10 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     }
   }
 
+  Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
-  cl_mem trigH = bufTrig2K.get();
-
-  Buffer bufTrig1K;
-  cl_mem trigW = nullptr;
-  
-  if (W == 1024) {
-    bufTrig1K.reset(genSmallTrig1K(context));
-    trigW = bufTrig1K.get();
-  } else {
-    trigW = bufTrig2K.get();
-  }
+  cl_mem trigW = (W == 1024) ? bufTrig1K.get() : bufTrig2K.get();
+  cl_mem trigH = (H == 1024) ? bufTrig1K.get() : bufTrig2K.get();
 
   Buffer bufBigTrig{genBigTrig(context, W, H)};
   
@@ -790,8 +824,16 @@ int main(int argc, char **argv) {
     char AID[64];
     int E = worktodoReadExponent(AID);
     if (E <= 0) { break; }
-    bool use4M = E < 78000000;
-    if (!doIt(device, context, queue, args, AID, E, use4M ? 1024 : 2048, 2048)) { break; }
+    int W, H;
+    if (E < 40000000) {
+      W = H = 1024;
+    } else if (E < 78000000) {
+      W = 1024;
+      H = 2048;
+    } else {
+      W = H = 2048;
+    }
+    if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }
   }
 
   log("\nBye\n");
