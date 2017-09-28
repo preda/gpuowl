@@ -355,6 +355,9 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
   write(N, u, io, 0);
 }
 
+// propagate carry this many lines.
+#define CARRY_LEN 16
+
 // Carry propagation with optional MUL, over 16 words.
 // Input is doubles. They are weighted with the "inverse weight" A
 // and rounded to output ints and to left-over carryOut.
@@ -364,15 +367,14 @@ void carryMul(uint N, uint mul, uint baseBits,
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
-  const uint L = 8; // propagate carry this many lines.
-  uint step = g % N * 256 + g / N * (N * L * 256);
+  uint step = g % N * 256 + g / N * (N * CARRY_LEN * 256);
   in     += step;
   A      += step;
   out    += step;
 
   long carry = 0;
 
-  for (int i = 0; i < L; ++i) {
+  for (int i = 0; i < CARRY_LEN; ++i) {
     uint p = me + i * N * 256;
     out[p] = car0Mul(mul, &carry, conjugate(in[p]), A[p], baseBits);
   }
@@ -388,17 +390,16 @@ void carryBCore(uint N, uint H, const uint baseBits, G int2 *io, const G long *c
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
-  const uint L = 8;
-  uint step = g % N * 256 + g / N * (N * L * 256);
+  uint step = g % N * 256 + g / N * (N * CARRY_LEN * 256);
   io += step;
   A  += step;
   
-  uint prev = (g / N + (g % N * 256 + me) * (H / L) - 1) & ((H / L) * N * 256 - 1);
-  uint line = prev % (H / L);
-  uint col  = prev / (H / L);
+  uint prev = (g / N + (g % N * 256 + me) * (H / CARRY_LEN) - 1) & ((H / CARRY_LEN) * N * 256 - 1);
+  uint line = prev % (H / CARRY_LEN);
+  uint col  = prev / (H / CARRY_LEN);
   long carry = carryIn[line * N * 256 + col];
   
-  for (int i = 0; i < L; ++i) {
+  for (int i = 0; i < CARRY_LEN; ++i) {
     uint p = me + i * N * 256;
     io[p] = car1(&carry, io[p], A[p], baseBits);
     if (!carry) { return; }

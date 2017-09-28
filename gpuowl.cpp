@@ -620,14 +620,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       fftP.reset(new BaseKernel(p, N, "fftPremul1K", 3));
       fftW.reset(new BaseKernel(p, N, "fft1K",       3));
       
-      carryA.reset(new BaseKernel(p, N, "carryA1K",   4));
-      carryM.reset(new BaseKernel(p, N, "carryMul1K", 4));
+      carryA.reset(new BaseKernel(p, N, "carryA1K",   5));
+      carryM.reset(new BaseKernel(p, N, "carryMul1K", 5));
     } else {
       fftP.reset(new BaseKernel(p, N, "fftPremul2K", 4));
       fftW.reset(new BaseKernel(p, N, "fft2K",       4));
 
-      carryA.reset(new BaseKernel(p, N, "carryA2K",   4));
-      carryM.reset(new BaseKernel(p, N, "carryMul2K", 4));
+      carryA.reset(new BaseKernel(p, N, "carryA2K",   5));
+      carryM.reset(new BaseKernel(p, N, "carryMul2K", 5));
     }
 
     if (H == 1024) {
@@ -641,7 +641,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       transpose.reset( new BaseKernel(p, N, "transpose1K_1K", 5));
       transposeT.reset(new BaseKernel(p, N, "transpose1K_1K", 5));
 
-      carryB.reset(new BaseKernel(p, N, "carryB1K_1K", 4));
+      carryB.reset(new BaseKernel(p, N, "carryB1K_1K", 5));
 
       carryConv.reset( new BaseKernel(p, N + (256 << 3), "carryConv1K_1K", 3));
       squareConv.reset(new BaseKernel(p, N, "tail1K_1K", 4));
@@ -654,7 +654,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       transpose.reset( new BaseKernel(p, N, "transpose1K_2K", 5));
       transposeT.reset(new BaseKernel(p, N, "transpose2K_1K", 5));
 
-      carryB.reset(new BaseKernel(p, N, "carryB1K_2K", 4));
+      carryB.reset(new BaseKernel(p, N, "carryB1K_2K", 5));
 
       carryConv.reset(new BaseKernel(p, N + (256 << 3), "carryConv1K_2K", 3));
       squareConv.reset(new BaseKernel(p, N, "tail2K_1K", 5));
@@ -667,7 +667,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       transpose.reset( new BaseKernel(p, N, "transpose2K_2K", 5));
       transposeT.reset(new BaseKernel(p, N, "transpose2K_2K", 5));
 
-      carryB.reset(new BaseKernel(p, N, "carryB2K_2K", 4));
+      carryB.reset(new BaseKernel(p, N, "carryB2K_2K", 5));
 
       carryConv.reset(new BaseKernel(p, N + (256 << 4), "carryConv2K_2K", 4));
       squareConv.reset(new BaseKernel(p, N, "tail2K_2K", 5));
