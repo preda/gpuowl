@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -233,9 +234,8 @@ void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, 
   delete[] iTab;
 }
 
-bool isAllZero(const int *p, int size) {
-  for (const int *end = p + size; p < end; ++p) { if (*p) { return false; } }
-  return true;
+bool isAllZero(auto const it, auto const end) {
+  return std::all_of(it, end, [](auto e) { return e == 0; });
 }
 
 int &wordAt(int W, int H, int *data, int w) {
@@ -254,7 +254,7 @@ bool prevIsNegative(int W, int H, int *data) {
 
 u64 residue(int W, int H, int E, int *data) {
   int N = 2 * W * H;
-  if (isAllZero(data, N)) { return 0; }
+  if (isAllZero(data, data + N)) { return 0; }
   i64 r = - prevIsNegative(W, H, data);
   for (int p = 0, haveBits = 0; haveBits < 64; ++p) {
     r += (i64) wordAt(W, H, data, p) << haveBits;
@@ -263,12 +263,7 @@ u64 residue(int W, int H, int E, int *data) {
   return r;
 }
 
-bool isLoop(int *data, int N) {
-  // LL loops on 2 and -1 (solutions to x==x^2 - 2)
-  return ((data[0] == 2) || (data[0] == -1)) && isAllZero(data + 1, N - 1);
-}
-
-std::vector<u32> compactBits(int W, int H, int E, int *data, int *outCarry) {
+std::vector<u32> compactBits(int W, int H, int E, int *data) {
   std::vector<u32> out;
 
   int carry = 0;
@@ -308,8 +303,41 @@ std::vector<u32> compactBits(int W, int H, int E, int *data, int *outCarry) {
     out.push_back(outWord);
     haveBits = 0;
   }
-  *outCarry = carry;
+
+  for (int p = 0; carry; ++p) {
+    i64 v = i64(out[p]) + carry;
+    out[p] = v & 0xffffffff;
+    carry = v >> 32;
+  }
+
   return out;
+}
+
+u32 mod3(std::vector<u32> &words) {
+  u32 r = 0;
+  // uses the fact that 2**32 % 3 == 1.
+  for (u32 w : words) { r += w % 3; }
+  return r % 3;
+}
+
+void div3(int E, std::vector<u32> &words) {
+  u32 r = (3 - mod3(words)) % 3;
+  assert(0 <= r && r < 3);
+
+  int topBits = E % 32;
+  assert(topBits > 0 && topBits < 32);
+
+  {
+    u64 w = (u64(r) << topBits) + words.back();
+    words.back() = w / 3;
+    r = w % 3;
+  }
+
+  for (auto it = words.rbegin() + 1, end = words.rend(); it != end; ++it) {
+    u64 w = (u64(r) << 32) + *it;
+    *it = w / 3;
+    r = w % 3;
+  }
 }
 
 std::vector<FILE *> logFiles;
@@ -344,11 +372,10 @@ u32 checksum(int E, int k, u64 res) {
   return crc32(buf, strlen(buf));
 } 
 
-std::string resStr(int E, int k, u64 res) {
+string hexStr(u64 res) {
   char buf[64];
-  // snprintf(buf, sizeof(buf), "%016llx-%02x", res, checksum(E, k, res) & 0xff);
   snprintf(buf, sizeof(buf), "%016llx", res);
-  return std::string(buf);
+  return buf;
 }
 
 std::string timeStr() {
@@ -377,7 +404,7 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK, int nErrors) {
   
   log("%s %8d / %d [%5.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s [%s]%s\n",
       checkOK ? "OK" : "EE", k, E, k * percent, msPerIter, days, hours, mins,
-      resStr(E, k, res).c_str(), localTimeStr().c_str(), errors.c_str());
+      hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors) {
@@ -390,7 +417,7 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   char buf[512];
   snprintf(buf, sizeof(buf),
            R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
-           E, isPrime ? 'P' : 'C', resStr(E, E-1, res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeStr().c_str(),
+           E, isPrime ? 'P' : 'C', hexStr(res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeStr().c_str(),
            errors.c_str(), uid.c_str(), aidJson.c_str());
 
   log("%s\n", buf);
@@ -425,7 +452,7 @@ bool validate(int N, cl_mem bufData, cl_mem bufCheck,
               const int *data, const int *check) {
   const int dataSize = sizeof(int) * N;
   
-  if (isAllZero(data, N)) { return false; }
+  if (isAllZero(data, data + N)) { return false; }
   
   Timer timer;
   write(q, false, bufCheck, dataSize, check);
@@ -472,7 +499,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   if (!checkpoint.load(&k, data, check, &nErrors)) { return false; }
   log("PRP-3 FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
   assert(k % 1000 == 0);
-  const int kEnd = E - 1;
+  const int kEnd = E;
   assert(k < kEnd);
   
   auto setRollback = [=, &goodK, &k]() {
@@ -522,10 +549,17 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
       // The write() below may seem redundant, but it protects against memory errors on the read() above,
       // by making sure that any eventual errors are visible to the GPU-side verification.
       write(q, false, bufData, dataSize, data);
+
+      std::vector<u32> words = compactBits(W, H, E, data);
+      bool isPrime = (words[0] == 9) && isAllZero(words.begin() + 1, words.end());      
+      u64 res = (u64(words[1]) << 32) | words[0];
+      // residue(W, H, E, data);
+      log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hexStr(res).c_str());
+      div3(E, words);
+      log("resA %s\n", hexStr((u64(words[1]) << 32) | words[0]).c_str());
+      div3(E, words);
+      log("resB %s\n", hexStr((u64(words[1]) << 32) | words[0]).c_str());
       
-      bool isPrime = (data[0] == -3 && isAllZero(data + 1, N - 1));
-      u64 res = residue(W, H, E, data);
-      log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, resStr(E, kEnd, res).c_str());      
       *outIsPrime = isPrime;
       *outResidue = res;
       *outNErrors = nErrors;
