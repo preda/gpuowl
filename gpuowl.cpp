@@ -26,9 +26,8 @@
 
 #define TAU (2 * M_PIl)
 
-#define VERSION "1.4"
+#define VERSION "1.5"
 #define PROGRAM "gpuowl"
-const char *AGENT = PROGRAM " v" VERSION;
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
@@ -252,6 +251,10 @@ bool prevIsNegative(int W, int H, int *data) {
   return false;
 }
 
+// Residue from compacted words.
+u64 residue(const std::vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
+
+// Residue from balanced irrational-base words.
 u64 residue(int W, int H, int E, int *data) {
   int N = 2 * W * H;
   if (isAllZero(data, data + N)) { return 0; }
@@ -494,9 +497,9 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   
   int k = 0, goodK = 0;
   int nErrors = 0;
-  Checkpoint checkpoint(E, W, H);
+  Checkpoint checkpoint(E);
 
-  if (!checkpoint.load(&k, data, check, &nErrors)) { return false; }
+  if (!checkpoint.load(W, H, &k, data, check, &nErrors)) { return false; }
   log("PRP-3 FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
   assert(k % 1000 == 0);
   const int kEnd = E;
@@ -551,14 +554,13 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
       write(q, false, bufData, dataSize, data);
 
       std::vector<u32> words = compactBits(W, H, E, data);
-      bool isPrime = (words[0] == 9) && isAllZero(words.begin() + 1, words.end());      
-      u64 res = (u64(words[1]) << 32) | words[0];
-      // residue(W, H, E, data);
-      log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hexStr(res).c_str());
+      bool isPrime = (words[0] == 9) && isAllZero(words.begin() + 1, words.end());    
+      u64 resRaw = residue(words);      
       div3(E, words);
-      log("resA %s\n", hexStr((u64(words[1]) << 32) | words[0]).c_str());
       div3(E, words);
-      log("resB %s\n", hexStr((u64(words[1]) << 32) | words[0]).c_str());
+      u64 res = residue(words);
+      
+      log("%s %8d / %d, %s (raw %s)\n", isPrime ? "PP" : "CC", kEnd, E, hexStr(res).c_str(), hexStr(resRaw).c_str());
       
       *outIsPrime = isPrime;
       *outResidue = res;
@@ -579,7 +581,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
       doLog(E, k, timer.deltaMillis() / float((k - 1) % args.step + 1), residue(W, H, E, data), ok, nErrors);      
       if (ok) {
         setRollback();
-        if (k < kEnd) { checkpoint.save(k, data, check, k % args.saveStep == 0, nErrors); }
+        if (k < kEnd) { checkpoint.save(W, H, k, data, check, k % args.saveStep == 0, nErrors); }
       } else {
         rollback();
         ++nErrors;
@@ -623,6 +625,7 @@ void append(auto &vect, auto what) { vect.insert(vect.end(), what); }
 bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
   assert(W == 1024 || W == 2048);
   assert(H == 1024 || H == 2048);
+  assert(W <= H);
   int N = 2 * W * H;
   
   std::unique_ptr<Kernel> fftP, fftW, fftH, transpose, transposeT, carryA, carryB, carryM, square, mul, carryConv, squareConv;
@@ -771,7 +774,12 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   // equivalent to sequence of: tailKerns, headKerns.
   std::vector<Kernel *> coreKerns;
-  if (args.useLegacy) {
+
+  float bitsPerWord = E / (float) N;
+  if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }
+  bool lowBits = bitsPerWord < 13;
+  if (lowBits && !args.useLegacy) { log("Note: low word size of %.2f bits forces use of legacy kernels\n", bitsPerWord); }
+  if (args.useLegacy || lowBits) {
     coreKerns = tailKerns;
     coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
   } else {
@@ -854,19 +862,36 @@ int main(int argc, char **argv) {
   Queue queueHolder{makeQueue(device, context)};
   cl_queue queue = queueHolder.get();
 
+  int MAX_2M = 40000000, MAX_4M = 78000000;
+  
+  
   while (true) {
     char AID[64];
     int E = worktodoReadExponent(AID);
     if (E <= 0) { break; }
+    
     int W, H;
-    if (E < 40000000) {
-      W = H = 1024;
-    } else if (E < 78000000) {
-      W = 1024;
-      H = 2048;
+    if (Checkpoint::readSize(E, &W, &H)) {
+      log("Setting FFT size to %dM based on savefile.\n", W * H * 2 / (1024 * 1024));
     } else {
-      W = H = 2048;
+      int sizeM = args.fftSize ? args.fftSize / (1024 * 1024) : E < MAX_2M ? 2 : E < MAX_4M ? 4 : 8;        
+      switch (sizeM) {
+      case 2:
+        W = H = 1024;
+        break;
+      case 4:
+        W = 1024;
+        H = 2048;
+        break;
+      case 8:
+        W = 2048;
+        H = 2048;
+        break;
+      default:
+        assert(false);
+      }
     }
+    
     if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }
   }
 

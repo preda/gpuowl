@@ -6,6 +6,16 @@
 #include "common.h"
 
 #include <cstdio>
+#include <memory>
+
+namespace std {
+template<> struct default_delete<FILE> {
+  void operator()(FILE *f) {
+    fprintf(stderr, "file closed\n");
+    fclose(f);
+  }
+ };
+}
 
 FILE *open(const char *name, const char *mode) {
   FILE *f = fopen(name, mode);
@@ -13,67 +23,110 @@ FILE *open(const char *name, const char *mode) {
   return f;
 }
 
+struct Header {
+  const char *headerFormat = "OWL 1 %d %d %d %d %d %d\n";
+  
+  int E;
+  int W;
+  int H;
+  int k;
+  int sum;
+  int nErrors;
+
+  bool read(FILE *fi, int expectedE) {
+    char buf[256];
+    bool ok = fgets(buf, sizeof(buf), fi) &&
+      sscanf(buf, headerFormat, &E, &k, &W, &H, &sum, &nErrors) == 6;
+    assert(E == expectedE);
+    return ok;
+  }
+};
+
 class Checkpoint {
 private:
   char fileNameSave[64], fileNamePrev[64], fileNameTemp[64];
-  int E, W, H;
-  // Header: "\n<signature> <exponent> <iteration> <width> <height> <sum> <nErrors>\n"
-  const char *headerFormat = "\nLL4 %d %d %d %d %d %d\n";
+  int E;
 
-  bool write(const char *name, int k, const int *data, const int *checkBits, int nErrors) {
+  // Header: "OWL <format-version> <exponent> <iteration> <width> <height> <sum> <nErrors>\n"
+  const char *headerFormat = "OWL 1 %d %d %d %d %d %d\n";
+
+  static int auxSum(int sum, const int *data, size_t size) {
+    for (const int *p = data, *end = data + size; p < end; ++p) { sum += *p; }
+    return sum;
+  }
+
+  static int checksum(size_t N, const int *data, const int *checkBits) {
+    int sum = 0;
+    sum = auxSum(sum, data, N);
+    sum = auxSum(sum, checkBits, N);
+    return sum;
+  }
+  
+  bool write(const char *name, int W, int H, int k, const int *data, const int *checkBits, int nErrors) {
+    int N = 2 * W * H;
+    int sum = checksum(N, data, checkBits);
+    char header[256];
+    int n = snprintf(header, sizeof(header), headerFormat, E, k, W, H, sum, nErrors);
+    assert(n >= 0 && u32(n) < sizeof(header));
+    int dataSize = sizeof(int) * N;
+
     if (FILE *fo = open(name, "wb")) {
-      int N = 2 * W * H;
-      int dataSize = sizeof(int) * N;
-      int sum = checksum(checksum(0, data, N), checkBits, N);
-      bool ok = fwrite(data, dataSize, 1, fo)
-        && fwrite(checkBits, dataSize, 1, fo)
-        && (fprintf(fo, headerFormat, E, k, W, H, sum, nErrors) > 0);
+      bool ok = (fputs(header, fo) >= 0)
+        && fwrite(data, dataSize, 1, fo)
+        && fwrite(checkBits, dataSize, 1, fo);
       fclose(fo);
       if (ok) { return true; }
       log("File '%s': error writing\n", name);
     }
     return false;
   }
-
-  static int checksum(int sum, const int *data, size_t size) {
-    for (const int *p = data, *end = data + size; p < end; ++p) { sum += *p; }
-    return sum;
-  }
   
 public:
-  Checkpoint(int iniE, int iniW, int iniH) : E(iniE), W(iniW), H(iniH) {
+  static bool readSize(int E, int *W, int *H) {
+    char fileNameSave[64];
+    snprintf(fileNameSave, sizeof(fileNameSave), "%d.owl", E);
+    std::unique_ptr<FILE> fi{fopen(fileNameSave, "rb")};
+    if (!fi) { return false; }
+    Header header;
+    if (!header.read(fi.get(), E)) { return false; }    
+    *W = header.W;
+    *H = header.H;
+    return true;
+  }
+
+ Checkpoint(int iniE) : E(iniE) {
     snprintf(fileNameSave, sizeof(fileNameSave), "%d.owl", E);
     snprintf(fileNamePrev, sizeof(fileNamePrev), "%d-prev.owl", E);
     snprintf(fileNameTemp, sizeof(fileNameTemp), "%d-temp.owl", E);
   }
   
-  bool load(int *startK, int *data, int *checkBits, int *nErrors) {
+  bool load(int W, int H, int *startK, int *data, int *checkBits, int *nErrors) {
     *startK = 0;
-    if (FILE *fi = fopen(fileNameSave, "rb")) {
-      int N = 2 * W * H;
-      int dataSize = sizeof(int) * N;
-    
-      if (!fread(data, dataSize, 1, fi) || !fread(checkBits, dataSize, 1, fi)) {
-        fclose(fi);
-        log("File '%s': wrong size\n", fileNameSave);
-        return false;
-      }
+    std::unique_ptr<FILE> fi{fopen(fileNameSave, "rb")};
+    if (!fi) { return true; }
 
-      int expectedSum = checksum(checksum(0, data, N), checkBits, N);
-      int fileE, fileK, fileW, fileH, fileSum;
-      int nRead = fscanf(fi, headerFormat, &fileE, &fileK, &fileW, &fileH, &fileSum, nErrors);
-      fclose(fi);
-      if (nRead != 6 || E != fileE || W != fileW || H != fileH || fileSum != expectedSum) {
-        log("File '%s': invalid\n", fileNameSave);
-        return false;
-      }
-      *startK = fileK;
+    Header header;
+    if (!header.read(fi.get(), E)) { return false; }
+    if (header.W != W || header.H != H) { return false; }
+
+    int N = 2 * W * H;
+    int dataSize = sizeof(int) * N;
+    if (!fread(data, dataSize, 1, fi.get()) || !fread(checkBits, dataSize, 1, fi.get())) {
+      log("File '%s': wrong size\n", fileNameSave);
+      return false;
     }
+
+    if (checksum(N, data, checkBits) != header.sum) {
+      log("File '%s': wrong checksum\n", fileNameSave);
+      return false;
+    }
+
+    *startK = header.k;
     return true;
   }
   
-  void save(int k, int *data, int *checkBits, bool savePersist, int nErrors) {
-    if (write(fileNameTemp, k, data, checkBits, nErrors)) {
+  void save(int W, int H, int k, int *data, int *checkBits, bool savePersist, int nErrors) {
+    if (write(fileNameTemp, W, H, k, data, checkBits, nErrors)) {
       remove(fileNamePrev);
       rename(fileNameSave, fileNamePrev);
       rename(fileNameTemp, fileNameSave);      
@@ -81,7 +134,7 @@ public:
     if (savePersist) {
       char name[64];
       snprintf(name, sizeof(name), "%d.%d.owl", E, k);
-      write(name, k, data, checkBits, nErrors);
+      write(name, W, H, k, data, checkBits, nErrors);
     }
   }
 };
