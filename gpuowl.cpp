@@ -410,7 +410,7 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK, int nErrors) {
       hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
 }
 
-bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors) {
+bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
   std::string uid;
   if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
   if (!cpu.empty())  { uid += ", \"cpu\":\"" + cpu + '"'; }
@@ -419,8 +419,8 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
     
   char buf[512];
   snprintf(buf, sizeof(buf),
-           R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
-           E, isPrime ? 'P' : 'C', hexStr(res).c_str(), checksum(E, E-1, res), PROGRAM, VERSION, timeStr().c_str(),
+           R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "residue-type":1, "fft-length":"%dK", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
+           E, isPrime ? 'P' : 'C', fftSize / 1024, hexStr(res).c_str(), checksum(E, E, res), PROGRAM, VERSION, timeStr().c_str(),
            errors.c_str(), uid.c_str(), aidJson.c_str());
 
   log("%s\n", buf);
@@ -835,7 +835,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     return false;
   }
   
-  if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu, nErrors) && worktodoDelete(E))) { return false; }
+  if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu, nErrors, N) && worktodoDelete(E))) { return false; }
 
   return true;
 }
