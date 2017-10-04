@@ -429,10 +429,11 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
     
   char buf[512];
   snprintf(buf, sizeof(buf),
-           R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "residue-type":1, "fft-length":"%dK", "res64":"%s", "residue-checksum":"%08x", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
-           E, isPrime ? 'P' : 'C', fftSize / 1024, hexStr(res).c_str(), checksum(E, E, res), PROGRAM, VERSION, timeStr().c_str(),
+           R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "residue-type":1, "fft-length":"%dK", "res64":"%s", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
+           E, isPrime ? 'P' : 'C', fftSize / 1024, hexStr(res).c_str(), PROGRAM, VERSION, timeStr().c_str(),
            errors.c_str(), uid.c_str(), aidJson.c_str());
-
+  // "residue-checksum":"%08x", 
+  
   log("%s\n", buf);
   if (auto fo = open("results.txt", "a")) {
     fprintf(fo.get(), "%s\n", buf);
