@@ -9,8 +9,6 @@
 #include <cstring>
 #include <cassert>
 
-FILE *open(const char *name, const char *mode);
-
 const int EXP_MIN = 4000000, EXP_MAX = 155000000;
 
 int parseLine(const char *line, char *outAID) {
@@ -25,15 +23,15 @@ int parseLine(const char *line, char *outAID) {
 }
 
 int worktodoReadExponent(char *AID) {
-  FILE *fi = open("worktodo.txt", "r");
+  auto fi{open("worktodo.txt", "r")};
   if (!fi) { return 0; }
 
-  char line[256];
   while (true) {
-    if (fscanf(fi, "%255s\n", line) < 1) { break; }
+    char line[256];
+    if (!fgets(line, sizeof(line), fi.get())) { break; }
+    
     if (int exp = parseLine(line, AID)) {
       if (exp >= EXP_MIN && exp <= EXP_MAX) {
-        fclose(fi);
         return exp;
       } else {
         log("Exponent %d skipped: must be between %d and %d\n", exp, EXP_MIN, EXP_MAX);
@@ -42,48 +40,50 @@ int worktodoReadExponent(char *AID) {
       log("worktodo.txt line '%s' skipped\n", line);
     }
   }
-  fclose(fi);
   return 0;
 }
 
 bool worktodoGetLinePos(int E, int *begin, int *end) {
-  FILE *fi = open("worktodo.txt", "r");
+  auto fi{open("worktodo.txt", "r")};
   if (!fi) { return false; }
 
-  char line[256];
-  char AID[64];
   i64 p1 = 0;
   while (true) {
-    if (fscanf(fi, "%255s\n", line) < 1) { break; }
-    i64 p2 = ftell(fi);
+    char line[256];
+    if (!fgets(line, sizeof(line), fi.get())) { return false; }
+    i64 p2 = ftell(fi.get());
+    char AID[64];
     if (parseLine(line, AID) == E) {      
       *begin = p1;
       *end = p2;
-      fclose(fi);
       return true;
     }
     p1 = p2;
   }
-  fclose(fi);
-  return false;
 }
 
 bool worktodoDelete(int begin, int end) {
   assert(begin >= 0 && end > begin);
-  FILE *fi = open("worktodo.txt", "r");
-  if (!fi) { return true; }
+
+  int n = 0;
   char buf[64 * 1024];
-  int n = fread(buf, 1, sizeof(buf), fi);
-  fclose(fi);
+
+  if (auto fi = open("worktodo.txt", "r")) {
+    n = fread(buf, 1, sizeof(buf), fi.get());    
+  } else {
+    return true;
+  }
+  
   if (n == sizeof(buf) || end > n) { return false; }
   memmove(buf + begin, buf + end, n - end);
-  
-  FILE *fo = open("worktodo-tmp.tmp", "w");
-  if (!fo) { return false; }
-  int newSize = begin + n - end;
-  bool ok = (newSize == 0) || (fwrite(buf, newSize, 1, fo) == 1);
-  fclose(fo);
-  if (!ok) { return false; }
+
+  if (auto fo{open("worktodo-tmp.tmp", "w")}) {
+    int newSize = begin + n - end;
+    if (newSize && (fwrite(buf, newSize, 1, fo.get()) != 1)) { return false; }    
+  } else {
+    return false;
+  }
+
   remove("worktodo.bak");
   return (rename("worktodo.txt", "worktodo.bak") == 0) && (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
 }

@@ -4,34 +4,11 @@
 #pragma once
 
 #include "common.h"
-
-#include <cstdio>
-#include <memory>
-
-namespace std {
-template<> struct default_delete<FILE> {
-  void operator()(FILE *f) {
-    fprintf(stderr, "file closed\n");
-    fclose(f);
-  }
- };
-}
-
-FILE *open(const char *name, const char *mode) {
-  FILE *f = fopen(name, mode);
-  if (!f) { log("Can't open '%s' (mode '%s')\n", name, mode); }
-  return f;
-}
-
-struct Header {
-  const char *headerFormat = "OWL 1 %d %d %d %d %d %d\n";
   
-  int E;
-  int W;
-  int H;
-  int k;
-  int sum;
-  int nErrors;
+struct Header {
+  static constexpr const char *headerFormat = "OWL 1 %d %d %d %d %d %d\n";
+  
+  int E, k, W, H, sum, nErrors;
 
   bool read(FILE *fi, int expectedE) {
     char buf[256];
@@ -39,6 +16,10 @@ struct Header {
       sscanf(buf, headerFormat, &E, &k, &W, &H, &sum, &nErrors) == 6;
     assert(E == expectedE);
     return ok;
+  }
+
+  bool write(FILE *fo) {
+    return (fprintf(fo, headerFormat, E, k, W, H, sum, nErrors) > 0);
   }
 };
 
@@ -65,27 +46,23 @@ private:
   bool write(const char *name, int W, int H, int k, const int *data, const int *checkBits, int nErrors) {
     int N = 2 * W * H;
     int sum = checksum(N, data, checkBits);
-    char header[256];
-    int n = snprintf(header, sizeof(header), headerFormat, E, k, W, H, sum, nErrors);
-    assert(n >= 0 && u32(n) < sizeof(header));
     int dataSize = sizeof(int) * N;
-
-    if (FILE *fo = open(name, "wb")) {
-      bool ok = (fputs(header, fo) >= 0)
-        && fwrite(data, dataSize, 1, fo)
-        && fwrite(checkBits, dataSize, 1, fo);
-      fclose(fo);
-      if (ok) { return true; }
+    Header header{E, k, W, H, sum, nErrors};
+    auto fo{open(name, "wb")};
+    if (!fo) { return false; }
+    if (!(header.write(fo.get()) && fwrite(data, dataSize, 1, fo.get()) && fwrite(checkBits, dataSize, 1, fo.get()))) {
       log("File '%s': error writing\n", name);
+      return false;
     }
-    return false;
+    return true;
   }
   
 public:
   static bool readSize(int E, int *W, int *H) {
+    *W = *H = 0;
     char fileNameSave[64];
     snprintf(fileNameSave, sizeof(fileNameSave), "%d.owl", E);
-    std::unique_ptr<FILE> fi{fopen(fileNameSave, "rb")};
+    auto fi{open(fileNameSave, "rb", false)};
     if (!fi) { return false; }
     Header header;
     if (!header.read(fi.get(), E)) { return false; }    
@@ -102,7 +79,8 @@ public:
   
   bool load(int W, int H, int *startK, int *data, int *checkBits, int *nErrors) {
     *startK = 0;
-    std::unique_ptr<FILE> fi{fopen(fileNameSave, "rb")};
+    *nErrors = 0;
+    auto fi{open(fileNameSave, "rb", false)};
     if (!fi) { return true; }
 
     Header header;
@@ -122,6 +100,7 @@ public:
     }
 
     *startK = header.k;
+    *nErrors = header.nErrors;
     return true;
   }
   

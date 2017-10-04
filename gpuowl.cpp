@@ -343,13 +343,23 @@ void div3(int E, std::vector<u32> &words) {
   }
 }
 
-std::vector<FILE *> logFiles;
+std::vector<std::unique_ptr<FILE>> logFiles;
+
+void initLog() {
+  logFiles.push_back(std::unique_ptr<FILE>(stdout));
+  if (auto fo = open("gpuowl.log", "a")) {
+#ifdef _DEFAULT_SOURCE
+    setlinebuf(fo.get());
+#endif
+    logFiles.push_back(std::move(fo));
+  }
+}
 
 void log(const char *fmt, ...) {
   va_list va;
-  for (FILE *f : logFiles) {
+  for (auto &f : logFiles) {
     va_start(va, fmt);
-    vfprintf(f, fmt, va);
+    vfprintf(f.get(), fmt, va);
     va_end(va);
   }
 }
@@ -424,9 +434,8 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
            errors.c_str(), uid.c_str(), aidJson.c_str());
 
   log("%s\n", buf);
-  if (FILE *fo = open("results.txt", "a")) {
-    fprintf(fo, "%s\n", buf);
-    fclose(fo);
+  if (auto fo = open("results.txt", "a")) {
+    fprintf(fo.get(), "%s\n", buf);
     return true;
   } else {
     return false;
@@ -591,16 +600,6 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
 
   finish(q); // Redundant. Queue must be empty before buffers release.
   return true;
-}
-
-void initLog() {
-  logFiles.push_back(stdout);
-  if (FILE *logf = open("gpuowl.log", "a")) {
-#ifdef _DEFAULT_SOURCE
-    setlinebuf(logf);
-#endif
-    logFiles.push_back(logf);
-  }
 }
 
 cl_device_id getDevice(const Args &args) {
@@ -896,6 +895,6 @@ int main(int argc, char **argv) {
   }
 
   log("\nBye\n");
-  for (FILE *f : logFiles) { fclose(f); }
+  // for (FILE *f : logFiles) { fclose(f); }
 }
 

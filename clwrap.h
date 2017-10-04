@@ -112,20 +112,16 @@ void release(cl_queue queue)     { CHECK(clReleaseCommandQueue(queue)); }
 void release(cl_kernel k)        { CHECK(clReleaseKernel(k)); }
 
 bool dumpBinary(cl_program program, const char *fileName) {
-  FILE *fo = open(fileName, "w");
-  if (!fo) {
-    log("Could not create file '%s'\n", fileName);
-    return false;
+  if (auto fo = open(fileName, "w")) {
+    size_t size;
+    CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
+    char *buf = new char[size + 1];
+    CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &buf, NULL));
+    fwrite(buf, 1, size, fo.get());
+    delete[] buf;
+    return true; 
   }
-  
-  size_t size;
-  CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
-  char *buf = new char[size + 1];
-  CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &buf, NULL));
-  fwrite(buf, 1, size, fo);
-  fclose(fo);
-  delete[] buf;
-  return true;
+  return false;
 }
 
 static cl_program createProgram(cl_device_id device, cl_context context, const string &fileName) {
