@@ -832,6 +832,5 @@ int main(int argc, char **argv) {
   }
 
   log("\nBye\n");
-  // for (FILE *f : logFiles) { fclose(f); }
 }
 
