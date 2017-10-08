@@ -362,8 +362,7 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
 // Input is doubles. They are weighted with the "inverse weight" A
 // and rounded to output ints and to left-over carryOut.
 // Width = N * 256
-void carryMul(uint N, uint mul, uint baseBits,
-              const G double2 *in, const G double2 *A, G int2 *out, G long *carryOut) {
+void carryACore(uint N, uint mul, const G double2 *in, const G double2 *A, G int2 *out, G long *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -376,7 +375,7 @@ void carryMul(uint N, uint mul, uint baseBits,
 
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint p = me + i * N * 256;
-    out[p] = car0Mul(mul, &carry, conjugate(in[p]), A[p], baseBits);
+    out[p] = car0Mul(mul, &carry, conjugate(in[p]), A[p], BASE_BITLEN);
   }
   carryOut[g * 256 + me] = carry;
 }
@@ -386,7 +385,7 @@ void carryMul(uint N, uint mul, uint baseBits,
 // Output is int words.
 // The weights "A" are needed only to derive the bit size of each word (encoded in the sign of its elements).
 // Width = N * 256
-void carryBCore(uint N, uint H, const uint baseBits, G int2 *io, const G long *carryIn, const G double2 *A) {
+void carryBCore(uint N, uint H, G int2 *io, const G long *carryIn, const G double2 *A) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -401,7 +400,7 @@ void carryBCore(uint N, uint H, const uint baseBits, G int2 *io, const G long *c
   
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint p = me + i * N * 256;
-    io[p] = car1(&carry, io[p], A[p], baseBits);
+    io[p] = car1(&carry, io[p], A[p], BASE_BITLEN);
     if (!carry) { return; }
   }
 }
@@ -561,7 +560,7 @@ void halfSq(uint N, double2 *u, double2 *v, double2 tt, const G double2 *bigTrig
   }
 }
 
-void tail(uint N, uint H, local double *lds, double2 *u, double2 *v, G double2 *io, const G double2 *trig, const global double2 *bigTrig) {
+void convolution(uint N, uint H, local double *lds, double2 *u, double2 *v, G double2 *io, const G double2 *trig, const global double2 *bigTrig) {
   uint W = N * 256;
   uint g = get_group_id(0);
   uint me = get_local_id(0);
@@ -594,157 +593,67 @@ void tail(uint N, uint H, local double *lds, double2 *u, double2 *v, G double2 *
   write(N, v, io, line2 * W);
 }
 
+
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
+#define N_WIDTH  (WIDTH  / 256)
+#define N_HEIGHT (HEIGHT / 256)
 
-
-#ifdef GPUOWL_1K
-
-KERNEL(256) fft1K(d2ptr io, const d2ptr trig1k) {
-  local double lds[4 * 256];
-  double2 u[4];
-  fft(4, lds, u, io, trig1k);
+KERNEL(256) fftW(d2ptr io, const d2ptr smallTrig) {
+  local double lds[WIDTH];
+  double2 u[N_WIDTH];
+  fft(N_WIDTH, lds, u, io, smallTrig);
 }
 
-KERNEL(256) fftPremul1K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr trig1k) {
-  local double lds[4 * 256];
-  double2 u[4];
-  fftPremul(4, lds, u, in, out, A, trig1k);
+KERNEL(256) fftH(d2ptr io, const d2ptr smallTrig) {
+  local double lds[HEIGHT];
+  double2 u[N_HEIGHT];
+  fft(N_HEIGHT, lds, u, io, smallTrig);
 }
 
-KERNEL(256) carryA1K(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(4, 1, BASE_BITLEN, in, A, out, carryOut);
+KERNEL(256) fftP(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr smallTrig) {
+  local double lds[WIDTH];
+  double2 u[N_WIDTH];
+  fftPremul(N_WIDTH, lds, u, in, out, A, smallTrig);
 }
 
-KERNEL(256) carryMul1K(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(4, 3, BASE_BITLEN, in, A, out, carryOut);
+KERNEL(256) carryA(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryACore(N_WIDTH, 1, in, A, out, carryOut);
 }
 
-#endif
-
-
-
-#ifdef GPUOWL_2K
-
-KERNEL(256) fft2K(d2ptr io, const d2ptr trig2k) {
-  local double lds[8 * 256];
-  double2 u[8];
-  fft(8, lds, u, io, trig2k);
+KERNEL(256) carryM(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
+  carryACore(N_WIDTH, 3, in, A, out, carryOut);
 }
 
-KERNEL(256) fftPremul2K(const i2ptr in, d2ptr out, const d2ptr A, const d2ptr trig2k) {
-  local double lds[8 * 256];
-  double2 u[8];
-  fftPremul(8, lds, u, in, out, A, trig2k);
+KERNEL(256) carryB(i2ptr io, const global long * restrict carryIn, const d2ptr A) {
+  carryBCore(N_WIDTH, HEIGHT, io, carryIn, A);
 }
 
-KERNEL(256) carryA2K(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(8, 1, BASE_BITLEN, in, A, out, carryOut);
-}
+KERNEL(256) square(d2ptr io, const d2ptr bigTrig)  { csquare(HEIGHT, WIDTH, io, bigTrig); }
 
-KERNEL(256) carryMul2K(const d2ptr in, const d2ptr A, i2ptr out, global long *carryOut) {
-  carryMul(8, 3, BASE_BITLEN, in, A, out, carryOut);
-}
+KERNEL(256) multiply(d2ptr io, const d2ptr in, const d2ptr bigTrig)  { cmul(HEIGHT, WIDTH, io, in, bigTrig); }
 
-#endif
-
-
-#ifdef GPUOWL_2M
-
-KERNEL(256) csquare1K_1K(d2ptr io, const d2ptr bigTrig)  { csquare(1024, 1024, io, bigTrig); }
-KERNEL(256) cmul1K_1K(d2ptr io, const d2ptr in, const d2ptr bigTrig)  { cmul(1024, 1024, io, in, bigTrig); }
-
-KERNEL(256) carryConv1K_1K(d2ptr io,
+KERNEL(256) carryConv(d2ptr io,
                            global double * restrict carryShuttle, volatile global uint * restrict ready,
-                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
-  local double lds[4 * 256];
-  double2 u[4];
-  carryConvolution(4, 1024, lds, u, BASE_BITLEN, io, carryShuttle, ready, A, iA, trig1k);
+                           const d2ptr A, const d2ptr iA, const d2ptr smallTrig) {
+  local double lds[WIDTH];
+  double2 u[N_WIDTH];
+  carryConvolution(N_WIDTH, HEIGHT, lds, u, BASE_BITLEN, io, carryShuttle, ready, A, iA, smallTrig);
 }
 
-KERNEL(256) tail1K_1K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
-  local double lds[4 * 256];
-  double2 u[4];
-  double2 v[4];
-  tail(4, 1024, lds, u, v, io, trig, bigTrig);
+KERNEL(256) tail(d2ptr io, const d2ptr smallTrig, const d2ptr bigTrig) {
+  local double lds[HEIGHT];
+  double2 u[N_HEIGHT];
+  double2 v[N_HEIGHT];
+  convolution(N_HEIGHT, WIDTH, lds, u, v, io, smallTrig, bigTrig);
 }
 
-KERNEL(256) carryB1K_1K(i2ptr io, const global long * restrict carryIn, const d2ptr A) {
-  carryBCore(4, 1024, BASE_BITLEN, io, carryIn, A);
-}
-
-KERNEL(256) transpose1K_1K(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
+KERNEL(256) transposeW(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
   local double lds[4096];
-  transpose(1024, 1024, 1024, lds, in, out, bigTrig);
+  transpose(WIDTH, HEIGHT, max(WIDTH, HEIGHT), lds, in, out, bigTrig);
 }
 
-#endif
-
-
-#ifdef GPUOWL_4M
-
-KERNEL(256) csquare2K_1K(d2ptr io, const d2ptr bigTrig)  { csquare(2048, 1024, io, bigTrig); }
-KERNEL(256) cmul2K_1K(d2ptr io, const d2ptr in, const d2ptr bigTrig)  { cmul(2048, 1024, io, in, bigTrig); }
-
-KERNEL(256) carryConv1K_2K(d2ptr io,
-                           global double * restrict carryShuttle, volatile global uint * restrict ready,
-                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
-  local double lds[4 * 256];
-  double2 u[4];
-  carryConvolution(4, 2048, lds, u, BASE_BITLEN, io, carryShuttle, ready, A, iA, trig1k);
-}
-
-KERNEL(256) tail2K_1K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
-  local double lds[8 * 256];
-  double2 u[8];
-  double2 v[8];
-  tail(8, 1024, lds, u, v, io, trig, bigTrig);
-}
-
-KERNEL(256) carryB1K_2K(i2ptr io, const global long * restrict carryIn, const d2ptr A) {
-  carryBCore(4, 2048, BASE_BITLEN, io, carryIn, A);
-}
-
-KERNEL(256) transpose1K_2K(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
+KERNEL(256) transposeH(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
   local double lds[4096];
-  transpose(1024, 2048, 2048, lds, in, out, bigTrig);
+  transpose(HEIGHT, WIDTH, max(WIDTH, HEIGHT), lds, in, out, bigTrig);
 }
-
-KERNEL(256) transpose2K_1K(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
-  local double lds[4096];
-  transpose(2048, 1024, 2048, lds, in, out, bigTrig);
-}
-
-#endif
-
-
-#ifdef GPUOWL_8M
-
-KERNEL(256) csquare2K_2K(d2ptr io, const d2ptr bigTrig)  { csquare(2048, 2048, io, bigTrig); }
-KERNEL(256) cmul2K_2K(d2ptr io, const d2ptr in, const d2ptr bigTrig)  { cmul(2048, 2048, io, in, bigTrig); }
-
-KERNEL(256) carryConv2K_2K(d2ptr io,
-                           global double * restrict carryShuttle, volatile global uint * restrict ready,
-                           const d2ptr A, const d2ptr iA, const d2ptr trig1k) {
-  local double lds[8 * 256];
-  double2 u[8];
-  carryConvolution(8, 2048, lds, u, BASE_BITLEN, io, carryShuttle, ready, A, iA, trig1k);
-}
-
-KERNEL(256) tail2K_2K(d2ptr io, const d2ptr trig, const d2ptr bigTrig) {
-  local double lds[8 * 256];
-  double2 u[8];
-  double2 v[8];
-  tail(8, 2048, lds, u, v, io, trig, bigTrig);
-}
-
-KERNEL(256) carryB2K_2K(i2ptr io, const global long * restrict carryIn, const d2ptr A) {
-  carryBCore(8, 2048, BASE_BITLEN, io, carryIn, A);
-}
-
-KERNEL(256) transpose2K_2K(const d2ptr in, d2ptr out, const d2ptr bigTrig) {
-  local double lds[4096];
-  transpose(2048, 2048, 2048, lds, in, out, bigTrig);
-}
-
-#endif

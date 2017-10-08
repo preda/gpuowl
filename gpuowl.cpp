@@ -71,18 +71,20 @@ public:
 class BaseKernel : public Kernel {
   Holder<cl_kernel> kernel;
   int N;
-  int sizeShift;
+  int itemsPerThread;
   std::string name;
 
 public:
-  BaseKernel(cl_program program, int N, const std::string &name, int sizeShift) :
+  BaseKernel(cl_program program, int N, const std::string &name, int itemsPerThread) :
     kernel(makeKernel(program, name.c_str())),
     N(N),
-    sizeShift(sizeShift),
+    itemsPerThread(itemsPerThread),
     name(name)
-  { }
+  {
+    assert(N % itemsPerThread == 0);
+  }
 
-  virtual void run(cl_queue q) { ::run(q, kernel.get(), N >> sizeShift); }
+  virtual void run(cl_queue q) { ::run(q, kernel.get(), N / itemsPerThread); }
 
   virtual string getName() { return name; }
 
@@ -627,103 +629,37 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   assert(H == 1024 || H == 2048);
   assert(W <= H);
   int N = 2 * W * H;
+  int nW = W / 256 * 2, nH = H / 256 * 2;
+
+  std::vector<string> defines;
+  append(defines, string("BASE_BITLEN=") + std::to_string(int(E / N)));
+  append(defines, string("WIDTH=")     + std::to_string(W));
+  append(defines, string("HEIGHT=")    + std::to_string(H));
+
+  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, defines);
+  Holder<cl_program> programHolder(p);    
+  if (!p) { return false; }
+
+#define KERN(name, shift) std::unique_ptr<Kernel> name(new BaseKernel(p, N, #name, shift));
+  KERN(fftP, nW);
+  KERN(fftW, nW);
+  KERN(fftH, nH);
   
-  std::unique_ptr<Kernel> fftP, fftW, fftH, transpose, transposeT, carryA, carryB, carryM, square, mul, carryConv, squareConv;
+  KERN(carryA, 32);
+  KERN(carryM, 32);
+  KERN(carryB, 32);
 
-  {
-    unsigned baseBitlen = E / N;
-    std::vector<string> defines{string("BASE_BITLEN=") + std::to_string(baseBitlen)};
-    
-    if (W == 1024) { append(defines, "GPUOWL_1K"); }
-    if (H == 2048) { append(defines, "GPUOWL_2K"); }
+  KERN(transposeW, 32);
+  KERN(transposeH, 32);
 
-    switch (N / (1024 * 1024)) {
-    case 2:
-      append(defines, "GPUOWL_2M");
-      break;
-    case 4:
-      append(defines, "GPUOWL_4M");
-      break;
-    case 8:
-      append(defines, "GPUOWL_8M");
-      break;
-    };
+  KERN(square, 4);
+  KERN(multiply, 4);
+  KERN(tail, nH * 2);
+#undef KERN
+  std::unique_ptr<Kernel> carryConv(new BaseKernel(p, N + 256 * nW, "carryConv", nW));
 
-    cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, defines);
-    Holder<cl_program> programHolder(p);    
-    if (!p) { return false; }
-
-    if (W == 1024) {
-      fftP.reset(new BaseKernel(p, N, "fftPremul1K", 3));
-      fftW.reset(new BaseKernel(p, N, "fft1K",       3));
-      
-      carryA.reset(new BaseKernel(p, N, "carryA1K",   5));
-      carryM.reset(new BaseKernel(p, N, "carryMul1K", 5));
-    } else {
-      fftP.reset(new BaseKernel(p, N, "fftPremul2K", 4));
-      fftW.reset(new BaseKernel(p, N, "fft2K",       4));
-
-      carryA.reset(new BaseKernel(p, N, "carryA2K",   5));
-      carryM.reset(new BaseKernel(p, N, "carryMul2K", 5));
-    }
-
-    if (H == 1024) {
-      fftH.reset(new BaseKernel(p, N, "fft1K", 3));
-    } else {
-      fftH.reset(new BaseKernel(p, N, "fft2K", 4));
-    }
-
-    switch (N / (1024 * 1024)) {
-    case 2:
-      transpose.reset( new BaseKernel(p, N, "transpose1K_1K", 5));
-      transposeT.reset(new BaseKernel(p, N, "transpose1K_1K", 5));
-
-      carryB.reset(new BaseKernel(p, N, "carryB1K_1K", 5));
-
-      carryConv.reset( new BaseKernel(p, N + (256 << 3), "carryConv1K_1K", 3));
-      squareConv.reset(new BaseKernel(p, N, "tail1K_1K", 4));
-
-      square.reset(new BaseKernel(p, N, "csquare1K_1K", 2));
-      mul.reset(   new BaseKernel(p, N, "cmul1K_1K",    2));
-      break;
-
-    case 4:
-      transpose.reset( new BaseKernel(p, N, "transpose1K_2K", 5));
-      transposeT.reset(new BaseKernel(p, N, "transpose2K_1K", 5));
-
-      carryB.reset(new BaseKernel(p, N, "carryB1K_2K", 5));
-
-      carryConv.reset(new BaseKernel(p, N + (256 << 3), "carryConv1K_2K", 3));
-      squareConv.reset(new BaseKernel(p, N, "tail2K_1K", 5));
-
-      square.reset(new BaseKernel(p, N, "csquare2K_1K", 2));
-      mul.reset(   new BaseKernel(p, N, "cmul2K_1K",    2));
-      break;
-
-    case 8:
-      transpose.reset( new BaseKernel(p, N, "transpose2K_2K", 5));
-      transposeT.reset(new BaseKernel(p, N, "transpose2K_2K", 5));
-
-      carryB.reset(new BaseKernel(p, N, "carryB2K_2K", 5));
-
-      carryConv.reset(new BaseKernel(p, N + (256 << 4), "carryConv2K_2K", 4));
-      squareConv.reset(new BaseKernel(p, N, "tail2K_2K", 5));
-
-      square.reset(new BaseKernel(p, N, "csquare2K_2K", 2));
-      mul.reset(   new BaseKernel(p, N, "cmul2K_2K",    2));
-      break;
-
-    default:
-      assert(false);
-    }    
-
-    if (args.timeKernels) {
-      for (auto k : {&fftP, &fftW, &fftH, &transpose, &transposeT, &carryA, &carryB, &carryM, &square, &mul, &carryConv, &squareConv}) {
-        k->reset(new TimedKernel(k->release()));
-      }
-    }
-  }
-
+  programHolder.reset();
+  
   Buffer bufTrig1K{genSmallTrig1K(context)};
   Buffer bufTrig2K{genSmallTrig2K(context)};
   cl_mem trigW = (W == 1024) ? bufTrig1K.get() : bufTrig2K.get();
@@ -750,24 +686,24 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   fftW->setArgs(buf1, trigW);
   fftH->setArgs(buf2, trigH);
   
-  transpose->setArgs(buf1, buf2, bufBigTrig);
-  transposeT->setArgs(buf2, buf1, bufBigTrig);
+  transposeW->setArgs(buf1, buf2, bufBigTrig);
+  transposeH->setArgs(buf2, buf1, bufBigTrig);
   
   carryA->setArgs(buf1, bufI, dummy, bufCarry);
   carryM->setArgs(buf1, bufI, dummy, bufCarry);
   carryB->setArgs(dummy, bufCarry, bufI);
 
   square->setArgs(buf2, bufBigTrig);
-  mul->setArgs(buf2, buf3, bufBigTrig);
+  multiply->setArgs(buf2, buf3, bufBigTrig);
 
   carryConv->setArgs(buf1, bufCarry, bufReady, bufA, bufI, trigW);
-  squareConv->setArgs(buf2, trigH, bufBigTrig);
+  tail->setArgs(buf2, trigH, bufBigTrig);
 
   // the weighting + direct FFT only, stops before square/mul.
-  std::vector<Kernel *> directFftKerns {fftP.get(), transpose.get(), fftH.get()};
+  std::vector<Kernel *> directFftKerns {fftP.get(), transposeW.get(), fftH.get()};
 
   // sequence of: direct FFT, square, first-half of inverse FFT.
-  std::vector<Kernel *> headKerns {fftP.get(), transpose.get(), squareConv.get(), transposeT.get()};
+  std::vector<Kernel *> headKerns {fftP.get(), transposeW.get(), tail.get(), transposeH.get()};
     
   // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
   std::vector<Kernel *> tailKerns {fftW.get(), carryA.get(), carryB.get()};
@@ -783,7 +719,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     coreKerns = tailKerns;
     coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
   } else {
-    coreKerns = {carryConv.get(), transpose.get(), squareConv.get(), transposeT.get()};
+    coreKerns = {carryConv.get(), transposeW.get(), tail.get(), transposeH.get()};
   }
 
   // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
@@ -812,16 +748,16 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   // The modular multiplication a = a * b. Output in 'a'.
   auto modMul = [&](cl_queue q, cl_mem a, cl_mem b) {
     fftP->setArg(0, b);
-    transpose->setArg(1, buf3);
+    transposeW->setArg(1, buf3);
     fftH->setArg(0, buf3);
     run(directFftKerns, q);
 
     fftP->setArg(0, a);
-    transpose->setArg(1, buf2);
+    transposeW->setArg(1, buf2);
     fftH->setArg(0, buf2);
     run(directFftKerns, q);
 
-    run({mul.get(), fftH.get(), transposeT.get()}, q);
+    run({multiply.get(), fftH.get(), transposeH.get()}, q);
 
     carryA->setArg(2, a);
     carryB->setArg(0, a);
