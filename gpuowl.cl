@@ -596,13 +596,19 @@ void convolution(uint N, uint H, local double *lds, double2 *u, double2 *v, G do
 #define N_WIDTH  (WIDTH  / 256)
 #define N_HEIGHT (HEIGHT / 256)
 
-// kernel pointer
+#ifndef ALT_RESTRICT
+
 #define P(x) global x * restrict
-
-// kernel const pointer
 #define CP(x) const P(x)
-
 typedef CP(double2) Trig;
+
+#else
+
+#define P(x) global x *
+#define CP(x) const P(x)
+typedef CP(double2) restrict Trig;
+
+#endif
 
 KERNEL(256) fftW(P(double2) io, Trig smallTrig) {
   local double lds[WIDTH];

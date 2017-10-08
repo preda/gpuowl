@@ -1,6 +1,7 @@
 gpuowl
 gpuowl.log
 *.ll
+*.owl
 log*.txt
 isa/
 *.isa
