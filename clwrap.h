@@ -157,7 +157,7 @@ static bool build(cl_program program, cl_device_id device, const string &extraAr
   buf[logSize] = 0;
   bool ok = (err == CL_SUCCESS);
   if (logSize > 2 || !ok) {
-    log("OpenCL compilation log (error %d):\n%s\n", err, buf);
+    log("OpenCL compilation log (error %d, args %s):\n%s\n", err, args.c_str(), buf);
   }
   if (ok) {
     log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str());
@@ -221,10 +221,8 @@ void flush( cl_queue q) { CHECK(clFlush(q)); }
 void finish(cl_queue q) { CHECK(clFinish(q)); }
 
 void run(cl_queue queue, cl_kernel kernel, size_t workSize, const string &name) {
-  static int c = 0;
   size_t groupSize = 256;
   CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL), name.c_str());
-  log("ok %d %s\n", c++, name.c_str());
 }
 
 void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start = 0) {
