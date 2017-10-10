@@ -84,7 +84,7 @@ public:
     assert(N % itemsPerThread == 0);
   }
 
-  virtual void run(cl_queue q) { ::run(q, kernel.get(), N / itemsPerThread); }
+  virtual void run(cl_queue q) { ::run(q, kernel.get(), N / itemsPerThread, name); }
 
   virtual string getName() { return name; }
 
@@ -118,9 +118,9 @@ int wordPos(int N, int E, int p) {
   i64 x = p * (i64) E;
   
   return
-    (N == (1 << 21)) ? (int) (x >> 21) + (bool) (((int) x) << 11) :
-    (N == (1 << 22)) ? (int) (x >> 22) + (bool) (((int) x) << 10) :
-    (int) (x >> 23) + (bool) (((int) x) << 9);
+    (N == (1 << 21)) ? (int) (x >> 21) + ((int(x) << 11) != 0):
+    (N == (1 << 22)) ? (int) (x >> 22) + ((int(x) << 10) != 0):
+    (int) (x >> 23) + ((int(x) << 9) != 0);
 }
 
 int bitlen(int N, int E, int p) { return wordPos(N, E, p + 1) - wordPos(N, E, p); }
@@ -733,7 +733,10 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     carryA->setArg(2, data);
     carryB->setArg(0, data);
 
-    for (int i = 0; i < nIters - 1; ++i) { run(coreKerns, q); }
+    for (int i = 0; i < nIters - 1; ++i) {
+      // if (((i + 1) & 127) == 0) { finish(q); }
+      run(coreKerns, q);
+    }
     
     if (doMul3) {
       carryM->setArg(2, data);

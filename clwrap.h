@@ -15,8 +15,20 @@
 using std::string;
 using std::vector;
 
-#define CHECK(err) { int e = err; if (e != CL_SUCCESS) { log("error %d\n", e); assert(false); }}
-#define CHECK2(err, mes) { int e = err; if (e != CL_SUCCESS) { log("error %d (%s)\n", e, mes); assert(false); }}
+bool check(int err, const char *mes = nullptr) {
+  bool ok = (err == CL_SUCCESS);
+  if (!ok) {
+    if (mes) {
+      log("error %d (%s)\n", err, mes);
+    } else {
+      log("error %d\n", err);
+    }
+  }
+  return ok;
+}
+
+#define CHECK(what) assert(check(what));
+#define CHECK2(what, mes) assert(check(what, mes));
 
 void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) {
   size_t outSize = 0;
@@ -143,9 +155,13 @@ static bool build(cl_program program, cl_device_id device, const string &extraAr
   size_t logSize;
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
   buf[logSize] = 0;
-  if (logSize > 2) { log("OpenCL compilation log (error %d):\n%s\n", err, buf); }
   bool ok = (err == CL_SUCCESS);
-  if (ok) { log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str()); }
+  if (logSize > 2 || !ok) {
+    log("OpenCL compilation log (error %d):\n%s\n", err, buf);
+  }
+  if (ok) {
+    log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str());
+  }
   return ok;
 }
 
@@ -204,9 +220,11 @@ cl_queue makeQueue(cl_device_id d, cl_context c) {
 void flush( cl_queue q) { CHECK(clFlush(q)); }
 void finish(cl_queue q) { CHECK(clFinish(q)); }
 
-void run(cl_queue queue, cl_kernel kernel, size_t workSize) {
+void run(cl_queue queue, cl_kernel kernel, size_t workSize, const string &name) {
+  static int c = 0;
   size_t groupSize = 256;
-  CHECK(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL));
+  CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL), name.c_str());
+  log("ok %d %s\n", c++, name.c_str());
 }
 
 void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start = 0) {
