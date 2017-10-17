@@ -425,7 +425,7 @@ void doLog(int E, int k, float msPerIter, u64 res, bool checkOK, int nErrors) {
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
   std::string uid;
   if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
-  if (!cpu.empty())  { uid += ", \"cpu\":\"" + cpu + '"'; }
+  if (!cpu.empty())  { uid += ", \"computer\":\"" + cpu + '"'; }
   std::string aidJson = AID.empty() ? "" : ", \"aid\":\"" + AID + '"';
   std::string errors = ", \"errors\":{\"gerbicz\":" + std::to_string(nErrors) + "}";
     
