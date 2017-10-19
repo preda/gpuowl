@@ -172,24 +172,24 @@ void fft8(T2 *u) {
   S2(u[3], u[6]);
 }
 
-void shufl(local double *lds, double2 *u, uint n, uint f) {
+void shufl(local T *lds, T2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   uint m = me / f;
   
   for (int b = 0; b < 2; ++b) {
     if (b) { bar(); }
-    for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = ((double *) (u + i))[b]; }
+    for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = ((T *) (u + i))[b]; }
     bar();
-    for (uint i = 0; i < n; ++i) { ((double *) (u + i))[b] = lds[i * 256 + me]; }
+    for (uint i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * 256 + me]; }
   }
 }
 
-void tabMul(const G double2 *trig, double2 *u, uint n, uint f) {
+void tabMul(const G T2 *trig, T2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (256 / f)]); }
 }
 
-void fft1kImpl(local double *lds, double2 *u, const G double2 *trig) {
+void fft1kImpl(local T *lds, T2 *u, const G T2 *trig) {
   fft4(u);
   shufl(lds,   u, 4, 64);
   tabMul(trig, u, 4, 64);
@@ -212,7 +212,7 @@ void fft1kImpl(local double *lds, double2 *u, const G double2 *trig) {
   fft4(u);
 }
 
-void fft2kImpl(local double *lds, double2 *u, const G double2 *trig) {
+void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
   fft8(u);
   shufl(lds,   u, 8, 32);
   tabMul(trig, u, 8, 32);
@@ -227,11 +227,11 @@ void fft2kImpl(local double *lds, double2 *u, const G double2 *trig) {
   uint me = get_local_id(0);
   for (int b = 0; b < 2; ++b) {
     bar();
-    for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = ((double *) (u + i))[b]; }
+    for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = ((T *) (u + i))[b]; }
     bar();
     for (int i = 0; i < 4; ++i) {
-      ((double *) (u + i))[b]     = lds[i * 512       + me];
-      ((double *) (u + i + 4))[b] = lds[i * 512 + 256 + me];
+      ((T *) (u + i))[b]     = lds[i * 512       + me];
+      ((T *) (u + i + 4))[b] = lds[i * 512 + 256 + me];
     }
   }
 
@@ -251,28 +251,26 @@ void fft2kImpl(local double *lds, double2 *u, const G double2 *trig) {
 }
 
 // choose between 1K and 2K based on N.
-void fftImpl(uint N, local double *lds, double2 *u, const G double2 *trig) {
+void fftImpl(uint N, local T *lds, T2 *u, const G T2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
-void read(uint N, double2 *u, G double2 *in, uint base) {
+void read(uint N, T2 *u, G T2 *in, uint base) {
   for (int i = 0; i < N; ++i) { u[i] = in[base + i * 256 + (uint) get_local_id(0)]; }
 }
 
-void write(uint N, double2 *u, G double2 *out, uint base) {
+void write(uint N, T2 *u, G T2 *out, uint base) {
   for (int i = 0; i < N; ++i) { out[base + i * 256 + (uint) get_local_id(0)] = u[i]; }
 }
 
 // FFT of size N * 256.
-void fft(uint N, local double *lds, double2 *u, G double2 *io, const G double2 *trig) {
+void fft(uint N, local T *lds, T2 *u, G T2 *io, const G T2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   io += step;
 
   read(N, u, io, 0);
-  
   fftImpl(N, lds, u, trig);
-
   write(N, u, io, 0);
 }
 
