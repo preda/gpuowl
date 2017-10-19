@@ -353,8 +353,6 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
 double2 xorSign2(double2 a, uint bit) { return bit ? -a : a; }
 
-uint bitlen(uint base, double a) { return EXP / NWORDS + signBit(a); }
-
 uint extra(uint k) { return mul24(k, STEP) & (NWORDS - 1); }
 
 // Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
@@ -363,11 +361,13 @@ bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
 // Number of bits for the word at pos.
 uint bitlenAtPos(uint k) { return EXP / NWORDS + isBigWord(k); }
 
+uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
+
 // Reverse weighting, round, carry propagation for a pair of doubles; with optional MUL.
-int2 car0Mul(int mul, long *carry, double2 u, double2 ia, uint baseBits) {  
+int2 car0Mul(int mul, long *carry, double2 u, double2 ia) {
   u *= fabs(ia); // Reverse weighting by multiply with "ia"
-  int a = updateMul(mul, carry, toLong(u.x), bitlen(baseBits, ia.x));
-  int b = updateMul(mul, carry, toLong(u.y), bitlen(baseBits, ia.y));
+  int a = updateMul(mul, carry, toLong(u.x), oldBitlen(ia.x));
+  int b = updateMul(mul, carry, toLong(u.y), oldBitlen(ia.y));
   return (int2) (a, b);
 }
 
@@ -385,24 +385,24 @@ double2 carryStep(double x, int bits) {
 }
 
 // Applies inverse weight "iA" and rounding, and propagates carry over the two words.
-double2 weightAndCarry(double *carry, double2 u, double2 iA, uint baseBits) {
+double2 weightAndCarry(double *carry, double2 u, double2 iA) {
   u = rint(u * fabs(iA)); // reverse weight and round.
-  double2 r0 = carryStep(*carry + u.x, bitlen(baseBits, iA.x));
-  double2 r1 = carryStep(r0.y   + u.y, bitlen(baseBits, iA.y));
+  double2 r0 = carryStep(*carry + u.x, oldBitlen(iA.x));
+  double2 r1 = carryStep(r0.y   + u.y, oldBitlen(iA.y));
   *carry = r1.y;
   return (double2) (r0.x, r1.x);
 }
 
-double2 carryAndWeight(double *carry, double2 u, double2 a, uint baseBits) {
-  double2 r0 = carryStep(*carry + u.x, bitlen(baseBits, a.x));
-  double2 r1 = carryStep(r0.y   + u.y, bitlen(baseBits, a.y));
+double2 carryAndWeight(double *carry, double2 u, double2 a) {
+  double2 r0 = carryStep(*carry + u.x, oldBitlen(a.x));
+  double2 r1 = carryStep(r0.y   + u.y, oldBitlen(a.y));
   *carry = r1.y;
   return (double2) (r0.x, r1.x) * fabs(a);
 }
 
 // No carry out. The final carry is "absorbed" in the last word.
-double2 carryAndWeightFinal(double carry, double2 u, double2 a, uint baseBits) {
-  double2 r = carryStep(carry + u.x, bitlen(baseBits, a.x));
+double2 carryAndWeightFinal(double carry, double2 u, double2 a) {
+  double2 r = carryStep(carry + u.x, oldBitlen(a.x));
   return (double2) (r.x, r.y + u.y) * fabs(a);
 }
 
@@ -411,7 +411,6 @@ double2 carryAndWeightFinal(double carry, double2 u, double2 a, uint baseBits) {
 // N gives the FFT size, W = N * 256.
 // H gives the nuber of "lines" of FFT.
 void carryConvolution(uint N, uint H, local double *lds, double2 *u,
-                  uint baseBitlen,
                   G double2 *io, G double *carryShuttle, volatile global uint *ready,
                   const G double2 *A, const G double2 *iA, const G double2 *trig) {
   uint W = N * 256;
@@ -431,7 +430,7 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
   for (int i = 0; i < N; ++i) {
     uint p = i * 256 + me;
     double carry = 0;
-    u[i] = weightAndCarry(&carry, conjugate(u[i]), iA[p], baseBitlen);
+    u[i] = weightAndCarry(&carry, conjugate(u[i]), iA[p]);
     if (gr < H) { carryShuttle[gr * W + p] = carry; }
   }
 
@@ -450,7 +449,7 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
   for (int i = 0; i < N; ++i) {
     uint p = i * 256 + me;
     double carry = carryShuttle[(gr - 1) * W + ((p - gr / H) & (W - 1))];
-    u[i] = carryAndWeightFinal(carry, u[i], A[p], baseBitlen);
+    u[i] = carryAndWeightFinal(carry, u[i], A[p]);
   }
 
   fftImpl(N, lds, u, trig);
@@ -464,20 +463,23 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
 // Input is doubles. They are weighted with the "inverse weight" A
 // and rounded to output ints and to left-over carryOut.
 // Width = N * 256
-void carryACore(uint N, uint mul, const G double2 *in, const G double2 *A, G int2 *out, G long *carryOut) {
+void carryACore(uint N, uint H, uint mul, const G T2 *in, const G T2 *A, G int2 *out, G long *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
+  uint gx = g % N;
+  uint gy = g / N;
 
-  uint step = g % N * 256 + g / N * (N * CARRY_LEN * 256);
+  uint step = 256 * gx + N * 256 * CARRY_LEN * gy;
   in     += step;
-  A      += step;
   out    += step;
+  A      += step;
 
   long carry = 0;
 
   for (int i = 0; i < CARRY_LEN; ++i) {
+    uint pos = CARRY_LEN * gy + H * 256 * gx  + H * me + i;
     uint p = me + i * N * 256;
-    out[p] = car0Mul(mul, &carry, conjugate(in[p]), A[p], BASE_BITLEN);
+    out[p] = car0Mul(mul, &carry, conjugate(in[p]), A[p]);
   }
   carryOut[g * 256 + me] = carry;
 }
@@ -492,7 +494,7 @@ void carryBCore(uint N, uint H, G int2 *io, const G long *carryIn) {
   uint gx = g % N;
   uint gy = g / N;
   
-  uint step = g % N * 256 + g / N * (N * CARRY_LEN * 256);
+  uint step = 256 * gx + N * 256 * CARRY_LEN * gy;
   io += step;
 
   uint HB = H / CARRY_LEN;
@@ -737,11 +739,11 @@ KERNEL(256) fftP(CP(int2) in, P(double2) out, CP(double2) A, Trig smallTrig) {
 }
 
 KERNEL(256) carryA(CP(double2) in, CP(double2) A, P(int2) out, P(long) carryOut) {
-  carryACore(N_WIDTH, 1, in, A, out, carryOut);
+  carryACore(N_WIDTH, HEIGHT, 1, in, A, out, carryOut);
 }
 
 KERNEL(256) carryM(CP(double2) in, CP(double2) A, P(int2) out, P(long) carryOut) {
-  carryACore(N_WIDTH, 3, in, A, out, carryOut);
+  carryACore(N_WIDTH, HEIGHT, 3, in, A, out, carryOut);
 }
 
 KERNEL(256) carryB(P(int2) io, CP(long) carryIn) {
@@ -756,7 +758,7 @@ KERNEL(256) carryConv(P(double2) io, P(double) carryShuttle, volatile P(uint) re
                       CP(double2) A, CP(double2) iA, Trig smallTrig) {
   local double lds[WIDTH];
   double2 u[N_WIDTH];
-  carryConvolution(N_WIDTH, HEIGHT, lds, u, BASE_BITLEN, io, carryShuttle, ready, A, iA, smallTrig);
+  carryConvolution(N_WIDTH, HEIGHT, lds, u, io, carryShuttle, ready, A, iA, smallTrig);
 }
 
 KERNEL(256) tail(P(double2) io, Trig smallTrig, Trig bigTrig) {
