@@ -26,7 +26,7 @@
 
 #define TAU (2 * M_PIl)
 
-#define VERSION "1.5"
+#define VERSION "1.6"
 #define PROGRAM "gpuowl"
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
@@ -112,18 +112,11 @@ public:
   void resetTime() { timeAcc = 0; }
 };
 
-int wordPos(int N, int E, int p) {
-  assert(N == (1 << 21) || N == (1 << 22) || N == (1 << 23));
-  
-  i64 x = p * (i64) E;
-  
-  return
-    (N == (1 << 21)) ? (int) (x >> 21) + ((int(x) << 11) != 0):
-    (N == (1 << 22)) ? (int) (x >> 22) + ((int(x) << 10) != 0):
-    (int) (x >> 23) + ((int(x) << 9) != 0);
-}
+u32 extra(unsigned N, unsigned E, unsigned k) { return (N - k * E) & (N - 1); }
 
-int bitlen(int N, int E, int p) { return wordPos(N, E, p + 1) - wordPos(N, E, p); }
+bool isBigWord(int N, int E, int k) { return extra(N, E, k + 1) > extra(N, E, k); }
+
+u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
 void genWeights(int W, int H, int E, double *aTab, double *iTab) {
@@ -138,13 +131,9 @@ void genWeights(int W, int H, int E, double *aTab, double *iTab) {
     for (int col = 0; col < W; ++col) {
       for (int rep = 0; rep < 2; ++rep) {
         int k = (line + col * H) * 2 + rep;
-        i64 kE = k * (i64) E;
-        auto p0 = kE * iN;
-        int b0 = wordPos(N, E, k);
-        int b1 = wordPos(N, E, k + 1);
-        int bits  = b1 - b0;        
+        int bits  = bitlen(N, E, k);
         assert(bits == baseBits || bits == baseBits + 1);
-        auto a = exp2l(b0 - p0);
+        auto a = exp2l(extra(N, E, k) * iN);
         auto ia = 1 / (4 * N * a);
         *pa++ = (bits == baseBits) ? a  : -a;
         *pi++ = (bits == baseBits) ? ia : -ia;
@@ -656,8 +645,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   KERN(multiply, 4);
   KERN(tail, nH * 2);
 #undef KERN
-  std::unique_ptr<Kernel> carryConv(new BaseKernel(p, N + 256 * nW, "carryConv", nW));
-
+  
   programHolder.reset();
   
   Buffer bufTrig1K{genSmallTrig1K(context)};
@@ -696,7 +684,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   square->setArgs(buf2, bufBigTrig);
   multiply->setArgs(buf2, buf3, bufBigTrig);
 
-  carryConv->setArgs(buf1, bufCarry, bufReady, bufA, bufI, trigW);
   tail->setArgs(buf2, trigH, bufBigTrig);
 
   // the weighting + direct FFT only, stops before square/mul.
@@ -715,10 +702,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }
   bool lowBits = bitsPerWord < 13;
   if (lowBits && !args.useLegacy) { log("Note: low word size of %.2f bits forces use of legacy kernels\n", bitsPerWord); }
+  
+  std::unique_ptr<Kernel> carryConv;
   if (args.useLegacy || lowBits) {
     coreKerns = tailKerns;
     coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
   } else {
+    carryConv.reset(new BaseKernel(p, N + 256 * nW, "carryConv", nW));
+    carryConv->setArgs(buf1, bufCarry, bufReady, bufA, bufI, trigW);
     coreKerns = {carryConv.get(), transposeW.get(), tail.get(), transposeH.get()};
   }
 

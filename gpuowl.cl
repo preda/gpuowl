@@ -452,7 +452,7 @@ void cmul(uint W, uint H, G double2 *io, C G double2 *in, C G double2 *bigTrig) 
   uint me = get_local_id(0);
 
   if (g == 0 && me == 0) {
-    io[0]    = 4 * (foo2(conjugate(io[0]), conjugate(in[0])));
+    io[0]    = 4 * foo2(conjugate(io[0]), conjugate(in[0]));
     io[W / 2] = 8 * conjugate(mul(io[W / 2], in[W / 2]));
     return;
   }
