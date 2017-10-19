@@ -256,7 +256,20 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
 double2 xorSign2(double2 a, uint bit) { return bit ? -a : a; }
 
-uint bitlen(uint base, double a) { return base + signBit(a); }
+// poor man's constexpr
+#define NWORDS (WIDTH * HEIGHT * 2u)
+#define STEP (NWORDS - (EXP & (NWORDS - 1)))
+#define BASE_BITLEN (EXP / NWORDS)
+
+uint bitlen(uint base, double a) { return EXP / NWORDS + signBit(a); }
+
+uint extra(uint k) { return mul24(k, STEP) & (NWORDS - 1); }
+
+// Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
+bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
+
+// Number of bits for the word at pos.
+uint bitlenAtPos(uint k) { return EXP / NWORDS + isBigWord(k); }
 
 // Reverse weighting, round, carry propagation for a pair of doubles; with optional MUL.
 int2 car0Mul(int mul, long *carry, double2 u, double2 ia, uint baseBits) {  
@@ -267,9 +280,9 @@ int2 car0Mul(int mul, long *carry, double2 u, double2 ia, uint baseBits) {
 }
 
 // Carry propagation.
-int2 car1(long *carry, int2 r, double2 ia, uint base) {
-  int a = updateMul(1, carry, r.x, bitlen(base, ia.x));
-  int b = updateMul(1, carry, r.y, bitlen(base, ia.y));
+int2 car1(long *carry, int2 r, int pos) {
+  int a = updateMul(1, carry, r.x, bitlenAtPos(pos));
+  int b = updateMul(1, carry, r.y, bitlenAtPos(pos + 1));
   return (int2) (a, b);
 }
 
@@ -380,24 +393,27 @@ void carryACore(uint N, uint mul, C G double2 *in, C G double2 *A, G int2 *out, 
 // The second round of carry propagation (16 words), needed to "link the chain" after carryA.
 // Input is int words and the left-over carry from carryA.
 // Output is int words.
-// The weights "A" are needed only to derive the bit size of each word (encoded in the sign of its elements).
 // Width = N * 256
-void carryBCore(uint N, uint H, G int2 *io, C G long *carryIn, C G double2 *A) {
+void carryBCore(uint N, uint H, G int2 *io, C G long *carryIn) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
-
+  uint gx = g % N;
+  uint gy = g / N;
+  
   uint step = g % N * 256 + g / N * (N * CARRY_LEN * 256);
   io += step;
-  A  += step;
+
+  uint HB = H / CARRY_LEN;
   
-  uint prev = (g / N + (g % N * 256 + me) * (H / CARRY_LEN) - 1) & ((H / CARRY_LEN) * N * 256 - 1);
-  uint line = prev % (H / CARRY_LEN);
-  uint col  = prev / (H / CARRY_LEN);
-  long carry = carryIn[line * N * 256 + col];
+  uint prev = (gy + HB * 256 * gx + HB * me - 1) & (HB * N * 256 - 1);
+  uint prevLine = prev % HB;
+  uint prevCol  = prev / HB;
+  long carry = carryIn[N * 256 * prevLine + prevCol];
   
   for (int i = 0; i < CARRY_LEN; ++i) {
+    uint pos = CARRY_LEN * gy + H * 256 * gx + H * me + i;
     uint p = me + i * N * 256;
-    io[p] = car1(&carry, io[p], A[p], BASE_BITLEN);
+    io[p] = car1(&carry, io[p], pos * 2);
     if (!carry) { return; }
   }
 }
@@ -636,8 +652,8 @@ KERNEL(256) carryM(CP(double2) in, CP(double2) A, P(int2) out, P(long) carryOut)
   carryACore(N_WIDTH, 3, in, A, out, carryOut);
 }
 
-KERNEL(256) carryB(P(int2) io, CP(long) carryIn, CP(double2) A) {
-  carryBCore(N_WIDTH, HEIGHT, io, carryIn, A);
+KERNEL(256) carryB(P(int2) io, CP(long) carryIn) {
+  carryBCore(N_WIDTH, HEIGHT, io, carryIn);
 }
 
 KERNEL(256) square(P(double2) io, Trig bigTrig)  { csquare(HEIGHT, WIDTH, io, bigTrig); }

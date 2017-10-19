@@ -112,9 +112,16 @@ public:
   void resetTime() { timeAcc = 0; }
 };
 
-u32 extra(unsigned N, unsigned E, unsigned k) { return (N - k * E) & (N - 1); }
+u32 extra(unsigned N, unsigned E, unsigned k) {
+  assert(E & (N - 1));
+  u32 step = N - (E & (N - 1));
+  return (k * step) & (N - 1);
+}
 
-bool isBigWord(int N, int E, int k) { return extra(N, E, k + 1) > extra(N, E, k); }
+bool isBigWord(unsigned N, unsigned E, unsigned k) {
+  u32 step = N - (E & (N - 1));
+  return extra(N, E, k) + step < N;
+}
 
 u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
 
@@ -621,9 +628,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int nW = W / 256 * 2, nH = H / 256 * 2;
 
   std::vector<string> defines;
-  append(defines, string("BASE_BITLEN=") + std::to_string(int(E / N)));
-  append(defines, string("WIDTH=")     + std::to_string(W));
-  append(defines, string("HEIGHT=")    + std::to_string(H));
+  append(defines, string("EXP=") + std::to_string(E) + "u");
+  append(defines, string("WIDTH=")     + std::to_string(W) + "u");
+  append(defines, string("HEIGHT=")    + std::to_string(H) + "u");
 
   cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, defines);
   Holder<cl_program> programHolder(p);    
@@ -679,7 +686,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   carryA->setArgs(buf1, bufI, dummy, bufCarry);
   carryM->setArgs(buf1, bufI, dummy, bufCarry);
-  carryB->setArgs(dummy, bufCarry, bufI);
+  carryB->setArgs(dummy, bufCarry);
 
   square->setArgs(buf2, bufBigTrig);
   multiply->setArgs(buf2, buf3, bufBigTrig);
