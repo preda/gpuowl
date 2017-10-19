@@ -631,6 +631,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   append(defines, string("EXP=") + std::to_string(E) + "u");
   append(defines, string("WIDTH=")     + std::to_string(W) + "u");
   append(defines, string("HEIGHT=")    + std::to_string(H) + "u");
+  append(defines, string("FFT_DP"));
 
   cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, defines);
   Holder<cl_program> programHolder(p);    

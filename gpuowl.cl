@@ -1,8 +1,12 @@
 // gpuOwl, an OpenCL Mersenne primality test.
 // Copyright (C) 2017 Mihai Preda.
 
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
-#pragma OPENCL FP_CONTRACT ON
+// Expected defines: WIDTH, HEIGHT, EXP.
+
+#define NWORDS (WIDTH * HEIGHT * 2u)
+#define STEP (NWORDS - (EXP & (NWORDS - 1)))
+#define BASE_BITLEN (EXP / NWORDS)
+
 
 // OpenCL 2.x introduces the "generic" memory space, so there's no need to specify "global" on pointers everywhere.
 #if __OPENCL_C_VERSION__ >= 200
@@ -11,63 +15,158 @@
 #define G global
 #endif
 
-// const is just a developer comment, ignored by the compiler.
-#define C const
-
-// add-sub: (a, b) = (a + b, a - b)
-#define X2(a, b) { double2 t = a; a = t + b; b = t - b; }
-double2 addsub(double2 a) { return (double2) (a.x + a.y, a.x - a.y); }
-
-// swap: (a, b) = (b, a)
-#define S2(a, b) { double2 t = a; a = b; b = t; }
-double2 swap(double2 u) { return (double2) (u.y, u.x); }
 
 void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
 void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
 
-// complex multiplication.
-double2 muld(double2 u, double a, double b) { return (double2) { u.x * a - u.y * b, u.x * b + u.y * a}; }
-double2 mul(double2 u, double2 v) { return muld(u, v.x, v.y); }
 
-// mutating complex multiplication.
-#define MUL(x, a, b) x = muld(x, a, b)
-#define M(x, t) x = mul(x, t)
+#ifdef FFT_M31
 
-#define MUL_2(x, a, b) x = muld(x, a, b) * M_SQRT1_2
+// An GF(M31^2) NTT FFT convolution implementation.
+// GF(p^2) is Gaussian integers ("complex integers") with the real/imaginary part modulo p.
 
-// complex square.
-double2 sq(double2 u) {
-  double t = u.x * u.y * 2;
-  u = addsub(u);
-  return (double2) (u.x * u.y, t);
+typedef uint T;
+typedef uint2 T2;
+
+// Prime M(31) == 2**31 - 1
+#define M31 0x7fffffffu
+
+ulong u64(uint a) { return a; } // cast to 64 bits.
+
+
+// input 32 bits except 2^32-1. Output 31 bits.
+uint mod1(uint x) { return (x >> 31) + (x & M31); }
+uint mod2(uint x, uint y) { return U2(mod1(x), mod1(y)); }
+
+uint lo(ulong a) { return a & 0xffffffff; }
+uint up(ulong a) { return a >> 32; }
+
+// input 63 bits, output 31 bits.
+uint bigmod1(ulong x) {
+  x = u64(up(x) << 1) + lo(x); // 'up' is 31 bits.
+  return mod1(lo(x) + (up(x) << 1));
+}
+uint bigmod2(ulong x, ulong y) { return U2(bigmod1(x), bigmod1(y)); }
+
+uint add1(uint a, uint b) { return mod1(a + b); }
+uint sub1(uint a, uint b) { return mod1(a + (M31 - b)); }
+
+uint2 add(uint2 a, uint2 b) { return U2(add1(a.x, b.x), add1(a.y, b.y)); }
+uint2 sub(uint2 a, uint2 b) { return U2(sub1(a.x, b.x), sub1(a.y, b.y)); }
+
+uint shl(uint a, uint k) { return bigmod1(u64(a) << k); }
+// uint2 shl2(uint2 a, uint2 k) { return U2(shl(a.x, k.x), shl(a.y, k.y)); }
+
+ulong rawMul(uint a, uint b) { return u64(a) * b; }
+uint mul(uint a, uint b) { return mod63(rawMul(a, b)); }
+
+// Complex mul. input and output 31 bits.
+uint2 mul(uint2 u, uint2 v) {
+  uint a = u.x, b = u.y, c = v.x, d = v.y;
+  ulong k1 = rawMul(c, add(a, b));
+  ulong k2 = rawMul(a, sub(d, c));
+  ulong k3 = rawMul(b, M31 - add(d, c));
+  // k1..k3 have at most 62 bits, so sums are at most 63 bits.
+  return U2(bigmod(k1 + k3), bigmod(k1 + k2));
 }
 
-double2 conjugate(double2 u) { return (double2)(u.x, -u.y); }
+// mul with (0, 1). (twiddle of tau/4, sqrt(-1) aka "i").
+uint2 mul_t4(uint2 a) { return U2(M31 - a.y, a.x); }
 
-void fft4Core(double2 *u) {
+// mul with (2^15, 2^15). (twiddle of tau/8 aka sqrt(i)).
+uint2 mul_t8(uint2 a) { return U2(shl(a.x + (M31 - a.y), 15), shl(a.x + a.y, 15)); }
+
+// mul with (-2^15, 2^15). (twiddle of 3*tau/8).
+uint2 mul_3t8(uint2 ) { return U2(shl((M31 - a.x) + (M31 - a.y), 15), shl(a.x + (M31 - a.y), 15)); }
+
+// input, output 31 bits. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
+uint2 sq(uint2 a) { return U2(mul(a + b, sub(a, b)), mul(a, b << 1)); }
+
+
+#endif
+
+
+#if defined(FFT_DP)
+
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#pragma OPENCL FP_CONTRACT ON
+
+typedef double T;
+typedef double2 T2;
+
+#elif defined(FFT_SP)
+
+typedef double T;
+typedef double2 T2;
+
+#endif
+
+
+#if defined(FFT_DP) || defined(FFT_SP)
+
+T add1(T a, T b) { return a + b; }
+T sub1(T a, T b) { return a - b; }
+
+T2 add(T2 a, T2 b) { return a + b; }
+T2 sub(T2 a, T2 b) { return a - b; }
+
+#endif
+
+
+T2 U2(T a, T b) { return (T2)(a, b); }
+T2 addsub(T2 a) { return U2(add1(a.x, a.y), sub1(a.x, a.y)); }
+
+
+#if defined(FFT_DP) || defined(FFT_SP)
+
+// complex mul
+T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+
+// complex square
+T2 sq(T2 a) {
+  T t = a.x * a.y * 2;
+  a = addsub(a);
+  return U2(a.x * a.y, t);
+}
+
+T2 mul_t4(T2 a)  { return mul(a, U2(0,  -1)); }
+T2 mul_t8(T2 a)  { return mul(a, U2(1,  -1)) * (T)(M_SQRT1_2); }
+T2 mul_3t8(T2 a) { return mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+
+#endif
+
+
+#define X2(a, b) { T2 t = a; a = add(t, b); b = sub(t, b); }
+#define S2(a, b) { T2 t = a; a = b; b = t; }
+
+T2 swap(T2 a) { return U2(a.y, a.x); }
+
+T2 conjugate(T2 a) { return U2(a.x, -a.y); }
+
+void fft4Core(T2 *u) {
   X2(u[0], u[2]);
   X2(u[1], u[3]);
-  MUL(u[3], 0, -1);
+  u[3] = mul_t4(u[3]);
   X2(u[0], u[1]);
   X2(u[2], u[3]);
 }
 
-void fft8Core(double2 *u) {
+void fft8Core(T2 *u) {
   for (int i = 0; i < 4; ++i) { X2(u[i], u[i + 4]); }
-  MUL(u[6], 0, -1);
-  MUL_2(u[5],  1, -1);
-  MUL_2(u[7], -1, -1);
+  u[5] = mul_t8(u[5]);
+  u[6] = mul_t4(u[6]);
+  u[7] = mul_3t8(u[7]);
   
   fft4Core(u);
   fft4Core(u + 4);
 }
 
-void fft4(double2 *u) {
+void fft4(T2 *u) {
   fft4Core(u);
   S2(u[1], u[2]);
 }
 
-void fft8(double2 *u) {
+void fft8(T2 *u) {
   fft8Core(u);
   S2(u[1], u[4]);
   S2(u[3], u[6]);
@@ -85,12 +184,12 @@ void shufl(local double *lds, double2 *u, uint n, uint f) {
   }
 }
 
-void tabMul(C G double2 *trig, double2 *u, uint n, uint f) {
+void tabMul(const G double2 *trig, double2 *u, uint n, uint f) {
   uint me = get_local_id(0);
-  for (int i = 1; i < n; ++i) { M(u[i], trig[me / f + i * (256 / f)]); }
+  for (int i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (256 / f)]); }
 }
 
-void fft1kImpl(local double *lds, double2 *u, C G double2 *trig) {
+void fft1kImpl(local double *lds, double2 *u, const G double2 *trig) {
   fft4(u);
   shufl(lds,   u, 4, 64);
   tabMul(trig, u, 4, 64);
@@ -113,7 +212,7 @@ void fft1kImpl(local double *lds, double2 *u, C G double2 *trig) {
   fft4(u);
 }
 
-void fft2kImpl(local double *lds, double2 *u, C G double2 *trig) {
+void fft2kImpl(local double *lds, double2 *u, const G double2 *trig) {
   fft8(u);
   shufl(lds,   u, 8, 32);
   tabMul(trig, u, 8, 32);
@@ -137,8 +236,8 @@ void fft2kImpl(local double *lds, double2 *u, C G double2 *trig) {
   }
 
   for (int i = 1; i < 4; ++i) {
-    M(u[i],     trig[i * 512       + me]);
-    M(u[i + 4], trig[i * 512 + 256 + me]);
+    u[i]     = mul(u[i],     trig[i * 512       + me]);
+    u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
   }
      
   fft4(u);
@@ -152,7 +251,7 @@ void fft2kImpl(local double *lds, double2 *u, C G double2 *trig) {
 }
 
 // choose between 1K and 2K based on N.
-void fftImpl(uint N, local double *lds, double2 *u, C G double2 *trig) {
+void fftImpl(uint N, local double *lds, double2 *u, const G double2 *trig) {
   if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
@@ -165,7 +264,7 @@ void write(uint N, double2 *u, G double2 *out, uint base) {
 }
 
 // FFT of size N * 256.
-void fft(uint N, local double *lds, double2 *u, G double2 *io, C G double2 *trig) {
+void fft(uint N, local double *lds, double2 *u, G double2 *io, const G double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   io += step;
@@ -180,8 +279,8 @@ void fft(uint N, local double *lds, double2 *u, G double2 *io, C G double2 *trig
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-void fftPremul(uint N, local double *lds, double2 *u, C G int2 *in, G double2 *out, C G double2 *A,
-               C G double2 *trig) {
+void fftPremul(uint N, local double *lds, double2 *u, const G int2 *in, G double2 *out, const G double2 *A,
+               const G double2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
   in  += step;
@@ -256,11 +355,6 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
 double2 xorSign2(double2 a, uint bit) { return bit ? -a : a; }
 
-// poor man's constexpr
-#define NWORDS (WIDTH * HEIGHT * 2u)
-#define STEP (NWORDS - (EXP & (NWORDS - 1)))
-#define BASE_BITLEN (EXP / NWORDS)
-
 uint bitlen(uint base, double a) { return EXP / NWORDS + signBit(a); }
 
 uint extra(uint k) { return mul24(k, STEP) & (NWORDS - 1); }
@@ -321,7 +415,7 @@ double2 carryAndWeightFinal(double carry, double2 u, double2 a, uint baseBits) {
 void carryConvolution(uint N, uint H, local double *lds, double2 *u,
                   uint baseBitlen,
                   G double2 *io, G double *carryShuttle, volatile global uint *ready,
-                  C G double2 *A, C G double2 *iA, C G double2 *trig) {
+                  const G double2 *A, const G double2 *iA, const G double2 *trig) {
   uint W = N * 256;
 
   uint gr = get_group_id(0);
@@ -372,7 +466,7 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
 // Input is doubles. They are weighted with the "inverse weight" A
 // and rounded to output ints and to left-over carryOut.
 // Width = N * 256
-void carryACore(uint N, uint mul, C G double2 *in, C G double2 *A, G int2 *out, G long *carryOut) {
+void carryACore(uint N, uint mul, const G double2 *in, const G double2 *A, G int2 *out, G long *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -394,7 +488,7 @@ void carryACore(uint N, uint mul, C G double2 *in, C G double2 *A, G int2 *out, 
 // Input is int words and the left-over carry from carryA.
 // Output is int words.
 // Width = N * 256
-void carryBCore(uint N, uint H, G int2 *io, C G long *carryIn) {
+void carryBCore(uint N, uint H, G int2 *io, const G long *carryIn) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   uint gx = g % N;
@@ -428,7 +522,7 @@ double2 foo2(double2 a, double2 b) {
 double2 foo(double2 a) { return foo2(a, a); }
 
 // Inputs normal (non-conjugate); outputs conjugate.
-void csquare(uint W, uint H, G double2 *io, C G double2 *bigTrig) {
+void csquare(uint W, uint H, G double2 *io, const G double2 *bigTrig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -448,14 +542,14 @@ void csquare(uint W, uint H, G double2 *io, C G double2 *bigTrig) {
   double2 t = swap(mul(bigTrig[W * 2 + H / 2 + line], bigTrig[posInLine]));
   
   X2(a, b);
-  M(b, conjugate(t));
+  b = mul(b, conjugate(t));
   X2(a, b);
 
   a = sq(a);
   b = sq(b);
 
   X2(a, b);
-  M(b,  t);
+  b = mul(b,  t);
   X2(a, b);
   
   io[k] = conjugate(a);
@@ -463,7 +557,7 @@ void csquare(uint W, uint H, G double2 *io, C G double2 *bigTrig) {
 }
 
 // Like csquare(), but for multiplication.
-void cmul(uint W, uint H, G double2 *io, C G double2 *in, C G double2 *bigTrig) {
+void cmul(uint W, uint H, G double2 *io, const G double2 *in, const G double2 *bigTrig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -483,20 +577,20 @@ void cmul(uint W, uint H, G double2 *io, C G double2 *in, C G double2 *bigTrig) 
   double2 t = swap(mul(bigTrig[W * 2 + H / 2 + line], bigTrig[posInLine]));
   
   X2(a, b);
-  M(b, conjugate(t));
+  b = mul(b, conjugate(t));
   X2(a, b);
   
   double2 c = in[k];
   double2 d = conjugate(in[v]);
   X2(c, d);
-  M(d, conjugate(t));
+  d = mul(d, conjugate(t));
   X2(c, d);
 
-  M(a, c);
-  M(b, d);
+  a = mul(a, c);
+  b = mul(b, d);
 
   X2(a, b);
-  M(b,  t);
+  b = mul(b,  t);
   X2(a, b);
   
   io[k] = conjugate(a);
@@ -522,7 +616,7 @@ void transposeCore(local double *lds, double2 *u) {
 }
 
 // M == max(W, H)
-void transpose(uint W, uint H, uint M, local double *lds, C G double2 *in, G double2 *out, C G double2 *bigTrig) {
+void transpose(uint W, uint H, uint M, local double *lds, const G double2 *in, G double2 *out, const G double2 *bigTrig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   gy = (gy + gx) % GH;
@@ -540,15 +634,15 @@ void transpose(uint W, uint H, uint M, local double *lds, C G double2 *in, G dou
   
   for (int i = 0; i < 16; ++i) {
     uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
-    M(u[i], bigTrig[M * 2 + k % (W * H / (M * 2))]);
-    M(u[i], bigTrig[k / (W * H / (M * 2))]);
+    u[i] = mul(u[i], bigTrig[M * 2 + k % (W * H / (M * 2))]);
+    u[i] = mul(u[i], bigTrig[k / (W * H / (M * 2))]);
 
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];
   }
 }
 
-void halfSq(uint N, double2 *u, double2 *v, double2 tt, C G double2 *bigTrig, bool special) {
+void halfSq(uint N, double2 *u, double2 *v, double2 tt, const G double2 *bigTrig, bool special) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   for (int i = 0; i < N / 2; ++i) {
@@ -560,12 +654,12 @@ void halfSq(uint N, double2 *u, double2 *v, double2 tt, C G double2 *bigTrig, bo
       b = 8 * sq(b);
     } else {
       X2(a, b);
-      M(b, conjugate(t));
+      b = mul(b, conjugate(t));
       X2(a, b);
       a = sq(a);
       b = sq(b);
       X2(a, b);
-      M(b,  t);
+      b = mul(b,  t);
       X2(a, b);
     }
     u[i] = conjugate(a);
@@ -573,7 +667,7 @@ void halfSq(uint N, double2 *u, double2 *v, double2 tt, C G double2 *bigTrig, bo
   }
 }
 
-void convolution(uint N, uint H, local double *lds, double2 *u, double2 *v, G double2 *io, C G double2 *trig, C G double2 *bigTrig) {
+void convolution(uint N, uint H, local double *lds, double2 *u, double2 *v, G double2 *io, const G double2 *trig, const G double2 *bigTrig) {
   uint W = N * 256;
   uint g = get_group_id(0);
   uint me = get_local_id(0);
