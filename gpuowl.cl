@@ -28,6 +28,8 @@ void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
 // An GF(M31^2) NTT FFT convolution implementation.
 // GF(p^2) is Gaussian integers ("complex integers") with the real/imaginary part modulo p.
 
+// LOG_ROOT2 == log2(32 / (NWORDS % 31) % 31)
+
 typedef uint T;
 typedef uint2 T2;
 
@@ -88,7 +90,6 @@ uint2 mul_3t8(uint2 ) { return U2(shl(neg(a.x) + neg(a.y), 15), shl(a.x + neg(a.
 // input, output 31 bits. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
 uint2 sq(uint2 a) { return U2(mul(a + b, sub(a, b)), mul(a, b << 1)); }
 
-
 #endif
 
 
@@ -127,6 +128,38 @@ T2 U2(T a, T b) { return (T2)(a, b); }
 T2 addsub(T2 a) { return U2(add1(a.x, a.y), sub1(a.x, a.y)); }
 T2 swap(T2 a) { return U2(a.y, a.x); }
 T2 conjugate(T2 a) { return U2(a.x, neg(a.y)); }
+uint extra(uint k) { return mul24(k, STEP) & (NWORDS - 1); }
+
+#ifdef FFT_M31
+
+uint2 weight(uint2 a, uint pos, uint logRoot2) { return shl2(a, U2(extra(pos), extra(pos + 1)) * logRoot2 % 31); }
+uint2 weightDirect (uint2 u, uint pos) { return weight(u, pos, LOG_ROOT2); }
+uint2 weightInverse(uint2 u, uint pos) { return weight(u, pos, 31 - LOG_ROOT2); }
+
+void fftPremul(uint N, uint H, local T *lds, uint2 *u, const G uint2 *in, G uint2 *out, const G uint2 *trig) {
+  // NWORDS-th order root of 2: root2 ^ NWORDS == 2 (mod M31)
+  // root2 == 32 / (NWORDS % 31) % 31
+  // root2 == (1 << ROOT2_SHIFT)
+
+  uint g = get_group_id(0);
+  uint step = N * 256 * g;
+  in  += step;
+  out += step;
+
+  uint me = get_local_id(0);
+  
+  for (int i = 0; i < N; ++i) {
+    uint p = me + i * 256;
+    uint pos = g + HEIGHT * 256 * i + HEIGHT * me;
+    u[i] = weightDirect(in[posInLine], 2 * pos);
+  }
+
+  fftImpl(N, lds, u, trig);
+
+  write(N, u, out, 0);
+}
+
+#endif
 
 
 #if defined(FFT_DP) || defined(FFT_SP)
@@ -164,39 +197,21 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
 // Reverse weighting, round, carry propagation for a pair of doubles; with optional MUL.
-int2 car0(bool doMul3, long *carry, double2 u, double2 ia) {
-  u *= fabs(ia); // Reverse weighting by multiply with "ia"
-  int a = updateMul(doMul3, carry, toLong(u.x), oldBitlen(ia.x));
-  int b = updateMul(doMul3, carry, toLong(u.y), oldBitlen(ia.y));
+int2 car0(bool doMul3, T2 u, Carry *carry, uint pos, T2 *iA, uint p) {
+  // note: "pos" not used.
+  T2 weight = iA[p];
+  u *= fabs(weight); // Reverse weighting by multiply with "ia"
+  int a = updateMul(doMul3, carry, toLong(u.x), oldBitlen(weight.x));
+  int b = updateMul(doMul3, carry, toLong(u.y), oldBitlen(weight.y));
   return (int2) (a, b);
 }
 
-// Carry propagation with optional MUL, over 16 words.
-// Input is doubles. They are weighted with the "inverse weight" A
-// and rounded to output ints and to left-over carryOut.
-// Width = N * 256
-void carryACore(uint N, uint H, bool doMul3, const G T2 *in, const G T2 *A, G int2 *out, G long *carryOut) {
-  uint g  = get_group_id(0);
-  uint me = get_local_id(0);
-  uint gx = g % N;
-  uint gy = g / N;
-
-  uint step = 256 * gx + N * 256 * CARRY_LEN * gy;
-  in     += step;
-  out    += step;
-  A      += step;
-
-  long carry = 0;
-
-  for (int i = 0; i < CARRY_LEN; ++i) {
-    uint pos = CARRY_LEN * gy + H * 256 * gx  + H * me + i;
-    uint p = me + i * N * 256;
-    out[p] = car0(doMul3, &carry, conjugate(in[p]), A[p]);
-  }
-  carryOut[g * 256 + me] = carry;
-}
+double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 
 #endif
+
+
+// Common (generic) code below. This is the same for GF(p^2) and for complex floating-point (DP & SP).
 
 #define X2(a, b) { T2 t = a; a = add(t, b); b = sub(t, b); }
 #define S2(a, b) { T2 t = a; a = b; b = t; }
@@ -332,13 +347,11 @@ void fft(uint N, local T *lds, T2 *u, G T2 *io, const G T2 *trig) {
   write(N, u, io, 0);
 }
 
-double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
-
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-void fftPremul(uint N, local double *lds, double2 *u, const G int2 *in, G double2 *out, const G double2 *A,
-               const G double2 *trig) {
+void fftPremul(uint N, uint H, local T *lds, T2 *u, const G Word2 *in, G T2 *out, const G T2 *A,
+               const G T2 *trig) {
   uint g = get_group_id(0);
-  uint step = g * (N * 256);
+  uint step = N * 256 * g;
   in  += step;
   A   += step;
   out += step;
@@ -389,8 +402,6 @@ void reverse(uint N, local double2 *lds, double2 *u, bool bump) {
   }
 }
 
-uint extra(uint k) { return mul24(k, STEP) & (NWORDS - 1); }
-
 // Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
 bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
 
@@ -398,7 +409,7 @@ bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
 uint bitlenAtPos(uint k) { return EXP / NWORDS + isBigWord(k); }
 
 // Carry propagation.
-int2 car1(Carry *carry, Word2 r, int pos) {
+int2 car1(Word2 r, Carry *carry, int pos) {
   int a = updateMul(false, carry, r.x, bitlenAtPos(pos));
   int b = updateMul(false, carry, r.y, bitlenAtPos(pos + 1));
   return (int2) (a, b);
@@ -482,6 +493,28 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
   write(N, u, io, 0);
 }
 
+// Carry propagation with optional MUL-3, over CARRY_LEN words.
+// Input is conjugated and inverse-weighted.
+void carryACore(uint N, uint H, bool doMul3, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
+  uint g  = get_group_id(0);
+  uint me = get_local_id(0);
+  uint gx = g % N;
+  uint gy = g / N;
+
+  uint step = 256 * gx + N * 256 * CARRY_LEN * gy;
+  in     += step;
+  out    += step;
+
+  long carry = 0;
+
+  for (int i = 0; i < CARRY_LEN; ++i) {
+    uint pos = CARRY_LEN * gy + H * 256 * gx  + H * me + i;
+    uint p = me + i * N * 256;
+    out[p] = car0(doMul3, conjugate(in[p]), &carry, 2 * pos, A, step + p);
+  }
+  carryOut[g * 256 + me] = carry;
+}
+
 // The second round of carry propagation (16 words), needed to "link the chain" after carryA.
 void carryBCore(uint N, uint H, G Word2 *io, const G Carry *carryIn) {
   uint g  = get_group_id(0);
@@ -502,7 +535,7 @@ void carryBCore(uint N, uint H, G Word2 *io, const G Carry *carryIn) {
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint pos = CARRY_LEN * gy + H * 256 * gx + H * me + i;
     uint p = me + i * N * 256;
-    io[p] = car1(&carry, io[p], pos * 2);
+    io[p] = car1(io[p], &carry, pos * 2);
     if (!carry) { return; }
   }
 }
@@ -730,7 +763,7 @@ KERNEL(256) fftH(P(double2) io, Trig smallTrig) {
 KERNEL(256) fftP(CP(int2) in, P(double2) out, CP(double2) A, Trig smallTrig) {
   local double lds[WIDTH];
   double2 u[N_WIDTH];
-  fftPremul(N_WIDTH, lds, u, in, out, A, smallTrig);
+  fftPremul(N_WIDTH, HEIGHT, lds, u, in, out, A, smallTrig);
 }
 
 KERNEL(256) carryA(CP(double2) in, CP(double2) A, P(int2) out, P(long) carryOut) {
