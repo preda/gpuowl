@@ -338,8 +338,8 @@ long toLong(double x) { return rint(x); }
 int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
 
 // Carry propagation, with optional MUL.
-int updateMul(int mul, long *carry, long x, uint bits) {
-  long u = *carry + x * mul;
+int updateMul(bool doMul3, long *carry, long x, uint bits) {
+  long u = *carry + (doMul3 ? x * 3 : x);
   int w = lowBits(u, bits);
   *carry = (u - w) >> bits;
   return w;
@@ -364,17 +364,17 @@ uint bitlenAtPos(uint k) { return EXP / NWORDS + isBigWord(k); }
 uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
 // Reverse weighting, round, carry propagation for a pair of doubles; with optional MUL.
-int2 car0Mul(int mul, long *carry, double2 u, double2 ia) {
+int2 car0(bool doMul3, long *carry, double2 u, double2 ia) {
   u *= fabs(ia); // Reverse weighting by multiply with "ia"
-  int a = updateMul(mul, carry, toLong(u.x), oldBitlen(ia.x));
-  int b = updateMul(mul, carry, toLong(u.y), oldBitlen(ia.y));
+  int a = updateMul(doMul3, carry, toLong(u.x), oldBitlen(ia.x));
+  int b = updateMul(doMul3, carry, toLong(u.y), oldBitlen(ia.y));
   return (int2) (a, b);
 }
 
 // Carry propagation.
 int2 car1(long *carry, int2 r, int pos) {
-  int a = updateMul(1, carry, r.x, bitlenAtPos(pos));
-  int b = updateMul(1, carry, r.y, bitlenAtPos(pos + 1));
+  int a = updateMul(false, carry, r.x, bitlenAtPos(pos));
+  int b = updateMul(false, carry, r.y, bitlenAtPos(pos + 1));
   return (int2) (a, b);
 }
 
@@ -463,7 +463,7 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
 // Input is doubles. They are weighted with the "inverse weight" A
 // and rounded to output ints and to left-over carryOut.
 // Width = N * 256
-void carryACore(uint N, uint H, uint mul, const G T2 *in, const G T2 *A, G int2 *out, G long *carryOut) {
+void carryACore(uint N, uint H, bool doMul3, const G T2 *in, const G T2 *A, G int2 *out, G long *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   uint gx = g % N;
@@ -479,7 +479,7 @@ void carryACore(uint N, uint H, uint mul, const G T2 *in, const G T2 *A, G int2 
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint pos = CARRY_LEN * gy + H * 256 * gx  + H * me + i;
     uint p = me + i * N * 256;
-    out[p] = car0Mul(mul, &carry, conjugate(in[p]), A[p]);
+    out[p] = car0(doMul3, &carry, conjugate(in[p]), A[p]);
   }
   carryOut[g * 256 + me] = carry;
 }
@@ -739,11 +739,11 @@ KERNEL(256) fftP(CP(int2) in, P(double2) out, CP(double2) A, Trig smallTrig) {
 }
 
 KERNEL(256) carryA(CP(double2) in, CP(double2) A, P(int2) out, P(long) carryOut) {
-  carryACore(N_WIDTH, HEIGHT, 1, in, A, out, carryOut);
+  carryACore(N_WIDTH, HEIGHT, false, in, A, out, carryOut);
 }
 
 KERNEL(256) carryM(CP(double2) in, CP(double2) A, P(int2) out, P(long) carryOut) {
-  carryACore(N_WIDTH, HEIGHT, 3, in, A, out, carryOut);
+  carryACore(N_WIDTH, HEIGHT, true, in, A, out, carryOut);
 }
 
 KERNEL(256) carryB(P(int2) io, CP(long) carryIn) {
