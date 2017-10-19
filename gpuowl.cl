@@ -7,6 +7,9 @@
 #define STEP (NWORDS - (EXP & (NWORDS - 1)))
 #define BASE_BITLEN (EXP / NWORDS)
 
+// propagate carry this many lines.
+#define CARRY_LEN 16
+
 
 // OpenCL 2.x introduces the "generic" memory space, so there's no need to specify "global" on pointers everywhere.
 #if __OPENCL_C_VERSION__ >= 200
@@ -48,8 +51,11 @@ uint bigmod1(ulong x) {
 }
 uint bigmod2(ulong x, ulong y) { return U2(bigmod1(x), bigmod1(y)); }
 
+// negative: -x
+uint neg(uint x) { return M31 - x; }
+  
 uint add1(uint a, uint b) { return mod1(a + b); }
-uint sub1(uint a, uint b) { return mod1(a + (M31 - b)); }
+uint sub1(uint a, uint b) { return add1(a, neg(b)); }
 
 uint2 add(uint2 a, uint2 b) { return U2(add1(a.x, b.x), add1(a.y, b.y)); }
 uint2 sub(uint2 a, uint2 b) { return U2(sub1(a.x, b.x), sub1(a.y, b.y)); }
@@ -65,19 +71,19 @@ uint2 mul(uint2 u, uint2 v) {
   uint a = u.x, b = u.y, c = v.x, d = v.y;
   ulong k1 = rawMul(c, add(a, b));
   ulong k2 = rawMul(a, sub(d, c));
-  ulong k3 = rawMul(b, M31 - add(d, c));
+  ulong k3 = rawMul(b, neg(add(d, c)));
   // k1..k3 have at most 62 bits, so sums are at most 63 bits.
   return U2(bigmod(k1 + k3), bigmod(k1 + k2));
 }
 
 // mul with (0, 1). (twiddle of tau/4, sqrt(-1) aka "i").
-uint2 mul_t4(uint2 a) { return U2(M31 - a.y, a.x); }
+uint2 mul_t4(uint2 a) { return U2(neg(a.y), a.x); }
 
 // mul with (2^15, 2^15). (twiddle of tau/8 aka sqrt(i)).
-uint2 mul_t8(uint2 a) { return U2(shl(a.x + (M31 - a.y), 15), shl(a.x + a.y, 15)); }
+uint2 mul_t8(uint2 a) { return U2(shl(a.x + neg(a.y), 15), shl(a.x + a.y, 15)); }
 
 // mul with (-2^15, 2^15). (twiddle of 3*tau/8).
-uint2 mul_3t8(uint2 ) { return U2(shl((M31 - a.x) + (M31 - a.y), 15), shl(a.x + (M31 - a.y), 15)); }
+uint2 mul_3t8(uint2 ) { return U2(shl(neg(a.x) + neg(a.y), 15), shl(a.x + neg(a.y), 15)); }
 
 // input, output 31 bits. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
 uint2 sq(uint2 a) { return U2(mul(a + b, sub(a, b)), mul(a, b << 1)); }
@@ -104,6 +110,10 @@ typedef double2 T2;
 
 #if defined(FFT_DP) || defined(FFT_SP)
 
+typedef long Carry;
+typedef int2 Word2;
+
+T neg(T x) { return -x; }
 T add1(T a, T b) { return a + b; }
 T sub1(T a, T b) { return a - b; }
 
@@ -115,6 +125,8 @@ T2 sub(T2 a, T2 b) { return a - b; }
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 T2 addsub(T2 a) { return U2(add1(a.x, a.y), sub1(a.x, a.y)); }
+T2 swap(T2 a) { return U2(a.y, a.x); }
+T2 conjugate(T2 a) { return U2(a.x, neg(a.y)); }
 
 
 #if defined(FFT_DP) || defined(FFT_SP)
@@ -133,15 +145,61 @@ T2 mul_t4(T2 a)  { return mul(a, U2(0,  -1)); }
 T2 mul_t8(T2 a)  { return mul(a, U2(1,  -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
-#endif
+// Round x to long.
+long toLong(double x) { return rint(x); }
 
+int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
+
+// Carry propagation, with optional MUL.
+int updateMul(bool doMul3, Carry *carry, long x, uint bits) {
+  long u = *carry + (doMul3 ? x * 3 : x);
+  int w = lowBits(u, bits);
+  *carry = (u - w) >> bits;
+  return w;
+}
+
+// Simpler version of signbit(a).
+uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
+
+uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
+
+// Reverse weighting, round, carry propagation for a pair of doubles; with optional MUL.
+int2 car0(bool doMul3, long *carry, double2 u, double2 ia) {
+  u *= fabs(ia); // Reverse weighting by multiply with "ia"
+  int a = updateMul(doMul3, carry, toLong(u.x), oldBitlen(ia.x));
+  int b = updateMul(doMul3, carry, toLong(u.y), oldBitlen(ia.y));
+  return (int2) (a, b);
+}
+
+// Carry propagation with optional MUL, over 16 words.
+// Input is doubles. They are weighted with the "inverse weight" A
+// and rounded to output ints and to left-over carryOut.
+// Width = N * 256
+void carryACore(uint N, uint H, bool doMul3, const G T2 *in, const G T2 *A, G int2 *out, G long *carryOut) {
+  uint g  = get_group_id(0);
+  uint me = get_local_id(0);
+  uint gx = g % N;
+  uint gy = g / N;
+
+  uint step = 256 * gx + N * 256 * CARRY_LEN * gy;
+  in     += step;
+  out    += step;
+  A      += step;
+
+  long carry = 0;
+
+  for (int i = 0; i < CARRY_LEN; ++i) {
+    uint pos = CARRY_LEN * gy + H * 256 * gx  + H * me + i;
+    uint p = me + i * N * 256;
+    out[p] = car0(doMul3, &carry, conjugate(in[p]), A[p]);
+  }
+  carryOut[g * 256 + me] = carry;
+}
+
+#endif
 
 #define X2(a, b) { T2 t = a; a = add(t, b); b = sub(t, b); }
 #define S2(a, b) { T2 t = a; a = b; b = t; }
-
-T2 swap(T2 a) { return U2(a.y, a.x); }
-
-T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
@@ -331,28 +389,6 @@ void reverse(uint N, local double2 *lds, double2 *u, bool bump) {
   }
 }
 
-
-// Round x to long.
-long toLong(double x) { return rint(x); }
-
-int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
-
-// Carry propagation, with optional MUL.
-int updateMul(bool doMul3, long *carry, long x, uint bits) {
-  long u = *carry + (doMul3 ? x * 3 : x);
-  int w = lowBits(u, bits);
-  *carry = (u - w) >> bits;
-  return w;
-}
-
-// Simpler version of signbit(a).
-uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
-
-// double xorSign(double a, uint bit) { ((uint *)&a)[1] ^= (bit << 31); return a; }
-// double2 xorSign2(double2 a, uint bit) { return (double2) (xorSign(a.x, bit), xorSign(a.y, bit)); }
-
-double2 xorSign2(double2 a, uint bit) { return bit ? -a : a; }
-
 uint extra(uint k) { return mul24(k, STEP) & (NWORDS - 1); }
 
 // Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
@@ -361,18 +397,8 @@ bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
 // Number of bits for the word at pos.
 uint bitlenAtPos(uint k) { return EXP / NWORDS + isBigWord(k); }
 
-uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
-
-// Reverse weighting, round, carry propagation for a pair of doubles; with optional MUL.
-int2 car0(bool doMul3, long *carry, double2 u, double2 ia) {
-  u *= fabs(ia); // Reverse weighting by multiply with "ia"
-  int a = updateMul(doMul3, carry, toLong(u.x), oldBitlen(ia.x));
-  int b = updateMul(doMul3, carry, toLong(u.y), oldBitlen(ia.y));
-  return (int2) (a, b);
-}
-
 // Carry propagation.
-int2 car1(long *carry, int2 r, int pos) {
+int2 car1(Carry *carry, Word2 r, int pos) {
   int a = updateMul(false, carry, r.x, bitlenAtPos(pos));
   int b = updateMul(false, carry, r.y, bitlenAtPos(pos + 1));
   return (int2) (a, b);
@@ -456,39 +482,8 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
   write(N, u, io, 0);
 }
 
-// propagate carry this many lines.
-#define CARRY_LEN 16
-
-// Carry propagation with optional MUL, over 16 words.
-// Input is doubles. They are weighted with the "inverse weight" A
-// and rounded to output ints and to left-over carryOut.
-// Width = N * 256
-void carryACore(uint N, uint H, bool doMul3, const G T2 *in, const G T2 *A, G int2 *out, G long *carryOut) {
-  uint g  = get_group_id(0);
-  uint me = get_local_id(0);
-  uint gx = g % N;
-  uint gy = g / N;
-
-  uint step = 256 * gx + N * 256 * CARRY_LEN * gy;
-  in     += step;
-  out    += step;
-  A      += step;
-
-  long carry = 0;
-
-  for (int i = 0; i < CARRY_LEN; ++i) {
-    uint pos = CARRY_LEN * gy + H * 256 * gx  + H * me + i;
-    uint p = me + i * N * 256;
-    out[p] = car0(doMul3, &carry, conjugate(in[p]), A[p]);
-  }
-  carryOut[g * 256 + me] = carry;
-}
-
 // The second round of carry propagation (16 words), needed to "link the chain" after carryA.
-// Input is int words and the left-over carry from carryA.
-// Output is int words.
-// Width = N * 256
-void carryBCore(uint N, uint H, G int2 *io, const G long *carryIn) {
+void carryBCore(uint N, uint H, G Word2 *io, const G Carry *carryIn) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   uint gx = g % N;
