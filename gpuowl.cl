@@ -1,15 +1,28 @@
 // gpuOwl, an OpenCL Mersenne primality test.
 // Copyright (C) 2017 Mihai Preda.
 
-// Expected defines: WIDTH, HEIGHT, EXP.
+// Data can be seen as a matrix WIDTH x HEIGHT of pairs of words.
+// The order of words is column-major (i.e. transposed from the usual row-major order).
 
+// Expected defines: WIDTH, HEIGHT, EXP.
+// One of: FFT_NTT, FFT_FP
+// If FFT_NTT, also LOG_ROOT2 is expected, LOG_ROOT2 == log2(32 / (NWORDS % 31) % 31).
+// If FFT_FP, one of: FP_SP or FP_DP.
+
+// FFT_NTT: a GF(M31^2) NTT FFT convolution.
+// GF(p^2) is Gaussian integers ("complex integers") with the real/imaginary part modulo p.
+
+// Number of words; a power of two.
 #define NWORDS (WIDTH * HEIGHT * 2u)
+
+// Used in bitlen() and weighting.
 #define STEP (NWORDS - (EXP & (NWORDS - 1)))
+
+// Each word has either BASE_BITLEN ("small word") or BASE_BITLEN+1 ("big word") bits.
 #define BASE_BITLEN (EXP / NWORDS)
 
-// propagate carry this many lines.
+// Propagate carry this many pairs of words.
 #define CARRY_LEN 16
-
 
 // OpenCL 2.x introduces the "generic" memory space, so there's no need to specify "global" on pointers everywhere.
 #if __OPENCL_C_VERSION__ >= 200
@@ -19,64 +32,132 @@
 #endif
 
 
-void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
-void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
-
-
-#ifdef FFT_M31
-
-// An GF(M31^2) NTT FFT convolution implementation.
-// GF(p^2) is Gaussian integers ("complex integers") with the real/imaginary part modulo p.
-
-// LOG_ROOT2 == log2(32 / (NWORDS % 31) % 31)
+#ifdef FFT_NTT
 
 typedef uint T;
 typedef uint2 T2;
+
+typedef uint Carry;
+typedef uint2 Word2;
+
+#else
+
+#ifdef FP_DP
+
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#pragma OPENCL FP_CONTRACT ON
+
+typedef double T;
+typedef double2 T2;
+
+#else
+
+typedef float T;
+typedef float2 T2;
+
+#endif // FP_DP
+
+typedef long Carry;
+typedef int2 Word2;
+
+#endif // FFT_NTT
+
+
+T2 U2(T a, T b) { return (T2)(a, b); }
+
+
+#ifdef FFT_NTT
 
 // Prime M(31) == 2**31 - 1
 #define M31 0x7fffffffu
 
 ulong u64(uint a) { return a; } // cast to 64 bits.
-
-
-// input 32 bits except 2^32-1. Output 31 bits.
-uint mod1(uint x) { return (x >> 31) + (x & M31); }
-uint mod2(uint x, uint y) { return U2(mod1(x), mod1(y)); }
-
 uint lo(ulong a) { return a & 0xffffffff; }
 uint up(ulong a) { return a >> 32; }
 
-// input 63 bits, output 31 bits.
-uint bigmod1(ulong x) {
+// input 32 bits except 2^32-1; output 31 bits.
+uint mod(uint x) { return (x >> 31) + (x & M31); }
+
+// input 63 bits; output 31 bits.
+uint bigmod(ulong x) {
   x = u64(up(x) << 1) + lo(x); // 'up' is 31 bits.
   return mod1(lo(x) + (up(x) << 1));
 }
-uint bigmod2(ulong x, ulong y) { return U2(bigmod1(x), bigmod1(y)); }
 
-// negative: -x
+// uint mod2(uint x, uint y) { return U2(mod1(x), mod1(y)); }
+// uint bigmod2(ulong x, ulong y) { return U2(bigmod1(x), bigmod1(y)); }
+
+// negative: -x; input 31 bits.
 uint neg(uint x) { return M31 - x; }
   
-uint add1(uint a, uint b) { return mod1(a + b); }
+uint add1(uint a, uint b) { return mod(a + b); }
 uint sub1(uint a, uint b) { return add1(a, neg(b)); }
 
 uint2 add(uint2 a, uint2 b) { return U2(add1(a.x, b.x), add1(a.y, b.y)); }
 uint2 sub(uint2 a, uint2 b) { return U2(sub1(a.x, b.x), sub1(a.y, b.y)); }
 
-uint shl(uint a, uint k) { return bigmod1(u64(a) << k); }
-// uint2 shl2(uint2 a, uint2 k) { return U2(shl(a.x, k.x), shl(a.y, k.y)); }
+uint shl1(uint a,  uint k) { return bigmod(u64(a) << k); }
 
-ulong rawMul(uint a, uint b) { return u64(a) * b; }
-uint mul(uint a, uint b) { return mod63(rawMul(a, b)); }
+ulong wideMul(uint a, uint b) { return u64(a) * b; }
 
-// Complex mul. input and output 31 bits.
+// The main mul, "complex mul". input and output 31 bits.
+// (a + i*b) * (c + i*d) mod reduced.
 uint2 mul(uint2 u, uint2 v) {
   uint a = u.x, b = u.y, c = v.x, d = v.y;
-  ulong k1 = rawMul(c, add(a, b));
-  ulong k2 = rawMul(a, sub(d, c));
-  ulong k3 = rawMul(b, neg(add(d, c)));
+  ulong k1 = wideMul(c, add(a, b));
+  ulong k2 = wideMul(a, sub(d, c));
+  ulong k3 = wideMul(b, neg(add(d, c)));
   // k1..k3 have at most 62 bits, so sums are at most 63 bits.
   return U2(bigmod(k1 + k3), bigmod(k1 + k2));
 }
+
+// scalar mul.
+uint mul1(uint a, uint b) { return bigmod(wideMul(a, b)); }
+
+// input, output 31 bits. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
+uint2 sq(uint2 a) { return U2(mul1(a.x + a.y, sub(a.x, a.y)), mul1(a.x, a.y << 1)); }
+
+#else
+
+T neg(T x) { return -x; }
+T add1(T a, T b) { return a + b; }
+T sub1(T a, T b) { return a - b; }
+
+T2 add(T2 a, T2 b) { return a + b; }
+T2 sub(T2 a, T2 b) { return a - b; }
+
+T shl1(T a, uint k) { return a * (1 << k); }
+
+// complex mul
+T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+
+// complex square
+T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }
+
+T mul1(T a, T b) { return a * b; }
+
+#endif
+
+
+T2 shl(T2 a, uint k) { return U2(shl1(a.x, k), shl1(a.y, k)); }
+
+T2 addsub(T2 a) { return U2(add1(a.x, a.y), sub1(a.x, a.y)); }
+T2 swap(T2 a) { return U2(a.y, a.x); }
+T2 conjugate(T2 a) { return U2(a.x, neg(a.y)); }
+
+uint extra(uint k) { return mul24(k, STEP) & (NWORDS - 1); }
+
+void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
+void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
+
+// Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
+bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
+
+// Number of bits for the word at pos.
+uint bitlenAtPos(uint k) { return EXP / NWORDS + isBigWord(k); }
+
+
+#ifdef FFT_NTT
 
 // mul with (0, 1). (twiddle of tau/4, sqrt(-1) aka "i").
 uint2 mul_t4(uint2 a) { return U2(neg(a.y), a.x); }
@@ -87,107 +168,66 @@ uint2 mul_t8(uint2 a) { return U2(shl(a.x + neg(a.y), 15), shl(a.x + a.y, 15)); 
 // mul with (-2^15, 2^15). (twiddle of 3*tau/8).
 uint2 mul_3t8(uint2 ) { return U2(shl(neg(a.x) + neg(a.y), 15), shl(a.x + neg(a.y), 15)); }
 
-// input, output 31 bits. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
-uint2 sq(uint2 a) { return U2(mul(a + b, sub(a, b)), mul(a, b << 1)); }
-
-#endif
-
-
-#if defined(FFT_DP)
-
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
-#pragma OPENCL FP_CONTRACT ON
-
-typedef double T;
-typedef double2 T2;
-
-#elif defined(FFT_SP)
-
-typedef double T;
-typedef double2 T2;
-
-#endif
-
-
-#if defined(FFT_DP) || defined(FFT_SP)
-
-typedef long Carry;
-typedef int2 Word2;
-
-T neg(T x) { return -x; }
-T add1(T a, T b) { return a + b; }
-T sub1(T a, T b) { return a - b; }
-
-T2 add(T2 a, T2 b) { return a + b; }
-T2 sub(T2 a, T2 b) { return a - b; }
-
-#endif
-
-
-T2 U2(T a, T b) { return (T2)(a, b); }
-T2 addsub(T2 a) { return U2(add1(a.x, a.y), sub1(a.x, a.y)); }
-T2 swap(T2 a) { return U2(a.y, a.x); }
-T2 conjugate(T2 a) { return U2(a.x, neg(a.y)); }
-uint extra(uint k) { return mul24(k, STEP) & (NWORDS - 1); }
-
-#ifdef FFT_M31
-
-uint2 weight(uint2 a, uint pos, uint logRoot2) { return shl2(a, U2(extra(pos), extra(pos + 1)) * logRoot2 % 31); }
-uint2 weightDirect (uint2 u, uint pos) { return weight(u, pos, LOG_ROOT2); }
-uint2 weightInverse(uint2 u, uint pos) { return weight(u, pos, 31 - LOG_ROOT2); }
-
-void fftPremul(uint N, uint H, local T *lds, uint2 *u, const G uint2 *in, G uint2 *out, const G uint2 *trig) {
-  // NWORDS-th order root of 2: root2 ^ NWORDS == 2 (mod M31)
-  // root2 == 32 / (NWORDS % 31) % 31
-  // root2 == (1 << ROOT2_SHIFT)
-
-  uint g = get_group_id(0);
-  uint step = N * 256 * g;
-  in  += step;
-  out += step;
-
-  uint me = get_local_id(0);
-  
-  for (int i = 0; i < N; ++i) {
-    uint p = me + i * 256;
-    uint pos = g + HEIGHT * 256 * i + HEIGHT * me;
-    u[i] = weightDirect(in[posInLine], 2 * pos);
-  }
-
-  fftImpl(N, lds, u, trig);
-
-  write(N, u, out, 0);
-}
-
-#endif
-
-
-#if defined(FFT_DP) || defined(FFT_SP)
-
-// complex mul
-T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
-
-// complex square
-T2 sq(T2 a) {
-  T t = a.x * a.y * 2;
-  a = addsub(a);
-  return U2(a.x * a.y, t);
-}
+#else
 
 T2 mul_t4(T2 a)  { return mul(a, U2(0,  -1)); }
 T2 mul_t8(T2 a)  { return mul(a, U2(1,  -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
-// Round x to long.
+#endif
+
+
+#ifdef FFT_NTT
+
+uint2 weight(uint2 a, uint pos, uint logRoot2) {
+  a.x = shl1(a.x, (extra(pos)     * logRoot2) % 31);
+  a.y = shl1(a.y, (extra(pos + 1) * logRoot2) % 31);
+  return a;
+}
+
+uint2 weightDirect (uint2 u, uint pos) { return weight(u, pos, LOG_ROOT2); }
+
+uint2 weightInverse(uint2 u, uint pos) { return weight(u, pos, 31 - LOG_ROOT2); }
+
+uint lowBits(uint x, uint bits) { return u & ((1 << bits) - 1); }
+
+// one step of carry propagation.
+uint update(uint x, Carry *carry, uint bits) {
+  x = mod(x + *carry);
+  *carry = x >> bits;
+  return lowBits(x, bits);
+}
+
+// input & output 31 bits.
+uint times3(uint x) {
+  ulong a = x * 2 + (ulong) x; // times-3 in a form expressing a single carry-out bit (x being 31 bits).
+  return mod(lo(a) + 2 * up(a));
+}
+
+uint updateMul(bool doMul3, uint x, uint *carry, uint bits) {
+  x = doMul3 ? times3(x) : x;
+  return update(x, carry, bits);
+}
+
+// Reverse weighting, round, carry propagation for a pair of words; with optional MUL-3.
+Word2 car0(bool doMul3, T2 u, Carry *carry, uint pos, T2 *dummyA, uint dummyP) {
+  u.x = updateMul(doMul3, weightInverse(u.x, pos + 0), carry, bitlen(pos + 0));
+  u.y = updateMul(doMul3, weightInverse(u.y, pos + 1), carry, bitlen(pos + 1));
+  return u;
+}
+
+#else
+
+// Round(!) x to long.
 long toLong(double x) { return rint(x); }
 
 int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
 
-// Carry propagation, with optional MUL.
-int updateMul(bool doMul3, Carry *carry, long x, uint bits) {
-  long u = *carry + (doMul3 ? x * 3 : x);
-  int w = lowBits(u, bits);
-  *carry = (u - w) >> bits;
+int updateMul(bool doMul3, long x, Carry *carry, uint bits) {
+  x = doMul3 ? x * 3 : x;
+  x += *carry;
+  int w = lowBits(x, bits);
+  *carry = (x - w) >> bits;
   return w;
 }
 
@@ -197,13 +237,12 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
 // Reverse weighting, round, carry propagation for a pair of doubles; with optional MUL.
-int2 car0(bool doMul3, T2 u, Carry *carry, uint pos, T2 *iA, uint p) {
-  // note: "pos" not used.
+Word2 car0(bool doMul3, T2 u, Carry *carry, uint dummyPos, T2 *iA, uint p) {
   T2 weight = iA[p];
-  u *= fabs(weight); // Reverse weighting by multiply with "ia"
-  int a = updateMul(doMul3, carry, toLong(u.x), oldBitlen(weight.x));
-  int b = updateMul(doMul3, carry, toLong(u.y), oldBitlen(weight.y));
-  return (int2) (a, b);
+  u *= fabs(weight);
+  int a = updateMul(doMul3, toLong(u.x), carry, oldBitlen(weight.x));
+  int b = updateMul(doMul3, toLong(u.y), carry, oldBitlen(weight.y));
+  return (Word2) (a, b);
 }
 
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
@@ -211,7 +250,23 @@ double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 #endif
 
 
-// Common (generic) code below. This is the same for GF(p^2) and for complex floating-point (DP & SP).
+// Generic (the same for NTT/FP) code below.
+
+// Carry propagation.
+Word2 car1(Word2 a, Carry *carry, uint pos) {
+  a.x = updateMul(false, a.x, carry, bitlenAtPos(pos));
+  a.y = updateMul(false, a.y, carry, bitlenAtPos(pos + 1));
+  return a;
+}
+
+T2 foo2(T2 a, T2 b) {
+  a = addsub(a);
+  b = addsub(b);
+  return addsub(U2(mul1(a.x, b.x), mul1(a.y, b.y)));
+}
+
+// computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
+T2 foo(T2 a) { return foo2(a, a); }
 
 #define X2(a, b) { T2 t = a; a = add(t, b); b = sub(t, b); }
 #define S2(a, b) { T2 t = a; a = b; b = t; }
@@ -347,25 +402,48 @@ void fft(uint N, local T *lds, T2 *u, G T2 *io, const G T2 *trig) {
   write(N, u, io, 0);
 }
 
-// fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-void fftPremul(uint N, uint H, local T *lds, T2 *u, const G Word2 *in, G T2 *out, const G T2 *A,
-               const G T2 *trig) {
+/*
+void fftPremul(uint N, uint H, local T *lds, uint2 *u, const G uint2 *in, G uint2 *out, const G uint2 *trig) {
+  // NWORDS-th order root of 2: root2 ^ NWORDS == 2 (mod M31)
+  // root2 == 32 / (NWORDS % 31) % 31
+  // root2 == (1 << ROOT2_SHIFT)
+
   uint g = get_group_id(0);
   uint step = N * 256 * g;
   in  += step;
-  A   += step;
+  out += step;
+
+  uint me = get_local_id(0);
+  
+  for (int i = 0; i < N; ++i) {
+    uint p = me + i * 256;
+    uint pos = g + HEIGHT * 256 * i + HEIGHT * me;
+    u[i] = weightDirect(in[posInLine], 2 * pos);
+  }
+
+  fftImpl(N, lds, u, trig);
+
+  write(N, u, out, 0);
+}
+*/
+
+// fftPremul: weight words with "A" (for IBDWT) followed by FFT.
+void fftPremul(uint N, uint H, local T *lds, T2 *u, const G Word2 *in, G T2 *out, const G T2 *A, const G T2 *trig) {
+  uint g = get_group_id(0);
+  uint step = N * 256 * g;
+  in  += step;
   out += step;
   
   uint me = get_local_id(0);
 
-  for (int i = 0; i < N; ++i) { u[i] = toDouble(in[me + i * 256]) * fabs(A[me + i * 256]); }
+  for (int i = 0; i < N; ++i) { u[i] = toDouble(in[me + i * 256]) * fabs(A[me + i * 256 + step]); }
 
   fftImpl(N, lds, u, trig);
 
   write(N, u, out, 0);
 }
 
-void reverse8(local double2 *lds, double2 *u, bool bump) {
+void reverse8(local T2 *lds, T2 *u, bool bump) {
   uint me = get_local_id(0);
   uint rm = 255 - me + bump;
   
@@ -380,7 +458,7 @@ void reverse8(local double2 *lds, double2 *u, bool bump) {
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
 }
 
-void reverse4(local double2 *lds, double2 *u, bool bump) {
+void reverse4(local T2 *lds, T2 *u, bool bump) {
   uint me = get_local_id(0);
   uint rm = 255 - me + bump;
   
@@ -394,25 +472,12 @@ void reverse4(local double2 *lds, double2 *u, bool bump) {
   u[3] = lds[me + 256];
 }
 
-void reverse(uint N, local double2 *lds, double2 *u, bool bump) {
+void reverse(uint N, local T2 *lds, T2 *u, bool bump) {
   if (N == 4) {
     reverse4(lds, u, bump);
   } else {
     reverse8(lds, u, bump);
   }
-}
-
-// Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
-bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
-
-// Number of bits for the word at pos.
-uint bitlenAtPos(uint k) { return EXP / NWORDS + isBigWord(k); }
-
-// Carry propagation.
-int2 car1(Word2 r, Carry *carry, int pos) {
-  int a = updateMul(false, carry, r.x, bitlenAtPos(pos));
-  int b = updateMul(false, carry, r.y, bitlenAtPos(pos + 1));
-  return (int2) (a, b);
 }
 
 // Returns a pair (reduced x, carryOut).
@@ -540,6 +605,7 @@ void carryBCore(uint N, uint H, G Word2 *io, const G Carry *carryIn) {
   }
 }
 
+/*
 double2 foo2(double2 a, double2 b) {
   a = addsub(a);
   b = addsub(b);
@@ -548,15 +614,16 @@ double2 foo2(double2 a, double2 b) {
 
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 double2 foo(double2 a) { return foo2(a, a); }
+*/
 
 // Inputs normal (non-conjugate); outputs conjugate.
-void csquare(uint W, uint H, G double2 *io, const G double2 *bigTrig) {
+void csquare(uint W, uint H, G T2 *io, const G T2 *bigTrig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
   if (g == 0 && me == 0) {
-    io[0]     = 4 * foo(conjugate(io[0]));
-    io[W / 2] = 8 * sq(conjugate(io[W / 2]));
+    io[0]     = shl(foo(conjugate(io[0])), 2);
+    io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);
     return;
   }
   
@@ -585,13 +652,13 @@ void csquare(uint W, uint H, G double2 *io, const G double2 *bigTrig) {
 }
 
 // Like csquare(), but for multiplication.
-void cmul(uint W, uint H, G double2 *io, const G double2 *in, const G double2 *bigTrig) {
+void cmul(uint W, uint H, G T2 *io, const G T2 *in, const G T2 *bigTrig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
   if (g == 0 && me == 0) {
-    io[0]    = 4 * foo2(conjugate(io[0]), conjugate(in[0]));
-    io[W / 2] = 8 * conjugate(mul(io[W / 2], in[W / 2]));
+    io[0]     = shl(foo2(conjugate(io[0]), conjugate(in[0])), 2);
+    io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2])), 3);
     return;
   }
   
@@ -625,26 +692,26 @@ void cmul(uint W, uint H, G double2 *io, const G double2 *in, const G double2 *b
   io[v] = b;
 }
 
-void transposeCore(local double *lds, double2 *u) {
+void transposeCore(local T *lds, T2 *u) {
   uint me = get_local_id(0);
   for (int b = 0; b < 2; ++b) {
     if (b) { bar(); }
     for (int i = 0; i < 16; ++i) {
       uint l = i * 4 + me / 64;
       uint c = me % 64;
-      lds[l * 64 + (c + l) % 64] = ((double *)(u + i))[b];
+      lds[l * 64 + (c + l) % 64] = ((T *)(u + i))[b];
     }
     bar();
     for (int i = 0; i < 16; ++i) {
       uint c = i * 4 + me / 64;
       uint l = me % 64;
-      ((double *)(u + i))[b] = lds[l * 64 + (c + l) % 64];
+      ((T *)(u + i))[b] = lds[l * 64 + (c + l) % 64];
     }
   }
 }
 
 // M == max(W, H)
-void transpose(uint W, uint H, uint M, local double *lds, const G double2 *in, G double2 *out, const G double2 *bigTrig) {
+void transpose(uint W, uint H, uint M, local T *lds, const G T2 *in, G T2 *out, const G T2 *bigTrig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   gy = (gy + gx) % GH;
@@ -652,7 +719,7 @@ void transpose(uint W, uint H, uint M, local double *lds, const G double2 *in, G
   out  += gy * 64     + gx * 64 * H;
   uint me = get_local_id(0), mx = me % 64, my = me / 64;
   
-  double2 u[16];
+  T2 u[16];
   for (int i = 0; i < 16; ++i) {
     uint p = (my + i * 4) * W + mx;
     u[i] = in[p];
@@ -670,16 +737,16 @@ void transpose(uint W, uint H, uint M, local double *lds, const G double2 *in, G
   }
 }
 
-void halfSq(uint N, double2 *u, double2 *v, double2 tt, const G double2 *bigTrig, bool special) {
+void halfSq(uint N, T2 *u, T2 *v, T2 tt, const G T2 *bigTrig, bool special) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   for (int i = 0; i < N / 2; ++i) {
-    double2 a = u[i];
-    double2 b = conjugate(v[N / 2 + i]);
-    double2 t = swap(mul(tt, bigTrig[256 * i + me]));  // assert(N == 8); !! 
+    T2 a = u[i];
+    T2 b = conjugate(v[N / 2 + i]);
+    T2 t = swap(mul(tt, bigTrig[256 * i + me]));
     if (special && i == 0 && g == 0 && me == 0) {
-      a = 4 * foo(a);
-      b = 8 * sq(b);
+      a = shl(foo(a), 2);
+      b = shl(sq(b), 3);
     } else {
       X2(a, b);
       b = mul(b, conjugate(t));
@@ -687,7 +754,7 @@ void halfSq(uint N, double2 *u, double2 *v, double2 tt, const G double2 *bigTrig
       a = sq(a);
       b = sq(b);
       X2(a, b);
-      b = mul(b,  t);
+      b = mul(b, t);
       X2(a, b);
     }
     u[i] = conjugate(a);
@@ -695,19 +762,19 @@ void halfSq(uint N, double2 *u, double2 *v, double2 tt, const G double2 *bigTrig
   }
 }
 
-void convolution(uint N, uint H, local double *lds, double2 *u, double2 *v, G double2 *io, const G double2 *trig, const G double2 *bigTrig) {
+void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T2 *trig, const G T2 *bigTrig) {
   uint W = N * 256;
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   read(N, u, io, g * W);
   fftImpl(N, lds, u, trig);
-  reverse(N, (local double2 *) lds, u, g == 0);
+  reverse(N, (local T2 *) lds, u, g == 0);
 
   uint line2 = g ? H - g : (H / 2);
   read(N, v, io, line2 * W);
   bar();
   fftImpl(N, lds, v, trig);
-  reverse(N, (local double2 *) lds, v, false);
+  reverse(N, (local T2 *) lds, v, false);
   
   if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
 
@@ -717,12 +784,12 @@ void convolution(uint N, uint H, local double *lds, double2 *u, double2 *v, G do
 
   if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
 
-  reverse(N, (local double2 *) lds, u, g == 0);
+  reverse(N, (local T2 *) lds, u, g == 0);
   bar();
   fftImpl(N, lds, u, trig);
   write(N, u, io, g * W);
   
-  reverse(N, (local double2 *) lds, v, false);
+  reverse(N, (local T2 *) lds, v, false);
   bar();
   fftImpl(N, lds, v, trig);
   write(N, v, io, line2 * W);
