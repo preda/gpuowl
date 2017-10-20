@@ -150,45 +150,22 @@ void genWeights(int W, int H, int E, double *aTab, double *iTab) {
   }
 }
 
-struct T2 { u32 x, y; };
-T2 U2(u32 x, u32 y) { return T2{x, y}; }
+template<typename T> struct Pair { T x, y; };
 
-// typedef std::pair<u32, u32> T2;
-// typedef u32 uint;
-// typedef u64 ulong;
+// using T2 = Pair<u32>;
+using double2 = Pair<double>;
+using uint2 = Pair<uint>;
 
-// T2 add(T2 a, T2 b) { return std::make_pair(
+uint2 U2(u32 x, u32 y) { return uint2{x, y}; }
 
 #include "nttshared.h"
 
-/*
-const u32 M31 = 0x7fffffff;
-u32 lo(u64 a) { return a & 0xffffffff; }
-u32 up(u64 a) { return a >> 32; }
-u32 mod(u32 x) { return (x >> 31) + (x & M31); }
-u32 bigmod(u64 x) {
-  x = u64(2 * up(x)) + lo(x);
-  return mod(2 * up(x) + lo(x);
-}
-
-u64 wideMul(u32 a, u32 b) { return u64(a) * b; }
-
-T2 mul(T2 u, T2 v) {
-  u32 a = u.x, b = u.y, c = v.x, d = v.y;
-  u64 k1 = wideMul(c, add(a, b));
-  u64 k2 = wideMul(a, sub(d, c));
-  u64 k3 = wideMul(b, neg(add(d, c)));
-  // k1..k3 have at most 62 bits, so sums are at most 63 bits.
-  return U2(bigmod(k1 + k3), bigmod(k1 + k2));
-}
-*/
-
 // power: a^k
-T2 pow(T2 a, u32 k) {  
+uint2 pow(uint2 a, u32 k) {  
   assert(k < (1 << 24));
   using std::make_pair;
-  T2 x = U2(1, 0);
-  for (int i = 23; i >= 0; ++i) {
+  uint2 x = U2(1, 0);
+  for (int i = std::log2(k); i >= 0; --i) {
     x = sq(x);
     if (k & (1 << i)) { x = mul(x, a); }    
   }
@@ -196,31 +173,32 @@ T2 pow(T2 a, u32 k) {
 }
 
 // a^(2^k)
-T2 pow2(T2 a, u32 k) {
+uint2 pow2(uint2 a, u32 k) {
   for (u32 i = 0; i < k; ++i) { a = sq(a); }
   return a;
 }
 
 // x^31 == -1, aka "root of unity of order 32" in GF(M(31)^2).
-const T2 ROOT1_32{1 << 16, 0x4b94532f};
+const uint2 ROOT1_32{1 << 16, 0x4b94532f};
 
-T2 *trig(T2 *p, int n, int B) {
-  T2 w1 = pow2(ROOT1_32, 32 - std::log2(B));
-  T2 x = U2(1, 0);
-  for (int i = 0; i < n; ++i) {
-    *p++ = x;
-    x = mul(x, w1);
-  }
-  return p;
+template<typename T2> T2 root1(uint N, uint k);
+
+// Return w^(k/N), where w^(N/2)==-1.
+template<> double2 root1<double2>(uint N, uint k) {
+  auto angle = - TAU / N * k;
+  double x = cosl(angle);
+  double y = sinl(angle);
+  return double2{x, y};
 }
 
-double *trig(double *p, int n, int B) {
-  auto base = - TAU / B;
-  for (int i = 0; i < n; ++i) {
-    auto angle = i * base;
-    *p++ = cosl(angle);
-    *p++ = sinl(angle);
-  }
+template<> uint2 root1<uint2>(uint N, uint k) {
+  uint2 w = pow2(ROOT1_32, 32 - std::log2(N));
+  return pow(w, k);
+}
+
+template<typename T2>
+T2 *trig(T2 *p, int n, int B) {
+  for (int i = 0; i < n; ++i) { *p++ = root1<T2>(B, i); }
   return p;
 }
 
@@ -228,57 +206,58 @@ double *trig(double *p, int n, int B) {
 // - a 4096 "full trig table" (a full circle).
 // - a region of granularity TAU / (W * H), used in transpose.
 // - a region of granularity TAU / (2 * W * H), used in squaring.
+template<typename T2>
 cl_mem genBigTrig(cl_context context, int W, int H) {
   assert((W == 1024 || W == 2048) && (H == 1024 || H == 2048));
-  const int size = 2 * (H * 2 + W / 2 + W);
-  double *tab = new double[size];
-  double *end = tab;
+  const int size = H * 2 + W / 2 + W;
+  T2 *tab = new T2[size];
+  T2 *end = tab;
   end = trig(end, H * 2, H * 2);
   end = trig(end, W / 2, W * H);
   end = trig(end, W,     W * H * 2);
   assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
   delete[] tab;
   return buf;
 }
 
-double *smallTrigBlock(int W, int H, double *p) {
-  auto base = - TAU / (W * H);
+template<typename T2>
+T2 *smallTrigBlock(int W, int H, T2 *p) {
   for (int line = 1; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
-      auto angle = line * col * base;
-      *p++ = cosl(angle);
-      *p++ = sinl(angle);
+      *p++ = root1<T2>(W * H, line * col);
     }
   }
   return p;
 }
 
+template<typename T2>
 cl_mem genSmallTrig2K(cl_context context) {
-  int size = 2 * 4 * 512;
-  double *tab = new double[size]();
-  double *p   = tab + 2 * 8;
+  int size = 4 * 512;
+  T2 *tab = new T2[size]();
+  T2 *p   = tab + 8;
   p = smallTrigBlock(  8, 8, p);
   p = smallTrigBlock( 64, 8, p);
   p = smallTrigBlock(512, 4, p);
   assert(p - tab == size);
   
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
   delete[] tab;
   return buf;
 }
 
+template<typename T2>
 cl_mem genSmallTrig1K(cl_context context) {
-  int size = 2 * 4 * 256;
-  double *tab = new double[size]();
-  double *p   = tab + 2 * 4;
+  int size = 4 * 256;
+  T2 *tab = new T2[size]();
+  T2 *p   = tab + 4;
   p = smallTrigBlock(  4, 4, p);
   p = smallTrigBlock( 16, 4, p);
   p = smallTrigBlock( 64, 4, p);
   p = smallTrigBlock(256, 4, p);
   assert(p - tab == size);
 
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double) * size, tab);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
   delete[] tab;
   return buf;
 }
@@ -723,12 +702,12 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   programHolder.reset();
   
-  Buffer bufTrig1K{genSmallTrig1K(context)};
-  Buffer bufTrig2K{genSmallTrig2K(context)};
+  Buffer bufTrig1K{genSmallTrig1K<double2>(context)};
+  Buffer bufTrig2K{genSmallTrig2K<double2>(context)};
   cl_mem trigW = (W == 1024) ? bufTrig1K.get() : bufTrig2K.get();
   cl_mem trigH = (H == 1024) ? bufTrig1K.get() : bufTrig2K.get();
 
-  Buffer bufBigTrig{genBigTrig(context, W, H)};
+  Buffer bufBigTrig{genBigTrig<double2>(context, W, H)};
   
   Buffer buf1{makeBuf(context, BUF_RW, sizeof(double) * N)};
   Buffer buf2{makeBuf(context, BUF_RW, sizeof(double) * N)};
@@ -848,11 +827,11 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 int main(int argc, char **argv) {
   /*
   {
-  T2 tmp[256];
+  uint2 tmp[256];
   int n = 8;
   trig(tmp, n, n);
   for (int i = 0; i < n; ++i) {
-    T2 a = tmp[i];
+    uint2 a = tmp[i];
     printf("%d (%08x, %08x)\n", i, a.x, a.y);
   }
   }
