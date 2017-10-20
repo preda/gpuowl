@@ -1,16 +1,17 @@
 // gpuOwl, an OpenCL Mersenne primality test.
 // Copyright (C) 2017 Mihai Preda.
 
-// Data can be seen as a matrix WIDTH x HEIGHT of pairs of words.
-// The order of words is column-major (i.e. transposed from the usual row-major order).
+// The data is organized in pairs of words in a matrix WIDTH x HEIGHT.
+// The pair (a, b) is sometimes interpreted as the complex value a + i*b.
+// The order of words is column-major (i.e. transposed from the usual row-major matrix order).
 
 // Expected defines: WIDTH, HEIGHT, EXP.
-// One of: FFT_NTT, FFT_FP
+// One of: FFT_NTT (Number Theoretic Transform), FFT_FP (Floating Point).
 // If FFT_NTT, also LOG_ROOT2 is expected, LOG_ROOT2 == log2(32 / (NWORDS % 31) % 31).
-// If FFT_FP, one of: FP_SP or FP_DP.
+// If FFT_FP, one of: FP_SP (Single Precision) or FP_DP (Double Precision).
 
-// FFT_NTT: a GF(M31^2) NTT FFT convolution.
-// GF(p^2) is Gaussian integers ("complex integers") with the real/imaginary part modulo p.
+// FFT_NTT: a GF(P^2) (Galois Field) convolution, with P == M(31) == 2^31-1 a Mersenne prime.
+// GF(P^2) means Gaussian integers ("complex integers") with the real/imaginary part modulo P.
 
 // Number of words; a power of two.
 #define NWORDS (WIDTH * HEIGHT * 2u)
@@ -40,12 +41,13 @@ typedef uint2 T2;
 typedef uint Carry;
 typedef uint2 Word2;
 
-#else
+#else  // FP below.
+
+#pragma OPENCL FP_CONTRACT ON
 
 #ifdef FP_DP
 
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
-#pragma OPENCL FP_CONTRACT ON
 
 typedef double T;
 typedef double2 T2;
@@ -63,6 +65,7 @@ typedef int2 Word2;
 #endif // FFT_NTT
 
 
+// make a pair of Ts.
 T2 U2(T a, T b) { return (T2)(a, b); }
 
 
@@ -84,9 +87,6 @@ uint bigmod(ulong x) {
   return mod1(lo(x) + (up(x) << 1));
 }
 
-// uint mod2(uint x, uint y) { return U2(mod1(x), mod1(y)); }
-// uint bigmod2(ulong x, ulong y) { return U2(bigmod1(x), bigmod1(y)); }
-
 // negative: -x; input 31 bits.
 uint neg(uint x) { return M31 - x; }
   
@@ -96,11 +96,12 @@ uint sub1(uint a, uint b) { return add1(a, neg(b)); }
 uint2 add(uint2 a, uint2 b) { return U2(add1(a.x, b.x), add1(a.y, b.y)); }
 uint2 sub(uint2 a, uint2 b) { return U2(sub1(a.x, b.x), sub1(a.y, b.y)); }
 
+// Input can be full 32bits. k <= 30 (i.e. mod 31).
 uint shl1(uint a,  uint k) { return bigmod(u64(a) << k); }
 
 ulong wideMul(uint a, uint b) { return u64(a) * b; }
 
-// The main mul, "complex mul". input and output 31 bits.
+// The main, complex multiplication; input and output 31 bits.
 // (a + i*b) * (c + i*d) mod reduced.
 uint2 mul(uint2 u, uint2 v) {
   uint a = u.x, b = u.y, c = v.x, d = v.y;
@@ -117,7 +118,7 @@ uint mul1(uint a, uint b) { return bigmod(wideMul(a, b)); }
 // input, output 31 bits. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
 uint2 sq(uint2 a) { return U2(mul1(a.x + a.y, sub(a.x, a.y)), mul1(a.x, a.y << 1)); }
 
-#else
+#else // FP below.
 
 T neg(T x) { return -x; }
 T add1(T a, T b) { return a + b; }
@@ -136,7 +137,7 @@ T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }
 
 T mul1(T a, T b) { return a * b; }
 
-#endif
+#endif // FFT_NTT
 
 
 T2 shl(T2 a, uint k) { return U2(shl1(a.x, k), shl1(a.y, k)); }
@@ -168,19 +169,19 @@ uint2 mul_t8(uint2 a) { return U2(shl(a.x + neg(a.y), 15), shl(a.x + a.y, 15)); 
 // mul with (-2^15, 2^15). (twiddle of 3*tau/8).
 uint2 mul_3t8(uint2 ) { return U2(shl(neg(a.x) + neg(a.y), 15), shl(a.x + neg(a.y), 15)); }
 
-#else
+#else // FP below.
 
 T2 mul_t4(T2 a)  { return mul(a, U2(0,  -1)); }
 T2 mul_t8(T2 a)  { return mul(a, U2(1,  -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
-#endif
+#endif // FFT_NTT
 
 
 #ifdef FFT_NTT
 
 uint2 weight(uint2 a, uint pos, uint logRoot2) {
-  a.x = shl1(a.x, (extra(pos)     * logRoot2) % 31);
+  a.x = shl1(a.x, (extra(pos + 0) * logRoot2) % 31);
   a.y = shl1(a.y, (extra(pos + 1) * logRoot2) % 31);
   return a;
 }
@@ -254,7 +255,7 @@ double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 
 // Carry propagation.
 Word2 car1(Word2 a, Carry *carry, uint pos) {
-  a.x = updateMul(false, a.x, carry, bitlenAtPos(pos));
+  a.x = updateMul(false, a.x, carry, bitlenAtPos(pos + 0));
   a.y = updateMul(false, a.y, carry, bitlenAtPos(pos + 1));
   return a;
 }
@@ -269,7 +270,7 @@ T2 foo2(T2 a, T2 b) {
 T2 foo(T2 a) { return foo2(a, a); }
 
 #define X2(a, b) { T2 t = a; a = add(t, b); b = sub(t, b); }
-#define S2(a, b) { T2 t = a; a = b; b = t; }
+#define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
@@ -291,13 +292,13 @@ void fft8Core(T2 *u) {
 
 void fft4(T2 *u) {
   fft4Core(u);
-  S2(u[1], u[2]);
+  SWAP(u[1], u[2]);
 }
 
 void fft8(T2 *u) {
   fft8Core(u);
-  S2(u[1], u[4]);
-  S2(u[3], u[6]);
+  SWAP(u[1], u[4]);
+  SWAP(u[3], u[6]);
 }
 
 void shufl(local T *lds, T2 *u, uint n, uint f) {
@@ -372,10 +373,10 @@ void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
   fft4(u + 4);
 
   // fix order: interleave u[0:4] and u[4:8], like (u.even, u.odd) = (u.lo, u.hi).
-  S2(u[1], u[2]);
-  S2(u[1], u[4]);
-  S2(u[5], u[6]);
-  S2(u[3], u[6]);
+  SWAP(u[1], u[2]);
+  SWAP(u[1], u[4]);
+  SWAP(u[5], u[6]);
+  SWAP(u[3], u[6]);
 }
 
 // choose between 1K and 2K based on N.
@@ -776,13 +777,13 @@ void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T
   fftImpl(N, lds, v, trig);
   reverse(N, (local T2 *) lds, v, false);
   
-  if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
+  if (g == 0) { for (int i = N / 2; i < N; ++i) { SWAP(u[i], v[i]); } }
 
-  halfSq(N, u, v, bigTrig[W * 2 + (H / 2) + g],      bigTrig, true);
+  halfSq(N, u, v, bigTrig[W * 2 + (H / 2) + g],     bigTrig, true);
   
-  halfSq(N, v, u, bigTrig[W * 2 + (H / 2) +  line2], bigTrig, false);
+  halfSq(N, v, u, bigTrig[W * 2 + (H / 2) + line2], bigTrig, false);
 
-  if (g == 0) { for (int i = N / 2; i < N; ++i) { S2(u[i], v[i]); } }
+  if (g == 0) { for (int i = N / 2; i < N; ++i) { SWAP(u[i], v[i]); } }
 
   reverse(N, (local T2 *) lds, u, g == 0);
   bar();
