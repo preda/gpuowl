@@ -126,6 +126,7 @@ bool isBigWord(unsigned N, unsigned E, unsigned k) {
 u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
+// NTT doesn't need weight vectors.
 void genWeights(int W, int H, int E, double *aTab, double *iTab) {
   double *pa = aTab;
   double *pi = iTab;
@@ -149,10 +150,74 @@ void genWeights(int W, int H, int E, double *aTab, double *iTab) {
   }
 }
 
-double *trig(double *p, int n, int B, int phase = 0, int step = 1) {
+struct T2 { u32 x, y; };
+T2 U2(u32 x, u32 y) { return T2{x, y}; }
+
+// typedef std::pair<u32, u32> T2;
+// typedef u32 uint;
+// typedef u64 ulong;
+
+// T2 add(T2 a, T2 b) { return std::make_pair(
+
+#include "nttshared.h"
+
+/*
+const u32 M31 = 0x7fffffff;
+u32 lo(u64 a) { return a & 0xffffffff; }
+u32 up(u64 a) { return a >> 32; }
+u32 mod(u32 x) { return (x >> 31) + (x & M31); }
+u32 bigmod(u64 x) {
+  x = u64(2 * up(x)) + lo(x);
+  return mod(2 * up(x) + lo(x);
+}
+
+u64 wideMul(u32 a, u32 b) { return u64(a) * b; }
+
+T2 mul(T2 u, T2 v) {
+  u32 a = u.x, b = u.y, c = v.x, d = v.y;
+  u64 k1 = wideMul(c, add(a, b));
+  u64 k2 = wideMul(a, sub(d, c));
+  u64 k3 = wideMul(b, neg(add(d, c)));
+  // k1..k3 have at most 62 bits, so sums are at most 63 bits.
+  return U2(bigmod(k1 + k3), bigmod(k1 + k2));
+}
+*/
+
+// power: a^k
+T2 pow(T2 a, u32 k) {  
+  assert(k < (1 << 24));
+  using std::make_pair;
+  T2 x = U2(1, 0);
+  for (int i = 23; i >= 0; ++i) {
+    x = sq(x);
+    if (k & (1 << i)) { x = mul(x, a); }    
+  }
+  return x;
+}
+
+// a^(2^k)
+T2 pow2(T2 a, u32 k) {
+  for (u32 i = 0; i < k; ++i) { a = sq(a); }
+  return a;
+}
+
+// x^31 == -1, aka "root of unity of order 32" in GF(M(31)^2).
+const T2 ROOT1_32{1 << 16, 0x4b94532f};
+
+T2 *trig(T2 *p, int n, int B) {
+  T2 w1 = pow2(ROOT1_32, 32 - std::log2(B));
+  T2 x = U2(1, 0);
+  for (int i = 0; i < n; ++i) {
+    *p++ = x;
+    x = mul(x, w1);
+  }
+  return p;
+}
+
+double *trig(double *p, int n, int B) {
   auto base = - TAU / B;
   for (int i = 0; i < n; ++i) {
-    auto angle = (phase + i * step) * base;
+    auto angle = i * base;
     *p++ = cosl(angle);
     *p++ = sinl(angle);
   }
@@ -781,6 +846,18 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 }
 
 int main(int argc, char **argv) {
+  /*
+  {
+  T2 tmp[256];
+  int n = 8;
+  trig(tmp, n, n);
+  for (int i = 0; i < n; ++i) {
+    T2 a = tmp[i];
+    printf("%d (%08x, %08x)\n", i, a.x, a.y);
+  }
+  }
+  */
+  
   initLog();
   
   log("gpuOwL v" VERSION " GPU Mersenne primality checker\n");

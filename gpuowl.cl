@@ -71,52 +71,9 @@ T2 U2(T a, T b) { return (T2)(a, b); }
 
 #ifdef FFT_NTT
 
-// Prime M(31) == 2**31 - 1
-#define M31 0x7fffffffu
-
 ulong u64(uint a) { return a; } // cast to 64 bits.
-uint lo(ulong a) { return a & 0xffffffff; }
-uint up(ulong a) { return a >> 32; }
 
-// input 32 bits except 2^32-1; output 31 bits.
-uint mod(uint x) { return (x >> 31) + (x & M31); }
-
-// input 63 bits; output 31 bits.
-uint bigmod(ulong x) {
-  x = u64(up(x) << 1) + lo(x); // 'up' is 31 bits.
-  return mod1(lo(x) + (up(x) << 1));
-}
-
-// negative: -x; input 31 bits.
-uint neg(uint x) { return M31 - x; }
-  
-uint add1(uint a, uint b) { return mod(a + b); }
-uint sub1(uint a, uint b) { return add1(a, neg(b)); }
-
-uint2 add(uint2 a, uint2 b) { return U2(add1(a.x, b.x), add1(a.y, b.y)); }
-uint2 sub(uint2 a, uint2 b) { return U2(sub1(a.x, b.x), sub1(a.y, b.y)); }
-
-// Input can be full 32bits. k <= 30 (i.e. mod 31).
-uint shl1(uint a,  uint k) { return bigmod(u64(a) << k); }
-
-ulong wideMul(uint a, uint b) { return u64(a) * b; }
-
-// The main, complex multiplication; input and output 31 bits.
-// (a + i*b) * (c + i*d) mod reduced.
-uint2 mul(uint2 u, uint2 v) {
-  uint a = u.x, b = u.y, c = v.x, d = v.y;
-  ulong k1 = wideMul(c, add(a, b));
-  ulong k2 = wideMul(a, sub(d, c));
-  ulong k3 = wideMul(b, neg(add(d, c)));
-  // k1..k3 have at most 62 bits, so sums are at most 63 bits.
-  return U2(bigmod(k1 + k3), bigmod(k1 + k2));
-}
-
-// scalar mul.
-uint mul1(uint a, uint b) { return bigmod(wideMul(a, b)); }
-
-// input, output 31 bits. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
-uint2 sq(uint2 a) { return U2(mul1(a.x + a.y, sub(a.x, a.y)), mul1(a.x, a.y << 1)); }
+#include "nttshared.h"
 
 #else // FP below.
 
@@ -171,8 +128,8 @@ uint2 mul_3t8(uint2 ) { return U2(shl(neg(a.x) + neg(a.y), 15), shl(a.x + neg(a.
 
 #else // FP below.
 
-T2 mul_t4(T2 a)  { return mul(a, U2(0,  -1)); }
-T2 mul_t8(T2 a)  { return mul(a, U2(1,  -1)) * (T)(M_SQRT1_2); }
+T2 mul_t4(T2 a)  { return mul(a, U2( 0, -1)); }
+T2 mul_t8(T2 a)  { return mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
 #endif // FFT_NTT
