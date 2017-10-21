@@ -528,7 +528,7 @@ void carryACore(uint N, uint H, bool doMul3, const G T2 *in, const G T2 *A, G Wo
   in     += step;
   out    += step;
 
-  long carry = 0;
+  Carry carry = 0;
 
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint pos = CARRY_LEN * gy + H * 256 * gx  + H * me + i;
@@ -553,7 +553,7 @@ void carryBCore(uint N, uint H, G Word2 *io, const G Carry *carryIn) {
   uint prev = (gy + HB * 256 * gx + HB * me - 1) & (HB * N * 256 - 1);
   uint prevLine = prev % HB;
   uint prevCol  = prev / HB;
-  long carry = carryIn[N * 256 * prevLine + prevCol];
+  Carry carry = carryIn[N * 256 * prevLine + prevCol];
   
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint pos = CARRY_LEN * gy + H * 256 * gx + H * me + i;
@@ -562,17 +562,6 @@ void carryBCore(uint N, uint H, G Word2 *io, const G Carry *carryIn) {
     if (!carry) { return; }
   }
 }
-
-/*
-double2 foo2(double2 a, double2 b) {
-  a = addsub(a);
-  b = addsub(b);
-  return addsub(a * b);
-}
-
-// computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
-double2 foo(double2 a) { return foo2(a, a); }
-*/
 
 // Inputs normal (non-conjugate); outputs conjugate.
 void csquare(uint W, uint H, G T2 *io, const G T2 *bigTrig) {
@@ -590,9 +579,9 @@ void csquare(uint W, uint H, G T2 *io, const G T2 *bigTrig) {
   uint k = line * W + posInLine;
   uint v = ((H - line) & (H - 1)) * W + (W - 1) - posInLine + ((line - 1) >> 31);
   
-  double2 a = io[k];
-  double2 b = conjugate(io[v]);
-  double2 t = swap(mul(bigTrig[W * 2 + H / 2 + line], bigTrig[posInLine]));
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  T2 t = swap(mul(bigTrig[W * 2 + H / 2 + line], bigTrig[posInLine]));
   
   X2(a, b);
   b = mul(b, conjugate(t));
@@ -625,16 +614,16 @@ void cmul(uint W, uint H, G T2 *io, const G T2 *in, const G T2 *bigTrig) {
   uint k = line * W + posInLine;
   uint v = ((H - line) & (H - 1)) * W + (W - 1) - posInLine + ((line - 1) >> 31);
   
-  double2 a = io[k];
-  double2 b = conjugate(io[v]);
-  double2 t = swap(mul(bigTrig[W * 2 + H / 2 + line], bigTrig[posInLine]));
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  T2 t = swap(mul(bigTrig[W * 2 + H / 2 + line], bigTrig[posInLine]));
   
   X2(a, b);
   b = mul(b, conjugate(t));
   X2(a, b);
   
-  double2 c = in[k];
-  double2 d = conjugate(in[v]);
+  T2 c = in[k];
+  T2 d = conjugate(in[v]);
   X2(c, d);
   d = mul(d, conjugate(t));
   X2(c, d);
@@ -763,70 +752,70 @@ void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T
 
 #define P(x) global x * restrict
 #define CP(x) const P(x)
-typedef CP(double2) Trig;
+typedef CP(T2) Trig;
 
 #else
 
 #define P(x) global x *
 #define CP(x) const P(x)
-typedef CP(double2) restrict Trig;
+typedef CP(T2) restrict Trig;
 
 #endif
 
-KERNEL(256) fftW(P(double2) io, Trig smallTrig) {
-  local double lds[WIDTH];
-  double2 u[N_WIDTH];
+KERNEL(256) fftW(P(T2) io, Trig smallTrig) {
+  local T lds[WIDTH];
+  T2 u[N_WIDTH];
   fft(N_WIDTH, lds, u, io, smallTrig);
 }
 
-KERNEL(256) fftH(P(double2) io, Trig smallTrig) {
-  local double lds[HEIGHT];
-  double2 u[N_HEIGHT];
+KERNEL(256) fftH(P(T2) io, Trig smallTrig) {
+  local T lds[HEIGHT];
+  T2 u[N_HEIGHT];
   fft(N_HEIGHT, lds, u, io, smallTrig);
 }
 
-KERNEL(256) fftP(CP(int2) in, P(double2) out, CP(double2) A, Trig smallTrig) {
-  local double lds[WIDTH];
-  double2 u[N_WIDTH];
+KERNEL(256) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
+  local T lds[WIDTH];
+  T2 u[N_WIDTH];
   fftPremul(N_WIDTH, HEIGHT, lds, u, in, out, A, smallTrig);
 }
 
-KERNEL(256) carryA(CP(double2) in, CP(double2) A, P(int2) out, P(long) carryOut) {
+KERNEL(256) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
   carryACore(N_WIDTH, HEIGHT, false, in, A, out, carryOut);
 }
 
-KERNEL(256) carryM(CP(double2) in, CP(double2) A, P(int2) out, P(long) carryOut) {
+KERNEL(256) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
   carryACore(N_WIDTH, HEIGHT, true, in, A, out, carryOut);
 }
 
-KERNEL(256) carryB(P(int2) io, CP(long) carryIn) {
+KERNEL(256) carryB(P(Word2) io, CP(Carry) carryIn) {
   carryBCore(N_WIDTH, HEIGHT, io, carryIn);
 }
 
-KERNEL(256) square(P(double2) io, Trig bigTrig)  { csquare(HEIGHT, WIDTH, io, bigTrig); }
+KERNEL(256) square(P(T2) io, Trig bigTrig)  { csquare(HEIGHT, WIDTH, io, bigTrig); }
 
-KERNEL(256) multiply(P(double2) io, CP(double2) in, Trig bigTrig)  { cmul(HEIGHT, WIDTH, io, in, bigTrig); }
+KERNEL(256) multiply(P(T2) io, CP(T2) in, Trig bigTrig)  { cmul(HEIGHT, WIDTH, io, in, bigTrig); }
 
-KERNEL(256) carryConv(P(double2) io, P(double) carryShuttle, volatile P(uint) ready,
-                      CP(double2) A, CP(double2) iA, Trig smallTrig) {
-  local double lds[WIDTH];
-  double2 u[N_WIDTH];
+KERNEL(256) carryConv(P(T2) io, P(T) carryShuttle, volatile P(uint) ready,
+                      CP(T2) A, CP(T2) iA, Trig smallTrig) {
+  local T lds[WIDTH];
+  T2 u[N_WIDTH];
   carryConvolution(N_WIDTH, HEIGHT, lds, u, io, carryShuttle, ready, A, iA, smallTrig);
 }
 
-KERNEL(256) tail(P(double2) io, Trig smallTrig, Trig bigTrig) {
-  local double lds[HEIGHT];
-  double2 u[N_HEIGHT];
-  double2 v[N_HEIGHT];
+KERNEL(256) tail(P(T2) io, Trig smallTrig, Trig bigTrig) {
+  local T lds[HEIGHT];
+  T2 u[N_HEIGHT];
+  T2 v[N_HEIGHT];
   convolution(N_HEIGHT, WIDTH, lds, u, v, io, smallTrig, bigTrig);
 }
 
-KERNEL(256) transposeW(CP(double2) in, P(double2) out, Trig bigTrig) {
-  local double lds[4096];
+KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig bigTrig) {
+  local T lds[4096];
   transpose(WIDTH, HEIGHT, max(WIDTH, HEIGHT), lds, in, out, bigTrig);
 }
 
-KERNEL(256) transposeH(CP(double2) in, P(double2) out, Trig bigTrig) {
-  local double lds[4096];
+KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig bigTrig) {
+  local T lds[4096];
   transpose(HEIGHT, WIDTH, max(WIDTH, HEIGHT), lds, in, out, bigTrig);
 }

@@ -672,7 +672,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int N = 2 * W * H;
   int nW = W / 256 * 2, nH = H / 256 * 2;
 
-  bool useNTT = false;
+  bool useNTT = true;
 
   std::vector<string> defines {valueDefine("EXP", E), valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
   
