@@ -147,8 +147,8 @@ uint unweight1(uint x, uint pos) { return weightAux(x, pos, 31 - LOG_ROOT2); }
 uint lowBits(uint x, uint bits) { return x & ((1 << bits) - 1); }
 
 // one step of carry propagation.
-uint update(uint x, Carry *carry, uint bits) {
-  x = mod(x + *carry);
+uint carryStep(uint x, Carry *carry, uint bits) {
+  x += *carry; //! must not modulo-reduce in carry propagation.
   *carry = x >> bits;
   return lowBits(x, bits);
 }
@@ -161,17 +161,21 @@ uint times3(uint x) {
 
 uint updateMul(bool doMul3, uint x, uint *carry, uint bits) {
   x = doMul3 ? times3(x) : x;
-  return update(x, carry, bits);
+  return carryStep(x, carry, bits);
 }
 
 // Reverse weighting, round, carry propagation for a pair of words; with optional MUL-3.
 Word2 car0(bool doMul3, T2 u, Carry *carry, uint pos, T2 *dummyA, uint dummyP) {
+  pos *= 2;
   u.x = updateMul(doMul3, unweight1(u.x, pos + 0), carry, bitlen(pos + 0));
   u.y = updateMul(doMul3, unweight1(u.y, pos + 1), carry, bitlen(pos + 1));
   return u;
 }
 
-T2 weight(Word2 a, uint pos, uint2 *dummyA, uint dummyP) { return U2(weight1(a.x, pos), weight1(a.y, pos + 1)); }
+T2 weight(Word2 a, uint pos, uint2 *dummyA, uint dummyP) {
+  pos *= 2;
+  return U2(weight1(a.x, pos), weight1(a.y, pos + 1));
+}
 
 #else
 
@@ -180,6 +184,14 @@ long toLong(double x) { return rint(x); }
 
 int lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
 
+// carry step, keeping the reduced word and the carry in the same domain (e.g. double).
+T carryStep(T x, T *carry, int bits) {
+  x += *carry;
+  *carry = rint(ldexp(x, -bits));
+  return x - ldexp(*carry, bits);
+}
+
+// carry step, translating the reduced word and the carry to integrals (int and long).
 int updateMul(bool doMul3, long x, Carry *carry, uint bits) {
   x = doMul3 ? x * 3 : x;
   x += *carry;
@@ -213,6 +225,7 @@ T2 weight(Word2 a, uint dummyPos, T2 *A, uint p) { return toDouble(a) * fabs(A[p
 
 // Carry propagation.
 Word2 car1(Word2 a, Carry *carry, uint pos) {
+  pos *= 2;
   a.x = updateMul(false, a.x, carry, bitlen(pos + 0));
   a.y = updateMul(false, a.y, carry, bitlen(pos + 1));
   return a;
@@ -371,8 +384,8 @@ void fftPremul(uint N, uint H, local T *lds, T2 *u, const G Word2 *in, G T2 *out
   uint me = get_local_id(0);
 
   for (int i = 0; i < N; ++i) {
-    uint pos = g + HEIGHT * 256 * i + HEIGHT * me;
-    u[i] = weight(in[256 * i + me], 2 * pos, A, me + 256 * i + step);
+    uint pos = g + H * 256 * i + H * me;
+    u[i] = weight(in[256 * i + me], pos, A, me + 256 * i + step);
   }
 
   fftImpl(N, lds, u, trig);
@@ -417,34 +430,47 @@ void reverse(uint N, local T2 *lds, T2 *u, bool bump) {
   }
 }
 
-T carryStep(T x, T *carry, int bits) {
-  x += *carry;
-  *carry = rint(ldexp(x, -bits));
-  return x - ldexp(*carry, bits);
+#ifdef FFT_NTT
+
+T2 weightAndCarry(T2 u, T *carry, uint pos, T2 *dummyA, uint dummyP) {
+  return car0(false, u, carry, pos, dummyA, dummyP);
 }
 
+// No carry out. The final carry is "absorbed" in the last word.
+T2 carryAndWeightFinal(T2 u, T carry, uint pos, T2 *dummyA, uint dummyP) {
+  u.x = carryStep(u.x, &carry, bitlen(2 * pos + 0));
+  u.y += carry;
+  return weight(u, pos, dummyA, dummyP);
+}
+
+#else
+
 // Applies inverse weight "iA" and rounding, and propagates carry over the two words.
-double2 weightAndCarry(double *carry, double2 u, double2 iA) {
-  u = rint(u * fabs(iA)); // reverse weight and round.
-  u.x = carryStep(u.x, carry, oldBitlen(iA.x));
-  u.y = carryStep(u.y, carry, oldBitlen(iA.y));
+T2 weightAndCarry(T2 u, T *carry, uint dummyPos, T2 *iA, uint p) {
+  T2 w = iA[p];
+  u = rint(u * fabs(w)); // reverse weight and round.
+  u.x = carryStep(u.x, carry, oldBitlen(w.x));
+  u.y = carryStep(u.y, carry, oldBitlen(w.y));
   return u;
 }
 
 // No carry out. The final carry is "absorbed" in the last word.
-double2 carryAndWeightFinal(double carry, double2 u, double2 a) {
-  u.x = carryStep(u.x, &carry, oldBitlen(a.x));
+T2 carryAndWeightFinal(T2 u, T carry, uint dummyPos, T2 *A, uint p) {
+  T2 w = A[p];
+  u.x = carryStep(u.x, &carry, oldBitlen(w.x));
   u.y += carry;
-  return u * fabs(a);
+  return u * fabs(w);
 }
+
+#endif
 
 // The "carryConvolution" is equivalent to the sequence: fft, carryA, carryB, fftPremul.
 // It uses "stareway" carry data forwarding from group K to group K+1.
 // N gives the FFT size, W = N * 256.
 // H gives the nuber of "lines" of FFT.
-void carryConvolution(uint N, uint H, local double *lds, double2 *u,
-                  G double2 *io, G double *carryShuttle, volatile global uint *ready,
-                  const G double2 *A, const G double2 *iA, const G double2 *trig) {
+void carryConvolution(uint N, uint H, local T *lds, T2 *u,
+                  G T2 *io, G T *carryShuttle, volatile global uint *ready,
+                  const G T2 *A, const G T2 *iA, const G T2 *trig) {
   uint W = N * 256;
 
   uint gr = get_group_id(0);
@@ -461,8 +487,9 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
 
   for (int i = 0; i < N; ++i) {
     uint p = i * 256 + me;
-    double carry = 0;
-    u[i] = weightAndCarry(&carry, conjugate(u[i]), iA[p]);
+    uint pos = gm + H * 256 * i + H * me;
+    T carry = 0;
+    u[i] = weightAndCarry(conjugate(u[i]), &carry, pos, iA, p);
     if (gr < H) { carryShuttle[gr * W + p] = carry; }
   }
 
@@ -480,8 +507,9 @@ void carryConvolution(uint N, uint H, local double *lds, double2 *u,
   
   for (int i = 0; i < N; ++i) {
     uint p = i * 256 + me;
+    uint pos = gm + H * 256 * i + H * me;
     double carry = carryShuttle[(gr - 1) * W + ((p - gr / H) & (W - 1))];
-    u[i] = carryAndWeightFinal(carry, u[i], A[p]);
+    u[i] = carryAndWeightFinal(u[i], carry, pos, A, p);
   }
 
   fftImpl(N, lds, u, trig);
@@ -505,7 +533,7 @@ void carryACore(uint N, uint H, bool doMul3, const G T2 *in, const G T2 *A, G Wo
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint pos = CARRY_LEN * gy + H * 256 * gx  + H * me + i;
     uint p = me + i * N * 256;
-    out[p] = car0(doMul3, conjugate(in[p]), &carry, 2 * pos, A, step + p);
+    out[p] = car0(doMul3, conjugate(in[p]), &carry, pos, A, step + p);
   }
   carryOut[g * 256 + me] = carry;
 }
@@ -530,7 +558,7 @@ void carryBCore(uint N, uint H, G Word2 *io, const G Carry *carryIn) {
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint pos = CARRY_LEN * gy + H * 256 * gx + H * me + i;
     uint p = me + i * N * 256;
-    io[p] = car1(io[p], &carry, pos * 2);
+    io[p] = car1(io[p], &carry, pos);
     if (!carry) { return; }
   }
 }
