@@ -672,7 +672,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int N = 2 * W * H;
   int nW = W / 256 * 2, nH = H / 256 * 2;
 
-  bool useNTT = true;
+  bool useNTT = (args.fftKind == Args::FFT_NTT);
 
   std::vector<string> defines {valueDefine("EXP", E), valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
   
@@ -684,28 +684,36 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     append(defines, "FP_DP");
   }
 
-  cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, defines);
-  Holder<cl_program> programHolder(p);    
-  if (!p) { return false; }
-  
-#define KERN(name, shift) std::unique_ptr<Kernel> name(new BaseKernel(p, N, #name, shift));
-  KERN(fftP, nW);
-  KERN(fftW, nW);
-  KERN(fftH, nH);
-  
-  KERN(carryA, 32);
-  KERN(carryM, 32);
-  KERN(carryB, 32);
+  std::unique_ptr<Kernel> fftP, fftW, fftH, carryA, carryM, carryB, transposeW, transposeH, square, multiply, tail, carryConv;
 
-  KERN(transposeW, 32);
-  KERN(transposeH, 32);
+  {
+    Holder<cl_program> program(compile(device, context, "gpuowl.cl", args.clArgs, defines));
+    if (!program) { return false; }
 
-  KERN(square, 4);
-  KERN(multiply, 4);
-  KERN(tail, nH * 2);
-#undef KERN
-  
-  programHolder.reset();
+    auto load = [&program, &args](const string &name, int nWords, int wordsPerThread) {
+      Kernel *kernel = new BaseKernel(program.get(), nWords, name, wordsPerThread);
+      return args.timeKernels ? new TimedKernel(kernel) : kernel;
+    };
+    
+#define LOAD(name, nWords, wordsPerThread) name.reset(load(#name, nWords, wordsPerThread));
+    LOAD(fftP, N, nW);
+    LOAD(fftW, N, nW);
+    LOAD(fftH, N, nH);
+    
+    LOAD(carryA, N, 32);
+    LOAD(carryM, N, 32);
+    LOAD(carryB, N, 32);
+
+    LOAD(transposeW, N, 32);
+    LOAD(transposeH, N, 32);
+    
+    LOAD(square,   N, 4);
+    LOAD(multiply, N, 4);
+    LOAD(tail,     N, nH * 2);
+    
+    LOAD(carryConv, N + W * 2, nW);
+#undef LOAD
+  }
 
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
   
@@ -751,6 +759,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   multiply->setArgs(buf2, buf3, bufBigTrig);
 
   tail->setArgs(buf2, trigH, bufBigTrig);
+  carryConv->setArgs(buf1, bufCarry, bufReady, bufA, bufI, trigW);
 
   // the weighting + direct FFT only, stops before square/mul.
   std::vector<Kernel *> directFftKerns {fftP.get(), transposeW.get(), fftH.get()};
@@ -762,21 +771,16 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   std::vector<Kernel *> tailKerns {fftW.get(), carryA.get(), carryB.get()};
 
   // equivalent to sequence of: tailKerns, headKerns.
-  std::vector<Kernel *> coreKerns;
+  std::vector<Kernel *> coreKerns {carryConv.get(), transposeW.get(), tail.get(), transposeH.get()};
 
   float bitsPerWord = E / (float) N;
   if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }
   bool lowBits = bitsPerWord < 13;
   if (lowBits && !args.useLegacy) { log("Note: low word size of %.2f bits forces use of legacy kernels\n", bitsPerWord); }
   
-  std::unique_ptr<Kernel> carryConv;
   if (args.useLegacy || lowBits) {
     coreKerns = tailKerns;
     coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
-  } else {
-    carryConv.reset(new BaseKernel(p, N + 256 * nW, "carryConv", nW));
-    carryConv->setArgs(buf1, bufCarry, bufReady, bufA, bufI, trigW);
-    coreKerns = {carryConv.get(), transposeW.get(), tail.get(), transposeH.get()};
   }
 
   // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.

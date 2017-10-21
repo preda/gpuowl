@@ -8,15 +8,18 @@
 #include <cstring>
 
 struct Args {
+  static const int FFT_DP = 0, FFT_SP = 1, FFT_NTT = 2;
+  
   std::string clArgs;
   std::string user, cpu;
   int step, saveStep;
   int fftSize;
+  int fftKind;
   int device;
   bool timeKernels, useLegacy;
   
-  Args() : step(500000), saveStep(10000000), fftSize(0), device(-1), timeKernels(false), useLegacy(false) { }
-
+  Args() : step(500000), saveStep(10000000), fftSize(0), fftKind(FFT_DP), device(-1), timeKernels(false), useLegacy(false) { }
+  
   // return false to stop.
   bool parse(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
@@ -26,6 +29,7 @@ struct Args {
           "-step     <N> : to log, validate and save every <N> [default 500K] iterations.\n"
           "-savestep <N> : to persist checkpoint every <N> [default 10M] iterations.\n"
           "-fft 2M|4M|8M : override FFT size.\n"
+          "-kind DP|SP|NTT : FFT Double/Single Precision or NTT.\n"
           "-user <name>  : specify the user name.\n"
           "-cpu  <name>  : specify the hardware name.\n"  
           "-cl \"<OpenCL compiler options>\", e.g. -cl \"-save-temps=tmp/ -O2\"\n"
@@ -100,6 +104,23 @@ struct Args {
         }
       } else {
         log("-fft expects size 2M | 4M | 8M\n");
+        return false;
+      }
+    } else if (!strcmp(arg, "-kind")) {
+      if (i < argc - 1) {
+        std::string s = argv[++i];
+        if (s == "DP") {
+          fftKind = FFT_DP;
+        } else if (s == "SP") {
+          fftKind = FFT_SP;
+        } else if (s == "NTT") {
+          fftKind = FFT_NTT;
+        } else {
+          log("-kind expects DP | SP | NTT\n");
+          return false;
+        }
+      } else {
+        log("-kind expects DP | SP | NTT\n");
         return false;
       }
     } else if (!strcmp(arg, "-device")) {
