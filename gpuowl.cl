@@ -417,25 +417,25 @@ void reverse(uint N, local T2 *lds, T2 *u, bool bump) {
   }
 }
 
-// Returns a pair (reduced x, carryOut).
-double2 carryStep(double x, int bits) {
-  double carry = rint(ldexp(x, -bits));
-  return (double2)(x - ldexp(carry, bits), carry);
+T carryStep(T x, T *carry, int bits) {
+  x += *carry;
+  *carry = rint(ldexp(x, -bits));
+  return x - ldexp(*carry, bits);
 }
 
 // Applies inverse weight "iA" and rounding, and propagates carry over the two words.
 double2 weightAndCarry(double *carry, double2 u, double2 iA) {
   u = rint(u * fabs(iA)); // reverse weight and round.
-  double2 r0 = carryStep(*carry + u.x, oldBitlen(iA.x));
-  double2 r1 = carryStep(r0.y   + u.y, oldBitlen(iA.y));
-  *carry = r1.y;
-  return (double2) (r0.x, r1.x);
+  u.x = carryStep(u.x, carry, oldBitlen(iA.x));
+  u.y = carryStep(u.y, carry, oldBitlen(iA.y));
+  return u;
 }
 
 // No carry out. The final carry is "absorbed" in the last word.
 double2 carryAndWeightFinal(double carry, double2 u, double2 a) {
-  double2 r = carryStep(carry + u.x, oldBitlen(a.x));
-  return (double2) (r.x, r.y + u.y) * fabs(a);
+  u.x = carryStep(u.x, &carry, oldBitlen(a.x));
+  u.y += carry;
+  return u * fabs(a);
 }
 
 // The "carryConvolution" is equivalent to the sequence: fft, carryA, carryB, fftPremul.
