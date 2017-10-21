@@ -152,7 +152,6 @@ void genWeights(int W, int H, int E, double *aTab, double *iTab) {
 
 template<typename T> struct Pair { T x, y; };
 
-// using T2 = Pair<u32>;
 using double2 = Pair<double>;
 using uint2 = Pair<uint>;
 
@@ -162,8 +161,6 @@ uint2 U2(u32 x, u32 y) { return uint2{x, y}; }
 
 // power: a^k
 uint2 pow(uint2 a, u32 k) {  
-  assert(k < (1 << 24));
-  using std::make_pair;
   uint2 x = U2(1, 0);
   for (int i = std::log2(k); i >= 0; --i) {
     x = sq(x);
@@ -664,6 +661,10 @@ cl_device_id getDevice(const Args &args) {
 
 void append(auto &vect, auto what) { vect.insert(vect.end(), what); }
 
+string valueDefine(const string &key, uint value) {
+  return key + "=" + std::to_string(value) + "u";
+}
+
 bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
   assert(W == 1024 || W == 2048);
   assert(H == 1024 || H == 2048);
@@ -671,18 +672,22 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int N = 2 * W * H;
   int nW = W / 256 * 2, nH = H / 256 * 2;
 
-  std::vector<string> defines;
-  append(defines, string("EXP=") + std::to_string(E) + "u");
-  append(defines, string("WIDTH=")     + std::to_string(W) + "u");
-  append(defines, string("HEIGHT=")    + std::to_string(H) + "u");
-  append(defines, string("FFT_FP"));
-  append(defines, string("FP_DP"));
+  bool useNTT = false;
+
+  std::vector<string> defines {valueDefine("EXP", E), valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
   
+  if (useNTT) {
+    append(defines, "FFT_NTT");
+    append(defines, valueDefine("LOG_ROOT2", std::log2(32 / (N % 31) % 31)));
+  } else {
+    append(defines, "FFT_FP");
+    append(defines, "FP_DP");
+  }
 
   cl_program p = compile(device, context, "gpuowl.cl", args.clArgs, defines);
   Holder<cl_program> programHolder(p);    
   if (!p) { return false; }
-
+  
 #define KERN(name, shift) std::unique_ptr<Kernel> name(new BaseKernel(p, N, #name, shift));
   KERN(fftP, nW);
   KERN(fftW, nW);
@@ -701,28 +706,35 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 #undef KERN
   
   programHolder.reset();
-  
-  Buffer bufTrig1K{genSmallTrig1K<double2>(context)};
-  Buffer bufTrig2K{genSmallTrig2K<double2>(context)};
-  cl_mem trigW = (W == 1024) ? bufTrig1K.get() : bufTrig2K.get();
-  cl_mem trigH = (H == 1024) ? bufTrig1K.get() : bufTrig2K.get();
 
-  Buffer bufBigTrig{genBigTrig<double2>(context, W, H)};
+  Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
   
-  Buffer buf1{makeBuf(context, BUF_RW, sizeof(double) * N)};
-  Buffer buf2{makeBuf(context, BUF_RW, sizeof(double) * N)};
-  Buffer buf3{makeBuf(context, BUF_RW, sizeof(double) * N)};
-  Buffer bufCarry{makeBuf(context, BUF_RW, sizeof(double) * N)}; // could be N/2 as well.
+  if (useNTT) {
+    bufTrig1K.reset(genSmallTrig1K<uint2>(context));
+    bufTrig2K.reset(genSmallTrig2K<uint2>(context));
+    bufBigTrig.reset(genBigTrig<uint2>(context, W, H));
+    
+  } else {
+    bufTrig1K.reset(genSmallTrig1K<double2>(context));
+    bufTrig2K.reset(genSmallTrig2K<double2>(context));
+    bufBigTrig.reset(genBigTrig<double2>(context, W, H));
+    setupWeights(context, bufA, bufI, W, H, E);
+  }
 
-  // Weights (direct and inverse) for the IBDWT.
-  Buffer bufA, bufI;
-  setupWeights(context, bufA, bufI, W, H, E);
-  
+  uint bufSize = N * (useNTT ? sizeof(uint) : sizeof(double));
+  Buffer buf1{makeBuf(    context, BUF_RW, bufSize)};
+  Buffer buf2{makeBuf(    context, BUF_RW, bufSize)};
+  Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
+  Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
+
   int *zero = new int[H + 1]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 1), zero)};
   delete[] zero;
 
   Buffer dummy;
+  
+  cl_mem trigW = (W == 1024) ? bufTrig1K.get() : bufTrig2K.get();
+  cl_mem trigH = (H == 1024) ? bufTrig1K.get() : bufTrig2K.get();
   
   fftP->setArgs(dummy, buf1, bufA, trigW);
   fftW->setArgs(buf1, trigW);

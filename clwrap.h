@@ -151,13 +151,16 @@ static bool build(cl_program program, cl_device_id device, const string &extraAr
   Timer timer;
   string args = string("-I. -cl-fast-relaxed-math ") + extraArgs;
   int err = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
-  char buf[4096];
-  size_t logSize;
-  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buf), buf, &logSize);
-  buf[logSize] = 0;
   bool ok = (err == CL_SUCCESS);
-  if (logSize > 2 || !ok) {
-    log("OpenCL compilation log (error %d, args %s):\n%s\n", err, args.c_str(), buf);
+  if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }
+  
+  size_t logSize;
+  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
+  if (logSize) {
+    std::unique_ptr<char> buf(new char[logSize + 1]);
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
+    buf.get()[logSize] = 0;
+    log("%s\n", buf.get());
   }
   if (ok) {
     log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str());
