@@ -48,7 +48,7 @@ using Buffer  = Holder<cl_mem>;
 using Context = Holder<cl_context>;
 using Queue   = Holder<cl_queue>;
 
-static_assert(sizeof(Buffer) == sizeof(cl_mem));
+static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
 
 class Kernel {  
   template<int P> void setArgsAt() {}  
