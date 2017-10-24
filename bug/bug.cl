@@ -65,16 +65,14 @@ void fft8(T2 *u) {
   fft8Core(u);
 }
 
-void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
-
 void shufl(local T *lds, T2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   uint m = me / f;
   
   for (int b = 0; b < 2; ++b) {
-    if (b) { bar(); }
+    if (b) { barrier(CLK_LOCAL_MEM_FENCE); }
     for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = ((T *) (u + i))[b]; }
-    bar();
+    barrier(CLK_LOCAL_MEM_FENCE);
     for (uint i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * 256 + me]; }
   }
 }
@@ -91,7 +89,10 @@ kernel __attribute__((reqd_work_group_size(256, 1, 1))) void bug(global T2 *io, 
   for (int i = 0; i < 8; ++i) { u[i] = io[256 * i + me]; }
   fft8(u);
   shufl(lds, u, 8, 32);
-  // bar();
+
+  // Comment or un-comment the next barrier() to observe different behavior.
+  // barrier(CLK_LOCAL_MEM_FENCE);
+
   tabMul(trig, u, 8, 32);
   for (int i = 0; i < 8; ++i) { io[256 * i + me] = u[i]; }  
 }
