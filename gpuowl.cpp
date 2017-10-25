@@ -680,8 +680,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   if (useNTT) {
     append(defines, "FFT_NTT");
     
-    // (2^LOG_ROOT2)^N == 2 (mod M31).
-    u32 LOG_ROOT2 = std::log2((32 / (N % 31)) % 31);
+    // (2^LOG_ROOT2)^N == 2 (mod M31), so LOG_ROOT2 * N == 1 (mod 31) == 32 (mod 31), so LOG_ROOT2 = 32 / (N % 31) (mod 31).
+    
+    u32 LOG_ROOT2 = (32 / (N % 31)) % 31;
     append(defines, valueDefine("LOG_ROOT2", LOG_ROOT2));
 
     // N * 2^(31 - LOG_NWORDS) == 1 (mod M31), used for the 1/N weighting of the iFFT.
@@ -808,11 +809,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     return false;
   }
 
-  if (false && args.fftKind == Args::FFT_NTT) {
+  if (false && args.fftKind == Args::FFT_NTT) {    
     uint2 *data = new uint2[N / 2]();
-    for (int i = 0; i < N / 2; ++i) { data[i] = U2(0, 0); }
-    data[0] = U2(1, 0);
-
+    data[0] = U2(1, 1);
     cl_mem bufData = makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N);
     fftP->setArg(0, bufData);
     carryA->setArg(2, bufData);
@@ -820,16 +819,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     write(queue, false, bufData, sizeof(u32) * N, data);
     write(queue, false, buf1.get(), sizeof(u32) * N, data);
 
-    fftH->setArg(0, buf1);
-    fftH->run(queue);
-  
-    read(queue, true, buf1.get(), sizeof(u32) * N, data);
-    for (int g = 0; g < 33; ++g) {
-      for (int i = 0; i < nH; ++i) {
-        uint2 a = data[g + i * 256];
-        printf("%d %4d %08x %08x\n", g, i, a.x, a.y);
-      }
+    for (int i = 0; i < 24; ++i) {
+      run({fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()}, queue);
+      run(tailKerns, queue);
+      read(queue, true, bufData, sizeof(u32) * N, data);
+      printf("%016llx\n", residue(W, H, E, (int *) data));
+      // for (int i = 0; i < 64; ++i) { printf("%2d %08x %08x (%d, %d)\n", i, data[i * W].x, data[i * W].y, bitlen(N, E, i * 2), bitlen(N, E, i * 2 + 1)); }
     }
+    
     delete[] data;
     return false;
   }

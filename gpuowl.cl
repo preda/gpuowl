@@ -138,15 +138,13 @@ T2 mul_3t8(T2 a) { return mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 #ifdef FFT_NTT
 
 // NWORDS-th order root of 2: root2 ^ NWORDS == 2 (mod M31)
-// root2 == 32 / (NWORDS % 31) % 31
-// root2 == (2^LOG_ROOT2)
+// LOG_ROOT2 == 32 / (NWORDS % 31) % 31
 uint weight1(uint x, uint pos) { return shl1(x, (extra(pos) * LOG_ROOT2) % 31); }
 
 // N * 2^(31 - LOG_NWORDS) == 1 (mod M31).
 uint unweight1(uint x, uint pos) {
   x = (x + ((x + 1) >> 31)) & M31; // if x==M31, set it to 0.
-  // return shl1(x, (/*extra(pos) * (31 - LOG_ROOT2)*/ + (31 - LOG_NWORDS - 2)) % 31 );
-  return x;
+  return shl1(x, (extra(pos) * (31 - LOG_ROOT2) + (31 - LOG_NWORDS - 2)) % 31 );
 }
 
 T2 weight(Word2 a, uint pos, const uint2 *dummyA, uint dummyP) { return U2(weight1(a.x, 2 * pos + 0), weight1(a.y, 2 * pos + 1)); }
@@ -172,7 +170,7 @@ uint updateMul(bool doMul3, uint x, uint *carry, uint bits) {
   return carryStep(x, carry, bits);
 }
 
-// Reverse weighting, round, carry propagation for a pair of words; with optional MUL-3.
+// Reverse weighting and carry propagation for a pair of words; with optional MUL-3.
 Word2 car0(bool doMul3, T2 u, Carry *carry, uint pos, const T2 *dummyA, uint dummyP) {
   u = unweight(u, pos);
   u.x = updateMul(doMul3, u.x, carry, bitlen(2 * pos + 0));
