@@ -1,4 +1,6 @@
 gpuowl
+debug
+core
 gpuowl.log
 *.ll
 *.owl

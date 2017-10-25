@@ -120,7 +120,7 @@ uint bitlen(uint k) { return EXP / NWORDS + isBigWord(k); }
 // mul with (0, 1). (twiddle of tau/4, sqrt(-1) aka "i").
 uint2 mul_t4(uint2 a) { return U2(neg(a.y), a.x); }
 
-// mul with (2^15, 2^15). (twiddle of tau/8 aka sqrt(i)).
+// mul with (2^15, 2^15). (twiddle of tau/8 aka sqrt(i)). Note: 2 * (2^15)^2 == 1 (mod M31).
 uint2 mul_t8(uint2 a) { return U2(shl1(a.x + neg(a.y), 15), shl1(a.x + a.y, 15)); }
 
 // mul with (-2^15, 2^15). (twiddle of 3*tau/8).
@@ -139,10 +139,18 @@ T2 mul_3t8(T2 a) { return mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
 // NWORDS-th order root of 2: root2 ^ NWORDS == 2 (mod M31)
 // root2 == 32 / (NWORDS % 31) % 31
-// root2 == (1 << ROOT2_SHIFT)
-uint weightAux(uint x, uint pos, uint logRoot2) { return shl1(x, (extra(pos) * logRoot2) % 31); }
-uint weight1(uint x, uint pos) { return weightAux(x, pos, LOG_ROOT2); }
-uint unweight1(uint x, uint pos) { return weightAux(x, pos, 31 - LOG_ROOT2); }
+// root2 == (2^LOG_ROOT2)
+uint weight1(uint x, uint pos) { return shl1(x, (extra(pos) * LOG_ROOT2) % 31); }
+
+// N * 2^(31 - LOG_NWORDS) == 1 (mod M31).
+uint unweight1(uint x, uint pos) {
+  x = (x + ((x + 1) >> 31)) & M31; // if x==M31, set it to 0.
+  // return shl1(x, (/*extra(pos) * (31 - LOG_ROOT2)*/ + (31 - LOG_NWORDS - 2)) % 31 );
+  return x;
+}
+
+T2 weight(Word2 a, uint pos, const uint2 *dummyA, uint dummyP) { return U2(weight1(a.x, 2 * pos + 0), weight1(a.y, 2 * pos + 1)); }
+Word2 unweight(T2 a, uint pos) { return (Word2) (unweight1(a.x, 2 * pos + 0), unweight1(a.y, 2 * pos + 1)); }
 
 uint lowBits(uint x, uint bits) { return x & ((1 << bits) - 1); }
 
@@ -165,16 +173,11 @@ uint updateMul(bool doMul3, uint x, uint *carry, uint bits) {
 }
 
 // Reverse weighting, round, carry propagation for a pair of words; with optional MUL-3.
-Word2 car0(bool doMul3, T2 u, Carry *carry, uint pos, T2 *dummyA, uint dummyP) {
-  pos *= 2;
-  u.x = updateMul(doMul3, unweight1(u.x, pos + 0), carry, bitlen(pos + 0));
-  u.y = updateMul(doMul3, unweight1(u.y, pos + 1), carry, bitlen(pos + 1));
+Word2 car0(bool doMul3, T2 u, Carry *carry, uint pos, const T2 *dummyA, uint dummyP) {
+  u = unweight(u, pos);
+  u.x = updateMul(doMul3, u.x, carry, bitlen(2 * pos + 0));
+  u.y = updateMul(doMul3, u.y, carry, bitlen(2 * pos + 1));
   return u;
-}
-
-T2 weight(Word2 a, uint pos, uint2 *dummyA, uint dummyP) {
-  pos *= 2;
-  return U2(weight1(a.x, pos), weight1(a.y, pos + 1));
 }
 
 #else
@@ -206,7 +209,7 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
 // Reverse weighting, round, carry propagation for a pair of doubles; with optional MUL.
-Word2 car0(bool doMul3, T2 u, Carry *carry, uint dummyPos, T2 *iA, uint p) {
+Word2 car0(bool doMul3, T2 u, Carry *carry, uint dummyPos, const T2 *iA, uint p) {
   T2 weight = iA[p];
   u *= fabs(weight);
   int a = updateMul(doMul3, toLong(u.x), carry, oldBitlen(weight.x));
@@ -216,7 +219,7 @@ Word2 car0(bool doMul3, T2 u, Carry *carry, uint dummyPos, T2 *iA, uint p) {
 
 double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
 
-T2 weight(Word2 a, uint dummyPos, T2 *A, uint p) { return toDouble(a) * fabs(A[p]); }
+T2 weight(Word2 a, uint dummyPos, const T2 *A, uint p) { return toDouble(a) * fabs(A[p]); }
 
 #endif
 
@@ -282,6 +285,7 @@ void shufl(local T *lds, T2 *u, uint n, uint f) {
     bar();
     for (uint i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * 256 + me]; }
   }
+  bar();
 }
 
 void tabMul(const G T2 *trig, T2 *u, uint n, uint f) {
@@ -335,11 +339,12 @@ void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
     }
   }
 
+  bar();
   for (int i = 1; i < 4; ++i) {
     u[i]     = mul(u[i],     trig[i * 512       + me]);
     u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
   }
-     
+
   fft4(u);
   fft4(u + 4);
 
@@ -432,12 +437,12 @@ void reverse(uint N, local T2 *lds, T2 *u, bool bump) {
 
 #ifdef FFT_NTT
 
-T2 weightAndCarry(T2 u, T *carry, uint pos, T2 *dummyA, uint dummyP) {
+T2 weightAndCarry(T2 u, T *carry, uint pos, const T2 *dummyA, uint dummyP) {
   return car0(false, u, carry, pos, dummyA, dummyP);
 }
 
 // No carry out. The final carry is "absorbed" in the last word.
-T2 carryAndWeightFinal(T2 u, T carry, uint pos, T2 *dummyA, uint dummyP) {
+T2 carryAndWeightFinal(T2 u, T carry, uint pos, const T2 *dummyA, uint dummyP) {
   u.x = carryStep(u.x, &carry, bitlen(2 * pos + 0));
   u.y += carry;
   return weight(u, pos, dummyA, dummyP);
@@ -446,7 +451,7 @@ T2 carryAndWeightFinal(T2 u, T carry, uint pos, T2 *dummyA, uint dummyP) {
 #else
 
 // Applies inverse weight "iA" and rounding, and propagates carry over the two words.
-T2 weightAndCarry(T2 u, T *carry, uint dummyPos, T2 *iA, uint p) {
+T2 weightAndCarry(T2 u, T *carry, uint dummyPos, const T2 *iA, uint p) {
   T2 w = iA[p];
   u = rint(u * fabs(w)); // reverse weight and round.
   u.x = carryStep(u.x, carry, oldBitlen(w.x));
@@ -455,7 +460,7 @@ T2 weightAndCarry(T2 u, T *carry, uint dummyPos, T2 *iA, uint p) {
 }
 
 // No carry out. The final carry is "absorbed" in the last word.
-T2 carryAndWeightFinal(T2 u, T carry, uint dummyPos, T2 *A, uint p) {
+T2 carryAndWeightFinal(T2 u, T carry, uint dummyPos, const T2 *A, uint p) {
   T2 w = A[p];
   u.x = carryStep(u.x, &carry, oldBitlen(w.x));
   u.y += carry;

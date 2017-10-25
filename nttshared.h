@@ -18,6 +18,8 @@ uint neg(uint x) { return M31 - x; }
   
 uint add1(uint a, uint b) { return mod(a + b); }
 uint sub1(uint a, uint b) { return add1(a, neg(b)); }
+// { return a - b; }
+// 
 
 uint2 add(uint2 a, uint2 b) { return U2(add1(a.x, b.x), add1(a.y, b.y)); }
 uint2 sub(uint2 a, uint2 b) { return U2(sub1(a.x, b.x), sub1(a.y, b.y)); }

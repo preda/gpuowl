@@ -30,7 +30,7 @@
 #define PROGRAM "gpuowl"
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
+const unsigned BUF_RW    = CL_MEM_READ_WRITE; // | CL_MEM_HOST_NO_ACCESS;
 
 template<typename T>
 struct ReleaseDelete {
@@ -223,6 +223,7 @@ T2 *smallTrigBlock(int W, int H, T2 *p) {
   for (int line = 1; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
       *p++ = root1<T2>(W * H, line * col);
+      // if (line == 2 && W == 8) { printf("%4d %4d: %x %x\n", col, line, (u32) p[-1].x, (u32) p[-1].y); }
     }
   }
   return p;
@@ -670,7 +671,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   assert(H == 1024 || H == 2048);
   assert(W <= H);
   int N = 2 * W * H;
-  int nW = W / 256 * 2, nH = H / 256 * 2;
+  int nW = W / 256, nH = H / 256;
 
   bool useNTT = (args.fftKind == Args::FFT_NTT);
 
@@ -678,7 +679,13 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   if (useNTT) {
     append(defines, "FFT_NTT");
-    append(defines, valueDefine("LOG_ROOT2", std::log2(32 / (N % 31) % 31)));
+    
+    // (2^LOG_ROOT2)^N == 2 (mod M31).
+    u32 LOG_ROOT2 = std::log2((32 / (N % 31)) % 31);
+    append(defines, valueDefine("LOG_ROOT2", LOG_ROOT2));
+
+    // N * 2^(31 - LOG_NWORDS) == 1 (mod M31), used for the 1/N weighting of the iFFT.
+    append(defines, valueDefine("LOG_NWORDS", std::log2(N)));    
   } else {
     append(defines, "FFT_FP");
     append(defines, "FP_DP");
@@ -696,9 +703,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     };
     
 #define LOAD(name, nWords, wordsPerThread) name.reset(load(#name, nWords, wordsPerThread));
-    LOAD(fftP, N, nW);
-    LOAD(fftW, N, nW);
-    LOAD(fftH, N, nH);
+    LOAD(fftP, N, nW * 2);
+    LOAD(fftW, N, nW * 2);
+    LOAD(fftH, N, nH * 2);
     
     LOAD(carryA, N, 32);
     LOAD(carryM, N, 32);
@@ -709,9 +716,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     
     LOAD(square,   N, 4);
     LOAD(multiply, N, 4);
-    LOAD(tail,     N, nH * 2);
+    LOAD(tail,     N, nH * 4);
     
-    LOAD(carryConv, N + W * 2, nW);
+    LOAD(carryConv, N + W * 2, nW * 2);
 #undef LOAD
   }
 
@@ -783,6 +790,50 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
   }
 
+  // These disabled blocks are temporary debugging runs, to be dropped in the future.
+  if (false && args.fftKind == Args::FFT_DP) {
+    double2 *data = new double2[N / 2]();
+    data[0] = double2{0, 1};
+    write(queue, false, buf1.get(), sizeof(double) * N, data);
+    fftH->setArg(0, buf1);
+    fftH->run(queue);
+    read(queue, true, buf1.get(), sizeof(double) * N, data);
+    for (int t = 0; t < 33; ++t) {
+      for (int i = 0; i < nH; ++i) {
+        double2 a = data[t + i * 256];
+        printf("%d %4d: %f %f\n", t, i, a.x, a.y);
+      }
+    }
+    delete[] data;
+    return false;
+  }
+
+  if (false && args.fftKind == Args::FFT_NTT) {
+    uint2 *data = new uint2[N / 2]();
+    for (int i = 0; i < N / 2; ++i) { data[i] = U2(0, 0); }
+    data[0] = U2(1, 0);
+
+    cl_mem bufData = makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N);
+    fftP->setArg(0, bufData);
+    carryA->setArg(2, bufData);
+    carryB->setArg(0, bufData);
+    write(queue, false, bufData, sizeof(u32) * N, data);
+    write(queue, false, buf1.get(), sizeof(u32) * N, data);
+
+    fftH->setArg(0, buf1);
+    fftH->run(queue);
+  
+    read(queue, true, buf1.get(), sizeof(u32) * N, data);
+    for (int g = 0; g < 33; ++g) {
+      for (int i = 0; i < nH; ++i) {
+        uint2 a = data[g + i * 256];
+        printf("%d %4d %08x %08x\n", g, i, a.x, a.y);
+      }
+    }
+    delete[] data;
+    return false;
+  }
+  
   // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
   // Optional multiply-by-3 at the end.
   auto modSqLoop = [&](cl_queue q, cl_mem data, int nIters, bool doMul3) {
@@ -840,19 +891,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   return true;
 }
 
-int main(int argc, char **argv) {
-  /*
-  {
-  uint2 tmp[256];
-  int n = 8;
-  trig(tmp, n, n);
-  for (int i = 0; i < n; ++i) {
-    uint2 a = tmp[i];
-    printf("%d (%08x, %08x)\n", i, a.x, a.y);
-  }
-  }
-  */
-  
+int main(int argc, char **argv) {  
   initLog();
   
   log("gpuOwL v" VERSION " GPU Mersenne primality checker\n");
