@@ -16,9 +16,10 @@ struct Args {
   int fftSize;
   int fftKind;
   int device;
-  bool timeKernels, useLegacy;
+  bool timeKernels, useLegacy, debug;
   
-  Args() : step(500000), saveStep(10000000), fftSize(0), fftKind(FFT_DP), device(-1), timeKernels(false), useLegacy(false) { }
+  Args() : step(500000), saveStep(10000000), fftSize(0), fftKind(FFT_DP), device(-1), timeKernels(false), useLegacy(false),
+    debug(false) { }
   
   // return false to stop.
   bool parse(int argc, char **argv) {
@@ -43,6 +44,8 @@ struct Args {
         log("    %d : %s\n", i, info.c_str());
       }      
       return false;
+    } else if (!strcmp(arg, "-debug")) {
+      debug = true;
     } else if (!strcmp(arg, "-step")) {
       if (i < argc - 1) {
         step = atoi(argv[++i]);

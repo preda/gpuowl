@@ -159,22 +159,25 @@ uint carryStep(uint x, Carry *carry, uint bits) {
   return lowBits(x, bits);
 }
 
-// input & output 31 bits.
-uint times3(uint x) {
-  ulong a = x * 2 + (ulong) x; // times-3 in a form expressing a single carry-out bit (x being 31 bits).
-  return mod(lo(a) + 2 * up(a));
+uint carryStep3(uint x, Carry *carry, uint bits) {
+  // Do the times3-plus-carry on extended bits to avoid 32-bit overflow.
+  ulong a = u64(x) * 3 + *carry;
+  *carry = a >> bits;
+  return lowBits(a, bits);
 }
 
-uint updateMul(bool doMul3, uint x, uint *carry, uint bits) {
-  x = doMul3 ? times3(x) : x;
-  return carryStep(x, carry, bits);
-}
+uint update(uint x, Carry *carry, uint bits) { return carryStep(x, carry, bits); }
 
 // Reverse weighting and carry propagation for a pair of words; with optional MUL-3.
 Word2 car0(bool doMul3, T2 u, Carry *carry, uint pos, const T2 *dummyA, uint dummyP) {
   u = unweight(u, pos);
-  u.x = updateMul(doMul3, u.x, carry, bitlen(2 * pos + 0));
-  u.y = updateMul(doMul3, u.y, carry, bitlen(2 * pos + 1));
+  if (doMul3) {
+    u.x = carryStep3(u.x, carry, bitlen(2 * pos + 0));
+    u.y = carryStep3(u.y, carry, bitlen(2 * pos + 1));
+  } else {
+    u.x = carryStep(u.x, carry, bitlen(2 * pos + 0));
+    u.y = carryStep(u.y, carry, bitlen(2 * pos + 1));
+  }
   return u;
 }
 
@@ -200,6 +203,8 @@ int updateMul(bool doMul3, long x, Carry *carry, uint bits) {
   *carry = (x - w) >> bits;
   return w;
 }
+
+int update(long x, Carry *carry, uint bits) { return updateMul(false, x, carry, bits); }
 
 // Simpler version of signbit(a).
 uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
@@ -227,8 +232,8 @@ T2 weight(Word2 a, uint dummyPos, const T2 *A, uint p) { return toDouble(a) * fa
 // Carry propagation.
 Word2 car1(Word2 a, Carry *carry, uint pos) {
   pos *= 2;
-  a.x = updateMul(false, a.x, carry, bitlen(pos + 0));
-  a.y = updateMul(false, a.y, carry, bitlen(pos + 1));
+  a.x = update(a.x, carry, bitlen(pos + 0));
+  a.y = update(a.y, carry, bitlen(pos + 1));
   return a;
 }
 

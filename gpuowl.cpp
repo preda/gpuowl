@@ -791,35 +791,17 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
   }
 
-  // These disabled blocks are temporary debugging runs, to be dropped in the future.
-  if (false && args.fftKind == Args::FFT_DP) {
-    double2 *data = new double2[N / 2]();
-    data[0] = double2{0, 1};
-    write(queue, false, buf1.get(), sizeof(double) * N, data);
-    fftH->setArg(0, buf1);
-    fftH->run(queue);
-    read(queue, true, buf1.get(), sizeof(double) * N, data);
-    for (int t = 0; t < 33; ++t) {
-      for (int i = 0; i < nH; ++i) {
-        double2 a = data[t + i * 256];
-        printf("%d %4d: %f %f\n", t, i, a.x, a.y);
-      }
-    }
-    delete[] data;
-    return false;
-  }
-
-  if (false && args.fftKind == Args::FFT_NTT) {    
+  if (args.debug) {    
     uint2 *data = new uint2[N / 2]();
-    data[0] = U2(1, 1);
+    data[0] = U2(3, 0);
     cl_mem bufData = makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N);
     fftP->setArg(0, bufData);
     carryA->setArg(2, bufData);
     carryB->setArg(0, bufData);
     write(queue, false, bufData, sizeof(u32) * N, data);
-    write(queue, false, buf1.get(), sizeof(u32) * N, data);
+    // write(queue, false, buf1.get(), sizeof(u32) * N, data);
 
-    for (int i = 0; i < 24; ++i) {
+    for (int i = 0; i < 32; ++i) {
       run({fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()}, queue);
       run(tailKerns, queue);
       read(queue, true, bufData, sizeof(u32) * N, data);
