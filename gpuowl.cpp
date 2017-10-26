@@ -26,7 +26,7 @@
 
 #define TAU (2 * M_PIl)
 
-#define VERSION "1.6"
+#define VERSION "1.7"
 #define PROGRAM "gpuowl"
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;

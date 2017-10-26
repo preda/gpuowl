@@ -34,7 +34,8 @@
 
 
 // This mem_fence is only needed to workaround a bug in ROCm: https://github.com/RadeonOpenCompute/ROCm/issues/234
-void amd_fence() { mem_fence(CLK_LOCAL_MEM_FENCE); }
+void amd_fence() {}
+// { mem_fence(CLK_LOCAL_MEM_FENCE); }
 
 #ifdef FFT_NTT
 
@@ -402,12 +403,13 @@ void fftPremul(uint N, uint H, local T *lds, T2 *u, const G Word2 *in, G T2 *out
   uint step = N * 256 * g;
   in  += step;
   out += step;
+  A   += step;
   
   uint me = get_local_id(0);
 
   for (int i = 0; i < N; ++i) {
     uint pos = g + H * 256 * i + H * me;
-    u[i] = weight(in[256 * i + me], pos, A, me + 256 * i + step);
+    u[i] = weight(in[256 * i + me], pos, A, me + 256 * i);
   }
 
   fftImpl(N, lds, u, trig);
@@ -547,15 +549,16 @@ void carryACore(uint N, uint H, bool doMul3, const G T2 *in, const G T2 *A, G Wo
   uint gy = g / N;
 
   uint step = 256 * gx + N * 256 * CARRY_LEN * gy;
-  in     += step;
-  out    += step;
+  in  += step;
+  out += step;
+  A   += step;
 
   Carry carry = 0;
 
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint pos = CARRY_LEN * gy + H * 256 * gx  + H * me + i;
     uint p = me + i * N * 256;
-    out[p] = car0(doMul3, conjugate(in[p]), &carry, pos, A, step + p);
+    out[p] = car0(doMul3, conjugate(in[p]), &carry, pos, A, p);
   }
   carryOut[g * 256 + me] = carry;
 }
