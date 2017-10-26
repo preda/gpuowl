@@ -126,10 +126,11 @@ bool isBigWord(unsigned N, unsigned E, unsigned k) {
 u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
-// NTT doesn't need weight vectors.
-void genWeights(int W, int H, int E, double *aTab, double *iTab) {
-  double *pa = aTab;
-  double *pi = iTab;
+// NTT doesn't use weight vectors.
+template<typename T>
+void genWeights(int W, int H, int E, T *aTab, T *iTab) {
+  T *pa = aTab;
+  T *pi = iTab;
 
   int N = 2 * W * H;
   int baseBits = E / N;
@@ -153,7 +154,8 @@ void genWeights(int W, int H, int E, double *aTab, double *iTab) {
 template<typename T> struct Pair { T x, y; };
 
 using double2 = Pair<double>;
-using uint2 = Pair<uint>;
+using float2  = Pair<float>;
+using uint2   = Pair<uint>;
 
 uint2 U2(u32 x, u32 y) { return uint2{x, y}; }
 
@@ -175,18 +177,26 @@ uint2 pow2(uint2 a, u32 k) {
   return a;
 }
 
-// x^31 == -1, aka "root of unity of order 32" in GF(M(31)^2).
-const uint2 ROOT1_32{1 << 16, 0x4b94532f};
-
+// Returns the primitive root of unity of order N, to the power k.
 template<typename T2> T2 root1(uint N, uint k);
 
-// Return w^(k/N), where w^(N/2)==-1.
+template<> float2 root1<float2>(uint N, uint k) {
+  double angle = - double(TAU) / N * k;
+  float x = cos(angle);
+  float y = sin(angle);
+  return float2{x, y};
+}
+
 template<> double2 root1<double2>(uint N, uint k) {
-  auto angle = - TAU / N * k;
+  long double angle = - TAU / N * k;
   double x = cosl(angle);
   double y = sinl(angle);
   return double2{x, y};
 }
+
+// ROOT1_32 ^ 31 == -1, aka "primitive root of unity of order 32" in GF(M(31)^2).
+// See "Matters computational", http://www.jjj.de/fxt/fxtbook.pdf .
+const uint2 ROOT1_32{1 << 16, 0x4b94532f};
 
 template<> uint2 root1<uint2>(uint N, uint k) {
   uint2 w = pow2(ROOT1_32, 32 - std::log2(N));
@@ -260,14 +270,15 @@ cl_mem genSmallTrig1K(cl_context context) {
   return buf;
 }
 
+template<typename T>
 void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
   int N = 2 * W * H;
-  double *aTab    = new double[N];
-  double *iTab    = new double[N];
+  T *aTab    = new T[N];
+  T *iTab    = new T[N];
   
   genWeights(W, H, E, aTab, iTab);
-  bufA.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, aTab));
-  bufI.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, iTab));
+  bufA.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, aTab));
+  bufI.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, iTab));
   
   delete[] aTab;
   delete[] iTab;
@@ -550,7 +561,7 @@ bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args 
   Checkpoint checkpoint(E);
 
   if (!checkpoint.load(W, H, &k, data, check, &nErrors)) { return false; }
-  log("PRP-3 FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / (double) N, k);
+  log("PRP-3 FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / float(N), k);
   assert(k % 1000 == 0);
   const int kEnd = E;
   assert(k < kEnd);
@@ -673,11 +684,10 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int N = 2 * W * H;
   int nW = W / 256, nH = H / 256;
 
-  bool useNTT = (args.fftKind == Args::FFT_NTT);
-
   std::vector<string> defines {valueDefine("EXP", E), valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
-  
-  if (useNTT) {
+
+  switch (args.fftKind) {
+  case Args::FFT_NTT: {
     append(defines, "FFT_NTT");
     
     // (2^LOG_ROOT2)^N == 2 (mod M31), so LOG_ROOT2 * N == 1 (mod 31) == 32 (mod 31), so LOG_ROOT2 = 32 / (N % 31) (mod 31).
@@ -687,9 +697,21 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
     // N * 2^(31 - LOG_NWORDS) == 1 (mod M31), used for the 1/N weighting of the iFFT.
     append(defines, valueDefine("LOG_NWORDS", std::log2(N)));    
-  } else {
+  }
+    break;
+    
+  case Args::FFT_DP:
     append(defines, "FFT_FP");
     append(defines, "FP_DP");
+    break;
+
+  case Args::FFT_SP:
+    append(defines, "FFT_FP");
+    append(defines, "FP_SP");
+    break;
+
+  default:
+    assert(false);
   }
 
   std::unique_ptr<Kernel> fftP, fftW, fftH, carryA, carryM, carryB, transposeW, transposeH, square, multiply, tail, carryConv;
@@ -724,20 +746,38 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   }
 
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
-  
-  if (useNTT) {
+
+  switch (args.fftKind) {
+  case Args::FFT_NTT:
     bufTrig1K.reset(genSmallTrig1K<uint2>(context));
     bufTrig2K.reset(genSmallTrig2K<uint2>(context));
     bufBigTrig.reset(genBigTrig<uint2>(context, W, H));
-    
-  } else {
+    break;
+
+  case Args::FFT_DP:
     bufTrig1K.reset(genSmallTrig1K<double2>(context));
     bufTrig2K.reset(genSmallTrig2K<double2>(context));
     bufBigTrig.reset(genBigTrig<double2>(context, W, H));
-    setupWeights(context, bufA, bufI, W, H, E);
+    setupWeights<double>(context, bufA, bufI, W, H, E);
+    break;
+
+  case Args::FFT_SP:
+    bufTrig1K.reset(genSmallTrig1K<float2>(context));
+    bufTrig2K.reset(genSmallTrig2K<float2>(context));
+    bufBigTrig.reset(genBigTrig<float2>(context, W, H));
+    setupWeights<float>(context, bufA, bufI, W, H, E);
+    break;
+
+  default:
+    assert(false);
   }
 
-  uint bufSize = N * (useNTT ? sizeof(uint) : sizeof(double));
+  uint wordSize =
+    args.fftKind == Args::FFT_NTT ? sizeof(uint) :
+    args.fftKind == Args::FFT_DP  ? sizeof(double) :
+    sizeof(float);
+  
+  uint bufSize = N * wordSize;
   Buffer buf1{makeBuf(    context, BUF_RW, bufSize)};
   Buffer buf2{makeBuf(    context, BUF_RW, bufSize)};
   Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
@@ -805,7 +845,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       run({fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()}, queue);
       run(tailKerns, queue);
       read(queue, true, bufData, sizeof(u32) * N, data);
-      printf("%016llx\n", residue(W, H, E, (int *) data));
+      printf("%2d: %016llx\n", i + 1, residue(W, H, E, (int *) data));
       // for (int i = 0; i < 64; ++i) { printf("%2d %08x %08x (%d, %d)\n", i, data[i * W].x, data[i * W].y, bitlen(N, E, i * 2), bitlen(N, E, i * 2 + 1)); }
     }
     

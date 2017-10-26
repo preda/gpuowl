@@ -220,9 +220,7 @@ Word2 car0(bool doMul3, T2 u, Carry *carry, uint dummyPos, const T2 *iA, uint p)
   return (Word2) (a, b);
 }
 
-double2 toDouble(int2 r) { return (double2) (r.x, r.y); }
-
-T2 weight(Word2 a, uint dummyPos, const T2 *A, uint p) { return toDouble(a) * fabs(A[p]); }
+T2 weight(Word2 a, uint dummyPos, const T2 *A, uint p) { return U2(a.x, a.y) * fabs(A[p]); }
 
 #endif
 

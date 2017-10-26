@@ -1,7 +1,7 @@
 // Prime M(31) == 2^31 - 1
 #define M31 0x7fffffffu
 
-uint lo(ulong a) { return a & 0xffffffffu; }
+// uint lo(ulong a) { return a & 0xffffffffu; }
 uint up(ulong a) { return a >> 32; }
 
 // input 32 bits except 2^32-1; output 31 bits.
