@@ -81,15 +81,15 @@ kernel __attribute__((reqd_work_group_size(256, 1, 1))) void bug(global T2 *io, 
   uint f = 32;
   uint m = me / f;
   
-  for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = ((T *) (u + i))[0]; }
+  for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = u[i].x; }
   barrier(CLK_LOCAL_MEM_FENCE);
-  for (uint i = 0; i < n; ++i) { ((T *) (u + i))[0] = lds[i * 256 + me]; }
+  for (uint i = 0; i < n; ++i) { u[i].x = lds[i * 256 + me]; }
   barrier(CLK_LOCAL_MEM_FENCE);
-  for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = ((T *) (u + i))[1]; }
+  for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = u[i].y; }
   barrier(CLK_LOCAL_MEM_FENCE);
-  for (uint i = 0; i < n; ++i) { ((T *) (u + i))[1] = lds[i * 256 + me]; }
-
-  // barrier(CLK_LOCAL_MEM_FENCE); // Comment or un-comment this barrier() to observe different behavior.
+  for (uint i = 0; i < n; ++i) { u[i].y = lds[i * 256 + me]; }
+  
+  // mem_fence(CLK_LOCAL_MEM_FENCE); // Comment or un-comment this to observe different behavior.
 
   tabMul(trig, u, 8, 32);
   for (int i = 0; i < 8; ++i) { io[256 * i + me] = u[i]; }  
