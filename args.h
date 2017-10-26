@@ -12,6 +12,7 @@ struct Args {
   
   std::string clArgs;
   std::string user, cpu;
+  std::string dump;
   int step, saveStep;
   int fftSize;
   int fftKind;
@@ -44,6 +45,13 @@ struct Args {
         log("    %d : %s\n", i, info.c_str());
       }      
       return false;
+    } else if (!strcmp(arg, "-dump")) {
+      if (i < argc - 1 && argv[i + 1][0] != '-') {
+        dump = argv[++i];
+      } else {
+        log("-dump expects name");
+        return false;
+      }
     } else if (!strcmp(arg, "-debug")) {
       debug = true;
     } else if (!strcmp(arg, "-step")) {

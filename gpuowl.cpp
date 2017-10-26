@@ -684,6 +684,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int N = 2 * W * H;
   int nW = W / 256, nH = H / 256;
 
+  string dumpConfig = args.fftKind == Args::FFT_NTT ? "NTT" : args.fftKind == Args::FFT_DP ? "DP" : "SP";
+  dumpConfig += string("_") + std::to_string(N / 1024 / 1024) + "M";
+  
   std::vector<string> defines {valueDefine("EXP", E), valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
 
   switch (args.fftKind) {
@@ -717,7 +720,10 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   std::unique_ptr<Kernel> fftP, fftW, fftH, carryA, carryM, carryB, transposeW, transposeH, square, multiply, tail, carryConv;
 
   {
-    Holder<cl_program> program(compile(device, context, "gpuowl.cl", args.clArgs, defines));
+    string clArgs = args.clArgs;
+    if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + dumpConfig; }
+    
+    Holder<cl_program> program(compile(device, context, "gpuowl.cl", clArgs, defines));
     if (!program) { return false; }
 
     auto load = [&program, &args](const string &name, int nWords, int wordsPerThread) {
