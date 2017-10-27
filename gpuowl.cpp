@@ -30,7 +30,7 @@
 #define PROGRAM "gpuowl"
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-const unsigned BUF_RW    = CL_MEM_READ_WRITE; // | CL_MEM_HOST_NO_ACCESS;
+const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 template<typename T>
 struct ReleaseDelete {
@@ -126,7 +126,7 @@ bool isBigWord(unsigned N, unsigned E, unsigned k) {
 u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
-// NTT doesn't use weight vectors.
+// FGT doesn't use weight vectors.
 template<typename T>
 void genWeights(int W, int H, int E, T *aTab, T *iTab) {
   T *pa = aTab;
@@ -156,14 +156,40 @@ template<typename T> struct Pair { T x, y; };
 using double2 = Pair<double>;
 using float2  = Pair<float>;
 using uint2   = Pair<uint>;
+using ulong2  = Pair<ulong>;
 
-uint2 U2(u32 x, u32 y) { return uint2{x, y}; }
+uint2  U2(uint x, uint y) { return uint2{x, y}; }
+ulong2 U2(ulong x, ulong y) { return ulong2{x, y}; }
 
+uint lo(ulong a) { return a & 0xffffffffu; }
+uint up(ulong a) { return a >> 32; }
+
+#define NO_ASM
+#define FGT_31 1
+#define T uint
+#define T2 uint2
 #include "nttshared.h"
+#undef MBITS
+#undef TBITS
+#undef T2
+#undef T
+#undef FGT_31
+
+#define FGT_61 1
+#define T ulong
+#define T2 ulong2
+#include "nttshared.h"
+#undef MBITS
+#undef TBITS
+#undef T2
+#undef T
+#undef FGT_61
+#undef NO_ASM
 
 // power: a^k
-uint2 pow(uint2 a, u32 k) {  
-  uint2 x = U2(1, 0);
+template<typename T2>
+T2 pow(T2 a, u32 k) {  
+  T2 x{1, 0};
   for (int i = std::log2(k); i >= 0; --i) {
     x = sq(x);
     if (k & (1 << i)) { x = mul(x, a); }    
@@ -172,7 +198,8 @@ uint2 pow(uint2 a, u32 k) {
 }
 
 // a^(2^k)
-uint2 pow2(uint2 a, u32 k) {
+template<typename T2>
+T2 pow2(T2 a, u32 k) {
   for (u32 i = 0; i < k; ++i) { a = sq(a); }
   return a;
 }
@@ -194,12 +221,23 @@ template<> double2 root1<double2>(uint N, uint k) {
   return double2{x, y};
 }
 
-// ROOT1_32 ^ 31 == -1, aka "primitive root of unity of order 32" in GF(M(31)^2).
+// ROOT1_31 ^ 31 == -1, aka "primitive root of unity of order 32" in GF(M(31)^2).
 // See "Matters computational", http://www.jjj.de/fxt/fxtbook.pdf .
-const uint2 ROOT1_32{1 << 16, 0x4b94532f};
+// The "Creutzburg-Tasche primitive root": (sqrt(2), sqrt(-3)) in GF(p^2).
+// sqrt(2) == 2^((p+1)/2), sqrt(-3) == 3^(2^(p-2)).
+const uint2  ROOT1_31{1 << 16, 0x4b94532f};
+
+// 1/sqrt(2) * (1, sqrt(-3)) == 2^((p-1)/2) * (1, sqrt(-3)).
+const ulong2 ROOT1_61{1 << 30, 0x06caa56e1cae315a};
+// const ulong2 ROOT1_61{1 << 31, 0x0e5718ad1b2a95b8};
 
 template<> uint2 root1<uint2>(uint N, uint k) {
-  uint2 w = pow2(ROOT1_32, 32 - std::log2(N));
+  uint2 w = pow2(ROOT1_31, 32 - std::log2(N));
+  return pow(w, k);
+}
+
+template<> ulong2 root1<ulong2>(uint N, uint k) {
+  ulong2 w = pow2(ROOT1_61, 62 - std::log2(N));
   return pow(w, k);
 }
 
@@ -684,33 +722,30 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int N = 2 * W * H;
   int nW = W / 256, nH = H / 256;
 
-  string dumpConfig = args.fftKind == Args::FFT_NTT ? "NTT" : args.fftKind == Args::FFT_DP ? "DP" : "SP";
-  dumpConfig += string("_") + std::to_string(N / 1024 / 1024) + "M";
+  string configName = args.fftKindStr + string("_") + std::to_string(N / 1024 / 1024) + "M";
   
   std::vector<string> defines {valueDefine("EXP", E), valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
 
+  append(defines, valueDefine("LOG_NWORDS", std::log2(N)));
+  
   switch (args.fftKind) {
-  case Args::FFT_NTT: {
-    append(defines, "FFT_NTT");
-    
-    // (2^LOG_ROOT2)^N == 2 (mod M31), so LOG_ROOT2 * N == 1 (mod 31) == 32 (mod 31), so LOG_ROOT2 = 32 / (N % 31) (mod 31).
-    
-    u32 LOG_ROOT2 = (32 / (N % 31)) % 31;
-    append(defines, valueDefine("LOG_ROOT2", LOG_ROOT2));
-
-    // N * 2^(31 - LOG_NWORDS) == 1 (mod M31), used for the 1/N weighting of the iFFT.
-    append(defines, valueDefine("LOG_NWORDS", std::log2(N)));    
-  }
-    break;
-    
-  case Args::FFT_DP:
-    append(defines, "FFT_FP");
-    append(defines, "FP_DP");
+  case Args::M31:
+    append(defines, "FGT_31=1");    
+    // (2^LOG_ROOT2)^N == 2 (mod M31), so LOG_ROOT2 * N == 1 (mod 31) == 32 (mod 31), so LOG_ROOT2 = 32 / (N % 31) (mod 31).  
+    append(defines, valueDefine("LOG_ROOT2", (32 / (N % 31)) % 31));
     break;
 
-  case Args::FFT_SP:
-    append(defines, "FFT_FP");
-    append(defines, "FP_SP");
+  case Args::M61:
+    append(defines, "FGT_61=1");
+    append(defines, valueDefine("LOG_ROOT2", (62 / (N % 61)) % 61));
+    break;
+
+  case Args::DP:  
+    append(defines, "FP_DP=1");
+    break;
+
+  case Args::SP:
+    append(defines, "FP_SP=1");
     break;
 
   default:
@@ -721,7 +756,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   {
     string clArgs = args.clArgs;
-    if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + dumpConfig; }
+    if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
     
     Holder<cl_program> program(compile(device, context, "gpuowl.cl", clArgs, defines));
     if (!program) { return false; }
@@ -754,20 +789,26 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
 
   switch (args.fftKind) {
-  case Args::FFT_NTT:
+  case Args::M31:
     bufTrig1K.reset(genSmallTrig1K<uint2>(context));
     bufTrig2K.reset(genSmallTrig2K<uint2>(context));
     bufBigTrig.reset(genBigTrig<uint2>(context, W, H));
     break;
 
-  case Args::FFT_DP:
+  case Args::M61:
+    bufTrig1K.reset(genSmallTrig1K<ulong2>(context));
+    bufTrig2K.reset(genSmallTrig2K<ulong2>(context));
+    bufBigTrig.reset(genBigTrig<ulong2>(context, W, H));
+    break;
+
+  case Args::DP:
     bufTrig1K.reset(genSmallTrig1K<double2>(context));
     bufTrig2K.reset(genSmallTrig2K<double2>(context));
     bufBigTrig.reset(genBigTrig<double2>(context, W, H));
     setupWeights<double>(context, bufA, bufI, W, H, E);
     break;
 
-  case Args::FFT_SP:
+  case Args::SP:
     bufTrig1K.reset(genSmallTrig1K<float2>(context));
     bufTrig2K.reset(genSmallTrig2K<float2>(context));
     bufBigTrig.reset(genBigTrig<float2>(context, W, H));
@@ -779,9 +820,11 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   }
 
   uint wordSize =
-    args.fftKind == Args::FFT_NTT ? sizeof(uint) :
-    args.fftKind == Args::FFT_DP  ? sizeof(double) :
-    sizeof(float);
+    args.fftKind == Args::M31 ? sizeof(uint)   :
+    args.fftKind == Args::M61 ? sizeof(ulong)  :
+    args.fftKind == Args::DP  ? sizeof(double) :
+    args.fftKind == Args::SP  ? sizeof(float)  :
+    -1;
   
   uint bufSize = N * wordSize;
   Buffer buf1{makeBuf(    context, BUF_RW, bufSize)};
@@ -839,7 +882,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   if (args.debug) {    
     uint2 *data = new uint2[N / 2]();
-    data[0] = U2(3, 0);
+    data[0] = uint2{3, 0};
     cl_mem bufData = makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N);
     fftP->setArg(0, bufData);
     carryA->setArg(2, bufData);

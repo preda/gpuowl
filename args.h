@@ -8,7 +8,7 @@
 #include <cstring>
 
 struct Args {
-  static const int FFT_DP = 0, FFT_SP = 1, FFT_NTT = 2;
+  enum {DP, SP, M61, M31};
   
   std::string clArgs;
   std::string user, cpu;
@@ -16,11 +16,12 @@ struct Args {
   int step, saveStep;
   int fftSize;
   int fftKind;
+  string fftKindStr;
   int device;
   bool timeKernels, useLegacy, debug;
   
-  Args() : step(500000), saveStep(10000000), fftSize(0), fftKind(FFT_DP), device(-1), timeKernels(false), useLegacy(false),
-    debug(false) { }
+Args() : step(500000), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("DP"),
+    device(-1), timeKernels(false), useLegacy(false), debug(false) { }
   
   // return false to stop.
   bool parse(int argc, char **argv) {
@@ -30,12 +31,17 @@ struct Args {
       log("Command line options:\n\n"
           "-step     <N> : to log, validate and save every <N> [default 500K] iterations.\n"
           "-savestep <N> : to persist checkpoint every <N> [default 10M] iterations.\n"
-          "-fft 2M|4M|8M : override FFT size.\n"
-          "-kind DP|SP|NTT : FFT Double/Single Precision or NTT.\n"
+          "-size 2M|4M|8M : override FFT size.\n"
+          "-fft DP|SP|M61|M31  : choose FFT variant [default DP]:\n"
+          "                DP  : double precision floating point.\n"
+          "                SP  : single precision floating point.\n"
+          "                M61 : Fast Galois Transform (FGT) modulo M(61).\n"
+          "                M31 : FGT modulo M(31).\n"
           "-user <name>  : specify the user name.\n"
           "-cpu  <name>  : specify the hardware name.\n"  
-          "-cl \"<OpenCL compiler options>\", e.g. -cl \"-save-temps=tmp/ -O2\"\n"
           "-legacy       : use legacy kernels\n"
+          "-dump <path>  : dump compiled ISA to the folder <path> that must exist.\n"
+          "-cl \"extra OpenCL compiler options\"\n"
           "-device <N>   : select specific device among:\n");
       
       cl_device_id devices[16];
@@ -106,7 +112,7 @@ struct Args {
       }
     } else if (!strcmp(arg, "-legacy")) {
       useLegacy = true;
-    } else if (!strcmp(arg, "-fft")) {
+    } else if (!strcmp(arg, "-size")) {
       if (i < argc - 1) {
         const char *value = argv[++i];
         if (int len = strlen(value)) {
@@ -114,20 +120,23 @@ struct Args {
           fftSize = atoi(value) * ((c == 'M' || c == 'm') ? 1024 * 1024 : (c == 'K' || c == 'k') ? 1024 : 1);
         }
       } else {
-        log("-fft expects size 2M | 4M | 8M\n");
+        log("-size expects size 2M | 4M | 8M\n");
         return false;
       }
-    } else if (!strcmp(arg, "-kind")) {
+    } else if (!strcmp(arg, "-fft")) {
       if (i < argc - 1) {
         std::string s = argv[++i];
+        fftKindStr = s;
         if (s == "DP") {
-          fftKind = FFT_DP;
+          fftKind = DP;
         } else if (s == "SP") {
-          fftKind = FFT_SP;
-        } else if (s == "NTT") {
-          fftKind = FFT_NTT;
+          fftKind = SP;
+        } else if (s == "M61") {
+          fftKind = M61;
+        } else if (s == "M31") {
+          fftKind = M31;
         } else {
-          log("-kind expects DP | SP | NTT\n");
+          log("-fft expects DP | SP | M61 | M31\n");
           return false;
         }
       } else {

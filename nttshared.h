@@ -1,45 +1,123 @@
-// Prime M(31) == 2^31 - 1
-#define M31 0x7fffffffu
+#if FGT_31
 
-// uint lo(ulong a) { return a & 0xffffffffu; }
-uint up(ulong a) { return a >> 32; }
+#define TBITS 32
+#define MBITS 31
 
-// input 32 bits except 2^32-1; output 31 bits.
-uint mod(uint x) { return (x >> 31) + (x & M31); }
-
-// input 62 bits.
-uint mod62(ulong x) {
-  uint a = up(x << 1); // 31 bits
-  uint b = x & M31;    // 31 bits
-  return mod(a + b);
+uint2 wideMul(uint a, uint b) {
+  ulong ab = ((ulong) a) * b;
+  return U2(lo(ab), up(ab));
 }
 
-// negative (-x). input 31 bits.
-uint neg(uint x) { return M31 - x; }
-  
-uint add1(uint a, uint b) { return mod(a + b); }
-uint sub1(uint a, uint b) { return add1(a, neg(b)); }
+#elif FGT_61
 
-uint2 add(uint2 a, uint2 b) { return U2(add1(a.x, b.x), add1(a.y, b.y)); }
-uint2 sub(uint2 a, uint2 b) { return U2(sub1(a.x, b.x), sub1(a.y, b.y)); }
+// bits in a word of type T.
+#define TBITS 64
 
-// k <= 30 (i.e. mod 31). Assumes bits(a) + k <= 62.
-uint shl1(uint a,  uint k) { return mod62(u64(a) << k); }
+// bits in reduced mod M.
+#define MBITS 61
 
-// if both inputs are 31 bits, output is 62 bits.
-ulong wideMul(uint a, uint b) { return u64(a) * b; }
+ulong mul64(uint a, uint b) {
+#ifdef NO_ASM
+  return ((ulong) a) * b;
+#else
+  ulong result;
+  __asm("v_mad_u64_u32 %0, vcc, %1, %2, 0\n"
+        : "=v"(result)
+        : "v"(a), "v"(b)
+        : "vcc"
+      );
+  return result;
+#endif // NO_ASM
+}
 
-uint mul1(uint a, uint b) { return mod62(wideMul(a, b)); }
+ulong mad64(uint a, uint b, ulong c) {
+#ifdef NO_ASM
+  return mul64(a, b) + c;
+#else
+  ulong result;
+  __asm("v_mad_u64_u32 %0, vcc, %1, %2, %3\n"
+        : "=v"(result)
+        : "v"(a), "v"(b), "v"(c)
+        : "vcc"
+      );
+  return result;
+#endif // NO_ASM
+}
 
-// The main, complex multiplication; input and output 31 bits.
+ulong2 wideMul(ulong ab, ulong cd) {
+  uint a = lo(ab);
+  uint b = up(ab);
+  uint c = lo(cd);
+  uint d = up(cd);
+  ulong x = mul64(a, c);
+  ulong y = mad64(a, d, up(x));
+  ulong z = mad64(b, c, y);
+  ulong w = mad64(b, d, up(z));
+  ulong low = lo(x) | (((ulong) lo(z)) << 32);
+  return U2(low, w);
+}
+
+#else
+#error "Expected FGT_31 or FGT_61."
+#endif
+
+
+#define M ((((T) 1) << MBITS) - 1)
+
+T mod(T a) { return (a & M) + (a >> MBITS); }
+
+T neg(T a) { return M - a; }
+
+T add1(T a, T b) { return mod(a + b); }
+T sub1(T a, T b) { return add1(a, neg(b)); }
+
+T2 add(T2 a, T2 b) { return U2(add1(a.x, b.x), add1(a.y, b.y)); }
+T2 sub(T2 a, T2 b) { return U2(sub1(a.x, b.x), sub1(a.y, b.y)); }
+
+// Assumes k reduced mod MBITS.
+T shl1(T a, uint k) {
+  T up = a >> (MBITS - k);
+  T lo = (a << k) & M;
+  return mod(up + lo);
+}
+
+// mul1 not reduced.
+T weakMul1(T a, T b) {
+  T2 ab = wideMul(a, b);
+  return (ab.y << (TBITS - MBITS)) + (ab.x >> MBITS) + (ab.x & M);
+}
+
+T mul1(T a, T b) { return mod(weakMul1(a, b)); }
+
+
+#if FGT_31
+// The main, complex multiplication; input and output reduced.
 // (a + i*b) * (c + i*d) mod reduced.
-uint2 mul(uint2 u, uint2 v) {
-  uint a = u.x, b = u.y, c = v.x, d = v.y;
-  uint k1 = mul1(c, add1(a, b));
-  uint k2 = mul1(a, sub1(d, c));
-  uint k3 = mul1(b, neg(add1(d, c)));
+T2 mul(T2 u, T2 v) {
+  T a = u.x, b = u.y, c = v.x, d = v.y;
+  T k1 = mul1(c,      add1(a, b));
+  T k2 = mul1(a,      sub1(d, c));
+  T k3 = mul1(neg(b), add1(d, c));
+  return U2(mod(k1 + k3), mod(k1 + k2));
+}
+
+// input, output reduced. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
+T2 sq(T2 a) { return U2(mul1(add1(a.x, a.y), sub1(a.x, a.y)), mul1(a.x, mod(a.y << 1))); }
+
+#elif FGT_61
+
+// On M61, we can relax the reductions because we have 3 "spare bits" at the top (vs. 1 spare bit for M31).
+T2 mul(T2 u, T2 v) {
+  T a = u.x, b = u.y, c = v.x, d = v.y;
+  T k1 = weakMul1(c,      a + b);
+  T k2 = weakMul1(a,      d + neg(c));
+  T k3 = weakMul1(neg(b), d + c);
   return U2(mod(k1 + k3), mod(k1 + k2));
 }
 
 // input, output 31 bits. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
-uint2 sq(uint2 a) { return U2(mul1(add1(a.x, a.y), sub1(a.x, a.y)), mul1(a.x, mod(a.y << 1))); }
+T2 sq(T2 a) { return U2(mul1(a.x + a.y, a.x + neg(a.y)), mul1(a.x, a.y << 1)); }
+
+#else
+#error "Expected FGT_31 or FGT_61"
+#endif
