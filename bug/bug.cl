@@ -70,11 +70,11 @@ void tabMul(const T2 *trig, T2 *u, uint n, uint f) {
   for (int i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / 32 + i * 8]); }
 }
 
-kernel __attribute__((reqd_work_group_size(256, 1, 1))) void bug(global T2 *io, global T2 *trig) {
+kernel __attribute__((reqd_work_group_size(256, 1, 1))) void bug(global T2 *in, global T2 *out, global T2 *trig) {
   local uint lds[8 * 256];
   uint me = get_local_id(0);
   T2 u[8];
-  for (int i = 0; i < 8; ++i) { u[i] = io[256 * i + me]; }
+  for (int i = 0; i < 8; ++i) { u[i] = in[256 * i + me]; }
   fft8(u);
 
   uint n = 8;
@@ -86,11 +86,11 @@ kernel __attribute__((reqd_work_group_size(256, 1, 1))) void bug(global T2 *io, 
   for (uint i = 0; i < n; ++i) { u[i].x = lds[i * 256 + me]; }
   barrier(CLK_LOCAL_MEM_FENCE);
   for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = u[i].y; }
-  barrier(CLK_LOCAL_MEM_FENCE);
+  barrier(CLK_GLOBAL_MEM_FENCE);
   for (uint i = 0; i < n; ++i) { u[i].y = lds[i * 256 + me]; }
   
   // mem_fence(CLK_LOCAL_MEM_FENCE); // Comment or un-comment this to observe different behavior.
 
   tabMul(trig, u, 8, 32);
-  for (int i = 0; i < 8; ++i) { io[256 * i + me] = u[i]; }  
+  for (int i = 0; i < 8; ++i) { out[256 * i + me] = u[i]; }  
 }

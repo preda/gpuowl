@@ -17,15 +17,17 @@ int main() {
   cl_program program = compile(device, context, "bug.cl", "");
   cl_kernel kernel = makeKernel(program, "bug");
   int size = sizeof(int) * 2 * 256 * 8;
-  cl_mem buf = makeBuf(context, CL_MEM_READ_WRITE, size);
+  cl_mem buf1 = makeBuf(context, CL_MEM_READ_WRITE, size);
+  cl_mem buf2 = makeBuf(context, CL_MEM_READ_WRITE, size);
   cl_mem trig = makeBuf(context, CL_MEM_READ_WRITE, size);
   
-  setArg(kernel, 0, buf);
-  setArg(kernel, 1, trig);
+  setArg(kernel, 0, buf1);
+  setArg(kernel, 1, buf2);
+  setArg(kernel, 2, trig);
   
   int *data = new int[256 * 2 * 8]();
   data[0] = 1;
-  write(queue, true, buf, size, data);
+  write(queue, true, buf1, size, data);
 
   for (int i = 0; i < 256 * 8; ++i) {
     data[2*i]   = 0x49fb5248;
@@ -33,9 +35,8 @@ int main() {
   }
   write(queue, true, trig, size, data);
 
-  
   run(queue, kernel, 256, "bug");
-  read(queue, true, buf, size, data);
+  read(queue, true, buf2, size, data);
   for (int thread = 0; thread < 33; ++thread) {
     for (int i = 0; i < 8; ++i) {
       printf("%d %d: %8x %8x\n", thread, i, data[(thread + i * 256) * 2], data[(thread + i * 256) * 2 + 1]);
