@@ -35,11 +35,11 @@ int main() {
   }
   write(queue, true, trig, size, data);
 
-  run(queue, kernel, 256, "bug");
+  run(queue, kernel, 64, "bug", 64);
   read(queue, true, buf2, size, data);
   for (int thread = 0; thread < 33; ++thread) {
     for (int i = 0; i < 8; ++i) {
-      printf("%d %d: %8x %8x\n", thread, i, data[(thread + i * 256) * 2], data[(thread + i * 256) * 2 + 1]);
+      printf("%d %d: %8x %8x\n", thread, i, data[(thread + i * 64) * 2], data[(thread + i * 64) * 2 + 1]);
     }
   }  
 }
