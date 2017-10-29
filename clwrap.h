@@ -150,6 +150,8 @@ static cl_program createProgram(cl_device_id device, cl_context context, const s
 static bool build(cl_program program, cl_device_id device, const string &extraArgs) {
   Timer timer;
   string args = string("-I. -cl-fast-relaxed-math ") + extraArgs;
+  // -cl-finite-math-only -cl-denorms-are-zero -cl-no-signed-zeros
+  // -cl-mad-enable -cl-unsafe-math-optimizations
   int err = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
   bool ok = (err == CL_SUCCESS);
   if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }

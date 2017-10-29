@@ -187,7 +187,7 @@ T weight1(Word x, uint pos) { return shl1(x, (extra(pos) * LOG_ROOT2) % MBITS); 
 
 T2 weightAux(Word2 a, uint pos) { return U2(weight1(a.x, 2 * pos + 0), weight1(a.y, 2 * pos + 1)); }
 
-T2 weight(Word2 a, uint pos, const T2 *dummyA, uint dummyP) { return weightAux(a, pos); }
+T2 weight(Word2 a, uint pos, const G T2 *dummyA, uint dummyP) { return weightAux(a, pos); }
 
 // No carry out. The final carry is "absorbed" in the last word.
 T2 carryAndWeightFinal(Word2 u, Carry carry, uint pos, const T2 *dummyA, uint dummyP) {
@@ -214,7 +214,7 @@ uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
 Carry unweight(T x, T weight) { return rint(x * fabs(weight)); }
 
-Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, uint dummyPos, const T2 *iA, uint p) {
+Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, uint dummyPos, const G T2 *iA, uint p) {
   T2 weight = iA[p];
   Word a = carryStep(mul * unweight(u.x, weight.x), carry, oldBitlen(weight.x));
   Word b = carryStep(mul * unweight(u.y, weight.y), carry, oldBitlen(weight.y));
@@ -223,10 +223,10 @@ Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, uint dummyPos, const T2 *iA
 
 T2 weightAux(Word x, Word y, T2 weight) { return U2(x, y) * fabs(weight); }
 
-T2 weight(Word2 a, uint dummyPos, const T2 *A, uint p) { return weightAux(a.x, a.y, A[p]); }
+T2 weight(Word2 a, uint dummyPos, const G T2 *A, uint p) { return weightAux(a.x, a.y, A[p]); }
 
 // No carry out. The final carry is "absorbed" in the last word.
-T2 carryAndWeightFinal(Word2 u, Carry carry, uint dummyPos, const T2 *A, uint p) {
+T2 carryAndWeightFinal(Word2 u, Carry carry, uint dummyPos, const G T2 *A, uint p) {
   T2 w = A[p];
   Word x = carryStep(u.x, &carry, oldBitlen(w.x));
   Word y = u.y + carry;
