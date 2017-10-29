@@ -1,0 +1,127 @@
+gpuOwL v1.7 GPU Mersenne primality checker
+Fiji [Radeon R9 FURY / NANO Series] 64 @81:0.0, gfx803 1000MHz
+Setting FFT size to 4M based on savefile.
+
+OpenCL compilation in 2440 ms, with "-I. -cl-fast-relaxed-math -cl-std=CL2.0  -DEXP=76564403u -DWIDTH=1024u -DHEIGHT=2048u -DFFT_FP -DFP_DP  -save-temps=tmp2/DP_4M"
+PRP-3 FFT 4096K (1024*2048*2) of 76564403 (18.25 bits/word) iteration 64400000
+ 726 us, 35% : carryConv
+ 323 us, 16% : transposeW
+ 787 us, 38% : tail
+ 237 us, 11% : transposeH
+2073 us total
+OK 64400000 / 76564403 [84.11%], 2.12 ms/it, ETA 0d 07:09; 6514ebe8c15202de [2017-10-29 12:21:39 AEDT] (4 errors)
+ 726 us, 35% : carryConv
+ 322 us, 16% : transposeW
+ 786 us, 38% : tail
+ 237 us, 11% : transposeH
+2071 us total
+ 730 us, 35% : carryConv/it
+ 323 us, 16% : transposeW
+ 787 us, 38% : tail
+ 237 us, 11% : transposeH
+2077 us total
+ 727 us, 35% : carryConv/it
+ 327 us, 16% : transposeW
+ 787 us, 38% : tail
+ 242 us, 12% : transposeH
+2083 us total
+ 727 us, 35% : carryConv/it
+ 323 us, 16% : transposeW
+ 787 us, 38% : tail
+ 237 us, 11% : transposeH
+2074 us total
+ 726 us, 35% : carryConv/it
+ 324 us, 16% : transposeW
+ 787 us, 38% : tail
+ 237 us, 11% : transposeH
+2074 us total
+5000 / 100000, 2.08 ms/it
+
+
+
+
+gpuOwL v1.7 GPU Mersenne primality checker
+Fiji [Radeon R9 FURY / NANO Series] 64 @81:0.0, gfx803 1000MHz
+
+OpenCL compilation in 2318 ms, with "-I. -cl-fast-relaxed-math -cl-std=CL2.0  -DEXP=74207281u -DWIDTH=1024u -DHEIGHT=2048u -DLOG_NWORDS=22u -DFP_DP=1  -save-temps=tmp7/DP_4M"
+PRP-3 FFT 4096K (1024*2048*2) of 74207281 (17.69 bits/word) iteration 0
+ 771 us, 34% : carryConv
+ 329 us, 15% : transposeW
+ 918 us, 41% : tail
+ 244 us, 11% : transposeH
+2262 us total
+OK        0 / 74207281 [ 0.00%], 2.35 ms/it, ETA 2d 00:24; 0000000000000003 [2017-10-29 12:21:02 AEDT]
+ 763 us, 34% : carryConv
+ 323 us, 14% : transposeW
+ 911 us, 41% : tail
+ 241 us, 11% : transposeH
+2238 us total
+ 762 us, 34% : carryConvt
+ 323 us, 14% : transposeW
+ 911 us, 41% : tail
+ 241 us, 11% : transposeH
+2238 us total
+ 762 us, 34% : carryConvt
+ 324 us, 14% : transposeW
+ 911 us, 41% : tail
+ 241 us, 11% : transposeH
+2238 us total
+OK     2000 / 74207281 [ 0.00%], 3.40 ms/it, ETA 2d 22:05; 9b5500bd9741e85f [2017-10-29 12:21:09 AEDT]
+ 762 us, 34% : carryConv
+ 323 us, 14% : transposeW
+ 910 us, 41% : tail
+ 241 us, 11% : transposeH
+2237 us total
+ 762 us, 34% : carryConvt
+ 323 us, 14% : transposeW
+ 911 us, 41% : tail
+ 240 us, 11% : transposeH
+2236 us total
+ 762 us, 34% : carryConvt
+ 324 us, 14% : transposeW
+ 911 us, 41% : tail
+ 243 us, 11% : transposeH
+2239 us total
+OK     4000 / 74207281 [ 0.01%], 3.40 ms/it, ETA 2d 22:07; 82d2f0e4840b06b6 [2017-10-29 12:21:16 AEDT]
+
+
+With host-no-access:
+
+gpuOwL v1.7 GPU Mersenne primality checker
+Fiji [Radeon R9 FURY / NANO Series] 64 @81:0.0, gfx803 1000MHz
+Setting FFT size to 4M based on savefile.
+
+OpenCL compilation in 2187 ms, with "-I. -cl-fast-relaxed-math -cl-std=CL2.0  -DEXP=74207281u -DWIDTH=1024u -DHEIGHT=2048u -DLOG_NWORDS=22u -DFP_DP=1  -save-temps=tmp7/DP_4M"
+PRP-3 FFT 4096K (1024*2048*2) of 74207281 (17.69 bits/word) iteration 4000
+ 761 us, 36% : carryConv
+ 324 us, 15% : transposeW
+ 794 us, 38% : tail
+ 236 us, 11% : transposeH
+2115 us total
+OK     4000 / 74207281 [ 0.01%], 2.15 ms/it, ETA 1d 20:24; 82d2f0e4840b06b6 [2017-10-29 12:27:28 AEDT]
+ 761 us, 36% : carryConv
+ 323 us, 15% : transposeW
+ 794 us, 38% : tail
+ 238 us, 11% : transposeH
+2117 us total
+ 764 us, 36% : carryConvt
+ 324 us, 15% : transposeW
+ 793 us, 37% : tail
+ 237 us, 11% : transposeH
+2118 us total
+ 761 us, 36% : carryConvt
+ 323 us, 15% : transposeW
+ 794 us, 38% : tail
+ 237 us, 11% : transposeH
+2116 us total
+OK     6000 / 74207281 [ 0.01%], 3.20 ms/it, ETA 2d 18:01; fd33ee3a8917e416 [2017-10-29 12:27:34 AEDT]
+ 760 us, 36% : carryConv
+ 323 us, 15% : transposeW
+ 793 us, 38% : tail
+ 237 us, 11% : transposeH
+2113 us total
+ 762 us, 36% : carryConvt
+ 325 us, 15% : transposeW
+ 794 us, 37% : tail
+ 237 us, 11% : transposeH
+2118 us total

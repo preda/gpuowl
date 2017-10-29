@@ -30,7 +30,7 @@
 #define PROGRAM "gpuowl"
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-const unsigned BUF_RW    = CL_MEM_READ_WRITE; // | CL_MEM_HOST_NO_ACCESS;
+const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 template<typename T>
 struct ReleaseDelete {
@@ -884,8 +884,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   if (lowBits && !args.useLegacy) { log("Note: low word size of %.2f bits forces use of legacy kernels\n", bitsPerWord); }
   
   if (args.useLegacy || lowBits) {
-    coreKerns = tailKerns;
-    coreKerns.insert(coreKerns.end(), headKerns.begin(), headKerns.end());
+    // coreKerns = tailKerns + headKerns
+    coreKerns = { fftW.get(), carryA.get(), carryB.get(), fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()};
   }
 
   if (args.debug) {    
@@ -901,7 +901,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     write(queue, false, bufData, size, data);
     // write(queue, false, buf1.get(), sizeof(T2) * (N / 2), data);
 
-    for (int i = 0; i < 32; ++i) {
+    for (int i = 0; i < 1024; ++i) {
       /*
       run({fftW.get(), fftW.get()}, queue);      
       read(queue, true, buf1.get(), sizeof(T2) * (N / 2), data);

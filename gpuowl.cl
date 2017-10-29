@@ -33,10 +33,11 @@
 #define G global
 #endif
 
-// This mem_fence is only needed to workaround a bug in the ROCm compiler
-// See https://github.com/RadeonOpenCompute/ROCm/issues/234
+// This mem_fence is only needed to workaround a bug in the ROCm compiler,
+// see https://github.com/RadeonOpenCompute/ROCm/issues/234
+// For some reason, the bug does not seem to affect floating point.
 void amd_fence() {
-#ifndef NO_AMD_WORKAROUND
+#if !defined(NO_AMD_WORKAROUND) && !(FP_DP || FP_SP)
   mem_fence(CLK_LOCAL_MEM_FENCE);
 #endif
 }
@@ -85,9 +86,9 @@ T2 U2(T a, T b) { return (T2)(a, b); }
 
 #if FGT_31 || FGT_61
 
-#define NO_ASM
+// #define NO_ASM
 #include "nttshared.h"
-#undef NO_ASM
+// #undef NO_ASM
 
 // mul with (0, 1). (twiddle of tau/4, sqrt(-1) aka "i").
 T2 mul_t4(T2 a) { return U2(neg(a.y), a.x); }
