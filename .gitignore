@@ -2,6 +2,7 @@ gpuowl
 debug
 core
 gpuowl.log
+revision.txt
 *.ll
 *.owl
 log*.txt
