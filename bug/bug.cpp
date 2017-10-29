@@ -14,7 +14,7 @@ int main() {
   
   cl_context context = createContext(device);
   cl_queue queue = makeQueue(device, context);
-  cl_program program = compile(device, context, "bug.cl", "");
+  cl_program program = compile(device, context, "bug.cl", "-save-temps=tmp");
   cl_kernel kernel = makeKernel(program, "bug");
   int size = sizeof(int) * 2 * 256 * 8;
   cl_mem buf1 = makeBuf(context, CL_MEM_READ_WRITE, size);

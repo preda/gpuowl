@@ -33,9 +33,13 @@
 #define G global
 #endif
 
-// This mem_fence is only needed to workaround a bug in ROCm: https://github.com/RadeonOpenCompute/ROCm/issues/234
-void amd_fence() {}
-// { mem_fence(CLK_LOCAL_MEM_FENCE); }
+// This mem_fence is only needed to workaround a bug in the ROCm compiler
+// See https://github.com/RadeonOpenCompute/ROCm/issues/234
+void amd_fence() {
+#ifndef NO_AMD_WORKAROUND
+  mem_fence(CLK_LOCAL_MEM_FENCE);
+#endif
+}
 
 uint lo(ulong a) { return a & 0xffffffffu; }
 uint up(ulong a) { return a >> 32; }
@@ -76,13 +80,14 @@ typedef long Carry;
 #endif
 
 
-// make a pair of Ts.
 T2 U2(T a, T b) { return (T2)(a, b); }
 
 
 #if FGT_31 || FGT_61
 
+#define NO_ASM
 #include "nttshared.h"
+#undef NO_ASM
 
 // mul with (0, 1). (twiddle of tau/4, sqrt(-1) aka "i").
 T2 mul_t4(T2 a) { return U2(neg(a.y), a.x); }
@@ -153,7 +158,7 @@ uint bitlen(uint k) { return EXP / NWORDS + isBigWord(k); }
 
 #if FGT_31 || FGT_61
 
-Word lowBits(T x, uint bits) { return x & ((1u << bits) - 1); }
+Word lowBits(T x, uint bits) { return ((Word) x) & ((1u << bits) - 1); }
 
 // one step of carry propagation; optional mul.
 Word carryStep(Carry x, Carry *carry, uint bits) {

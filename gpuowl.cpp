@@ -30,7 +30,7 @@
 #define PROGRAM "gpuowl"
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
+const unsigned BUF_RW    = CL_MEM_READ_WRITE; // | CL_MEM_HOST_NO_ACCESS;
 
 template<typename T>
 struct ReleaseDelete {
@@ -228,7 +228,7 @@ template<> double2 root1<double2>(uint N, uint k) {
 const uint2  ROOT1_31{1 << 16, 0x4b94532f};
 
 // 1/sqrt(2) * (1, sqrt(-3)) == 2^((p-1)/2) * (1, sqrt(-3)).
-const ulong2 ROOT1_61{1 << 30, 0x06caa56e1cae315a};
+const ulong2 ROOT1_61{1 << 30, 0x06caa56e1cae315aull};
 // const ulong2 ROOT1_61{1 << 31, 0x0e5718ad1b2a95b8};
 
 template<> uint2 root1<uint2>(uint N, uint k) {
@@ -715,6 +715,14 @@ string valueDefine(const string &key, uint value) {
   return key + "=" + std::to_string(value) + "u";
 }
 
+uint modInv(uint a, uint m) {
+  a = a % m;
+  for (uint i = 1; i < m; ++i) {
+    if (a * i % m == 1) { return i; }
+  }
+  assert(false);
+}
+
 bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
   assert(W == 1024 || W == 2048);
   assert(H == 1024 || H == 2048);
@@ -737,7 +745,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   case Args::M61:
     append(defines, "FGT_61=1");
-    append(defines, valueDefine("LOG_ROOT2", (62 / (N % 61)) % 61));
+    append(defines, valueDefine("LOG_ROOT2", modInv(N, 61)));
     break;
 
   case Args::DP:  
@@ -881,25 +889,37 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   }
 
   if (args.debug) {    
-    uint2 *data = new uint2[N / 2]();
-    data[0] = uint2{3, 0};
-    cl_mem bufData = makeBuf(context, CL_MEM_READ_WRITE, sizeof(int) * N);
+#define T2 uint2
+    uint size = sizeof(T2) * (N / 2);
+    T2 *data = new T2[N / 2]();
+    data[0].x = 3;
+    // data[0].y = 1;
+    cl_mem bufData = makeBuf(context, CL_MEM_READ_WRITE, size);
     fftP->setArg(0, bufData);
     carryA->setArg(2, bufData);
     carryB->setArg(0, bufData);
-    write(queue, false, bufData, sizeof(u32) * N, data);
-    // write(queue, false, buf1.get(), sizeof(u32) * N, data);
+    write(queue, false, bufData, size, data);
+    // write(queue, false, buf1.get(), sizeof(T2) * (N / 2), data);
 
     for (int i = 0; i < 32; ++i) {
+      /*
+      run({fftW.get(), fftW.get()}, queue);      
+      read(queue, true, buf1.get(), sizeof(T2) * (N / 2), data);
+      for (int i = 0; i < W; ++i) { printf("%2d %08lx %08lx\n", i, (ulong) data[i].x, (ulong) data[i].y); }
+      */
+      
+      // run({fftW.get(), transposeW.get(), fftH.get(), /*square.get(),*/ fftH.get(), transposeH.get(), fftW.get()}, queue);
       run({fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()}, queue);
       run(tailKerns, queue);
-      read(queue, true, bufData, sizeof(u32) * N, data);
+      read(queue, true, bufData, size, data);
+      
       printf("%2d: %016llx\n", i + 1, residue(W, H, E, (int *) data));
-      // for (int i = 0; i < 64; ++i) { printf("%2d %08x %08x (%d, %d)\n", i, data[i * W].x, data[i * W].y, bitlen(N, E, i * 2), bitlen(N, E, i * 2 + 1)); }
+      // for (int i = 0; i < 64; ++i) { printf("%2d %08lx %08lx (%d, %d)\n", i, (ulong) data[i * W].x, (ulong) data[i * W].y, bitlen(N, E, i * 2), bitlen(N, E, i * 2 + 1)); }
     }
     
     delete[] data;
     return false;
+#undef T2
   }
   
   // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.

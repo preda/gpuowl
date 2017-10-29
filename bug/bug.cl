@@ -91,7 +91,7 @@ kernel __attribute__((reqd_work_group_size(WG, 1, 1))) void bug(global T2 *in, g
   barrier(CLK_GLOBAL_MEM_FENCE);
   for (uint i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
   
-  mem_fence(CLK_LOCAL_MEM_FENCE); // Comment or un-comment this to observe different behavior.
+  // mem_fence(CLK_LOCAL_MEM_FENCE); // Comment or un-comment this to observe different behavior.
 
   tabMul(trig, u, 8);
   for (int i = 0; i < 8; ++i) { out[WG * i + me] = u[i]; }  

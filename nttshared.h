@@ -81,10 +81,11 @@ T shl1(T a, uint k) {
   return mod(up + lo);
 }
 
-// mul1 not reduced.
+// mul not reduced.
 T weakMul1(T a, T b) {
   T2 ab = wideMul(a, b);
-  return (ab.y << (TBITS - MBITS)) + (ab.x >> MBITS) + (ab.x & M);
+  // return (ab.y << (TBITS - MBITS)) + (ab.x >> MBITS) + (ab.x & M);
+  return add1(mod(mod(ab.y) << (TBITS - MBITS)), mod(ab.x));
 }
 
 T mul1(T a, T b) { return mod(weakMul1(a, b)); }
@@ -106,6 +107,17 @@ T2 sq(T2 a) { return U2(mul1(add1(a.x, a.y), sub1(a.x, a.y)), mul1(a.x, mod(a.y 
 
 #elif FGT_61
 
+T2 mul(T2 u, T2 v) {
+  T a = u.x, b = u.y, c = v.x, d = v.y;
+  T k1 = mul1(c,      add1(a, b));
+  T k2 = mul1(a,      sub1(d, c));
+  T k3 = mul1(neg(b), add1(d, c));
+  return U2(mod(k1 + k3), mod(k1 + k2));
+}
+
+T2 sq(T2 a) { return U2(mul1(add1(a.x, a.y), sub1(a.x, a.y)), mul1(a.x, mod(a.y << 1))); }
+
+/*
 // On M61, we can relax the reductions because we have 3 "spare bits" at the top (vs. 1 spare bit for M31).
 T2 mul(T2 u, T2 v) {
   T a = u.x, b = u.y, c = v.x, d = v.y;
@@ -114,9 +126,10 @@ T2 mul(T2 u, T2 v) {
   T k3 = weakMul1(neg(b), d + c);
   return U2(mod(k1 + k3), mod(k1 + k2));
 }
+*/
 
 // input, output 31 bits. Uses (a + i*b)^2 == ((a+b)*(a-b) + i*2*a*b).
-T2 sq(T2 a) { return U2(mul1(a.x + a.y, a.x + neg(a.y)), mul1(a.x, a.y << 1)); }
+// T2 sq(T2 a) { return U2(mul1(a.x + a.y, a.x + neg(a.y)), mul1(a.x, a.y << 1)); }
 
 #else
 #error "Expected FGT_31 or FGT_61"
