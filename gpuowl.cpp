@@ -872,7 +872,10 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   std::vector<Kernel *> directFftKerns {fftP.get(), transposeW.get(), fftH.get()};
 
   // sequence of: direct FFT, square, first-half of inverse FFT.
-  std::vector<Kernel *> headKerns {fftP.get(), transposeW.get(), tail.get(), transposeH.get()};
+  std::vector<Kernel *> headKerns {fftP.get(), transposeW.get(),
+      tail.get(),
+      // fftH.get(), square.get(), fftH.get(),
+      transposeH.get()};
     
   // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
   std::vector<Kernel *> tailKerns {fftW.get(), carryA.get(), carryB.get()};
@@ -903,7 +906,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     write(queue, false, bufData, size, data);
     // write(queue, false, buf1.get(), sizeof(T2) * (N / 2), data);
 
-    for (int i = 0; i < 1024; ++i) {
+    for (int i = 0; i < 2000; ++i) {
       /*
       run({fftW.get(), fftW.get()}, queue);      
       read(queue, true, buf1.get(), sizeof(T2) * (N / 2), data);
@@ -911,7 +914,10 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       */
       
       // run({fftW.get(), transposeW.get(), fftH.get(), /*square.get(),*/ fftH.get(), transposeH.get(), fftW.get()}, queue);
-      run({fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()}, queue);
+      run({fftP.get(), transposeW.get(),
+            tail.get(),
+            // fftH.get(), square.get(), fftH.get(),
+            transposeH.get()}, queue);
       run(tailKerns, queue);
       read(queue, true, bufData, size, data);
       

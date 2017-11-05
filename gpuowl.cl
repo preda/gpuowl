@@ -37,7 +37,7 @@
 // see https://github.com/RadeonOpenCompute/ROCm/issues/234
 // For some reason, the bug does not seem to affect floating point.
 void amd_fence() {
-#if !defined(NO_AMD_WORKAROUND) && !(FP_DP || FP_SP)
+#if !defined(NO_AMDFENCE) && !(FP_DP || FP_SP)
   mem_fence(CLK_LOCAL_MEM_FENCE);
 #endif
 }
@@ -647,10 +647,11 @@ void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T
   uint W = N * 256;
   uint g = get_group_id(0);
   uint me = get_local_id(0);
+  
   read(N, u, io, g * W);
   fftImpl(N, lds, u, trig);
   reverse(N, (local T2 *) lds, u, g == 0);
-
+  
   uint line2 = g ? H - g : (H / 2);
   read(N, v, io, line2 * W);
   bar();
@@ -666,14 +667,15 @@ void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T
   if (g == 0) { for (int i = N / 2; i < N; ++i) { SWAP(u[i], v[i]); } }
 
   reverse(N, (local T2 *) lds, u, g == 0);
+  reverse(N, (local T2 *) lds, v, false);
+  
   bar();
   fftImpl(N, lds, u, trig);
   write(N, u, io, g * W);
   
-  reverse(N, (local T2 *) lds, v, false);
   bar();
   fftImpl(N, lds, v, trig);
-  write(N, v, io, line2 * W);
+  write(N, v, io, line2 * W);  
 }
 
 
@@ -783,7 +785,7 @@ KERNEL(256) carryConv(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   write(N_WIDTH, u, io, 0);
 }
 
-KERNEL(256) tail(P(T2) io, Trig smallTrig, Trig bigTrig) {
+KERNEL(256) tail(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
   local T lds[HEIGHT];
   T2 u[N_HEIGHT];
   T2 v[N_HEIGHT];
