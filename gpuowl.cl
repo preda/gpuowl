@@ -288,22 +288,17 @@ void fft8(T2 *u) {
   SWAP(u[3], u[6]);
 }
 
-// In a sequnce of shufl() invocations, always put a bar() in-between them.
 void shufl(local T *lds, T2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   uint m = me / f;
-
-  for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = u[i].x; }
-  bar();
-  for (uint i = 0; i < n; ++i) { u[i].x = lds[i * 256 + me]; }
   
+  for (int b = 0; b < 2; ++b) {
+    if (b) { bar(); }
+    for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = ((T *) (u + i))[b]; }
+    bar();
+    for (uint i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * 256 + me]; }
+  }
   bar();
-  
-  for (uint i = 0; i < n; ++i) { lds[(m + i * 256 / f) / n * f + m % n * 256 + me % f] = u[i].y; }
-  bar();
-  for (uint i = 0; i < n; ++i) { u[i].y = lds[i * 256 + me]; }
-  
-  amd_fence();
 }
 
 void tabMul(const G T2 *trig, T2 *u, uint n, uint f) {
@@ -347,25 +342,17 @@ void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
   fft8(u);
 
   uint me = get_local_id(0);
-
-  bar();
-  for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = u[i].x; }
-  bar();
-  for (int i = 0; i < 4; ++i) {
-    u[i].x     = lds[i * 512       + me];
-    u[i + 4].x = lds[i * 512 + 256 + me];
+  for (int b = 0; b < 2; ++b) {
+    bar();
+    for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = ((T *) (u + i))[b]; }
+    bar();
+    for (int i = 0; i < 4; ++i) {
+      ((T *) (u + i))[b]     = lds[i * 512       + me];
+      ((T *) (u + i + 4))[b] = lds[i * 512 + 256 + me];
+    }
   }
 
   bar();
-  for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = u[i].y; }
-  bar();
-  for (int i = 0; i < 4; ++i) {
-    u[i].y     = lds[i * 512       + me];
-    u[i + 4].y = lds[i * 512 + 256 + me];
-  }
-
-  amd_fence();
-  
   for (int i = 1; i < 4; ++i) {
     u[i]     = mul(u[i],     trig[i * 512       + me]);
     u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
