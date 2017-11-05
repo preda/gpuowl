@@ -298,7 +298,7 @@ void shufl(local T *lds, T2 *u, uint n, uint f) {
     bar();
     for (uint i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * 256 + me]; }
   }
-  bar();
+  amd_fence();
 }
 
 void tabMul(const G T2 *trig, T2 *u, uint n, uint f) {
@@ -352,7 +352,7 @@ void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
     }
   }
 
-  bar();
+  amd_fence();
   for (int i = 1; i < 4; ++i) {
     u[i]     = mul(u[i],     trig[i * 512       + me]);
     u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
