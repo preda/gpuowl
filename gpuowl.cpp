@@ -564,6 +564,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
   State goodState(N);
   
   if (!Checkpoint::load(E, W, H, &goodState, &k, &nErrors)) { return false; }
+  log("At iteration %d\n", k);
   gpu.writeWait(goodState);
   goodState.reset();
   
@@ -581,13 +582,24 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
 
   Timer timer;
 
+  // The floating-point transforms use "balanced" words, while the NTT transforms don't.
+  const bool balanced = (args.fftKind == Args::DP) || (args.fftKind == Args::SP);
+  
   while (true) {
     if ((k % checkStep == 0) || (k >= kEnd)) {
       {
         State state = gpu.read();
         CompactState compact(state, W, H, E);
-        compact.expandTo(&state, true, W, H, E);        
+        compact.expandTo(&state, balanced, W, H, E);
         gpu.writeNoWait(state);
+        /*
+        for (int i = 0; i < 1000; ++i) {
+          if (wordAt(W, H, state.data.get(), i) != wordAt(W, H, state2.data.get(), i)) {
+            printf("%d %d %d %d %d %d %d\n", i, wordAt(W, H, state.data.get(), i), wordAt(W, H, state2.data.get(), i),
+                   wordAt(W, H, state.data.get(), i - 1), wordAt(W, H, state2.data.get(), i - 1), bitlen(N, E, i), bitlen(N, E, i - 1));
+          }
+        }
+        */
         
         bool ok = validate(N, gpu, queue, modSqLoop, modMul);      
         doLog(E, k, timer.deltaMillis() / float(k - blockStartK + 1000), residue(compact.data), ok, nErrors);
