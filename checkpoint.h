@@ -3,117 +3,118 @@
 
 #pragma once
 
+#include "state.h"
 #include "common.h"
-  
-struct Header {
-  static constexpr const char *headerFormat = "OWL 1 %d %d %d %d %d %d\n";
-  
-  int E, k, W, H, sum, nErrors;
 
-  bool read(FILE *fi, int expectedE) {
-    char buf[256];
-    bool ok = fgets(buf, sizeof(buf), fi) &&
-      sscanf(buf, headerFormat, &E, &k, &W, &H, &sum, &nErrors) == 6;
-    assert(E == expectedE);
-    return ok;
-  }
+#include <string>
 
-  bool write(FILE *fo) {
-    return (fprintf(fo, headerFormat, E, k, W, H, sum, nErrors) > 0);
-  }
-};
+using std::string;
 
 class Checkpoint {
 private:
-  char fileNameSave[64], fileNamePrev[64], fileNameTemp[64];
-  int E;
+  struct HeaderV2 {
+    // OWL 2 <exponent> <iteration> <nErrors>\n
+    static constexpr const char *HEADER = "OWL 2 %d %d %d\n";
 
-  // Header: "OWL <format-version> <exponent> <iteration> <width> <height> <sum> <nErrors>\n"
-  const char *headerFormat = "OWL 1 %d %d %d %d %d %d\n";
+    int E, k, nErrors;
 
-  static int auxSum(int sum, const int *data, size_t size) {
-    for (const int *p = data, *end = data + size; p < end; ++p) { sum += *p; }
-    return sum;
-  }
+    bool read(const char *line) { return sscanf(line, HEADER, &E, &k, &nErrors) == 3; }
+    bool write(FILE *fo) { return (fprintf(fo, HEADER, E, k, nErrors) > 0); }
+  };
 
-  static int checksum(size_t N, const int *data, const int *checkBits) {
-    int sum = 0;
-    sum = auxSum(sum, data, N);
-    sum = auxSum(sum, checkBits, N);
-    return sum;
+  struct HeaderV1 {
+    // OWL 1 <exponent> <iteration> <width> <height> <sum> <nErrors>\n
+    static constexpr const char *HEADER = "OWL 1 %d %d %d %d %d %d\n";
+    
+    int E, k, W, H, sum, nErrors;
+
+    bool read(const char *line) { return sscanf(line, HEADER, &E, &k, &W, &H, &sum, &nErrors) == 6; }
+    bool write(FILE *fo) { return (fprintf(fo, HEADER, E, k, W, H, sum, nErrors) > 0); }
+  };
+
+  static bool write(FILE *fo, const auto &vect) { return fwrite(&vect[0], vect.size() * sizeof(vect[0]), 1, fo); }
+  static bool  read(FILE *fi, int n, auto &vect) {
+    vect.resize(n);
+    return fread(&vect[0], n * sizeof(vect[0]), 1, fi);
   }
   
-  bool write(const char *name, int W, int H, int k, const int *data, const int *checkBits, int nErrors) {
-    int N = 2 * W * H;
-    int sum = checksum(N, data, checkBits);
-    int dataSize = sizeof(int) * N;
-    Header header{E, k, W, H, sum, nErrors};
-    auto fo{open(name, "wb")};
-    if (!fo) { return false; }
-    if (!(header.write(fo.get()) && fwrite(data, dataSize, 1, fo.get()) && fwrite(checkBits, dataSize, 1, fo.get()))) {
-      log("File '%s': error writing\n", name);
-      return false;
-    }
-    return true;
+  static bool write(const string &name, const CompactState &compact, int k, int nErrors) {
+    int E = compact.E;
+    int nWords = (E - 1) / 32 + 1;
+    assert(int(compact.data.size()) == nWords && int(compact.check.size()) == nWords);    
+    HeaderV2 header{E, k, nErrors};
+    auto fo(open(name, "wb"));
+    return fo
+      && header.write(fo.get())
+      && write(fo.get(), compact.data)
+      && write(fo.get(), compact.check);
   }
+
+  static std::string fileName(int E) { return std::to_string(E) + ".owl"; }
   
 public:
-  static bool readSize(int E, int *W, int *H) {
-    *W = *H = 0;
-    char fileNameSave[64];
-    snprintf(fileNameSave, sizeof(fileNameSave), "%d.owl", E);
-    auto fi{open(fileNameSave, "rb", false)};
-    if (!fi) { return false; }
-    Header header;
-    if (!header.read(fi.get(), E)) { return false; }    
-    *W = header.W;
-    *H = header.H;
-    return true;
-  }
-
- Checkpoint(int iniE) : E(iniE) {
-    snprintf(fileNameSave, sizeof(fileNameSave), "%d.owl", E);
-    snprintf(fileNamePrev, sizeof(fileNamePrev), "%d-prev.owl", E);
-    snprintf(fileNameTemp, sizeof(fileNameTemp), "%d-temp.owl", E);
-  }
   
-  bool load(int W, int H, int *startK, int *data, int *checkBits, int *nErrors) {
-    *startK = 0;
+  static bool load(int E, int W, int H, State *state, int *k, int *nErrors) {
+    *k = 0;
     *nErrors = 0;
-    auto fi{open(fileNameSave, "rb", false)};
-    if (!fi) { return true; }
+    auto fi{open(fileName(E), "rb", false)};
+    if (!fi) {
+      state->reset();
+      return true;
+    }
 
-    Header header;
-    if (!header.read(fi.get(), E)) { return false; }
-    if (header.W != W || header.H != H) { return false; }
+    char line[256];
+    if (!fgets(line, sizeof(line), fi.get())) { return false; }
 
     int N = 2 * W * H;
-    int dataSize = sizeof(int) * N;
-    if (!fread(data, dataSize, 1, fi.get()) || !fread(checkBits, dataSize, 1, fi.get())) {
-      log("File '%s': wrong size\n", fileNameSave);
-      return false;
+    assert(state->N == N);
+
+    {
+      HeaderV1 header;
+      if (header.read(line)) {
+        if (header.E != E || header.W != W || header.H != H) { return false; }
+        *k = header.k;
+        *nErrors = header.nErrors;
+        int dataSize = sizeof(int) * N;
+        return fread(state->data.get(), dataSize, 1, fi.get()) && fread(state->check.get(), dataSize, 1, fi.get());
+      }
     }
 
-    if (checksum(N, data, checkBits) != header.sum) {
-      log("File '%s': wrong checksum\n", fileNameSave);
-      return false;
+    {
+      HeaderV2 header;
+      if (header.read(line)) {
+        if (header.E != E) { return false; }
+        {
+          int nWords = (E - 1) / 32 + 1;
+          std::vector<u32> data, check;
+          if (!read(fi.get(), nWords, data) || !read(fi.get(), nWords, check)) { return false; }
+          CompactState(E, std::move(data), std::move(check)).expandTo(state, true, W, H, E);
+        }
+        *k = header.k;
+        *nErrors = header.nErrors;
+        return true;
+      }
     }
 
-    *startK = header.k;
-    *nErrors = header.nErrors;
-    return true;
+    return false;
   }
   
-  void save(int W, int H, int k, int *data, int *checkBits, bool savePersist, int nErrors) {
-    if (write(fileNameTemp, W, H, k, data, checkBits, nErrors)) {
-      remove(fileNamePrev);
-      rename(fileNameSave, fileNamePrev);
-      rename(fileNameTemp, fileNameSave);      
+  static void save(const CompactState &compact, int k, int nErrors) {
+    int E = compact.E;
+    string saveFile = fileName(E);
+    string strE = std::to_string(E);
+    string tempFile = strE + "-temp.owl";
+    string prevFile = strE + "-prev.owl";
+    
+    if (write(tempFile, compact, k, nErrors)) {      
+      remove(prevFile.c_str());
+      rename(saveFile.c_str(), prevFile.c_str());
+      rename(tempFile.c_str(), saveFile.c_str());
     }
-    if (savePersist) {
-      char name[64];
-      snprintf(name, sizeof(name), "%d.%d.owl", E, k);
-      write(name, W, H, k, data, checkBits, nErrors);
+    const int saveStep = 10'000'000;
+    if (k && (k % saveStep == 0)) {
+      string persistFile = strE + "." + std::to_string(k) + ".owl";
+      write(persistFile, compact, k, nErrors);
     }
   }
 };

@@ -6,19 +6,19 @@
 #include "clwrap.h"
 #include "timeutil.h"
 #include "checkpoint.h"
+#include "state.h"
 #include "common.h"
 
 #include <cassert>
 #include <cstdio>
 #include <cmath>
-#include <cstring>
+// #include <cstring>
 #include <ctime>
 #include <cstdlib>
 
 #include <memory>
 #include <string>
 #include <vector>
-#include <algorithm>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -113,19 +113,6 @@ public:
   u64 getTime() { return timeAcc; }
   void resetTime() { timeAcc = 0; }
 };
-
-u32 extra(unsigned N, unsigned E, unsigned k) {
-  assert(E & (N - 1));
-  u32 step = N - (E & (N - 1));
-  return (k * step) & (N - 1);
-}
-
-bool isBigWord(unsigned N, unsigned E, unsigned k) {
-  u32 step = N - (E & (N - 1));
-  return extra(N, E, k) + step < N;
-}
-
-u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
 // FGT doesn't use weight vectors.
@@ -324,88 +311,8 @@ void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, 
   delete[] iTab;
 }
 
-bool isAllZero(auto const it, auto const end) {
-  return std::all_of(it, end, [](auto e) { return e == 0; });
-}
-
-int &wordAt(int W, int H, int *data, int w) {
-  int col  = w / 2 / H;
-  int line = w / 2 % H;
-  return data[(line * W + col) * 2 + w % 2];
-}
-
-bool prevIsNegative(int W, int H, int *data) {
-  int N = 2 * W * H;
-  for (int p = N - 1; p >= 0; --p) {
-    if (int word = wordAt(W, H, data, p)) { return (word < 0); }
-  }
-  return false;
-}
-
 // Residue from compacted words.
 u64 residue(const std::vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
-
-// Residue from balanced irrational-base words.
-u64 residue(int W, int H, int E, int *data) {
-  int N = 2 * W * H;
-  if (isAllZero(data, data + N)) { return 0; }
-  i64 r = - prevIsNegative(W, H, data);
-  for (int p = 0, haveBits = 0; haveBits < 64; ++p) {
-    r += (i64) wordAt(W, H, data, p) << haveBits;
-    haveBits += bitlen(N, E, p);
-  }  
-  return r;
-}
-
-std::vector<u32> compactBits(int W, int H, int E, int *data) {
-  std::vector<u32> out;
-
-  int carry = 0;
-  u32 outWord = 0;
-  int haveBits = 0;
-  
-  int N = 2 * W * H;
-  for (int p = 0; p < N; ++p) {
-    int w = wordAt(W, H, data, p) + carry;
-    carry = 0;
-    int bits = bitlen(N, E, p);
-    while (w < 0) {
-      w += 1 << bits;
-      carry -= 1;
-    }
-    while (w >= (1 << bits)) {
-      w -= 1 << bits;
-      carry += 1;
-    }
-    assert(0 <= w && w < (1 << bits));
-    while (bits) {
-      assert(haveBits < 32);
-      outWord |= w << haveBits;
-      if (haveBits + bits >= 32) {
-        w >>= (32 - haveBits);
-        bits -= (32 - haveBits);
-        out.push_back(outWord);
-        outWord = 0;
-        haveBits = 0;
-      } else {
-        haveBits += bits;
-        bits = 0;
-      }
-    }
-  }
-  if (haveBits) {
-    out.push_back(outWord);
-    haveBits = 0;
-  }
-
-  for (int p = 0; carry; ++p) {
-    i64 v = i64(out[p]) + carry;
-    out[p] = v & 0xffffffff;
-    carry = v >> 32;
-  }
-
-  return out;
-}
 
 u32 mod3(std::vector<u32> &words) {
   u32 r = 0;
@@ -433,6 +340,36 @@ void div3(int E, std::vector<u32> &words) {
     r = w % 3;
   }
 }
+
+// Note: pass vector by copy is intentional.
+u64 residueDiv9(int E, std::vector<u32> words) {
+  div3(E, words);
+  div3(E, words);
+  return residue(words);
+}
+
+/*
+
+bool prevIsNegative(int W, int H, int *data) {
+  int N = 2 * W * H;
+  for (int p = N - 1; p >= 0; --p) {
+    if (int word = wordAt(W, H, data, p)) { return (word < 0); }
+  }
+  return false;
+}
+
+// Residue from balanced irrational-base words.
+u64 residue(int W, int H, int E, int *data) {
+  int N = 2 * W * H;
+  if (isAllZero(data, data + N)) { return 0; }
+  i64 r = - prevIsNegative(W, H, data);
+  for (int p = 0, haveBits = 0; haveBits < 64; ++p) {
+    r += (i64) wordAt(W, H, data, p) << haveBits;
+    haveBits += bitlen(N, E, p);
+  }  
+  return r;
+}
+*/
 
 std::vector<std::unique_ptr<FILE>> logFiles;
 
@@ -542,6 +479,7 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   for (Kernel *k : kerns) { total += dynamic_cast<TimedKernel *>(k)->getTime(); }
   const float iIters = 1 / (float) (nIters - 1);
   const float iTotal = 1 / (float) total;
+  log("\n");
   for (Kernel *kk : kerns) {
     TimedKernel *k = dynamic_cast<TimedKernel *>(kk);
     u64 c = k->getTime();
@@ -551,147 +489,161 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
   log("%4d us total\n", int(total * iIters + .5f));
 }
 
-bool validate(int N, cl_mem bufData, cl_mem bufCheck,
-              cl_queue q, auto squareLoop, auto modMul,
-              const int *data, const int *check) {
-  const int dataSize = sizeof(int) * N;
-  
-  if (isAllZero(data, data + N)) { return false; }
-  
-  Timer timer;
-  write(q, false, bufCheck, dataSize, check);
-  write(q, false, bufData,  dataSize, data);
-  modMul(q, bufData, bufCheck);
-  squareLoop(q, bufCheck, 1000, true);
-  int *tmpA(new int[N]), *tmpB(new int[N]);
-  read(q, false, bufData, dataSize, tmpA);
-  read(q, true, bufCheck, dataSize, tmpB);
-  bool ok = !memcmp(tmpA, tmpB, dataSize);
-  // fprintf(stderr, "%d %d\n", tmpA[0], tmpB[0]);
-  delete[] tmpA;
-  delete[] tmpB;
-  write(q, false, bufCheck, dataSize, check);
-  write(q, true, bufData, dataSize, data);
-  return ok;
+template<typename T, int N> constexpr int size(T (&)[N]) { return N; }
+
+uint autoStep(int nIters, int nErrors) {
+  uint x = nIters / (100 + nErrors * 1000);
+  uint steps[] = {2, 5, 10, 20, 50, 100, 200, 500};
+  for (int i = 0; i < size(steps) - 1; ++i) {
+    if (x < steps[i] * steps[i + 1]) { return steps[i] * 1000; }
+  }
+  return steps[size(steps) - 1] * 1000;
 }
 
-bool checkPrime(int W, int H, int E, cl_queue q, cl_context context, const Args &args,
+struct GpuState {
+  int N;
+  cl_context context;
+  cl_queue queue;
+  Buffer bufDataHolder, bufCheckHolder;
+  cl_mem bufData, bufCheck;
+
+  GpuState(int N, cl_context context, cl_queue queue) :
+    N(N),
+    context(context),
+    queue(queue),
+    bufDataHolder(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+    bufCheckHolder(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+    bufData(bufDataHolder.get()),
+    bufCheck(bufCheckHolder.get())
+  {
+  }
+
+  void writeNoWait(const State &state) {
+    assert(N == state.N);
+    ::write(queue, false, bufData,  N * sizeof(int), state.data.get());
+    ::write(queue, false, bufCheck, N * sizeof(int), state.check.get());
+  }
+
+  void writeWait(const State &state) {
+    assert(N == state.N);
+    ::write(queue, false, bufData, N * sizeof(int), state.data.get());
+    ::write(queue, true, bufCheck, N * sizeof(int), state.check.get());
+  }
+
+  State read() {
+    std::unique_ptr<int[]> data(new int[N]);
+    ::read(queue, false, bufData,  N * sizeof(int), data.get());
+    
+    std::unique_ptr<int[]> check(new int[N]);
+    ::read(queue, true,  bufCheck, N * sizeof(int), check.get());
+    return State(N, std::move(data), std::move(check));
+  }
+};
+
+bool validate(int N, GpuState &gpu, cl_queue q, auto modSqLoop, auto modMul) {
+  // if (currentState.isZero()) { return false; }
+  // if (isAllZero(currentState.data, currentState.data + N)) { return false; }
+  // gpuState.write(currentState);
+  
+  modMul(q, gpu.bufData, gpu.bufCheck);
+  modSqLoop(q, gpu.bufCheck, 1000, true);
+  return gpu.read().equalCheck();
+  /*
+  State tmp = gpu.read();
+  bool ok = !memcmp(tmp.data.get(), tmp.check.get(), sizeof(int) * N);
+  // fprintf(stderr, "%d %d\n", tmpA[0], tmpB[0]);  
+  return ok;
+  */
+}
+
+bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
                 bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul) {
   const int N = 2 * W * H;
-  const int dataSize = sizeof(int) * N;
+  log("PRP-3: FFT %dM (%d * %d * 2) of %d (%.2f bits/word)\n", N / (1024 * 1024), W, H, E, E / float(N));
 
-  std::unique_ptr<int[]>
-    goodDataHolder(new int[N]),
-    goodCheckHolder(new int[N]),
-    dataHolder(new int[N]),
-    checkHolder(new int[N]);
-  int *goodData  = goodDataHolder.get();
-  int *goodCheck = goodCheckHolder.get();
-  int *data  = dataHolder.get();
-  int *check = checkHolder.get();
-  
-  Buffer bufDataHolder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
-  Buffer bufCheckHolder{makeBuf(context, CL_MEM_READ_WRITE, dataSize)};
-  
-  cl_mem bufData  = bufDataHolder.get();
-  cl_mem bufCheck = bufCheckHolder.get();
-  
-  int k = 0, goodK = 0;
   int nErrors = 0;
-  Checkpoint checkpoint(E);
-
-  if (!checkpoint.load(W, H, &k, data, check, &nErrors)) { return false; }
-  log("PRP-3 FFT %dK (%d*%d*2) of %d (%.2f bits/word) iteration %d\n", N / 1024, W, H, E, E / float(N), k);
-  assert(k % 1000 == 0);
+  int k = 0;
+  GpuState gpu(N, context, queue);
+  State goodState(N);
+  
+  if (!Checkpoint::load(E, W, H, &goodState, &k, &nErrors)) { return false; }
+  gpu.writeWait(goodState);
+  goodState.reset();
+  
+  int goodK = 0;
+  
   const int kEnd = E;
-  assert(k < kEnd);
+  assert(k % 1000 == 0 && k < kEnd);
   
-  auto setRollback = [=, &goodK, &k]() {
-    memcpy(goodData,  data,  dataSize);
-    memcpy(goodCheck, check, dataSize);
-    goodK = k;
+  auto getCheckStep = [forceStep = args.step, startK = k, startErrors = nErrors](int currentK, int currentErrors) {
+    return forceStep ? forceStep : autoStep(currentK - startK, currentErrors - startErrors);
   };
-
-  auto rollback = [=, &goodK, &k]() {
-    log("rolling back to %d\n", goodK);
-    write(q, false, bufData, dataSize, goodData);
-    write(q, true, bufCheck, dataSize, goodCheck);
-    k = goodK;
-  };
-
-  if (k == 0) {
-    memset(data,  0, dataSize);
-    memset(check, 0, dataSize);
-    data[0]  = 3;
-    check[0] = 1;    
-  }
   
+  int blockStartK = k;
+  int checkStep = 1; // request an initial check at start.
+
   Timer timer;
 
-  // Establish a known-good roolback point by initial verification of loaded data.
   while (true) {
-    bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
-    doLog(E, k, timer.deltaMillis() / 1000.f, residue(W, H, E, data), ok, nErrors);
-    if (ok) { break; }
-    assert(k > 0);
-    log("Loaded checkpoint failed validation. Restarting from zero.\n");
-    k = 0;
-    memset(data,  0, dataSize);
-    memset(check, 0, dataSize);
-    data[0]  = 3;
-    check[0] = 1;        
-  }
-  setRollback();
-
-  while (k < kEnd) {
-    assert(k % 1000 == 0);
-    Timer smallTimer;
-    modMul(q, bufCheck, bufData);    
-    modSqLoop(q, bufData, std::min(1000, kEnd - k), false);
-    if (kEnd - k <= 1000) {
-      read(q, true, bufData, dataSize, data);
-      // The write() below may seem redundant, but it protects against memory errors on the read() above,
-      // by making sure that any eventual errors are visible to the GPU-side verification.
-      write(q, false, bufData, dataSize, data);
-
-      std::vector<u32> words = compactBits(W, H, E, data);
-      bool isPrime = (words[0] == 9) && isAllZero(words.begin() + 1, words.end());    
-      u64 resRaw = residue(words);      
-      div3(E, words);
-      div3(E, words);
-      u64 res = residue(words);
+    if ((k % checkStep == 0) || (k >= kEnd)) {
+      {
+        State state = gpu.read();
+        CompactState compact(state, W, H, E);
+        compact.expandTo(&state, true, W, H, E);        
+        gpu.writeNoWait(state);
+        
+        bool ok = validate(N, gpu, queue, modSqLoop, modMul);      
+        doLog(E, k, timer.deltaMillis() / float(k - blockStartK + 1000), residue(compact.data), ok, nErrors);
       
-      log("%s %8d / %d, %s (raw %s)\n", isPrime ? "PP" : "CC", kEnd, E, hexStr(res).c_str(), hexStr(resRaw).c_str());
+        if (ok) {
+          if (k >= kEnd) { return true; }
+
+          if (k) {
+            Checkpoint::save(compact, k, nErrors);
+            goodState = std::move(state);
+            goodK = k;
+          }
+        } else {        
+          assert(k); // A rollback from start (k == 0) means bug or wrong FFT size, so we can't continue.
+          ++nErrors;
+          k = goodK;
+        }
+      }
+      gpu.writeNoWait(goodState);
+      blockStartK = k;
+      checkStep = getCheckStep(k, nErrors);
+      assert(checkStep % 1000 == 0);
+    }
+    
+    assert(k % 1000 == 0);
+
+    Timer smallTimer;
+    modMul(queue, gpu.bufCheck, gpu.bufData);
+    modSqLoop(queue, gpu.bufData, std::min(1000, kEnd - k), false);
+    
+    if (kEnd - k <= 1000) {
+      State state = gpu.read();
+      gpu.writeNoWait(state);      
+      std::vector<u32> words = CompactState(state, W, H, E).data;
+      
+      bool isPrime = (words[0] == 9) && isAllZero(words.begin() + 1, words.end());    
+      u64 resRaw = residue(words);
+      u64 resDiv = residueDiv9(E, std::move(words));
+      log("%s %8d / %d, %s (raw %s)\n", isPrime ? "PP" : "CC", kEnd, E, hexStr(resDiv).c_str(), hexStr(resRaw).c_str());
       
       *outIsPrime = isPrime;
-      *outResidue = res;
+      *outResidue = resDiv;
       *outNErrors = nErrors;
       int left = 1000 - (kEnd - k);
-      assert(left >= 0);
-      if (left) { modSqLoop(q, bufData, left, false); }
+      assert(left > 0);
+      modSqLoop(queue, gpu.bufData, left, false);
     }
 
-    finish(q);
+    finish(queue);
     k += 1000;
-    fprintf(stderr, " %5d / %d, %.2f ms/it\r", (k - 1) % args.step + 1, args.step, smallTimer.deltaMillis() / 1000.f);
-
-    if ((k % args.step == 0) || (k >= kEnd)) {
-      read(q, false, bufCheck, dataSize, check);
-      read(q, true, bufData, dataSize, data);
-      bool ok = validate(N, bufData, bufCheck, q, modSqLoop, modMul, data, check);
-      doLog(E, k, timer.deltaMillis() / float((k - 1) % args.step + 1), residue(W, H, E, data), ok, nErrors);      
-      if (ok) {
-        setRollback();
-        if (k < kEnd) { checkpoint.save(W, H, k, data, check, k % args.saveStep == 0, nErrors); }
-      } else {
-        rollback();
-        ++nErrors;
-      }
-    }
+    fprintf(stderr, " %5d / %d, %.2f ms/it           \r",
+            (k - 1) % checkStep + 1, checkStep, smallTimer.deltaMillis() / 1000.f);
   }
-
-  finish(q); // Redundant. Queue must be empty before buffers release.
-  return true;
 }
 
 cl_device_id getDevice(const Args &args) {
@@ -893,6 +845,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     coreKerns = { fftW.get(), carryA.get(), carryB.get(), fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()};
   }
 
+#if 0
   if (args.debug) {    
 #define T2 uint2
     uint size = sizeof(T2) * (N / 2);
@@ -929,6 +882,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     return false;
 #undef T2
   }
+#endif
   
   // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
   // Optional multiply-by-3 at the end.
@@ -984,6 +938,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu, nErrors, N) && worktodoDelete(E))) { return false; }
 
+  if (isPrime) { return false; } // Request stop if a prime is found.
+  
   return true;
 }
 
@@ -1018,25 +974,21 @@ int main(int argc, char **argv) {
     if (E <= 0) { break; }
     
     int W, H;
-    if (Checkpoint::readSize(E, &W, &H)) {
-      log("Setting FFT size to %dM based on savefile.\n", W * H * 2 / (1024 * 1024));
-    } else {
-      int sizeM = args.fftSize ? args.fftSize / (1024 * 1024) : E < MAX_2M ? 2 : E < MAX_4M ? 4 : 8;        
-      switch (sizeM) {
-      case 2:
-        W = H = 1024;
-        break;
-      case 4:
-        W = 1024;
-        H = 2048;
-        break;
-      case 8:
-        W = 2048;
-        H = 2048;
-        break;
-      default:
-        assert(false);
-      }
+    int sizeM = args.fftSize ? args.fftSize / (1024 * 1024) : E < MAX_2M ? 2 : E < MAX_4M ? 4 : 8;        
+    switch (sizeM) {
+    case 2:
+      W = H = 1024;
+      break;
+    case 4:
+      W = 1024;
+      H = 2048;
+      break;
+    case 8:
+      W = 2048;
+      H = 2048;
+      break;
+    default:
+      assert(false);
     }
     
     if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }

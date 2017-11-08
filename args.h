@@ -20,7 +20,7 @@ struct Args {
   int device;
   bool timeKernels, useLegacy, debug;
   
-Args() : step(500000), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("DP"),
+Args() : step(0), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("DP"),
     device(-1), timeKernels(false), useLegacy(false), debug(false) { }
   
   // return false to stop.
@@ -29,7 +29,7 @@ Args() : step(500000), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n\n"
-          "-step     <N> : to log, validate and save every <N> [default 500K] iterations.\n"
+          "-step     <N> : validate and checkpoint every <N> iterations.\n"
           "-savestep <N> : to persist checkpoint every <N> [default 10M] iterations.\n"
           "-size 2M|4M|8M : override FFT size.\n"
           "-fft DP|SP|M61|M31  : choose FFT variant [default DP]:\n"
@@ -161,10 +161,10 @@ Args() : step(500000), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("
     }
   }
 
-  assert(step > 0 && !(step % 1000));
+  assert(step % 1000 == 0);
   
-  if (saveStep < step)  { saveStep = step; }
-  saveStep  -= saveStep % step;
+  if (saveStep < 500000)  { saveStep = 500000; }
+  saveStep  -= saveStep % 500000;
 
   // logConfig();
   return true;

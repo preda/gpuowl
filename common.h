@@ -31,8 +31,8 @@ template<> struct default_delete<FILE> {
  };
 }
 
-std::unique_ptr<FILE> open(const char *name, const char *mode, bool doLog = true) {
-  std::unique_ptr<FILE> f{fopen(name, mode)};
-  if (!f && doLog) { log("Can't open '%s' (mode '%s')\n", name, mode); }
+std::unique_ptr<FILE> open(const std::string &name, const char *mode, bool doLog = true) {
+  std::unique_ptr<FILE> f{fopen(name.c_str(), mode)};
+  if (!f && doLog) { log("Can't open '%s' (mode '%s')\n", name.c_str(), mode); }
   return f;
 }
