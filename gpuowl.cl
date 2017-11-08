@@ -177,7 +177,7 @@ Carry unweight(T x, uint pos) {
 }
 
 // Reverse weighting and carry propagation.
-Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, uint pos, const T2 *dummyA, uint dummyP) {
+Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, uint pos, const G T2 *dummyA, uint dummyP) {
   Word x = carryStep(mul * unweight(u.x, 2 * pos + 0), carry, bitlen(2 * pos + 0));
   Word y = carryStep(mul * unweight(u.y, 2 * pos + 1), carry, bitlen(2 * pos + 1));
   return (Word2) (x, y);
@@ -191,7 +191,7 @@ T2 weightAux(Word2 a, uint pos) { return U2(weight1(a.x, 2 * pos + 0), weight1(a
 T2 weight(Word2 a, uint pos, const G T2 *dummyA, uint dummyP) { return weightAux(a, pos); }
 
 // No carry out. The final carry is "absorbed" in the last word.
-T2 carryAndWeightFinal(Word2 u, Carry carry, uint pos, const T2 *dummyA, uint dummyP) {
+T2 carryAndWeightFinal(Word2 u, Carry carry, uint pos, const G T2 *dummyA, uint dummyP) {
   u.x = carryStep(u.x, &carry, bitlen(2 * pos + 0));
   u.y = u.y + carry;
   return weightAux(u, pos);
