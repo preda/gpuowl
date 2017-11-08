@@ -12,7 +12,6 @@
 #include <cassert>
 #include <cstdio>
 #include <cmath>
-// #include <cstring>
 #include <ctime>
 #include <cstdlib>
 
@@ -28,7 +27,7 @@
 
 #define STR(s) XSTR(s)
 #define XSTR(s) #s
-#define VERSION "1.7-" REV
+#define VERSION "1.8-" REV
 #define PROGRAM "gpuowl"
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;

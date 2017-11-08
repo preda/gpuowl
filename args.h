@@ -13,14 +13,14 @@ struct Args {
   std::string clArgs;
   std::string user, cpu;
   std::string dump;
-  int step, saveStep;
+  int step;
   int fftSize;
   int fftKind;
   string fftKindStr;
   int device;
   bool timeKernels, useLegacy, debug;
   
-Args() : step(0), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("DP"),
+Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
     device(-1), timeKernels(false), useLegacy(false), debug(false) { }
   
   // return false to stop.
@@ -29,8 +29,6 @@ Args() : step(0), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("DP"),
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n\n"
-          "-step     <N> : validate and checkpoint every <N> iterations.\n"
-          "-savestep <N> : to persist checkpoint every <N> [default 10M] iterations.\n"
           "-size 2M|4M|8M : override FFT size.\n"
           "-fft DP|SP|M61|M31  : choose FFT variant [default DP]:\n"
           "                DP  : double precision floating point.\n"
@@ -41,7 +39,6 @@ Args() : step(0), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("DP"),
           "-cpu  <name>  : specify the hardware name.\n"  
           "-legacy       : use legacy kernels\n"
           "-dump <path>  : dump compiled ISA to the folder <path> that must exist.\n"
-          "-cl \"extra OpenCL compiler options\"\n"
           "-device <N>   : select specific device among:\n");
       
       cl_device_id devices[16];
@@ -69,17 +66,6 @@ Args() : step(0), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("DP"),
         }
       } else {
         log("-step expects <N> argument\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-savestep")) {
-      if (i < argc - 1) {
-        saveStep = atoi(argv[++i]);
-        if (saveStep <= 0) {
-          log("invalid -savestep '%s'\n", argv[i]);
-          return false;
-        }
-      } else {
-        log("-savestep expects <N> argument\n");
         return false;
       }
     } else if (!strcmp(arg, "-user")) {
@@ -162,11 +148,6 @@ Args() : step(0), saveStep(10000000), fftSize(0), fftKind(DP), fftKindStr("DP"),
   }
 
   assert(step % 1000 == 0);
-  
-  if (saveStep < 500000)  { saveStep = 500000; }
-  saveStep  -= saveStep % 500000;
-
-  // logConfig();
   return true;
 }
 
