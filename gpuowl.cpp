@@ -143,27 +143,27 @@ template<typename T> struct Pair { T x, y; };
 
 using double2 = Pair<double>;
 using float2  = Pair<float>;
-using uint2   = Pair<uint>;
-using ulong2  = Pair<ulong>;
+using uint2   = Pair<u32>;
+using ulong2  = Pair<u64>;
 
-uint2  U2(uint x, uint y) { return uint2{x, y}; }
-ulong2 U2(ulong x, ulong y) { return ulong2{x, y}; }
+uint2  U2(u32 x, u32 y) { return uint2{x, y}; }
+ulong2 U2(u64 x, u64 y) { return ulong2{x, y}; }
 
-uint lo(ulong a) { return a & 0xffffffffu; }
-uint up(ulong a) { return a >> 32; }
+u32 lo(u64 a) { return a & 0xffffffffu; }
+u32 up(u64 a) { return a >> 32; }
 
 #define FGT_31 1
-#define T uint
+#define T  u32
 #define T2 uint2
 #include "nttshared.h"
 #undef MBITS
 #undef TBITS
-#undef T2
 #undef T
+#undef T2
 #undef FGT_31
 
 #define FGT_61 1
-#define T ulong
+#define T  u64
 #define T2 ulong2
 #include "nttshared.h"
 #undef MBITS
@@ -191,16 +191,16 @@ T2 pow2(T2 a, u32 k) {
 }
 
 // Returns the primitive root of unity of order N, to the power k.
-template<typename T2> T2 root1(uint N, uint k);
+template<typename T2> T2 root1(u32 N, u32 k);
 
-template<> float2 root1<float2>(uint N, uint k) {
+template<> float2 root1<float2>(u32 N, u32 k) {
   double angle = - double(TAU) / N * k;
   float x = cos(angle);
   float y = sin(angle);
   return float2{x, y};
 }
 
-template<> double2 root1<double2>(uint N, uint k) {
+template<> double2 root1<double2>(u32 N, u32 k) {
   long double angle = - TAU / N * k;
   double x = cosl(angle);
   double y = sinl(angle);
@@ -217,12 +217,12 @@ const uint2  ROOT1_31{1 << 16, 0x4b94532f};
 const ulong2 ROOT1_61{1 << 30, 0x06caa56e1cae315aull};
 // const ulong2 ROOT1_61{1 << 31, 0x0e5718ad1b2a95b8};
 
-template<> uint2 root1<uint2>(uint N, uint k) {
+template<> uint2 root1<uint2>(u32 N, u32 k) {
   uint2 w = pow2(ROOT1_31, 32 - std::log2(N));
   return pow(w, k);
 }
 
-template<> ulong2 root1<ulong2>(uint N, uint k) {
+template<> ulong2 root1<ulong2>(u32 N, u32 k) {
   ulong2 w = pow2(ROOT1_61, 62 - std::log2(N));
   return pow(w, k);
 }
@@ -488,9 +488,9 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
 
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }
 
-uint autoStep(int nIters, int nErrors) {
-  uint x = nIters / (100 + nErrors * 1000);
-  uint steps[] = {2, 5, 10, 20, 50, 100, 200, 500};
+int autoStep(int nIters, int nErrors) {
+  int x = nIters / (100 + nErrors * 1000);
+  int steps[] = {2, 5, 10, 20, 50, 100, 200, 500};
   for (int i = 0; i < size(steps) - 1; ++i) {
     if (x < steps[i] * steps[i + 1]) { return steps[i] * 1000; }
   }
@@ -674,13 +674,13 @@ cl_device_id getDevice(const Args &args) {
 
 void append(auto &vect, auto what) { vect.insert(vect.end(), what); }
 
-string valueDefine(const string &key, uint value) {
+string valueDefine(const string &key, u32 value) {
   return key + "=" + std::to_string(value) + "u";
 }
 
-uint modInv(uint a, uint m) {
+u32 modInv(u32 a, u32 m) {
   a = a % m;
-  for (uint i = 1; i < m; ++i) {
+  for (u32 i = 1; i < m; ++i) {
     if (a * i % m == 1) { return i; }
   }
   assert(false);
@@ -790,14 +790,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     assert(false);
   }
 
-  uint wordSize =
-    args.fftKind == Args::M31 ? sizeof(uint)   :
-    args.fftKind == Args::M61 ? sizeof(ulong)  :
+  u32 wordSize =
+    args.fftKind == Args::M31 ? sizeof(u32)   :
+    args.fftKind == Args::M61 ? sizeof(u64)  :
     args.fftKind == Args::DP  ? sizeof(double) :
     args.fftKind == Args::SP  ? sizeof(float)  :
     -1;
   
-  uint bufSize = N * wordSize;
+  u32 bufSize = N * wordSize;
   Buffer buf1{makeBuf(    context, BUF_RW, bufSize)};
   Buffer buf2{makeBuf(    context, BUF_RW, bufSize)};
   Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
@@ -855,45 +855,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     // coreKerns = tailKerns + headKerns
     coreKerns = { fftW.get(), carryA.get(), carryB.get(), fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()};
   }
-
-#if 0
-  if (args.debug) {    
-#define T2 uint2
-    uint size = sizeof(T2) * (N / 2);
-    T2 *data = new T2[N / 2]();
-    data[0].x = 3;
-    // data[0].y = 1;
-    cl_mem bufData = makeBuf(context, CL_MEM_READ_WRITE, size);
-    fftP->setArg(0, bufData);
-    carryA->setArg(2, bufData);
-    carryB->setArg(0, bufData);
-    write(queue, false, bufData, size, data);
-    // write(queue, false, buf1.get(), sizeof(T2) * (N / 2), data);
-
-    for (int i = 0; i < 2000; ++i) {
-      /*
-      run({fftW.get(), fftW.get()}, queue);      
-      read(queue, true, buf1.get(), sizeof(T2) * (N / 2), data);
-      for (int i = 0; i < W; ++i) { printf("%2d %08lx %08lx\n", i, (ulong) data[i].x, (ulong) data[i].y); }
-      */
-      
-      // run({fftW.get(), transposeW.get(), fftH.get(), /*square.get(),*/ fftH.get(), transposeH.get(), fftW.get()}, queue);
-      run({fftP.get(), transposeW.get(),
-            tail.get(),
-            // fftH.get(), square.get(), fftH.get(),
-            transposeH.get()}, queue);
-      run(tailKerns, queue);
-      read(queue, true, bufData, size, data);
-      
-      printf("%2d: %016llx\n", i + 1, residue(W, H, E, (int *) data));
-      // for (int i = 0; i < 64; ++i) { printf("%2d %08lx %08lx (%d, %d)\n", i, (ulong) data[i * W].x, (ulong) data[i * W].y, bitlen(N, E, i * 2), bitlen(N, E, i * 2 + 1)); }
-    }
-    
-    delete[] data;
-    return false;
-#undef T2
-  }
-#endif
   
   // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
   // Optional multiply-by-3 at the end.

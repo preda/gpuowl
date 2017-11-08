@@ -86,9 +86,10 @@ T2 U2(T a, T b) { return (T2)(a, b); }
 
 #if FGT_31 || FGT_61
 
-// #define NO_ASM
+typedef uint u32;
+typedef ulong u64;
+
 #include "nttshared.h"
-// #undef NO_ASM
 
 // mul with (0, 1). (twiddle of tau/4, sqrt(-1) aka "i").
 T2 mul_t4(T2 a) { return U2(neg(a.y), a.x); }

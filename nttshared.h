@@ -3,8 +3,8 @@
 #define TBITS 32
 #define MBITS 31
 
-uint2 wideMul(uint a, uint b) {
-  ulong ab = ((ulong) a) * b;
+uint2 wideMul(u32 a, u32 b) {
+  u64 ab = ((u64) a) * b;
   return U2(lo(ab), up(ab));
 }
 
@@ -16,10 +16,10 @@ uint2 wideMul(uint a, uint b) {
 // bits in reduced mod M.
 #define MBITS 61
 
-ulong mad64(uint a, uint b, ulong c) {
+u64 mad64(u32 a, u32 b, u64 c) {
 #ifdef ASM
   // force V_MAD_U64_U32.
-  ulong result;
+  u64 result;
   __asm("v_mad_u64_u32 %0, vcc, %1, %2, %3\n"
         : "=v"(result)
         : "v"(a), "v"(b), "v"(c)
@@ -28,13 +28,13 @@ ulong mad64(uint a, uint b, ulong c) {
   return result;
 #else
   // The compiler should be able to generate V_MAD_U64_U32 by itself...
-  return ((ulong) a) * b + c;
+  return ((u64) a) * b + c;
 #endif
 }
 
-ulong mul64(uint a, uint b) {
+u64 mul64(u32 a, u32 b) {
 #ifdef ASM
-  ulong result;
+  u64 result;
   __asm("v_mad_u64_u32 %0, vcc, %1, %2, 0\n"
         : "=v"(result)
         : "v"(a), "v"(b)
@@ -42,20 +42,22 @@ ulong mul64(uint a, uint b) {
       );
   return result;  
 #else
-  return ((ulong) a) * b;
+  return ((u64) a) * b;
 #endif
 }
 
-ulong2 wideMul(ulong ab, ulong cd) {
-  uint a = lo(ab);
-  uint b = up(ab);
-  uint c = lo(cd);
-  uint d = up(cd);
-  ulong x = mul64(a, c);
-  ulong y = mad64(a, d, up(x));
-  ulong z = mad64(b, c, y);
-  ulong w = mad64(b, d, up(z));
-  ulong low = lo(x) | (((ulong) lo(z)) << 32);
+ulong2 wideMul(u64 ab, u64 cd) {
+  u32 a = lo(ab);
+  u32 b = up(ab);
+  u32 c = lo(cd);
+  u32 d = up(cd);
+  
+  u64 x = mul64(a, c);
+  u64 y = mad64(a, d, up(x));
+  u64 z = mad64(b, c, y);
+  u64 w = mad64(b, d, up(z));
+  
+  u64 low = lo(x) | (((u64) lo(z)) << 32);
   return U2(low, w);
 }
 
@@ -77,7 +79,7 @@ T2 add(T2 a, T2 b) { return U2(add1(a.x, b.x), add1(a.y, b.y)); }
 T2 sub(T2 a, T2 b) { return U2(sub1(a.x, b.x), sub1(a.y, b.y)); }
 
 // Assumes k reduced mod MBITS.
-T shl1(T a, uint k) {
+T shl1(T a, u32 k) {
   T up = a >> (MBITS - k);
   T lo = (a << k) & M;
   return mod(up + lo);
