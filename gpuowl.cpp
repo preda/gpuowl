@@ -345,29 +345,6 @@ u64 residueDiv9(int E, std::vector<u32> words) {
   return residue(words);
 }
 
-/*
-
-bool prevIsNegative(int W, int H, int *data) {
-  int N = 2 * W * H;
-  for (int p = N - 1; p >= 0; --p) {
-    if (int word = wordAt(W, H, data, p)) { return (word < 0); }
-  }
-  return false;
-}
-
-// Residue from balanced irrational-base words.
-u64 residue(int W, int H, int E, int *data) {
-  int N = 2 * W * H;
-  if (isAllZero(data, data + N)) { return 0; }
-  i64 r = - prevIsNegative(W, H, data);
-  for (int p = 0, haveBits = 0; haveBits < 64; ++p) {
-    r += (i64) wordAt(W, H, data, p) << haveBits;
-    haveBits += bitlen(N, E, p);
-  }  
-  return r;
-}
-*/
-
 std::vector<std::unique_ptr<FILE>> logFiles;
 
 void initLog() {
@@ -538,19 +515,9 @@ struct GpuState {
 };
 
 bool validate(int N, GpuState &gpu, cl_queue q, auto modSqLoop, auto modMul) {
-  // if (currentState.isZero()) { return false; }
-  // if (isAllZero(currentState.data, currentState.data + N)) { return false; }
-  // gpuState.write(currentState);
-  
   modMul(q, gpu.bufData, gpu.bufCheck);
   modSqLoop(q, gpu.bufCheck, 1000, true);
   return gpu.read().equalCheck();
-  /*
-  State tmp = gpu.read();
-  bool ok = !memcmp(tmp.data.get(), tmp.check.get(), sizeof(int) * N);
-  // fprintf(stderr, "%d %d\n", tmpA[0], tmpB[0]);  
-  return ok;
-  */
 }
 
 bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
@@ -592,14 +559,6 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
         CompactState compact(state, W, H, E);
         compact.expandTo(&state, balanced, W, H, E);
         gpu.writeNoWait(state);
-        /*
-        for (int i = 0; i < 1000; ++i) {
-          if (wordAt(W, H, state.data.get(), i) != wordAt(W, H, state2.data.get(), i)) {
-            printf("%d %d %d %d %d %d %d\n", i, wordAt(W, H, state.data.get(), i), wordAt(W, H, state2.data.get(), i),
-                   wordAt(W, H, state.data.get(), i - 1), wordAt(W, H, state2.data.get(), i - 1), bitlen(N, E, i), bitlen(N, E, i - 1));
-          }
-        }
-        */
         
         bool ok = validate(N, gpu, queue, modSqLoop, modMul);      
         doLog(E, k, timer.deltaMillis() / float(k - blockStartK + 1000), residue(compact.data), ok, nErrors);
