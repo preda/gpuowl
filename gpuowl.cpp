@@ -152,7 +152,6 @@ ulong2 U2(ulong x, ulong y) { return ulong2{x, y}; }
 uint lo(ulong a) { return a & 0xffffffffu; }
 uint up(ulong a) { return a >> 32; }
 
-#define NO_ASM
 #define FGT_31 1
 #define T uint
 #define T2 uint2
@@ -172,7 +171,6 @@ uint up(ulong a) { return a >> 32; }
 #undef T2
 #undef T
 #undef FGT_61
-#undef NO_ASM
 
 // power: a^k
 template<typename T2>
@@ -836,10 +834,12 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   float bitsPerWord = E / (float) N;
   if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }
-  bool lowBits = bitsPerWord < 13;
-  if (lowBits && !args.useLegacy) { log("Note: low word size of %.2f bits forces use of legacy kernels\n", bitsPerWord); }
   
-  if (args.useLegacy || lowBits) {
+  bool useLongCarry = (args.fftKind != Args::DP) || (bitsPerWord < 13);
+  
+  if (useLongCarry && !args.useLegacy) { log("Note: using long carry kernels\n"); }
+  
+  if (args.useLegacy || useLongCarry) {
     // coreKerns = tailKerns + headKerns
     coreKerns = { fftW.get(), carryA.get(), carryB.get(), fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()};
   }

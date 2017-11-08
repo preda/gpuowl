@@ -17,11 +17,8 @@ uint2 wideMul(uint a, uint b) {
 #define MBITS 61
 
 ulong mad64(uint a, uint b, ulong c) {
-#ifdef NO_ASM
-  // The compiler should be able to generate V_MAD_U64_U32 by itself...
-  return ((ulong) a) * b + c;
-#else
-  // but we have to coerce it.
+#ifdef ASM
+  // force V_MAD_U64_U32.
   ulong result;
   __asm("v_mad_u64_u32 %0, vcc, %1, %2, %3\n"
         : "=v"(result)
@@ -29,22 +26,24 @@ ulong mad64(uint a, uint b, ulong c) {
         : "vcc"
       );
   return result;
-#endif // NO_ASM
+#else
+  // The compiler should be able to generate V_MAD_U64_U32 by itself...
+  return ((ulong) a) * b + c;
+#endif
 }
 
 ulong mul64(uint a, uint b) {
-#ifdef NO_ASM
-  // Again, the compiler could generate a V_MAD_U64_U32 by itself...
-  return ((ulong) a) * b;
-#else
+#ifdef ASM
   ulong result;
   __asm("v_mad_u64_u32 %0, vcc, %1, %2, 0\n"
         : "=v"(result)
         : "v"(a), "v"(b)
         : "vcc"
       );
-  return result;
-#endif // NO_ASM
+  return result;  
+#else
+  return ((ulong) a) * b;
+#endif
 }
 
 ulong2 wideMul(ulong ab, ulong cd) {
