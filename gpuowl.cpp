@@ -19,6 +19,8 @@
 #include <string>
 #include <vector>
 
+#include <signal.h>
+
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
@@ -32,6 +34,15 @@
 
 #define VERSION "1.8-" REV
 #define PROGRAM "gpuowl"
+
+static volatile int stopRequested = 0;
+
+void (*oldHandler)(int) = 0;
+
+void myHandler(int dummy) {
+  stopRequested = 1;
+  // signal(SIGINT, oldHandler);
+}
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
@@ -557,7 +568,12 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
   const bool balanced = (args.fftKind == Args::DP) || (args.fftKind == Args::SP);
   
   while (true) {
-    if ((k % checkStep == 0) || (k >= kEnd)) {
+    if (stopRequested) {
+      log("\nStopping, please wait..\n");
+      signal(SIGINT, oldHandler);
+    }
+
+    if ((k % checkStep == 0) || (k >= kEnd) || stopRequested) {
       {
         State state = gpu.read();
         CompactState compact(state, W, H, E);
@@ -575,6 +591,8 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
             goodState = std::move(state);
             goodK = k;
           }
+
+          if (stopRequested) { return false; }
         } else {        
           assert(k); // A rollback from start (k == 0) means bug or wrong FFT size, so we can't continue.
           ++nErrors;
@@ -883,6 +901,8 @@ int main(int argc, char **argv) {
   
   log("gpuOwL v" VERSION " GPU Mersenne primality checker\n");
 
+  oldHandler = signal(SIGINT, myHandler);
+  
   Args args;
   
   if (!args.parse(argc, argv)) { return -1; }
