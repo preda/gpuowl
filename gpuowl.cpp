@@ -25,8 +25,11 @@
 
 #define TAU (2 * M_PIl)
 
-#define STR(s) XSTR(s)
-#define XSTR(s) #s
+// The git revision should be passed through -D on the compiler command line (see Makefile).
+#ifndef REV
+#define REV
+#endif
+
 #define VERSION "1.8-" REV
 #define PROGRAM "gpuowl"
 
@@ -396,14 +399,15 @@ string hexStr(u64 res) {
 std::string timeStr() {
   time_t t = time(NULL);
   char buf[64];
-  strftime(buf, sizeof(buf), "%F %T", gmtime(&t));
+  // equivalent to: "%F %T"
+  strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", gmtime(&t));
   return buf;
 }
 
 std::string localTimeStr() {
   time_t t = time(NULL);
   char buf[64];
-  strftime(buf, sizeof(buf), "%F %T %Z", localtime(&t));
+  strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", localtime(&t));
   return buf;
 }
 
