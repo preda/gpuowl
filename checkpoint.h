@@ -13,7 +13,7 @@ using std::string;
 class Checkpoint {
 private:
   struct HeaderV3 {
-    // <exponent> <iteration> <nErrors> <check-step>\n
+    // <exponent> <iteration> <nErrors> <check-step>
     static constexpr const char *HEADER = "OWL 3 %d %d %d %d\n";
 
     int E, k, nErrors, checkStep;
@@ -23,7 +23,7 @@ private:
   };
 
   struct HeaderV2 {
-    // <exponent> <iteration> <nErrors>\n
+    // <exponent> <iteration> <nErrors>
     static constexpr const char *HEADER = "OWL 2 %d %d %d\n";
 
     int E, k, nErrors;
@@ -33,7 +33,7 @@ private:
   };
 
   struct HeaderV1 {
-    // <exponent> <iteration> <width> <height> <sum> <nErrors>\n
+    // <exponent> <iteration> <width> <height> <sum> <nErrors>
     static constexpr const char *HEADER = "OWL 1 %d %d %d %d %d %d\n";
     
     int E, k, W, H, sum, nErrors;
@@ -48,11 +48,11 @@ private:
     return fread(&vect[0], n * sizeof(vect[0]), 1, fi);
   }
   
-  static bool write(const string &name, const CompactState &compact, int k, int nErrors) {
+  static bool write(const string &name, const CompactState &compact, int k, int nErrors, int checkStep) {
     int E = compact.E;
     int nWords = (E - 1) / 32 + 1;
-    assert(int(compact.data.size()) == nWords && int(compact.check.size()) == nWords);    
-    HeaderV3 header{E, k, nErrors, 500};
+    assert(int(compact.data.size()) == nWords && int(compact.check.size()) == nWords);
+    HeaderV3 header{E, k, nErrors, checkStep};
     auto fo(open(name, "wb"));
     return fo
       && header.write(fo.get())
@@ -130,14 +130,14 @@ public:
     return false;
   }
   
-  static void save(const CompactState &compact, int k, int nErrors) {
+  static void save(const CompactState &compact, int k, int nErrors, int checkStep) {
     int E = compact.E;
     string saveFile = fileName(E);
     string strE = std::to_string(E);
     string tempFile = strE + "-temp.owl";
     string prevFile = strE + "-prev.owl";
     
-    if (write(tempFile, compact, k, nErrors)) {      
+    if (write(tempFile, compact, k, nErrors, checkStep)) {
       remove(prevFile.c_str());
       rename(saveFile.c_str(), prevFile.c_str());
       rename(tempFile.c_str(), saveFile.c_str());
@@ -145,7 +145,7 @@ public:
     const int saveStep = 10'000'000;
     if (k && (k % saveStep == 0)) {
       string persistFile = strE + "." + std::to_string(k) + ".owl";
-      write(persistFile, compact, k, nErrors);
+      write(persistFile, compact, k, nErrors, checkStep);
     }
   }
 };

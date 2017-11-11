@@ -586,7 +586,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
           if (k >= kEnd) { return true; }
 
           if (k) {
-            Checkpoint::save(compact, k, nErrors);
+            Checkpoint::save(compact, k, nErrors, blockSize);
             goodState = std::move(state);
             goodK = k;
           }
