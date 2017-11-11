@@ -422,19 +422,30 @@ std::string localTimeStr() {
   return buf;
 }
 
-void doLog(int E, int k, float msPerIter, u64 res, bool checkOK, int nErrors) {
-  int end = ((E - 1) / 1000 + 1) * 1000;
-  const float percent = 100 / float(end);
-  int etaMins = (end - k) * msPerIter * (1 / (float) 60000) + .5f;
-  int days  = etaMins / (24 * 60);
-  int hours = etaMins / 60 % 24;
-  int mins  = etaMins % 60;
+void doLog(int E, int k, long timeTest, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors) {
+  assert(nIt || !timeTest);
 
   std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
-  
-  log("%s %8d / %d [%5.2f%%], %.2f ms/it, ETA %dd %02d:%02d; %s [%s]%s\n",
-      checkOK ? "OK" : "EE", k, E, k * percent, msPerIter, days, hours, mins,
-      hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
+  int end = ((E - 1) / 1000 + 1) * 1000;
+  float percent = 100 / float(end);
+
+  if (nIt) {
+    float msPerIt = timeTest / float(nIt);
+    int etaMins = (end - k) * msPerIt * (1 / 60000.f) + .5f;
+    int days  = etaMins / (24 * 60);
+    int hours = etaMins / 60 % 24;
+    int mins  = etaMins % 60;
+    
+    log("%s %8d / %d [%5.2f%%], %.2f ms/it (+ %.2f ms/it check), ETA %dd %02d:%02d; %s [%s]%s\n",
+        checkOK ? "OK" : "EE", k, E, k * percent,
+        timeTest / float(nIt), timeCheck / float(nIt),
+        days, hours, mins,
+        hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
+  } else {
+    log("%s %8d / %d [%5.2f%%], check %.2f s; %s [%s]%s\n",
+        checkOK ? "OK" : "EE", k, E, k * percent, timeCheck / float(1000),
+        hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
+  }
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
@@ -558,10 +569,11 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
   int blockStartK = k;
   int checkStep = 1; // request an initial check at start.
 
-  Timer timer;
-
   // The floating-point transforms use "balanced" words, while the NTT transforms don't.
   const bool balanced = (args.fftKind == Args::DP) || (args.fftKind == Args::SP);
+  
+  Timer timer;
+  long timeTest = 0;
   
   while (true) {
     if (stopRequested) {
@@ -579,9 +591,10 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
         modMul(queue, gpu.bufData, gpu.bufCheck);
         modSqLoop(queue, gpu.bufCheck, blockSize, true);
         bool ok = gpu.read().equalCheck();
-
-        doLog(E, k, timer.deltaMillis() / float(k - blockStartK + blockSize), residue(compact.data), ok, nErrors);
-      
+        doLog(E, k, timeTest, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors);
+        timeTest = 0;
+        // timer.deltaMillis() / float(k - blockStartK + blockSize)
+        
         if (ok) {
           if (k >= kEnd) { return true; }
 
@@ -607,7 +620,6 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
     
     assert(k % blockSize == 0);
 
-    Timer smallTimer;
     modMul(queue, gpu.bufCheck, gpu.bufData);
     modSqLoop(queue, gpu.bufData, std::min(blockSize, kEnd - k), false);
     
@@ -631,8 +643,9 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
 
     finish(queue);
     k += blockSize;
-    fprintf(stderr, " %5d / %d, %.2f ms/it           \r",
-            (k - 1) % checkStep + 1, checkStep, smallTimer.deltaMillis() / float(blockSize));
+    auto delta = timer.deltaMillis();
+    timeTest += delta;
+    fprintf(stderr, " %5d / %d, %.2f ms/it    \r", (k - 1) % checkStep + 1, checkStep, delta / float(blockSize));
   }
 }
 
