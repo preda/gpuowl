@@ -12,8 +12,18 @@ using std::string;
 
 class Checkpoint {
 private:
+  struct HeaderV3 {
+    // <exponent> <iteration> <nErrors> <check-step>\n
+    static constexpr const char *HEADER = "OWL 3 %d %d %d %d\n";
+
+    int E, k, nErrors, checkStep;
+
+    bool read(const char *line) { return sscanf(line, HEADER, &E, &k, &nErrors, &checkStep) == 4; }
+    bool write(FILE *fo) { return (fprintf(fo, HEADER, E, k, nErrors, checkStep) > 0); }
+  };
+
   struct HeaderV2 {
-    // OWL 2 <exponent> <iteration> <nErrors>\n
+    // <exponent> <iteration> <nErrors>\n
     static constexpr const char *HEADER = "OWL 2 %d %d %d\n";
 
     int E, k, nErrors;
@@ -23,7 +33,7 @@ private:
   };
 
   struct HeaderV1 {
-    // OWL 1 <exponent> <iteration> <width> <height> <sum> <nErrors>\n
+    // <exponent> <iteration> <width> <height> <sum> <nErrors>\n
     static constexpr const char *HEADER = "OWL 1 %d %d %d %d %d %d\n";
     
     int E, k, W, H, sum, nErrors;
@@ -42,7 +52,7 @@ private:
     int E = compact.E;
     int nWords = (E - 1) / 32 + 1;
     assert(int(compact.data.size()) == nWords && int(compact.check.size()) == nWords);    
-    HeaderV2 header{E, k, nErrors};
+    HeaderV3 header{E, k, nErrors, 500};
     auto fo(open(name, "wb"));
     return fo
       && header.write(fo.get())
@@ -54,9 +64,11 @@ private:
   
 public:
   
-  static bool load(int E, int W, int H, State *state, int *k, int *nErrors) {
+  static bool load(int E, int W, int H, State *state, int *k, int *nErrors, int *checkStep) {
     *k = 0;
     *nErrors = 0;
+    *checkStep = 500;
+    
     auto fi{open(fileName(E), "rb", false)};
     if (!fi) {
       state->reset();
@@ -70,16 +82,22 @@ public:
     assert(state->N == N);
 
     {
-      HeaderV1 header;
+      HeaderV3 header;
       if (header.read(line)) {
-        if (header.E != E || header.W != W || header.H != H) { return false; }
+        if (header.E != E) { return false; }
+        {
+          int nWords = (E - 1) / 32 + 1;
+          std::vector<u32> data, check;
+          if (!read(fi.get(), nWords, data) || !read(fi.get(), nWords, check)) { return false; }
+          CompactState(E, std::move(data), std::move(check)).expandTo(state, true, W, H, E);
+        }
         *k = header.k;
         *nErrors = header.nErrors;
-        int dataSize = sizeof(int) * N;
-        return fread(state->data.get(), dataSize, 1, fi.get()) && fread(state->check.get(), dataSize, 1, fi.get());
+        *checkStep = header.checkStep;
+        return true;
       }
     }
-
+    
     {
       HeaderV2 header;
       if (header.read(line)) {
@@ -92,10 +110,23 @@ public:
         }
         *k = header.k;
         *nErrors = header.nErrors;
+        *checkStep = 1000;
         return true;
       }
     }
-
+    
+    {
+      HeaderV1 header;
+      if (header.read(line)) {
+        if (header.E != E || header.W != W || header.H != H) { return false; }
+        *k = header.k;
+        *nErrors = header.nErrors;
+        *checkStep = 1000;
+        int dataSize = sizeof(int) * N;
+        return fread(state->data.get(), dataSize, 1, fi.get()) && fread(state->check.get(), dataSize, 1, fi.get());
+      }
+    }
+    
     return false;
   }
   

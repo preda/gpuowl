@@ -32,7 +32,7 @@
 #define REV
 #endif
 
-#define VERSION "1.8-" REV
+#define VERSION "1.9-" REV
 #define PROGRAM "gpuowl"
 
 static volatile int stopRequested = 0;
@@ -480,11 +480,11 @@ void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
 
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }
 
-int autoStep(int nIters, int nErrors) {
+int autoStep(int nIters, int nErrors, int blockSize) {
   int x = nIters / (100 + nErrors * 1000);
-  int steps[] = {2, 5, 10, 20, 50, 100, 200, 500};
+  int steps[] = {1, 2, 5, 10, 20, 50, 100, 200, 500};
   for (int i = 0; i < size(steps) - 1; ++i) {
-    if (x < steps[i] * steps[i + 1]) { return steps[i] * 1000; }
+    if (x < steps[i] * steps[i + 1]) { return std::max(steps[i] * 1000, blockSize * 2); }
   }
   return steps[size(steps) - 1] * 1000;
 }
@@ -529,12 +529,6 @@ struct GpuState {
   }
 };
 
-bool validate(int N, GpuState &gpu, cl_queue q, auto modSqLoop, auto modMul) {
-  modMul(q, gpu.bufData, gpu.bufCheck);
-  modSqLoop(q, gpu.bufCheck, 1000, true);
-  return gpu.read().equalCheck();
-}
-
 bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
                 bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul) {
   const int N = 2 * W * H;
@@ -542,21 +536,23 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
 
   int nErrors = 0;
   int k = 0;
-  GpuState gpu(N, context, queue);
+  int blockSize = 0;
   State goodState(N);
   
-  if (!Checkpoint::load(E, W, H, &goodState, &k, &nErrors)) { return false; }
-  log("At iteration %d\n", k);
+  if (!Checkpoint::load(E, W, H, &goodState, &k, &nErrors, &blockSize)) { return false; }
+  log("Starting at iteration %d\n", k);
+  
+  GpuState gpu(N, context, queue);
   gpu.writeWait(goodState);
   goodState.reset();
   
   int goodK = 0;
   
   const int kEnd = E;
-  assert(k % 1000 == 0 && k < kEnd);
+  assert(k % blockSize == 0 && k < kEnd);
   
-  auto getCheckStep = [forceStep = args.step, startK = k, startErrors = nErrors](int currentK, int currentErrors) {
-    return forceStep ? forceStep : autoStep(currentK - startK, currentErrors - startErrors);
+  auto getCheckStep = [forceStep = args.step, startK = k, startErrors = nErrors, blockSize](int currentK, int currentErrors) {
+    return forceStep ? forceStep : autoStep(currentK - startK, currentErrors - startErrors, blockSize);
   };
   
   int blockStartK = k;
@@ -580,8 +576,11 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
         compact.expandTo(&state, balanced, W, H, E);
         gpu.writeNoWait(state);
         
-        bool ok = validate(N, gpu, queue, modSqLoop, modMul);      
-        doLog(E, k, timer.deltaMillis() / float(k - blockStartK + 1000), residue(compact.data), ok, nErrors);
+        modMul(queue, gpu.bufData, gpu.bufCheck);
+        modSqLoop(queue, gpu.bufCheck, blockSize, true);
+        bool ok = gpu.read().equalCheck();
+
+        doLog(E, k, timer.deltaMillis() / float(k - blockStartK + blockSize), residue(compact.data), ok, nErrors);
       
         if (ok) {
           if (k >= kEnd) { return true; }
@@ -591,27 +590,28 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
             goodState = std::move(state);
             goodK = k;
           }
-
-          if (stopRequested) { return false; }
         } else {        
           assert(k); // A rollback from start (k == 0) means bug or wrong FFT size, so we can't continue.
           ++nErrors;
           k = goodK;
         }
       }
+      
+      if (stopRequested) { return false; }
+      
       gpu.writeNoWait(goodState);
       blockStartK = k;
       checkStep = getCheckStep(k, nErrors);
-      assert(checkStep % 1000 == 0);
+      assert(checkStep % blockSize == 0);
     }
     
-    assert(k % 1000 == 0);
+    assert(k % blockSize == 0);
 
     Timer smallTimer;
     modMul(queue, gpu.bufCheck, gpu.bufData);
-    modSqLoop(queue, gpu.bufData, std::min(1000, kEnd - k), false);
+    modSqLoop(queue, gpu.bufData, std::min(blockSize, kEnd - k), false);
     
-    if (kEnd - k <= 1000) {
+    if (kEnd - k <= blockSize) {
       State state = gpu.read();
       gpu.writeNoWait(state);      
       std::vector<u32> words = CompactState(state, W, H, E).data;
@@ -624,15 +624,15 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
       *outIsPrime = isPrime;
       *outResidue = resDiv;
       *outNErrors = nErrors;
-      int left = 1000 - (kEnd - k);
+      int left = blockSize - (kEnd - k);
       assert(left > 0);
       modSqLoop(queue, gpu.bufData, left, false);
     }
 
     finish(queue);
-    k += 1000;
+    k += blockSize;
     fprintf(stderr, " %5d / %d, %.2f ms/it           \r",
-            (k - 1) % checkStep + 1, checkStep, smallTimer.deltaMillis() / 1000.f);
+            (k - 1) % checkStep + 1, checkStep, smallTimer.deltaMillis() / float(blockSize));
   }
 }
 
