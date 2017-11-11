@@ -428,24 +428,21 @@ void doLog(int E, int k, long timeTest, long timeCheck, int nIt, u64 res, bool c
   std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
-
+  int days = 0, hours = 0, mins = 0;
+  float msPerIt = 0;
+  
   if (nIt) {
-    float msPerIt = timeTest / float(nIt);
+    msPerIt = timeTest / float(nIt);
     int etaMins = (end - k) * msPerIt * (1 / 60000.f) + .5f;
-    int days  = etaMins / (24 * 60);
-    int hours = etaMins / 60 % 24;
-    int mins  = etaMins % 60;
-    
-    log("%s %8d / %d [%5.2f%%], %.2f ms/it (+ %.2f ms/it check), ETA %dd %02d:%02d; %s [%s]%s\n",
-        checkOK ? "OK" : "EE", k, E, k * percent,
-        timeTest / float(nIt), timeCheck / float(nIt),
-        days, hours, mins,
-        hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
-  } else {
-    log("%s %8d / %d [%5.2f%%], check %.2f s; %s [%s]%s\n",
-        checkOK ? "OK" : "EE", k, E, k * percent, timeCheck / float(1000),
-        hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
+    days  = etaMins / (24 * 60);
+    hours = etaMins / 60 % 24;
+    mins  = etaMins % 60;
   }
+    
+  log("%s %8d / %d [%5.2f%%], %.2f ms/it + check %.2f s; ETA %dd %02d:%02d; %s [%s]%s\n",
+      checkOK ? "OK" : "EE", k, E, k * percent, msPerIt, timeCheck / float(1000),
+      days, hours, mins,
+      hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
@@ -591,18 +588,18 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
         modMul(queue, gpu.bufData, gpu.bufCheck);
         modSqLoop(queue, gpu.bufCheck, blockSize, true);
         bool ok = gpu.read().equalCheck();
+
+        if (ok && k && k < kEnd) {
+          Checkpoint::save(compact, k, nErrors, blockSize);
+          goodState = std::move(state);
+          goodK = k;
+        }
+        
         doLog(E, k, timeTest, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors);
         timeTest = 0;
-        // timer.deltaMillis() / float(k - blockStartK + blockSize)
         
         if (ok) {
           if (k >= kEnd) { return true; }
-
-          if (k) {
-            Checkpoint::save(compact, k, nErrors, blockSize);
-            goodState = std::move(state);
-            goodK = k;
-          }
         } else {        
           assert(k); // A rollback from start (k == 0) means bug or wrong FFT size, so we can't continue.
           ++nErrors;
