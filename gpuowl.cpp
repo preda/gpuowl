@@ -381,27 +381,6 @@ void log(const char *fmt, ...) {
   }
 }
 
-u32 crc32(const void *data, size_t size) {
-  u32 tab[16] = {
-    0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC,
-    0x76DC4190, 0x6B6B51F4, 0x4DB26158, 0x5005713C,
-    0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C,
-    0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C,
-  };
-  u32 crc = ~0;
-  for (auto *p = (const unsigned char *) data, *end = p + size; p < end; ++p) {
-    crc = tab[(crc ^  *p      ) & 0xf] ^ (crc >> 4);
-    crc = tab[(crc ^ (*p >> 4)) & 0xf] ^ (crc >> 4);
-  }
-  return ~crc;
-}
-
-u32 checksum(int E, int k, u64 res) {
-  char buf[64];
-  snprintf(buf, sizeof(buf), "P3-%d-%d-%016llx", E, k, res);
-  return crc32(buf, strlen(buf));
-} 
-
 string hexStr(u64 res) {
   char buf[64];
   snprintf(buf, sizeof(buf), "%016llx", res);
@@ -464,7 +443,6 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
            R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "residue-type":1, "fft-length":"%dK", "res64":"%s", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
            E, isPrime ? 'P' : 'C', fftSize / 1024, hexStr(res).c_str(), PROGRAM, VERSION, timeStr().c_str(),
            errors.c_str(), uid.c_str(), aidJson.c_str());
-  // "residue-checksum":"%08x", 
   
   log("%s\n", buf);
   if (auto fo = open("results.txt", "a")) {
