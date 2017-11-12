@@ -19,9 +19,10 @@ struct Args {
   string fftKindStr;
   int device;
   bool timeKernels, useLegacy, debug;
+  int verbosity;
   
 Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
-    device(-1), timeKernels(false), useLegacy(false), debug(false) { }
+    device(-1), timeKernels(false), useLegacy(false), debug(false), verbosity(0) { }
   
   // return false to stop.
   bool parse(int argc, char **argv) {
@@ -39,6 +40,7 @@ Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
           "-cpu  <name>  : specify the hardware name.\n"  
           "-legacy       : use legacy kernels\n"
           "-dump <path>  : dump compiled ISA to the folder <path> that must exist.\n"
+          "-verbosity <level> : change amount of information logged. [0-2, default 0].\n"
           "-device <N>   : select specific device among:\n");
       
       cl_device_id devices[16];
@@ -48,6 +50,13 @@ Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
         log("    %d : %s\n", i, info.c_str());
       }      
       return false;
+    } else if (!strcmp(arg, "-verbosity")) {
+      if (i < argc - 1) {
+        verbosity = atoi(argv[++i]);        
+      } else {
+        log("-verbosity expects <level>\n");
+        return false;
+      }
     } else if (!strcmp(arg, "-dump")) {
       if (i < argc - 1 && argv[i + 1][0] != '-') {
         dump = argv[++i];
