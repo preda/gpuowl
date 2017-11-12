@@ -444,8 +444,8 @@ void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool c
         days, hours, mins,
         hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());    
   } else {
-    log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f] SD %.3f, check %.2fs; ETA %dd %02d:%02d; %s [%s]%s\n",
-        checkOK ? "OK" : "EE", k, E, k * percent, msPerIt, stats.min, stats.max, stats.sd(),
+    log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f] CV %.1f%%, check %.2fs; ETA %dd %02d:%02d; %s [%s]%s\n",
+        checkOK ? "OK" : "EE", k, E, k * percent, msPerIt, stats.min, stats.max, stats.sd() / msPerIt * 100,
         timeCheck / float(1000),
         days, hours, mins,
         hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
