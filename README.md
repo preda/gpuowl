@@ -1,41 +1,40 @@
-# gpuOwL
-gpuOwL is a Mersenne prime tester for GPUs (OpenCL).
-See the GIMPS project for context: http://mersenne.org/
+# GpuOwL
+GpuOwL is a Mersenne prime tester for GPUs. See the GIMPS project for context: http://mersenne.org/
 
-## History
-gpuOwl initially implemented the Lucas-Lehmer (LL) primality test, which is a rigurous prime criteria for
-mersenne numbers. In version 0.7 gpuOwl switched to using a probable-prime test (PRP).
-While the PRP test is "weaker" than the LL test, it has the advantage that there is a simple side-computation
-which validates the main computation and thus protects from hardware errors.
+GpuOwl is implemented in OpenCL. It is most tested on AMD GPUs.
+
+
+## PRP: PRobable Prime test
+GpuOwl implements a base-3 PRP (probable prime) test. The reason for choosing PRP vs. LL (Lucas Lehmer) is the
+availability of a great error checking algoritm for the PRP, which enables very reliable computation on GPUs
+regardless of common hardware problems present on GPUs during long computation.
+
 
 ## Files used by gpuOwl
-* worktodo.txt : contains exponents to test "Test=N", one per line
+* worktodo.txt : contains exponents to test, one entry per line
 * results.txt : contains the results
 * N.owl : the most recent checkpoint for exponent <N>; will resume from here
 * N-prev.owl : the previous checkpoint, to be used if N.ll is lost or corrupted
 * N.iteration.owl : a persistent checkpoint at the given iteration
 
+
+## worktodo.txt
 The lines in worktodo.txt must be of one of these forms:
-* Test=70100200
+* 70100200
+* PRP=FCECE568118E4626AB85ED36A9CC8D4F,1,2,77936867,-1,75,0
+
+The first form indicates just the exponent to test, while the form starting with PRP indicates both the
+exponent and the assignment ID (AID) from PrimeNet.
+
+GpuOwl also accepts the LL-test format lines from PrimeNet, but support for these may be removed in the future:
 * Test=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1
 * DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1
-* Test=0,70100200,0,0
 
-## Selftest
-To test the correct function of the software and to validate the GPU, run a selftest:
-```
-gpuowl -selftest
-```
-
-## Select logging step
-To obtain more frequent output, set a lower logging step than the default 20000
-```
-gpuowl -logstep 5000
-```
 
 ## Usage
-* Get exponents for testing from GIPMS Manual Testing ( http://mersenne.org/ ). gpuOwL best handles exponents 70M - 77M.
-* Copy the lines from GIMPS to a file named 'worktodo.txt'
+* Make sure that the gpuowl.cl file is in the same folder as the executable
+* Get "PRP smallest available first time tests" assignments from GIPMS Manual Testing ( http://mersenne.org/ ). GpuOwL best handles exponents 70M - 78M.
+* Copy the assignment lines from GIMPS to a file named 'worktodo.txt'
 * Run gpuowl. It prints progress report on stdout and in gpuowl.log, and writes result lines to results.txt
 * Submit the result lines from results.txt to http://mersenne.org/ manual testing.
 
@@ -44,24 +43,44 @@ gpuowl -logstep 5000
 To build simply invoke "make" (or look inside the Makefile for a manual build).
 
 * a C++ compiler (e.g. gcc, clang)
-* an OpenCL implementation (which provides the **libOpenCL** library), e.g. AMDGPU-Pro
-* lib GMP (GNU MP)
+* an OpenCL implementation (which provides the **libOpenCL** library). Recommended: an AMD GPU with ROCm 1.7.
 
-## gpuowl -help outputs:
+
+## See \"gpuowl -h\" for up-to-date information on the command line options:
 
 ```
-gpuOwL v0.6 GPU Lucas-Lehmer primality checker; Mon Aug 21 23:47:40 2017
+gpuOwL v1.9-e3055e1-mod GPU Mersenne primality checker
 Command line options:
--logstep  <N>     : to log every <N> iterations (default 20000)
--savestep <N>     : to persist checkpoint every <N> iterations (default 500*logstep == 10000000)
--checkstep <N>    : do Jacobi-symbol check every <N> iterations (default 50*logstep == 1000000)
--uid user/machine : set UID: string to be prepended to the result line
--cl "<OpenCL compiler options>", e.g. -cl "-save-temps=tmp/ -O2"
--selftest         : perform self tests from 'selftest.txt'
-                    Self-test mode does not load/save checkpoints, worktodo.txt or results.txt.
--time kernels     : to benchmark kernels (logstep must be > 1)
--legacy           : use legacy kernels
 
--device <N>       : select specific device among:
-    0 : 64x1630MHz gfx900; OpenCL 1.2
+-size 2M|4M|8M : override FFT size.
+-fft DP|SP|M61|M31  : choose FFT variant [default DP]:
+                DP  : double precision floating point.
+                SP  : single precision floating point.
+                M61 : Fast Galois Transform (FGT) modulo M(61).
+                M31 : FGT modulo M(31).
+-user <name>  : specify the user name.
+-cpu  <name>  : specify the hardware name.
+-legacy       : use legacy kernels
+-dump <path>  : dump compiled ISA to the folder <path> that must exist.
+-verbosity <level> : change amount of information logged. [0-2, default 0].
+-device <N>   : select specific device among:
+    0 : Vega [Radeon RX Vega] 64 @83:0.0, gfx900 1630MHz
 ```
+
+
+## FFT size
+GpuOwl internally does repeated multiplication of very large numbers (tens of millions of bits large). The multiplication
+is done through a convolution, wich is done through using a pair of FFT and inverse-FFT transforms. Right now GpuOwl only
+supports FFT transforms of power-of-two sizes 2M (i.e. 2M == 2^21), 4M, 8M. The size of the FFT is linked to exponent magnitude.
+For exponents up to ~78M (but not too small), an FFT size of 4M is adequate. For larger exponents a larger FFT is needed (8M).
+
+
+## Legacy kernels
+GpuOwl allows selection of a different set of kernels, called the "legacy kernels", then the default. These are likely to be a bit
+slower, but use a bit less GPU resources.
+
+
+## Self-test
+Right now there is no explicit self-testing in GpuOwl. Simply start GpuOwl with any valid exponent, and the built-in error
+checking kicks in, implicitly validating the computation. If you start seeing output lines with "OK", than it's working correctly.
+"EE" lines OTOH indicate computation errors, which are automatically retried.
