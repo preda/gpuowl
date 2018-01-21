@@ -50,7 +50,7 @@ int worktodoReadExponent(char *AID) {
 }
 
 bool worktodoGetLinePos(int E, int *begin, int *end) {
-  auto fi{open("worktodo.txt", "r")};
+  auto fi{open("worktodo.txt", "rb")};
   if (!fi) { return false; }
 
   i64 p1 = 0;
@@ -74,7 +74,7 @@ bool worktodoDelete(int begin, int end) {
   int n = 0;
   char buf[64 * 1024];
 
-  if (auto fi = open("worktodo.txt", "r")) {
+  if (auto fi = open("worktodo.txt", "rb")) {
     n = fread(buf, 1, sizeof(buf), fi.get());    
   } else {
     return true;
@@ -83,7 +83,7 @@ bool worktodoDelete(int begin, int end) {
   if (n == sizeof(buf) || end > n) { return false; }
   memmove(buf + begin, buf + end, n - end);
 
-  if (auto fo{open("worktodo-tmp.tmp", "w")}) {
+  if (auto fo{open("worktodo-tmp.tmp", "wb")}) {
     int newSize = begin + n - end;
     if (newSize && (fwrite(buf, newSize, 1, fo.get()) != 1)) { return false; }    
   } else {

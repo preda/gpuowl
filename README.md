@@ -46,7 +46,7 @@ To build simply invoke "make" (or look inside the Makefile for a manual build).
 * an OpenCL implementation (which provides the **libOpenCL** library). Recommended: an AMD GPU with ROCm 1.7.
 
 
-## See \"gpuowl -h\" for up-to-date information on the command line options:
+## See \"gpuowl -h\" for the command line options:
 
 ```
 gpuOwL v1.9-e3055e1-mod GPU Mersenne primality checker
