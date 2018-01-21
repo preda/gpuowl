@@ -398,12 +398,15 @@ std::string timeStr() {
   return buf;
 }
 
-std::string localTimeStr() {
+std::string timeStr(const std::string &format) {
   time_t t = time(NULL);
   char buf[64];
-  strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", localtime(&t));
+  strftime(buf, sizeof(buf), format.c_str(), localtime(&t));
   return buf;
 }
+
+std::string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
+std::string shortTimeStr() { return timeStr("%H:%M:%S"); }
 
 void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats) {
   std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
@@ -424,13 +427,13 @@ void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool c
     log("%s %8d / %d [%5.2f%%], %.2f ms/it; ETA %dd %02d:%02d; %s [%s]%s\n",
         checkOK ? "OK" : "EE", k, E, k * percent, msPerIt,
         days, hours, mins,
-        hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());    
+        hexStr(res).c_str(), shortTimeStr().c_str(), errors.c_str());    
   } else {
     log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f] CV %.1f%%, check %.2fs; ETA %dd %02d:%02d; %s [%s]%s\n",
         checkOK ? "OK" : "EE", k, E, k * percent, msPerIt, stats.min, stats.max, stats.sd() / msPerIt * 100,
         timeCheck / float(1000),
         days, hours, mins,
-        hexStr(res).c_str(), localTimeStr().c_str(), errors.c_str());
+        hexStr(res).c_str(), shortTimeStr().c_str(), errors.c_str());
   }
 }
 
@@ -528,7 +531,7 @@ struct GpuState {
 bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
                 bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul) {
   const int N = 2 * W * H;
-  log("PRP-3: FFT %dM (%d * %d * 2) of %d (%.2f bits/word)\n", N / (1024 * 1024), W, H, E, E / float(N));
+  log("PRP-3: FFT %dM (%d * %d * 2) of %d (%.2f bits/word) [%s]\n", N / (1024 * 1024), W, H, E, E / float(N), longTimeStr().c_str());
 
   int nErrors = 0;
   int k = 0;
