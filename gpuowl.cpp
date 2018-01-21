@@ -365,7 +365,7 @@ std::vector<std::unique_ptr<FILE>> logFiles;
 void initLog() {
   logFiles.push_back(std::unique_ptr<FILE>(stdout));
   if (auto fo = open("gpuowl.log", "a")) {
-#ifdef _DEFAULT_SOURCE
+#if defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
     setlinebuf(fo.get());
 #endif
     logFiles.push_back(std::move(fo));
@@ -378,6 +378,9 @@ void log(const char *fmt, ...) {
     va_start(va, fmt);
     vfprintf(f.get(), fmt, va);
     va_end(va);
+#if !(defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE))
+    fflush(f.get());
+#endif
   }
 }
 
