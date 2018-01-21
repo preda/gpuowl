@@ -49,52 +49,24 @@ int worktodoReadExponent(char *AID) {
   return 0;
 }
 
-bool worktodoGetLinePos(int E, int *begin, int *end) {
-  auto fi{open("worktodo.txt", "rb")};
-  if (!fi) { return false; }
-
-  i64 p1 = 0;
-  while (true) {
-    char line[256];
-    if (!fgets(line, sizeof(line), fi.get())) { return false; }
-    i64 p2 = ftell(fi.get());
-    char AID[64];
-    if (parseLine(line, AID) == E) {      
-      *begin = p1;
-      *end = p2;
-      return true;
-    }
-    p1 = p2;
-  }
-}
-
-bool worktodoDelete(int begin, int end) {
-  assert(begin >= 0 && end > begin);
-
-  int n = 0;
-  char buf[64 * 1024];
-
-  if (auto fi = open("worktodo.txt", "rb")) {
-    n = fread(buf, 1, sizeof(buf), fi.get());    
-  } else {
-    return true;
-  }
-  
-  if (n == sizeof(buf) || end > n) { return false; }
-  memmove(buf + begin, buf + end, n - end);
-
-  if (auto fo{open("worktodo-tmp.tmp", "wb")}) {
-    int newSize = begin + n - end;
-    if (newSize && (fwrite(buf, newSize, 1, fo.get()) != 1)) { return false; }    
-  } else {
-    return false;
-  }
-
-  remove("worktodo.bak");
-  return (rename("worktodo.txt", "worktodo.bak") == 0) && (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
-}
-
 bool worktodoDelete(int E) {
-  int lineBegin, lineEnd;
-  return worktodoGetLinePos(E, &lineBegin, &lineEnd) && worktodoDelete(lineBegin, lineEnd);
+  bool lineDeleted = false;
+
+  {
+    auto fi{open("worktodo.txt", "rb")};
+    auto fo{open("worktodo-tmp.tmp", "wb")};
+    if (!(fi && fo)) { return false; }
+
+    char line[512];
+    char AID[64];
+    while (fgets(line, sizeof(line), fi.get())) {
+      if (!lineDeleted && parseLine(line, AID) == E) {
+        lineDeleted = true;
+      } else {
+        fputs(line, fo.get());
+      }
+    }
+  }
+
+  return lineDeleted && (rename("worktodo.txt", "worktodo.bak") == 0) && (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
 }
