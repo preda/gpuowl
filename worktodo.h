@@ -12,14 +12,20 @@
 const int EXP_MIN = 2000000, EXP_MAX = 155000000;
 
 int parseLine(const char *line, char *outAID) {
-  char kind[32];
-  int exp;
-  if (sscanf(line, "%11[^=]=%32[0-9a-fA-F],%d,%*d,%*d", kind, outAID, &exp) == 3
-      && (!strcmp(kind, "Test") || !strcmp(kind, "DoubleCheck"))) {
+  int exp = 0;
+  outAID[0] = 0;
+  
+  if (false
+      || (sscanf(line, "Test=%32[0-9a-fA-F],%d", outAID, &exp) == 2)
+      || (sscanf(line, "DoubleCheck=%32[0-9a-fA-F],%d", outAID, &exp) == 2)
+      || (sscanf(line, "PRP=%32[0-9a-fA-F],%*d,%*d,%d", outAID, &exp) == 2)
+      || (sscanf(line, "Test=%d", &exp) == 1)
+      || (sscanf(line, "%d", &exp) == 1)) {
     return exp;
   }
+  
   outAID[0] = 0;
-  return (sscanf(line, "Test=%d", &exp) == 1) ? exp : 0;
+  return 0;
 }
 
 int worktodoReadExponent(char *AID) {
