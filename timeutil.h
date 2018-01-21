@@ -11,7 +11,7 @@ class Timer {
   static u64 timeMicros() {
     struct timeval tv;
     gettimeofday(&tv, 0);
-    return tv.tv_sec * 1000000UL + tv.tv_usec;
+    return u64(tv.tv_sec) * 1000000 + tv.tv_usec;
   }
 
  public:

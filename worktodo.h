@@ -60,7 +60,7 @@ bool worktodoDelete(int E) {
     char line[512];
     char AID[64];
     while (fgets(line, sizeof(line), fi.get())) {
-      if (!lineDeleted && parseLine(line, AID) == E) {
+      if (!lineDeleted && (parseLine(line, AID) == E)) {
         lineDeleted = true;
       } else {
         fputs(line, fo.get());
