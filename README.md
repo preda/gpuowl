@@ -76,7 +76,7 @@ For exponents up to ~78M (but not too small), an FFT size of 4M is adequate. For
 
 
 ## Legacy kernels
-GpuOwl allows selection of a different set of kernels, called the "legacy kernels", then the default. These are likely to be a bit
+GpuOwl allows selection of a different set of kernels, called the "legacy kernels", than the default. These are likely to be a bit
 slower, but use a bit less GPU resources.
 
 

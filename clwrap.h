@@ -182,7 +182,7 @@ cl_program compile(cl_device_id device, cl_context context, const string &fileNa
   if (!program) { return program; }
 
   string args = join(" -D", defVect) + " " + extraArgs;
-  bool tryCL20 = true;
+  bool tryCL20 = false;
   if ((tryCL20 && build(program, device, string("-cl-std=CL2.0 ") + args))
       || build(program, device, args)) {
     return program;
