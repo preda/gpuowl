@@ -708,7 +708,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     assert(false);
   }
 
-  std::unique_ptr<Kernel> fftP, fftW, fftH, carryA, carryM, carryB, transposeW, transposeH, square, multiply, tail, carryConv;
+  std::unique_ptr<Kernel> fftP, fftW, fftH, carryA, carryM, carryB, transposeW, transposeH, square, multiply, autoConv, carryConv;
 
   {
     string clArgs = args.clArgs;
@@ -736,7 +736,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     
     LOAD(square,   N, 4);
     LOAD(multiply, N, 4);
-    LOAD(tail,     N, nH * 4);
+    LOAD(autoConv, N, nH * 4);
     
     LOAD(carryConv, N + W * 2, nW * 2);
 #undef LOAD
@@ -811,15 +811,15 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   square->setArgs(buf2, bufBigTrig);
   multiply->setArgs(buf2, buf3, bufBigTrig);
 
-  tail->setArgs(buf2, trigH, bufBigTrig);
+  autoConv->setArgs(buf2, trigH, bufBigTrig);
   carryConv->setArgs(buf1, bufCarry, bufReady, bufA, bufI, trigW);
 
-  // the weighting + direct FFT only, stops before square/mul.
+  // the weighting + direct FFT only, stops before square or mul.
   std::vector<Kernel *> directFftKerns {fftP.get(), transposeW.get(), fftH.get()};
 
   // sequence of: direct FFT, square, first-half of inverse FFT.
   std::vector<Kernel *> headKerns {fftP.get(), transposeW.get(),
-      tail.get(),
+      autoConv.get(),
       // fftH.get(), square.get(), fftH.get(),
       transposeH.get()};
     
@@ -827,7 +827,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   std::vector<Kernel *> tailKerns {fftW.get(), carryA.get(), carryB.get()};
 
   // equivalent to sequence of: tailKerns, headKerns.
-  std::vector<Kernel *> coreKerns {carryConv.get(), transposeW.get(), tail.get(), transposeH.get()};
+  std::vector<Kernel *> coreKerns {carryConv.get(), transposeW.get(), autoConv.get(), transposeH.get()};
 
   float bitsPerWord = E / (float) N;
   if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }

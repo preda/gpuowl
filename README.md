@@ -6,7 +6,7 @@ GpuOwl is implemented in OpenCL. It is most tested on AMD GPUs.
 
 ## PRP: PRobable Prime test
 GpuOwl implements a base-3 PRP (probable prime) test. The reason for choosing PRP vs. LL (Lucas Lehmer) is the
-availability of a great error checking algoritm for the PRP, which enables very reliable computation on GPUs
+availability of a great error checking algorithm for the PRP, which enables very reliable computation on GPUs
 regardless of common hardware problems present on GPUs during long computation.
 
 
@@ -33,7 +33,7 @@ GpuOwl also accepts the LL-test format lines from PrimeNet, but support for thes
 
 ## Usage
 * Make sure that the gpuowl.cl file is in the same folder as the executable
-* Get "PRP smallest available first time tests" assignments from GIPMS Manual Testing ( http://mersenne.org/ ). GpuOwL best handles exponents 70M - 78M.
+* Get "PRP smallest available first time tests" assignments from GIMPS Manual Testing ( http://mersenne.org/ ). GpuOwL best handles exponents 70M - 78M.
 * Copy the assignment lines from GIMPS to a file named 'worktodo.txt'
 * Run gpuowl. It prints progress report on stdout and in gpuowl.log, and writes result lines to results.txt
 * Submit the result lines from results.txt to http://mersenne.org/ manual testing.
