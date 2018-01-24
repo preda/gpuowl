@@ -98,6 +98,7 @@ public:
     name(name)
   {
     assert(N % itemsPerThread == 0);
+    // log("kernel %s: %d args, arg0 %s\n", name.c_str(), getKernelNumArgs(kernel.get()), getKernelArgName(kernel.get(), 0).c_str());
   }
 
   virtual void run(cl_queue q) { ::run(q, kernel.get(), N / itemsPerThread, name); }
@@ -127,6 +128,23 @@ public:
   u64 getTime() { return timeAcc; }
   void resetTime() { timeAcc = 0; }
 };
+
+/*
+class CompoundKernel : public Kernel {
+  std::vector<Kernel> kernels;
+
+public:
+  CompoundKernel(std::vector<Kernel> kernels) :
+    kernels(kernels) {
+  }
+
+  void run(cl_queue q) { for (Kerner k : kernels) { k->run(q); } }
+
+  string getName() { 
+    
+  
+};
+*/
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
 // FGT doesn't use weight vectors.

@@ -19,6 +19,8 @@ typedef unsigned cl_bool;
 typedef unsigned cl_program_build_info;
 typedef unsigned cl_program_info;
 typedef unsigned cl_device_info;
+typedef unsigned cl_kernel_info;
+typedef unsigned cl_kernel_arg_info;
 
 typedef u64 cl_mem_flags;
 typedef u64 cl_device_type;
@@ -59,6 +61,9 @@ int clSetKernelArg(cl_kernel, unsigned, size_t, const void *);
 int clReleaseEvent(cl_event);
 int clWaitForEvents(unsigned numEvents, const cl_event *);
 
+int clGetKernelInfo(cl_kernel, cl_kernel_info, size_t, void *, size_t *);
+int clGetKernelArgInfo(cl_kernel, unsigned, cl_kernel_arg_info, size_t, void *, size_t *);
+  
 }
 
 #define CL_SUCCESS              0
@@ -90,6 +95,9 @@ int clWaitForEvents(unsigned numEvents, const cl_event *);
 
 #define CL_INVALID_COMPILER_OPTIONS -66
 
+
+#define CL_KERNEL_NUM_ARGS        0x1191
+#define CL_KERNEL_ARG_NAME        0x119A
 
 // AMD
 #define CL_DEVICE_TOPOLOGY_AMD    0x4037

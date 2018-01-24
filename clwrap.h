@@ -238,4 +238,20 @@ void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *d
   CHECK(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
 
+int getKernelNumArgs(cl_kernel k) {
+  int nArgs = 0;
+  CHECK(clGetKernelInfo(k, CL_KERNEL_NUM_ARGS, sizeof(nArgs), &nArgs, NULL));
+  return nArgs;
+}
+
+std::string getKernelArgName(cl_kernel k, int pos) {
+  char buf[128];
+  size_t size = 0;
+  CHECK(clGetKernelArgInfo(k, pos, CL_KERNEL_ARG_NAME, sizeof(buf), buf, &size));
+  assert(size >= 0 && size < sizeof(buf));
+  buf[size] = 0;
+  return buf;
+}
+
 // void copyBuf(cl_queue q, cl_mem src, cl_mem dst, size_t size) { CHECK(clEnqueueCopyBuffer(q, src, dst, 0, 0, size, 0, nullptr, nullptr)); }
+
