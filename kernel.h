@@ -4,6 +4,8 @@
 #include "common.h"
 
 #include <string>
+#include <vector>
+#include <memory>
 
 template<typename T>
 struct ReleaseDelete {
@@ -23,82 +25,63 @@ using Queue   = Holder<cl_queue>;
 
 static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
 
-class Kernel {  
-  template<int P> void setArgsAt() {}  
-  template<int P> void setArgsAt(auto &a, auto&... args) {
-    setArg(P, a);
-    setArgsAt<P + 1>(args...);
-  }
-
-public:
-  virtual ~Kernel() {};
-  virtual void run(cl_queue q) = 0;
-  virtual string getName() = 0;
-  virtual cl_kernel getKernel() = 0;
-  
-  void setArg(int pos, const auto &arg) { ::setArg(getKernel(), pos, arg); }
-  void setArg(int pos, const Buffer &buf) { setArg(pos, buf.get()); }
-  void setArgs(const auto&... args) { setArgsAt<0>(args...); }
-};
-
-class BaseKernel : public Kernel {
+class Kernel {
   Holder<cl_kernel> kernel;
+  cl_queue queue;
   int N;
   int itemsPerThread;
+  int nArgs;
   std::string name;
+  std::vector<std::string> argNames;
+  u64 timeSum;
+  bool doTime;
 
+  int getArgPos(const std::string &name) {
+    for (int i = 0; i < nArgs; ++i) { if (argNames[i] == name) { return i; } }
+    return -1;
+  }
+  
 public:
-  BaseKernel(cl_program program, int N, const std::string &name, int itemsPerThread) :
+  Kernel(cl_program program, cl_queue q, int N, const std::string &name, int itemsPerThread, bool doTime) :
     kernel(makeKernel(program, name.c_str())),
+    queue(q),
     N(N),
     itemsPerThread(itemsPerThread),
-    name(name)
+    nArgs(getKernelNumArgs(kernel.get())),
+    name(name),
+    timeSum(0),
+    doTime(doTime)
   {
     assert(N % itemsPerThread == 0);
+    assert(nArgs >= 0);
+    for (int i = 0; i < nArgs; ++i) { argNames.push_back(getKernelArgName(kernel.get(), i)); }
     // log("kernel %s: %d args, arg0 %s\n", name.c_str(), getKernelNumArgs(kernel.get()), getKernelArgName(kernel.get(), 0).c_str());
+    // log("kernel %s, queue %p\n", name, q);
   }
-
-  virtual void run(cl_queue q) { ::run(q, kernel.get(), N / itemsPerThread, name); }
-
-  virtual string getName() { return name; }
-
-  virtual cl_kernel getKernel() { return kernel.get(); }
-};
-
-class TimedKernel : public Kernel {
-  std::unique_ptr<Kernel> kernel;
-  u64 timeAcc;
-
-public:
-  TimedKernel(Kernel *k) : kernel(k), timeAcc(0) { }
-
-  virtual void run(cl_queue q) {
-    Timer timer;
-    kernel->run(q);
-    finish(q);
-    timeAcc += timer.deltaMicros();
-  }
-
-  virtual string getName() { return kernel->getName(); }
-  virtual cl_kernel getKernel() { return kernel->getKernel(); }
   
-  u64 getTime() { return timeAcc; }
-  void resetTime() { timeAcc = 0; }
-};
-
-/*
-class CompoundKernel : public Kernel {
-  std::vector<Kernel> kernels;
-
-public:
-  CompoundKernel(std::vector<Kernel> kernels) :
-    kernels(kernels) {
+  void operator()() {
+    if (doTime) {
+      Timer timer;
+      ::run(queue, kernel.get(), N / itemsPerThread, name);
+      finish();
+      timeSum += timer.deltaMicros();
+    } else {
+      ::run(queue, kernel.get(), N / itemsPerThread, name);
+    }
   }
-
-  void run(cl_queue q) { for (Kerner k : kernels) { k->run(q); } }
-
-  string getName() { 
-    
   
+  string getName() { return name; }
+  
+  void setArg(const std::string &name, const auto &arg) {
+    int pos = getArgPos(name);
+    assert(pos >= 0);
+    ::setArg(kernel.get(), pos, arg);
+  }
+  
+  void setArg(const std::string &name, const Buffer &buf) { setArg(name, buf.get()); }
+  
+  void finish() { ::finish(queue); }
+
+  u64 getTime() { return timeSum; }
+  void resetTime() { timeSum = 0; }
 };
-*/

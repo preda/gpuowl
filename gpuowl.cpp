@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <functional>
 
 #include <signal.h>
 
@@ -379,17 +380,16 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   }
 }
 
-void run(const std::vector<Kernel *> &kerns, cl_queue q) { for (Kernel *k : kerns) { k->run(q); } }
+// void run(const std::vector<Kernel *> &kerns, cl_queue q) { for (Kernel *k : kerns) { k->run(q); } }
 
-void logTimeKernels(const std::vector<Kernel *> &kerns, int nIters) {
+void logTimeKernels(std::initializer_list<Kernel *> kerns, int nIters) {
   if (nIters < 2) { return; }
   u64 total = 0;
-  for (Kernel *k : kerns) { total += dynamic_cast<TimedKernel *>(k)->getTime(); }
+  for (Kernel *k : kerns) { total += k->getTime(); }
   const float iIters = 1 / (float) (nIters - 1);
   const float iTotal = 1 / (float) total;
   log("\n");
-  for (Kernel *kk : kerns) {
-    TimedKernel *k = dynamic_cast<TimedKernel *>(kk);
+  for (Kernel *k : kerns) {
     u64 c = k->getTime();
     k->resetTime();
     log("%4d us, %02d%% : %s\n", int(c * iIters + .5f), int(c * 100 * iTotal + .5f), k->getName().c_str());
@@ -496,8 +496,8 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
         compact.expandTo(&state, balanced, W, H, E);
         gpu.writeNoWait(state);
         
-        modMul(queue, gpu.bufData, gpu.bufCheck);
-        modSqLoop(queue, gpu.bufCheck, blockSize, true);
+        modMul(gpu.bufData, gpu.bufCheck);
+        modSqLoop(gpu.bufCheck, blockSize, true);
         bool ok = gpu.read().equalCheck();
 
         if (ok && k && k < kEnd) {
@@ -529,8 +529,8 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
     
     assert(k % blockSize == 0);
 
-    modMul(queue, gpu.bufCheck, gpu.bufData);
-    modSqLoop(queue, gpu.bufData, std::min(blockSize, kEnd - k), false);
+    modMul(gpu.bufCheck, gpu.bufData);
+    modSqLoop(gpu.bufData, std::min(blockSize, kEnd - k), false);
     
     if (kEnd - k <= blockSize) {
       State state = gpu.read();
@@ -547,7 +547,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
       *outNErrors = nErrors;
       int left = blockSize - (kEnd - k);
       assert(left > 0);
-      modSqLoop(queue, gpu.bufData, left, false);
+      modSqLoop(gpu.bufData, left, false);
     }
 
     finish(queue);
@@ -628,40 +628,32 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     assert(false);
   }
 
-  std::unique_ptr<Kernel> fftP, fftW, fftH, carryA, carryM, carryB, transposeW, transposeH, square, multiply, autoConv, carryConv;
+  string clArgs = args.clArgs;
+  if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
+    
+  Holder<cl_program> program(compile(device, context, "gpuowl.cl", clArgs, defines));
+  if (!program) { return false; }
 
-  {
-    string clArgs = args.clArgs;
-    if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
+  bool timeKernels = args.timeKernels;
+#define LOAD(name, nWords, wordsPerThread) Kernel name(program.get(), queue, nWords, #name, wordsPerThread, timeKernels)
+  LOAD(fftP, N, nW * 2);
+  LOAD(fftW, N, nW * 2);
+  LOAD(fftH, N, nH * 2);
     
-    Holder<cl_program> program(compile(device, context, "gpuowl.cl", clArgs, defines));
-    if (!program) { return false; }
+  LOAD(carryA, N, 32);
+  LOAD(carryM, N, 32);
+  LOAD(carryB, N, 32);
 
-    auto load = [&program, &args](const string &name, int nWords, int wordsPerThread) {
-      Kernel *kernel = new BaseKernel(program.get(), nWords, name, wordsPerThread);
-      return args.timeKernels ? new TimedKernel(kernel) : kernel;
-    };
+  LOAD(transposeW, N, 32);
+  LOAD(transposeH, N, 32);
     
-#define LOAD(name, nWords, wordsPerThread) name.reset(load(#name, nWords, wordsPerThread));
-    LOAD(fftP, N, nW * 2);
-    LOAD(fftW, N, nW * 2);
-    LOAD(fftH, N, nH * 2);
+  LOAD(square,   N, 4);
+  LOAD(multiply, N, 4);
+  LOAD(autoConv, N, nH * 4);
     
-    LOAD(carryA, N, 32);
-    LOAD(carryM, N, 32);
-    LOAD(carryB, N, 32);
-
-    LOAD(transposeW, N, 32);
-    LOAD(transposeH, N, 32);
-    
-    LOAD(square,   N, 4);
-    LOAD(multiply, N, 4);
-    LOAD(autoConv, N, nH * 4);
-    
-    LOAD(carryConv, N + W * 2, nW * 2);
+  LOAD(carryConv, N + W * 2, nW * 2);
 #undef LOAD
-  }
-
+  
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
 
   switch (args.fftKind) {
@@ -714,40 +706,75 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   Buffer dummy;
   
-  cl_mem trigW = (W == 1024) ? bufTrig1K.get() : bufTrig2K.get();
-  cl_mem trigH = (H == 1024) ? bufTrig1K.get() : bufTrig2K.get();
-  
-  fftP->setArgs(dummy, buf1, bufA, trigW);
-  fftW->setArgs(buf1, trigW);
-  fftH->setArgs(buf2, trigH);
-  
-  transposeW->setArgs(buf1, buf2, bufBigTrig);
-  transposeH->setArgs(buf2, buf1, bufBigTrig);
-  
-  carryA->setArgs(buf1, bufI, dummy, bufCarry);
-  carryM->setArgs(buf1, bufI, dummy, bufCarry);
-  carryB->setArgs(dummy, bufCarry);
+  Buffer &trigW = (W == 1024) ? bufTrig1K : bufTrig2K;
+  Buffer &trigH = (H == 1024) ? bufTrig1K : bufTrig2K;
 
-  square->setArgs(buf2, bufBigTrig);
-  multiply->setArgs(buf2, buf3, bufBigTrig);
+  fftP.setArg("out", buf1);
+  fftP.setArg("A", bufA);
+  fftP.setArg("smallTrig", trigW);
+  
+  // fftP->setArgs(dummy, buf1, bufA, trigW);
 
-  autoConv->setArgs(buf2, trigH, bufBigTrig);
-  carryConv->setArgs(buf1, bufCarry, bufReady, bufA, bufI, trigW);
+  fftW.setArg("io", buf1);
+  fftW.setArg("smallTrig", trigW);
 
+  fftH.setArg("io", buf2);
+  fftH.setArg("smallTrig", trigH);
+  
+  // fftW->setArgs(buf1, trigW);
+  // fftH->setArgs(buf2, trigH);
+
+  transposeW.setArg("in",  buf1);
+  transposeW.setArg("out", buf2);
+  transposeW.setArg("bigTrig", bufBigTrig);
+
+  transposeH.setArg("in",  buf2);
+  transposeH.setArg("out", buf1);
+  transposeH.setArg("bigTrig", bufBigTrig);
+
+  // transposeW->setArgs(buf1, buf2, bufBigTrig);
+  // transposeH->setArgs(buf2, buf1, bufBigTrig);
+
+  carryA.setArg("in", buf1);
+  carryA.setArg("A", bufI);
+  carryA.setArg("carryOut", bufCarry);
+
+  carryM.setArg("in", buf1);
+  carryM.setArg("A", bufI);
+  carryM.setArg("carryOut", bufCarry);
+
+  carryB.setArg("carryIn", bufCarry);
+  
+  // carryA->setArgs(buf1, bufI, dummy, bufCarry);
+  // carryM->setArgs(buf1, bufI, dummy, bufCarry);
+  // carryB->setArgs(dummy, bufCarry);
+
+  square.setArg("io", buf2);
+  square.setArg("bigTrig", bufBigTrig);
+  
+  // square->setArgs(buf2, bufBigTrig);
+
+  multiply.setArg("io", buf2);
+  multiply.setArg("in", buf3);
+  multiply.setArg("bigTrig", bufBigTrig);
+  
+  // multiply->setArgs(buf2, buf3, bufBigTrig);
+
+  autoConv.setArg("io", buf2);
+  autoConv.setArg("smallTrig", trigH);
+  autoConv.setArg("bigTrig", bufBigTrig);
+  
+  // autoConv->setArgs(buf2, trigH, bufBigTrig);
+
+  carryConv.setArg("io", buf1);
+  carryConv.setArg("carryShuttle", bufCarry);
+  carryConv.setArg("ready", bufReady);
+  carryConv.setArg("A", bufA);
+  carryConv.setArg("iA", bufI);
+  carryConv.setArg("smallTrig", trigW);
+  
   // the weighting + direct FFT only, stops before square or mul.
-  std::vector<Kernel *> directFftKerns {fftP.get(), transposeW.get(), fftH.get()};
-
-  // sequence of: direct FFT, square, first-half of inverse FFT.
-  std::vector<Kernel *> headKerns {fftP.get(), transposeW.get(),
-      autoConv.get(),
-      // fftH.get(), square.get(), fftH.get(),
-      transposeH.get()};
-    
-  // sequence of: second-half of inverse FFT, inverse weighting, carry propagation.
-  std::vector<Kernel *> tailKerns {fftW.get(), carryA.get(), carryB.get()};
-
-  // equivalent to sequence of: tailKerns, headKerns.
-  std::vector<Kernel *> coreKerns {carryConv.get(), transposeW.get(), autoConv.get(), transposeH.get()};
+  // std::vector<Kernel *> directFftKerns {fftP.get(), transposeW.get(), fftH.get()};
 
   float bitsPerWord = E / (float) N;
   if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }
@@ -755,55 +782,95 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   bool useLongCarry = (args.fftKind != Args::DP) || (bitsPerWord < 13);
   
   if (useLongCarry && !args.useLegacy) { log("Note: using long carry kernels\n"); }
+
+  
+  auto entryKerns = [&fftP, &transposeW, &autoConv, &transposeH](cl_mem in) {
+    fftP.setArg("in", in);
+    
+    fftP();
+    transposeW();
+    autoConv();
+    // fftH.get(), square.get(), fftH.get()
+    transposeH();    
+  };
+
+  std::function<void()> compactCore = [&]() {
+    carryConv();
+    transposeW();
+    autoConv();
+    transposeH();
+  };
+
+  std::function<void()> longCore = [&]() {
+    fftW();
+    carryA();
+    carryB();
+    fftP();
+    transposeW();
+    fftH();
+    square();
+    fftH();
+    transposeH();
+  };
+
+  auto coreKerns = (args.useLegacy || useLongCarry) ? longCore : compactCore;
+  
+  /*
+  // equivalent to sequence of: tailKerns, headKerns.
+  std::vector<Kernel *> coreKerns {carryConv.get(), transposeW.get(), autoConv.get(), transposeH.get()};
   
   if (args.useLegacy || useLongCarry) {
     // coreKerns = tailKerns + headKerns
     coreKerns = { fftW.get(), carryA.get(), carryB.get(), fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()};
   }
+  */
+
+
+  auto exitKerns = [&fftW, &carryA, &carryM, &carryB](cl_mem out, bool doMul3) {
+    (doMul3 ? carryM : carryA).setArg("out", out);
+    carryB.setArg("io",  out);
+    
+    fftW();
+    doMul3 ? carryM() : carryA();
+    carryB();
+  };
   
   // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
   // Optional multiply-by-3 at the end.
-  auto modSqLoop = [&](cl_queue q, cl_mem data, int nIters, bool doMul3) {
+  auto modSqLoop = [&](cl_mem io, int nIters, bool doMul3) {
     assert(nIters > 0);
             
-    fftP->setArg(0, data);
-    run(headKerns, q);
+    entryKerns(io);
 
-    carryA->setArg(2, data);
-    carryB->setArg(0, data);
+    // carry args needed for coreKerns.
+    carryA.setArg("out", io);
+    carryB.setArg("io",  io);
 
-    for (int i = 0; i < nIters - 1; ++i) {
-      // if (((i + 1) & 127) == 0) { finish(q); }
-      run(coreKerns, q);
-    }
-    
-    if (doMul3) {
-      carryM->setArg(2, data);
-      run({fftW.get(), carryM.get(), carryB.get()}, q);
-    } else {
-      run(tailKerns, q);
-    }
+    for (int i = 0; i < nIters - 1; ++i) { coreKerns(); }
 
-    if (args.timeKernels) { logTimeKernels(coreKerns, nIters); }
+    exitKerns(io, doMul3);
+
+    if (args.timeKernels) { logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryConv}, nIters); }
   };
 
+  auto directFFT = [&fftP, &transposeW, &fftH](cl_mem in, cl_mem out) {
+    fftP.setArg("in", in);
+    transposeW.setArg("out", out);
+    fftH.setArg("io", out);
+
+    fftP();
+    transposeW();
+    fftH();
+  };
+  
   // The modular multiplication a = a * b. Output in 'a'.
-  auto modMul = [&](cl_queue q, cl_mem a, cl_mem b) {
-    fftP->setArg(0, b);
-    transposeW->setArg(1, buf3);
-    fftH->setArg(0, buf3);
-    run(directFftKerns, q);
-
-    fftP->setArg(0, a);
-    transposeW->setArg(1, buf2);
-    fftH->setArg(0, buf2);
-    run(directFftKerns, q);
-
-    run({multiply.get(), fftH.get(), transposeH.get()}, q);
-
-    carryA->setArg(2, a);
-    carryB->setArg(0, a);
-    run(tailKerns, q);
+  auto modMul = [&](cl_mem io, cl_mem in) {
+    directFFT(in, buf3.get());
+    directFFT(io, buf2.get());
+    multiply(); // input: buf2, buf3; output: buf2.
+    fftH();
+    transposeH();
+    exitKerns(io, false);
   };
 
   bool isPrime;
