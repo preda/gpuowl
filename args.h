@@ -44,6 +44,7 @@ Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
           "-longCarry    : use not-fused carry kernels (may be slower).\n"
           "-longTail     : use not-fused tail kernels  (may be slower).\n"
           "-dump <path>  : dump compiled ISA to the folder <path> that must exist.\n"
+          "-time kernels : display kernel profiling information (slower).\n"
           "-verbosity <level> : change amount of information logged. [0-2, default 0].\n"
           "-device <N>   : select specific device among:\n");
       

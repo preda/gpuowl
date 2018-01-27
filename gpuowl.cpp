@@ -380,8 +380,6 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   }
 }
 
-// void run(const std::vector<Kernel *> &kerns, cl_queue q) { for (Kernel *k : kerns) { k->run(q); } }
-
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   std::vector<Kernel *> kvect(kerns);
   std::sort(kvect.begin(), kvect.end(), [](Kernel *a, Kernel *b) { return a->getTime() >= b->getTime(); });
@@ -392,18 +390,6 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
                            k->getName().c_str(), time / (float) nCall, (int) nCall); }
     k->resetTime();
   }
-
-  /*
-  const float iIters = 1 / (float) (nIters - 1);
-  const float iTotal = 1 / (float) total;
-  log("\n");
-  for (Kernel *k : kerns) {
-    u64 c = k->getTime();
-    k->resetTime();
-    log("%4d us, %02d%% : %s\n", int(c * iIters + .5f), int(c * 100 * iTotal + .5f), k->getName().c_str());
-  }
-  log("%4d us total\n", int(total * iIters + .5f));
-  */
 }
 
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }

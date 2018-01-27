@@ -125,6 +125,7 @@ T shl1(T a, uint k) { return a * (1 << k); }
 
 // complex mul
 T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+// T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, (a.x + a.y) * (b.x + b.y) - a.x * b.x - a.y * b.y); }
 
 // complex square
 T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }
