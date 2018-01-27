@@ -34,7 +34,7 @@
 #define REV
 #endif
 
-#define VERSION "1.9-" REV
+#define VERSION "1.10-" REV
 #define PROGRAM "gpuowl"
 
 static volatile int stopRequested = 0;
@@ -713,17 +713,12 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   fftP.setArg("A", bufA);
   fftP.setArg("smallTrig", trigW);
   
-  // fftP->setArgs(dummy, buf1, bufA, trigW);
-
   fftW.setArg("io", buf1);
   fftW.setArg("smallTrig", trigW);
 
   fftH.setArg("io", buf2);
   fftH.setArg("smallTrig", trigH);
   
-  // fftW->setArgs(buf1, trigW);
-  // fftH->setArgs(buf2, trigH);
-
   transposeW.setArg("in",  buf1);
   transposeW.setArg("out", buf2);
   transposeW.setArg("bigTrig", bufBigTrig);
@@ -731,9 +726,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   transposeH.setArg("in",  buf2);
   transposeH.setArg("out", buf1);
   transposeH.setArg("bigTrig", bufBigTrig);
-
-  // transposeW->setArgs(buf1, buf2, bufBigTrig);
-  // transposeH->setArgs(buf2, buf1, bufBigTrig);
 
   carryA.setArg("in", buf1);
   carryA.setArg("A", bufI);
@@ -745,27 +737,17 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   carryB.setArg("carryIn", bufCarry);
   
-  // carryA->setArgs(buf1, bufI, dummy, bufCarry);
-  // carryM->setArgs(buf1, bufI, dummy, bufCarry);
-  // carryB->setArgs(dummy, bufCarry);
-
   square.setArg("io", buf2);
   square.setArg("bigTrig", bufBigTrig);
   
-  // square->setArgs(buf2, bufBigTrig);
-
   multiply.setArg("io", buf2);
   multiply.setArg("in", buf3);
   multiply.setArg("bigTrig", bufBigTrig);
   
-  // multiply->setArgs(buf2, buf3, bufBigTrig);
-
   autoConv.setArg("io", buf2);
   autoConv.setArg("smallTrig", trigH);
   autoConv.setArg("bigTrig", bufBigTrig);
   
-  // autoConv->setArgs(buf2, trigH, bufBigTrig);
-
   carryConv.setArg("io", buf1);
   carryConv.setArg("carryShuttle", bufCarry);
   carryConv.setArg("ready", bufReady);
@@ -773,27 +755,37 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   carryConv.setArg("iA", bufI);
   carryConv.setArg("smallTrig", trigW);
   
-  // the weighting + direct FFT only, stops before square or mul.
-  // std::vector<Kernel *> directFftKerns {fftP.get(), transposeW.get(), fftH.get()};
-
   float bitsPerWord = E / (float) N;
   if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }
   
-  bool useLongCarry = (args.fftKind != Args::DP) || (bitsPerWord < 13);
-  
-  if (useLongCarry && !args.useLegacy) { log("Note: using long carry kernels\n"); }
+  bool useLongCarry = args.useLongCarry || (args.fftKind != Args::DP) || (bitsPerWord < 13);
+  if (useLongCarry) { log("Note: using long (not-fused) carry kernels\n"); }
+  bool useLongTail = args.useLongTail;
+  if (useLongTail) { log("Note: using long (not-fused) tail kernels\n"); }
 
+  using vfun = std::function<void()>;
+
+  auto carry = useLongCarry ? vfun([&](){ fftW(); carryA(); carryB(); fftP(); }) : vfun([&](){ carryConv(); });
+  auto tail  = useLongTail  ? vfun([&](){ fftH(); square(); fftH(); })   : vfun([&](){ autoConv(); });
   
-  auto entryKerns = [&fftP, &transposeW, &autoConv, &transposeH](cl_mem in) {
+  auto entryKerns = [&fftP, &transposeW, &tail, &transposeH](cl_mem in) {
     fftP.setArg("in", in);
     
     fftP();
     transposeW();
-    autoConv();
-    // fftH.get(), square.get(), fftH.get()
+    tail();
+    // autoConv(); // fftH.get(), square.get(), fftH.get()
     transposeH();    
   };
 
+  auto coreKerns = [&]() {
+    carry();
+    transposeW();
+    tail();
+    transposeH();
+  };
+
+  /*
   std::function<void()> compactCore = [&]() {
     carryConv();
     transposeW();
@@ -814,17 +806,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   };
 
   auto coreKerns = (args.useLegacy || useLongCarry) ? longCore : compactCore;
-  
-  /*
-  // equivalent to sequence of: tailKerns, headKerns.
-  std::vector<Kernel *> coreKerns {carryConv.get(), transposeW.get(), autoConv.get(), transposeH.get()};
-  
-  if (args.useLegacy || useLongCarry) {
-    // coreKerns = tailKerns + headKerns
-    coreKerns = { fftW.get(), carryA.get(), carryB.get(), fftP.get(), transposeW.get(), fftH.get(), square.get(), fftH.get(), transposeH.get()};
-  }
   */
-
 
   auto exitKerns = [&fftW, &carryA, &carryM, &carryB](cl_mem out, bool doMul3) {
     (doMul3 ? carryM : carryA).setArg("out", out);
@@ -835,7 +817,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     carryB();
   };
   
-  // The IBDWT convolution squaring loop with carry propagation, on 'data', done nIters times.
+  // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
   // Optional multiply-by-3 at the end.
   auto modSqLoop = [&](cl_mem io, int nIters, bool doMul3) {
     assert(nIters > 0);

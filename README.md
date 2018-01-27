@@ -1,4 +1,4 @@
-# GpuOwL
+# GpuOwL 1.10
 GpuOwL is a Mersenne prime tester for GPUs. See the GIMPS project for context: http://mersenne.org/
 
 GpuOwl is implemented in OpenCL. It is most tested on AMD GPUs.
@@ -49,7 +49,7 @@ To build simply invoke "make" (or look inside the Makefile for a manual build).
 ## See \"gpuowl -h\" for the command line options:
 
 ```
-gpuOwL v1.9-e3055e1-mod GPU Mersenne primality checker
+gpuOwL v1.10-4dbb409-mod GPU Mersenne primality checker
 Command line options:
 
 -size 2M|4M|8M : override FFT size.
@@ -60,7 +60,8 @@ Command line options:
                 M31 : FGT modulo M(31).
 -user <name>  : specify the user name.
 -cpu  <name>  : specify the hardware name.
--legacy       : use legacy kernels
+-longCarry    : use not-fused carry kernels (may be slower).
+-longTail     : use not-fused tail kernels  (may be slower).
 -dump <path>  : dump compiled ISA to the folder <path> that must exist.
 -verbosity <level> : change amount of information logged. [0-2, default 0].
 -device <N>   : select specific device among:
@@ -75,9 +76,15 @@ supports FFT transforms of power-of-two sizes 2M (i.e. 2M == 2^21), 4M, 8M. The 
 For exponents up to ~78M (but not too small), an FFT size of 4M is adequate. For larger exponents a larger FFT is needed (8M).
 
 
-## Legacy kernels
-GpuOwl allows selection of a different set of kernels, called the "legacy kernels", than the default. These are likely to be a bit
-slower, but use a bit less GPU resources.
+## Not-fused kernels
+By default GpuOwl attempts to use fused kernels, which are huge kernels representing a few steps merged together. This has the
+advantage of reducing the number of global memory round-trips. OTOH these huge kernels use a lot of GPU resources (e.g. VGPRs)
+which may reduce occupancy.
+
+There are two fused kernels, let's call them "carry" and "tail"; The fusion can be disabled with "-longCarry" and "-longTail",
+respectivelly.
+
+(The non-fused kernels were called "legacy" kernels in previous versions).
 
 
 ## Self-test

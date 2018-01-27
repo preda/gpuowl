@@ -18,11 +18,14 @@ struct Args {
   int fftKind;
   string fftKindStr;
   int device;
-  bool timeKernels, useLegacy, debug;
+  bool timeKernels, debug;
+  bool useLongCarry, useLongTail;
   int verbosity;
   
 Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
-    device(-1), timeKernels(false), useLegacy(false), debug(false), verbosity(0) { }
+    device(-1), timeKernels(false), debug(false),
+    useLongCarry(false), useLongTail(false),
+    verbosity(0) { }
   
   // return false to stop.
   bool parse(int argc, char **argv) {
@@ -37,8 +40,9 @@ Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
           "                M61 : Fast Galois Transform (FGT) modulo M(61).\n"
           "                M31 : FGT modulo M(31).\n"
           "-user <name>  : specify the user name.\n"
-          "-cpu  <name>  : specify the hardware name.\n"  
-          "-legacy       : use legacy kernels\n"
+          "-cpu  <name>  : specify the hardware name.\n"
+          "-longCarry    : use not-fused carry kernels (may be slower).\n"
+          "-longTail     : use not-fused tail kernels  (may be slower).\n"
           "-dump <path>  : dump compiled ISA to the folder <path> that must exist.\n"
           "-verbosity <level> : change amount of information logged. [0-2, default 0].\n"
           "-device <N>   : select specific device among:\n");
@@ -105,8 +109,10 @@ Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
         log("-time expects 'kernels'\n");
         return false;
       }
-    } else if (!strcmp(arg, "-legacy")) {
-      useLegacy = true;
+    } else if (!strcmp(arg, "-longCarry")) {
+      useLongCarry = true;
+    } else if (!strcmp(arg, "-longTail")) {
+      useLongTail = true;
     } else if (!strcmp(arg, "-size")) {
       if (i < argc - 1) {
         const char *value = argv[++i];
