@@ -34,6 +34,7 @@ class Kernel {
   std::string name;
   std::vector<std::string> argNames;
   u64 timeSum;
+  u64 nCalls;
   bool doTime;
 
   int getArgPos(const std::string &name) {
@@ -50,6 +51,7 @@ public:
     nArgs(getKernelNumArgs(kernel.get())),
     name(name),
     timeSum(0),
+    nCalls(0),
     doTime(doTime)
   {
     assert(N % itemsPerThread == 0);
@@ -65,6 +67,7 @@ public:
       ::run(queue, kernel.get(), N / itemsPerThread, name);
       finish();
       timeSum += timer.deltaMicros();
+      ++nCalls;
     } else {
       ::run(queue, kernel.get(), N / itemsPerThread, name);
     }
@@ -83,5 +86,9 @@ public:
   void finish() { ::finish(queue); }
 
   u64 getTime() { return timeSum; }
-  void resetTime() { timeSum = 0; }
+  u64 getCalls() { return nCalls; }
+  void resetTime() {
+    timeSum = 0;
+    nCalls = 0;
+  }
 };

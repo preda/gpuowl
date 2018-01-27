@@ -382,10 +382,18 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
 
 // void run(const std::vector<Kernel *> &kerns, cl_queue q) { for (Kernel *k : kerns) { k->run(q); } }
 
-void logTimeKernels(std::initializer_list<Kernel *> kerns, int nIters) {
-  if (nIters < 2) { return; }
-  u64 total = 0;
-  for (Kernel *k : kerns) { total += k->getTime(); }
+void logTimeKernels(std::initializer_list<Kernel *> kerns) {
+  std::vector<Kernel *> kvect(kerns);
+  std::sort(kvect.begin(), kvect.end(), [](Kernel *a, Kernel *b) { return a->getTime() >= b->getTime(); });
+  for (Kernel *k : kvect) {
+    u64 time = k->getTime();
+    u64 nCall = k->getCalls();
+    if (nCall) { log("%10s: %5.0f us/call,  %5d times\n",
+                     k->getName().c_str(), time / (float) nCall, (int) nCall); }
+    k->resetTime();
+  }
+
+  /*
   const float iIters = 1 / (float) (nIters - 1);
   const float iTotal = 1 / (float) total;
   log("\n");
@@ -395,6 +403,7 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns, int nIters) {
     log("%4d us, %02d%% : %s\n", int(c * iIters + .5f), int(c * 100 * iTotal + .5f), k->getName().c_str());
   }
   log("%4d us total\n", int(total * iIters + .5f));
+  */
 }
 
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }
@@ -449,7 +458,8 @@ struct GpuState {
 };
 
 bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
-                bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul) {
+                bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul,
+                std::initializer_list<Kernel *> allKerns) {
   const int N = 2 * W * H;
   log("PRP-3: FFT %dM (%d * %d * 2) of %d (%.2f bits/word) [%s]\n", N / (1024 * 1024), W, H, E, E / float(N), longTimeStr().c_str());
 
@@ -507,7 +517,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
         }
         
         doLog(E, k, args.verbosity, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors, stats);
-        // if (stats.n > 1) { log("[%.2f : %.2f : %.2f] SD %.3f\n", stats.min, stats.mean, stats.max, stats.sd()); }
+        if (args.timeKernels) { logTimeKernels(allKerns); }
         stats.reset();
         
         if (ok) {
@@ -785,29 +795,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     transposeH();
   };
 
-  /*
-  std::function<void()> compactCore = [&]() {
-    carryConv();
-    transposeW();
-    autoConv();
-    transposeH();
-  };
-
-  std::function<void()> longCore = [&]() {
-    fftW();
-    carryA();
-    carryB();
-    fftP();
-    transposeW();
-    fftH();
-    square();
-    fftH();
-    transposeH();
-  };
-
-  auto coreKerns = (args.useLegacy || useLongCarry) ? longCore : compactCore;
-  */
-
   auto exitKerns = [&fftW, &carryA, &carryM, &carryB](cl_mem out, bool doMul3) {
     (doMul3 ? carryM : carryA).setArg("out", out);
     carryB.setArg("io",  out);
@@ -832,7 +819,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
     exitKerns(io, doMul3);
 
-    if (args.timeKernels) { logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryConv}, nIters); }
+    // if (args.timeKernels) { logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryConv}, nIters); }
   };
 
   auto directFFT = [&fftP, &transposeW, &fftH](cl_mem in, cl_mem out) {
@@ -845,7 +832,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     fftH();
   };
   
-  // The modular multiplication a = a * b. Output in 'a'.
+  // The modular multiplication io *= in.
   auto modMul = [&](cl_mem io, cl_mem in) {
     directFFT(in, buf3.get());
     directFFT(io, buf2.get());
@@ -858,7 +845,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   bool isPrime;
   u64 residue;
   int nErrors = 0;
-  if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul))) {
+  if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
+         {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryConv})) {
     return false;
   }
   
