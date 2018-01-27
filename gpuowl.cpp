@@ -388,8 +388,8 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   for (Kernel *k : kvect) {
     u64 time = k->getTime();
     u64 nCall = k->getCalls();
-    if (nCall) { log("%10s: %5.0f us/call,  %5d times\n",
-                     k->getName().c_str(), time / (float) nCall, (int) nCall); }
+    if (nCall > 100) { log("%-10s : %5.0f us/call  x %5d\n",
+                           k->getName().c_str(), time / (float) nCall, (int) nCall); }
     k->resetTime();
   }
 
