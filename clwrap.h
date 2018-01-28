@@ -58,11 +58,7 @@ int getNumberOfDevices() {
   return n;
 }
 
-void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) {
-  size_t outSize = 0;
-  CHECK(clGetDeviceInfo(id, what, bufSize, buf, &outSize));
-  assert(outSize <= bufSize);
-}
+void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) { CHECK(clGetDeviceInfo(id, what, bufSize, buf, NULL)); }
 
 bool getInfoMaybe(cl_device_id id, int what, size_t bufSize, void *buf) {
   return clGetDeviceInfo(id, what, bufSize, buf, NULL) == CL_SUCCESS;
@@ -116,8 +112,8 @@ void release(cl_mem buf)         { CHECK(clReleaseMemObject(buf)); }
 void release(cl_queue queue)     { CHECK(clReleaseCommandQueue(queue)); }
 void release(cl_kernel k)        { CHECK(clReleaseKernel(k)); }
 
-bool dumpBinary(cl_program program, const char *fileName) {
-  if (auto fo = open(fileName, "w")) {
+bool dumpBinary(cl_program program, const string &fileName) {
+  if (auto fo = open(fileName.c_str(), "wb")) {
     size_t size;
     CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
     char *buf = new char[size + 1];
@@ -129,8 +125,45 @@ bool dumpBinary(cl_program program, const char *fileName) {
   return false;
 }
 
-static cl_program createProgram(cl_device_id device, cl_context context, const string &fileName) {
-  string stub = string("#include \"") + fileName + "\"\n";
+static string readFile(const string &name) {
+  string ret;
+  if (auto fi = open(name, "rb", false)) {
+    char buf[1024];
+    while (true) {
+      size_t n = fread(buf, 1, sizeof(buf), fi.get());
+      ret.append(buf, n);
+      if (n < sizeof(buf)) { break; }
+    }
+  }
+  return ret;
+}
+
+static cl_program loadBinary(cl_device_id device, cl_context context, const string &name, const string &config) {
+  if (config.empty()) { return 0; }
+  
+  string binFile = string("precompiled/") + name + "_" + config + ".so";
+  string binary = readFile(binFile);
+  cl_program program = 0;
+  if (!binary.empty()) {  
+    cl_device_id devices[] = {device};
+    size_t sizes[] = {binary.size()};
+    const unsigned char *binaries[] = {(const unsigned char *) binary.c_str()};
+    int binStatus[] = {0};
+    int err = 0;
+    program = clCreateProgramWithBinary(context, 1, devices, sizes, binaries, binStatus, &err);
+    if (err != CL_SUCCESS) {
+      log("Error loading pre-compiled kernel from '%s' (error %d, %d)\n", binFile.c_str(), err, binStatus[0]);
+    } else {
+      log("Loaded pre-compiled kernel from '%s'\n", binFile.c_str());
+    }
+  }
+  return program;
+}
+
+static cl_program createProgram(cl_device_id device, cl_context context, const string &name, const string &config) {
+  if (cl_program program = loadBinary(device, context, name, config)) { return program; }
+  
+  string stub = string("#include \"") + name + ".cl\"\n";
   
   const char *ptr = stub.c_str();
   size_t size = stub.size();
@@ -151,7 +184,7 @@ static bool build(cl_program program, cl_device_id device, const string &extraAr
   
   size_t logSize;
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
-  if (logSize) {
+  if (logSize > 1) {
     std::unique_ptr<char> buf(new char[logSize + 1]);
     clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
     buf.get()[logSize] = 0;
@@ -169,15 +202,16 @@ string join(const string &prefix, const vector<string> &elems) {
   return big;
 }
 
-cl_program compile(cl_device_id device, cl_context context, const string &fileName, const string &extraArgs,
-                   const vector<string> &defVect = {}) {
-  cl_program program = createProgram(device, context, fileName);
+cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
+                   const vector<string> &defVect, const string &config) {
+  cl_program program = createProgram(device, context, name, config);
   if (!program) { return program; }
 
   string args = join(" -D", defVect) + " " + extraArgs;
-  bool tryCL20 = false;
-  if ((tryCL20 && build(program, device, string("-cl-std=CL2.0 ") + args))
-      || build(program, device, args)) {
+  // bool tryCL20 = false;
+  // if ((tryCL20 && build(program, device, string("-cl-std=CL2.0 ") + args))
+  
+  if (build(program, device, args)) {
     return program;
   } else {
     release(program);
@@ -188,7 +222,6 @@ cl_program compile(cl_device_id device, cl_context context, const string &fileNa
   // * -cl-uniform-work-group-size
   // * -fno-bin-llvmir
   // * various: -fno-bin-source -fno-bin-amdil
-
 
 cl_kernel makeKernel(cl_program program, const char *name) {
   int err;

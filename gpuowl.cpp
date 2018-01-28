@@ -627,11 +627,15 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   string clArgs = args.clArgs;
   if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
     
-  Holder<cl_program> program(compile(device, context, "gpuowl.cl", clArgs, defines));
-  if (!program) { return false; }
+  Holder<cl_program> program;
 
   bool timeKernels = args.timeKernels;
+  
 #define LOAD(name, nWords, wordsPerThread) Kernel name(program.get(), queue, nWords, #name, wordsPerThread, timeKernels)
+  
+  program.reset(compile(device, context, "kernels", clArgs, defines, ""));
+  if (!program) { return false; }
+
   LOAD(fftP, N, nW * 2);
   LOAD(fftW, N, nW * 2);
   LOAD(fftH, N, nH * 2);
@@ -645,10 +649,18 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     
   LOAD(square,   N, 4);
   LOAD(multiply, N, 4);
-  LOAD(autoConv, N, nH * 4);
     
   LOAD(carryConv, N + W * 2, nW * 2);
+
+  string config = getHwName(device) + "_" + configName;
+  program.reset(compile(device, context, "autoconv", clArgs, defines, config));
+  if (!program) { return false; }  
+  LOAD(autoConv, N, nH * 4);
 #undef LOAD
+
+  // dumpBinary(program.get(), string("autoconv_") + configName);
+  program.reset();
+
   
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
 
