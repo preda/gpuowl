@@ -857,9 +857,9 @@ int main(int argc, char **argv) {
   cl_device_id device = getDevice(args);  
   if (!device) { return -1; }
 
-  if (args.cpu.empty()) { args.cpu = getDeviceName(device); }
+  if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
 
-  std::string info = getDeviceInfo(device);
+  std::string info = getLongInfo(device);
   log("%s\n", info.c_str());
   
   Context contextHolder{createContext(device)};

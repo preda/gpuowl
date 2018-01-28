@@ -30,24 +30,6 @@ bool check(int err, const char *mes = nullptr) {
 #define CHECK(what) assert(check(what));
 #define CHECK2(what, mes) assert(check(what, mes));
 
-void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) {
-  size_t outSize = 0;
-  CHECK(clGetDeviceInfo(id, what, bufSize, buf, &outSize));
-  assert(outSize <= bufSize);
-}
-
-bool getInfoMaybe(cl_device_id id, int what, size_t bufSize, void *buf) {
-  return clGetDeviceInfo(id, what, bufSize, buf, NULL) == CL_SUCCESS;
-}
-
-bool getTopology(cl_device_id id, size_t bufSize, char *buf) {
-  cl_device_topology_amd top;
-  if (!getInfoMaybe(id, CL_DEVICE_TOPOLOGY_AMD, sizeof(top), &top)) { return false; }
-  snprintf(buf, bufSize, "%x:%u.%u",
-           (unsigned) (unsigned char) top.pcie.bus, (unsigned) top.pcie.device, (unsigned) top.pcie.function);
-  return true;
-}
-
 int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
   cl_platform_id platforms[8];
   unsigned nPlatforms;
@@ -76,37 +58,48 @@ int getNumberOfDevices() {
   return n;
 }
 
-string getDeviceName(cl_device_id id) {
-  char boardName[64];
-  bool hasBoardName = getInfoMaybe(id, CL_DEVICE_BOARD_NAME_AMD, sizeof(boardName), boardName);
-
-  char topology[64];
-  bool hasTopology = getTopology(id, sizeof(topology), topology);
-
-  unsigned computeUnits;
-  getInfo(id, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits);
-  
-  return (hasBoardName && hasTopology) ? string(boardName) + " " + std::to_string(computeUnits) + " @" + topology : "";
+void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) {
+  size_t outSize = 0;
+  CHECK(clGetDeviceInfo(id, what, bufSize, buf, &outSize));
+  assert(outSize <= bufSize);
 }
 
-string getDeviceInfo(cl_device_id device) {
-  char name[64], version[64];
-  getInfo(device, CL_DEVICE_NAME,    sizeof(name), name);
-  getInfo(device, CL_DEVICE_VERSION, sizeof(version), version);
+bool getInfoMaybe(cl_device_id id, int what, size_t bufSize, void *buf) {
+  return clGetDeviceInfo(id, what, bufSize, buf, NULL) == CL_SUCCESS;
+}
+
+static string getTopology(cl_device_id id) {
+  char topology[64];
+  cl_device_topology_amd top;
+  if (!getInfoMaybe(id, CL_DEVICE_TOPOLOGY_AMD, sizeof(top), &top)) { return ""; }
+  snprintf(topology, sizeof(topology), "@%x:%u.%u",
+           (unsigned) (unsigned char) top.pcie.bus, (unsigned) top.pcie.device, (unsigned) top.pcie.function);
+  return topology;
+}
+
+static string getBoardName(cl_device_id id) {
+  char boardName[64];
+  return getInfoMaybe(id, CL_DEVICE_BOARD_NAME_AMD, sizeof(boardName), boardName) ? boardName : "";
+}
+
+static string getHwName(cl_device_id id) {
+  char name[64];
+  getInfo(id, CL_DEVICE_NAME, sizeof(name), name);
+  return name;
+}
+
+static string getFreq(cl_device_id device) {
   unsigned computeUnits, frequency;
   getInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits);
   getInfo(device, CL_DEVICE_MAX_CLOCK_FREQUENCY, sizeof(frequency), &frequency);
 
-  string board = getDeviceName(device);
-
-  char info[256];
-  if (!board.empty()) {
-    snprintf(info, sizeof(info), "%s, %s %4uMHz", board.c_str(), name, frequency);
-  } else {
-    snprintf(info, sizeof(info), "%s, %2ux%4uMHz", name, computeUnits, frequency);
-  }
+  char info[64];
+  snprintf(info, sizeof(info), "%ux%4u", computeUnits, frequency);
   return info;
 }
+
+string getShortInfo(cl_device_id device) { return getHwName(device) + "-" + getFreq(device) + "-" + getTopology(device); }
+string getLongInfo(cl_device_id device) { return getShortInfo(device) + " " + getBoardName(device); }
 
 cl_context createContext(cl_device_id device) {
   int err;
@@ -192,8 +185,6 @@ cl_program compile(cl_device_id device, cl_context context, const string &fileNa
   }
 }  
   // Other options:
-  // * to output GCN ISA: -save-temps or -save-temps=prefix or -save-temps=folder/
-  // * to disable all OpenCL optimization (do not use): -cl-opt-disable
   // * -cl-uniform-work-group-size
   // * -fno-bin-llvmir
   // * various: -fno-bin-source -fno-bin-amdil

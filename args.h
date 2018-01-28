@@ -51,7 +51,7 @@ Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
       for (int i = 0; i < ndev; ++i) {
-        std::string info = getDeviceInfo(devices[i]);
+        std::string info = getLongInfo(devices[i]);
         log("    %d : %s\n", i, info.c_str());
       }      
       return false;
