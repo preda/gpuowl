@@ -139,8 +139,6 @@ static string readFile(const string &name) {
 }
 
 static cl_program loadBinary(cl_device_id device, cl_context context, const string &name, const string &config) {
-  if (config.empty()) { return 0; }
-  
   string binFile = string("precompiled/") + name + "_" + config + ".so";
   string binary = readFile(binFile);
   cl_program program = 0;
@@ -160,6 +158,17 @@ static cl_program loadBinary(cl_device_id device, cl_context context, const stri
   return program;
 }
 
+static cl_program loadSource(cl_context context, const string &name) {
+  string stub = string("#include \"") + name + ".cl\"\n";
+  
+  const char *ptr = stub.c_str();
+  size_t size = stub.size();
+  int err;
+  cl_program program = clCreateProgramWithSource(context, 1, &ptr, &size, &err);
+  CHECK2(err, "clCreateProgramWithSource");
+  return program;  
+}
+/*
 static cl_program createProgram(cl_device_id device, cl_context context, const string &name, const string &config) {
   if (cl_program program = loadBinary(device, context, name, config)) { return program; }
   
@@ -172,12 +181,11 @@ static cl_program createProgram(cl_device_id device, cl_context context, const s
   CHECK2(err, "clCreateProgram");
   return program;
 }
+*/
 
-static bool build(cl_program program, cl_device_id device, const string &extraArgs) {
+static bool build(cl_program program, cl_device_id device, const string &args) {
   Timer timer;
-  string args = string("-I. -cl-fast-relaxed-math ") + extraArgs;
-  // -cl-finite-math-only -cl-denorms-are-zero -cl-no-signed-zeros
-  // -cl-mad-enable -cl-unsafe-math-optimizations
+  // string args = string("-I. -cl-fast-relaxed-math ") + extraArgs;
   int err = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
   bool ok = (err == CL_SUCCESS);
   if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }
@@ -190,9 +198,7 @@ static bool build(cl_program program, cl_device_id device, const string &extraAr
     buf.get()[logSize] = 0;
     log("%s\n", buf.get());
   }
-  if (ok) {
-    log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str());
-  }
+  if (ok) { log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str()); }
   return ok;
 }
 
@@ -204,20 +210,28 @@ string join(const string &prefix, const vector<string> &elems) {
 
 cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
                    const vector<string> &defVect, const string &config) {
-  cl_program program = createProgram(device, context, name, config);
-  if (!program) { return program; }
+  string args = join(" -D", defVect) + " " + extraArgs + " " + "-I. -cl-fast-relaxed-math ";
 
-  string args = join(" -D", defVect) + " " + extraArgs;
-  // bool tryCL20 = false;
-  // if ((tryCL20 && build(program, device, string("-cl-std=CL2.0 ") + args))
+  cl_program program = 0;
   
-  if (build(program, device, args)) {
-    return program;
-  } else {
-    release(program);
-    return 0;
+  if (!config.empty() && (program = loadBinary(device, context, name, config))) {
+    if (build(program, device, args)) {
+      return program;
+    } else {
+      release(program);
+    }
   }
-}  
+
+  if ((program = loadSource(context, name))) {
+    if (build(program, device, args)) {
+      return program;
+    } else {
+      release(program);
+    }
+  }
+  
+  return 0;
+}
   // Other options:
   // * -cl-uniform-work-group-size
   // * -fno-bin-llvmir
