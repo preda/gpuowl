@@ -632,6 +632,11 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   bool timeKernels = args.timeKernels;
   
 #define LOAD(name, nWords, wordsPerThread) Kernel name(program.get(), queue, nWords, #name, wordsPerThread, timeKernels)
+
+  string config = getHwName(device) + "_" + configName;
+  program.reset(compile(device, context, "autoconv", clArgs, defines, config));
+  if (!program) { return false; }  
+  LOAD(autoConv, N, nH * 4);
   
   program.reset(compile(device, context, "kernels", clArgs, defines, ""));
   if (!program) { return false; }
@@ -651,11 +656,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   LOAD(multiply, N, 4);
     
   LOAD(carryConv, N + W * 2, nW * 2);
-
-  string config = getHwName(device) + "_" + configName;
-  program.reset(compile(device, context, "autoconv", clArgs, defines, config));
-  if (!program) { return false; }  
-  LOAD(autoConv, N, nH * 4);
 #undef LOAD
 
   // dumpBinary(program.get(), string("autoconv_") + configName);
