@@ -14,11 +14,11 @@
 // FGT: a GF(P^2) (Galois Field) convolution, with P == M(31) == 2^31-1 a Mersenne prime.
 // GF(P^2) means Gaussian integers ("complex integers") with the real/imaginary part modulo P.
 
-// Number of words; a power of two.
+// Number of words; a power of two?
 #define NWORDS (WIDTH * HEIGHT * 2u)
 
 // Used in bitlen() and weighting.
-#define STEP (NWORDS - (EXP & (NWORDS - 1)))
+#define STEP (NWORDS - (EXP % NWORDS))
 
 // Each word has either BASE_BITLEN ("small word") or BASE_BITLEN+1 ("big word") bits.
 #define BASE_BITLEN (EXP / NWORDS)
@@ -147,7 +147,7 @@ T2 addsub(T2 a) { return U2(add1(a.x, a.y), sub1(a.x, a.y)); }
 T2 swap(T2 a) { return U2(a.y, a.x); }
 T2 conjugate(T2 a) { return U2(a.x, neg(a.y)); }
 
-uint extra(uint k) { return mul24(k, STEP) & (NWORDS - 1); }
+uint extra(uint k) { return mul24(k, STEP) % NWORDS; }
 
 void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
 void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
@@ -267,6 +267,10 @@ void fft4Core(T2 *u) {
   u[3] = mul_t4(u[3]);
   X2(u[0], u[1]);
   X2(u[2], u[3]);
+}
+
+void fft6Core(T2 *u) {
+
 }
 
 void fft8Core(T2 *u) {

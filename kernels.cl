@@ -35,7 +35,7 @@ KERNEL(256) square(P(T2) io, Trig bigTrig)  { csquare(HEIGHT, WIDTH, io, bigTrig
 KERNEL(256) multiply(P(T2) io, CP(T2) in, Trig bigTrig)  { cmul(HEIGHT, WIDTH, io, in, bigTrig); }
 
 // The "carryConvolution" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
-// It uses "stairway" carry data forwarding from group K to group K+1.
+// It uses "stairway" carry data forwarding from one group to the next.
 // N gives the FFT size, W = N * 256.
 // H gives the nuber of "lines" of FFT.
 KERNEL(256) carryConv(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
