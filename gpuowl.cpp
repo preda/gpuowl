@@ -918,7 +918,7 @@ int main(int argc, char **argv) {
   Queue queueHolder{makeQueue(device, context)};
   cl_queue queue = queueHolder.get();
 
-  int MAX_2M = 40000000, MAX_4M = 78000000;
+  int MAX_2M = 40000000, MAX_4M = 78400000;
   
   
   while (true) {
