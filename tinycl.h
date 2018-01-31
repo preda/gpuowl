@@ -21,6 +21,7 @@ typedef unsigned cl_program_info;
 typedef unsigned cl_device_info;
 typedef unsigned cl_kernel_info;
 typedef unsigned cl_kernel_arg_info;
+typedef unsigned cl_kernel_work_group_info;
 
 typedef u64 cl_mem_flags;
 typedef u64 cl_device_type;
@@ -63,6 +64,7 @@ int clWaitForEvents(unsigned numEvents, const cl_event *);
 
 int clGetKernelInfo(cl_kernel, cl_kernel_info, size_t, void *, size_t *);
 int clGetKernelArgInfo(cl_kernel, unsigned, cl_kernel_arg_info, size_t, void *, size_t *);
+int clGetKernelWorkGroupInfo(cl_kernel, cl_device_id, cl_kernel_work_group_info, size_t, void *, size_t *);
   
 }
 
@@ -98,6 +100,9 @@ int clGetKernelArgInfo(cl_kernel, unsigned, cl_kernel_arg_info, size_t, void *, 
 
 #define CL_KERNEL_NUM_ARGS        0x1191
 #define CL_KERNEL_ARG_NAME        0x119A
+#define CL_KERNEL_ATTRIBUTES      0x1195
+
+#define CL_KERNEL_COMPILE_WORK_GROUP_SIZE 0x11B1
 
 // AMD
 #define CL_DEVICE_TOPOLOGY_AMD    0x4037

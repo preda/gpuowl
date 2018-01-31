@@ -631,7 +631,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   bool timeKernels = args.timeKernels;
   
-#define LOAD(name, nWords, wordsPerThread) Kernel name(program.get(), queue, nWords, #name, wordsPerThread, timeKernels)
+#define LOAD(name, nWords, wordsPerThread) Kernel name(program.get(), device, queue, nWords, #name, wordsPerThread, timeKernels)
 
   string config = getHwName(device) + "_" + configName;
   program.reset(compile(device, context, "autoconv", clArgs, defines, config));
@@ -656,6 +656,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   LOAD(multiply, N, 4);
     
   LOAD(carryConv, N + W * 2, nW * 2);
+
+  // LOAD(test, N, 4);
+  Kernel test(program.get(), device, queue, N, "test", 4, false);
 #undef LOAD
 
   // dumpBinary(program.get(), string("autoconv_") + configName);
@@ -717,6 +720,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   Buffer &trigW = (W == 1024) ? bufTrig1K : bufTrig2K;
   Buffer &trigH = (H == 1024) ? bufTrig1K : bufTrig2K;
 
+  test.setArg("io", buf1);
+  test();
+  
   fftP.setArg("out", buf1);
   fftP.setArg("A", bufA);
   fftP.setArg("smallTrig", trigW);

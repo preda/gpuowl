@@ -36,6 +36,7 @@ class Kernel {
   u64 timeSum;
   u64 nCalls;
   bool doTime;
+  int groupSize;
 
   int getArgPos(const std::string &name) {
     for (int i = 0; i < nArgs; ++i) { if (argNames[i] == name) { return i; } }
@@ -43,7 +44,7 @@ class Kernel {
   }
   
 public:
-  Kernel(cl_program program, cl_queue q, int N, const std::string &name, int itemsPerThread, bool doTime) :
+  Kernel(cl_program program, cl_device_id device, cl_queue q, int N, const std::string &name, int itemsPerThread, bool doTime) :
     kernel(makeKernel(program, name.c_str())),
     queue(q),
     N(N),
@@ -52,24 +53,23 @@ public:
     name(name),
     timeSum(0),
     nCalls(0),
-    doTime(doTime)
+    doTime(doTime),
+    groupSize(getWorkGroupSize(kernel.get(), device))
   {
     assert(N % itemsPerThread == 0);
     assert(nArgs >= 0);
     for (int i = 0; i < nArgs; ++i) { argNames.push_back(getKernelArgName(kernel.get(), i)); }
-    // log("kernel %s: %d args, arg0 %s\n", name.c_str(), getKernelNumArgs(kernel.get()), getKernelArgName(kernel.get(), 0).c_str());
-    // log("kernel %s, queue %p\n", name, q);
   }
   
   void operator()() {
     if (doTime) {
       Timer timer;
-      ::run(queue, kernel.get(), N / itemsPerThread, name);
+      ::run(queue, kernel.get(), groupSize, N / itemsPerThread, name);
       finish();
       timeSum += timer.deltaMicros();
       ++nCalls;
     } else {
-      ::run(queue, kernel.get(), N / itemsPerThread, name);
+      ::run(queue, kernel.get(), groupSize, N / itemsPerThread, name);
     }
   }
   

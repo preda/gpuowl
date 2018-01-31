@@ -263,8 +263,8 @@ cl_queue makeQueue(cl_device_id d, cl_context c) {
 void flush( cl_queue q) { CHECK(clFlush(q)); }
 void finish(cl_queue q) { CHECK(clFinish(q)); }
 
-void run(cl_queue queue, cl_kernel kernel, size_t workSize, const string &name) {
-  size_t groupSize = 256;
+void run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
+  // size_t groupSize = 256;
   CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL), name.c_str());
 }
 
@@ -280,6 +280,18 @@ int getKernelNumArgs(cl_kernel k) {
   int nArgs = 0;
   CHECK(clGetKernelInfo(k, CL_KERNEL_NUM_ARGS, sizeof(nArgs), &nArgs, NULL));
   return nArgs;
+}
+
+std::string getKernelAttributes(cl_kernel k) {
+  char buf[512];
+  CHECK(clGetKernelInfo(k, CL_KERNEL_ATTRIBUTES, sizeof(buf), &buf, NULL));
+  return buf;
+}
+
+int getWorkGroupSize(cl_kernel k, cl_device_id device) {
+  size_t size[3];
+  CHECK(clGetKernelWorkGroupInfo(k, device, CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(size), &size, NULL));
+  return size[0];
 }
 
 std::string getKernelArgName(cl_kernel k, int pos) {
