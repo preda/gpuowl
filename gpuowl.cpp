@@ -201,12 +201,29 @@ T2 *smallTrigBlock(int W, int H, T2 *p) {
 
 template<typename T2>
 cl_mem genSmallTrig2K(cl_context context) {
-  int size = 4 * 512;
+  int size = 4 * 512; // == 8 * 256.
   T2 *tab = new T2[size]();
   T2 *p   = tab + 8;
   p = smallTrigBlock(  8, 8, p);
   p = smallTrigBlock( 64, 8, p);
   p = smallTrigBlock(512, 4, p);
+  assert(p - tab == size);
+  
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
+  delete[] tab;
+  return buf;
+}
+
+template<typename T2>
+cl_mem genSmallTrig2KTry(cl_context context) {
+  int size = 4 * 512;
+  T2 *tab = new T2[size]();
+  T2 *p   = tab + 4;
+  p = smallTrigBlock(   4, 4, p);
+  p = smallTrigBlock(  16, 4, p);
+  p = smallTrigBlock(  64, 4, p);
+  p = smallTrigBlock( 256, 4, p);
+  p = smallTrigBlock(1024, 2, p);
   assert(p - tab == size);
   
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
@@ -658,12 +675,30 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   LOAD(carryConv, N + W * 2, nW * 2);
 
   // LOAD(test, N, 4);
-  Kernel test(program.get(), device, queue, N, "test", 4, false);
+  // Kernel test(program.get(), device, queue, N, "test", 4, false);
+
+  // LOAD(fftHTry, 512, 1);
+  // Kernel fftH(program.get(), device, queue, N, "fftHTry", 4 * 2, timeKernels);
 #undef LOAD
 
   // dumpBinary(program.get(), string("autoconv_") + configName);
   program.reset();
 
+  /*
+  double *test = new double[2 * 2048]();
+  test[0] = 3;
+  Buffer tmp{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
+                     4 * 512 * 2 * sizeof(double), test) };
+
+  fftHTry.setArg("io", tmp);
+  fftHTry.setArg("smallTrig", genSmallTrig2KTry<double2>(context));
+  fftHTry();
+  double out[4 * 512 * 2] = {0};
+  ::read(queue, true, tmp.get(), 4 * 512 * 2 * sizeof(double), out);
+  for (int i = 0; i < 10; ++i) {
+    printf("%d %f\n", i, out[i]);
+  }
+  */
   
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
 
@@ -720,8 +755,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   Buffer &trigW = (W == 1024) ? bufTrig1K : bufTrig2K;
   Buffer &trigH = (H == 1024) ? bufTrig1K : bufTrig2K;
 
-  test.setArg("io", buf1);
-  test();
+  // test.setArg("io", buf1);
+  // test();
   
   fftP.setArg("out", buf1);
   fftP.setArg("A", bufA);
@@ -732,6 +767,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   fftH.setArg("io", buf2);
   fftH.setArg("smallTrig", trigH);
+  // fftH.setArg("smallTrig", genSmallTrig2KTry<double2>(context));
   
   transposeW.setArg("in",  buf1);
   transposeW.setArg("out", buf2);
@@ -788,7 +824,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     fftP();
     transposeW();
     tail();
-    // autoConv(); // fftH.get(), square.get(), fftH.get()
     transposeH();    
   };
 
@@ -822,8 +857,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     for (int i = 0; i < nIters - 1; ++i) { coreKerns(); }
 
     exitKerns(io, doMul3);
-
-    // if (args.timeKernels) { logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryConv}, nIters); }
   };
 
   auto directFFT = [&fftP, &transposeW, &fftH](cl_mem in, cl_mem out) {

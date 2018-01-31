@@ -12,6 +12,19 @@ KERNEL(256) fftH(P(T2) io, Trig smallTrig) {
   fft(N_HEIGHT, lds, u, io, smallTrig);
 }
 
+KERNEL(512) fftHTry(P(T2) io, Trig smallTrig) {
+  local T lds[2048];
+  T2 u[4];
+
+  uint g = get_group_id(0);
+  uint step = g * (4 * 512);
+  io += step;
+
+  read(512, 4, u, io, 0);
+  fft2kTry(512, lds, u, smallTrig);
+  write(512, 4, u, io, 0);
+}
+
 KERNEL(256) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   local T lds[WIDTH];
   T2 u[N_WIDTH];
@@ -52,7 +65,7 @@ KERNEL(256) carryConv(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   iA    += step;
   
   T2 u[N_WIDTH];
-  read(N_WIDTH, u, io, 0);
+  read(256, N_WIDTH, u, io, 0);
   fftImpl(N_WIDTH, lds, u, smallTrig);
 
   Word2 word[N_WIDTH];
@@ -84,7 +97,7 @@ KERNEL(256) carryConv(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   }
 
   fftImpl(N_WIDTH, lds, u, smallTrig);
-  write(N_WIDTH, u, io, 0);
+  write(256, N_WIDTH, u, io, 0);
 }
 
 KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig bigTrig) {

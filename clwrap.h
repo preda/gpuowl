@@ -282,12 +282,6 @@ int getKernelNumArgs(cl_kernel k) {
   return nArgs;
 }
 
-std::string getKernelAttributes(cl_kernel k) {
-  char buf[512];
-  CHECK(clGetKernelInfo(k, CL_KERNEL_ATTRIBUTES, sizeof(buf), &buf, NULL));
-  return buf;
-}
-
 int getWorkGroupSize(cl_kernel k, cl_device_id device) {
   size_t size[3];
   CHECK(clGetKernelWorkGroupInfo(k, device, CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(size), &size, NULL));
