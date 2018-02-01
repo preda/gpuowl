@@ -109,10 +109,3 @@ KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig bigTrig) {
   local T lds[4096];
   transpose(HEIGHT, WIDTH, max(WIDTH, HEIGHT), lds, in, out, bigTrig);
 }
-
-KERNEL(1024) test(P(T2) io) {
-  local T lds[4096];
-  T2 u[4];
-  u[0] = io[get_global_id(0)];
-  io[get_global_id(0)] = get_global_id(0);
-}

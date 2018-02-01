@@ -589,8 +589,8 @@ void transposeCore(local T *lds, T2 *u) {
     if (b) { bar(); }
     for (int i = 0; i < 16; ++i) {
       uint l = i * 4 + me / 64;
-      uint c = me % 64;
-      lds[l * 64 + (c + l) % 64] = ((T *)(u + i))[b];
+      // uint c = me % 64;
+      lds[l * 64 + (me + l) % 64 ] = ((T *)(u + i))[b];
     }
     bar();
     for (int i = 0; i < 16; ++i) {
