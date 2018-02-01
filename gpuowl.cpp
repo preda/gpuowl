@@ -200,13 +200,13 @@ T2 *smallTrigBlock(int W, int H, T2 *p) {
 }
 
 template<typename T2>
-cl_mem genSmallTrig2K(cl_context context) {
-  int size = 4 * 512; // == 8 * 256.
+cl_mem genSmallTrig4K(cl_context context) {
+  int size = 8 * 512;
   T2 *tab = new T2[size]();
   T2 *p   = tab + 8;
   p = smallTrigBlock(  8, 8, p);
   p = smallTrigBlock( 64, 8, p);
-  p = smallTrigBlock(512, 4, p);
+  p = smallTrigBlock(512, 8, p);
   assert(p - tab == size);
   
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
@@ -215,15 +215,13 @@ cl_mem genSmallTrig2K(cl_context context) {
 }
 
 template<typename T2>
-cl_mem genSmallTrig2KTry(cl_context context) {
-  int size = 4 * 512;
+cl_mem genSmallTrig2K(cl_context context) {
+  int size = 4 * 512; // == 8 * 256.
   T2 *tab = new T2[size]();
-  T2 *p   = tab + 4;
-  p = smallTrigBlock(   4, 4, p);
-  p = smallTrigBlock(  16, 4, p);
-  p = smallTrigBlock(  64, 4, p);
-  p = smallTrigBlock( 256, 4, p);
-  p = smallTrigBlock(1024, 2, p);
+  T2 *p   = tab + 8;
+  p = smallTrigBlock(  8, 8, p);
+  p = smallTrigBlock( 64, 8, p);
+  p = smallTrigBlock(512, 4, p);
   assert(p - tab == size);
   
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
@@ -246,6 +244,25 @@ cl_mem genSmallTrig1K(cl_context context) {
   delete[] tab;
   return buf;
 }
+
+/*
+template<typename T2>
+cl_mem genSmallTrig2KTry(cl_context context) {
+  int size = 4 * 512;
+  T2 *tab = new T2[size]();
+  T2 *p   = tab + 4;
+  p = smallTrigBlock(   4, 4, p);
+  p = smallTrigBlock(  16, 4, p);
+  p = smallTrigBlock(  64, 4, p);
+  p = smallTrigBlock( 256, 4, p);
+  p = smallTrigBlock(1024, 2, p);
+  assert(p - tab == size);
+  
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
+  delete[] tab;
+  return buf;
+}
+*/
 
 template<typename T>
 void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {

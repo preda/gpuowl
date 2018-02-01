@@ -13,6 +13,8 @@ KERNEL(256) fftW(P(T2) io, Trig smallTrig) {
   write(256, N_WIDTH, u, io, 0);
 }
 
+#if HEIGHT <= 2048
+
 KERNEL(256) fftH(P(T2) io, Trig smallTrig) {
   local T lds[HEIGHT];
   T2 u[N_HEIGHT];
@@ -26,7 +28,9 @@ KERNEL(256) fftH(P(T2) io, Trig smallTrig) {
   write(256, N_HEIGHT, u, io, 0);
 }
 
-KERNEL(512) fft4K(P(T2) io, Trig smallTrig) {
+#else
+
+KERNEL(512) fftH(P(T2) io, Trig smallTrig) {
   local T lds[4096];
   T2 u[8];
 
@@ -38,6 +42,8 @@ KERNEL(512) fft4K(P(T2) io, Trig smallTrig) {
   fftImpl(4096, lds, u, smallTrig);
   write(512, 8, u, io, 0);
 }
+
+#endif
 
 KERNEL(256) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   local T lds[WIDTH];
