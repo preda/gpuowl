@@ -88,46 +88,6 @@ ulong2 U2(u64 x, u64 y) { return ulong2{x, y}; }
 u32 lo(u64 a) { return a & 0xffffffffu; }
 u32 up(u64 a) { return a >> 32; }
 
-/*
-#define FGT_31 1
-#define T  u32
-#define T2 uint2
-#include "nttshared.h"
-#undef MBITS
-#undef TBITS
-#undef T
-#undef T2
-#undef FGT_31
-
-#define FGT_61 1
-#define T  u64
-#define T2 ulong2
-#include "nttshared.h"
-#undef MBITS
-#undef TBITS
-#undef T2
-#undef T
-#undef FGT_61
-*/
-
-// power: a^k
-template<typename T2>
-T2 pow(T2 a, u32 k) {  
-  T2 x{1, 0};
-  for (int i = std::log2(k); i >= 0; --i) {
-    x = sq(x);
-    if (k & (1 << i)) { x = mul(x, a); }    
-  }
-  return x;
-}
-
-// a^(2^k)
-template<typename T2>
-T2 pow2(T2 a, u32 k) {
-  for (u32 i = 0; i < k; ++i) { a = sq(a); }
-  return a;
-}
-
 // Returns the primitive root of unity of order N, to the power k.
 template<typename T2> T2 root1(u32 N, u32 k);
 
@@ -590,30 +550,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   append(defines, valueDefine("LOG_NWORDS", std::log2(N)));
   
-  switch (args.fftKind) {
-  case Args::M31:
-    append(defines, "FGT_31=1");    
-    // (2^LOG_ROOT2)^N == 2 (mod M31), so LOG_ROOT2 * N == 1 (mod 31) == 32 (mod 31), so LOG_ROOT2 = 32 / (N % 31) (mod 31).  
-    append(defines, valueDefine("LOG_ROOT2", (32 / (N % 31)) % 31));
-    break;
-
-  case Args::M61:
-    append(defines, "FGT_61=1");
-    append(defines, valueDefine("LOG_ROOT2", modInv(N, 61)));
-    break;
-
-  case Args::DP:  
-    append(defines, "FP_DP=1");
-    break;
-
-  case Args::SP:
-    append(defines, "FP_SP=1");
-    break;
-
-  default:
-    assert(false);
-  }
-
   string clArgs = args.clArgs;
   if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
     
