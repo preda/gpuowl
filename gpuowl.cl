@@ -313,6 +313,17 @@ void tabMul(uint WG, const G T2 *trig, T2 *u, uint n, uint f) {
 }
 
 void fft1kImpl(local T *lds, T2 *u, const G T2 *trig) {
+  for (int s = 6; s >= 0; s -= 2) {
+    fft4(u);
+    
+    if (s != 6) { bar(); }
+    shufl (256, lds,  u, 4, 1 << s);
+    tabMul(256, trig, u, 4, 1 << s);
+  }
+
+  fft4(u);
+
+  /*
   fft4(u);
   shufl(256, lds,   u, 4, 64);
   tabMul(256, trig, u, 4, 64);
@@ -333,6 +344,7 @@ void fft1kImpl(local T *lds, T2 *u, const G T2 *trig) {
   tabMul(256, trig, u, 4, 1);
 
   fft4(u);
+  */
 }
 
 void fft2kTry(uint WG, local T *lds, T2 *u, const G T2 *trig) {
@@ -375,6 +387,8 @@ void fft2kTry(uint WG, local T *lds, T2 *u, const G T2 *trig) {
   //interleave
   SWAP(u[1], u[2]);
 }
+
+// void fft4k(uint WG, local T *lds, 
 
 void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
   fft8(u);
