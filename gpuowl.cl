@@ -440,6 +440,7 @@ void write(uint WG, uint N, T2 *u, G T2 *out, uint base) {
 }
 
 // FFT of size N * 256, WG==256.
+/*
 void fft(uint N, local T *lds, T2 *u, G T2 *io, const G T2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
@@ -449,6 +450,7 @@ void fft(uint N, local T *lds, T2 *u, G T2 *io, const G T2 *trig) {
   fftImpl(N * 256, lds, u, trig);
   write(256, N, u, io, 0);
 }
+*/
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 void fftPremul(uint N, uint H, local T *lds, T2 *u, const G Word2 *in, G T2 *out, const G T2 *A, const G T2 *trig) {

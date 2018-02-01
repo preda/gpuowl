@@ -3,13 +3,30 @@
 KERNEL(256) fftW(P(T2) io, Trig smallTrig) {
   local T lds[WIDTH];
   T2 u[N_WIDTH];
-  fft(N_WIDTH, lds, u, io, smallTrig);
+  // fft(N_WIDTH, lds, u, io, smallTrig);
+
+  uint g = get_group_id(0);
+  uint step = g * WIDTH;
+  io += step;
+
+  read(256, N_WIDTH, u, io, 0);
+  fftImpl(WIDTH, lds, u, smallTrig);
+  write(256, N_WIDTH, u, io, 0);
 }
 
 KERNEL(256) fftH(P(T2) io, Trig smallTrig) {
   local T lds[HEIGHT];
   T2 u[N_HEIGHT];
-  fft(N_HEIGHT, lds, u, io, smallTrig);
+  // fft(N_HEIGHT, lds, u, io, smallTrig);
+
+  uint g = get_group_id(0);
+  uint step = g * HEIGHT;
+  io += step;
+
+  read(256, N_HEIGHT, u, io, 0);
+  fftImpl(HEIGHT, lds, u, smallTrig);
+  write(256, N_HEIGHT, u, io, 0);
+
 }
 
 KERNEL(512) fftHTry(P(T2) io, Trig smallTrig) {
