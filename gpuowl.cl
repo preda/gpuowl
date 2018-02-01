@@ -670,3 +670,238 @@ KERNEL(512) fftHTry(P(T2) io, Trig smallTrig) {
   write(512, 4, u, io, 0);
 }
 */
+
+KERNEL(256) fftW(P(T2) io, Trig smallTrig) {
+  local T lds[WIDTH];
+  T2 u[N_WIDTH];
+
+  uint g = get_group_id(0);
+  uint step = g * WIDTH;
+  io += step;
+
+  read(256, N_WIDTH, u, io, 0);
+  fftImpl(WIDTH, lds, u, smallTrig);
+  write(256, N_WIDTH, u, io, 0);
+}
+
+#if HEIGHT <= 2048
+
+KERNEL(256) fftH(P(T2) io, Trig smallTrig) {
+  local T lds[HEIGHT];
+  T2 u[N_HEIGHT];
+ 
+  uint g = get_group_id(0);
+  uint step = g * HEIGHT;
+  io += step;
+
+  read(256, N_HEIGHT, u, io, 0);
+  fftImpl(HEIGHT, lds, u, smallTrig);
+  write(256, N_HEIGHT, u, io, 0);
+}
+
+#else
+
+KERNEL(512) fftH(P(T2) io, Trig smallTrig) {
+  local T lds[4096];
+  T2 u[8];
+
+  uint g = get_group_id(0);
+  uint step = g * 4096;
+  io += step;
+
+  read(512, 8, u, io, 0);
+  fftImpl(4096, lds, u, smallTrig);
+  write(512, 8, u, io, 0);
+}
+
+#endif
+
+KERNEL(256) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
+  local T lds[WIDTH];
+  T2 u[N_WIDTH];
+  fftPremul(N_WIDTH, HEIGHT, lds, u, in, out, A, smallTrig);
+}
+
+KERNEL(256) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
+  carryACore(N_WIDTH, HEIGHT, 1, in, A, out, carryOut);
+}
+
+KERNEL(256) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
+  carryACore(N_WIDTH, HEIGHT, 3, in, A, out, carryOut);
+}
+
+KERNEL(256) carryB(P(Word2) io, CP(Carry) carryIn) {
+  carryBCore(N_WIDTH, HEIGHT, io, carryIn);
+}
+
+KERNEL(256) square(P(T2) io, Trig bigTrig)  { csquare(HEIGHT, WIDTH, io, bigTrig); }
+
+KERNEL(256) multiply(P(T2) io, CP(T2) in, Trig bigTrig)  { cmul(HEIGHT, WIDTH, io, in, bigTrig); }
+
+// The "carryConvolution" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
+// It uses "stairway" carry data forwarding from one group to the next.
+// N gives the FFT size, W = N * 256.
+// H gives the nuber of "lines" of FFT.
+KERNEL(256) carryConv(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
+                      CP(T2) A, CP(T2) iA, Trig smallTrig) {
+  local T lds[WIDTH];
+
+  uint gr = get_group_id(0);
+  uint gm = gr % HEIGHT;
+  uint me = get_local_id(0);
+  uint step = gm * WIDTH;
+
+  io    += step;
+  A     += step;
+  iA    += step;
+  
+  T2 u[N_WIDTH];
+  read(256, N_WIDTH, u, io, 0);
+  fftImpl(N_WIDTH * 256, lds, u, smallTrig);
+
+  Word2 word[N_WIDTH];
+  for (int i = 0; i < N_WIDTH; ++i) {
+    uint p = i * 256 + me;
+    uint pos = gm + HEIGHT * 256 * i + HEIGHT * me;
+    Carry carry = 0;
+    word[i] = unweightAndCarry(1, conjugate(u[i]), &carry, pos, iA, p);
+    if (gr < HEIGHT) { carryShuttle[gr * WIDTH + p] = carry; }
+  }
+
+  bigBar();
+
+  // Signal that this group is done writing the carry.
+  if (gr < HEIGHT && me == 0) { atomic_xchg(&ready[gr], 1); }
+
+  if (gr == 0) { return; }
+
+  // Wait until the previous group is ready with the carry.
+  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
+
+  bigBar();
+  
+  for (int i = 0; i < N_WIDTH; ++i) {
+    uint p = i * 256 + me;
+    uint pos = gm + HEIGHT * 256 * i + HEIGHT * me;
+    Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p - gr / HEIGHT) & (WIDTH - 1))];
+    u[i] = carryAndWeightFinal(word[i], carry, pos, A, p);
+  }
+
+  fftImpl(N_WIDTH * 256, lds, u, smallTrig);
+  write(256, N_WIDTH, u, io, 0);
+}
+
+KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig bigTrig) {
+  local T lds[4096];
+  transpose(WIDTH, HEIGHT, max(WIDTH, HEIGHT), lds, in, out, bigTrig);
+}
+
+KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig bigTrig) {
+  local T lds[4096];
+  transpose(HEIGHT, WIDTH, max(WIDTH, HEIGHT), lds, in, out, bigTrig);
+}
+
+void reverse8(local T2 *lds, T2 *u, bool bump) {
+  uint me = get_local_id(0);
+  uint rm = 255 - me + bump;
+  
+  bar();
+
+  lds[rm + 0 * 256] = u[7];
+  lds[rm + 1 * 256] = u[6];
+  lds[rm + 2 * 256] = u[5];
+  lds[bump ? ((rm + 3 * 256) & 1023) : (rm + 3 * 256)] = u[4];
+  
+  bar();
+  for (int i = 0; i < 4; ++i) { u[4 + i] = lds[256 * i + me]; }
+}
+
+void reverse4(local T2 *lds, T2 *u, bool bump) {
+  uint me = get_local_id(0);
+  uint rm = 255 - me + bump;
+  
+  bar();
+
+  lds[rm + 0 * 256] = u[3];
+  lds[bump ? ((rm + 256) & 511) : (rm + 256)] = u[2];
+  
+  bar();
+  u[2] = lds[me];
+  u[3] = lds[me + 256];
+}
+
+void reverse(uint N, local T2 *lds, T2 *u, bool bump) {
+  if (N == 4) {
+    reverse4(lds, u, bump);
+  } else {
+    reverse8(lds, u, bump);
+  }
+}
+
+void halfSq(uint N, T2 *u, T2 *v, T2 tt, const G T2 *bigTrig, bool special) {
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+  for (int i = 0; i < N / 2; ++i) {
+    T2 a = u[i];
+    T2 b = conjugate(v[N / 2 + i]);
+    T2 t = swap(mul(tt, bigTrig[256 * i + me]));
+    if (special && i == 0 && g == 0 && me == 0) {
+      a = shl(foo(a), 2);
+      b = shl(sq(b), 3);
+    } else {
+      X2(a, b);
+      b = mul(b, conjugate(t));
+      X2(a, b);
+      a = sq(a);
+      b = sq(b);
+      X2(a, b);
+      b = mul(b, t);
+      X2(a, b);
+    }
+    u[i] = conjugate(a);
+    v[N / 2 + i] = b;
+  }
+}
+
+void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T2 *trig, const G T2 *bigTrig) {
+  uint W = N * 256;
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+  
+  read(256, N, u, io, g * W);
+  fftImpl(N * 256, lds, u, trig);
+  reverse(N, (local T2 *) lds, u, g == 0);
+  
+  uint line2 = g ? H - g : (H / 2);
+  read(256, N, v, io, line2 * W);
+  bar();
+  fftImpl(N * 256, lds, v, trig);
+  reverse(N, (local T2 *) lds, v, false);
+  
+  if (g == 0) { for (int i = N / 2; i < N; ++i) { SWAP(u[i], v[i]); } }
+
+  halfSq(N, u, v, bigTrig[W * 2 + (H / 2) + g],     bigTrig, true);
+  
+  halfSq(N, v, u, bigTrig[W * 2 + (H / 2) + line2], bigTrig, false);
+
+  if (g == 0) { for (int i = N / 2; i < N; ++i) { SWAP(u[i], v[i]); } }
+
+  reverse(N, (local T2 *) lds, u, g == 0);
+  reverse(N, (local T2 *) lds, v, false);
+  
+  bar();
+  fftImpl(N * 256, lds, u, trig);
+  write(256, N, u, io, g * W);
+  
+  bar();
+  fftImpl(N * 256, lds, v, trig);
+  write(256, N, v, io, line2 * W);  
+}
+
+// "auto convolution" is equivalent to the sequence: fftH, square, fftH.
+KERNEL(256) autoConv(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
+  local T lds[HEIGHT];
+  T2 u[N_HEIGHT];
+  T2 v[N_HEIGHT];
+  convolution(N_HEIGHT, WIDTH, lds, u, v, io, smallTrig, bigTrig);
+}
