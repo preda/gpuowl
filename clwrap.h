@@ -210,7 +210,7 @@ string join(const string &prefix, const vector<string> &elems) {
 
 cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
                    const vector<string> &defVect, const string &config) {
-  string args = join(" -D", defVect) + " " + extraArgs + " " + "-I. -cl-fast-relaxed-math ";
+  string args = join(" -D", defVect) + " " + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-kernel-arg-info ";
 
   cl_program program = 0;
   
