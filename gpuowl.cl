@@ -324,47 +324,6 @@ void fft1kImpl(local T *lds, T2 *u, const G T2 *trig) {
   fft4(u);
 }
 
-void fft2kTry(uint WG, local T *lds, T2 *u, const G T2 *trig) {
-  fft4(u);
-  shufl(WG, lds,   u, 4, 128);
-  tabMul(WG, trig, u, 4, 128);
-
-  fft4(u);
-  bar();
-  shufl(WG, lds,   u, 4, 32);
-  tabMul(WG, trig, u, 4, 32);
-
-  fft4(u);
-  bar();
-  shufl(WG, lds,   u, 4, 8);
-  tabMul(WG, trig, u, 4, 8);
-
-  fft4(u);
-  bar();
-  shufl(WG, lds,   u, 4, 2);
-  tabMul(WG, trig, u, 4, 2);
-
-  fft4(u);
-  uint me = get_local_id(0);
-  for (int b = 0; b < 2; ++b) {
-    bar();
-    for (int i = 0; i < 4; ++i) { lds[(me + i * WG) / 2 + me % 2 * 2 * WG] = ((T *) (u + i))[b]; }
-    bar();
-    for (int i = 0; i < 2; ++i) {
-      ((T *) (u + i))[b]     = lds[i * 2 * WG + me];
-      ((T *) (u + i + 2))[b] = lds[i * 2 * WG + WG + me]; 
-    }
-  }
-
-  u[1] = mul(u[1], trig[2 * WG + me]);
-  u[3] = mul(u[3], trig[2 * WG + WG + me]);
-
-  X2(u[0], u[1]);
-  X2(u[2], u[3]);
-  //interleave
-  SWAP(u[1], u[2]);
-}
-
 // WG:512, LDS:32KB, u:8.
 void fft4kImpl(local T *lds, T2 *u, const G T2 *trig) {
   for (int s = 6; s >= 0; s -= 3) {
@@ -428,7 +387,13 @@ void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
 
 // choose between 1K and 2K based on N.
 void fftImpl(uint SIZE, local T *lds, T2 *u, const G T2 *trig) {
-  if (SIZE == 1024) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
+  if (SIZE == 1024) {
+    fft1kImpl(lds, u, trig);
+  } else if (SIZE == 2048) {
+    fft2kImpl(lds, u, trig);
+  } else if (SIZE == 4096) {
+    fft4kImpl(lds, u, trig);
+  }
 }
 
 void read(uint WG, uint N, T2 *u, G T2 *in, uint base) {
@@ -438,19 +403,6 @@ void read(uint WG, uint N, T2 *u, G T2 *in, uint base) {
 void write(uint WG, uint N, T2 *u, G T2 *out, uint base) {
   for (int i = 0; i < N; ++i) { out[base + i * WG + (uint) get_local_id(0)] = u[i]; }
 }
-
-// FFT of size N * 256, WG==256.
-/*
-void fft(uint N, local T *lds, T2 *u, G T2 *io, const G T2 *trig) {
-  uint g = get_group_id(0);
-  uint step = g * (N * 256);
-  io += step;
-
-  read(256, N, u, io, 0);
-  fftImpl(N * 256, lds, u, trig);
-  write(256, N, u, io, 0);
-}
-*/
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 void fftPremul(uint N, uint H, local T *lds, T2 *u, const G Word2 *in, G T2 *out, const G T2 *A, const G T2 *trig) {
@@ -659,3 +611,62 @@ typedef CP(T2) Trig;
 typedef CP(T2) restrict Trig;
 
 #endif
+
+
+
+/*
+// experimental 2K fft implemented with 512 WG size.
+void fft2kTry(uint WG, local T *lds, T2 *u, const G T2 *trig) {
+  fft4(u);
+  shufl(WG, lds,   u, 4, 128);
+  tabMul(WG, trig, u, 4, 128);
+
+  fft4(u);
+  bar();
+  shufl(WG, lds,   u, 4, 32);
+  tabMul(WG, trig, u, 4, 32);
+
+  fft4(u);
+  bar();
+  shufl(WG, lds,   u, 4, 8);
+  tabMul(WG, trig, u, 4, 8);
+
+  fft4(u);
+  bar();
+  shufl(WG, lds,   u, 4, 2);
+  tabMul(WG, trig, u, 4, 2);
+
+  fft4(u);
+  uint me = get_local_id(0);
+  for (int b = 0; b < 2; ++b) {
+    bar();
+    for (int i = 0; i < 4; ++i) { lds[(me + i * WG) / 2 + me % 2 * 2 * WG] = ((T *) (u + i))[b]; }
+    bar();
+    for (int i = 0; i < 2; ++i) {
+      ((T *) (u + i))[b]     = lds[i * 2 * WG + me];
+      ((T *) (u + i + 2))[b] = lds[i * 2 * WG + WG + me]; 
+    }
+  }
+
+  u[1] = mul(u[1], trig[2 * WG + me]);
+  u[3] = mul(u[3], trig[2 * WG + WG + me]);
+
+  X2(u[0], u[1]);
+  X2(u[2], u[3]);
+  //interleave
+  SWAP(u[1], u[2]);
+}
+
+KERNEL(512) fftHTry(P(T2) io, Trig smallTrig) {
+  local T lds[2048];
+  T2 u[4];
+
+  uint g = get_group_id(0);
+  uint step = g * 2048;
+  io += step;
+
+  read(512, 4, u, io, 0);
+  fft2kTry(512, lds, u, smallTrig);
+  write(512, 4, u, io, 0);
+}
+*/

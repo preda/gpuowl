@@ -3,7 +3,6 @@
 KERNEL(256) fftW(P(T2) io, Trig smallTrig) {
   local T lds[WIDTH];
   T2 u[N_WIDTH];
-  // fft(N_WIDTH, lds, u, io, smallTrig);
 
   uint g = get_group_id(0);
   uint step = g * WIDTH;
@@ -17,7 +16,6 @@ KERNEL(256) fftW(P(T2) io, Trig smallTrig) {
 KERNEL(256) fftH(P(T2) io, Trig smallTrig) {
   local T lds[HEIGHT];
   T2 u[N_HEIGHT];
-  // fft(N_HEIGHT, lds, u, io, smallTrig);
 
   uint g = get_group_id(0);
   uint step = g * HEIGHT;
@@ -26,20 +24,6 @@ KERNEL(256) fftH(P(T2) io, Trig smallTrig) {
   read(256, N_HEIGHT, u, io, 0);
   fftImpl(HEIGHT, lds, u, smallTrig);
   write(256, N_HEIGHT, u, io, 0);
-
-}
-
-KERNEL(512) fftHTry(P(T2) io, Trig smallTrig) {
-  local T lds[2048];
-  T2 u[4];
-
-  uint g = get_group_id(0);
-  uint step = g * 2048;
-  io += step;
-
-  read(512, 4, u, io, 0);
-  fft2kTry(512, lds, u, smallTrig);
-  write(512, 4, u, io, 0);
 }
 
 KERNEL(512) fft4K(P(T2) io, Trig smallTrig) {
@@ -51,7 +35,7 @@ KERNEL(512) fft4K(P(T2) io, Trig smallTrig) {
   io += step;
 
   read(512, 8, u, io, 0);
-  fft4kImpl(lds, u, smallTrig);
+  fftImpl(4096, lds, u, smallTrig);
   write(512, 8, u, io, 0);
 }
 
