@@ -88,6 +88,7 @@ ulong2 U2(u64 x, u64 y) { return ulong2{x, y}; }
 u32 lo(u64 a) { return a & 0xffffffffu; }
 u32 up(u64 a) { return a >> 32; }
 
+/*
 #define FGT_31 1
 #define T  u32
 #define T2 uint2
@@ -107,6 +108,7 @@ u32 up(u64 a) { return a >> 32; }
 #undef T2
 #undef T
 #undef FGT_61
+*/
 
 // power: a^k
 template<typename T2>
@@ -129,38 +131,11 @@ T2 pow2(T2 a, u32 k) {
 // Returns the primitive root of unity of order N, to the power k.
 template<typename T2> T2 root1(u32 N, u32 k);
 
-template<> float2 root1<float2>(u32 N, u32 k) {
-  double angle = - double(TAU) / N * k;
-  float x = cos(angle);
-  float y = sin(angle);
-  return float2{x, y};
-}
-
 template<> double2 root1<double2>(u32 N, u32 k) {
   long double angle = - TAU / N * k;
   double x = cosl(angle);
   double y = sinl(angle);
   return double2{x, y};
-}
-
-// ROOT1_31 ^ 31 == -1, aka "primitive root of unity of order 32" in GF(M(31)^2).
-// See "Matters computational", http://www.jjj.de/fxt/fxtbook.pdf .
-// The "Creutzburg-Tasche primitive root": (sqrt(2), sqrt(-3)) in GF(p^2).
-// sqrt(2) == 2^((p+1)/2), sqrt(-3) == 3^(2^(p-2)).
-const uint2  ROOT1_31{1 << 16, 0x4b94532f};
-
-// 1/sqrt(2) * (1, sqrt(-3)) == 2^((p-1)/2) * (1, sqrt(-3)).
-const ulong2 ROOT1_61{1 << 30, 0x06caa56e1cae315aull};
-// const ulong2 ROOT1_61{1 << 31, 0x0e5718ad1b2a95b8};
-
-template<> uint2 root1<uint2>(u32 N, u32 k) {
-  uint2 w = pow2(ROOT1_31, 32 - std::log2(N));
-  return pow(w, k);
-}
-
-template<> ulong2 root1<ulong2>(u32 N, u32 k) {
-  ulong2 w = pow2(ROOT1_61, 62 - std::log2(N));
-  return pow(w, k);
 }
 
 template<typename T2>
@@ -244,25 +219,6 @@ cl_mem genSmallTrig1K(cl_context context) {
   delete[] tab;
   return buf;
 }
-
-/*
-template<typename T2>
-cl_mem genSmallTrig2KTry(cl_context context) {
-  int size = 4 * 512;
-  T2 *tab = new T2[size]();
-  T2 *p   = tab + 4;
-  p = smallTrigBlock(   4, 4, p);
-  p = smallTrigBlock(  16, 4, p);
-  p = smallTrigBlock(  64, 4, p);
-  p = smallTrigBlock( 256, 4, p);
-  p = smallTrigBlock(1024, 2, p);
-  assert(p - tab == size);
-  
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-*/
 
 template<typename T>
 void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
@@ -700,55 +656,13 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   // dumpBinary(program.get(), string("autoconv_") + configName);
   program.reset();
-
-  /*
-  double *test = new double[2 * 2048]();
-  test[0] = 3;
-  Buffer tmp{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
-                     4 * 512 * 2 * sizeof(double), test) };
-
-  fftHTry.setArg("io", tmp);
-  fftHTry.setArg("smallTrig", genSmallTrig2KTry<double2>(context));
-  fftHTry();
-  double out[4 * 512 * 2] = {0};
-  ::read(queue, true, tmp.get(), 4 * 512 * 2 * sizeof(double), out);
-  for (int i = 0; i < 10; ++i) {
-    printf("%d %f\n", i, out[i]);
-  }
-  */
   
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
 
-  switch (args.fftKind) {
-  case Args::M31:
-    bufTrig1K.reset(genSmallTrig1K<uint2>(context));
-    bufTrig2K.reset(genSmallTrig2K<uint2>(context));
-    bufBigTrig.reset(genBigTrig<uint2>(context, W, H));
-    break;
-
-  case Args::M61:
-    bufTrig1K.reset(genSmallTrig1K<ulong2>(context));
-    bufTrig2K.reset(genSmallTrig2K<ulong2>(context));
-    bufBigTrig.reset(genBigTrig<ulong2>(context, W, H));
-    break;
-
-  case Args::DP:
-    bufTrig1K.reset(genSmallTrig1K<double2>(context));
-    bufTrig2K.reset(genSmallTrig2K<double2>(context));
-    bufBigTrig.reset(genBigTrig<double2>(context, W, H));
-    setupWeights<double>(context, bufA, bufI, W, H, E);
-    break;
-
-  case Args::SP:
-    bufTrig1K.reset(genSmallTrig1K<float2>(context));
-    bufTrig2K.reset(genSmallTrig2K<float2>(context));
-    bufBigTrig.reset(genBigTrig<float2>(context, W, H));
-    setupWeights<float>(context, bufA, bufI, W, H, E);
-    break;
-
-  default:
-    assert(false);
-  }
+  bufTrig1K.reset(genSmallTrig1K<double2>(context));
+  bufTrig2K.reset(genSmallTrig2K<double2>(context));
+  bufBigTrig.reset(genBigTrig<double2>(context, W, H));
+  setupWeights<double>(context, bufA, bufI, W, H, E);
 
   u32 wordSize =
     args.fftKind == Args::M31 ? sizeof(u32)   :
