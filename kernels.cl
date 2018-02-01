@@ -17,7 +17,7 @@ KERNEL(512) fftHTry(P(T2) io, Trig smallTrig) {
   T2 u[4];
 
   uint g = get_group_id(0);
-  uint step = g * (4 * 512);
+  uint step = g * 2048;
   io += step;
 
   read(512, 4, u, io, 0);
@@ -25,20 +25,18 @@ KERNEL(512) fftHTry(P(T2) io, Trig smallTrig) {
   write(512, 4, u, io, 0);
 }
 
-/*
-KERNEL(512) fftH4K(P(T2) io, Trig smallTrig) {
+KERNEL(512) fft4K(P(T2) io, Trig smallTrig) {
   local T lds[4096];
   T2 u[8];
 
   uint g = get_group_id(0);
-  uint step = g * (8 * 512);
+  uint step = g * 4096;
   io += step;
 
   read(512, 8, u, io, 0);
-  fft4k(512, lds, u, smallTrig);
+  fft4kImpl(lds, u, smallTrig);
   write(512, 8, u, io, 0);
 }
-*/
 
 KERNEL(256) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   local T lds[WIDTH];

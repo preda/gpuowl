@@ -322,29 +322,6 @@ void fft1kImpl(local T *lds, T2 *u, const G T2 *trig) {
   }
 
   fft4(u);
-
-  /*
-  fft4(u);
-  shufl(256, lds,   u, 4, 64);
-  tabMul(256, trig, u, 4, 64);
-  
-  fft4(u);
-  bar();
-  shufl(256, lds,   u, 4, 16);
-  tabMul(256, trig, u, 4, 16);
-  
-  fft4(u);
-  bar();
-  shufl(256, lds,   u, 4, 4);
-  tabMul(256, trig, u, 4, 4);
-
-  fft4(u);
-  bar();
-  shufl(256, lds,   u, 4, 1);
-  tabMul(256, trig, u, 4, 1);
-
-  fft4(u);
-  */
 }
 
 void fft2kTry(uint WG, local T *lds, T2 *u, const G T2 *trig) {
@@ -388,9 +365,28 @@ void fft2kTry(uint WG, local T *lds, T2 *u, const G T2 *trig) {
   SWAP(u[1], u[2]);
 }
 
-// void fft4k(uint WG, local T *lds, 
+// WG:512, LDS:32KB, u:8.
+void fft4kImpl(local T *lds, T2 *u, const G T2 *trig) {
+  for (int s = 6; s >= 0; s -= 3) {
+    fft8(u);
 
+    if (s != 6) { bar(); }
+    shufl (512, lds,  u, 8, 1 << s);
+    tabMul(512, trig, u, 8, 1 << s);
+  }
+  fft8(u);
+}
+
+// WG:256, LDS:16KB?, u:8
 void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
+  for (int s = 5; s >= 2; s -= 3) {
+      fft8(u);
+      if (s != 5) { bar(); }
+      shufl (256, lds,  u, 8, 1 << s);
+      tabMul(256, trig, u, 8, 1 << s);
+  }
+  
+  /*
   fft8(u);
   shufl(256, lds,   u, 8, 32);
   tabMul(256, trig, u, 8, 32);
@@ -399,6 +395,7 @@ void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
   bar();
   shufl(256, lds,   u, 8, 4);
   tabMul(256, trig, u, 8, 4);
+  */
   
   fft8(u);
 
@@ -442,7 +439,7 @@ void write(uint WG, uint N, T2 *u, G T2 *out, uint base) {
   for (int i = 0; i < N; ++i) { out[base + i * WG + (uint) get_local_id(0)] = u[i]; }
 }
 
-// FFT of size N * 256.
+// FFT of size N * 256, WG==256.
 void fft(uint N, local T *lds, T2 *u, G T2 *io, const G T2 *trig) {
   uint g = get_group_id(0);
   uint step = g * (N * 256);
