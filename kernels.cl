@@ -79,7 +79,7 @@ KERNEL(256) carryConv(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   
   T2 u[N_WIDTH];
   read(256, N_WIDTH, u, io, 0);
-  fftImpl(N_WIDTH, lds, u, smallTrig);
+  fftImpl(N_WIDTH * 256, lds, u, smallTrig);
 
   Word2 word[N_WIDTH];
   for (int i = 0; i < N_WIDTH; ++i) {
@@ -109,7 +109,7 @@ KERNEL(256) carryConv(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
     u[i] = carryAndWeightFinal(word[i], carry, pos, A, p);
   }
 
-  fftImpl(N_WIDTH, lds, u, smallTrig);
+  fftImpl(N_WIDTH * 256, lds, u, smallTrig);
   write(256, N_WIDTH, u, io, 0);
 }
 

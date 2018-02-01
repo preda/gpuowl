@@ -427,8 +427,8 @@ void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
 }
 
 // choose between 1K and 2K based on N.
-void fftImpl(uint N, local T *lds, T2 *u, const G T2 *trig) {
-  if (N == 4) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
+void fftImpl(uint SIZE, local T *lds, T2 *u, const G T2 *trig) {
+  if (SIZE == 1024) { fft1kImpl(lds, u, trig); } else { fft2kImpl(lds, u, trig); }
 }
 
 void read(uint WG, uint N, T2 *u, G T2 *in, uint base) {
@@ -446,7 +446,7 @@ void fft(uint N, local T *lds, T2 *u, G T2 *io, const G T2 *trig) {
   io += step;
 
   read(256, N, u, io, 0);
-  fftImpl(N, lds, u, trig);
+  fftImpl(N * 256, lds, u, trig);
   write(256, N, u, io, 0);
 }
 
@@ -465,7 +465,7 @@ void fftPremul(uint N, uint H, local T *lds, T2 *u, const G Word2 *in, G T2 *out
     u[i] = weight(in[256 * i + me], pos, A, me + 256 * i);
   }
 
-  fftImpl(N, lds, u, trig);
+  fftImpl(N * 256, lds, u, trig);
 
   write(256, N, u, out, 0);
 }

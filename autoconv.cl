@@ -68,13 +68,13 @@ void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T
   uint me = get_local_id(0);
   
   read(256, N, u, io, g * W);
-  fftImpl(N, lds, u, trig);
+  fftImpl(N * 256, lds, u, trig);
   reverse(N, (local T2 *) lds, u, g == 0);
   
   uint line2 = g ? H - g : (H / 2);
   read(256, N, v, io, line2 * W);
   bar();
-  fftImpl(N, lds, v, trig);
+  fftImpl(N * 256, lds, v, trig);
   reverse(N, (local T2 *) lds, v, false);
   
   if (g == 0) { for (int i = N / 2; i < N; ++i) { SWAP(u[i], v[i]); } }
@@ -89,11 +89,11 @@ void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T
   reverse(N, (local T2 *) lds, v, false);
   
   bar();
-  fftImpl(N, lds, u, trig);
+  fftImpl(N * 256, lds, u, trig);
   write(256, N, u, io, g * W);
   
   bar();
-  fftImpl(N, lds, v, trig);
+  fftImpl(N * 256, lds, v, trig);
   write(256, N, v, io, line2 * W);  
 }
 
