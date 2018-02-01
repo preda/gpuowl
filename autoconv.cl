@@ -67,12 +67,12 @@ void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   
-  read(N, u, io, g * W);
+  read(256, N, u, io, g * W);
   fftImpl(N, lds, u, trig);
   reverse(N, (local T2 *) lds, u, g == 0);
   
   uint line2 = g ? H - g : (H / 2);
-  read(N, v, io, line2 * W);
+  read(256, N, v, io, line2 * W);
   bar();
   fftImpl(N, lds, v, trig);
   reverse(N, (local T2 *) lds, v, false);
@@ -90,11 +90,11 @@ void convolution(uint N, uint H, local T *lds, T2 *u, T2 *v, G T2 *io, const G T
   
   bar();
   fftImpl(N, lds, u, trig);
-  write(N, u, io, g * W);
+  write(256, N, u, io, g * W);
   
   bar();
   fftImpl(N, lds, v, trig);
-  write(N, v, io, line2 * W);  
+  write(256, N, v, io, line2 * W);  
 }
 
 // "auto convolution" is equivalent to the sequence: fftH, square, fftH.
