@@ -424,7 +424,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
   int checkStep = 1; // request an initial check at start.
 
   // The floating-point transforms use "balanced" words, while the NTT transforms don't.
-  const bool balanced = (args.fftKind == Args::DP) || (args.fftKind == Args::SP);
+  const bool balanced = true;
   
   Timer timer;
   Stats stats;
@@ -544,7 +544,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int N = 2 * W * H;
   int nW = W / 256, nH = H / 256;
 
-  string configName = args.fftKindStr + string("_") + std::to_string(N / 1024 / 1024) + "M";
+  string configName = std::to_string(N / 1024 / 1024) + "M";
   
   std::vector<string> defines {valueDefine("EXP", E), valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
 
@@ -578,15 +578,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   LOAD(multiply, N, 4);
     
   LOAD(carryConv, N + W * 2, nW * 2);
-
-  // LOAD(test, N, 4);
-  // Kernel test(program.get(), device, queue, N, "test", 4, false);
-
-  // LOAD(fftHTry, 512, 1);
-  // Kernel fftH(program.get(), device, queue, N, "fftHTry", 4 * 2, timeKernels);
 #undef LOAD
 
-  // dumpBinary(program.get(), string("autoconv_") + configName);
   program.reset();
   
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
@@ -596,12 +589,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   bufBigTrig.reset(genBigTrig<double2>(context, W, H));
   setupWeights<double>(context, bufA, bufI, W, H, E);
 
-  u32 wordSize =
-    args.fftKind == Args::M31 ? sizeof(u32)   :
-    args.fftKind == Args::M61 ? sizeof(u64)  :
-    args.fftKind == Args::DP  ? sizeof(double) :
-    args.fftKind == Args::SP  ? sizeof(float)  :
-    -1;
+  u32 wordSize = sizeof(double);
   
   u32 bufSize = N * wordSize;
   Buffer buf1{makeBuf(    context, BUF_RW, bufSize)};
@@ -617,9 +605,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   Buffer &trigW = (W == 1024) ? bufTrig1K : bufTrig2K;
   Buffer &trigH = (H == 1024) ? bufTrig1K : bufTrig2K;
-
-  // test.setArg("io", buf1);
-  // test();
   
   fftP.setArg("out", buf1);
   fftP.setArg("A", bufA);
@@ -630,7 +615,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   fftH.setArg("io", buf2);
   fftH.setArg("smallTrig", trigH);
-  // fftH.setArg("smallTrig", genSmallTrig2KTry<double2>(context));
   
   transposeW.setArg("in",  buf1);
   transposeW.setArg("out", buf2);
@@ -671,7 +655,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   float bitsPerWord = E / (float) N;
   if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }
   
-  bool useLongCarry = args.useLongCarry || (args.fftKind != Args::DP) || (bitsPerWord < 13);
+  bool useLongCarry = args.useLongCarry || (bitsPerWord < 13);
   if (useLongCarry) { log("Note: using long (not-fused) carry kernels\n"); }
   bool useLongTail = args.useLongTail;
   if (useLongTail) { log("Note: using long (not-fused) tail kernels\n"); }

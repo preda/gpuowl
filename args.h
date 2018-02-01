@@ -8,21 +8,17 @@
 #include <cstring>
 
 struct Args {
-  enum {DP, SP, M61, M31};
-  
   std::string clArgs;
   std::string user, cpu;
   std::string dump;
   int step;
   int fftSize;
-  int fftKind;
-  string fftKindStr;
   int device;
   bool timeKernels, debug;
   bool useLongCarry, useLongTail;
   int verbosity;
   
-Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
+Args() : step(0), fftSize(0),
     device(-1), timeKernels(false), debug(false),
     useLongCarry(false), useLongTail(false),
     verbosity(0) { }
@@ -34,11 +30,6 @@ Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n\n"
           "-size 2M|4M|8M : override FFT size.\n"
-          "-fft DP|SP|M61|M31  : choose FFT variant [default DP]:\n"
-          "                DP  : double precision floating point.\n"
-          "                SP  : single precision floating point.\n"
-          "                M61 : Fast Galois Transform (FGT) modulo M(61).\n"
-          "                M31 : FGT modulo M(31).\n"
           "-user <name>  : specify the user name.\n"
           "-cpu  <name>  : specify the hardware name.\n"
           "-longCarry    : use not-fused carry kernels (may be slower).\n"
@@ -123,26 +114,6 @@ Args() : step(0), fftSize(0), fftKind(DP), fftKindStr("DP"),
         }
       } else {
         log("-size expects size 2M | 4M | 8M\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-fft")) {
-      if (i < argc - 1) {
-        std::string s = argv[++i];
-        fftKindStr = s;
-        if (s == "DP") {
-          fftKind = DP;
-        } else if (s == "SP") {
-          fftKind = SP;
-        } else if (s == "M61") {
-          fftKind = M61;
-        } else if (s == "M31") {
-          fftKind = M31;
-        } else {
-          log("-fft expects DP | SP | M61 | M31\n");
-          return false;
-        }
-      } else {
-        log("-kind expects DP | SP | NTT\n");
         return false;
       }
     } else if (!strcmp(arg, "-device")) {
