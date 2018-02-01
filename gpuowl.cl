@@ -6,13 +6,6 @@
 // The order of words is column-major (i.e. transposed from the usual row-major matrix order).
 
 // Expected defines: WIDTH, HEIGHT, EXP.
-// Defines to select between "Fast Gallois Transform" using either M(31) or M(61),
-// and floating point FFT in either double or single precision.
-// One of: FGT_31, FGT_61, FP_DP (double precision), FP_SP (single precision).
-// If FGT, also LOG_ROOT2 is expected, LOG_ROOT2 == log2(32 / (NWORDS % 31) % 31).
-
-// FGT: a GF(P^2) (Galois Field) convolution, with P == M(31) == 2^31-1 a Mersenne prime.
-// GF(P^2) means Gaussian integers ("complex integers") with the real/imaginary part modulo P.
 
 // Number of words; a power of two?
 #define NWORDS (WIDTH * HEIGHT * 2u)
@@ -33,86 +26,20 @@
 #define G global
 #endif
 
-// This mem_fence is only needed to workaround a bug in the ROCm compiler,
-// see https://github.com/RadeonOpenCompute/ROCm/issues/234
-// For some reason, the bug does not seem to affect floating point.
-void amd_fence() {
-#if !defined(NO_AMDFENCE) && !(FP_DP || FP_SP)
-  mem_fence(CLK_LOCAL_MEM_FENCE);
-#endif
-}
-
 uint lo(ulong a) { return a & 0xffffffffu; }
 uint up(ulong a) { return a >> 32; }
 
-#if FGT_31 || FGT_61
-
-#if FGT_31
-typedef uint T;
-typedef uint2 T2;
-#else
-typedef ulong T;
-typedef ulong2 T2;
-#endif
-
-typedef uint Word;
-typedef uint2 Word2;
-typedef ulong Carry;
-
-#elif FP_DP || FP_SP
-
 #pragma OPENCL FP_CONTRACT ON
 
-#if FP_DP
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 typedef double T;
 typedef double2 T2;
-#else
-typedef float T;
-typedef float2 T2;
-#endif // FP_DP
 
 typedef int Word;
 typedef int2 Word2;
 typedef long Carry;
 
-#else
-#error "Expected FGT_31, FGT_61, FP_DP or FP_SP"
-#endif
-
-
 T2 U2(T a, T b) { return (T2)(a, b); }
-
-
-#if FGT_31 || FGT_61
-
-typedef uint u32;
-typedef ulong u64;
-
-#include "nttshared.h"
-
-// mul with (0, 1). (twiddle of tau/4, sqrt(-1) aka "i").
-T2 mul_t4(T2 a) { return U2(neg(a.y), a.x); }
-
-#if FGT_31
-
-// mul with (2^15, 2^15). (twiddle of tau/8 aka sqrt(i)). Note: 2 * (2^15)^2 == 1 (mod M31).
-T2 mul_t8(T2 a) { return U2(shl1(a.x + neg(a.y), 15), shl1(a.x + a.y, 15)); }
-
-// mul with (-2^15, 2^15). (twiddle of 3*tau/8).
-T2 mul_3t8(T2 a) { return U2(shl1(neg(a.x) + neg(a.y), 15), shl1(a.x + neg(a.y), 15)); }
-
-#else
-
-// mul with (2^30, 2^30).
-T2 mul_t8(T2 a) { return U2(shl1(a.x + neg(a.y), 30), shl1(a.x + a.y, 30)); }
-
-// mul with (-2^30, 2^30). (twiddle of 3*tau/8).
-T2 mul_3t8(T2 a) { return U2(shl1(neg(a.x) + neg(a.y), 30), shl1(a.x + neg(a.y), 30)); }
-
-#endif
-
-#elif FP_DP || FP_SP
 
 T neg(T x) { return -x; }
 T add1(T a, T b) { return a + b; }
@@ -136,10 +63,6 @@ T2 mul_t4(T2 a)  { return mul(a, U2( 0, -1)); }
 T2 mul_t8(T2 a)  { return mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
-#else
-#error
-#endif
-
 
 T2 shl(T2 a, uint k) { return U2(shl1(a.x, k), shl1(a.y, k)); }
 
@@ -157,48 +80,6 @@ bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
 
 // Number of bits for the word at pos.
 uint bitlen(uint k) { return EXP / NWORDS + isBigWord(k); }
-
-
-#if FGT_31 || FGT_61
-
-Word lowBits(T x, uint bits) { return ((Word) x) & ((1u << bits) - 1); }
-
-// one step of carry propagation; optional mul.
-Word carryStep(Carry x, Carry *carry, uint bits) {
-  x += *carry;
-  *carry = x >> bits;
-  return lowBits(x, bits);
-}
-
-// uint update(T x, Carry *carry, uint bits) { return carryStep(x, carry, bits); }
-
-Carry unweight(T x, uint pos) {
-  x = (x + ((x + 1) >> MBITS)) & M; // if x==M, set it to 0.
-  return shl1(x, (extra(pos) * (MBITS - LOG_ROOT2) + (MBITS - LOG_NWORDS - 2)) % MBITS);
-}
-
-// Reverse weighting and carry propagation.
-Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, uint pos, const G T2 *dummyA, uint dummyP) {
-  Word x = carryStep(mul * unweight(u.x, 2 * pos + 0), carry, bitlen(2 * pos + 0));
-  Word y = carryStep(mul * unweight(u.y, 2 * pos + 1), carry, bitlen(2 * pos + 1));
-  return (Word2) (x, y);
-}
-
-// NWORDS-th order root of 2: root2 ^ NWORDS == 2 (mod M31)
-T weight1(Word x, uint pos) { return shl1(x, (extra(pos) * LOG_ROOT2) % MBITS); }
-
-T2 weightAux(Word2 a, uint pos) { return U2(weight1(a.x, 2 * pos + 0), weight1(a.y, 2 * pos + 1)); }
-
-T2 weight(Word2 a, uint pos, const G T2 *dummyA, uint dummyP) { return weightAux(a, pos); }
-
-// No carry out. The final carry is "absorbed" in the last word.
-T2 carryAndWeightFinal(Word2 u, Carry carry, uint pos, const G T2 *dummyA, uint dummyP) {
-  u.x = carryStep(u.x, &carry, bitlen(2 * pos + 0));
-  u.y = u.y + carry;
-  return weightAux(u, pos);
-}
-
-#elif FP_DP || FP_SP
 
 Word lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
 
@@ -235,11 +116,6 @@ T2 carryAndWeightFinal(Word2 u, Carry carry, uint dummyPos, const G T2 *A, uint 
   return weightAux(x, y, w);
 }
 
-#else
-#error
-#endif
-
-
 // Generic code below.
 
 // Carry propagation from word and carry.
@@ -267,10 +143,6 @@ void fft4Core(T2 *u) {
   u[3] = mul_t4(u[3]);
   X2(u[0], u[1]);
   X2(u[2], u[3]);
-}
-
-void fft6Core(T2 *u) {
-
 }
 
 void fft8Core(T2 *u) {
@@ -304,7 +176,6 @@ void shufl(uint WG, local T *lds, T2 *u, uint n, uint f) {
     bar();
     for (uint i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
   }
-  amd_fence();
 }
 
 void tabMul(uint WG, const G T2 *trig, T2 *u, uint n, uint f) {
@@ -344,18 +215,7 @@ void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
       shufl (256, lds,  u, 8, 1 << s);
       tabMul(256, trig, u, 8, 1 << s);
   }
-  
-  /*
-  fft8(u);
-  shufl(256, lds,   u, 8, 32);
-  tabMul(256, trig, u, 8, 32);
-
-  fft8(u);
-  bar();
-  shufl(256, lds,   u, 8, 4);
-  tabMul(256, trig, u, 8, 4);
-  */
-  
+    
   fft8(u);
 
   uint me = get_local_id(0);
@@ -369,7 +229,6 @@ void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
     }
   }
 
-  amd_fence();
   for (int i = 1; i < 4; ++i) {
     u[i]     = mul(u[i],     trig[i * 512       + me]);
     u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
@@ -611,65 +470,6 @@ typedef CP(T2) Trig;
 typedef CP(T2) restrict Trig;
 
 #endif
-
-
-
-/*
-// experimental 2K fft implemented with 512 WG size.
-void fft2kTry(uint WG, local T *lds, T2 *u, const G T2 *trig) {
-  fft4(u);
-  shufl(WG, lds,   u, 4, 128);
-  tabMul(WG, trig, u, 4, 128);
-
-  fft4(u);
-  bar();
-  shufl(WG, lds,   u, 4, 32);
-  tabMul(WG, trig, u, 4, 32);
-
-  fft4(u);
-  bar();
-  shufl(WG, lds,   u, 4, 8);
-  tabMul(WG, trig, u, 4, 8);
-
-  fft4(u);
-  bar();
-  shufl(WG, lds,   u, 4, 2);
-  tabMul(WG, trig, u, 4, 2);
-
-  fft4(u);
-  uint me = get_local_id(0);
-  for (int b = 0; b < 2; ++b) {
-    bar();
-    for (int i = 0; i < 4; ++i) { lds[(me + i * WG) / 2 + me % 2 * 2 * WG] = ((T *) (u + i))[b]; }
-    bar();
-    for (int i = 0; i < 2; ++i) {
-      ((T *) (u + i))[b]     = lds[i * 2 * WG + me];
-      ((T *) (u + i + 2))[b] = lds[i * 2 * WG + WG + me]; 
-    }
-  }
-
-  u[1] = mul(u[1], trig[2 * WG + me]);
-  u[3] = mul(u[3], trig[2 * WG + WG + me]);
-
-  X2(u[0], u[1]);
-  X2(u[2], u[3]);
-  //interleave
-  SWAP(u[1], u[2]);
-}
-
-KERNEL(512) fftHTry(P(T2) io, Trig smallTrig) {
-  local T lds[2048];
-  T2 u[4];
-
-  uint g = get_group_id(0);
-  uint step = g * 2048;
-  io += step;
-
-  read(512, 4, u, io, 0);
-  fft2kTry(512, lds, u, smallTrig);
-  write(512, 4, u, io, 0);
-}
-*/
 
 KERNEL(256) fftW(P(T2) io, Trig smallTrig) {
   local T lds[WIDTH];
