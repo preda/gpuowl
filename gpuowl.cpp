@@ -578,9 +578,19 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   LOAD(multiply, N, 4);
     
   LOAD(carryConv, N + W * 2, nW * 2);
+  LOAD(test, 256, 1);
 #undef LOAD
 
   program.reset();
+
+  double testData[] = {2, 0, -1, 0, 4, 0, 3, 0, -5, 0};
+  Buffer testBuf{makeBuf(context, CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR, sizeof(double) * 10, testData)};
+  test.setArg("io", testBuf);
+  test();
+  ::read(queue, true, testBuf.get(), sizeof(double) * 10, testData);
+  for (int i = 0; i < 5; ++i) {
+    printf("%f %f\n", testData[2*i], testData[2*i+1]);
+  }
   
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
 

@@ -155,6 +155,44 @@ void fft8Core(T2 *u) {
   fft4Core(u + 4);
 }
 
+void fft5(T2 *u) {
+  // sin(tau/5), 0.95105651629515353118
+#define SIN1 0x1.e6f0e134454ffp-1
+  // sin(tau/5) + sin(2*tau/5), 1.53884176858762677931
+#define SIN2 0x1.89f188bdcd7afp+0
+  // sin(tau/5) - sin(2*tau/5), 0.36327126400268044959
+#define SIN3 0x1.73fd61d9df543p-2
+  // (cos(tau/5) + cos(2*tau/5))/2 - 1
+  // #define C1 -1.25
+  // (cos(tau/5) - cos(2*tau/5))/2, 0.55901699437494745126
+#define COS2 0x1.1e3779b97f4a8p-1
+
+  X2(u[1], u[4]);
+  X2(u[2], u[3]);
+
+  X2(u[1], u[2]);
+
+  T2 tmp = u[0];
+  u[0] += u[1];
+  u[1] = (-0.25) * u[1] + tmp;
+
+  u[2] *= COS2;  
+  X2(u[1], u[2]);
+ 
+  tmp = (u[4] - u[3]) * SIN1;
+  tmp  = U2(tmp.y, -tmp.x);
+  u[3] = U2(u[3].y, -u[3].x) * SIN2 + tmp;
+  u[4] = U2(-u[4].y, u[4].x) * SIN3 + tmp;
+  SWAP(u[3], u[4]);
+  X2(u[1], u[4]);
+  X2(u[2], u[3]);
+
+  #undef SIN1
+  #undef SIN2
+  #undef SIN3
+  #undef COS2
+}
+
 void fft4(T2 *u) {
   fft4Core(u);
   SWAP(u[1], u[2]);
@@ -704,4 +742,13 @@ KERNEL(256) autoConv(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
   T2 u[N_HEIGHT];
   T2 v[N_HEIGHT];
   convolution(N_HEIGHT, WIDTH, lds, u, v, io, smallTrig, bigTrig);
+}
+
+KERNEL(256) test(P(T2) io) {
+  T2 u[5];
+  if (get_global_id(0) == 0) {
+    for (int i = 0; i < 5; ++i) { u[i] = io[i]; }
+    fft5(u);
+    for (int i = 0; i < 5; ++i) { io[i] = u[i]; }     
+  }
 }
