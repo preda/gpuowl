@@ -212,6 +212,17 @@ void tabMul(uint WG, const G T2 *trig, T2 *u, uint n, uint f) {
   for (int i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
 }
 
+// WG:125, LDS:625*8, u:5.
+void fft625Impl(local T *lds, T2 *u, const G T2 *trig) {
+  for (int s = 25; s >= 1; s /= 5) {
+    fft5(u);
+    if (s != 25) { bar(); }
+    shufl (125, lds,  u, 5, s);
+    tabMul(125, trig, u, 5, s);
+  }
+  fft5(u);
+}
+
 void fft1kImpl(local T *lds, T2 *u, const G T2 *trig) {
   for (int s = 6; s >= 0; s -= 2) {
     fft4(u);

@@ -134,29 +134,27 @@ T2 *smallTrigBlock(int W, int H, T2 *p) {
   return p;
 }
 
-template<typename T2>
-cl_mem genSmallTrig4K(cl_context context) {
-  int size = 8 * 512;
-  T2 *tab = new T2[size]();
-  T2 *p   = tab + 8;
-  p = smallTrigBlock(  8, 8, p);
-  p = smallTrigBlock( 64, 8, p);
-  p = smallTrigBlock(512, 8, p);
+cl_mem genSmallTrig(cl_context context, int size, int radix) {
+  auto *tab = new double2[size]();
+  auto *p = tab + radix;
+  int w = 0;
+  for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, radix, p); }
+  assert(w == size);
   assert(p - tab == size);
-  
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
   delete[] tab;
   return buf;
 }
 
+/*
 template<typename T2>
-cl_mem genSmallTrig2K(cl_context context) {
-  int size = 4 * 512; // == 8 * 256.
+cl_mem genSmallTrig625(cl_context context) {
+  int size = 5 * 125;
   T2 *tab = new T2[size]();
-  T2 *p   = tab + 8;
-  p = smallTrigBlock(  8, 8, p);
-  p = smallTrigBlock( 64, 8, p);
-  p = smallTrigBlock(512, 4, p);
+  T2 *p   = tab + 5;
+  p = smallTrigBlock(  5, 5, p);
+  p = smallTrigBlock( 25, 5, p);
+  p = smallTrigBlock(125, 5, p);
   assert(p - tab == size);
   
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
@@ -175,6 +173,37 @@ cl_mem genSmallTrig1K(cl_context context) {
   p = smallTrigBlock(256, 4, p);
   assert(p - tab == size);
 
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
+  delete[] tab;
+  return buf;
+}
+
+template<typename T2>
+cl_mem genSmallTrig4K(cl_context context) {
+  int size = 8 * 512;
+  T2 *tab = new T2[size]();
+  T2 *p   = tab + 8;
+  p = smallTrigBlock(  8, 8, p);
+  p = smallTrigBlock( 64, 8, p);
+  p = smallTrigBlock(512, 8, p);
+  assert(p - tab == size);
+  
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
+  delete[] tab;
+  return buf;
+}
+*/
+
+template<typename T2>
+cl_mem genSmallTrig2K(cl_context context) {
+  int size = 4 * 512; // == 8 * 256.
+  T2 *tab = new T2[size]();
+  T2 *p   = tab + 8;
+  p = smallTrigBlock(  8, 8, p);
+  p = smallTrigBlock( 64, 8, p);
+  p = smallTrigBlock(512, 4, p);
+  assert(p - tab == size);
+  
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
   delete[] tab;
   return buf;
@@ -594,7 +623,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
 
-  bufTrig1K.reset(genSmallTrig1K<double2>(context));
+  bufTrig1K.reset(genSmallTrig(context, 1024, 4));
   bufTrig2K.reset(genSmallTrig2K<double2>(context));
   bufBigTrig.reset(genBigTrig<double2>(context, W, H));
   setupWeights<double>(context, bufA, bufI, W, H, E);
