@@ -585,8 +585,8 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G 
   
   for (int i = 0; i < 16; ++i) {
     uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
-    u[i] = mul(u[i], trig[2048 + k % (W * H / 2048)]);
-    u[i] = mul(u[i], trig[k / (W * H / 2048)]);
+    T2 t = mul(trig[k / (W * H / 2048)], trig[2048 + k % (W * H / 2048)]);
+    u[i] = mul(u[i], t);
 
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];
