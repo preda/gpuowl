@@ -567,7 +567,7 @@ void transposeCore(local T *lds, T2 *u) {
 }
 
 // M == max(W, H)
-void transpose(uint W, uint H, uint MAX, local T *lds, const G T2 *in, G T2 *out, const G T2 *bigTrig) {
+void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G T2 *trig) {
   uint GW = W / 64, GH = H / 64;
   uint g = get_group_id(0), gx = g % GW, gy = g / GW;
   gy = (gy + gx) % GH;
@@ -585,8 +585,8 @@ void transpose(uint W, uint H, uint MAX, local T *lds, const G T2 *in, G T2 *out
   
   for (int i = 0; i < 16; ++i) {
     uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
-    u[i] = mul(u[i], bigTrig[MAX * 2 + k % (W * H / (MAX * 2))]);
-    u[i] = mul(u[i], bigTrig[k / (W * H / (MAX * 2))]);
+    u[i] = mul(u[i], trig[2048 + k % (W * H / 2048)]);
+    u[i] = mul(u[i], trig[k / (W * H / 2048)]);
 
     uint p = (my + i * 4) * H + mx;
     out[p] = u[i];

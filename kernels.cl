@@ -120,12 +120,12 @@ KERNEL(256) carryConv(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   write(256, N_WIDTH, u, io, 0);
 }
 
-KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig bigTrig) {
+KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig trig) {
   local T lds[4096];
-  transpose(WIDTH, HEIGHT, max(WIDTH, HEIGHT), lds, in, out, bigTrig);
+  transpose(WIDTH, HEIGHT, lds, in, out, trig);
 }
 
-KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig bigTrig) {
+KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig trig) {
   local T lds[4096];
-  transpose(HEIGHT, WIDTH, max(WIDTH, HEIGHT), lds, in, out, bigTrig);
+  transpose(HEIGHT, WIDTH, lds, in, out, trig);
 }
