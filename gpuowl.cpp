@@ -188,18 +188,6 @@ cl_mem genBigTrig(cl_context context, int W, int H) {
   return buf;
 }
 
-cl_mem genTransTrig(cl_context context, int W, int H) {
-  const int size = 2048 + W * H / 2048;
-  auto *tab = new double2[size];
-  auto *end = tab;
-  end = trig(end, 2048, 2048);
-  end = trig(end, W * H / 2048, W * H);
-  assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
 template<typename T2>
 T2 *smallTrigBlock(int W, int H, T2 *p) {
   for (int line = 1; line < H; ++line) {
@@ -774,7 +762,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   Buffer buf2{makeBuf(    context, BUF_RW, bufSize)};
   Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
   Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
-  Buffer bufTransTrig{genTransTrig(context, W, H)};
 
   int *zero = new int[H + 1]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 1), zero)};
@@ -801,11 +788,11 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   transposeW.setArg("in",  buf1);
   transposeW.setArg("out", buf2);
-  transposeW.setArg("trig", bufTransTrig);
+  transposeW.setArg("bigTrig", bufBigTrig);
 
   transposeH.setArg("in",  buf2);
   transposeH.setArg("out", buf1);
-  transposeH.setArg("trig", bufTransTrig);
+  transposeH.setArg("bigTrig", bufBigTrig);
 
   carryA.setArg("in", buf1);
   carryA.setArg("A", bufI);
