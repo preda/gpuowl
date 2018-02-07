@@ -47,7 +47,7 @@ void myHandler(int dummy) {
 }
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-const unsigned BUF_RW    = CL_MEM_READ_WRITE /*| CL_MEM_HOST_NO_ACCESS*/;
+const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
 // FGT doesn't use weight vectors.

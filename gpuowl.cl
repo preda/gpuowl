@@ -247,45 +247,6 @@ void fft4KImpl(local T *lds, T2 *u, const G T2 *trig) {
   fft8(u);
 }
 
-// WG:256, LDS:16KB?, u:8
-/*
-void fft2kImpl(local T *lds, T2 *u, const G T2 *trig) {
-  for (int s = 5; s >= 2; s -= 3) {
-      fft8(u);
-      if (s != 5) { bar(); }
-      shufl (256, lds,  u, 8, 1 << s);
-      tabMul(256, trig, u, 8, 1 << s);
-  }
-    
-  fft8(u);
-
-  uint me = get_local_id(0);
-  for (int b = 0; b < 2; ++b) {
-    bar();
-    for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = ((T *) (u + i))[b]; }
-    bar();
-    for (int i = 0; i < 4; ++i) {
-      ((T *) (u + i))[b]     = lds[i * 512       + me];
-      ((T *) (u + i + 4))[b] = lds[i * 512 + 256 + me];
-    }
-  }
-
-  for (int i = 1; i < 4; ++i) {
-    u[i]     = mul(u[i],     trig[i * 512       + me]);
-    u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
-  }
-
-  fft4(u);
-  fft4(u + 4);
-
-  // fix order: interleave u[0:3] and u[4:7], like (u.even, u.odd) = (u.lo, u.hi).
-  SWAP(u[1], u[2]);
-  SWAP(u[1], u[4]);
-  SWAP(u[5], u[6]);
-  SWAP(u[3], u[6]);
-}
-*/
-
 void read(uint WG, uint N, T2 *u, G T2 *in, uint base) {
   for (int i = 0; i < N; ++i) { u[i] = in[base + i * WG + (uint) get_local_id(0)]; }
 }
@@ -597,7 +558,7 @@ KERNEL(125) carryConv(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   
   for (int i = 0; i < 5; ++i) {
     uint p = i * 125 + me;
-    Carry carry = carryShuttle[(gr - 1) * 625 + ((p - gr / 4096) % 625)];
+    Carry carry = carryShuttle[(gr - 1) * 625 + ((p + 625 - gr / 4096) % 625)];
     u[i] = carryAndWeightFinal(word[i], carry, A[p]);
   }
 
