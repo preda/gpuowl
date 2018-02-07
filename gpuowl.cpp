@@ -130,18 +130,6 @@ cl_mem genTransTrig(cl_context context, int W, int H) {
   return buf;
 }
 
-/*
-cl_mem genTrig(cl_context context, int size, int total) {
-  assert(size <= total && total % size == 0);
-
-  T2 *tab = new T2[size];
-  trig(end, size, total);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-*/
-
 template<typename T2>
 T2 *smallTrigBlock(int W, int H, T2 *p) {
   for (int line = 1; line < H; ++line) {
@@ -164,69 +152,6 @@ cl_mem genSmallTrig(cl_context context, int size, int radix) {
   delete[] tab;
   return buf;
 }
-
-/*
-template<typename T2>
-cl_mem genSmallTrig625(cl_context context) {
-  int size = 5 * 125;
-  T2 *tab = new T2[size]();
-  T2 *p   = tab + 5;
-  p = smallTrigBlock(  5, 5, p);
-  p = smallTrigBlock( 25, 5, p);
-  p = smallTrigBlock(125, 5, p);
-  assert(p - tab == size);
-  
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
-template<typename T2>
-cl_mem genSmallTrig1K(cl_context context) {
-  int size = 4 * 256;
-  T2 *tab = new T2[size]();
-  T2 *p   = tab + 4;
-  p = smallTrigBlock(  4, 4, p);
-  p = smallTrigBlock( 16, 4, p);
-  p = smallTrigBlock( 64, 4, p);
-  p = smallTrigBlock(256, 4, p);
-  assert(p - tab == size);
-
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
-template<typename T2>
-cl_mem genSmallTrig4K(cl_context context) {
-  int size = 8 * 512;
-  T2 *tab = new T2[size]();
-  T2 *p   = tab + 8;
-  p = smallTrigBlock(  8, 8, p);
-  p = smallTrigBlock( 64, 8, p);
-  p = smallTrigBlock(512, 8, p);
-  assert(p - tab == size);
-  
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
-template<typename T2>
-cl_mem genSmallTrig2K(cl_context context) {
-  int size = 4 * 512; // == 8 * 256.
-  T2 *tab = new T2[size]();
-  T2 *p   = tab + 8;
-  p = smallTrigBlock(  8, 8, p);
-  p = smallTrigBlock( 64, 8, p);
-  p = smallTrigBlock(512, 4, p);
-  assert(p - tab == size);
-  
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-*/
 
 template<typename T>
 void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
@@ -590,25 +515,11 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   assert(H == 4096);
 
   int N = 2 * W * H;
-
-  /*
-  {
-  int sum = 0;
-  for (int i = 0; i < N; ++i) {
-    sum += bitlen(N, E, i);
-  }
-  printf("%d\n", sum);
-  }
-  */
-  
-  // for (int i = 0; i < 100; ++i) { printf("%d %d\n", i, bitlen(N, E, i)); }
   
   string configName = std::to_string(N / 1024) + "K";
   
   std::vector<string> defines {valueDefine("EXP", E)}; // , valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
 
-  // append(defines, valueDefine("LOG_NWORDS", std::log2(N)));
-  
   string clArgs = args.clArgs;
   if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
     
@@ -634,24 +545,10 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   LOAD(square,   N / 4);
   LOAD(multiply, N / 4);
 
-  // LOAD(autoConv, N / (8 * 2 * 2));
-  LOAD(autoConv, N / 16);
+  LOAD(autoConv,  (N + 4096 * 2) / 32);
   LOAD(carryConv, N / 10 + 125);
-
-  // LOAD(test, 256, 1);
 #undef LOAD
   program.reset();
-
-  /*
-  double testData[] = {2, 0, -1, 0, 4, 0, 3, 0, -5, 0};
-  Buffer testBuf{makeBuf(context, CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR, sizeof(double) * 10, testData)};
-  test.setArg("io", testBuf);
-  test();
-  ::read(queue, true, testBuf.get(), sizeof(double) * 10, testData);
-  for (int i = 0; i < 5; ++i) {
-    printf("%f %f\n", testData[2*i], testData[2*i+1]);
-  }
-  */
   
   Buffer bufTrig625(genSmallTrig(context, 625, 5));
   Buffer bufTrig4K(genSmallTrig(context, 4096, 8));
@@ -693,40 +590,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   transposeH.setArg("in",  buf2);
   transposeH.setArg("out", buf1);
   transposeH.setArg("trig", bufTransTrig);
-
-  /*
-  double2 *data = new double2[625 * 4096]();
-  data[0] = U2(1, 0);
-  data[1] = U2(-1, 0);
-  data[625] = U2(0, 1);
-  data[626] = U2(0, -1);
-
-  data[623] = U2(2, 0);
-  data[624] = U2(-2, 0);
-  data[625 + 623] = U2(0, 2);
-  data[625 + 624] = U2(0, -2);
-
-  data[4094 * 625] = U2(3, 0);
-  data[4094 * 625 + 1] = U2(-3, 0);
-  data[4095 * 625] = U2(0, 3);
-  data[4095 * 625 + 1] = U2(0, -3);
-
-  write(queue, true, buf1.get(), bufSize, data, 0);
-
-  transposeW();
-
-  read(queue, true, buf2.get(), bufSize, data, 0);
-
-  for (int i : {0, 1, 4096, 4097, 623 * 4096, 623 * 4096 + 1, 624 * 4096, 624 * 4096 + 1, 4094, 4095, 4096 + 4094, 4096 + 4095}) {
-    printf("%d %f %f\n", i, data[i].x, data[i].y);
-  }
-
-  transposeH();
-  read(queue, true, buf1.get(), bufSize, data, 0);
-  for (int i : {0, 1, 625, 626, 623, 624, 625 + 623, 625 + 624, 4094 * 625, 4094 * 625 + 1, 4095 * 625, 4095 * 625 + 1}) {
-    printf("%d %f %f\n", i, data[i].x, data[i].y);
-  }
-  */
   
   carryA.setArg("in", buf1);
   carryA.setArg("A", bufI);

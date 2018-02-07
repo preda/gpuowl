@@ -591,30 +591,13 @@ void reverse8(uint WG, local T2 *lds, T2 *u, bool bump) {
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[i * WG + me]; }
 }
 
-/*
-void reverse4(local T2 *lds, T2 *u, bool bump) {
-  uint me = get_local_id(0);
-  uint rm = 255 - me + bump;
-  
-  bar();
-
-  lds[rm + 0 * 256] = u[3];
-  lds[bump ? ((rm + 256) & 511) : (rm + 256)] = u[2];
-  
-  bar();
-  u[2] = lds[me];
-  u[3] = lds[me + 256];
-}
-*/
-
 void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 tt, const G T2 *bigTrig, bool special) {
-  uint g = get_group_id(0);
   uint me = get_local_id(0);
   for (int i = 0; i < N / 2; ++i) {
     T2 a = u[i];
     T2 b = conjugate(v[N / 2 + i]);
     T2 t = swap(mul(tt, bigTrig[WG * i + me]));
-    if (special && i == 0 && g == 0 && me == 0) {
+    if (special && i == 0 && me == 0) {
       a = shl(foo(a), 2);
       b = shl(sq(b), 3);
     } else {
@@ -645,30 +628,32 @@ KERNEL(512) autoConv(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
   
   read(512, 8, u, io, g * W);
   fft4KImpl(lds, u, smallTrig);
-  reverse8(512, (local T2 *) lds, u, g == 0);
-  
-  uint line2 = g ? H - g : (H / 2);
-  read(512, 8, v, io, line2 * W);
-  bar();
-  fft4KImpl(lds, v, smallTrig);
-  reverse8(512, (local T2 *) lds, v, false);
-  
-  if (g == 0) { for (int i = 4; i < 8; ++i) { SWAP(u[i], v[i]); } }
 
-  halfSq(512, 8, u, v, bigTrig[W * 2 + (H / 2) + g],     bigTrig, true);
+  if (g == 0) {
+    reverse8(512, (local T2 *) lds, u, true);
+    halfSq(512, 8, u, u, bigTrig[4096], bigTrig, true);
+    reverse8(512, (local T2 *) lds, u, true);    
+  } else {
+    reverse8(512, (local T2 *) lds, u, false);
   
-  halfSq(512, 8, v, u, bigTrig[W * 2 + (H / 2) + line2], bigTrig, false);
-
-  if (g == 0) { for (int i = 4; i < 8; ++i) { SWAP(u[i], v[i]); } }
-
-  reverse8(512, (local T2 *) lds, u, g == 0);
-  reverse8(512, (local T2 *) lds, v, false);
+    uint line2 = H - g;
+    read(512, 8, v, io, line2 * W);
+    bar();
+    fft4KImpl(lds, v, smallTrig);
+    reverse8(512, (local T2 *) lds, v, false);
   
+    halfSq(512, 8, u, v, bigTrig[4096 + g],     bigTrig, false);  
+    halfSq(512, 8, v, u, bigTrig[4096 + line2], bigTrig, false);
+
+    reverse8(512, (local T2 *) lds, u, g == 0);
+    reverse8(512, (local T2 *) lds, v, false);
+
+    bar();
+    fft4KImpl(lds, v, smallTrig);
+    write(512, 8, v, io, line2 * W);  
+  }
+
   bar();
   fft4KImpl(lds, u, smallTrig);
-  write(512, 8, u, io, g * W);
-  
-  bar();
-  fft4KImpl(lds, v, smallTrig);
-  write(512, 8, v, io, line2 * W);  
+  write(512, 8, u, io, g * W);  
 }
