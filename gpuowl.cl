@@ -319,7 +319,7 @@ void csquare(uint WG, uint W, uint H, G T2 *io, const G T2 *bigTrig) {
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  T2 t = swap(mul(bigTrig[posInLine], bigTrig[4096 * 2 + line]));
+  T2 t = swap(mul(bigTrig[posInLine], bigTrig[4096 + line]));
   
   uint k = line * W + posInLine;
   uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
@@ -357,7 +357,7 @@ void cmul(uint WG, uint W, uint H, G T2 *io, const G T2 *in, const G T2 *bigTrig
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  T2 t = swap(mul(bigTrig[posInLine], bigTrig[4096 * 2 + line]));
+  T2 t = swap(mul(bigTrig[posInLine], bigTrig[4096 + line]));
   
   uint k = line * W + posInLine;
   uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
