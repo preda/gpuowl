@@ -47,7 +47,7 @@ void myHandler(int dummy) {
 }
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
+const unsigned BUF_RW    = CL_MEM_READ_WRITE /*| CL_MEM_HOST_NO_ACCESS*/;
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
 // FGT doesn't use weight vectors.
@@ -82,11 +82,7 @@ using float2  = Pair<float>;
 using uint2   = Pair<u32>;
 using ulong2  = Pair<u64>;
 
-uint2  U2(u32 x, u32 y) { return uint2{x, y}; }
-ulong2 U2(u64 x, u64 y) { return ulong2{x, y}; }
-
-u32 lo(u64 a) { return a & 0xffffffffu; }
-u32 up(u64 a) { return a >> 32; }
+double2 U2(double a, double b) { return double2{a, b}; }
 
 // Returns the primitive root of unity of order N, to the power k.
 template<typename T2> T2 root1(u32 N, u32 k);
@@ -104,24 +100,47 @@ T2 *trig(T2 *p, int n, int B) {
   return p;
 }
 
-// The generated trig table has three regions:
-// - a 4096 "full trig table" (a full circle).
-// - a region of granularity TAU / (W * H), used in transpose.
+// The generated trig table has two regions:
+// - a H*2 "full trig circle".
 // - a region of granularity TAU / (2 * W * H), used in squaring.
-template<typename T2>
-cl_mem genBigTrig(cl_context context, int W, int H) {
-  assert((W == 1024 || W == 2048) && (H == 1024 || H == 2048));
-  const int size = H * 2 + W / 2 + W;
-  T2 *tab = new T2[size];
-  T2 *end = tab;
-  end = trig(end, H * 2, H * 2);
-  end = trig(end, W / 2, W * H);
+cl_mem genSquareTrig(cl_context context, int W, int H) {
+  const int size = H * 2 + W;
+  auto *tab = new double2[size];
+  auto *end = tab;
+  end = trig(end, H * 2,     H * 2);
   end = trig(end, W,     W * H * 2);
   assert(end - tab == size);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
+  delete[] tab;
+  return buf;
+}
+
+// Trig table used by transpose. Has two regions:
+// - a size-2048 "full circle",
+// - a region of granularity W*H and size W*H/2048.
+cl_mem genTransTrig(cl_context context, int W, int H) {
+  const int size = 2048 + W * H / 2048;
+  auto *tab = new double2[size];
+  auto *end = tab;
+  end = trig(end, 2048, 2048);
+  end = trig(end, W * H / 2048, W * H);
+  assert(end - tab == size);
+  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
+  delete[] tab;
+  return buf;
+}
+
+/*
+cl_mem genTrig(cl_context context, int size, int total) {
+  assert(size <= total && total % size == 0);
+
+  T2 *tab = new T2[size];
+  trig(end, size, total);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(T2) * size, tab);
   delete[] tab;
   return buf;
 }
+*/
 
 template<typename T2>
 T2 *smallTrigBlock(int W, int H, T2 *p) {
@@ -192,7 +211,6 @@ cl_mem genSmallTrig4K(cl_context context) {
   delete[] tab;
   return buf;
 }
-*/
 
 template<typename T2>
 cl_mem genSmallTrig2K(cl_context context) {
@@ -208,6 +226,7 @@ cl_mem genSmallTrig2K(cl_context context) {
   delete[] tab;
   return buf;
 }
+*/
 
 template<typename T>
 void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
@@ -426,7 +445,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
                 bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul,
                 std::initializer_list<Kernel *> allKerns) {
   const int N = 2 * W * H;
-  log("PRP-3: FFT %dM (%d * %d * 2) of %d (%.2f bits/word) [%s]\n", N / (1024 * 1024), W, H, E, E / float(N), longTimeStr().c_str());
+  log("PRP-3: FFT %dK (%d * %d * 2) of %d (%.2f bits/word) [%s]\n", N / 1024, W, H, E, E / float(N), longTimeStr().c_str());
 
   int nErrors = 0;
   int k = 0;
@@ -567,17 +586,28 @@ u32 modInv(u32 a, u32 m) {
 }
 
 bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
-  assert(W == 1024 || W == 2048);
-  assert(H == 1024 || H == 2048);
-  assert(W <= H);
+  assert(W == 625);
+  assert(H == 4096);
+
   int N = 2 * W * H;
-  int nW = W / 256, nH = H / 256;
 
-  string configName = std::to_string(N / 1024 / 1024) + "M";
+  /*
+  {
+  int sum = 0;
+  for (int i = 0; i < N; ++i) {
+    sum += bitlen(N, E, i);
+  }
+  printf("%d\n", sum);
+  }
+  */
   
-  std::vector<string> defines {valueDefine("EXP", E), valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
+  // for (int i = 0; i < 100; ++i) { printf("%d %d\n", i, bitlen(N, E, i)); }
+  
+  string configName = std::to_string(N / 1024) + "K";
+  
+  std::vector<string> defines {valueDefine("EXP", E)}; // , valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
 
-  append(defines, valueDefine("LOG_NWORDS", std::log2(N)));
+  // append(defines, valueDefine("LOG_NWORDS", std::log2(N)));
   
   string clArgs = args.clArgs;
   if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
@@ -586,32 +616,33 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   bool timeKernels = args.timeKernels;
   
-#define LOAD(name, nWords, wordsPerThread) Kernel name(program.get(), device, queue, nWords, #name, wordsPerThread, timeKernels)  
+#define LOAD(name, workSize) Kernel name(program.get(), device, queue, workSize, #name, timeKernels)  
   program.reset(compile(device, context, "gpuowl", clArgs, defines, ""));
   if (!program) { return false; }
 
-  LOAD(autoConv, N, nH * 4);
-  
-  LOAD(fftP, N, nW * 2);
-  LOAD(fftW, N, nW * 2);
-  LOAD(fftH, N, nH * 2);
+  LOAD(fftP,   N / 10);
+  LOAD(fft625, N / 10);
+  LOAD(fft4K,  N / 16);
     
-  LOAD(carryA, N, 32);
-  LOAD(carryM, N, 32);
-  LOAD(carryB, N, 32);
+  LOAD(carryA, N / 32);
+  LOAD(carryM, N / 32);
+  LOAD(carryB, N / 32);
 
-  LOAD(transposeW, N, 32);
-  LOAD(transposeH, N, 32);
+  LOAD(transposeW, 640 * 256);
+  LOAD(transposeH, 640 * 256);
     
-  LOAD(square,   N, 4);
-  LOAD(multiply, N, 4);
-    
-  LOAD(carryConv, N + W * 2, nW * 2);
-  LOAD(test, 256, 1);
+  LOAD(square,   N / 4);
+  LOAD(multiply, N / 4);
+
+  // LOAD(autoConv, N / (8 * 2 * 2));
+  LOAD(autoConv, N / 16);
+  LOAD(carryConv, N / 10 + 125);
+
+  // LOAD(test, 256, 1);
 #undef LOAD
-
   program.reset();
 
+  /*
   double testData[] = {2, 0, -1, 0, 4, 0, 3, 0, -5, 0};
   Buffer testBuf{makeBuf(context, CL_MEM_READ_WRITE|CL_MEM_COPY_HOST_PTR, sizeof(double) * 10, testData)};
   test.setArg("io", testBuf);
@@ -620,17 +651,19 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   for (int i = 0; i < 5; ++i) {
     printf("%f %f\n", testData[2*i], testData[2*i+1]);
   }
+  */
   
-  Buffer bufTrig1K, bufTrig2K, bufBigTrig, bufA, bufI;
-
-  bufTrig1K.reset(genSmallTrig(context, 1024, 4));
-  bufTrig2K.reset(genSmallTrig2K<double2>(context));
-  bufBigTrig.reset(genBigTrig<double2>(context, W, H));
-  setupWeights<double>(context, bufA, bufI, W, H, E);
-
-  u32 wordSize = sizeof(double);
+  Buffer bufTrig625(genSmallTrig(context, 625, 5));
+  Buffer bufTrig4K(genSmallTrig(context, 4096, 8));
+  Buffer bufTransTrig(genTransTrig(context, 625, 4096));
+  Buffer bufSquareTrig(genSquareTrig(context, 625, 4096));
   
+  Buffer bufA, bufI;
+  setupWeights<double>(context, bufA, bufI, 625, 4096, E);
+  
+  u32 wordSize = sizeof(double);  
   u32 bufSize = N * wordSize;
+  
   Buffer buf1{makeBuf(    context, BUF_RW, bufSize)};
   Buffer buf2{makeBuf(    context, BUF_RW, bufSize)};
   Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
@@ -640,29 +673,61 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 1), zero)};
   delete[] zero;
 
-  Buffer dummy;
-  
-  Buffer &trigW = (W == 1024) ? bufTrig1K : bufTrig2K;
-  Buffer &trigH = (H == 1024) ? bufTrig1K : bufTrig2K;
+  // Buffer &trigW = (W == 1024) ? bufTrig1K : bufTrig2K;
+  // Buffer &trigH = (H == 1024) ? bufTrig1K : bufTrig2K;
   
   fftP.setArg("out", buf1);
   fftP.setArg("A", bufA);
-  fftP.setArg("smallTrig", trigW);
+  fftP.setArg("smallTrig", bufTrig625);
   
-  fftW.setArg("io", buf1);
-  fftW.setArg("smallTrig", trigW);
+  fft625.setArg("io", buf1);
+  fft625.setArg("smallTrig", bufTrig625);
 
-  fftH.setArg("io", buf2);
-  fftH.setArg("smallTrig", trigH);
+  fft4K.setArg("io", buf2);
+  fft4K.setArg("smallTrig", bufTrig4K);
   
   transposeW.setArg("in",  buf1);
   transposeW.setArg("out", buf2);
-  transposeW.setArg("bigTrig", bufBigTrig);
+  transposeW.setArg("trig", bufTransTrig);
 
   transposeH.setArg("in",  buf2);
   transposeH.setArg("out", buf1);
-  transposeH.setArg("bigTrig", bufBigTrig);
+  transposeH.setArg("trig", bufTransTrig);
 
+  /*
+  double2 *data = new double2[625 * 4096]();
+  data[0] = U2(1, 0);
+  data[1] = U2(-1, 0);
+  data[625] = U2(0, 1);
+  data[626] = U2(0, -1);
+
+  data[623] = U2(2, 0);
+  data[624] = U2(-2, 0);
+  data[625 + 623] = U2(0, 2);
+  data[625 + 624] = U2(0, -2);
+
+  data[4094 * 625] = U2(3, 0);
+  data[4094 * 625 + 1] = U2(-3, 0);
+  data[4095 * 625] = U2(0, 3);
+  data[4095 * 625 + 1] = U2(0, -3);
+
+  write(queue, true, buf1.get(), bufSize, data, 0);
+
+  transposeW();
+
+  read(queue, true, buf2.get(), bufSize, data, 0);
+
+  for (int i : {0, 1, 4096, 4097, 623 * 4096, 623 * 4096 + 1, 624 * 4096, 624 * 4096 + 1, 4094, 4095, 4096 + 4094, 4096 + 4095}) {
+    printf("%d %f %f\n", i, data[i].x, data[i].y);
+  }
+
+  transposeH();
+  read(queue, true, buf1.get(), bufSize, data, 0);
+  for (int i : {0, 1, 625, 626, 623, 624, 625 + 623, 625 + 624, 4094 * 625, 4094 * 625 + 1, 4095 * 625, 4095 * 625 + 1}) {
+    printf("%d %f %f\n", i, data[i].x, data[i].y);
+  }
+  */
+  
   carryA.setArg("in", buf1);
   carryA.setArg("A", bufI);
   carryA.setArg("carryOut", bufCarry);
@@ -674,22 +739,22 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   carryB.setArg("carryIn", bufCarry);
   
   square.setArg("io", buf2);
-  square.setArg("bigTrig", bufBigTrig);
+  square.setArg("bigTrig", bufSquareTrig);
   
   multiply.setArg("io", buf2);
   multiply.setArg("in", buf3);
-  multiply.setArg("bigTrig", bufBigTrig);
+  multiply.setArg("bigTrig", bufSquareTrig);
   
   autoConv.setArg("io", buf2);
-  autoConv.setArg("smallTrig", trigH);
-  autoConv.setArg("bigTrig", bufBigTrig);
+  autoConv.setArg("smallTrig", bufTrig4K);
+  autoConv.setArg("bigTrig", bufSquareTrig);
   
   carryConv.setArg("io", buf1);
   carryConv.setArg("carryShuttle", bufCarry);
   carryConv.setArg("ready", bufReady);
   carryConv.setArg("A", bufA);
   carryConv.setArg("iA", bufI);
-  carryConv.setArg("smallTrig", trigW);
+  carryConv.setArg("smallTrig", bufTrig625);
   
   float bitsPerWord = E / (float) N;
   if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }
@@ -701,8 +766,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   using vfun = std::function<void()>;
 
-  auto carry = useLongCarry ? vfun([&](){ fftW(); carryA(); carryB(); fftP(); }) : vfun([&](){ carryConv(); });
-  auto tail  = useLongTail  ? vfun([&](){ fftH(); square(); fftH(); })   : vfun([&](){ autoConv(); });
+  auto carry = useLongCarry ? vfun([&](){ fft625(); carryA(); carryB(); fftP(); }) : vfun([&](){ carryConv(); });
+  auto tail  = useLongTail  ? vfun([&](){ fft4K(); square(); fft4K(); })   : vfun([&](){ autoConv(); });
   
   auto entryKerns = [&fftP, &transposeW, &tail, &transposeH](cl_mem in) {
     fftP.setArg("in", in);
@@ -720,11 +785,11 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     transposeH();
   };
 
-  auto exitKerns = [&fftW, &carryA, &carryM, &carryB](cl_mem out, bool doMul3) {
+  auto exitKerns = [&fft625, &carryA, &carryM, &carryB](cl_mem out, bool doMul3) {
     (doMul3 ? carryM : carryA).setArg("out", out);
     carryB.setArg("io",  out);
     
-    fftW();
+    fft625();
     doMul3 ? carryM() : carryA();
     carryB();
   };
@@ -745,14 +810,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     exitKerns(io, doMul3);
   };
 
-  auto directFFT = [&fftP, &transposeW, &fftH](cl_mem in, cl_mem out) {
+  auto directFFT = [&fftP, &transposeW, &fft4K](cl_mem in, cl_mem out) {
     fftP.setArg("in", in);
     transposeW.setArg("out", out);
-    fftH.setArg("io", out);
+    fft4K.setArg("io", out);
 
     fftP();
     transposeW();
-    fftH();
+    fft4K();
   };
   
   // The modular multiplication io *= in.
@@ -760,7 +825,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     directFFT(in, buf3.get());
     directFFT(io, buf2.get());
     multiply(); // input: buf2, buf3; output: buf2.
-    fftH();
+    fft4K();
     transposeH();
     exitKerns(io, false);
   };
@@ -769,7 +834,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u64 residue;
   int nErrors = 0;
   if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
-         {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryConv})) {
+         {&fftP, &fft625, &fft4K, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryConv})) {
     return false;
   }
   
@@ -804,32 +869,13 @@ int main(int argc, char **argv) {
   Queue queueHolder{makeQueue(device, context)};
   cl_queue queue = queueHolder.get();
 
-  int MAX_2M = 40000000, MAX_4M = 78400000;
-  
-  
   while (true) {
     char AID[64];
     int E = worktodoReadExponent(AID);
     if (E <= 0) { break; }
     
-    int W, H;
-    int sizeM = args.fftSize ? args.fftSize / (1024 * 1024) : E < MAX_2M ? 2 : E < MAX_4M ? 4 : 8;        
-    switch (sizeM) {
-    case 2:
-      W = H = 1024;
-      break;
-    case 4:
-      W = 1024;
-      H = 2048;
-      break;
-    case 8:
-      W = 2048;
-      H = 2048;
-      break;
-    default:
-      assert(false);
-    }
-    
+    int W = 625;
+    int H = 4096;    
     if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }
   }
 

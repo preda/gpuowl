@@ -264,7 +264,6 @@ void flush( cl_queue q) { CHECK(clFlush(q)); }
 void finish(cl_queue q) { CHECK(clFinish(q)); }
 
 void run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
-  // size_t groupSize = 256;
   CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL), name.c_str());
 }
 

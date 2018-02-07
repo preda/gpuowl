@@ -28,8 +28,8 @@ static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
 class Kernel {
   Holder<cl_kernel> kernel;
   cl_queue queue;
-  int N;
-  int itemsPerThread;
+  int workSize;
+  // int itemsPerThread;
   int nArgs;
   std::string name;
   std::vector<std::string> argNames;
@@ -44,11 +44,10 @@ class Kernel {
   }
   
 public:
-  Kernel(cl_program program, cl_device_id device, cl_queue q, int N, const std::string &name, int itemsPerThread, bool doTime) :
+  Kernel(cl_program program, cl_device_id device, cl_queue q, int workSize, const std::string &name, bool doTime) :
     kernel(makeKernel(program, name.c_str())),
     queue(q),
-    N(N),
-    itemsPerThread(itemsPerThread),
+    workSize(workSize),
     nArgs(getKernelNumArgs(kernel.get())),
     name(name),
     timeSum(0),
@@ -56,7 +55,9 @@ public:
     doTime(doTime),
     groupSize(getWorkGroupSize(kernel.get(), device))
   {
-    assert(N % itemsPerThread == 0);
+    // assert(N % itemsPerThread == 0);
+    // if (workSize % groupSize
+    assert((workSize % groupSize == 0) || (log("%s\n", name.c_str()), false));
     assert(nArgs >= 0);
     for (int i = 0; i < nArgs; ++i) { argNames.push_back(getKernelArgName(kernel.get(), i)); }
   }
@@ -64,12 +65,12 @@ public:
   void operator()() {
     if (doTime) {
       Timer timer;
-      ::run(queue, kernel.get(), groupSize, N / itemsPerThread, name);
+      ::run(queue, kernel.get(), groupSize, workSize, name);
       finish();
       timeSum += timer.deltaMicros();
       ++nCalls;
     } else {
-      ::run(queue, kernel.get(), groupSize, N / itemsPerThread, name);
+      ::run(queue, kernel.get(), groupSize, workSize, name);
     }
   }
   
