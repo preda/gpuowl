@@ -1,7 +1,10 @@
-# GpuOwL 1.10
+# GpuOwL 2.0
 GpuOwL is a Mersenne prime tester for GPUs. See the GIMPS project for context: http://mersenne.org/
 
-GpuOwl is implemented in OpenCL. It is most tested on AMD GPUs.
+GpuOwl is implemented in OpenCL. It is known to work best on AMD GPUs, and may also work on Nvidia GPUs.
+
+GpuOwl 2.0 extends the FFT size to 5000K (625 * 4096 * 2), and at the same time abandons the old FFT sizes
+and the integer (NTT) transforms.
 
 
 ## PRP: PRobable Prime test
@@ -33,7 +36,7 @@ GpuOwl also accepts the LL-test format lines from PrimeNet, but support for thes
 
 ## Usage
 * Make sure that the gpuowl.cl file is in the same folder as the executable
-* Get "PRP smallest available first time tests" assignments from GIMPS Manual Testing ( http://mersenne.org/ ). GpuOwL best handles exponents 70M - 78M.
+* Get "PRP smallest available first time tests" assignments from GIMPS Manual Testing ( http://mersenne.org/ ).
 * Copy the assignment lines from GIMPS to a file named 'worktodo.txt'
 * Run gpuowl. It prints progress report on stdout and in gpuowl.log, and writes result lines to results.txt
 * Submit the result lines from results.txt to http://mersenne.org/ manual testing.
@@ -49,15 +52,9 @@ To build simply invoke "make" (or look inside the Makefile for a manual build).
 ## See \"gpuowl -h\" for the command line options:
 
 ```
-gpuOwL v1.10-4dbb409-mod GPU Mersenne primality checker
+gpuOwL v2.0 GPU Mersenne primality checker
 Command line options:
 
--size 2M|4M|8M : override FFT size.
--fft DP|SP|M61|M31  : choose FFT variant [default DP]:
-                DP  : double precision floating point.
-                SP  : single precision floating point.
-                M61 : Fast Galois Transform (FGT) modulo M(61).
-                M31 : FGT modulo M(31).
 -user <name>  : specify the user name.
 -cpu  <name>  : specify the hardware name.
 -longCarry    : use not-fused carry kernels (may be slower).
@@ -71,9 +68,7 @@ Command line options:
 
 ## FFT size
 GpuOwl internally does repeated multiplication of very large numbers (tens of millions of bits large). The multiplication
-is done through a convolution, wich is done through using a pair of FFT and inverse-FFT transforms. Right now GpuOwl only
-supports FFT transforms of power-of-two sizes 2M (i.e. 2M == 2^21), 4M, 8M. The size of the FFT is linked to exponent magnitude.
-For exponents up to ~78M (but not too small), an FFT size of 4M is adequate. For larger exponents a larger FFT is needed (8M).
+is done through a convolution, wich is done by using a pair of FFT and inverse-FFT transforms.
 
 
 ## Not-fused kernels

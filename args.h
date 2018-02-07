@@ -29,7 +29,6 @@ Args() : step(0), fftSize(0),
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
       log("Command line options:\n\n"
-          "-size 2M|4M|8M : override FFT size.\n"
           "-user <name>  : specify the user name.\n"
           "-cpu  <name>  : specify the hardware name.\n"
           "-longCarry    : use not-fused carry kernels (may be slower).\n"

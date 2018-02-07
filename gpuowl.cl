@@ -632,7 +632,7 @@ KERNEL(512) autoConv(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
   if (g == 0) {
     reverse8(512, (local T2 *) lds, u, true);
     halfSq(512, 8, u, u, bigTrig[4096], bigTrig, true);
-    reverse8(512, (local T2 *) lds, u, true);    
+    reverse8(512, (local T2 *) lds, u, true);
   } else {
     reverse8(512, (local T2 *) lds, u, false);
   
