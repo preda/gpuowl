@@ -59,9 +59,9 @@ T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }
 
 T mul1(T a, T b) { return a * b; }
 
-T2 mul_t4(T2 a)  { return mul(a, U2( 0, -1)); }
-T2 mul_t8(T2 a)  { return mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-T2 mul_3t8(T2 a) { return mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
+T2 mul_t8(T2 a)  { return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
+T2 mul_3t8(T2 a) { return U2(a.x - a.y, a.x + a.y) * - M_SQRT1_2; } // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
 
 T2 shl(T2 a, uint k) { return U2(shl1(a.x, k), shl1(a.y, k)); }
@@ -153,6 +153,34 @@ void fft8Core(T2 *u) {
   fft4Core(u + 4);
 }
 
+void fft8(T2 *u) {
+  fft8Core(u);
+  SWAP(u[1], u[4]);
+  SWAP(u[3], u[6]);
+}
+
+/*
+void fft8(T2 *u) {
+  for (int i = 0; i < 4; ++i) { X2(u[i], u[i + 4]); }
+  u[6] = U2(u[6].y, -u[6].x);
+  
+  X2(u[0], u[2]);
+  X2(u[1], u[3]);
+  u[3] = U2(u[3].y, -u[3].x);
+
+  X2(u[5], u[7]);
+  u[5] = U2(u[5].y, -u[5].x) * M_SQRT1_2;
+  u[7] = u[7] * M_SQRT1_2;
+
+  X2(u[0], u[1]);
+
+  X2(u[4], u[7]);
+  X2(u[5], u[6]);
+
+  X2(u[4], u[5]);
+}
+*/
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 void fft5(T2 *u) {
   const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
@@ -182,17 +210,6 @@ void fft5(T2 *u) {
   X2(u[2], u[3]);
 }
 
-void fft4(T2 *u) {
-  fft4Core(u);
-  SWAP(u[1], u[2]);
-}
-
-void fft8(T2 *u) {
-  fft8Core(u);
-  SWAP(u[1], u[4]);
-  SWAP(u[3], u[6]);
-}
-
 void shufl(uint WG, local T *lds, T2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   uint m = me / f;
@@ -220,20 +237,6 @@ void fft625Impl(local T *lds, T2 *u, const G T2 *trig) {
   }
   fft5(u);
 }
-
-/*
-void fft1kImpl(local T *lds, T2 *u, const G T2 *trig) {
-  for (int s = 6; s >= 0; s -= 2) {
-    fft4(u);
-    
-    if (s != 6) { bar(); }
-    shufl (256, lds,  u, 4, 1 << s);
-    tabMul(256, trig, u, 4, 1 << s);
-  }
-
-  fft4(u);
-}
-*/
 
 // WG:512, LDS:32KB, u:8.
 void fft4KImpl(local T *lds, T2 *u, const G T2 *trig) {
