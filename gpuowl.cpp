@@ -532,8 +532,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       useLongCarry ? "long" : useMediumCarry ? "medium, fused" : "short, fused",
       useSplitTail ? "split" : "fused");
 
-
-
   string clArgs = args.clArgs;
   if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
     
@@ -583,9 +581,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int *zero = new int[H + 1]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 1), zero)};
   delete[] zero;
-
-  // Buffer &trigW = (W == 1024) ? bufTrig1K : bufTrig2K;
-  // Buffer &trigH = (H == 1024) ? bufTrig1K : bufTrig2K;
   
   fftP.setArg("out", buf1);
   fftP.setArg("A", bufA);
