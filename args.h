@@ -12,31 +12,43 @@ struct Args {
   std::string user, cpu;
   std::string dump;
   int step;
-  int fftSize;
   int device;
-  bool timeKernels, debug;
-  bool useLongCarry, useLongTail;
+  bool timeKernels;
+  int carry;
+  int tail;
   int verbosity;
   
-Args() : step(0), fftSize(0),
-    device(-1), timeKernels(false), debug(false),
-    useLongCarry(false), useLongTail(false),
-    verbosity(0) { }
+  Args() :
+    step(0),
+    device(-1),
+    timeKernels(false),
+    carry(0),
+    tail(0),
+    verbosity(1) { }
   
   // return false to stop.
   bool parse(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
-      log("Command line options:\n\n"
-          "-user <name>  : specify the user name.\n"
-          "-cpu  <name>  : specify the hardware name.\n"
-          "-longCarry    : use not-fused carry kernels (may be slower).\n"
-          "-longTail     : use not-fused tail kernels  (may be slower).\n"
-          "-dump <path>  : dump compiled ISA to the folder <path> that must exist.\n"
-          "-time kernels : display kernel profiling information (slower).\n"
-          "-verbosity <level> : change amount of information logged. [0-2, default 0].\n"
-          "-device <N>   : select specific device among:\n");
+      log(R"""(
+Command line options:
+
+-user <name>      : specify the user name.
+-cpu  <name>      : specify the hardware name.
+-time             : display kernel profiling information.
+-tail fused|split : selects tail kernels variant (default 'fused').
+
+-carry short|medium|long : selects carry propagation (default 'short').
+    Longer carry accomodates lower bits-per-word but may be slower.
+    * 'short'  is good for bits-per-word >= 13,
+    * 'medium' is good for bits-per-word >= 6,
+    * 'long'   is good for bits-per-word >= 2.
+    Also note that 'short' and 'medium' use fused carry kernels, while 'long'
+    uses split carry kernels.
+
+-device <N>   : select specific device among:
+)""");
       
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
@@ -59,8 +71,6 @@ Args() : step(0), fftSize(0),
         log("-dump expects name");
         return false;
       }
-    } else if (!strcmp(arg, "-debug")) {
-      debug = true;
     } else if (!strcmp(arg, "-step")) {
       if (i < argc - 1) {
         step = atoi(argv[++i]);
@@ -94,17 +104,28 @@ Args() : step(0), fftSize(0),
         return false;
       }
     } else if(!strcmp(arg, "-time")) {
-      if (i < argc - 1 && !strcmp(argv[++i], "kernels")) {
-        timeKernels = true;
-      } else {
-        log("-time expects 'kernels'\n");
-        return false;
+      timeKernels = true;
+    } else if (!strcmp(arg, "-carry")) {
+      if (i < argc - 1) {
+        std::string s = argv[++i];
+        if (s == "short" || s == "medium" || s == "long") {
+          carry = s == "short" ? 0 : s == "medium" ? 1 : 2;
+          continue;
+        }
       }
-    } else if (!strcmp(arg, "-longCarry")) {
-      useLongCarry = true;
-    } else if (!strcmp(arg, "-longTail")) {
-      useLongTail = true;
-    } else if (!strcmp(arg, "-size")) {
+      log("-carry expects short|medium|long\n");
+      return false;
+    } else if (!strcmp(arg, "-tail")) {
+      if (i < argc - 1) {
+        std::string s = argv[++i];
+        if (s == "fused" || s == "split") {
+          tail = s == "fused" ? 0 : 1;
+          continue;
+        }
+      }
+      log("-tail expects fused|split\n");
+      return false;      
+    } /*else if (!strcmp(arg, "-size")) {
       if (i < argc - 1) {
         const char *value = argv[++i];
         if (int len = strlen(value)) {
@@ -115,7 +136,8 @@ Args() : step(0), fftSize(0),
         log("-size expects size 2M | 4M | 8M\n");
         return false;
       }
-    } else if (!strcmp(arg, "-device")) {
+      } */
+    else if (!strcmp(arg, "-device")) {
       if (i < argc - 1) {
         device = atoi(argv[++i]);
         int nDevices = getNumberOfDevices();

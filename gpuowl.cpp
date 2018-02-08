@@ -273,7 +273,7 @@ void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool c
         days, hours, mins,
         hexStr(res).c_str(), shortTimeStr().c_str(), errors.c_str());    
   } else {
-    log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f] CV %.1f%%, check %.2fs; ETA %dd %02d:%02d; %s [%s]%s\n",
+    log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f](%.1f%%), check %.2fs; ETA %dd %02d:%02d; %s [%s]%s\n",
         checkOK ? "OK" : "EE", k, E, k * percent, msPerIt, stats.min, stats.max, stats.sd() / msPerIt * 100,
         timeCheck / float(1000),
         days, hours, mins,
@@ -518,7 +518,21 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   string configName = std::to_string(N / 1024) + "K";
   
-  std::vector<string> defines {valueDefine("EXP", E)}; // , valueDefine("WIDTH", W), valueDefine("HEIGHT", H)};
+  std::vector<string> defines {valueDefine("EXP", E)};
+
+  float bitsPerWord = E / (float) N;
+
+  bool useLongCarry   = args.carry == 2 || bitsPerWord < 6;
+  bool useMediumCarry = !useLongCarry && (args.carry == 1 || bitsPerWord < 13);
+  if (useMediumCarry) { defines.push_back(valueDefine("CARRY_MEDIUM", 1)); }
+  
+  bool useSplitTail = args.tail == 1;
+  
+  log("Note: using %s carry and %s tail kernels\n",
+      useLongCarry ? "long" : useMediumCarry ? "medium, fused" : "short, fused",
+      useSplitTail ? "split" : "fused");
+
+
 
   string clArgs = args.clArgs;
   if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
@@ -546,7 +560,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   LOAD(multiply, N / 4);
 
   LOAD(autoConv,  (N + 4096 * 2) / 32);
-  LOAD(carryConv, N / 10 + 125);
+  LOAD(carryFused, (useMediumCarry ? N / 20 : (N / 10)) + 125);
 #undef LOAD
   program.reset();
   
@@ -612,25 +626,17 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   autoConv.setArg("smallTrig", bufTrig4K);
   autoConv.setArg("bigTrig", bufSquareTrig);
   
-  carryConv.setArg("io", buf1);
-  carryConv.setArg("carryShuttle", bufCarry);
-  carryConv.setArg("ready", bufReady);
-  carryConv.setArg("A", bufA);
-  carryConv.setArg("iA", bufI);
-  carryConv.setArg("smallTrig", bufTrig625);
-  
-  float bitsPerWord = E / (float) N;
-  if (bitsPerWord > 18.6f) { log("Warning: high word size of %.2f bits may result in errors\n", bitsPerWord); }
-  
-  bool useLongCarry = args.useLongCarry || (bitsPerWord < 13);
-  if (useLongCarry) { log("Note: using long (not-fused) carry kernels\n"); }
-  bool useLongTail = args.useLongTail;
-  if (useLongTail) { log("Note: using long (not-fused) tail kernels\n"); }
-
+  carryFused.setArg("io", buf1);
+  carryFused.setArg("carryShuttle", bufCarry);
+  carryFused.setArg("ready", bufReady);
+  carryFused.setArg("A", bufA);
+  carryFused.setArg("iA", bufI);
+  carryFused.setArg("smallTrig", bufTrig625);
+    
   using vfun = std::function<void()>;
 
-  auto carry = useLongCarry ? vfun([&](){ fft625(); carryA(); carryB(); fftP(); }) : vfun([&](){ carryConv(); });
-  auto tail  = useLongTail  ? vfun([&](){ fft4K(); square(); fft4K(); })   : vfun([&](){ autoConv(); });
+  auto carry = useLongCarry ? vfun([&](){ fft625(); carryA(); carryB(); fftP(); }) : vfun([&](){ carryFused(); });
+  auto tail  = useSplitTail  ? vfun([&](){ fft4K(); square(); fft4K(); })   : vfun([&](){ autoConv(); });
   
   auto entryKerns = [&fftP, &transposeW, &tail, &transposeH](cl_mem in) {
     fftP.setArg("in", in);
@@ -697,7 +703,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u64 residue;
   int nErrors = 0;
   if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
-         {&fftP, &fft625, &fft4K, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryConv})) {
+         {&fftP, &fft625, &fft4K, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryFused})) {
     return false;
   }
   
