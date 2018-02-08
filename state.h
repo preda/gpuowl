@@ -8,13 +8,13 @@
 // void expandBits(const std::vector<u32> &compactBits, bool balanced, int W, int H, int E, int *data);
 
 u32 extra(unsigned N, unsigned E, unsigned k) {
-  assert(E & (N - 1));
-  u32 step = N - (E & (N - 1));
-  return (k * step) & (N - 1);
+  assert(E % N);
+  u32 step = N - (E % N);
+  return i64(k) * step % N;
 }
 
 bool isBigWord(unsigned N, unsigned E, unsigned k) {
-  u32 step = N - (E & (N - 1));
+  u32 step = N - (E % N);
   return extra(N, E, k) + step < N;
 }
 
