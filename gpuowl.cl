@@ -41,7 +41,6 @@ typedef long Carry;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
-T neg(T x) { return -x; }
 T add1(T a, T b) { return a + b; }
 T sub1(T a, T b) { return a - b; }
 
@@ -68,7 +67,7 @@ T2 shl(T2 a, uint k) { return U2(shl1(a.x, k), shl1(a.y, k)); }
 
 T2 addsub(T2 a) { return U2(add1(a.x, a.y), sub1(a.x, a.y)); }
 T2 swap(T2 a) { return U2(a.y, a.x); }
-T2 conjugate(T2 a) { return U2(a.x, neg(a.y)); }
+T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
 uint extra(ulong k) { return k * STEP % NWORDS; }
 
@@ -162,28 +161,6 @@ void fft8(T2 *u) {
   SWAP(u[1], u[4]);
   SWAP(u[3], u[6]);
 }
-
-/*
-void fft8(T2 *u) {
-  for (int i = 0; i < 4; ++i) { X2(u[i], u[i + 4]); }
-  u[6] = U2(u[6].y, -u[6].x);
-  
-  X2(u[0], u[2]);
-  X2(u[1], u[3]);
-  u[3] = U2(u[3].y, -u[3].x);
-
-  X2(u[5], u[7]);
-  u[5] = U2(u[5].y, -u[5].x) * M_SQRT1_2;
-  u[7] = u[7] * M_SQRT1_2;
-
-  X2(u[0], u[1]);
-
-  X2(u[4], u[7]);
-  X2(u[5], u[6]);
-
-  X2(u[4], u[5]);
-}
-*/
 
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 void fft5(T2 *u) {
