@@ -241,23 +241,23 @@ void write(uint WG, uint N, T2 *u, G T2 *out, uint base) {
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
-void carryACore(uint WG, uint N, uint H, uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
+void carryACore(uint WG, uint N, uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   uint gx = g % N;
   uint gy = g / N;
 
-  uint step = WG * gx + N * WG * CARRY_LEN * gy;
-  in  += step;
-  out += step;
-  A   += step;
+  uint line = CARRY_LEN * gy;
+  // uint step = WG * gx + N * WG * CARRY_LEN * gy;
+  in  += WG * gx + 640 * line;
+  out += WG * gx + 625 * line;
+  A   += WG * gx + 625 * line;
 
   Carry carry = 0;
 
   for (int i = 0; i < CARRY_LEN; ++i) {
-    // uint pos = CARRY_LEN * gy + H * WG * gx  + H * me + i;
     uint p = i * N * WG + me;
-    out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p]);
+    out[p] = unweightAndCarry(mul, conjugate(in[640 * i + me]), &carry, A[p]);
   }
   carryOut[g * WG + me] = carry;
 }
@@ -390,19 +390,20 @@ void transposeLDS(local T *lds, T2 *u) {
 
 void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G T2 *trig) {
   uint GPW = (W - 1) / 64 + 1, GPH = (H - 1) / 64 + 1;
+  uint PW = GPW * 64, PH = GPH * 64; // padded to multiple of 64.
   uint g = get_group_id(0), gx = g % GPW, gy = g / GPW;
   gy = (gy + gx) % GPH;
 
-  in   += gy * 64 * W + gx * 64;
-  out  += gy * 64     + gx * 64 * H;
+  in   += gy * 64 * PW + gx * 64;
+  out  += gy * 64      + gx * 64 * PH;
   
   uint me = get_local_id(0), mx = me % 64, my = me / 64;
   T2 u[16];
 
-  if (!(W % 64) || (gx * 64 + mx < W)) {
+  if ((W % 64 == 0) || (gx * 64 + mx < W)) {
     for (int i = 0; i < 16; ++i) {
       if (!(H % 64) || (gy * 64 + i * 4 + my < H)) {
-        u[i] = in[(i * 4 + my) * W + mx];
+        u[i] = in[(i * 4 + my) * PW + mx];
       }
     }
   }
@@ -411,10 +412,10 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G 
 
   if (!(H % 64) || (gy * 64 + mx < H)) {  
     for (int i = 0; i < 16; ++i) {
-      if (!(W % 64) || (gx * 64 + i * 4 + my < W)) {
+      if ((W % 64 == 0) || (i * 4 + gx * 64 + 3 < W) || (i * 4 + gx * 64 + my < W)) {
         uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
         u[i] = mul(u[i], mul(trig[k / (W * H / 2048)], trig[2048 + k % (W * H / 2048)]));
-        out[(i * 4 + my) * H + mx] = u[i];
+        out[(i * 4 + my) * PH + mx] = u[i];
       }
     }
   }
@@ -441,8 +442,7 @@ KERNEL(125) fft625(P(T2) io, Trig smallTrig) {
   T2 u[5];
 
   uint g = get_group_id(0);
-  uint step = g * 625;
-  io += step;
+  io += 640 * g;
 
   read(125, 5, u, io, 0);
   fft625Impl(lds, u, smallTrig);
@@ -454,8 +454,7 @@ KERNEL(512) fft4K(P(T2) io, Trig smallTrig) {
   T2 u[8];
 
   uint g = get_group_id(0);
-  uint step = g * 4096;
-  io += step;
+  io += 4096 * g;
 
   read(512, 8, u, io, 0);
   fft4KImpl(lds, u, smallTrig);
@@ -468,11 +467,10 @@ KERNEL(125) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   T2 u[5];
 
   uint g = get_group_id(0);
-  uint step = g * 625;
-  in  += step;
-  out += step;
-  A   += step;
-  
+  A   += 625 * g;
+  in  += 625 * g;
+  out += 640 * g;
+
   uint me = get_local_id(0);
 
   for (int i = 0; i < 5; ++i) {
@@ -486,20 +484,16 @@ KERNEL(125) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
 }
 
 KERNEL(125) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
-  carryACore(125, 5, 4096, 1, in, A, out, carryOut);
+  carryACore(125, 5, 1, in, A, out, carryOut);
 }
 
 KERNEL(125) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
-  carryACore(125, 5, 4096, 3, in, A, out, carryOut);
+  carryACore(125, 5, 3, in, A, out, carryOut);
 }
 
 KERNEL(125) carryB(P(Word2) io, CP(Carry) carryIn) {
   carryBCore(125, 5, 4096, io, carryIn);
 }
-
-KERNEL(512) square(P(T2) io, Trig bigTrig)  { csquare(512, 4096, 625, io, bigTrig); }
-
-KERNEL(512) multiply(P(T2) io, CP(T2) in, Trig bigTrig)  { cmul(512, 4096, 625, io, in, bigTrig); }
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
@@ -512,17 +506,17 @@ KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
 
   uint gr = get_group_id(0);
   uint me = get_local_id(0);
-  uint step = (gr % 2048) * 625 * 2;
+  uint line = gr % 2048 * 2;
 
-  io    += step;
-  A     += step;
-  iA    += step;
+  io += 640 * line;
+  A  += 625 * line;
+  iA += 625 * line;
   
   T2 u[5]; read(125, 5, u, io, 0);
   fft625Impl(lds, u, smallTrig);
   bar();
   
-  T2 v[5]; read(125, 5, v, io, 625);
+  T2 v[5]; read(125, 5, v, io, 640);
   fft625Impl(lds, v, smallTrig);
   
   Word2 wu[5], wv[5];
@@ -557,7 +551,7 @@ KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   bar();
   write(125, 5, u, io, 0);
   fft625Impl(lds, v, smallTrig);
-  write(125, 5, v, io, 625);
+  write(125, 5, v, io, 640);
 }
 
 #else
@@ -567,13 +561,12 @@ KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   local T lds[625];
 
   uint gr = get_group_id(0);
-  uint gm = gr % 4096;
   uint me = get_local_id(0);
-  uint step = gm * 625;
+  uint line = gr % 4096;
 
-  io    += step;
-  A     += step;
-  iA    += step;
+  io += 640 * line;
+  A  += 625 * line;
+  iA += 625 * line;
   
   T2 u[5];
   read(125, 5, u, io, 0);
@@ -620,6 +613,10 @@ KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig trig) {
   local T lds[4096];
   transpose(4096, 625, lds, in, out, trig);
 }
+
+KERNEL(512) square(P(T2) io, Trig bigTrig)  { csquare(512, 4096, 625, io, bigTrig); }
+
+KERNEL(512) multiply(P(T2) io, CP(T2) in, Trig bigTrig)  { cmul(512, 4096, 625, io, in, bigTrig); }
 
 void reverse8(uint WG, local T2 *lds, T2 *u, bool bump) {
   uint me = get_local_id(0);

@@ -573,8 +573,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u32 wordSize = sizeof(double);  
   u32 bufSize = N * wordSize;
   
-  Buffer buf1{makeBuf(    context, BUF_RW, bufSize)};
-  Buffer buf2{makeBuf(    context, BUF_RW, bufSize)};
+  Buffer buf1{makeBuf(    context, BUF_RW, bufSize + (640 - 625) * 4096 * 2 * wordSize)};
+  Buffer buf2{makeBuf(    context, BUF_RW, bufSize + (640 - 625) * 4096 * 2 * wordSize)};
   Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
   Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
 
