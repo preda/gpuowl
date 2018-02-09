@@ -391,8 +391,10 @@ void transposeLDS(local T *lds, T2 *u) {
 void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G T2 *trig) {
   uint GPW = (W - 1) / 64 + 1, GPH = (H - 1) / 64 + 1;
   uint PW = GPW * 64, PH = GPH * 64; // padded to multiple of 64.
-  uint g = get_group_id(0), gx = g % GPW, gy = g / GPW;
-  gy = (gy + gx) % GPH;
+  uint g = get_group_id(0);
+  // uint gx = g % GPW, gy = g / GPW;
+  uint gy = g % GPH, gx = g / GPH;
+  gx = (gy + gx) % GPW;
 
   in   += gy * 64 * PW + gx * 64;
   out  += gy * 64      + gx * 64 * PH;

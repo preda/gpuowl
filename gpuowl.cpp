@@ -327,7 +327,7 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
     StatsInfo stats = info.stats;
     float percent = 100 / total * stats.sum;
     if (percent >= .5f) {
-      log("%2.0f%% %-10s : %5.0f [%5.0f, %5.0f] us/call   x %5d calls\n",
+      log("%3.1f%% %-10s : %5.0f [%5.0f, %5.0f] us/call   x %5d calls\n",
           percent, info.name.c_str(), stats.mean, stats.low, stats.high, stats.n);
     }
   }
