@@ -313,31 +313,22 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
     StatsInfo stats;
   };
 
-  std::vector<Info> infos;  
+  double total = 0;
+  std::vector<Info> infos;
   for (Kernel *k : kerns) {
-    infos.push_back(Info{k->getName(), k->getStats()});
+    Info info{k->getName(), k->getStats()};
+    infos.push_back(info);
     k->resetStats();
+    total += info.stats.sum;
   }
 
   std::sort(infos.begin(), infos.end(), [](const Info &a, const Info &b) { return a.stats.sum >= b.stats.sum; });
 
   for (Info info : infos) {
-    float mean = info.stats.mean;
+    float mean = info.stats.mean;    
     int n = info.stats.n;
-    if (n > 100) { log("%-10s : %5.0f us/call  x %5d\n", info.name.c_str(), mean, n); }
+    if (n > 100) { log("%2.0f%% %-10s : %5.0f us/call  x %5d calls\n", 100 / total * info.stats.sum, info.name.c_str(), mean, n); }
   }
-
-  /*
-  std::vector<Kernel *> kvect(kerns);
-  std::sort(kvect.begin(), kvect.end(), [](Kernel *a, Kernel *b) { return a->getTime() >= b->getTime(); });
-  for (Kernel *k : kvect) {
-    u64 time = k->getTime();
-    u64 nCall = k->getCalls();
-    if (nCall > 100) { log("%-10s : %5.0f us/call  x %5d\n",
-                           k->getName().c_str(), time / (float) nCall, (int) nCall); }
-    k->resetTime();
-  }
-  */
 }
 
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }
