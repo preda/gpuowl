@@ -257,28 +257,32 @@ void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool c
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
   int days = 0, hours = 0, mins = 0;
-  float msPerIt = 0;
+  // float msPerIt = 0;
+
+  StatsInfo info = stats.getStats();
   
   if (nIt) {
-    msPerIt = stats.mean;
-    int etaMins = (end - k) * msPerIt * (1 / 60000.f) + .5f;
+    // msPerIt = stats.mean;
+    int etaMins = (end - k) * info.mean * (1 / 60000.f) + .5f;
     days  = etaMins / (24 * 60);
     hours = etaMins / 60 % 24;
     mins  = etaMins % 60;
   }
 
+  /*
   if (verbosity == 0 || stats.n < 2) {
     log("%s %8d / %d [%5.2f%%], %.2f ms/it; ETA %dd %02d:%02d; %s [%s]%s\n",
         checkOK ? "OK" : "EE", k, E, k * percent, msPerIt,
         days, hours, mins,
         hexStr(res).c_str(), shortTimeStr().c_str(), errors.c_str());    
   } else {
-    log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f](%.1f%%), check %.2fs; ETA %dd %02d:%02d; %s [%s]%s\n",
-        checkOK ? "OK" : "EE", k, E, k * percent, msPerIt, stats.min, stats.max, stats.sd() / msPerIt * 100,
+  */
+    log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f], check %.2fs; ETA %dd %02d:%02d; %s [%s]%s\n",
+        checkOK ? "OK" : "EE", k, E, k * percent, info.mean, info.low, info.high,
         timeCheck / float(1000),
         days, hours, mins,
         hexStr(res).c_str(), shortTimeStr().c_str(), errors.c_str());
-  }
+    // }
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
@@ -304,6 +308,26 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
 }
 
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
+  struct Info {
+    std::string name;
+    StatsInfo stats;
+  };
+
+  std::vector<Info> infos;  
+  for (Kernel *k : kerns) {
+    infos.push_back(Info{k->getName(), k->getStats()});
+    k->resetStats();
+  }
+
+  std::sort(infos.begin(), infos.end(), [](const Info &a, const Info &b) { return a.stats.sum >= b.stats.sum; });
+
+  for (Info info : infos) {
+    float mean = info.stats.mean;
+    int n = info.stats.n;
+    if (n > 100) { log("%-10s : %5.0f us/call  x %5d\n", info.name.c_str(), mean, n); }
+  }
+
+  /*
   std::vector<Kernel *> kvect(kerns);
   std::sort(kvect.begin(), kvect.end(), [](Kernel *a, Kernel *b) { return a->getTime() >= b->getTime(); });
   for (Kernel *k : kvect) {
@@ -313,6 +337,7 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
                            k->getName().c_str(), time / (float) nCall, (int) nCall); }
     k->resetTime();
   }
+  */
 }
 
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }

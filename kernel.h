@@ -1,5 +1,6 @@
 #pragma once
 
+#include "stats.h"
 #include "clwrap.h"
 #include "common.h"
 
@@ -29,7 +30,6 @@ class Kernel {
   Holder<cl_kernel> kernel;
   cl_queue queue;
   int workSize;
-  // int itemsPerThread;
   int nArgs;
   std::string name;
   std::vector<std::string> argNames;
@@ -37,6 +37,7 @@ class Kernel {
   u64 nCalls;
   bool doTime;
   int groupSize;
+  Stats stats;
 
   int getArgPos(const std::string &name) {
     for (int i = 0; i < nArgs; ++i) { if (argNames[i] == name) { return i; } }
@@ -50,13 +51,9 @@ public:
     workSize(workSize),
     nArgs(getKernelNumArgs(kernel.get())),
     name(name),
-    timeSum(0),
-    nCalls(0),
     doTime(doTime),
     groupSize(getWorkGroupSize(kernel.get(), device))
   {
-    // assert(N % itemsPerThread == 0);
-    // if (workSize % groupSize
     assert((workSize % groupSize == 0) || (log("%s\n", name.c_str()), false));
     assert(nArgs >= 0);
     for (int i = 0; i < nArgs; ++i) { argNames.push_back(getKernelArgName(kernel.get(), i)); }
@@ -67,8 +64,7 @@ public:
       Timer timer;
       ::run(queue, kernel.get(), groupSize, workSize, name);
       finish();
-      timeSum += timer.deltaMicros();
-      ++nCalls;
+      stats.add(timer.deltaMicros());
     } else {
       ::run(queue, kernel.get(), groupSize, workSize, name);
     }
@@ -86,10 +82,9 @@ public:
   
   void finish() { ::finish(queue); }
 
-  u64 getTime() { return timeSum; }
-  u64 getCalls() { return nCalls; }
-  void resetTime() {
-    timeSum = 0;
-    nCalls = 0;
-  }
+  StatsInfo getStats() { return stats.getStats(); }
+  
+  // u64 getTime() { return timeSum; }
+  // u64 getCalls() { return nCalls; }
+  void resetStats() { stats.reset(); }
 };
