@@ -316,9 +316,8 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   double total = 0;
   std::vector<Info> infos;
   for (Kernel *k : kerns) {
-    Info info{k->getName(), k->getStats()};
+    Info info{k->getName(), k->resetStats()};
     infos.push_back(info);
-    k->resetStats();
     total += info.stats.sum;
   }
 

@@ -61,6 +61,7 @@ public:
   
   void operator()() {
     if (doTime) {
+      finish();
       Timer timer;
       ::run(queue, kernel.get(), groupSize, workSize, name);
       finish();
@@ -82,9 +83,9 @@ public:
   
   void finish() { ::finish(queue); }
 
-  StatsInfo getStats() { return stats.getStats(); }
-  
-  // u64 getTime() { return timeSum; }
-  // u64 getCalls() { return nCalls; }
-  void resetStats() { stats.reset(); }
+  StatsInfo resetStats() {
+    StatsInfo ret = stats.getStats();
+    stats.reset();
+    return ret;
+  }
 };
