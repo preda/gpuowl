@@ -325,10 +325,14 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   std::sort(infos.begin(), infos.end(), [](const Info &a, const Info &b) { return a.stats.sum >= b.stats.sum; });
 
   for (Info info : infos) {
-    float mean = info.stats.mean;    
-    int n = info.stats.n;
-    if (n > 100) { log("%2.0f%% %-10s : %5.0f us/call  x %5d calls\n", 100 / total * info.stats.sum, info.name.c_str(), mean, n); }
+    StatsInfo stats = info.stats;
+    float percent = 100 / total * stats.sum;
+    if (percent >= .5f) {
+      log("%2.0f%% %-10s : %5.0f [%5.0f, %5.0f] us/call   x %5d calls\n",
+          percent, info.name.c_str(), stats.mean, stats.low, stats.high, stats.n);
+    }
   }
+  log("\n");
 }
 
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }
