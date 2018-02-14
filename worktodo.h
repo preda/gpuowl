@@ -43,7 +43,10 @@ int worktodoReadExponent(char *AID) {
         log("Exponent %d skipped: must be between %d and %d\n", exp, EXP_MIN, EXP_MAX);
       }
     } else {
-      log("worktodo.txt line '%s' skipped\n", line);
+      int n = strlen(line);
+      if (n >= 2 && line[n - 2] == '\n') { line[n - 2] = 0; }
+      if (n >= 1 && line[n - 1] == '\n') { line[n - 1] = 0; }
+      log("worktodo.txt: \"%s\" ignored\n", line);
     }
   }
   return 0;
