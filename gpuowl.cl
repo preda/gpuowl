@@ -97,7 +97,7 @@ uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 Carry unweight(T x, T weight, uint *nHigh) {
   double weighted = x * fabs(weight);
   double rounded  = rint(weighted);
-  if (fabs(rounded - weighted) > 0.001) { ++*nHigh; }
+  *nHigh += (fabs(rounded - weighted) > 0.002);
   return rounded;
 }
 
@@ -559,17 +559,17 @@ KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   bigBar();
 
   // Signal that this group is done writing the carry.
-  if (gr < H && me == 0) { atomic_xchg(&ready[gr], 1); }
+  if (gr < H && me == 0) { atomic_xchg(&ready[gr + 1], 1); }
 
   if (gr == 0) { return; }
 
 #ifndef NO_HIGH
   atomic_add((local uint *)lds, nHigh); bar();
-  if (me == 0) { atomic_add(&ready[4096], *(local uint *)lds); }
+  if (me == 0) { atomic_add(ready, *(local uint *)lds); }
 #endif
   
   // Wait until the previous group is ready with the carry.
-  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
+  if (me == 0) { while(!atomic_xchg(&ready[gr], 0)); }
 
   bigBar();
   

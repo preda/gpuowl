@@ -254,7 +254,8 @@ std::string shortTimeStr() { return timeStr("%H:%M:%S"); }
 
 void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats, u32 nHigh) {
   std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
-  std::string high = !nHigh ? "" : " round-high " + std::to_string(nHigh);
+  assert(nIt || !nHigh);
+  std::string high = !nHigh ? "" : " round-high " + std::to_string(int(nHigh / float(nIt) + .5f));
   
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
@@ -263,7 +264,6 @@ void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool c
   StatsInfo info = stats.getStats();
   
   if (nIt) {
-    // msPerIt = stats.mean;
     int etaMins = (end - k) * info.mean * (1 / 60000.f) + .5f;
     days  = etaMins / (24 * 60);
     hours = etaMins / 60 % 24;
@@ -422,10 +422,10 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
     if ((k % checkStep == 0) || (k >= kEnd) || stopRequested) {
       {
         u32 nHigh = 0, zero = 0;
-        read(queue, false, bufReady, sizeof(nHigh), &nHigh, H * sizeof(nHigh));
+        read(queue, false, bufReady, sizeof(nHigh), &nHigh);
         State state = gpu.read();
 
-        write(queue, false, bufReady, sizeof(zero), &zero, H * sizeof(zero));
+        write(queue, false, bufReady, sizeof(zero), &zero);
         CompactState compact(state, W, H, E);
         compact.expandTo(&state, balanced, W, H, E);
         gpu.writeNoWait(state);
