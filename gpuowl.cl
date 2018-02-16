@@ -94,11 +94,16 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
 uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
-Carry unweight(T x, T weight) { return rint(x * fabs(weight)); }
+Carry unweight(T x, T weight, uint *nHigh) {
+  double weighted = x * fabs(weight);
+  double rounded  = rint(weighted);
+  if (fabs(rounded - weighted) > 0.001) { ++*nHigh; }
+  return rounded;
+}
 
-Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight) {
-  Word a = carryStep(mul * unweight(u.x, weight.x), carry, oldBitlen(weight.x));
-  Word b = carryStep(mul * unweight(u.y, weight.y), carry, oldBitlen(weight.y));
+Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight, uint *nHigh) {
+  Word a = carryStep(mul * unweight(u.x, weight.x, nHigh), carry, oldBitlen(weight.x));
+  Word b = carryStep(mul * unweight(u.y, weight.y, nHigh), carry, oldBitlen(weight.y));
   return (Word2) (a, b);
 }
 
@@ -255,9 +260,10 @@ void carryACore(uint WG, uint N, uint mul, const G T2 *in, const G T2 *A, G Word
 
   Carry carry = 0;
 
+  uint nHigh = 0;
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint p = i * N * WG + me;
-    out[p] = unweightAndCarry(mul, conjugate(in[640 * i + me]), &carry, A[p]);
+    out[p] = unweightAndCarry(mul, conjugate(in[640 * i + me]), &carry, A[p], &nHigh);
   }
   carryOut[g * WG + me] = carry;
 }
@@ -535,16 +541,21 @@ KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
 #endif
   
   Word2 wu[5];
+
+  uint nHigh = 0;
+  
   for (int i = 0; i < N; ++i) {
     uint p = i * 125 + me;
     Carry carry = 0;
-    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p]);
+    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p], &nHigh);
 #ifdef CARRY_MEDIUM
-    wv[i] = unweightAndCarry(1, conjugate(v[i]), &carry, iA[p + W]);
+    wv[i] = unweightAndCarry(1, conjugate(v[i]), &carry, iA[p + W], &nHigh);
 #endif
     if (gr < H) { carryShuttle[gr * W + p] = carry; }
   }
 
+  if (me == 0) { *(local uint *)lds = 0; }
+  
   bigBar();
 
   // Signal that this group is done writing the carry.
@@ -552,6 +563,11 @@ KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
 
   if (gr == 0) { return; }
 
+#ifndef NO_HIGH
+  atomic_add((local uint *)lds, nHigh); bar();
+  if (me == 0) { atomic_add(&ready[4096], *(local uint *)lds); }
+#endif
+  
   // Wait until the previous group is ready with the carry.
   if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
 

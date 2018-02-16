@@ -252,12 +252,13 @@ std::string timeStr(const std::string &format) {
 std::string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
 std::string shortTimeStr() { return timeStr("%H:%M:%S"); }
 
-void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats) {
+void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats, u32 nHigh) {
   std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
+  std::string high = !nHigh ? "" : " round-high " + std::to_string(nHigh);
+  
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
   int days = 0, hours = 0, mins = 0;
-  // float msPerIt = 0;
 
   StatsInfo info = stats.getStats();
   
@@ -269,20 +270,11 @@ void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool c
     mins  = etaMins % 60;
   }
 
-  /*
-  if (verbosity == 0 || stats.n < 2) {
-    log("%s %8d / %d [%5.2f%%], %.2f ms/it; ETA %dd %02d:%02d; %s [%s]%s\n",
-        checkOK ? "OK" : "EE", k, E, k * percent, msPerIt,
-        days, hours, mins,
-        hexStr(res).c_str(), shortTimeStr().c_str(), errors.c_str());    
-  } else {
-  */
-    log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f], check %.2fs; ETA %dd %02d:%02d; %s [%s]%s\n",
-        checkOK ? "OK" : "EE", k, E, k * percent, info.mean, info.low, info.high,
-        timeCheck / float(1000),
-        days, hours, mins,
-        hexStr(res).c_str(), shortTimeStr().c_str(), errors.c_str());
-    // }
+  log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f], check %.2fs; ETA %dd %02d:%02d; %s [%s];%s%s\n",
+      checkOK ? "OK" : "EE", k, E, k * percent, info.mean, info.low, info.high,
+      timeCheck / float(1000),
+      days, hours, mins,
+      hexStr(res).c_str(), shortTimeStr().c_str(), high.c_str(), errors.c_str());
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
@@ -387,7 +379,7 @@ struct GpuState {
 
 bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
                 bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul,
-                std::initializer_list<Kernel *> allKerns) {
+                std::initializer_list<Kernel *> allKerns, cl_mem bufReady) {
   const int N = 2 * W * H;
   log("PRP-3: FFT %dK (%d * %d * 2) of %d (%.2f bits/word) [%s]\n", N / 1024, W, H, E, E / float(N), longTimeStr().c_str());
 
@@ -429,7 +421,11 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
 
     if ((k % checkStep == 0) || (k >= kEnd) || stopRequested) {
       {
+        u32 nHigh = 0, zero = 0;
+        read(queue, false, bufReady, sizeof(nHigh), &nHigh, H * sizeof(nHigh));
         State state = gpu.read();
+
+        write(queue, false, bufReady, sizeof(zero), &zero, H * sizeof(zero));
         CompactState compact(state, W, H, E);
         compact.expandTo(&state, balanced, W, H, E);
         gpu.writeNoWait(state);
@@ -444,7 +440,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
           goodK = k;
         }
         
-        doLog(E, k, args.verbosity, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors, stats);
+        doLog(E, k, args.verbosity, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors, stats, nHigh);
         if (args.timeKernels) { logTimeKernels(allKerns); }
         stats.reset();
         
@@ -598,7 +594,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
 
   int *zero = new int[H + 1]();
-  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 1), zero)};
+  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE /*| CL_MEM_HOST_NO_ACCESS*/ | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 1), zero)};
   delete[] zero;
   
   fftP.setArg("out", buf1);
@@ -717,7 +713,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u64 residue;
   int nErrors = 0;
   if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
-         {&fftP, &fft625, &fft4K, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryFused})) {
+                  {&fftP, &fft625, &fft4K, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryFused}, bufReady.get())) {
     return false;
   }
   
