@@ -499,112 +499,87 @@ KERNEL(125) carryB(P(Word2) io, CP(Carry) carryIn) {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-
-#ifdef CARRY_MEDIUM
-
 KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
                       CP(T2) A, CP(T2) iA, Trig smallTrig) {
-  local T lds[625];
+  uint W = 625;
+  uint N = 5;
+  uint PAD = 640;
 
   uint gr = get_group_id(0);
   uint me = get_local_id(0);
-  uint line = gr % 2048 * 2;
+  
+#ifdef CARRY_MEDIUM
+  uint H = 2048;
+  uint line = gr % H * 2;
+#else
+  uint H = 4096;
+  uint line = gr % H;
+#endif
 
-  io += 640 * line;
-  A  += 625 * line;
-  iA += 625 * line;
+  local T lds[625];
+
+  io += PAD * line;
+  A  += W * line;
+  iA += W * line;
   
-  T2 u[5]; read(125, 5, u, io, 0);
+  T2 u[5];
+  read(125, N, u, io, 0);
   fft625Impl(lds, u, smallTrig);
-  bar();
-  
-  T2 v[5]; read(125, 5, v, io, 640);
+
+#ifdef CARRY_MEDIUM
+  bar();  
+  T2 v[5];
+  read(125, N, v, io, PAD);
   fft625Impl(lds, v, smallTrig);
+  Word2 wv[5];
+#endif
   
-  Word2 wu[5], wv[5];
-  for (int i = 0; i < 5; ++i) {
+  Word2 wu[5];
+  for (int i = 0; i < N; ++i) {
     uint p = i * 125 + me;
     Carry carry = 0;
     wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p]);
-    wv[i] = unweightAndCarry(1, conjugate(v[i]), &carry, iA[p + 625]);
-    if (gr < 2048) { carryShuttle[gr * 625 + p] = carry; }
-  }
-
-  bigBar();
-
-  // Signal that this group is done writing the carry.
-  if (gr < 2048 && me == 0) { atomic_xchg(&ready[gr], 1); }
-
-  if (gr == 0) { return; }
-
-  // Wait until the previous group is ready with the carry.
-  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
-
-  bigBar();
-  
-  for (int i = 0; i < 5; ++i) {
-    uint p = i * 125 + me;
-    Carry carry = carryShuttle[(gr - 1) * 625 + ((p + 625 - gr / 2048) % 625)];
-    u[i] = carryAndWeight(wu[i], &carry, A[p]);
-    v[i] = carryAndWeightFinal(wv[i], carry, A[p + 625]);
-  }
-
-  fft625Impl(lds, u, smallTrig);
-  bar();
-  write(125, 5, u, io, 0);
-  fft625Impl(lds, v, smallTrig);
-  write(125, 5, v, io, 640);
-}
-
-#else
-// i.e. -carry short
-KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
-                      CP(T2) A, CP(T2) iA, Trig smallTrig) {
-  local T lds[625];
-
-  uint gr = get_group_id(0);
-  uint me = get_local_id(0);
-  uint line = gr % 4096;
-
-  io += 640 * line;
-  A  += 625 * line;
-  iA += 625 * line;
-  
-  T2 u[5];
-  read(125, 5, u, io, 0);
-  fft625Impl(lds, u, smallTrig);
-
-  Word2 word[5];
-  for (int i = 0; i < 5; ++i) {
-    uint p = i * 125 + me;
-    Carry carry = 0;
-    word[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p]);
-    if (gr < 4096) { carryShuttle[gr * 625 + p] = carry; }
-  }
-
-  bigBar();
-
-  // Signal that this group is done writing the carry.
-  if (gr < 4096 && me == 0) { atomic_xchg(&ready[gr], 1); }
-
-  if (gr == 0) { return; }
-
-  // Wait until the previous group is ready with the carry.
-  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
-
-  bigBar();
-  
-  for (int i = 0; i < 5; ++i) {
-    uint p = i * 125 + me;
-    Carry carry = carryShuttle[(gr - 1) * 625 + ((p + 625 - gr / 4096) % 625)];
-    u[i] = carryAndWeightFinal(word[i], carry, A[p]);
-  }
-
-  fft625Impl(lds, u, smallTrig);
-  write(125, 5, u, io, 0);
-}
-
+#ifdef CARRY_MEDIUM
+    wv[i] = unweightAndCarry(1, conjugate(v[i]), &carry, iA[p + W]);
 #endif
+    if (gr < H) { carryShuttle[gr * W + p] = carry; }
+  }
+
+  bigBar();
+
+  // Signal that this group is done writing the carry.
+  if (gr < H && me == 0) { atomic_xchg(&ready[gr], 1); }
+
+  if (gr == 0) { return; }
+
+  // Wait until the previous group is ready with the carry.
+  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
+
+  bigBar();
+  
+  for (int i = 0; i < N; ++i) {
+    uint p = i * 125 + me;
+    Carry carry = carryShuttle[(gr - 1) * 625 + ((p + 625 - gr / H) % 625)];
+
+#ifdef CARRY_MEDIUM
+    u[i] = carryAndWeight(wu[i], &carry, A[p]);
+    v[i] = carryAndWeightFinal(wv[i], carry, A[p + W]);
+#else
+    u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
+#endif
+  }
+
+  fft625Impl(lds, u, smallTrig);
+  
+#ifdef CARRY_MEDIUM
+  bar();
+  write(125, N, u, io, 0);
+  fft625Impl(lds, v, smallTrig);
+  write(125, N, v, io, PAD);
+  #else
+  write(125, N, u, io, 0);
+  #endif
+}
 
 KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig trig) {
   local T lds[4096];
