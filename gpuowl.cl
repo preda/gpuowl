@@ -5,10 +5,15 @@
 // The pair (a, b) is sometimes interpreted as the complex value a + i*b.
 // The order of words is column-major (i.e. transposed from the usual row-major matrix order).
 
-// Expected defines: WIDTH, HEIGHT, EXP.
+// Expected defines: EXP the exponent.
+// WIDTH, HEIGHT
+// NW, NH
 
 // Number of words
-#define NWORDS (625 * 4096 * 2u)
+#define NWORDS (WIDTH * HEIGHT * 2u)
+#define G_W (WIDTH / NW)
+#define G_H (HEIGHT / NH)
+#define WPAD (((WIDTH - 1) / 64 + 1) * 64)
 
 // Used in bitlen() and weighting.
 #define STEP (NWORDS - (EXP % NWORDS))
@@ -51,7 +56,6 @@ T shl1(T a, uint k) { return a * (1 << k); }
 
 // complex mul
 T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
-// T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, (a.x + a.y) * (b.x + b.y) - a.x * b.x - a.y * b.y); }
 
 // complex square
 T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }
@@ -62,17 +66,16 @@ T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2
 T2 mul_t8(T2 a)  { return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return U2(a.x - a.y, a.x + a.y) * - M_SQRT1_2; } // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
-
 T2 shl(T2 a, uint k) { return U2(shl1(a.x, k), shl1(a.y, k)); }
 
 T2 addsub(T2 a) { return U2(add1(a.x, a.y), sub1(a.x, a.y)); }
 T2 swap(T2 a) { return U2(a.y, a.x); }
 T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
-uint extra(ulong k) { return k * STEP % NWORDS; }
-
 void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
 void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
+
+uint extra(ulong k) { return k * STEP % NWORDS; }
 
 // Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
 bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
@@ -123,8 +126,6 @@ T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w) {
   Word y = u.y + carry;
   return weightAux(x, y, w);
 }
-
-// Generic code below.
 
 // Carry propagation from word and carry.
 Word2 carryWord(Word2 a, Carry *carry, uint pos) {
@@ -246,48 +247,48 @@ void write(uint WG, uint N, T2 *u, G T2 *out, uint base) {
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
-void carryACore(uint WG, uint N, uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
+void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
-  uint gx = g % N;
-  uint gy = g / N;
+  uint gx = g % NW;
+  uint gy = g / NW;
 
   uint line = CARRY_LEN * gy;
   // uint step = WG * gx + N * WG * CARRY_LEN * gy;
-  in  += WG * gx + 640 * line;
-  out += WG * gx + 625 * line;
-  A   += WG * gx + 625 * line;
+  in  += G_W * gx + WPAD  * line;
+  out += G_W * gx + WIDTH * line;
+  A   += G_W * gx + WIDTH * line;
 
   Carry carry = 0;
 
   uint nHigh = 0;
   for (int i = 0; i < CARRY_LEN; ++i) {
-    uint p = i * N * WG + me;
-    out[p] = unweightAndCarry(mul, conjugate(in[640 * i + me]), &carry, A[p], &nHigh);
+    uint p = i * WIDTH + me;
+    out[p] = unweightAndCarry(mul, conjugate(in[WPAD * i + me]), &carry, A[p], &nHigh);
   }
-  carryOut[g * WG + me] = carry;
+  carryOut[g * G_W + me] = carry;
 }
 
 // The second round of carry propagation (16 words), needed to "link the chain" after carryA.
-void carryBCore(uint WG, uint N, uint H, G Word2 *io, const G Carry *carryIn) {
+void carryBCore(G Word2 *io, const G Carry *carryIn) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
-  uint gx = g % N;
-  uint gy = g / N;
+  uint gx = g % NW;
+  uint gy = g / NW;
   
-  uint step = WG * gx + N * WG * CARRY_LEN * gy;
+  uint step = G_W * gx + WIDTH * CARRY_LEN * gy;
   io += step;
 
-  uint HB = H / CARRY_LEN;
+  uint HB = HEIGHT / CARRY_LEN;
   
-  uint prev = (gy + HB * WG * gx + HB * me + (HB * N * WG - 1)) % (HB * N * WG);
+  uint prev = (gy + HB * G_W * gx + HB * me + (HB * WIDTH - 1)) % (HB * WIDTH);
   uint prevLine = prev % HB;
   uint prevCol  = prev / HB;
-  Carry carry = carryIn[N * WG * prevLine + prevCol];
+  Carry carry = carryIn[WIDTH * prevLine + prevCol];
   
   for (int i = 0; i < CARRY_LEN; ++i) {
-    uint pos = CARRY_LEN * gy + H * WG * gx + H * me + i;
-    uint p = i * N * WG + me;
+    uint pos = CARRY_LEN * gy + HEIGHT * G_W * gx + HEIGHT * me + i;
+    uint p = i * WIDTH + me;
     io[p] = carryWord(io[p], &carry, pos);
     if (!carry) { return; }
   }
@@ -429,7 +430,7 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G 
   }
 }
 
- #ifndef ALT_RESTRICT
+#ifndef ALT_RESTRICT
 
 #define P(x) global x * restrict
 #define CP(x) const P(x)
@@ -445,113 +446,109 @@ typedef CP(T2) restrict Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(125) fft625(P(T2) io, Trig smallTrig) {
-  local T lds[5 * 125];
-  T2 u[5];
+KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
+  local T lds[WIDTH];
+  T2 u[NW];
 
   uint g = get_group_id(0);
-  io += 640 * g;
+  io += WPAD * g;
 
-  read(125, 5, u, io, 0);
+  read(G_W, NW, u, io, 0);
   fft625Impl(lds, u, smallTrig);
-  write(125, 5, u, io, 0);
+  write(G_W, NW, u, io, 0);
 }
 
-KERNEL(512) fft4K(P(T2) io, Trig smallTrig) {
-  local T lds[8 * 512];
-  T2 u[8];
+KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
+  local T lds[HEIGHT];
+  T2 u[NH];
 
   uint g = get_group_id(0);
-  io += 4096 * g;
+  io += HEIGHT * g;
 
-  read(512, 8, u, io, 0);
+  read(G_H, NH, u, io, 0);
   fft4KImpl(lds, u, smallTrig);
-  write(512, 8, u, io, 0);
+  write(G_H, NH, u, io, 0);
 }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-KERNEL(125) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
-  local T lds[5 * 125];
-  T2 u[5];
+KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
+  local T lds[WIDTH];
+  T2 u[NW];
 
   uint g = get_group_id(0);
-  A   += 625 * g;
-  in  += 625 * g;
-  out += 640 * g;
+  A   += WIDTH * g;
+  in  += WIDTH * g;
+  out += WPAD  * g;
 
   uint me = get_local_id(0);
 
-  for (int i = 0; i < 5; ++i) {
-    uint p = 125 * i + me;
+  for (int i = 0; i < NW; ++i) {
+    uint p = G_W * i + me;
     u[i] = weight(in[p], A[p]);
   }
 
   fft625Impl(lds, u, smallTrig);
 
-  write(125, 5, u, out, 0);
+  write(G_W, NW, u, out, 0);
 }
 
-KERNEL(125) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
-  carryACore(125, 5, 1, in, A, out, carryOut);
+KERNEL(G_W) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
+  carryACore(1, in, A, out, carryOut);
 }
 
-KERNEL(125) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
-  carryACore(125, 5, 3, in, A, out, carryOut);
+KERNEL(G_W) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
+  carryACore(3, in, A, out, carryOut);
 }
 
-KERNEL(125) carryB(P(Word2) io, CP(Carry) carryIn) {
-  carryBCore(125, 5, 4096, io, carryIn);
+KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
+  carryBCore(io, carryIn);
 }
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
+KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
                       CP(T2) A, CP(T2) iA, Trig smallTrig) {
-  uint W = 625;
-  uint N = 5;
-  uint PAD = 640;
-
   uint gr = get_group_id(0);
   uint me = get_local_id(0);
   
 #ifdef CARRY_MEDIUM
-  uint H = 2048;
+  uint H = HEIGHT / 2;
   uint line = gr % H * 2;
 #else
-  uint H = 4096;
+  uint H = HEIGHT;
   uint line = gr % H;
 #endif
 
-  local T lds[625];
+  local T lds[WIDTH];
 
-  io += PAD * line;
-  A  += W * line;
-  iA += W * line;
+  io += WPAD  * line;
+  A  += WIDTH * line;
+  iA += WIDTH * line;
   
-  T2 u[5];
-  read(125, N, u, io, 0);
+  T2 u[NW];
+  read(G_W, NW, u, io, 0);
   fft625Impl(lds, u, smallTrig);
 
 #ifdef CARRY_MEDIUM
-  bar();  
-  T2 v[5];
-  read(125, N, v, io, PAD);
+  bar();
+  T2 v[NW];
+  read(G_W, N, v, io, WPAD);
   fft625Impl(lds, v, smallTrig);
-  Word2 wv[5];
+  Word2 wv[NW];
 #endif
   
-  Word2 wu[5];
+  Word2 wu[NW];
 
   uint nHigh = 0;
   
-  for (int i = 0; i < N; ++i) {
-    uint p = i * 125 + me;
+  for (int i = 0; i < NW; ++i) {
+    uint p = i * G_W + me;
     Carry carry = 0;
     wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p], &nHigh);
 #ifdef CARRY_MEDIUM
     wv[i] = unweightAndCarry(1, conjugate(v[i]), &carry, iA[p + W], &nHigh);
 #endif
-    if (gr < H) { carryShuttle[gr * W + p] = carry; }
+    if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
   if (me == 0) { *(local uint *)lds = 0; }
@@ -573,13 +570,13 @@ KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
 
   bigBar();
   
-  for (int i = 0; i < N; ++i) {
-    uint p = i * 125 + me;
-    Carry carry = carryShuttle[(gr - 1) * 625 + ((p + 625 - gr / H) % 625)];
+  for (int i = 0; i < NW; ++i) {
+    uint p = i * G_W + me;
+    Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
 
 #ifdef CARRY_MEDIUM
     u[i] = carryAndWeight(wu[i], &carry, A[p]);
-    v[i] = carryAndWeightFinal(wv[i], carry, A[p + W]);
+    v[i] = carryAndWeightFinal(wv[i], carry, A[p + WIDTH]);
 #else
     u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
 #endif
@@ -589,27 +586,27 @@ KERNEL(125) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   
 #ifdef CARRY_MEDIUM
   bar();
-  write(125, N, u, io, 0);
+  write(G_W, NW, u, io, 0);
   fft625Impl(lds, v, smallTrig);
-  write(125, N, v, io, PAD);
+  write(G_W, NW, v, io, PAD);
   #else
-  write(125, N, u, io, 0);
+  write(G_W, NW, u, io, 0);
   #endif
 }
 
 KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig trig) {
   local T lds[4096];
-  transpose(625, 4096, lds, in, out, trig);
+  transpose(WIDTH, HEIGHT, lds, in, out, trig);
 }
 
 KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig trig) {
   local T lds[4096];
-  transpose(4096, 625, lds, in, out, trig);
+  transpose(HEIGHT, WIDTH, lds, in, out, trig);
 }
 
-KERNEL(512) square(P(T2) io, Trig bigTrig)  { csquare(512, 4096, 625, io, bigTrig); }
+KERNEL(G_H) square(P(T2) io, Trig bigTrig)  { csquare(G_H, HEIGHT, WIDTH, io, bigTrig); }
 
-KERNEL(512) multiply(P(T2) io, CP(T2) in, Trig bigTrig)  { cmul(512, 4096, 625, io, in, bigTrig); }
+KERNEL(G_H) multiply(P(T2) io, CP(T2) in, Trig bigTrig)  { cmul(G_H, HEIGHT, WIDTH, io, in, bigTrig); }
 
 void reverse8(uint WG, local T2 *lds, T2 *u, bool bump) {
   uint me = get_local_id(0);
@@ -651,44 +648,44 @@ void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 tt, const G T2 *bigTrig, bool spec
 }
 
 // "auto convolution" is equivalent to the sequence: fftH, square, fftH.
-KERNEL(512) autoConv(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
-  local T lds[4096];
-  T2 u[8];
-  T2 v[8];
+KERNEL(G_H) autoConv(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
+  local T lds[HEIGHT];
+  T2 u[NH];
+  T2 v[NH];
 
-  uint H = 625;
-  uint W = 4096;
+  uint H = WIDTH;
+  uint W = HEIGHT;
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   
-  read(512, 8, u, io, g * W);
+  read(G_H, NH, u, io, g * W);
   fft4KImpl(lds, u, smallTrig);
 
   if (g == 0) {
-    reverse8(512, (local T2 *) lds, u, true);
-    halfSq(512, 8, u, u, bigTrig[4096], bigTrig, true);
-    reverse8(512, (local T2 *) lds, u, true);
+    reverse8(G_H, (local T2 *) lds, u, true);
+    halfSq(G_H, NH, u, u, bigTrig[4096], bigTrig, true);
+    reverse8(G_H, (local T2 *) lds, u, true);
   } else {
-    reverse8(512, (local T2 *) lds, u, false);
+    reverse8(G_H, (local T2 *) lds, u, false);
   
     uint line2 = H - g;
-    read(512, 8, v, io, line2 * W);
+    read(G_H, NH, v, io, line2 * W);
     bar();
     fft4KImpl(lds, v, smallTrig);
-    reverse8(512, (local T2 *) lds, v, false);
+    reverse8(G_H, (local T2 *) lds, v, false);
   
-    halfSq(512, 8, u, v, bigTrig[4096 + g],     bigTrig, false);  
-    halfSq(512, 8, v, u, bigTrig[4096 + line2], bigTrig, false);
+    halfSq(G_H, NH, u, v, bigTrig[4096 + g],     bigTrig, false);  
+    halfSq(G_H, NH, v, u, bigTrig[4096 + line2], bigTrig, false);
 
-    reverse8(512, (local T2 *) lds, u, g == 0);
-    reverse8(512, (local T2 *) lds, v, false);
+    reverse8(G_H, (local T2 *) lds, u, g == 0);
+    reverse8(G_H, (local T2 *) lds, v, false);
 
     bar();
     fft4KImpl(lds, v, smallTrig);
-    write(512, 8, v, io, line2 * W);  
+    write(G_H, NH, v, io, line2 * W);  
   }
 
   bar();
   fft4KImpl(lds, u, smallTrig);
-  write(512, 8, u, io, g * W);  
+  write(G_H, NH, u, io, g * W);  
 }

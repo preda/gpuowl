@@ -533,7 +533,11 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   string configName = std::to_string(N / 1024) + "K";
   
-  std::vector<string> defines {valueDefine("EXP", E)};
+  std::vector<string> defines {valueDefine("EXP", E),
+      valueDefine("WIDTH", W),
+      valueDefine("NW", 5),
+      valueDefine("HEIGHT", H),
+      valueDefine("NH", 8)};
 
   float bitsPerWord = E / (float) N;
 
@@ -558,9 +562,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   program.reset(compile(device, context, "gpuowl", clArgs, defines, ""));
   if (!program) { return false; }
 
-  LOAD(fftP,   N / 10);
-  LOAD(fft625, N / 10);
-  LOAD(fft4K,  N / 16);
+  LOAD(fftP, N / 10);
+  LOAD(fftW, N / 10);
+  LOAD(fftH, N / 16);
     
   LOAD(carryA, N / 32);
   LOAD(carryM, N / 32);
@@ -577,19 +581,19 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 #undef LOAD
   program.reset();
   
-  Buffer bufTrig625(genSmallTrig(context, 625, 5));
-  Buffer bufTrig4K(genSmallTrig(context, 4096, 8));
-  Buffer bufTransTrig(genTransTrig(context, 625, 4096));
-  Buffer bufSquareTrig(genSquareTrig(context, 625, 4096));
+  Buffer bufTrigW(genSmallTrig(context, W, 5));
+  Buffer bufTrigH(genSmallTrig(context, H, 8));
+  Buffer bufTransTrig(  genTransTrig(context, W, H));
+  Buffer bufSquareTrig(genSquareTrig(context, W, H));
   
   Buffer bufA, bufI;
-  setupWeights<double>(context, bufA, bufI, 625, 4096, E);
+  setupWeights<double>(context, bufA, bufI, W, H, E);
   
   u32 wordSize = sizeof(double);  
   u32 bufSize = N * wordSize;
   
-  Buffer buf1{makeBuf(    context, BUF_RW, bufSize + (640 - 625) * 4096 * 2 * wordSize)};
-  Buffer buf2{makeBuf(    context, BUF_RW, bufSize + (640 - 625) * 4096 * 2 * wordSize)};
+  Buffer buf1{makeBuf(    context, BUF_RW, bufSize + (640 - W) * H * 2 * wordSize)};
+  Buffer buf2{makeBuf(    context, BUF_RW, bufSize + (640 - W) * H * 2 * wordSize)};
   Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
   Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
 
@@ -599,13 +603,13 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   fftP.setArg("out", buf1);
   fftP.setArg("A", bufA);
-  fftP.setArg("smallTrig", bufTrig625);
+  fftP.setArg("smallTrig", bufTrigW);
   
-  fft625.setArg("io", buf1);
-  fft625.setArg("smallTrig", bufTrig625);
+  fftW.setArg("io", buf1);
+  fftW.setArg("smallTrig", bufTrigW);
 
-  fft4K.setArg("io", buf2);
-  fft4K.setArg("smallTrig", bufTrig4K);
+  fftH.setArg("io", buf2);
+  fftH.setArg("smallTrig", bufTrigH);
   
   transposeW.setArg("in",  buf1);
   transposeW.setArg("out", buf2);
@@ -633,7 +637,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   multiply.setArg("bigTrig", bufSquareTrig);
   
   autoConv.setArg("io", buf2);
-  autoConv.setArg("smallTrig", bufTrig4K);
+  autoConv.setArg("smallTrig", bufTrigH);
   autoConv.setArg("bigTrig", bufSquareTrig);
   
   carryFused.setArg("io", buf1);
@@ -641,12 +645,12 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   carryFused.setArg("ready", bufReady);
   carryFused.setArg("A", bufA);
   carryFused.setArg("iA", bufI);
-  carryFused.setArg("smallTrig", bufTrig625);
+  carryFused.setArg("smallTrig", bufTrigW);
     
   using vfun = std::function<void()>;
 
-  auto carry = useLongCarry ? vfun([&](){ fft625(); carryA(); carryB(); fftP(); }) : vfun([&](){ carryFused(); });
-  auto tail  = useSplitTail  ? vfun([&](){ fft4K(); square(); fft4K(); })   : vfun([&](){ autoConv(); });
+  auto carry = useLongCarry ? vfun([&](){ fftW(); carryA(); carryB(); fftP(); }) : vfun([&](){ carryFused(); });
+  auto tail  = useSplitTail  ? vfun([&](){ fftH(); square(); fftH(); })   : vfun([&](){ autoConv(); });
   
   auto entryKerns = [&fftP, &transposeW, &tail, &transposeH](cl_mem in) {
     fftP.setArg("in", in);
@@ -664,11 +668,11 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     transposeH();
   };
 
-  auto exitKerns = [&fft625, &carryA, &carryM, &carryB](cl_mem out, bool doMul3) {
+  auto exitKerns = [&fftW, &carryA, &carryM, &carryB](cl_mem out, bool doMul3) {
     (doMul3 ? carryM : carryA).setArg("out", out);
     carryB.setArg("io",  out);
     
-    fft625();
+    fftW();
     doMul3 ? carryM() : carryA();
     carryB();
   };
@@ -689,14 +693,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     exitKerns(io, doMul3);
   };
 
-  auto directFFT = [&fftP, &transposeW, &fft4K](cl_mem in, cl_mem out) {
+  auto directFFT = [&fftP, &transposeW, &fftH](cl_mem in, cl_mem out) {
     fftP.setArg("in", in);
     transposeW.setArg("out", out);
-    fft4K.setArg("io", out);
+    fftH.setArg("io", out);
 
     fftP();
     transposeW();
-    fft4K();
+    fftH();
   };
   
   // The modular multiplication io *= in.
@@ -704,7 +708,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     directFFT(in, buf3.get());
     directFFT(io, buf2.get());
     multiply(); // input: buf2, buf3; output: buf2.
-    fft4K();
+    fftH();
     transposeH();
     exitKerns(io, false);
   };
@@ -713,7 +717,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u64 residue;
   int nErrors = 0;
   if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
-                  {&fftP, &fft625, &fft4K, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryFused}, bufReady.get())) {
+                  {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryFused}, bufReady.get())) {
     return false;
   }
   
