@@ -255,7 +255,7 @@ std::string shortTimeStr() { return timeStr("%H:%M:%S"); }
 void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats, u32 nHigh) {
   std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
   assert(nIt || !nHigh);
-  std::string high = !nHigh ? "" : " round-high " + std::to_string(int(nHigh / float(nIt) + .5f));
+  std::string high = !nHigh ? "" : " round-high " + std::to_string(nHigh);
   
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
@@ -537,7 +537,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       valueDefine("WIDTH", W),
       valueDefine("NW", 5),
       valueDefine("HEIGHT", H),
-      valueDefine("NH", 8)};
+      valueDefine("NH", 8),
+      valueDefine("ROUNDING_ERROR", 1),
+      };
 
   float bitsPerWord = E / (float) N;
 
@@ -598,7 +600,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
 
   int *zero = new int[H + 1]();
-  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE /*| CL_MEM_HOST_NO_ACCESS*/ | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 1), zero)};
+  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE /*| CL_MEM_HOST_NO_ACCESS*/ | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 2), zero)};
   delete[] zero;
   
   fftP.setArg("out", buf1);

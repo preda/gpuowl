@@ -551,7 +551,13 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
+#ifdef ROUNDING_ERROR
   if (me == 0) { *(local uint *)lds = 0; }
+  bar();
+  atomic_add((local uint *)lds, nHigh);
+  bar();  
+  if (me == 0) { atomic_add(&ready[H + 1], *(local uint *)lds); }
+#endif
   
   bigBar();
 
@@ -560,15 +566,14 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
 
   if (gr == 0) { return; }
 
-#ifndef NO_HIGH
-  atomic_add((local uint *)lds, nHigh); bar();
-  if (me == 0) { atomic_add(ready, *(local uint *)lds); }
-#endif
-  
   // Wait until the previous group is ready with the carry.
   if (me == 0) { while(!atomic_xchg(&ready[gr], 0)); }
 
   bigBar();
+
+#ifdef ROUNDING_ERROR
+  if (gr == 1 && me == 0) { atomic_max(&ready[0], atomic_xchg(&ready[H + 1], 0)); }
+#endif
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
