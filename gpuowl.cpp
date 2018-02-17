@@ -599,7 +599,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
   Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
 
-  int *zero = new int[H + 1]();
+  int *zero = new int[H + 2]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE /*| CL_MEM_HOST_NO_ACCESS*/ | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 2), zero)};
   delete[] zero;
   

@@ -7,15 +7,16 @@
 // std::vector<u32> compactBits(int *data, int W, int H, int E);
 // void expandBits(const std::vector<u32> &compactBits, bool balanced, int W, int H, int E, int *data);
 
-u32 extra(unsigned N, unsigned E, unsigned k) {
+int extra(unsigned N, unsigned E, unsigned k) {
   assert(E % N);
   u32 step = N - (E % N);
-  return i64(k) * step % N;
+  return u64(step) * k % N;
 }
 
 bool isBigWord(unsigned N, unsigned E, unsigned k) {
-  u32 step = N - (E % N);
+  u32 step = N - (E % N); 
   return extra(N, E, k) + step < N;
+  // return extra(N, E, k) < extra(N, E, k + 1);
 }
 
 u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }

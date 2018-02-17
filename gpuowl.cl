@@ -18,8 +18,14 @@
 // Used in bitlen() and weighting.
 #define STEP (NWORDS - (EXP % NWORDS))
 
-// Each word has either BASE_BITLEN ("small word") or BASE_BITLEN+1 ("big word") bits.
-#define BASE_BITLEN (EXP / NWORDS)
+uint extra(uint k) { return ((ulong) STEP) * k % NWORDS; }
+
+// Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
+bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
+// { return extra(k) < extra(k + 1); }
+
+// Number of bits for the word at pos.
+uint bitlen(uint k) { return EXP / NWORDS + isBigWord(k); }
 
 // Propagate carry this many pairs of words.
 #define CARRY_LEN 16
@@ -75,14 +81,6 @@ T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
 void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
 
-uint extra(ulong k) { return k * STEP % NWORDS; }
-
-// Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
-bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
-
-// Number of bits for the word at pos.
-uint bitlen(uint k) { return EXP / NWORDS + isBigWord(k); }
-
 Word lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
 
 Word carryStep(Carry x, Carry *carry, int bits) {
@@ -100,7 +98,7 @@ uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 Carry unweight(T x, T weight, uint *nHigh) {
   double weighted = x * fabs(weight);
   double rounded  = rint(weighted);
-  *nHigh += (fabs(rounded - weighted) > 0.002);
+  *nHigh += (fabs(rounded - weighted) > 0.0025);
   return rounded;
 }
 
@@ -572,7 +570,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   bigBar();
 
 #ifdef ROUNDING_ERROR
-  if (gr == 1 && me == 0) { atomic_max(&ready[0], atomic_xchg(&ready[H + 1], 0)); }
+  if (gr == H && me == 0) { atomic_max(&ready[0], atomic_xchg(&ready[H + 1], 0)); }
 #endif
   
   for (int i = 0; i < NW; ++i) {
