@@ -379,7 +379,7 @@ struct GpuState {
 
 bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
                 bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul,
-                std::initializer_list<Kernel *> allKerns, cl_mem bufReady) {
+                std::initializer_list<Kernel *> allKerns, cl_mem bufRoundingInfo) {
   const int N = 2 * W * H;
   log("PRP-3: FFT %dK (%d * %d * 2) of %d (%.2f bits/word) [%s]\n", N / 1024, W, H, E, E / float(N), longTimeStr().c_str());
 
@@ -422,10 +422,10 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
     if ((k % checkStep == 0) || (k >= kEnd) || stopRequested) {
       {
         u32 nHigh = 0, zero = 0;
-        read(queue, false, bufReady, sizeof(nHigh), &nHigh);
+        read(queue, false, bufRoundingInfo, sizeof(nHigh), &nHigh, sizeof(int));
         State state = gpu.read();
 
-        write(queue, false, bufReady, sizeof(zero), &zero);
+        write(queue, false, bufRoundingInfo, sizeof(zero), &zero, sizeof(int));
         CompactState compact(state, W, H, E);
         compact.expandTo(&state, balanced, W, H, E);
         gpu.writeNoWait(state);
@@ -526,19 +526,24 @@ u32 modInv(u32 a, u32 m) {
 }
 
 bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
-  assert(W == 625);
+  assert(W == 512 || W == 625);
   assert(H == 4096);
 
   int N = 2 * W * H;
+  int hN = N / 2;
   
   string configName = std::to_string(N / 1024) + "K";
+
+  int nW = (W == 512) ? 8 : 5;
+  int nH = 8;
+  int padW = ((W - 1) / 64 + 1) * 64; // W rounded up to multiple of 64.
   
   std::vector<string> defines {valueDefine("EXP", E),
       valueDefine("WIDTH", W),
-      valueDefine("NW", 5),
+      valueDefine("NW", nW),
       valueDefine("HEIGHT", H),
-      valueDefine("NH", 8),
-      valueDefine("ROUNDING_ERROR", 1),
+      valueDefine("NH", nH),
+      valueDefine("ROUNDING_INFO", 1),
       };
 
   float bitsPerWord = E / (float) N;
@@ -564,27 +569,27 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   program.reset(compile(device, context, "gpuowl", clArgs, defines, ""));
   if (!program) { return false; }
 
-  LOAD(fftP, N / 10);
-  LOAD(fftW, N / 10);
-  LOAD(fftH, N / 16);
+  LOAD(fftP, hN / nW);
+  LOAD(fftW, hN / nW);
+  LOAD(fftH, hN / nH);
     
-  LOAD(carryA, N / 32);
-  LOAD(carryM, N / 32);
-  LOAD(carryB, N / 32);
+  LOAD(carryA, hN / 16);
+  LOAD(carryM, hN / 16);
+  LOAD(carryB, hN / 16);
 
-  LOAD(transposeW, 640 * 256);
-  LOAD(transposeH, 640 * 256);
+  LOAD(transposeW, (padW/64) * (H/64) * 256);
+  LOAD(transposeH, (padW/64) * (H/64) * 256);
     
-  LOAD(square,   N / 4);
-  LOAD(multiply, N / 4);
+  LOAD(square,   hN / 2);
+  LOAD(multiply, hN / 2);
 
-  LOAD(autoConv,  (N + 4096 * 2) / 32);
-  LOAD(carryFused, (useMediumCarry ? N / 20 : (N / 10)) + 125);
+  LOAD(autoConv, hN / (2 * nH)); // (N + 4096 * 2) / 32);
+  LOAD(carryFused, (useMediumCarry ? hN / (2 * nW) : (hN / nW)) + W / nW);
 #undef LOAD
   program.reset();
   
-  Buffer bufTrigW(genSmallTrig(context, W, 5));
-  Buffer bufTrigH(genSmallTrig(context, H, 8));
+  Buffer bufTrigW(genSmallTrig(context, W, nW));
+  Buffer bufTrigH(genSmallTrig(context, H, nH));
   Buffer bufTransTrig(  genTransTrig(context, W, H));
   Buffer bufSquareTrig(genSquareTrig(context, W, H));
   
@@ -594,13 +599,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u32 wordSize = sizeof(double);  
   u32 bufSize = N * wordSize;
   
-  Buffer buf1{makeBuf(    context, BUF_RW, bufSize + (640 - W) * H * 2 * wordSize)};
-  Buffer buf2{makeBuf(    context, BUF_RW, bufSize + (640 - W) * H * 2 * wordSize)};
+  Buffer buf1{makeBuf(    context, BUF_RW, bufSize / W * padW)}; // bufSize + (padW - W) * H * 2 * wordSize)};
+  Buffer buf2{makeBuf(    context, BUF_RW, bufSize / W * padW)}; // bufSize + (padW - W) * H * 2 * wordSize)};
   Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
   Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
 
   int *zero = new int[H + 2]();
-  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE /*| CL_MEM_HOST_NO_ACCESS*/ | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 2), zero)};
+  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 2), zero)};
+  Buffer bufRoundingInfo{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * 2, zero)};
   delete[] zero;
   
   fftP.setArg("out", buf1);
@@ -616,6 +622,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   transposeW.setArg("in",  buf1);
   transposeW.setArg("out", buf2);
   transposeW.setArg("trig", bufTransTrig);
+  transposeW.setArg("roundingInfo", bufRoundingInfo);
 
   transposeH.setArg("in",  buf2);
   transposeH.setArg("out", buf1);
@@ -624,12 +631,15 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   carryA.setArg("in", buf1);
   carryA.setArg("A", bufI);
   carryA.setArg("carryOut", bufCarry);
+  carryA.setArg("roundingInfo", bufRoundingInfo);
 
   carryM.setArg("in", buf1);
   carryM.setArg("A", bufI);
   carryM.setArg("carryOut", bufCarry);
+  carryM.setArg("roundingInfo", bufRoundingInfo);
 
   carryB.setArg("carryIn", bufCarry);
+  carryB.setArg("roundingInfo", bufRoundingInfo);
   
   square.setArg("io", buf2);
   square.setArg("bigTrig", bufSquareTrig);
@@ -648,6 +658,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   carryFused.setArg("A", bufA);
   carryFused.setArg("iA", bufI);
   carryFused.setArg("smallTrig", bufTrigW);
+  carryFused.setArg("roundingInfo", bufRoundingInfo);
     
   using vfun = std::function<void()>;
 
@@ -719,7 +730,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u64 residue;
   int nErrors = 0;
   if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
-                  {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryFused}, bufReady.get())) {
+                  {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryFused}, bufRoundingInfo.get())) {
     return false;
   }
   
@@ -759,7 +770,7 @@ int main(int argc, char **argv) {
     int E = worktodoReadExponent(AID);
     if (E <= 0) { break; }
     
-    int W = 625;
+    int W = 512;
     int H = 4096;    
     if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }
   }

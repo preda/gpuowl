@@ -75,6 +75,7 @@ public:
   
   void setArg(const std::string &name, const auto &arg) {
     int pos = getArgPos(name);
+    if (pos < 0) { log("setArg '%s' on '%s'\n", name.c_str(), this->name.c_str()); }
     assert(pos >= 0);
     ::setArg(kernel.get(), pos, arg);
   }
