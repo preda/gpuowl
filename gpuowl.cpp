@@ -65,8 +65,8 @@ void genWeights(int W, int H, int E, T *aTab, T *iTab) {
         int k = (line + col * H) * 2 + rep;
         int bits  = bitlen(N, E, k);
         assert(bits == baseBits || bits == baseBits + 1);
-        auto a = exp2l(extra(N, E, k) * iN);
-        auto ia = 1 / (4 * N * a);
+        auto a = ldexpl(exp2l(extra(N, E, k) * iN), -10);
+        auto ia = 1 / (4 * N / 1024 * a);
         *pa++ = (bits == baseBits) ? a  : -a;
         *pi++ = (bits == baseBits) ? ia : -ia;
       }
@@ -541,7 +541,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       valueDefine("NW", nW),
       valueDefine("HEIGHT", H),
       valueDefine("NH", nH),
-      valueDefine("ROUNDING_INFO", 1),
+      // valueDefine("ROUNDING_INFO", 1),
       };
 
   float bitsPerWord = E / (float) N;

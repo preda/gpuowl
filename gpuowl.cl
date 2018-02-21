@@ -95,9 +95,11 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
 Carry unweight(T x, T weight, float *maxErr) {
-  double weighted = x * fabs(weight);
-  double rounded  = rint(weighted);
-  *maxErr = max(*maxErr, (float) fabs(rounded - weighted));
+  double weighted = x * fabs(weight);  
+  // double rounded = rint(weighted);
+  double rounded = round(weighted);
+  float err = rounded - weighted;
+  *maxErr = max(*maxErr, fabs(err));
   return rounded;
 }
 
