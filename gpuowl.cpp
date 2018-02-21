@@ -50,7 +50,6 @@ const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
-// FGT doesn't use weight vectors.
 template<typename T>
 void genWeights(int W, int H, int E, T *aTab, T *iTab) {
   T *pa = aTab;
@@ -101,7 +100,7 @@ T2 *trig(T2 *p, int n, int B) {
 }
 
 // The generated trig table has two regions:
-// - a H*2 "full trig circle".
+// - a size-H half-circle.
 // - a region of granularity TAU / (2 * W * H), used in squaring.
 cl_mem genSquareTrig(cl_context context, int W, int H) {
   const int size = H + W;
@@ -135,7 +134,6 @@ T2 *smallTrigBlock(int W, int H, T2 *p) {
   for (int line = 1; line < H; ++line) {
     for (int col = 0; col < W; ++col) {
       *p++ = root1<T2>(W * H, line * col);
-      // if (line == 2 && W == 8) { printf("%4d %4d: %x %x\n", col, line, (u32) p[-1].x, (u32) p[-1].y); }
     }
   }
   return p;
@@ -145,8 +143,8 @@ cl_mem genSmallTrig(cl_context context, int size, int radix) {
   auto *tab = new double2[size]();
   auto *p = tab + radix;
   int w = 0;
-  for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, radix, p); }
-  assert(w == size);
+  for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
+  // assert(w == size);
   assert(p - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
   delete[] tab;
@@ -252,10 +250,10 @@ std::string timeStr(const std::string &format) {
 std::string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
 std::string shortTimeStr() { return timeStr("%H:%M:%S"); }
 
-void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats, u32 nHigh) {
+void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats, float maxErr) {
   std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
-  assert(nIt || !nHigh);
-  std::string high = !nHigh ? "" : " round-high " + std::to_string(nHigh);
+  // assert(nIt || !nHigh);
+  // std::string high = !nHigh ? "" : " round-high " + std::to_string(nHigh);
   
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
@@ -270,11 +268,11 @@ void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool c
     mins  = etaMins % 60;
   }
 
-  log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f], check %.2fs; ETA %dd %02d:%02d; %s [%s];%s%s\n",
+  log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f], check %.2fs; ETA %dd %02d:%02d; %s [%s]; maxErr %.3f%s\n",
       checkOK ? "OK" : "EE", k, E, k * percent, info.mean, info.low, info.high,
       timeCheck / float(1000),
       days, hours, mins,
-      hexStr(res).c_str(), shortTimeStr().c_str(), high.c_str(), errors.c_str());
+      hexStr(res).c_str(), shortTimeStr().c_str(), maxErr, errors.c_str());
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
@@ -421,11 +419,12 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
 
     if ((k % checkStep == 0) || (k >= kEnd) || stopRequested) {
       {
-        u32 nHigh = 0, zero = 0;
-        read(queue, false, bufRoundingInfo, sizeof(nHigh), &nHigh, sizeof(int));
+        float maxError = 0;
+        u32 zero = 0;
+        read(queue, false, bufRoundingInfo, sizeof(maxError), &maxError);
         State state = gpu.read();
 
-        write(queue, false, bufRoundingInfo, sizeof(zero), &zero, sizeof(int));
+        write(queue, false, bufRoundingInfo, sizeof(zero), &zero);
         CompactState compact(state, W, H, E);
         compact.expandTo(&state, balanced, W, H, E);
         gpu.writeNoWait(state);
@@ -440,7 +439,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
           goodK = k;
         }
         
-        doLog(E, k, args.verbosity, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors, stats, nHigh);
+        doLog(E, k, args.verbosity, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors, stats, maxError);
         if (args.timeKernels) { logTimeKernels(allKerns); }
         stats.reset();
         
@@ -526,17 +525,16 @@ u32 modInv(u32 a, u32 m) {
 }
 
 bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
-  assert(W == 512 || W == 625);
-  assert(H == 4096);
+  assert(W == 1024);
+  assert(H == 2048);
 
   int N = 2 * W * H;
   int hN = N / 2;
   
-  string configName = std::to_string(N / 1024) + "K";
+  string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
-  int nW = (W == 512) ? 8 : 5;
+  int nW = 4;
   int nH = 8;
-  int padW = ((W - 1) / 64 + 1) * 64; // W rounded up to multiple of 64.
   
   std::vector<string> defines {valueDefine("EXP", E),
       valueDefine("WIDTH", W),
@@ -577,14 +575,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   LOAD(carryM, hN / 16);
   LOAD(carryB, hN / 16);
 
-  LOAD(transposeW, (padW/64) * (H/64) * 256);
-  LOAD(transposeH, (padW/64) * (H/64) * 256);
+  LOAD(transposeW, (W/64) * (H/64) * 256);
+  LOAD(transposeH, (W/64) * (H/64) * 256);
     
   LOAD(square,   hN / 2);
   LOAD(multiply, hN / 2);
 
-  LOAD(autoConv, hN / (2 * nH)); // (N + 4096 * 2) / 32);
-  LOAD(carryFused, (useMediumCarry ? hN / (2 * nW) : (hN / nW)) + W / nW);
+  LOAD(tailFused, hN / (2 * nH));
+  LOAD(carryFused, (hN / nW) + W / nW);
 #undef LOAD
   program.reset();
   
@@ -599,14 +597,14 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u32 wordSize = sizeof(double);  
   u32 bufSize = N * wordSize;
   
-  Buffer buf1{makeBuf(    context, BUF_RW, bufSize / W * padW)}; // bufSize + (padW - W) * H * 2 * wordSize)};
-  Buffer buf2{makeBuf(    context, BUF_RW, bufSize / W * padW)}; // bufSize + (padW - W) * H * 2 * wordSize)};
+  Buffer buf1{makeBuf(    context, BUF_RW, bufSize)};
+  Buffer buf2{makeBuf(    context, BUF_RW, bufSize)};
   Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
   Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
 
-  int *zero = new int[H + 2]();
-  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * (H + 2), zero)};
-  Buffer bufRoundingInfo{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int) * 2, zero)};
+  int *zero = new int[H]();
+  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * H, zero)};
+  Buffer bufRoundingInfo{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), zero)};
   delete[] zero;
   
   fftP.setArg("out", buf1);
@@ -622,7 +620,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   transposeW.setArg("in",  buf1);
   transposeW.setArg("out", buf2);
   transposeW.setArg("trig", bufTransTrig);
-  transposeW.setArg("roundingInfo", bufRoundingInfo);
 
   transposeH.setArg("in",  buf2);
   transposeH.setArg("out", buf1);
@@ -639,7 +636,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   carryM.setArg("roundingInfo", bufRoundingInfo);
 
   carryB.setArg("carryIn", bufCarry);
-  carryB.setArg("roundingInfo", bufRoundingInfo);
   
   square.setArg("io", buf2);
   square.setArg("bigTrig", bufSquareTrig);
@@ -648,9 +644,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   multiply.setArg("in", buf3);
   multiply.setArg("bigTrig", bufSquareTrig);
   
-  autoConv.setArg("io", buf2);
-  autoConv.setArg("smallTrig", bufTrigH);
-  autoConv.setArg("bigTrig", bufSquareTrig);
+  tailFused.setArg("io", buf2);
+  tailFused.setArg("smallTrig", bufTrigH);
+  tailFused.setArg("bigTrig", bufSquareTrig);
   
   carryFused.setArg("io", buf1);
   carryFused.setArg("carryShuttle", bufCarry);
@@ -663,7 +659,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   using vfun = std::function<void()>;
 
   auto carry = useLongCarry ? vfun([&](){ fftW(); carryA(); carryB(); fftP(); }) : vfun([&](){ carryFused(); });
-  auto tail  = useSplitTail  ? vfun([&](){ fftH(); square(); fftH(); })   : vfun([&](){ autoConv(); });
+  auto tail  = useSplitTail  ? vfun([&](){ fftH(); square(); fftH(); })   : vfun([&](){ tailFused(); });
   
   auto entryKerns = [&fftP, &transposeW, &tail, &transposeH](cl_mem in) {
     fftP.setArg("in", in);
@@ -730,7 +726,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u64 residue;
   int nErrors = 0;
   if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
-                  {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &autoConv, &carryFused}, bufRoundingInfo.get())) {
+                  {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused, &carryFused}, bufRoundingInfo.get())) {
     return false;
   }
   
@@ -770,8 +766,8 @@ int main(int argc, char **argv) {
     int E = worktodoReadExponent(AID);
     if (E <= 0) { break; }
     
-    int W = 512;
-    int H = 4096;    
+    int W = 1024;
+    int H = 2048;    
     if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }
   }
 

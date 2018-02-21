@@ -9,11 +9,23 @@
 // WIDTH, HEIGHT
 // NW, NH
 
+#pragma OPENCL FP_CONTRACT ON
+
+#ifdef cl_khr_fp64
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#endif
+
+// OpenCL 2.x introduces the "generic" memory space, so there's no need to specify "global" on pointers everywhere.
+#if __OPENCL_C_VERSION__ >= 200
+#define G
+#else
+#define G global
+#endif
+
 // Number of words
 #define NWORDS (WIDTH * HEIGHT * 2u)
 #define G_W (WIDTH  / NW)
 #define G_H (HEIGHT / NH)
-#define WPAD (((WIDTH - 1) / 64 + 1) * 64)
 
 // Used in bitlen() and weighting.
 #define STEP (NWORDS - (EXP % NWORDS))
@@ -30,19 +42,6 @@ uint bitlen(uint k) { return EXP / NWORDS + isBigWord(k); }
 // Propagate carry this many pairs of words.
 #define CARRY_LEN 16
 
-// OpenCL 2.x introduces the "generic" memory space, so there's no need to specify "global" on pointers everywhere.
-#if __OPENCL_C_VERSION__ >= 200
-#define G
-#else
-#define G global
-#endif
-
-uint lo(ulong a) { return a & 0xffffffffu; }
-uint up(ulong a) { return a >> 32; }
-
-#pragma OPENCL FP_CONTRACT ON
-
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 typedef double T;
 typedef double2 T2;
 
@@ -95,16 +94,16 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
 uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
-Carry unweight(T x, T weight, uint *nHigh) {
+Carry unweight(T x, T weight, float *maxErr) {
   double weighted = x * fabs(weight);
   double rounded  = rint(weighted);
-  *nHigh += (fabs(rounded - weighted) > 0.45);
+  *maxErr = max(*maxErr, (float) fabs(rounded - weighted));
   return rounded;
 }
 
 Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight, uint *nHigh) {
-  Word a = carryStep(mul * unweight(u.x, weight.x, nHigh), carry, oldBitlen(weight.x));
-  Word b = carryStep(mul * unweight(u.y, weight.y, nHigh), carry, oldBitlen(weight.y));
+  Word a = carryStep(mul * unweight(u.x, weight.x, (float *) nHigh), carry, oldBitlen(weight.x));
+  Word b = carryStep(mul * unweight(u.y, weight.y, (float *) nHigh), carry, oldBitlen(weight.y));
   return (Word2) (a, b);
 }
 
@@ -152,6 +151,12 @@ void fft4Core(T2 *u) {
   X2(u[2], u[3]);
 }
 
+void fft4(T2 *u) {
+  fft4Core(u);
+  // revbin [0, 2, 1, 3] undo
+  SWAP(u[1], u[2]);
+}
+
 void fft8(T2 *u) {
   for (int i = 0; i < 4; ++i) { X2(u[i], u[i + 4]); }
   u[5] = mul_t8(u[5]);
@@ -164,35 +169,6 @@ void fft8(T2 *u) {
   // revbin [0, 4, 2, 6, 1, 5, 3, 7] undo
   SWAP(u[1], u[4]);
   SWAP(u[3], u[6]);
-}
-
-// Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
-void fft5(T2 *u) {
-  const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
-  const double SIN2 = 0x1.89f188bdcd7afp+0; // sin(tau/5) + sin(2*tau/5), 1.53884176858762677931
-  const double SIN3 = 0x1.73fd61d9df543p-2; // sin(tau/5) - sin(2*tau/5), 0.36327126400268044959
-  const double COS1 = 0x1.1e3779b97f4a8p-1; // (cos(tau/5) - cos(2*tau/5))/2, 0.55901699437494745126
-  
-  X2(u[1], u[4]);
-  X2(u[2], u[3]);
-  X2(u[1], u[2]);
-
-  T2 tmp = u[0];
-  u[0] += u[1];
-  u[1] = u[1] * (-0.25) + tmp;
-
-  u[2] *= COS1;
- 
-  tmp = (u[4] - u[3]) * SIN1;
-  tmp  = U2(tmp.y, -tmp.x);
-  
-  u[3] = U2(u[3].y, -u[3].x) * SIN2 + tmp;
-  u[4] = U2(-u[4].y, u[4].x) * SIN3 + tmp;
-  SWAP(u[3], u[4]);
-
-  X2(u[1], u[2]);
-  X2(u[1], u[4]);
-  X2(u[2], u[3]);
 }
 
 void shufl(uint WG, local T *lds, T2 *u, uint n, uint f) {
@@ -212,39 +188,51 @@ void tabMul(uint WG, const G T2 *trig, T2 *u, uint n, uint f) {
   for (int i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
 }
 
-// WG:125, LDS:625*8, u:5.
-void fft625Impl(local T *lds, T2 *u, const G T2 *trig) {
-  for (int s = 25; s >= 1; s /= 5) {
-    fft5(u);
-    if (s != 25) { bar(); }
-    shufl (125, lds,  u, 5, s);
-    tabMul(125, trig, u, 5, s);
-  }
-  fft5(u);
-}
-
-// 64x8
-void fft512(local T *lds, T2 *u, const G T2 *trig) {
-  for (int s = 3; s >= 0; s -= 3) {
-    fft8(u);
-
-    if (s != 3) { bar(); }
-    shufl (64, lds,  u, 8, 1 << s);
-    tabMul(64, trig, u, 8, 1 << s);
-  }
-  fft8(u);
-}
-
-// 512x8
-void fft4KImpl(local T *lds, T2 *u, const G T2 *trig) {
-  for (int s = 6; s >= 0; s -= 3) {
-    fft8(u);
-
+void fft1K(local T *lds, T2 *u, const G T2 *trig) {
+  for (int s = 6; s >= 0; s -= 2) {
+    fft4(u);
     if (s != 6) { bar(); }
-    shufl (512, lds,  u, 8, 1 << s);
-    tabMul(512, trig, u, 8, 1 << s);
+    shufl(256,   lds, u, 4, 1 << s);
+    tabMul(256, trig, u, 4, 1 << s);
   }
+
+  fft4(u);
+}
+
+void fft2K(local T *lds, T2 *u, const G T2 *trig) {
+  for (int s = 5; s >= 2; s -= 3) {
+    fft8(u);
+    if (s != 5) { bar(); }
+    shufl(256,   lds, u, 8, 1 << s);
+    tabMul(256, trig, u, 8, 1 << s);
+  }
+
   fft8(u);
+
+  uint me = get_local_id(0);
+  for (int b = 0; b < 2; ++b) {
+    bar();
+    for (int i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = ((T *) (u + i))[b]; }
+    bar();
+    for (int i = 0; i < 4; ++i) {
+      ((T *) (u + i))[b]     = lds[i * 512       + me];
+      ((T *) (u + i + 4))[b] = lds[i * 512 + 256 + me];
+    }
+  }
+
+  for (int i = 1; i < 4; ++i) {
+    u[i]     = mul(u[i],     trig[i * 512       + me]);
+    u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
+  }
+
+  fft4(u);
+  fft4(u + 4);
+
+  // fix order: interleave u[0:3] and u[4:7], like (u.even, u.odd) = (u.lo, u.hi).
+  SWAP(u[1], u[2]);
+  SWAP(u[1], u[4]);
+  SWAP(u[5], u[6]);
+  SWAP(u[3], u[6]);
 }
 
 void read(uint WG, uint N, T2 *u, G T2 *in, uint base) {
@@ -263,27 +251,26 @@ void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *
   uint gx = g % NW;
   uint gy = g / NW;
 
-  uint line = CARRY_LEN * gy;
-  // uint step = WG * gx + N * WG * CARRY_LEN * gy;
-  in  += G_W * gx + WPAD  * line;
-  out += G_W * gx + WIDTH * line;
-  A   += G_W * gx + WIDTH * line;
+  uint step = G_W * gx + WIDTH * CARRY_LEN * gy;
+  in  += step;
+  out += step;
+  A   += step;
 
   Carry carry = 0;
 
-  uint nHigh = 0;
+  uint maxErr = 0;
   for (int i = 0; i < CARRY_LEN; ++i) {
-    uint p = i * WIDTH + me;
-    out[p] = unweightAndCarry(mul, conjugate(in[WPAD * i + me]), &carry, A[p], &nHigh);
+    uint p = WIDTH * i + me;
+    out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p], &maxErr);
   }
-  carryOut[g * G_W + me] = carry;
+  carryOut[G_W * g + me] = carry;
 
 #ifdef ROUNDING_INFO
   if (me == 0) { *lds = 0; }
   bar();
-  atomic_add(lds, nHigh);
+  atomic_max(lds, maxErr);
   bar();
-  if (me == 0) { atomic_add(roundingInfo, *lds); }
+  if (me == 0) { atomic_max(roundingInfo, *lds); }
 #endif
 }
 
@@ -303,7 +290,7 @@ void csquare(uint WG, uint W, uint H, G T2 *io, const G T2 *bigTrig) {
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  T2 t = swap(mul(bigTrig[posInLine], bigTrig[4096 + line]));
+  T2 t = swap(mul(bigTrig[posInLine], bigTrig[W + line]));
   
   uint k = line * W + posInLine;
   uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
@@ -341,7 +328,7 @@ void cmul(uint WG, uint W, uint H, G T2 *io, const G T2 *in, const G T2 *bigTrig
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  T2 t = swap(mul(bigTrig[posInLine], bigTrig[4096 + line]));
+  T2 t = swap(mul(bigTrig[posInLine], bigTrig[W + line]));
   
   uint k = line * W + posInLine;
   uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
@@ -391,35 +378,26 @@ void transposeLDS(local T *lds, T2 *u) {
 void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G T2 *trig) {
   uint GPW = (W - 1) / 64 + 1, GPH = (H - 1) / 64 + 1;
   uint PW = GPW * 64, PH = GPH * 64; // padded to multiple of 64.
+  
   uint g = get_group_id(0);
   // uint gx = g % GPW, gy = g / GPW;
   uint gy = g % GPH, gx = g / GPH;
   gx = (gy + gx) % GPW;
 
-  in   += gy * 64 * PW + gx * 64;
-  out  += gy * 64      + gx * 64 * PH;
+  in   += gy * 64 * W + gx * 64;
+  out  += gy * 64     + gx * 64 * H;
   
   uint me = get_local_id(0), mx = me % 64, my = me / 64;
   T2 u[16];
 
-  if ((W % 64 == 0) || (gx * 64 + mx < W)) {
-    for (int i = 0; i < 16; ++i) {
-      if (!(H % 64) || (gy * 64 + i * 4 + my < H)) {
-        u[i] = in[(i * 4 + my) * PW + mx];
-      }
-    }
-  }
+  for (int i = 0; i < 16; ++i) { u[i] = in[(4 * i + my) * W + mx]; }
 
   transposeLDS(lds, u);
 
-  if (!(H % 64) || (gy * 64 + mx < H)) {  
-    for (int i = 0; i < 16; ++i) {
-      if ((W % 64 == 0) || (i * 4 + gx * 64 + 3 < W) || (i * 4 + gx * 64 + my < W)) {
-        uint k = mul24(gy * 64 + mx, gx * 64 + my + (uint) i * 4);
-        u[i] = mul(u[i], mul(trig[k / (W * H / 2048)], trig[2048 + k % (W * H / 2048)]));
-        out[(i * 4 + my) * PH + mx] = u[i];
-      }
-    }
+  for (int i = 0; i < 16; ++i) {
+    uint k = mul24(64 * gy + mx, 64 * gx + my + (uint) i * 4);
+    u[i] = mul(u[i], mul(trig[k / (W * H / 2048)], trig[2048 + k % (W * H / 2048)]));
+    out[(4 * i + my) * H + mx] = u[i];
   }
 }
 
@@ -444,10 +422,10 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   T2 u[NW];
 
   uint g = get_group_id(0);
-  io += WPAD * g;
+  io += WIDTH * g;
 
   read(G_W, NW, u, io, 0);
-  fft512(lds, u, smallTrig);
+  fft1K(lds, u, smallTrig);
   write(G_W, NW, u, io, 0);
 }
 
@@ -459,7 +437,7 @@ KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
   io += HEIGHT * g;
 
   read(G_H, NH, u, io, 0);
-  fft4KImpl(lds, u, smallTrig);
+  fft2K(lds, u, smallTrig);
   write(G_H, NH, u, io, 0);
 }
 
@@ -469,9 +447,10 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   T2 u[NW];
 
   uint g = get_group_id(0);
-  A   += WIDTH * g;
-  in  += WIDTH * g;
-  out += WPAD  * g;
+  uint step = WIDTH * g;
+  A   += step;
+  in  += step;
+  out += step;
 
   uint me = get_local_id(0);
 
@@ -480,8 +459,7 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
     u[i] = weight(in[p], A[p]);
   }
 
-  fft512(lds, u, smallTrig);
-
+  fft1K(lds, u, smallTrig);
   write(G_W, NW, u, out, 0);
 }
 
@@ -495,16 +473,9 @@ KERNEL(G_W) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut, volatil
   carryACore(3, in, A, out, carryOut, roundingInfo, lds);
 }
 
-KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, P(uint) roundingInfo) {
+KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
-
-#ifdef ROUNDING_INFO
-  if (g == 0 && me == 0) {
-    roundingInfo[1] = max(roundingInfo[0], roundingInfo[1]);
-    roundingInfo[0] = 0;
-  }
-#endif
   
   uint gx = g % NW;
   uint gy = g / NW;
@@ -513,7 +484,8 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, P(uint) roundingInfo) {
   io += step;
 
   uint HB = HEIGHT / CARRY_LEN;
-  
+
+  // TODO: try & vs. %.
   uint prev = (gy + HB * G_W * gx + HB * me + (HB * WIDTH - 1)) % (HB * WIDTH);
   uint prevLine = prev % HB;
   uint prevCol  = prev / HB;
@@ -531,46 +503,30 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, P(uint) roundingInfo) {
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
                        CP(T2) A, CP(T2) iA, Trig smallTrig, volatile P(uint) roundingInfo) {
+  local T lds[WIDTH];
+
   uint gr = get_group_id(0);
   uint me = get_local_id(0);
   
-#ifdef CARRY_MEDIUM
-  uint H = HEIGHT / 2;
-  uint line = gr % H * 2;
-#else
   uint H = HEIGHT;
   uint line = gr % H;
-#endif
-
-  local T lds[WIDTH];
-
-  io += WPAD  * line;
-  A  += WIDTH * line;
-  iA += WIDTH * line;
+  uint step = WIDTH * line;
+  io += step;
+  A  += step;
+  iA += step;
   
   T2 u[NW];
-  read(G_W, NW, u, io, 0);
-  fft512(lds, u, smallTrig);
-
-#ifdef CARRY_MEDIUM
-  bar();
-  T2 v[NW];
-  read(G_W, NW, v, io, WPAD);
-  fft512(lds, v, smallTrig);
-  Word2 wv[NW];
-#endif
-  
   Word2 wu[NW];
-
+  
+  read(G_W, NW, u, io, 0);
+  fft1K(lds, u, smallTrig);
+  
   uint nHigh = 0;
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
     Carry carry = 0;
     wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p], &nHigh);
-#ifdef CARRY_MEDIUM
-    wv[i] = unweightAndCarry(1, conjugate(v[i]), &carry, iA[p + WIDTH], &nHigh);
-#endif
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
@@ -584,9 +540,9 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
 #ifdef ROUNDING_INFO
   if (me == 0) { *(local uint *)lds = 0; }
   bar();
-  atomic_add((local uint *)lds, nHigh);
+  atomic_max((local uint *)lds, nHigh);
   bar();  
-  if (me == 0) { atomic_add(roundingInfo, *(local uint *)lds); }
+  if (me == 0) { atomic_max(roundingInfo, *(local uint *)lds); }
 #endif
   
   // Wait until the previous group is ready with the carry.
@@ -597,37 +553,14 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
     Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
-
-#ifdef CARRY_MEDIUM
-    u[i] = carryAndWeight(wu[i], &carry, A[p]);
-    v[i] = carryAndWeightFinal(wv[i], carry, A[p + WIDTH]);
-#else
     u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
-#endif
   }
 
-  fft512(lds, u, smallTrig);
-  
-#ifdef CARRY_MEDIUM
-  bar();
+  fft1K(lds, u, smallTrig);
   write(G_W, NW, u, io, 0);
-  fft512(lds, v, smallTrig);
-  write(G_W, NW, v, io, WPAD);
-  
-#else
-  write(G_W, NW, u, io, 0);
-  
-#endif
 }
 
-KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig trig, volatile P(uint) roundingInfo) {
-#ifdef ROUNDING_INFO
-  if (get_group_id(0) == 0 && get_local_id(0) == 0) {
-    roundingInfo[1] = max(roundingInfo[0], roundingInfo[1]);
-    roundingInfo[0] = 0;
-  }
-#endif
-
+KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig trig) {
   local T lds[4096];
   transpose(WIDTH, HEIGHT, lds, in, out, trig);
 }
@@ -681,9 +614,9 @@ void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 tt, const G T2 *bigTrig, bool spec
   }
 }
 
-// "auto convolution" is equivalent to the sequence: fftH, square, fftH.
+// "fused tail" is equivalent to the sequence: fftH, square, fftH.
 // assert(H % 2 == 0);
-KERNEL(G_H) autoConv(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
+KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
   local T lds[HEIGHT];
   T2 u[NH];
   T2 v[NH];
@@ -694,19 +627,19 @@ KERNEL(G_H) autoConv(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
   uint me = get_local_id(0);
   
   read(G_H, NH, u, io, g * W);
-  fft4KImpl(lds, u, smallTrig);
+  fft2K(lds, u, smallTrig);
   reverse(G_H, (local T2 *) lds, u, g == 0);
 
   uint line2 = g ? H - g : (H / 2);
   read(G_H, NH, v, io, line2 * W);
   bar();
-  fft4KImpl(lds, v, smallTrig);
+  fft2K(lds, v, smallTrig);
   reverse(G_H, (local T2 *) lds, v, false);
 
   if (g == 0) { for (int i = NH / 2; i < NH; ++i) { SWAP(u[i], v[i]); } }
   
-  halfSq(G_H, NH, u, v, bigTrig[4096 + g], bigTrig, true);
-  halfSq(G_H, NH, v, u, bigTrig[4096 + line2], bigTrig, false);
+  halfSq(G_H, NH, u, v, bigTrig[W + g],     bigTrig, true);
+  halfSq(G_H, NH, v, u, bigTrig[W + line2], bigTrig, false);
 
   if (g == 0) { for (int i = NH / 2; i < NH; ++i) { SWAP(u[i], v[i]); } }
 
@@ -714,42 +647,10 @@ KERNEL(G_H) autoConv(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
   reverse(G_H, (local T2 *) lds, u, g == 0);
 
   bar();
-  fft4KImpl(lds, v, smallTrig);
+  fft2K(lds, v, smallTrig);
   write(G_H, NH, v, io, line2 * W);
 
   bar();
-  fft4KImpl(lds, u, smallTrig);
+  fft2K(lds, u, smallTrig);
   write(G_H, NH, u, io, g * W);
 }
- 
-  /*
-  if (g == 0) {
-    reverse(G_H, (local T2 *) lds, u, true);
-    halfSq(G_H, NH, u, u, bigTrig[4096], bigTrig, true);
-    reverse(G_H, (local T2 *) lds, u, true);
-  } else {
-    reverse(G_H, (local T2 *) lds, u, false);
-  
-    uint line2 = H - g;
-    read(G_H, NH, v, io, line2 * W);
-    bar();
-    fft4KImpl(lds, v, smallTrig);
-    reverse(G_H, (local T2 *) lds, v, false);
-  
-    halfSq(G_H, NH, u, v, bigTrig[4096 + g],     bigTrig, false);  
-    halfSq(G_H, NH, v, u, bigTrig[4096 + line2], bigTrig, false);
-
-    reverse(G_H, (local T2 *) lds, u, false);
-    reverse(G_H, (local T2 *) lds, v, false);
-
-    bar();
-    fft4KImpl(lds, v, smallTrig);
-    write(G_H, NH, v, io, line2 * W);  
-  }
-
-  bar();
-  fft4KImpl(lds, u, smallTrig);
-  write(G_H, NH, u, io, g * W);  
-}
-
-*/
