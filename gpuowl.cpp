@@ -519,7 +519,7 @@ u32 modInv(u32 a, u32 m) {
 }
 
 bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
-  assert(W == 1024);
+  assert(W == 2048);
   assert(H == 2048);
 
   int N = 2 * W * H;
@@ -527,7 +527,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
-  int nW = 4;
+  int nW = 8;
   int nH = 8;
   
   std::vector<string> defines {valueDefine("EXP", E),
@@ -755,7 +755,7 @@ int main(int argc, char **argv) {
     int E = worktodoReadExponent(AID);
     if (E <= 0) { break; }
     
-    int W = 1024;
+    int W = 2048;
     int H = 2048;    
     if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }
   }

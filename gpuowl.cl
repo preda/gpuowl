@@ -415,7 +415,7 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   io += WIDTH * g;
 
   read(G_W, NW, u, io, 0);
-  fft1K(lds, u, smallTrig);
+  fft2K(lds, u, smallTrig);
   write(G_W, NW, u, io, 0);
 }
 
@@ -449,7 +449,7 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
     u[i] = weight(in[p], A[p]);
   }
 
-  fft1K(lds, u, smallTrig);
+  fft2K(lds, u, smallTrig);
   write(G_W, NW, u, out, 0);
 }
 
@@ -509,7 +509,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   Word2 wu[NW];
   
   read(G_W, NW, u, io, 0);
-  fft1K(lds, u, smallTrig);
+  fft2K(lds, u, smallTrig);
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
@@ -536,7 +536,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
     u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
   }
 
-  fft1K(lds, u, smallTrig);
+  fft2K(lds, u, smallTrig);
   write(G_W, NW, u, io, 0);
 }
 
