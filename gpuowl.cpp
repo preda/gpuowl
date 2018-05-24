@@ -34,7 +34,7 @@
 #define REV
 #endif
 
-#define VERSION "2.0-" REV
+#define VERSION "2.1-" REV
 #define PROGRAM "gpuowl"
 
 static volatile int stopRequested = 0;
@@ -88,9 +88,7 @@ template<typename T2> T2 root1(u32 N, u32 k);
 
 template<> double2 root1<double2>(u32 N, u32 k) {
   long double angle = - TAU / N * k;
-  double x = cosl(angle);
-  double y = sinl(angle);
-  return double2{x, y};
+  return double2{double(cosl(angle)), double(sinl(angle))};
 }
 
 template<typename T2>
@@ -250,7 +248,7 @@ std::string timeStr(const std::string &format) {
 std::string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
 std::string shortTimeStr() { return timeStr("%H:%M:%S"); }
 
-void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats, float maxErr) {
+void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats) {
   std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
   // assert(nIt || !nHigh);
   // std::string high = !nHigh ? "" : " round-high " + std::to_string(nHigh);
@@ -268,11 +266,11 @@ void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool c
     mins  = etaMins % 60;
   }
 
-  log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f], check %.2fs; ETA %dd %02d:%02d; %s [%s]; maxErr %.3f%s\n",
+  log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f], check %.2fs; ETA %dd %02d:%02d; %s [%s];%s\n",
       checkOK ? "OK" : "EE", k, E, k * percent, info.mean, info.low, info.high,
       timeCheck / float(1000),
       days, hours, mins,
-      hexStr(res).c_str(), shortTimeStr().c_str(), maxErr, errors.c_str());
+      hexStr(res).c_str(), shortTimeStr().c_str(), errors.c_str());
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
@@ -377,7 +375,7 @@ struct GpuState {
 
 bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
                 bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul,
-                std::initializer_list<Kernel *> allKerns, cl_mem bufRoundingInfo) {
+                std::initializer_list<Kernel *> allKerns) {
   const int N = 2 * W * H;
   log("PRP-3: FFT %dK (%d * %d * 2) of %d (%.2f bits/word) [%s]\n", N / 1024, W, H, E, E / float(N), longTimeStr().c_str());
 
@@ -419,12 +417,8 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
 
     if ((k % checkStep == 0) || (k >= kEnd) || stopRequested) {
       {
-        float maxError = 0;
-        u32 zero = 0;
-        read(queue, false, bufRoundingInfo, sizeof(maxError), &maxError);
         State state = gpu.read();
-
-        write(queue, false, bufRoundingInfo, sizeof(zero), &zero);
+        
         CompactState compact(state, W, H, E);
         compact.expandTo(&state, balanced, W, H, E);
         gpu.writeNoWait(state);
@@ -439,7 +433,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
           goodK = k;
         }
         
-        doLog(E, k, args.verbosity, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors, stats, maxError);
+        doLog(E, k, args.verbosity, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors, stats);
         if (args.timeKernels) { logTimeKernels(allKerns); }
         stats.reset();
         
@@ -541,7 +535,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       valueDefine("NW", nW),
       valueDefine("HEIGHT", H),
       valueDefine("NH", nH),
-      // valueDefine("ROUNDING_INFO", 1),
       };
 
   float bitsPerWord = E / (float) N;
@@ -604,7 +597,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   int *zero = new int[H]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * H, zero)};
-  Buffer bufRoundingInfo{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), zero)};
   delete[] zero;
   
   fftP.setArg("out", buf1);
@@ -628,12 +620,10 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   carryA.setArg("in", buf1);
   carryA.setArg("A", bufI);
   carryA.setArg("carryOut", bufCarry);
-  carryA.setArg("roundingInfo", bufRoundingInfo);
 
   carryM.setArg("in", buf1);
   carryM.setArg("A", bufI);
   carryM.setArg("carryOut", bufCarry);
-  carryM.setArg("roundingInfo", bufRoundingInfo);
 
   carryB.setArg("carryIn", bufCarry);
   
@@ -654,7 +644,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   carryFused.setArg("A", bufA);
   carryFused.setArg("iA", bufI);
   carryFused.setArg("smallTrig", bufTrigW);
-  carryFused.setArg("roundingInfo", bufRoundingInfo);
     
   using vfun = std::function<void()>;
 
@@ -726,7 +715,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   u64 residue;
   int nErrors = 0;
   if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
-                  {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused, &carryFused}, bufRoundingInfo.get())) {
+                  {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused, &carryFused})) {
     return false;
   }
   

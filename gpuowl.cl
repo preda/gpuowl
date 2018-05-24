@@ -94,18 +94,15 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 
 uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
-Carry unweight(T x, T weight, float *maxErr) {
-  double weighted = x * fabs(weight);  
-  // double rounded = rint(weighted);
-  double rounded = round(weighted);
-  float err = rounded - weighted;
-  *maxErr = max(*maxErr, fabs(err));
-  return rounded;
-}
+Carry unweight(T x, T weight) { return rint(x * fabs(weight)); }  
+// return rint(weighted);
+// float err = rounded - weighted;
+// *maxErr = max(*maxErr, fabs(err));
 
-Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight, uint *nHigh) {
-  Word a = carryStep(mul * unweight(u.x, weight.x, (float *) nHigh), carry, oldBitlen(weight.x));
-  Word b = carryStep(mul * unweight(u.y, weight.y, (float *) nHigh), carry, oldBitlen(weight.y));
+
+Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight) {
+  Word a = carryStep(mul * unweight(u.x, weight.x), carry, oldBitlen(weight.x));
+  Word b = carryStep(mul * unweight(u.y, weight.y), carry, oldBitlen(weight.y));
   return (Word2) (a, b);
 }
 
@@ -247,7 +244,7 @@ void write(uint WG, uint N, T2 *u, G T2 *out, uint base) {
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
-void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut, volatile G uint *roundingInfo, local uint *lds) {
+void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut, local uint *lds) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   uint gx = g % NW;
@@ -260,20 +257,11 @@ void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *
 
   Carry carry = 0;
 
-  uint maxErr = 0;
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint p = WIDTH * i + me;
-    out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p], &maxErr);
+    out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p]);
   }
   carryOut[G_W * g + me] = carry;
-
-#ifdef ROUNDING_INFO
-  if (me == 0) { *lds = 0; }
-  bar();
-  atomic_max(lds, maxErr);
-  bar();
-  if (me == 0) { atomic_max(roundingInfo, *lds); }
-#endif
 }
 
 // Inputs normal (non-conjugate); outputs conjugate.
@@ -465,14 +453,14 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   write(G_W, NW, u, out, 0);
 }
 
-KERNEL(G_W) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut, volatile P(uint) roundingInfo) {
+KERNEL(G_W) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
   local uint lds[1];
-  carryACore(1, in, A, out, carryOut, roundingInfo, lds);
+  carryACore(1, in, A, out, carryOut, lds);
 }
 
-KERNEL(G_W) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut, volatile P(uint) roundingInfo) {
+KERNEL(G_W) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
   local uint lds[1];
-  carryACore(3, in, A, out, carryOut, roundingInfo, lds);
+  carryACore(3, in, A, out, carryOut, lds);
 }
 
 KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
@@ -504,7 +492,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
-                       CP(T2) A, CP(T2) iA, Trig smallTrig, volatile P(uint) roundingInfo) {
+                       CP(T2) A, CP(T2) iA, Trig smallTrig) {
   local T lds[WIDTH];
 
   uint gr = get_group_id(0);
@@ -523,12 +511,10 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   read(G_W, NW, u, io, 0);
   fft1K(lds, u, smallTrig);
   
-  uint nHigh = 0;
-  
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
     Carry carry = 0;
-    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p], &nHigh);
+    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p]);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
@@ -538,15 +524,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   if (gr < H && me == 0) { atomic_xchg(&ready[gr], 1); }
 
   if (gr == 0) { return; }
-  
-#ifdef ROUNDING_INFO
-  if (me == 0) { *(local uint *)lds = 0; }
-  bar();
-  atomic_max((local uint *)lds, nHigh);
-  bar();  
-  if (me == 0) { atomic_max(roundingInfo, *(local uint *)lds); }
-#endif
-  
+    
   // Wait until the previous group is ready with the carry.
   if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
 
