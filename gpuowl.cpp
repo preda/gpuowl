@@ -248,29 +248,34 @@ std::string timeStr(const std::string &format) {
 std::string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
 std::string shortTimeStr() { return timeStr("%H:%M:%S"); }
 
-void doLog(int E, int k, int verbosity, long timeCheck, int nIt, u64 res, bool checkOK, int nErrors, Stats &stats) {
-  std::string errors = !nErrors ? "" : (" (" + std::to_string(nErrors) + " errors)");
-  // assert(nIt || !nHigh);
-  // std::string high = !nHigh ? "" : " round-high " + std::to_string(nHigh);
-  
+std::string makeLogStr(int E, int k, const StatsInfo &info) {
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
-  int days = 0, hours = 0, mins = 0;
-
-  StatsInfo info = stats.getStats();
   
-  if (nIt) {
-    int etaMins = (end - k) * info.mean * (1 / 60000.f) + .5f;
-    days  = etaMins / (24 * 60);
-    hours = etaMins / 60 % 24;
-    mins  = etaMins % 60;
-  }
+  int etaMins = (end - k) * info.mean * (1 / 60000.f) + .5f;
+  int days  = etaMins / (24 * 60);
+  int hours = etaMins / 60 % 24;
+  int mins  = etaMins % 60;
+  
+  char buf[128];
+  snprintf(buf, sizeof(buf), "[%s] %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f]; ETA %dd %02d:%02d;",
+           shortTimeStr().c_str(),
+           k, E, k * percent, info.mean, info.low, info.high, days, hours, mins);
+  return buf;
+}
 
-  log("%s %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f], check %.2fs; ETA %dd %02d:%02d; %s [%s];%s\n",
-      checkOK ? "OK" : "EE", k, E, k * percent, info.mean, info.low, info.high,
-      timeCheck / float(1000),
-      days, hours, mins,
-      hexStr(res).c_str(), shortTimeStr().c_str(), errors.c_str());
+void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats) {
+  std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
+  log("%s %s %s (check %.2fs)%s\n",
+      checkOK ? "OK" : "EE",
+      makeLogStr(E, k, stats.getStats()).c_str(), hexStr(res).c_str(),
+      timeCheck * .001f, errors.c_str());
+  stats.reset();
+}
+
+void doSmallLog(int E, int k, Stats &stats) {
+  printf("   %s\n", makeLogStr(E, k, stats.getStats()).c_str());
+  stats.reset();
 }
 
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
@@ -323,15 +328,6 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
 }
 
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }
-
-int autoStep(int nIters, int nErrors, int blockSize) {
-  int x = nIters / (100 + nErrors * 1000);
-  int steps[] = {1, 2, 5, 10, 20, 50, 100, 200, 500};
-  for (int i = 0; i < size(steps) - 1; ++i) {
-    if (x < steps[i] * steps[i + 1]) { return std::max(steps[i] * 1000, blockSize * 2); }
-  }
-  return steps[size(steps) - 1] * 1000;
-}
 
 struct GpuState {
   int N;
@@ -386,74 +382,36 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
   
   if (!Checkpoint::load(E, W, H, &goodState, &k, &nErrors, &blockSize)) { return false; }
   log("Starting at iteration %d\n", k);
-  
-  GpuState gpu(N, context, queue);
-  gpu.writeWait(goodState);
-  goodState.reset();
-  
-  int goodK = 0;
-  
+
   const int kEnd = E;
   assert(k % blockSize == 0 && k < kEnd);
   
-  auto getCheckStep = [forceStep = args.step, startK = k, startErrors = nErrors, blockSize](int currentK, int currentErrors) {
-    return forceStep ? forceStep : autoStep(currentK - startK, currentErrors - startErrors, blockSize);
-  };
+  GpuState gpu(N, context, queue);
+  gpu.writeNoWait(goodState);
+  modMul(gpu.bufData, gpu.bufCheck);
+  modSqLoop(gpu.bufCheck, blockSize, true);
+  if (!gpu.read().equalCheck()) {
+    log("Error at start; will stop\n");
+    return false;
+  } else {
+    log("OK initial state.\n");
+  }
+  gpu.writeNoWait(goodState);
   
-  int blockStartK = k;
-  int checkStep = 1; // request an initial check at start.
+  int goodK = k;
+  // int blockStartK = k;
+  
+  Stats stats;
 
-  // The floating-point transforms use "balanced" words, while the NTT transforms don't.
-  const bool balanced = true;
+  // Controls how often to do the error check.
+  // Lower level means more often. Successful checks increase the level, errors decrease it.
+  int checkLevel = 1;
+  
+  // Controls at which point checkLevel can be increased.
+  int checkLimit = 0;
   
   Timer timer;
-  Stats stats;
-  
   while (true) {
-    if (stopRequested) {
-      log("\nStopping, please wait..\n");
-      signal(SIGINT, oldHandler);
-    }
-
-    if ((k % checkStep == 0) || (k >= kEnd) || stopRequested) {
-      {
-        State state = gpu.read();
-        
-        CompactState compact(state, W, H, E);
-        compact.expandTo(&state, balanced, W, H, E);
-        gpu.writeNoWait(state);
-        
-        modMul(gpu.bufData, gpu.bufCheck);
-        modSqLoop(gpu.bufCheck, blockSize, true);
-        bool ok = gpu.read().equalCheck();
-
-        if (ok && k && k < kEnd) {
-          Checkpoint::save(compact, k, nErrors, blockSize);
-          goodState = std::move(state);
-          goodK = k;
-        }
-        
-        doLog(E, k, args.verbosity, timer.deltaMillis(), k - blockStartK, residue(compact.data), ok, nErrors, stats);
-        if (args.timeKernels) { logTimeKernels(allKerns); }
-        stats.reset();
-        
-        if (ok) {
-          if (k >= kEnd) { return true; }
-        } else {        
-          assert(k); // A rollback from start (k == 0) means bug or wrong FFT size, so we can't continue.
-          ++nErrors;
-          k = goodK;
-        }
-      }
-      
-      if (stopRequested) { return false; }
-      
-      gpu.writeNoWait(goodState);
-      blockStartK = k;
-      checkStep = getCheckStep(k, nErrors);
-      assert(checkStep % blockSize == 0);
-    }
-    
     assert(k % blockSize == 0);
 
     modMul(gpu.bufCheck, gpu.bufData);
@@ -481,8 +439,69 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
     k += blockSize;
     auto delta = timer.deltaMillis();
     stats.add(delta * (1/float(blockSize)));
-    if (args.verbosity >= 2) {
-      fprintf(stderr, " %5d / %d, %.2f ms/it    \r", (k - 1) % checkStep + 1, checkStep, delta / float(blockSize));
+    
+    if (stopRequested) {
+      log("\nStopping, please wait..\n");
+      signal(SIGINT, oldHandler);
+    }
+
+    int checkStep = (((checkLevel == 0) || (checkLevel == 1)) ? 10 :
+                     ((checkLevel == 2) ? 100 : 1000)) * blockSize;
+    
+    bool doCheck = (k % checkStep == 0) || (k >= kEnd) || stopRequested;
+    
+    if (doCheck) {
+      {
+        State state = gpu.read();
+        
+        CompactState compact(state, W, H, E);
+        compact.expandTo(&state, true, W, H, E);
+        gpu.writeNoWait(state);
+
+        modMul(gpu.bufData, gpu.bufCheck);
+        modSqLoop(gpu.bufCheck, blockSize, true);
+        bool ok = gpu.read().equalCheck();
+
+        if (ok && k < kEnd) {
+          Checkpoint::save(compact, k, nErrors, blockSize);
+          goodState = std::move(state);
+          goodK = k;
+        }
+        
+        doLog(E, k, timer.deltaMillis(), residue(compact.data), ok, nErrors, stats);
+        if (args.timeKernels) { logTimeKernels(allKerns); }
+        // stats.reset();
+        
+        if (ok) {
+          if (checkLevel < 3 && k >= checkLimit) { ++checkLevel; }
+          
+          if (k >= kEnd) { return true; }
+          
+        } else { // Error detected.
+          if (checkLevel <= 0) {
+            log("The error persists; will stop.\n");
+            return false;
+          }
+
+          checkLimit = k;
+          --checkLevel;
+          
+          ++nErrors;
+          k = goodK;
+        }
+      }
+      
+      if (stopRequested) { return false; }
+      
+      gpu.writeNoWait(goodState);
+      // blockStartK = k;
+      
+    } else {
+      if (k % 10000 == 0) {
+        doSmallLog(E, k, stats);
+        // fprintf(stdout, "    %8d / %d, %.2f ms/it    \r", (k - 1) % checkStep + 1, checkStep, delta / float(blockSize));
+      }
+
     }
   }
 }

@@ -12,6 +12,8 @@ using std::string;
 
 class Checkpoint {
 private:
+  static constexpr const int CHECK_STEP = 1000;
+  
   struct HeaderV3 {
     // <exponent> <iteration> <nErrors> <check-step>
     static constexpr const char *HEADER = "OWL 3 %d %d %d %d\n";
@@ -67,7 +69,7 @@ public:
   static bool load(int E, int W, int H, State *state, int *k, int *nErrors, int *checkStep) {
     *k = 0;
     *nErrors = 0;
-    *checkStep = 500;
+    *checkStep = CHECK_STEP;
     
     auto fi{open(fileName(E), "rb", false)};
     if (!fi) {
