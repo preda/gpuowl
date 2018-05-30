@@ -575,7 +575,10 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   LOAD(transposeW, (W/64) * (H/64) * 256);
   LOAD(transposeH, (W/64) * (H/64) * 256);
-    
+
+  LOAD(transposeWordsW, (W/64) * (H/64) * 256);
+  LOAD(transposeWordsH, (W/64) * (H/64) * 256);
+      
   LOAD(square,   hN / 2);
   LOAD(multiply, hN / 2);
 
@@ -603,6 +606,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   int *zero = new int[H]();
   Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * H, zero)};
   delete[] zero;
+
+  transposeWordsW.setArg("out", buf2);
   
   fftP.setArg("out", buf1);
   fftP.setArg("A", bufA);

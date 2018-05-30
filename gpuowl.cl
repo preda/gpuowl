@@ -419,13 +419,12 @@ void transposeLDS(local T *lds, T2 *u) {
 }
 
 void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G T2 *trig) {
-  uint GPW = (W - 1) / 64 + 1, GPH = (H - 1) / 64 + 1;
-  uint PW = GPW * 64, PH = GPH * 64; // padded to multiple of 64.
+  uint GPW = W / 64, GPH = H / 64;
   
   uint g = get_group_id(0);
-  // uint gx = g % GPW, gy = g / GPW;
-  uint gy = g % GPH, gx = g / GPH;
-  gx = (gy + gx) % GPW;
+  uint gy = g & (GPH - 1);
+  uint gx = g / GPH;
+  gx = (gy + gx) & (GPW - 1);
 
   in   += gy * 64 * W + gx * 64;
   out  += gy * 64     + gx * 64 * H;
@@ -454,6 +453,41 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G 
 
 #endif
     
+    out[(4 * i + my) * H + mx] = u[i];
+  }
+}
+
+void transposeWords(uint W, uint H, local Word2 *lds, const G Word2 *in, G Word2 *out) {
+  uint GPW = W / 64, GPH = H / 64;
+
+  uint g = get_group_id(0);
+  uint gy = g & (GPH - 1);
+  uint gx = g / GPH;
+  gx = (gy + gx) & (GPW - 1);
+
+  in   += gy * 64 * W + gx * 64;
+  out  += gy * 64     + gx * 64 * H;
+  
+  uint me = get_local_id(0);
+  uint mx = me % 64;
+  uint my = me / 64;
+  
+  Word2 u[16];
+
+  for (int i = 0; i < 16; ++i) { u[i] = in[(4 * i + my) * W + mx]; }
+
+  for (int i = 0; i < 16; ++i) {
+    uint l = i * 4 + me / 64;
+    lds[l * 64 + (me + l) % 64 ] = u[i];
+  }
+  bar();
+  for (int i = 0; i < 16; ++i) {
+    uint c = i * 4 + me / 64;
+    uint l = me % 64;
+    u[i] = lds[l * 64 + (c + l) % 64];
+  }
+
+  for (int i = 0; i < 16; ++i) {
     out[(4 * i + my) * H + mx] = u[i];
   }
 }
@@ -700,6 +734,16 @@ KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig trig) {
 KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig trig) {
   local T lds[4096];
   transpose(HEIGHT, WIDTH, lds, in, out, trig);
+}
+
+KERNEL(256) transposeWordsW(CP(Word2) in, P(Word2) out) {
+  local Word2 lds[4096];
+  transposeWords(WIDTH, HEIGHT, lds, in, out);
+}
+
+KERNEL(256) transposeWordsH(CP(Word2) in, P(Word2) out) {
+  local Word2 lds[4096];
+  transposeWords(HEIGHT, WIDTH, lds, in, out);
 }
 
 KERNEL(G_H) square(P(T2) io, Trig bigTrig)  { csquare(G_H, HEIGHT, WIDTH, io, bigTrig); }
