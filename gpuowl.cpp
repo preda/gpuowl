@@ -757,8 +757,8 @@ int main(int argc, char **argv) {
     char AID[64];
     int E = worktodoReadExponent(AID);
     if (E <= 0) { break; }
-    
-    int W = 2048;
+
+    int W = (E < 153000000) ? 2048 : 4096;
     int H = 2048;
     if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }
   }

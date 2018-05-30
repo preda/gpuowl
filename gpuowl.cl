@@ -647,7 +647,14 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   Word2 wu[NW];
   
   read(G_W, NW, u, io, 0);
+
+#if WIDTH == 4096
+  fft4K_512(lds, u, smallTrig);
+#elif WIDTH == 2048
   fft2K(lds, u, smallTrig);
+#else
+#error unexpected WIDTH.
+#endif
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
@@ -674,7 +681,14 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
     u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
   }
 
+#if WIDTH == 4096
+  fft4K_512(lds, u, smallTrig);
+#elif WIDTH == 2048
   fft2K(lds, u, smallTrig);
+#else
+#error unexpected WIDTH.
+#endif
+
   write(G_W, NW, u, io, 0);
 }
 
