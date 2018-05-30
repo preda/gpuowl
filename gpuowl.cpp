@@ -455,7 +455,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
         modSqLoop(gpu.bufCheck, blockSize, true);
         bool ok = gpu.read().equalCheck();
 
-        if (ok && k < kEnd) {
+        if (ok && k < kEnd && k % 1'000'000 == 0) {
           Checkpoint::save(compact, k, nErrors, blockSize);
           goodState = std::move(state);
           goodK = k;

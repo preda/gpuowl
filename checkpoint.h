@@ -144,8 +144,8 @@ public:
       rename(saveFile.c_str(), prevFile.c_str());
       rename(tempFile.c_str(), saveFile.c_str());
     }
-    const int saveStep = 10'000'000;
-    if (k && (k % saveStep == 0)) {
+    const int persistStep = 20'000'000;
+    if (k && (k % persistStep == 0)) {
       string persistFile = strE + "." + std::to_string(k) + ".owl";
       write(persistFile, compact, k, nErrors, checkStep);
     }
