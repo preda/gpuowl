@@ -322,7 +322,7 @@ void csquare(uint WG, uint W, uint H, G T2 *io, const G T2 *bigTrig) {
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  T2 t = swap(mul(bigTrig[posInLine], bigTrig[W + line]));
+  T2 t = swap(mul(bigTrig[posInLine], bigTrig[W/2 + line]));
   
   uint k = line * W + posInLine;
   uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
@@ -360,7 +360,7 @@ void cmul(uint WG, uint W, uint H, G T2 *io, const G T2 *in, const G T2 *bigTrig
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  T2 t = swap(mul(bigTrig[posInLine], bigTrig[W + line]));
+  T2 t = swap(mul(bigTrig[posInLine], bigTrig[W/2 + line]));
   
   uint k = line * W + posInLine;
   uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
@@ -697,8 +697,8 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
 
   if (g == 0) { for (int i = NH / 2; i < NH; ++i) { SWAP(u[i], v[i]); } }
   
-  halfSq(G_H, NH, u, v, bigTrig[W + g],     bigTrig, true);
-  halfSq(G_H, NH, v, u, bigTrig[W + line2], bigTrig, false);
+  halfSq(G_H, NH, u, v, bigTrig[W/2 + g],     bigTrig, true);
+  halfSq(G_H, NH, v, u, bigTrig[W/2 + line2], bigTrig, false);
 
   if (g == 0) { for (int i = NH / 2; i < NH; ++i) { SWAP(u[i], v[i]); } }
 

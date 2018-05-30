@@ -101,10 +101,10 @@ T2 *trig(T2 *p, int n, int B) {
 // - a size-H half-circle.
 // - a region of granularity TAU / (2 * W * H), used in squaring.
 cl_mem genSquareTrig(cl_context context, int W, int H) {
-  const int size = H + W;
+  const int size = H/2 + W;
   auto *tab = new double2[size];
   auto *end = tab;
-  end = trig(end, H,     H * 2);
+  end = trig(end, H/2,     H * 2);
   end = trig(end, W,     W * H * 2);
   assert(end - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
