@@ -373,16 +373,15 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
                 bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul,
                 std::initializer_list<Kernel *> allKerns) {
   const int N = 2 * W * H;
-  log("PRP-3: FFT %dK (%d * %d * 2) of %d (%.2f bits/word) [%s]\n", N / 1024, W, H, E, E / float(N), longTimeStr().c_str());
-
   int nErrors = 0;
   int k = 0;
   int blockSize = 0;
   State goodState(N);
-  
-  if (!Checkpoint::load(E, W, H, &goodState, &k, &nErrors, &blockSize)) { return false; }
-  log("Starting at iteration %d\n", k);
 
+  if (!Checkpoint::load(E, W, H, &goodState, &k, &nErrors, &blockSize)) { return false; }
+  log("[%s] PRP M(%d): FFT %dK (%dx%dx2), %.2f bits/word, block %d, at iteration %d\n",
+      longTimeStr().c_str(), E, N / 1024, W, H, E / float(N), blockSize, k);
+  
   const int kEnd = E;
   assert(k % blockSize == 0 && k < kEnd);
   
@@ -397,23 +396,15 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
     log("Error at start; will stop\n");
     return false;
   } else {
-    log("OK initial state.\n");
+    log("OK initial check.\n");
   }
   gpu.writeNoWait(goodState);
   
   int goodK = k;
-  // int blockStartK = k;
-  
+  int startK = k;
   Stats stats;
 
-  // Controls how often to do the error check.
-  // Lower level means more often. Successful checks increase the level, errors decrease it.
-  // Level 0 or 1: check every 10 blocks. level 2: every 100 blocks. level 3: every 1000 blocks.
-  // (block size is usually 1000 iterations).
-  int checkLevel = 1;
-  
-  // Controls at which point checkLevel can be increased.
-  int checkLimit = 0;
+  u64 errorResidue = 0;  // Residue at the most recent error. Used for persistent-error detection.
   
   Timer timer;
   while (true) {
@@ -450,10 +441,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
       signal(SIGINT, oldHandler);
     }
 
-    int checkStep = (((checkLevel == 0) || (checkLevel == 1)) ? 10 :
-                     ((checkLevel == 2) ? 100 : 1000)) * blockSize;
-    
-    bool doCheck = (k % checkStep == 0) || (k >= kEnd) || stopRequested;
+    bool doCheck = (k % 100000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
     
     if (doCheck) {
       {
@@ -472,25 +460,20 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
           goodState = std::move(state);
           goodK = k;
         }
-        
-        doLog(E, k, timer.deltaMillis(), residue(compact.data), ok, nErrors, stats);
+
+        u64 res = residue(compact.data);
+        doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats);
         if (args.timeKernels) { logTimeKernels(allKerns); }
         // stats.reset();
         
         if (ok) {
-          if (checkLevel < 3 && k >= checkLimit) { ++checkLevel; }
-          
           if (k >= kEnd) { return true; }
-          
         } else { // Error detected.
-          if (checkLevel <= 0) {
-            log("The error persists; will stop.\n");
+          if (errorResidue == res) {
+            log("Persistent error; will stop.\n");
             return false;
           }
-
-          checkLimit = k;
-          --checkLevel;
-          
+          errorResidue = res;
           ++nErrors;
           k = goodK;
         }

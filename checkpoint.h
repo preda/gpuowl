@@ -12,7 +12,7 @@ using std::string;
 
 class Checkpoint {
 private:
-  static constexpr const int CHECK_STEP = 1000;
+  static constexpr const int CHECK_STEP = 200;
   
   struct HeaderV3 {
     // <exponent> <iteration> <nErrors> <check-step>
