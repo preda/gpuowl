@@ -229,7 +229,7 @@ void fft1K(local T *lds, T2 *u, const G T2 *trig) {
   fft4(u);
 }
 
-void fft4K(local T *lds, T2 *u, const G T2 *trig) {
+void fft4K_256(local T *lds, T2 *u, const G T2 *trig) {
   for (int s = 4; s >= 0; s -= 4) {
     fft16(u);
     if (s != 4) { bar(); }
@@ -238,6 +238,17 @@ void fft4K(local T *lds, T2 *u, const G T2 *trig) {
   }
 
   fft16(u);
+}
+
+void fft4K_512(local T *lds, T2 *u, const G T2 *trig) {
+  for (int s = 6; s >= 0; s -= 3) {
+    fft8(u);
+    if (s != 6) { bar(); }
+    shufl( 512,  lds, u, 8, 1 << s);
+    tabMul(512, trig, u, 8, 1 << s); 
+  }
+
+  fft8(u);
 }
 
 void fft2K(local T *lds, T2 *u, const G T2 *trig) {
@@ -463,6 +474,22 @@ typedef CP(T2) restrict Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
+#if (WIDTH == 4096) && (NW == 8)
+
+KERNEL(512) fftW(P(T2) io, Trig smallTrig) {
+  local T lds[WIDTH];
+  T2 u[8];
+
+  uint g = get_group_id(0);
+  io += WIDTH * g;
+
+  read(512, 8, u, io, 0);
+  fft4K_512(lds, u, smallTrig);
+  write(512, 8, u, io, 0);
+}
+
+#else
+
 KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   local T lds[WIDTH];
   T2 u[NW];
@@ -477,7 +504,7 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
 #elif WIDTH == 2048
   fft2K(lds, u, smallTrig);
 #elif WIDTH == 4096
-  fft4K(lds, u, smallTrig);
+  fft4K_256(lds, u, smallTrig);
 #else
 #error unexpected WIDTH.  
 #endif
@@ -485,21 +512,35 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   write(G_W, NW, u, io, 0);
 }
 
-KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
-  local T lds[HEIGHT];
-  T2 u[NH];
+#endif
+
+
+#if (WIDTH == 4096) && (NW == 8)
+
+// fftPremul: weight words with "A" (for IBDWT) followed by FFT.
+KERNEL(512) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
+  local T lds[WIDTH];
+  T2 u[8];
 
   uint g = get_group_id(0);
-  io += HEIGHT * g;
+  uint step = WIDTH * g;
+  A   += step;
+  in  += step;
+  out += step;
 
-  read(G_H, NH, u, io, 0);
-#if HEIGHT == 2048
-  fft2K(lds, u, smallTrig);
-#else
-#error unexpected HEIGHT.
-#endif
-  write(G_H, NH, u, io, 0);
+  uint me = get_local_id(0);
+
+  for (int i = 0; i < 8; ++i) {
+    uint p = G_W * i + me;
+    u[i] = weight(in[p], A[p]);
+  }
+
+  fft4K_512(lds, u, smallTrig);
+  
+  write(512, 8, u, out, 0);
 }
+
+#else
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
@@ -524,12 +565,30 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
 #elif WIDTH == 2048
   fft2K(lds, u, smallTrig);
 #elif WIDTH == 4096
-  fft4K(lds, u, smallTrig);
+  fft4K_256(lds, u, smallTrig);
 #else
 #error unexpected WIDTH.  
 #endif
   
   write(G_W, NW, u, out, 0);
+}
+
+#endif
+
+KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
+  local T lds[HEIGHT];
+  T2 u[NH];
+
+  uint g = get_group_id(0);
+  io += HEIGHT * g;
+
+  read(G_H, NH, u, io, 0);
+#if HEIGHT == 2048
+  fft2K(lds, u, smallTrig);
+#else
+#error unexpected HEIGHT.
+#endif
+  write(G_H, NH, u, io, 0);
 }
 
 KERNEL(G_W) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {

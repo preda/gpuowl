@@ -534,7 +534,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
-  int nW = W / 256;
+  int nW = 8;
   int nH = H / 256;
   
   std::vector<string> defines {valueDefine("EXP", E),
