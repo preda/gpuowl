@@ -9,7 +9,7 @@
 #include <cstring>
 #include <cassert>
 
-const int EXP_MIN = 2000000, EXP_MAX = 155000000;
+const int EXP_MIN = 2000000, EXP_MAX = 310000000;
 
 int parseLine(const char *line, char *outAID) {
   int exp = 0;

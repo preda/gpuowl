@@ -65,8 +65,8 @@ void genWeights(int W, int H, int E, T *aTab, T *iTab) {
         int k = (line + col * H) * 2 + rep;
         int bits  = bitlen(N, E, k);
         assert(bits == baseBits || bits == baseBits + 1);
-        auto a = ldexpl(exp2l(extra(N, E, k) * iN), -10);
-        auto ia = 1 / (4 * N / 1024 * a);
+        auto a = exp2l(extra(N, E, k) * iN);
+        auto ia = 1 / (4 * N * a);
         *pa++ = (bits == baseBits) ? a  : -a;
         *pi++ = (bits == baseBits) ? ia : -ia;
       }
@@ -388,6 +388,9 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
   
   GpuState gpu(N, context, queue);
   gpu.writeNoWait(goodState);
+
+  oldHandler = signal(SIGINT, myHandler);
+  
   modMul(gpu.bufData, gpu.bufCheck);
   modSqLoop(gpu.bufCheck, blockSize, true);
   if (!gpu.read().equalCheck()) {
@@ -405,6 +408,8 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
 
   // Controls how often to do the error check.
   // Lower level means more often. Successful checks increase the level, errors decrease it.
+  // Level 0 or 1: check every 10 blocks. level 2: every 100 blocks. level 3: every 1000 blocks.
+  // (block size is usually 1000 iterations).
   int checkLevel = 1;
   
   // Controls at which point checkLevel can be increased.
@@ -538,7 +543,7 @@ u32 modInv(u32 a, u32 m) {
 }
 
 bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
-  assert(W == 2048);
+  assert(W == 2048 || W == 4096);
   assert(H == 2048);
 
   int N = 2 * W * H;
@@ -546,8 +551,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
-  int nW = 8;
-  int nH = 8;
+  int nW = W / 256;
+  int nH = H / 256;
   
   std::vector<string> defines {valueDefine("EXP", E),
       valueDefine("WIDTH", W),
@@ -624,7 +629,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   
   fftW.setArg("io", buf1);
   fftW.setArg("smallTrig", bufTrigW);
-
+  
   fftH.setArg("io", buf2);
   fftH.setArg("smallTrig", bufTrigH);
   
@@ -730,8 +735,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
     exitKerns(io, false);
   };
 
-  bool isPrime;
-  u64 residue;
+  bool isPrime = false;
+  u64 residue = 0;
   int nErrors = 0;
   if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
                   {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused, &carryFused})) {
@@ -749,8 +754,6 @@ int main(int argc, char **argv) {
   initLog();
   
   log("gpuOwL v" VERSION " GPU Mersenne primality checker\n");
-
-  oldHandler = signal(SIGINT, myHandler);
   
   Args args;
   
@@ -775,7 +778,7 @@ int main(int argc, char **argv) {
     if (E <= 0) { break; }
     
     int W = 2048;
-    int H = 2048;    
+    int H = 2048;
     if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }
   }
 

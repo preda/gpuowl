@@ -156,7 +156,7 @@ void fft4(T2 *u) {
   SWAP(u[1], u[2]);
 }
 
-void fft8(T2 *u) {
+void fft8Core(T2 *u) {
   for (int i = 0; i < 4; ++i) { X2(u[i], u[i + 4]); }
   u[5] = mul_t8(u[5]);
   u[6] = mul_t4(u[6]);
@@ -164,10 +164,41 @@ void fft8(T2 *u) {
   
   fft4Core(u);
   fft4Core(u + 4);
+}
 
+void fft8(T2 *u) {
+  fft8Core(u);
   // revbin [0, 4, 2, 6, 1, 5, 3, 7] undo
   SWAP(u[1], u[4]);
   SWAP(u[3], u[6]);
+}
+
+// cos(tau/16)
+#define COS_T16 0x1.d906bcf328d46p-1
+// sin(tau/16)
+#define SIN_T16 0x1.87de2a6aea963p-2
+
+void fft16(T2 *u) {
+  for (int i = 0; i < 8; ++i) { X2(u[i], u[i + 8]); }
+
+  u[9]  = mul(u[ 9], U2(COS_T16, -SIN_T16));
+  u[10] = mul_t8(u[10]);
+  u[11] = mul(u[11], U2(SIN_T16, -COS_T16));
+  u[12] = mul_t4(u[12]);
+  u[13] = mul(u[13], U2(-SIN_T16, -COS_T16));
+  u[14] = mul_3t8(u[14]);
+  u[15] = mul(u[15], U2(-COS_T16, -SIN_T16));
+
+  fft8Core(u);
+  fft8Core(u + 8);
+  
+  // revbin [0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15] undo
+  SWAP(u[1],  u[8]);
+  SWAP(u[2],  u[4]);
+  SWAP(u[3],  u[12]);
+  SWAP(u[5],  u[10]);
+  SWAP(u[7],  u[14]);
+  SWAP(u[11], u[13]);
 }
 
 void shufl(uint WG, local T *lds, T2 *u, uint n, uint f) {
@@ -196,6 +227,17 @@ void fft1K(local T *lds, T2 *u, const G T2 *trig) {
   }
 
   fft4(u);
+}
+
+void fft4K(local T *lds, T2 *u, const G T2 *trig) {
+  for (int s = 4; s >= 0; s -= 4) {
+    fft16(u);
+    if (s != 4) { bar(); }
+    shufl(256,   lds, u, 16, 1 << s);
+    tabMul(256, trig, u, 16, 1 << s); 
+  }
+
+  fft16(u);
 }
 
 void fft2K(local T *lds, T2 *u, const G T2 *trig) {
@@ -386,7 +428,21 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G 
 
   for (int i = 0; i < 16; ++i) {
     uint k = mul24(64 * gy + mx, 64 * gx + my + (uint) i * 4);
+    // (64 * gy + mx) * (64 * gx + my + i * 4);
+      
+#if COMPUTE_TRIG
+    
+    double angle = k * (M_PI / (WIDTH * HEIGHT / 2));
+    double c;
+    double s = sincos(angle, &c);
+    u[i] = mul(u[i], U2(c, -s));
+    
+#else
+    
     u[i] = mul(u[i], mul(trig[k / (W * H / 2048)], trig[2048 + k % (W * H / 2048)]));
+
+#endif
+    
     out[(4 * i + my) * H + mx] = u[i];
   }
 }
@@ -415,7 +471,17 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   io += WIDTH * g;
 
   read(G_W, NW, u, io, 0);
+
+#if   WIDTH == 1024
+  fft1K(lds, u, smallTrig);
+#elif WIDTH == 2048
   fft2K(lds, u, smallTrig);
+#elif WIDTH == 4096
+  fft4K(lds, u, smallTrig);
+#else
+#error unexpected WIDTH.  
+#endif
+  
   write(G_W, NW, u, io, 0);
 }
 
@@ -427,7 +493,11 @@ KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
   io += HEIGHT * g;
 
   read(G_H, NH, u, io, 0);
+#if HEIGHT == 2048
   fft2K(lds, u, smallTrig);
+#else
+#error unexpected HEIGHT.
+#endif
   write(G_H, NH, u, io, 0);
 }
 
@@ -449,7 +519,16 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
     u[i] = weight(in[p], A[p]);
   }
 
+#if   WIDTH == 1024
+  fft1K(lds, u, smallTrig);
+#elif WIDTH == 2048
   fft2K(lds, u, smallTrig);
+#elif WIDTH == 4096
+  fft4K(lds, u, smallTrig);
+#else
+#error unexpected WIDTH.  
+#endif
+  
   write(G_W, NW, u, out, 0);
 }
 
