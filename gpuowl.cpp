@@ -546,15 +546,11 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   float bitsPerWord = E / (float) N;
 
-  bool useLongCarry   = args.carry == 2 || bitsPerWord < 6;
-  bool useMediumCarry = !useLongCarry && (args.carry == 1 || bitsPerWord < 13);
-  if (useMediumCarry) { defines.push_back(valueDefine("CARRY_MEDIUM", 1)); }
-  
-  bool useSplitTail = args.tail == 1;
+  bool useLongCarry   = args.carry == Args::CARRY_LONG || bitsPerWord < 15;  
+  bool useSplitTail = args.tail == Args::TAIL_SPLIT;
   
   log("Note: using %s carry and %s tail kernels\n",
-      useLongCarry ? "long" : useMediumCarry ? "medium, fused" : "short, fused",
-      useSplitTail ? "split" : "fused");
+      useLongCarry ? "long" : "short", useSplitTail ? "split" : "fused");
 
   string clArgs = args.clArgs;
   if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }

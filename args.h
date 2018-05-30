@@ -8,23 +8,22 @@
 #include <cstring>
 
 struct Args {
+  enum {CARRY_SHORT = 0, CARRY_LONG = 1, TAIL_FUSED = 0, TAIL_SPLIT = 1};
+  
   std::string clArgs;
   std::string user, cpu;
   std::string dump;
-  int step;
   int device;
   bool timeKernels;
   int carry;
   int tail;
-  int verbosity;
   
   Args() :
-    step(0),
     device(-1),
     timeKernels(false),
-    carry(0),
-    tail(0),
-    verbosity(1) { }
+    carry(CARRY_LONG),
+    tail(TAIL_FUSED)
+  { }
   
   // return false to stop.
   bool parse(int argc, char **argv) {
@@ -39,13 +38,8 @@ Command line options:
 -time             : display kernel profiling information.
 -tail fused|split : selects tail kernels variant (default 'fused').
 
--carry short|medium|long : selects carry propagation (default 'short').
-    Longer carry accomodates lower bits-per-word but may be slower.
-    * 'short'  is good for bits-per-word >= 13,
-    * 'medium' is good for bits-per-word >= 6,
-    * 'long'   is good for bits-per-word >= 2.
-    Also note that 'short' and 'medium' use fused carry kernels, while 'long'
-    uses split carry kernels.
+-carry long|short : selects carry propagation (default 'long').
+    Long carry is safe but may be slower. 'short' may be used only with bits-per-word >= 15.
 
 -device <N>   : select specific device among:
 )""");
@@ -57,29 +51,11 @@ Command line options:
         log("    %d : %s\n", i, info.c_str());
       }      
       return false;
-    } else if (!strcmp(arg, "-verbosity")) {
-      if (i < argc - 1) {
-        verbosity = atoi(argv[++i]);        
-      } else {
-        log("-verbosity expects <level>\n");
-        return false;
-      }
     } else if (!strcmp(arg, "-dump")) {
       if (i < argc - 1 && argv[i + 1][0] != '-') {
         dump = argv[++i];
       } else {
         log("-dump expects name");
-        return false;
-      }
-    } else if (!strcmp(arg, "-step")) {
-      if (i < argc - 1) {
-        step = atoi(argv[++i]);
-        if (step <= 0 || step % 1000) {
-          log("invalid -step '%s', must be positive and multiple of 1000.\n", argv[i]);
-          return false;
-        }
-      } else {
-        log("-step expects <N> argument\n");
         return false;
       }
     } else if (!strcmp(arg, "-user")) {
@@ -108,36 +84,24 @@ Command line options:
     } else if (!strcmp(arg, "-carry")) {
       if (i < argc - 1) {
         std::string s = argv[++i];
-        if (s == "short" || s == "medium" || s == "long") {
-          carry = s == "short" ? 0 : s == "medium" ? 1 : 2;
+        if (s == "short" || s == "long") {
+          carry = s == "short" ? CARRY_SHORT : CARRY_LONG;
           continue;
         }
       }
-      log("-carry expects short|medium|long\n");
+      log("-carry expects short|long\n");
       return false;
     } else if (!strcmp(arg, "-tail")) {
       if (i < argc - 1) {
         std::string s = argv[++i];
         if (s == "fused" || s == "split") {
-          tail = s == "fused" ? 0 : 1;
+          tail = s == "fused" ? TAIL_FUSED : TAIL_SPLIT;
           continue;
         }
       }
       log("-tail expects fused|split\n");
       return false;      
-    } /*else if (!strcmp(arg, "-size")) {
-      if (i < argc - 1) {
-        const char *value = argv[++i];
-        if (int len = strlen(value)) {
-          char c = value[len - 1];
-          fftSize = atoi(value) * ((c == 'M' || c == 'm') ? 1024 * 1024 : (c == 'K' || c == 'k') ? 1024 : 1);
-        }
-      } else {
-        log("-size expects size 2M | 4M | 8M\n");
-        return false;
-      }
-      } */
-    else if (!strcmp(arg, "-device")) {
+    } else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {
       if (i < argc - 1) {
         device = atoi(argv[++i]);
         int nDevices = getNumberOfDevices();
@@ -155,7 +119,6 @@ Command line options:
     }
   }
 
-  assert(step % 1000 == 0);
   return true;
 }
 
