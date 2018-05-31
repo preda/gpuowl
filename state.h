@@ -113,6 +113,7 @@ void expandBits(const std::vector<u32> &compactBits, bool balanced, int W, int H
 
 bool isAllZero(auto const it, auto const end) { return std::all_of(it, end, [](auto e) { return e == 0; }); }
 
+/*
 struct State {
   int N;
   std::unique_ptr<int[]> data, check;
@@ -165,7 +166,7 @@ struct CompactState {
   int E;
   std::vector<u32> data, check;
 
-  CompactState(int E, std::vector<u32> data, std::vector<u32> check) :
+  CompactState(int E, std::vector<u32> &&data, std::vector<u32> &&check) :
     E(E),
     data(data),
     check(check)
@@ -184,3 +185,4 @@ struct CompactState {
     expandBits(check, balanced, W, H, E, state->check.get());
   }
 };
+*/
