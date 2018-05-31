@@ -5,7 +5,6 @@
 #include "args.h"
 #include "kernel.h"
 #include "timeutil.h"
-#include "checkpoint.h"
 #include "state.h"
 #include "stats.h"
 #include "common.h"
@@ -463,8 +462,11 @@ struct Gpu {
   cl_queue queue;
   Buffer bufDataHolder, bufCheckHolder;
   cl_mem bufData, bufCheck;
+  Kernel differWords;
+  Buffer bufBoolHolder;
+  cl_mem bufBool;
 
-  Gpu(int W, int H, cl_context context, cl_queue queue) :
+  Gpu(int W, int H, cl_context context, cl_queue queue, Kernel &&differWords) :
     W(W),
     H(H),
     N(W * H * 2),
@@ -473,39 +475,20 @@ struct Gpu {
     bufDataHolder(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
     bufCheckHolder(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
     bufData(bufDataHolder.get()),
-    bufCheck(bufCheckHolder.get())
+    bufCheck(bufCheckHolder.get()),
+    differWords(std::move(differWords)),
+    bufBoolHolder(makeBuf(context, CL_MEM_READ_WRITE, sizeof(cl_bool))),
+    bufBool(bufBoolHolder.get())
   {
+    setBoolFalse();
   }
-
-  /*
-  void writeNoWait(const State &state) {
-    assert(N == state.N);
-    ::write(queue, false, bufData,  N * sizeof(int), state.data.get());
-    ::write(queue, false, bufCheck, N * sizeof(int), state.check.get());
-  }
-
-  void writeWait(const State &state) {
-    assert(N == state.N);
-    ::write(queue, false, bufData, N * sizeof(int), state.data.get());
-    ::write(queue, true, bufCheck, N * sizeof(int), state.check.get());
-  }
-
-  State read() {
-    std::unique_ptr<int[]> data(new int[N]);
-    ::read(queue, false, bufData,  N * sizeof(int), data.get());
-    
-    std::unique_ptr<int[]> check(new int[N]);
-    ::read(queue, true,  bufCheck, N * sizeof(int), check.get());
-    return State(N, std::move(data), std::move(check));
-  }
-  */
-
+  
   void write(const State &state) {
     std::unique_ptr<int[]> temp(new int[N]);
     expandBits(state.data, true, W, H, state.E, temp.get());
     ::write(queue, true, bufData, N * sizeof(int), temp.get());
     expandBits(state.check, true, W, H, state.E, temp.get());
-    ::write(queue, true, bufCheck, N * sizeof(int), temp.get());    
+    ::write(queue, true, bufCheck, N * sizeof(int), temp.get());
   }
   
   State read(int E) {
@@ -517,9 +500,32 @@ struct Gpu {
     temp.reset();
     return State(E, std::move(compactData), std::move(compactCheck));    
   }
+
+  State roundtrip(int E) {
+    State s = read(E);
+    write(s);
+    return s;
+  }
+
+  bool passesCheck() {
+    differWords.setArg("in1", bufData);
+    differWords.setArg("in2", bufCheck);
+    differWords.setArg("outDiff", bufBool);
+    differWords();
+    bool differ = false;
+    ::read(queue, true, bufBool, sizeof(bool), &differ);
+    if (differ) { setBoolFalse(); }
+    return !differ;
+  }
+
+private:
+  void setBoolFalse() {
+    bool b = false;
+    ::write(queue, true, bufBool, sizeof(b), &b);
+  }
 };
 
-bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
+bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
                 bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul,
                 std::initializer_list<Kernel *> allKerns) {
   const int N = 2 * W * H;
@@ -534,7 +540,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
   const int kEnd = E;
   assert(k % blockSize == 0 && k < kEnd);
   
-  Gpu gpu(W, H, context, queue);
+  // Gpu gpu(W, H, context, queue);
   gpu.write(goodState);
 
   oldHandler = signal(SIGINT, myHandler);
@@ -563,8 +569,7 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
     modSqLoop(gpu.bufData, std::min(blockSize, kEnd - k), false);
     
     if (kEnd - k <= blockSize) {
-      State state = gpu.read(E);
-      gpu.write(state);
+      State state = gpu.roundtrip(E);
       std::vector<u32> words = std::move(state.data);
       u64 resRaw = residue(words);
       doDiv9(E, words);
@@ -595,8 +600,13 @@ bool checkPrime(int W, int H, int E, cl_queue queue, cl_context context, const A
     bool doCheck = (k % 100000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
     
     if (doCheck) {
-      State state = gpu.read(E);
-      gpu.write(state);
+      {
+      Timer debug;
+      bool ok = gpu.passesCheck();
+      log("debug check %d (%d ms)\n", ok, debug.deltaMillis());
+      }
+      
+      State state = gpu.roundtrip(E);
 
       modMul(gpu.bufData, gpu.bufCheck);
       modSqLoop(gpu.bufCheck, blockSize, true);
@@ -720,6 +730,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
 
   LOAD(tailFused, hN / (2 * nH));
   LOAD(carryFused, (hN / nW) + W / nW);
+
+  LOAD(differWords, hN / nW);
 #undef LOAD
   program.reset();
   
@@ -860,7 +872,8 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   bool isPrime = false;
   u64 residue = 0;
   int nErrors = 0;
-  if (!checkPrime(W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
+  Gpu gpu(W, H, context, queue, std::move(differWords));
+  if (!checkPrime(gpu, W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
                   {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused, &carryFused})) {
     return false;
   }

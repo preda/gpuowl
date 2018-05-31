@@ -508,6 +508,22 @@ typedef CP(T2) restrict Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
+KERNEL(G_W) differWords(CP(ulong) in1, CP(ulong) in2, P(bool) outDiff) {
+  uint g = get_group_id(0);
+  uint step = WIDTH * g;
+  in1 += step;
+  in2 += step;
+  
+  uint me = get_local_id(0);
+  for (int i = 0; i < NW; ++i) {
+    uint p = G_W * i + me;
+    if (in1[p] != in2[p]) {
+      *outDiff = true;
+      return;
+    }
+  }
+}
+
 #if (WIDTH == 4096) && (NW == 8)
 
 KERNEL(512) fftW(P(T2) io, Trig smallTrig) {
