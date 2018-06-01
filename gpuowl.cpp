@@ -600,11 +600,13 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     bool doCheck = (k % 100000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
     
     if (doCheck) {
+      /*
       {
       Timer debug;
       bool ok = gpu.passesCheck();
       log("debug check %d (%d ms)\n", ok, debug.deltaMillis());
       }
+      */
       
       State state = gpu.roundtrip(E);
 
