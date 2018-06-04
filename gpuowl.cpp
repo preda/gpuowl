@@ -462,11 +462,11 @@ struct Gpu {
   cl_queue queue;
   Buffer bufDataHolder, bufCheckHolder;
   cl_mem bufData, bufCheck;
-  Kernel differWords;
-  Buffer bufBoolHolder;
-  cl_mem bufBool;
+  Kernel isEqualNotZero;
+  Buffer bufEqualNZHolder;
+  cl_mem bufEqualNZ;
 
-  Gpu(int W, int H, cl_context context, cl_queue queue, Kernel &&differWords) :
+  Gpu(int W, int H, cl_context context, cl_queue queue, Kernel &&isEqualNotZero) :
     W(W),
     H(H),
     N(W * H * 2),
@@ -476,11 +476,10 @@ struct Gpu {
     bufCheckHolder(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
     bufData(bufDataHolder.get()),
     bufCheck(bufCheckHolder.get()),
-    differWords(std::move(differWords)),
-    bufBoolHolder(makeBuf(context, CL_MEM_READ_WRITE, sizeof(cl_bool))),
-    bufBool(bufBoolHolder.get())
+    isEqualNotZero(std::move(isEqualNotZero)),
+    bufEqualNZHolder(makeBuf(context, CL_MEM_READ_WRITE, 2 * sizeof(int))),
+    bufEqualNZ(bufEqualNZHolder.get())
   {
-    setBoolFalse();
   }
   
   void write(const State &state) {
@@ -507,22 +506,19 @@ struct Gpu {
     return s;
   }
 
-  bool passesCheck() {
-    differWords.setArg("in1", bufData);
-    differWords.setArg("in2", bufCheck);
-    differWords.setArg("outDiff", bufBool);
-    differWords();
-    bool differ = false;
-    ::read(queue, true, bufBool, sizeof(bool), &differ);
-    if (differ) { setBoolFalse(); }
-    return !differ;
+  bool isCheckOK() {
+    isEqualNotZero.setArg("in1", bufData);
+    isEqualNotZero.setArg("in2", bufCheck);
+    isEqualNotZero.setArg("out", bufEqualNZ);
+    isEqualNotZero();
+    int readEqNZ[2] = {0};
+    ::read(queue, true, bufEqualNZ, 2 * sizeof(int), &readEqNZ);
+    bool isEqual   = readEqNZ[0];
+    bool isNotZero = readEqNZ[1];
+    return isEqual && isNotZero;
   }
 
 private:
-  void setBoolFalse() {
-    bool b = false;
-    ::write(queue, true, bufBool, sizeof(b), &b);
-  }
 };
 
 bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
