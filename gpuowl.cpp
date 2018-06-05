@@ -246,7 +246,7 @@ std::string timeStr(const std::string &format) {
 std::string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
 std::string shortTimeStr() { return timeStr("%H:%M:%S"); }
 
-std::string makeLogStr(int E, int k, const StatsInfo &info) {
+std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info) {
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
   
@@ -256,23 +256,24 @@ std::string makeLogStr(int E, int k, const StatsInfo &info) {
   int mins  = etaMins % 60;
   
   char buf[128];
-  snprintf(buf, sizeof(buf), "[%s] %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f]; ETA %dd %02d:%02d;",
+  snprintf(buf, sizeof(buf), "[%s] %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f]; ETA %dd %02d:%02d; %s",
            shortTimeStr().c_str(),
-           k, E, k * percent, info.mean, info.low, info.high, days, hours, mins);
+           k, E, k * percent, info.mean, info.low, info.high, days, hours, mins,
+           hexStr(res).c_str());
   return buf;
 }
 
 void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats) {
   std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
-  log("%s %s %s (check %.2fs)%s\n",
+  log("%s %s (check %.2fs)%s\n",
       checkOK ? "OK" : "EE",
-      makeLogStr(E, k, stats.getStats()).c_str(), hexStr(res).c_str(),
+      makeLogStr(E, k, res, stats.getStats()).c_str(),
       timeCheck * .001f, errors.c_str());
   stats.reset();
 }
 
-void doSmallLog(int E, int k, Stats &stats) {
-  printf("   %s\n", makeLogStr(E, k, stats.getStats()).c_str());
+void doSmallLog(int E, int k, u64 res, Stats &stats) {
+  printf("   %s\n", makeLogStr(E, k, res, stats.getStats()).c_str());
   stats.reset();
 }
 
@@ -807,7 +808,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       gpu.dataLoop(itersLeft);
     }
 
-    finish(queue);
+    u64 res = gpu.dataResidue();     // finish(queue);
     k += blockSize;
     auto delta = timer.deltaMillis();
     stats.add(delta * (1/float(blockSize)));
@@ -820,11 +821,9 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     bool doCheck = (k % 50000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
     if (!doCheck) {
       gpu.updateCheck();
-      if (k % 10000 == 0) { doSmallLog(E, k, stats); }
+      if (k % 10000 == 0) { doSmallLog(E, k, res, stats); }
       continue;
     }
-
-    u64 res = gpu.dataResidue();
     
     bool wouldSave = k < kEnd && ((k % 1'000'000 == 0) || stopRequested);    
     State state;
