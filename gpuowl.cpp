@@ -808,7 +808,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       gpu.dataLoop(itersLeft);
     }
 
-    u64 res = gpu.dataResidue();     // finish(queue);
+    finish(queue);
     k += blockSize;
     auto delta = timer.deltaMillis();
     stats.add(delta * (1/float(blockSize)));
@@ -821,10 +821,11 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     bool doCheck = (k % 50000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
     if (!doCheck) {
       gpu.updateCheck();
-      if (k % 10000 == 0) { doSmallLog(E, k, res, stats); }
+      if (k % 10000 == 0) { doSmallLog(E, k, gpu.dataResidue(), stats); }
       continue;
     }
-    
+
+    u64 res = gpu.dataResidue();
     bool wouldSave = k < kEnd && ((k % 1'000'000 == 0) || stopRequested);    
     State state;
     // Read GPU state before "check" is updated in gpu.checkAndUpdate().
