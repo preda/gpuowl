@@ -459,6 +459,8 @@ public:
 // compute res64 from balanced uncompressed ("raw") words.
 // the first 2 words are "before word 0" and used only for sign compensation of word 0.
 u64 residueFromRaw(int N, int E, int *words, int nWords) {
+  printf("R %d %d %d %d\n", words[0], words[1], words[2], words[3]);
+  
   int carry = 0;
   carry = (words[0] + carry < 0) ? -1 : 0;
   carry = (words[1] + carry < 0) ? -1 : 0;
@@ -476,32 +478,123 @@ u64 residueFromRaw(int N, int E, int *words, int nWords) {
   return res;
 }
 
-struct Gpu {
-  int W, H, N;
+class Gpu {
+  int E;
+  int W, H;
+  int N, hN, nW, nH, bufSize;
+  bool useSplitTail;
+  
   cl_context context;
   cl_queue queue;
-  Buffer bufDataHolder, bufCheckHolder;
-  cl_mem bufData, bufCheck;
-  Kernel isEqualNotZero;
-  Buffer bufEqualNZHolder;
-  cl_mem bufEqualNZ;
 
-  Gpu(int W, int H, cl_context context, cl_queue queue, Kernel &&isEqualNotZero) :
+  Kernel fftP;
+  Kernel fftW;
+  Kernel fftH;
+  Kernel carryA;
+  Kernel carryM;
+  Kernel carryB;
+  Kernel transposeW;
+  Kernel transposeH;
+  Kernel square;
+  Kernel multiply;
+  Kernel tailFused;
+  Kernel readResidue;
+  Kernel doCheck;
+  
+  Buffer bufData, bufCheck, bufCheck2;
+  Buffer bufTrigW, bufTrigH, bufTransTrig, bufSquareTrig;
+  Buffer bufA, bufI;
+  Buffer buf1, buf2, buf3;
+  Buffer bufCarry;
+  Buffer bufSmallOut;
+  
+public:
+  Gpu(int E, int W, int H, cl_program program, cl_context context, cl_queue queue, cl_device_id device, bool timeKernels, bool useSplitTail) :
+    E(E),
     W(W),
     H(H),
-    N(W * H * 2),
+    N(W * H * 2), hN(N / 2), nW(8), nH(H / 256), bufSize(N * sizeof(double)),
+    useSplitTail(useSplitTail),
     context(context),
     queue(queue),
-    bufDataHolder(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-    bufCheckHolder(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-    bufData(bufDataHolder.get()),
-    bufCheck(bufCheckHolder.get()),
-    isEqualNotZero(std::move(isEqualNotZero)),
-    bufEqualNZHolder(makeBuf(context, CL_MEM_READ_WRITE, 67 * 2 * sizeof(int))),
-    bufEqualNZ(bufEqualNZHolder.get())
+
+#define LOAD(name, workSize) name(program, queue, device, workSize, #name, timeKernels)
+    LOAD(fftP, hN / nW),
+    LOAD(fftW, hN / nW),
+    LOAD(fftH, hN / nH),    
+    LOAD(carryA, hN / 16),
+    LOAD(carryM, hN / 16),
+    LOAD(carryB, hN / 16),
+    LOAD(transposeW, (W/64) * (H/64) * 256),
+    LOAD(transposeH, (W/64) * (H/64) * 256),
+    LOAD(square,   hN / 2),
+    LOAD(multiply, hN / 2),
+    LOAD(tailFused, hN / (2 * nH)),
+    LOAD(readResidue, 32),
+    LOAD(doCheck, hN / nW),
+#undef LOAD
+
+    bufData(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+    bufCheck( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+    bufCheck2(makeBuf(context, BUF_RW, N * sizeof(int))),
+    bufTrigW(genSmallTrig(context, W, nW)),
+    bufTrigH(genSmallTrig(context, H, nH)),
+    bufTransTrig(genTransTrig(context, W, H)),
+    bufSquareTrig(genSquareTrig(context, W, H)),
+    
+    buf1{makeBuf(    context, BUF_RW, bufSize)},
+    buf2{makeBuf(    context, BUF_RW, bufSize)},
+    buf3{makeBuf(    context, BUF_RW, bufSize)},
+    bufCarry{makeBuf(context, BUF_RW, bufSize)},
+    bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
   {
+    setupWeights<double>(context, bufA, bufI, W, H, E);
+
+    fftP.setArg("out", buf1);
+    fftP.setArg("A", bufA);
+    fftP.setArg("smallTrig", bufTrigW);
+  
+    fftW.setArg("io", buf1);
+    fftW.setArg("smallTrig", bufTrigW);
+  
+    fftH.setArg("io", buf2);
+    fftH.setArg("smallTrig", bufTrigH);
+  
+    transposeW.setArg("in",  buf1);
+    transposeW.setArg("out", buf2);
+    transposeW.setArg("trig", bufTransTrig);
+
+    transposeH.setArg("in",  buf2);
+    transposeH.setArg("out", buf1);
+    transposeH.setArg("trig", bufTransTrig);
+  
+    carryA.setArg("in", buf1);
+    carryA.setArg("A", bufI);
+    carryA.setArg("carryOut", bufCarry);
+
+    carryM.setArg("in", buf1);
+    carryM.setArg("A", bufI);
+    carryM.setArg("carryOut", bufCarry);
+
+    carryB.setArg("carryIn", bufCarry);
+  
+    square.setArg("io", buf2);
+    square.setArg("bigTrig", bufSquareTrig);
+  
+    multiply.setArg("io", buf2);
+    multiply.setArg("in", buf3);
+    multiply.setArg("bigTrig", bufSquareTrig);
+  
+    tailFused.setArg("io", buf2);
+    tailFused.setArg("smallTrig", bufTrigH);
+    tailFused.setArg("bigTrig", bufSquareTrig);
+  }
+
+  void logTimeKernels() {
+    ::logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused});
   }
   
+    
   void write(const State &state) {
     std::unique_ptr<int[]> temp(new int[N]);
     expandBits(state.data, true, W, H, state.E, temp.get());
@@ -526,28 +619,126 @@ struct Gpu {
     return s;
   }
 
-  bool isCheckOK(int E, u64 *outResData, u64 *outResCheck) {
-    isEqualNotZero.setArg("in1", bufData);
-    isEqualNotZero.setArg("in2", bufCheck);
-    isEqualNotZero.setArg("out", bufEqualNZ);
-    isEqualNotZero();
-    int readBuf[67 * 2];
-    ::read(queue, true, bufEqualNZ, 67 * 2 * sizeof(int), &readBuf);
+  u64 dataResidue() { return residue(bufData); }
+  void updateCheck() { modMul(bufCheck, bufData); }
+  
+  // Does not change "data". Updates "check".
+  bool checkAndUpdate(int blockSize) {
+    modSqLoop(bufCheck, bufCheck2, blockSize, true);
+    updateCheck();
+    doCheck.setArg("in1", bufCheck);
+    doCheck.setArg("in2", bufCheck2);
+    doCheck.setArg("out", bufSmallOut);
+    doCheck();
+    int readBuf[2];
+    ::read(queue, true, bufSmallOut, 2 * sizeof(int), &readBuf);
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
-    
-    *outResData  = residueFromRaw(N, E, readBuf + 2, 66);
-    *outResCheck = residueFromRaw(N, E, readBuf + 2 + 66, 66);
-    
+    // printf("%d %d %016llx %016llx\n", isEqual, isNotZero, residue(bufCheck), residue(bufCheck2));
     return isEqual && isNotZero;
   }
 
+  void dataLoop(int reps) { modSqLoop(bufData, reps, false); }
+  
 private:
+  u64 residue(Buffer &buf) {
+    readResidue.setArg("in", buf);
+    readResidue.setArg("out", bufSmallOut);
+    readResidue();
+    int readBuf[64];
+    ::read(queue, true, bufSmallOut, 64 * sizeof(int), readBuf);
+    return residueFromRaw(N, E, readBuf, 64);
+  }
+  
+  // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
+  // Optional multiply-by-3 at the end.
+  void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
+    assert(nIters > 0);
+            
+    entryKerns(in);
+      
+    // carry args needed for coreKerns.
+    carryA.setArg("out", out);
+    carryB.setArg("io",  out);
+    fftP.setArg("in", out);
+
+    for (int i = 0; i < nIters - 1; ++i) { coreKerns(); }
+
+    exitKerns(out, doMul3);
+  }
+
+  void modSqLoop(Buffer &io, int nIters, bool doMul3) {
+    modSqLoop(io, io, nIters, doMul3);
+  }
+
+  // The modular multiplication io *= in.
+  void modMul(Buffer &io, Buffer &in) {
+    directFFT(in, buf3);
+    directFFT(io, buf2);
+    multiply(); // input: buf2, buf3; output: buf2.
+    fftH();
+    transposeH();
+    exitKerns(io, false);
+  };
+
+  void carry() {
+    fftW();
+    carryA();
+    carryB();
+    // fftP.setArg();
+    fftP();
+    // or, carryFused().
+  }
+
+  void tail() {
+    if (useSplitTail) {
+      fftH();
+      square();
+      fftH();      
+    } else {
+      tailFused();
+    }
+  }
+
+  void entryKerns(Buffer &in) {
+    fftP.setArg("in", in);
+      
+    fftP();
+    transposeW();
+    tail();
+    transposeH();
+  }
+
+  void coreKerns() {
+    carry();
+    transposeW();
+    tail();
+    transposeH();
+  }
+
+  void exitKerns(Buffer &out, bool doMul3) {
+    (doMul3 ? carryM : carryA).setArg("out", out);
+    carryB.setArg("io",  out);
+    
+    fftW();
+    doMul3 ? carryM() : carryA();
+    carryB();
+  }
+
+  void directFFT(Buffer &in, Buffer &out) {
+    fftP.setArg("in", in);
+    transposeW.setArg("out", out);
+    fftH.setArg("io", out);
+      
+    fftP();
+    transposeW();
+    fftH();
+  };
+
 };
 
 bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
-                bool *outIsPrime, u64 *outResidue, int *outNErrors, auto modSqLoop, auto modMul,
-                std::initializer_list<Kernel *> allKerns) {
+                bool *outIsPrime, u64 *outResidue, int *outNErrors) {
   const int N = 2 * W * H;
   int nErrors = 0;
   int k = 0;
@@ -560,21 +751,18 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   const int kEnd = E;
   assert(k % blockSize == 0 && k < kEnd);
   
-  // Gpu gpu(W, H, context, queue);
   gpu.write(goodState);
-
-  oldHandler = signal(SIGINT, myHandler);
   
-  modMul(gpu.bufData, gpu.bufCheck);
-  modSqLoop(gpu.bufCheck, blockSize, true);
-  if (gpu.read(E).isValid()) {
-    log("OK initial check.\n");
+  oldHandler = signal(SIGINT, myHandler);
+
+  u64 res64 = gpu.dataResidue();
+  if (gpu.checkAndUpdate(blockSize)) {
+    log("OK initial check. %016llx\n", res64);
   } else {
-    log("Error at start; will stop\n");
+    log("Error at start, will stop. %016llx\n", res64);
     return false;
   }
-  gpu.write(goodState);
-  
+    
   int goodK = k;
   int startK = k;
   Stats stats;
@@ -585,8 +773,8 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   while (true) {
     assert(k % blockSize == 0);
 
-    modMul(gpu.bufCheck, gpu.bufData);
-    modSqLoop(gpu.bufData, std::min(blockSize, kEnd - k), false);
+    // gpu.modMul(gpu.bufCheck, gpu.bufData);
+    gpu.dataLoop(std::min(blockSize, kEnd - k));
     
     if (kEnd - k <= blockSize) {
       State state = gpu.roundtrip(E);
@@ -602,9 +790,9 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       *outIsPrime = isPrime;
       *outResidue = resDiv;
       *outNErrors = nErrors;
-      int left = blockSize - (kEnd - k);
-      assert(left > 0);
-      modSqLoop(gpu.bufData, left, false);
+      int itersLeft = blockSize - (kEnd - k);
+      assert(itersLeft > 0);
+      gpu.dataLoop(itersLeft);
     }
 
     finish(queue);
@@ -620,29 +808,33 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     bool doCheck = (k % 100000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
     
     if (doCheck) {
+      u64 res = gpu.dataResidue();
+      // log("debug %016llx\n", r);
+      bool ok = gpu.checkAndUpdate(blockSize);
+
+      /*
       State state = gpu.roundtrip(E);
-      modMul(gpu.bufData, gpu.bufCheck);
-      modSqLoop(gpu.bufCheck, blockSize, true);
+      gpu.modMul(gpu.bufData, gpu.bufCheck);
+      gpu.modSqLoop(gpu.bufCheck, blockSize, true);
       bool ok = gpu.read(E).isValid();
       
       if (false) {
         Timer debug;
-        u64 r1 = 0, r2 = 0;
-        bool ok = gpu.isCheckOK(E, &r1, &r2);
-        log("debug check %d (%d ms) %016llx %016llx\n", ok, debug.deltaMillis(), r1, r2);
+        bool ok = gpu.isCheckOK();
+        log("debug check %d (%d ms)\n", ok, debug.deltaMillis());
       }
+      */
       
-      bool doSave = ok && k < kEnd && ((k % 1'000'000 == 0) || stopRequested);
-        
-      if (doSave) { Checkpoint::save(state, k, nErrors, blockSize); }
+      //! bool doSave = ok && k < kEnd && ((k % 1'000'000 == 0) || stopRequested);        
+      //! if (doSave) { Checkpoint::save(state, k, nErrors, blockSize); }
 
-      u64 res = residue(state.data);
+      // u64 res = residue(state.data);
       doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats);
-      if (args.timeKernels) { logTimeKernels(allKerns); }
+      if (args.timeKernels) { gpu.logTimeKernels(); }
         
       if (ok) {
         if (k >= kEnd) { return true; }
-        goodState = std::move(state);
+        //! goodState = std::move(state);
         goodK = k;          
       } else { // Error detected.
         if (errorResidue == res) {
@@ -657,6 +849,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       if (stopRequested) { return false; }      
       gpu.write(goodState);
     } else {
+      gpu.updateCheck();
       if (k % 10000 == 0) { doSmallLog(E, k, stats); }
     }
   }
@@ -698,7 +891,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   assert(H == 2048);
 
   int N = 2 * W * H;
-  int hN = N / 2;
+  // int hN = N / 2;
   
   string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
@@ -712,9 +905,9 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       valueDefine("NH", nH),
       };
 
-  float bitsPerWord = E / (float) N;
+  // float bitsPerWord = E / (float) N;
 
-  bool useLongCarry   = args.carry == Args::CARRY_LONG || bitsPerWord < 15;  
+  bool useLongCarry = true; // args.carry == Args::CARRY_LONG || bitsPerWord < 15;  
   bool useSplitTail = args.tail == Args::TAIL_SPLIT;
   
   log("Note: using %s carry and %s tail kernels\n",
@@ -726,177 +919,16 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   Holder<cl_program> program;
 
   bool timeKernels = args.timeKernels;
-  
-#define LOAD(name, workSize) Kernel name(program.get(), device, queue, workSize, #name, timeKernels)  
+
   program.reset(compile(device, context, "gpuowl", clArgs, defines, ""));
   if (!program) { return false; }
-
-  LOAD(fftP, hN / nW);
-  LOAD(fftW, hN / nW);
-  LOAD(fftH, hN / nH);
-    
-  LOAD(carryA, hN / 16);
-  LOAD(carryM, hN / 16);
-  LOAD(carryB, hN / 16);
-
-  LOAD(transposeW, (W/64) * (H/64) * 256);
-  LOAD(transposeH, (W/64) * (H/64) * 256);
-
-  LOAD(transposeWordsW, (W/64) * (H/64) * 256);
-  LOAD(transposeWordsH, (W/64) * (H/64) * 256);
-      
-  LOAD(square,   hN / 2);
-  LOAD(multiply, hN / 2);
-
-  LOAD(tailFused, hN / (2 * nH));
-  LOAD(carryFused, (hN / nW) + W / nW);
-
-  LOAD(doCheck, hN / nW);
-#undef LOAD
+  Gpu gpu(E, W, H, program.get(), context, queue, device, timeKernels, useSplitTail);
   program.reset();
-  
-  Buffer bufTrigW(genSmallTrig(context, W, nW));
-  Buffer bufTrigH(genSmallTrig(context, H, nH));
-  Buffer bufTransTrig(  genTransTrig(context, W, H));
-  Buffer bufSquareTrig(genSquareTrig(context, W, H));
-  
-  Buffer bufA, bufI;
-  setupWeights<double>(context, bufA, bufI, W, H, E);
-  
-  u32 wordSize = sizeof(double);  
-  u32 bufSize = N * wordSize;
-  
-  Buffer buf1{makeBuf(    context, BUF_RW, bufSize)};
-  Buffer buf2{makeBuf(    context, BUF_RW, bufSize)};
-  Buffer buf3{makeBuf(    context, BUF_RW, bufSize)};
-  Buffer bufCarry{makeBuf(context, BUF_RW, bufSize)}; // could be N/2 as well.
-
-  int *zero = new int[H]();
-  Buffer bufReady{makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, sizeof(int) * H, zero)};
-  delete[] zero;
-
-  transposeWordsW.setArg("out", buf2);
-  
-  fftP.setArg("out", buf1);
-  fftP.setArg("A", bufA);
-  fftP.setArg("smallTrig", bufTrigW);
-  
-  fftW.setArg("io", buf1);
-  fftW.setArg("smallTrig", bufTrigW);
-  
-  fftH.setArg("io", buf2);
-  fftH.setArg("smallTrig", bufTrigH);
-  
-  transposeW.setArg("in",  buf1);
-  transposeW.setArg("out", buf2);
-  transposeW.setArg("trig", bufTransTrig);
-
-  transposeH.setArg("in",  buf2);
-  transposeH.setArg("out", buf1);
-  transposeH.setArg("trig", bufTransTrig);
-  
-  carryA.setArg("in", buf1);
-  carryA.setArg("A", bufI);
-  carryA.setArg("carryOut", bufCarry);
-
-  carryM.setArg("in", buf1);
-  carryM.setArg("A", bufI);
-  carryM.setArg("carryOut", bufCarry);
-
-  carryB.setArg("carryIn", bufCarry);
-  
-  square.setArg("io", buf2);
-  square.setArg("bigTrig", bufSquareTrig);
-  
-  multiply.setArg("io", buf2);
-  multiply.setArg("in", buf3);
-  multiply.setArg("bigTrig", bufSquareTrig);
-  
-  tailFused.setArg("io", buf2);
-  tailFused.setArg("smallTrig", bufTrigH);
-  tailFused.setArg("bigTrig", bufSquareTrig);
-  
-  carryFused.setArg("io", buf1);
-  carryFused.setArg("carryShuttle", bufCarry);
-  carryFused.setArg("ready", bufReady);
-  carryFused.setArg("A", bufA);
-  carryFused.setArg("iA", bufI);
-  carryFused.setArg("smallTrig", bufTrigW);
-    
-  using vfun = std::function<void()>;
-
-  auto carry = useLongCarry ? vfun([&](){ fftW(); carryA(); carryB(); fftP(); }) : vfun([&](){ carryFused(); });
-  auto tail  = useSplitTail  ? vfun([&](){ fftH(); square(); fftH(); })   : vfun([&](){ tailFused(); });
-  
-  auto entryKerns = [&fftP, &transposeW, &tail, &transposeH](cl_mem in) {
-    fftP.setArg("in", in);
-    
-    fftP();
-    transposeW();
-    tail();
-    transposeH();    
-  };
-
-  auto coreKerns = [&]() {
-    carry();
-    transposeW();
-    tail();
-    transposeH();
-  };
-
-  auto exitKerns = [&fftW, &carryA, &carryM, &carryB](cl_mem out, bool doMul3) {
-    (doMul3 ? carryM : carryA).setArg("out", out);
-    carryB.setArg("io",  out);
-    
-    fftW();
-    doMul3 ? carryM() : carryA();
-    carryB();
-  };
-  
-  // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
-  // Optional multiply-by-3 at the end.
-  auto modSqLoop = [&](cl_mem io, int nIters, bool doMul3) {
-    assert(nIters > 0);
-            
-    entryKerns(io);
-
-    // carry args needed for coreKerns.
-    carryA.setArg("out", io);
-    carryB.setArg("io",  io);
-
-    for (int i = 0; i < nIters - 1; ++i) { coreKerns(); }
-
-    exitKerns(io, doMul3);
-  };
-
-  auto directFFT = [&fftP, &transposeW, &fftH](cl_mem in, cl_mem out) {
-    fftP.setArg("in", in);
-    transposeW.setArg("out", out);
-    fftH.setArg("io", out);
-
-    fftP();
-    transposeW();
-    fftH();
-  };
-  
-  // The modular multiplication io *= in.
-  auto modMul = [&](cl_mem io, cl_mem in) {
-    directFFT(in, buf3.get());
-    directFFT(io, buf2.get());
-    multiply(); // input: buf2, buf3; output: buf2.
-    fftH();
-    transposeH();
-    exitKerns(io, false);
-  };
-
+      
   bool isPrime = false;
   u64 residue = 0;
   int nErrors = 0;
-  Gpu gpu(W, H, context, queue, std::move(doCheck));
-  if (!checkPrime(gpu, W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
-                  {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused, &carryFused})) {
-    return false;
-  }
+  if (!checkPrime(gpu, W, H, E, queue, context, args, &isPrime, &residue, &nErrors)) { return false; }
   
   if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu, nErrors, N) && worktodoDelete(E))) { return false; }
 

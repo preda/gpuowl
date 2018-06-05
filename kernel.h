@@ -8,6 +8,7 @@
 #include <vector>
 #include <memory>
 
+/*
 template<typename T>
 struct ReleaseDelete {
   using pointer = T;
@@ -25,6 +26,7 @@ using Context = Holder<cl_context>;
 using Queue   = Holder<cl_queue>;
 
 static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
+*/
 
 class Kernel {
   Holder<cl_kernel> kernel;
@@ -45,19 +47,38 @@ class Kernel {
   }
   
 public:
-  Kernel(cl_program program, cl_device_id device, cl_queue q, int workSize, const std::string &name, bool doTime) :
+  Kernel() {}
+  
+  Kernel(cl_program program, cl_queue q, cl_device_id device, int workSize, const std::string &name, bool doTime) :
     kernel(makeKernel(program, name.c_str())),
     queue(q),
     workSize(workSize),
     nArgs(getKernelNumArgs(kernel.get())),
     name(name),
     doTime(doTime),
-    groupSize(getWorkGroupSize(kernel.get(), device))
+    groupSize(getWorkGroupSize(kernel.get(), device, name.c_str()))
   {
     assert((workSize % groupSize == 0) || (log("%s\n", name.c_str()), false));
     assert(nArgs >= 0);
     for (int i = 0; i < nArgs; ++i) { argNames.push_back(getKernelArgName(kernel.get(), i)); }
   }
+
+  /*
+  void init(cl_program program, cl_device_id device, cl_queue q, int workSize, const std::string &name, bool doTime) {
+    kernel.reset(makeKernel(program, name.c_str()));
+    this->queue = q;
+    this->workSize = workSize;
+    this->nArgs = getKernelNumArgs(kernel.get());
+    this->name = name;
+    this->doTime = doTime;
+    this->groupSize = getWorkGroupSize(kernel.get(), device);
+
+    assert((workSize % groupSize == 0) || (log("%s\n", name.c_str()), false));
+    assert(nArgs >= 0);
+    argNames.clear();
+    for (int i = 0; i < nArgs; ++i) { argNames.push_back(getKernelArgName(kernel.get(), i)); }
+  }
+  */
   
   void operator()() {
     if (doTime) {

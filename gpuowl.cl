@@ -508,9 +508,13 @@ typedef CP(T2) restrict Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
+// Read 1 + 31 word2s, needed for res64 computation.
+KERNEL(32) readResidue(CP(Word2) in, P(Word2) out) {
+  uint me = get_local_id(0);
+  out[me] = in[me ? WIDTH * (me - 1) : (WIDTH * HEIGHT - 1)];
+}
+
 // out[0].x := equal(in1, in2); out[0].y := (in1 != zero).
-// out[ 1]: last word2 of in1; out[ 2..33] : transposed first word2s of in1
-// out[34]: last word2 of in2; out[35..66] : transposed first word2s of in2
 KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
@@ -533,11 +537,13 @@ KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
     if (a.x != b.x || a.y != b.y) { isEqual = false; }
     if (a.x || a.y) { isNotZero = true; }
 
+    /*
     // output a few transposed words that are used for res64 computation.
     if (i == 0 && (g < 32 || g == HEIGHT - 1)) {
       out[(g + 1) % HEIGHT +  1] = a;
       out[(g + 1) % HEIGHT + 34] = b;
     }
+    */
   }
   if (!isEqual) { out[0].x = false; }
   if (isNotZero && !out[0].y) { out[0].y = true; }

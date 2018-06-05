@@ -15,6 +15,26 @@
 using std::string;
 using std::vector;
 
+typedef cl_command_queue cl_queue;
+
+template<typename T>
+struct ReleaseDelete {
+  using pointer = T;
+  
+  void operator()(T t) {
+    // fprintf(stderr, "Release %s %llx\n", typeid(T).name(), u64(t));
+    release(t);
+  }
+};
+
+template<typename T> using Holder = std::unique_ptr<T, ReleaseDelete<T> >;
+
+using Buffer  = Holder<cl_mem>;
+using Context = Holder<cl_context>;
+using Queue   = Holder<cl_queue>;
+
+static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
+
 bool check(int err, const char *mes = nullptr) {
   bool ok = (err == CL_SUCCESS);
   if (!ok) {
@@ -103,8 +123,6 @@ cl_context createContext(cl_device_id device) {
   CHECK2(err, "clCreateContext");
   return context;
 }
-
-typedef cl_command_queue cl_queue;
 
 void release(cl_context context) { CHECK(clReleaseContext(context)); }
 void release(cl_program program) { CHECK(clReleaseProgram(program)); }
@@ -271,8 +289,16 @@ void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, si
   CHECK(clEnqueueReadBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
 
+void read(cl_queue queue, bool blocking, Buffer &buf, size_t size, void *data, size_t start = 0) {
+  CHECK(clEnqueueReadBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
+}
+
 void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *data, size_t start = 0) {
   CHECK(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
+}
+
+void write(cl_queue queue, bool blocking, Buffer &buf, size_t size, const void *data, size_t start = 0) {
+  CHECK(clEnqueueWriteBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
 }
 
 int getKernelNumArgs(cl_kernel k) {
@@ -281,9 +307,9 @@ int getKernelNumArgs(cl_kernel k) {
   return nArgs;
 }
 
-int getWorkGroupSize(cl_kernel k, cl_device_id device) {
+int getWorkGroupSize(cl_kernel k, cl_device_id device, const char *name) {
   size_t size[3];
-  CHECK(clGetKernelWorkGroupInfo(k, device, CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(size), &size, NULL));
+  CHECK2(clGetKernelWorkGroupInfo(k, device, CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(size), &size, NULL), name);
   return size[0];
 }
 
