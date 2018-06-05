@@ -456,6 +456,26 @@ public:
   }
 };
 
+// compute res64 from balanced uncompressed ("raw") words.
+// the first 2 words are "before word 0" and used only for sign compensation of word 0.
+u64 residueFromRaw(int N, int E, int *words, int nWords) {
+  int carry = 0;
+  carry = (words[0] + carry < 0) ? -1 : 0;
+  carry = (words[1] + carry < 0) ? -1 : 0;
+  
+  u64 res = 0;
+  for (int k = 0, hasBits = 0, *p = words + 2, *end = words + nWords; p < end && hasBits < 64; ++p, ++k) {
+    int len = bitlen(N, E, k);
+    int w = *p + carry;
+    carry = (w < 0) ? -1 : 0;
+    if (w < 0) { w += (1 << len); }
+    assert(w >= 0 && w < (1 << len));
+    res |= u64(w) << hasBits;
+    hasBits += len;    
+  }
+  return res;
+}
+
 struct Gpu {
   int W, H, N;
   cl_context context;
@@ -477,7 +497,7 @@ struct Gpu {
     bufData(bufDataHolder.get()),
     bufCheck(bufCheckHolder.get()),
     isEqualNotZero(std::move(isEqualNotZero)),
-    bufEqualNZHolder(makeBuf(context, CL_MEM_READ_WRITE, 2 * sizeof(int))),
+    bufEqualNZHolder(makeBuf(context, CL_MEM_READ_WRITE, 67 * 2 * sizeof(int))),
     bufEqualNZ(bufEqualNZHolder.get())
   {
   }
@@ -506,15 +526,19 @@ struct Gpu {
     return s;
   }
 
-  bool isCheckOK() {
+  bool isCheckOK(int E, u64 *outResData, u64 *outResCheck) {
     isEqualNotZero.setArg("in1", bufData);
     isEqualNotZero.setArg("in2", bufCheck);
     isEqualNotZero.setArg("out", bufEqualNZ);
     isEqualNotZero();
-    int readEqNZ[2] = {0};
-    ::read(queue, true, bufEqualNZ, 2 * sizeof(int), &readEqNZ);
-    bool isEqual   = readEqNZ[0];
-    bool isNotZero = readEqNZ[1];
+    int readBuf[67 * 2];
+    ::read(queue, true, bufEqualNZ, 67 * 2 * sizeof(int), &readBuf);
+    bool isEqual   = readBuf[0];
+    bool isNotZero = readBuf[1];
+    
+    *outResData  = residueFromRaw(N, E, readBuf + 2, 66);
+    *outResCheck = residueFromRaw(N, E, readBuf + 2 + 66, 66);
+    
     return isEqual && isNotZero;
   }
 
@@ -596,20 +620,18 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     bool doCheck = (k % 100000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
     
     if (doCheck) {
-      /*
-      {
-      Timer debug;
-      bool ok = gpu.passesCheck();
-      log("debug check %d (%d ms)\n", ok, debug.deltaMillis());
-      }
-      */
-      
       State state = gpu.roundtrip(E);
-
       modMul(gpu.bufData, gpu.bufCheck);
       modSqLoop(gpu.bufCheck, blockSize, true);
       bool ok = gpu.read(E).isValid();
-
+      
+      if (false) {
+        Timer debug;
+        u64 r1 = 0, r2 = 0;
+        bool ok = gpu.isCheckOK(E, &r1, &r2);
+        log("debug check %d (%d ms) %016llx %016llx\n", ok, debug.deltaMillis(), r1, r2);
+      }
+      
       bool doSave = ok && k < kEnd && ((k % 1'000'000 == 0) || stopRequested);
         
       if (doSave) { Checkpoint::save(state, k, nErrors, blockSize); }
@@ -729,7 +751,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   LOAD(tailFused, hN / (2 * nH));
   LOAD(carryFused, (hN / nW) + W / nW);
 
-  LOAD(differWords, hN / nW);
+  LOAD(doCheck, hN / nW);
 #undef LOAD
   program.reset();
   
@@ -870,7 +892,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   bool isPrime = false;
   u64 residue = 0;
   int nErrors = 0;
-  Gpu gpu(W, H, context, queue, std::move(differWords));
+  Gpu gpu(W, H, context, queue, std::move(doCheck));
   if (!checkPrime(gpu, W, H, E, queue, context, args, &isPrime, &residue, &nErrors, std::move(modSqLoop), std::move(modMul),
                   {&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused, &carryFused})) {
     return false;

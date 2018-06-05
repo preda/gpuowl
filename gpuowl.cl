@@ -508,43 +508,53 @@ typedef CP(T2) restrict Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-// out[0] := equal(in1, in2); out[1] := (in1 != zero).
-KERNEL(256) isEqualNotZero(CP(ulong) in1, CP(ulong) in2, P(bool) out) {
+// out[0].x := equal(in1, in2); out[0].y := (in1 != zero).
+// out[ 1]: last word2 of in1; out[ 2..33] : transposed first word2s of in1
+// out[34]: last word2 of in2; out[35..66] : transposed first word2s of in2
+KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
 
   if (g == 0 && me == 0) {
-    out[0] = true;
-    out[1] = false;
+    out[0].x = true;
+    out[0].y = false;
   }
   
-  uint step = (32 * 256) * g;
+  uint step = WIDTH * g;
   in1 += step;
   in2 += step;
   
   bool isEqual = true;
   bool isNotZero = false;
-  for (int i = 0; i < 32; ++i) {
-    uint p = 256 * i + me;
-    if (in1[p] != in2[p]) { isEqual = false; }
-    if (in1[p] != 0) { isNotZero = true; }
+  for (int i = 0; i < NW; ++i) {
+    uint p = G_W * i + me;
+    Word2 a = in1[p];
+    Word2 b = in2[p];
+    if (a.x != b.x || a.y != b.y) { isEqual = false; }
+    if (a.x || a.y) { isNotZero = true; }
+
+    // output a few transposed words that are used for res64 computation.
+    if (i == 0 && (g < 32 || g == HEIGHT - 1)) {
+      out[(g + 1) % HEIGHT +  1] = a;
+      out[(g + 1) % HEIGHT + 34] = b;
+    }
   }
-  if (!isEqual) { out[0] = false; }
-  if (isNotZero && !out[1]) { out[1] = true; }
+  if (!isEqual) { out[0].x = false; }
+  if (isNotZero && !out[0].y) { out[0].y = true; }
 }
 
 #if (WIDTH == 4096) && (NW == 8)
 
-KERNEL(512) fftW(P(T2) io, Trig smallTrig) {
+KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   local T lds[WIDTH];
-  T2 u[8];
+  T2 u[NW];
 
   uint g = get_group_id(0);
   io += WIDTH * g;
 
-  read(512, 8, u, io, 0);
+  read(G_W, NW, u, io, 0);
   fft4K_512(lds, u, smallTrig);
-  write(512, 8, u, io, 0);
+  write(G_W, NW, u, io, 0);
 }
 
 #else
