@@ -536,14 +536,6 @@ KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
     Word2 b = in2[p];
     if (a.x != b.x || a.y != b.y) { isEqual = false; }
     if (a.x || a.y) { isNotZero = true; }
-
-    /*
-    // output a few transposed words that are used for res64 computation.
-    if (i == 0 && (g < 32 || g == HEIGHT - 1)) {
-      out[(g + 1) % HEIGHT +  1] = a;
-      out[(g + 1) % HEIGHT + 34] = b;
-    }
-    */
   }
   if (!isEqual) { out[0].x = false; }
   if (isNotZero && !out[0].y) { out[0].y = true; }

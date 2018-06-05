@@ -54,6 +54,8 @@ int clEnqueueReadBuffer(cl_command_queue, cl_mem, cl_bool, size_t, size_t, void 
                         unsigned numEvents, const cl_event *waitEvents, cl_event *outEvent);
 int clEnqueueWriteBuffer(cl_command_queue, cl_mem, cl_bool, size_t, size_t, const void *,
                          unsigned numEvent, const cl_event *waitEvents, cl_event *outEvent);
+int clEnqueueCopyBuffer(cl_command_queue, cl_mem, cl_mem, size_t, size_t, size_t,
+                        unsigned numEvent, const cl_event *waitEvents, cl_event *outEvent);
 
 int clFlush(cl_command_queue);
 int clFinish(cl_command_queue);

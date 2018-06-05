@@ -301,6 +301,10 @@ void write(cl_queue queue, bool blocking, Buffer &buf, size_t size, const void *
   CHECK(clEnqueueWriteBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
 }
 
+void copyBuf(cl_queue queue, Buffer &src, Buffer &dst, size_t size) {
+  CHECK(clEnqueueCopyBuffer(queue, src.get(), dst.get(), 0, 0, size, 0, NULL, NULL));
+}
+
 int getKernelNumArgs(cl_kernel k) {
   int nArgs = 0;
   CHECK(clGetKernelInfo(k, CL_KERNEL_NUM_ARGS, sizeof(nArgs), &nArgs, NULL));

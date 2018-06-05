@@ -336,6 +336,10 @@ struct State {
   int E;
   std::vector<u32> data, check;
 
+  State() :
+    E(0)
+  {}
+  
   State(int E) :
     E(E),
     data((E - 1)/32 + 1),
@@ -363,7 +367,8 @@ struct State {
   }
   
   void operator=(State &&other) {
-    assert(E == other.E);
+    assert(E == 0 || E == other.E);
+    E = other.E;
     data  = std::move(other.data);
     check = std::move(other.check);
   }
@@ -398,6 +403,7 @@ private:
   static bool write(const string &name, const State &state, int k, int nErrors, int checkStep) {
     int E = state.E;
     int nWords = (E - 1) / 32 + 1;
+    // log("nWords %d; state %d %d\n", nWords, int(state.data.size()), int(state.check.size()));
     assert(int(state.data.size()) == nWords && int(state.check.size()) == nWords);
     HeaderV3 header{E, k, nErrors, checkStep};
     auto fo(open(name, "wb"));
@@ -459,7 +465,7 @@ public:
 // compute res64 from balanced uncompressed ("raw") words.
 // the first 2 words are "before word 0" and used only for sign compensation of word 0.
 u64 residueFromRaw(int N, int E, int *words, int nWords) {
-  printf("R %d %d %d %d\n", words[0], words[1], words[2], words[3]);
+  // printf("R %d %d %d %d\n", words[0], words[1], words[2], words[3]);
   
   int carry = 0;
   carry = (words[0] + carry < 0) ? -1 : 0;
@@ -501,7 +507,7 @@ class Gpu {
   Kernel readResidue;
   Kernel doCheck;
   
-  Buffer bufData, bufCheck, bufCheck2;
+  Buffer bufData, bufCheck, bufCheck2, bufGoodData, bufGoodCheck;
   Buffer bufTrigW, bufTrigH, bufTransTrig, bufSquareTrig;
   Buffer bufA, bufI;
   Buffer buf1, buf2, buf3;
@@ -534,9 +540,11 @@ public:
     LOAD(doCheck, hN / nW),
 #undef LOAD
 
-    bufData(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-    bufCheck( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-    bufCheck2(makeBuf(context, BUF_RW, N * sizeof(int))),
+    bufData(     makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+    bufCheck(    makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+    bufCheck2(   makeBuf(context, BUF_RW, N * sizeof(int))),
+    bufGoodData( makeBuf(context, BUF_RW, N * sizeof(int))),
+    bufGoodCheck(makeBuf(context, BUF_RW, N * sizeof(int))),    
     bufTrigW(genSmallTrig(context, W, nW)),
     bufTrigH(genSmallTrig(context, H, nH)),
     bufTransTrig(genTransTrig(context, W, H)),
@@ -595,7 +603,7 @@ public:
   }
   
     
-  void write(const State &state) {
+  void writeState(const State &state) {
     std::unique_ptr<int[]> temp(new int[N]);
     expandBits(state.data, true, W, H, state.E, temp.get());
     ::write(queue, true, bufData, N * sizeof(int), temp.get());
@@ -603,7 +611,7 @@ public:
     ::write(queue, true, bufCheck, N * sizeof(int), temp.get());
   }
   
-  State read(int E) {
+  State readState() {
     std::unique_ptr<int[]> temp(new int[N]);
     ::read(queue, true, bufData, N * sizeof(int), temp.get());
     std::vector<u32> compactData = compactBits(temp.get(), W, H, E);
@@ -613,12 +621,16 @@ public:
     return State(E, std::move(compactData), std::move(compactCheck));    
   }
 
-  State roundtrip(int E) {
-    State s = read(E);
-    write(s);
-    return s;
+  void saveGood() {
+    copyBuf(queue, bufData, bufGoodData, N * sizeof(int));
+    copyBuf(queue, bufCheck, bufGoodCheck, N * sizeof(int));
   }
 
+  void revertGood() {
+    copyBuf(queue, bufGoodData, bufData, N * sizeof(int));
+    copyBuf(queue, bufGoodCheck, bufCheck, N * sizeof(int));
+  }
+  
   u64 dataResidue() { return residue(bufData); }
   void updateCheck() { modMul(bufCheck, bufData); }
   
@@ -743,26 +755,26 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   int nErrors = 0;
   int k = 0;
   int blockSize = 0;
-  State goodState = Checkpoint::load(E, &k, &nErrors, &blockSize);
 
+  gpu.writeState(Checkpoint::load(E, &k, &nErrors, &blockSize));
+  
   log("[%s] PRP M(%d): FFT %dK (%dx%dx2), %.2f bits/word, block %d, at iteration %d\n",
       longTimeStr().c_str(), E, N / 1024, W, H, E / float(N), blockSize, k);
   
   const int kEnd = E;
   assert(k % blockSize == 0 && k < kEnd);
   
-  gpu.write(goodState);
-  
   oldHandler = signal(SIGINT, myHandler);
 
   u64 res64 = gpu.dataResidue();
   if (gpu.checkAndUpdate(blockSize)) {
-    log("OK initial check. %016llx\n", res64);
+    log("OK initial check; %016llx\n", res64);
   } else {
     log("Error at start, will stop. %016llx\n", res64);
     return false;
   }
-    
+
+  gpu.saveGood();
   int goodK = k;
   int startK = k;
   Stats stats;
@@ -773,11 +785,11 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   while (true) {
     assert(k % blockSize == 0);
 
-    // gpu.modMul(gpu.bufCheck, gpu.bufData);
     gpu.dataLoop(std::min(blockSize, kEnd - k));
     
     if (kEnd - k <= blockSize) {
-      State state = gpu.roundtrip(E);
+      State state = gpu.readState();
+      gpu.writeState(state);
       std::vector<u32> words = std::move(state.data);
       u64 resRaw = residue(words);
       doDiv9(E, words);
@@ -805,53 +817,53 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       signal(SIGINT, oldHandler);
     }
 
-    bool doCheck = (k % 100000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
-    
-    if (doCheck) {
-      u64 res = gpu.dataResidue();
-      // log("debug %016llx\n", r);
-      bool ok = gpu.checkAndUpdate(blockSize);
-
-      /*
-      State state = gpu.roundtrip(E);
-      gpu.modMul(gpu.bufData, gpu.bufCheck);
-      gpu.modSqLoop(gpu.bufCheck, blockSize, true);
-      bool ok = gpu.read(E).isValid();
-      
-      if (false) {
-        Timer debug;
-        bool ok = gpu.isCheckOK();
-        log("debug check %d (%d ms)\n", ok, debug.deltaMillis());
-      }
-      */
-      
-      //! bool doSave = ok && k < kEnd && ((k % 1'000'000 == 0) || stopRequested);        
-      //! if (doSave) { Checkpoint::save(state, k, nErrors, blockSize); }
-
-      // u64 res = residue(state.data);
-      doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats);
-      if (args.timeKernels) { gpu.logTimeKernels(); }
-        
-      if (ok) {
-        if (k >= kEnd) { return true; }
-        //! goodState = std::move(state);
-        goodK = k;          
-      } else { // Error detected.
-        if (errorResidue == res) {
-          log("Persistent error; will stop.\n");
-          return false;
-        }
-        errorResidue = res;
-        ++nErrors;
-        k = goodK;
-      }
-      
-      if (stopRequested) { return false; }      
-      gpu.write(goodState);
-    } else {
+    bool doCheck = (k % 50000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
+    if (!doCheck) {
       gpu.updateCheck();
       if (k % 10000 == 0) { doSmallLog(E, k, stats); }
+      continue;
     }
+
+    u64 res = gpu.dataResidue();
+    
+    bool wouldSave = k < kEnd && ((k % 1'000'000 == 0) || stopRequested);    
+    State state;
+    // Read GPU state before "check" is updated in gpu.checkAndUpdate().
+    if (wouldSave) { state = gpu.readState(); }
+    
+    bool ok = gpu.checkAndUpdate(blockSize);
+    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats);
+      
+    if (wouldSave && ok) {
+      Checkpoint::save(state, k, nErrors, blockSize);
+      int loadK, loadNErrors, loadBlockSize;
+      gpu.writeState(Checkpoint::load(E, &loadK, &loadNErrors, &loadBlockSize));
+      assert(loadK == k && loadBlockSize == blockSize);
+      if (gpu.checkAndUpdate(blockSize)) {        
+        log("Saved: iteration %d (%.2fs)\n", k, timer.deltaMillis() * .001f);
+      } else {
+        log("Failed: save iteration %d (%.2fs)\n", k, timer.deltaMillis() * .001f);
+        ok = false;
+      }
+    }
+        
+    if (ok) {
+      if (k >= kEnd) { return true; }
+      gpu.saveGood();
+      goodK = k;          
+    } else {
+      if (errorResidue == res) {
+        log("Persistent error; will stop.\n");
+        return false;
+      }
+      errorResidue = res;
+      ++nErrors;
+      gpu.revertGood();
+      k = goodK;
+      log("Rolled back to last good iteration %d\n", goodK);
+    }
+    if (args.timeKernels) { gpu.logTimeKernels(); }
+    if (stopRequested) { return false; }
   }
 }
 
