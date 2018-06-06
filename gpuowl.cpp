@@ -263,12 +263,13 @@ std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info) {
   return buf;
 }
 
-void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats) {
+void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, bool didSave) {
   std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
-  log("%s %s (check %.2fs)%s\n",
+  log("%s %s (check %.2fs)%s%s\n",
       checkOK ? "OK" : "EE",
       makeLogStr(E, k, res, stats.getStats()).c_str(),
-      timeCheck * .001f, errors.c_str());
+      timeCheck * .001f, errors.c_str(),
+      didSave ? " (saved)" : "");
   stats.reset();
 }
 
@@ -849,7 +850,8 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
 
   // Residue at the most recent error. Used for persistent-error detection.
   // Set it to something randomly so it's not easily hit by bad luck.
-  u64 errorResidue = 0xbad0beefdeadbeefull;
+  const u64 randomResidue = 0xbad0beefdeadbeefull;
+  u64 errorResidue = randomResidue;
   
   Timer timer;
   while (true) {
@@ -904,17 +906,15 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     if (wouldSave) { compactCheck = gpu.roundtripCheck(); }
     
     bool ok = gpu.checkAndUpdate(blockSize);
-    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats);
-      
-    if (wouldSave && ok) {
-      Checkpoint::save(E, compactCheck, k, nErrors, blockSize);
-      log("Saved: iteration %d (%.2fs)\n", k, timer.deltaMillis() * .001f);
-    }
-        
+    bool doSave = wouldSave && ok;
+    if (doSave) { Checkpoint::save(E, compactCheck, k, nErrors, blockSize); }
+    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave);
+    
     if (ok) {
       if (k >= kEnd) { return true; }
       gpu.saveGood();
-      goodK = k;          
+      goodK = k;
+      errorResidue = randomResidue;
     } else {
       if (errorResidue == res) {
         log("Persistent error; will stop.\n");
