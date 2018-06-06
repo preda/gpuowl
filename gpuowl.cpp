@@ -33,7 +33,7 @@
 #define REV
 #endif
 
-#define VERSION "2.1-" REV
+#define VERSION "2.2-" REV
 #define PROGRAM "gpuowl"
 
 static volatile int stopRequested = 0;
@@ -244,9 +244,9 @@ std::string timeStr(const std::string &format) {
 }
 
 std::string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
-std::string shortTimeStr() { return timeStr("%H:%M:%S"); }
+std::string shortTimeStr() { return timeStr("%Y-%m-%d %H:%M:%S"); }
 
-std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info) {
+std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, const string &cpuName) {
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
   
@@ -256,25 +256,26 @@ std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info) {
   int mins  = etaMins % 60;
   
   char buf[128];
-  snprintf(buf, sizeof(buf), "[%s] %8d / %d [%5.2f%%], %.2f ms/it [%.2f, %.2f]; ETA %dd %02d:%02d; %s",
+  snprintf(buf, sizeof(buf), "%s %s%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f]; ETA %dd %02d:%02d; %s",
            shortTimeStr().c_str(),
+           cpuName.empty() ? "" : (cpuName + " ").c_str(),
            k, E, k * percent, info.mean, info.low, info.high, days, hours, mins,
            hexStr(res).c_str());
   return buf;
 }
 
-void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, bool didSave) {
+void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, bool didSave, const string &cpuName) {
   std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
   log("%s %s (check %.2fs)%s%s\n",
       checkOK ? "OK" : "EE",
-      makeLogStr(E, k, res, stats.getStats()).c_str(),
+      makeLogStr(E, k, res, stats.getStats(), cpuName).c_str(),
       timeCheck * .001f, errors.c_str(),
       didSave ? " (saved)" : "");
   stats.reset();
 }
 
-void doSmallLog(int E, int k, u64 res, Stats &stats) {
-  printf("   %s\n", makeLogStr(E, k, res, stats.getStats()).c_str());
+void doSmallLog(int E, int k, u64 res, Stats &stats, const string &cpuName) {
+  printf("   %s\n", makeLogStr(E, k, res, stats.getStats(), cpuName).c_str());
   stats.reset();
 }
 
@@ -895,7 +896,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     bool doCheck = (k % 50000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
     if (!doCheck) {
       gpu.updateCheck();
-      if (k % 10000 == 0) { doSmallLog(E, k, gpu.dataResidue(), stats); }
+      if (k % 10000 == 0) { doSmallLog(E, k, gpu.dataResidue(), stats, args.cpu); }
       continue;
     }
 
@@ -908,7 +909,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     bool ok = gpu.checkAndUpdate(blockSize);
     bool doSave = wouldSave && ok;
     if (doSave) { Checkpoint::save(E, compactCheck, k, nErrors, blockSize); }
-    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave);
+    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave, args.cpu);
     
     if (ok) {
       if (k >= kEnd) { return true; }
