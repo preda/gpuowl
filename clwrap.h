@@ -31,7 +31,7 @@ template<typename T> using Holder = std::unique_ptr<T, ReleaseDelete<T> >;
 
 using Buffer  = Holder<cl_mem>;
 using Context = Holder<cl_context>;
-using Queue   = Holder<cl_queue>;
+using QueueHolder = Holder<cl_queue>;
 
 static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
 
@@ -325,6 +325,35 @@ std::string getKernelArgName(cl_kernel k, int pos) {
   buf[size] = 0;
   return buf;
 }
+
+class Queue {
+  cl_queue queue;
+  
+public:
+  Queue(cl_queue queue) : queue(queue) {}
+  Queue(const Queue &other) : queue(other.queue) {}
+
+  template<typename T> vector<T> read(Buffer &buf, size_t nItems) {
+    vector<T> ret(nItems);
+    ::read(queue, true, buf, nItems * sizeof(T), ret.data());
+    return ret;
+  }
+
+  template<typename T> void write(Buffer &buf, const vector<T> &vect) {
+    ::write(queue, true, buf, vect.size() * sizeof(T), vect.data());
+  }
+
+  template<typename T> void copy(Buffer &src, Buffer &dst, size_t nItems) {
+    ::copyBuf(queue, src, dst, nItems * sizeof(T));
+  }
+  
+  void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
+    ::run(queue, kernel, groupSize, workSize, name);
+  }
+
+  void finish() { ::finish(queue); }
+  
+};
 
 // void copyBuf(cl_queue q, cl_mem src, cl_mem dst, size_t size) { CHECK(clEnqueueCopyBuffer(q, src, dst, 0, 0, size, 0, nullptr, nullptr)); }
 

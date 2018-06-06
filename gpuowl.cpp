@@ -465,15 +465,15 @@ public:
 
 // compute res64 from balanced uncompressed ("raw") words.
 // the first 2 words are "before word 0" and used only for sign compensation of word 0.
-u64 residueFromRaw(int N, int E, int *words, int nWords) {
-  // printf("R %d %d %d %d\n", words[0], words[1], words[2], words[3]);
-  
+u64 residueFromRaw(int N, int E, const vector<int> &words) {
+  assert(words.size() == 64);
   int carry = 0;
   carry = (words[0] + carry < 0) ? -1 : 0;
   carry = (words[1] + carry < 0) ? -1 : 0;
   
   u64 res = 0;
-  for (int k = 0, hasBits = 0, *p = words + 2, *end = words + nWords; p < end && hasBits < 64; ++p, ++k) {
+  int k = 0, hasBits = 0;
+  for (auto p = words.begin() + 2, end = words.end(); p < end && hasBits < 64; ++p, ++k) {
     int len = bitlen(N, E, k);
     int w = *p + carry;
     carry = (w < 0) ? -1 : 0;
@@ -492,7 +492,7 @@ class Gpu {
   bool useSplitTail;
   
   cl_context context;
-  cl_queue queue;
+  Queue queue;
 
   Kernel fftP;
   Kernel fftW;
@@ -605,31 +605,39 @@ public:
   
     
   void writeState(const State &state) {
-    std::unique_ptr<int[]> temp(new int[N]);
-    expandBits(state.data, true, W, H, state.E, temp.get());
-    ::write(queue, true, bufData, N * sizeof(int), temp.get());
-    expandBits(state.check, true, W, H, state.E, temp.get());
-    ::write(queue, true, bufCheck, N * sizeof(int), temp.get());
+    std::vector<int> temp(N);
+    expandBits(state.data, true, W, H, state.E, temp.data());
+    queue.write(bufData, temp);
+    // ::write(queue, true, bufData, N * sizeof(int), temp.get());
+    expandBits(state.check, true, W, H, state.E, temp.data());
+    queue.write(bufCheck, temp);
+    // ::write(queue, true, bufCheck, N * sizeof(int), temp.get());
   }
   
   State readState() {
-    std::unique_ptr<int[]> temp(new int[N]);
-    ::read(queue, true, bufData, N * sizeof(int), temp.get());
-    std::vector<u32> compactData = compactBits(temp.get(), W, H, E);
-    ::read(queue, true, bufCheck, N * sizeof(int), temp.get());
-    std::vector<u32> compactCheck = compactBits(temp.get(), W, H, E);
-    temp.reset();
+    // std::unique_ptr<int[]> temp(new int[N]);
+    std::vector<int> temp = queue.read<int>(bufData, N);
+    // ::read(queue, true, bufData, N * sizeof(int), temp.get());
+    std::vector<u32> compactData = compactBits(temp.data(), W, H, E);
+    temp = queue.read<int>(bufCheck, N);
+    // ::read(queue, true, bufCheck, N * sizeof(int), temp.get());
+    std::vector<u32> compactCheck = compactBits(temp.data(), W, H, E);
+    temp.clear();
     return State(E, std::move(compactData), std::move(compactCheck));    
   }
 
   void saveGood() {
-    copyBuf(queue, bufData, bufGoodData, N * sizeof(int));
-    copyBuf(queue, bufCheck, bufGoodCheck, N * sizeof(int));
+    queue.copy<int>(bufData, bufGoodData, N);
+    queue.copy<int>(bufCheck, bufGoodCheck, N);
+    // copyBuf(queue, bufData, bufGoodData, N * sizeof(int));
+    // copyBuf(queue, bufCheck, bufGoodCheck, N * sizeof(int));
   }
 
   void revertGood() {
-    copyBuf(queue, bufGoodData, bufData, N * sizeof(int));
-    copyBuf(queue, bufGoodCheck, bufCheck, N * sizeof(int));
+    queue.copy<int>(bufGoodData, bufData, N);
+    queue.copy<int>(bufGoodCheck, bufCheck, N);
+    // copyBuf(queue, bufGoodData, bufData, N * sizeof(int));
+    // copyBuf(queue, bufGoodCheck, bufCheck, N * sizeof(int));
   }
   
   u64 dataResidue() { return residue(bufData); }
@@ -643,8 +651,8 @@ public:
     doCheck.setArg("in2", bufCheck2);
     doCheck.setArg("out", bufSmallOut);
     doCheck();
-    int readBuf[2];
-    ::read(queue, true, bufSmallOut, 2 * sizeof(int), &readBuf);
+    auto readBuf = queue.read<int>(bufSmallOut, 2);
+    // ::read(queue, true, bufSmallOut, 2 * sizeof(int), &readBuf);
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
     // printf("%d %d %016llx %016llx\n", isEqual, isNotZero, residue(bufCheck), residue(bufCheck2));
@@ -658,9 +666,9 @@ private:
     readResidue.setArg("in", buf);
     readResidue.setArg("out", bufSmallOut);
     readResidue();
-    int readBuf[64];
-    ::read(queue, true, bufSmallOut, 64 * sizeof(int), readBuf);
-    return residueFromRaw(N, E, readBuf, 64);
+    std::vector<int> readBuf = queue.read<int>(bufSmallOut, 64);
+    // ::read(queue, true, bufSmallOut, 64 * sizeof(int), readBuf);
+    return residueFromRaw(N, E, readBuf);
   }
   
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
@@ -966,10 +974,8 @@ int main(int argc, char **argv) {
   std::string info = getLongInfo(device);
   log("%s\n", info.c_str());
   
-  Context contextHolder{createContext(device)};
-  cl_context context = contextHolder.get();
-  Queue queueHolder{makeQueue(device, context)};
-  cl_queue queue = queueHolder.get();
+  Context context{createContext(device)};
+  QueueHolder queue{makeQueue(device, context.get())};
 
   while (true) {
     char AID[64];
@@ -978,7 +984,7 @@ int main(int argc, char **argv) {
 
     int W = (E < 153000000) ? 2048 : 4096;
     int H = 2048;
-    if (!doIt(device, context, queue, args, AID, E, W, H)) { break; }
+    if (!doIt(device, context.get(), queue.get(), args, AID, E, W, H)) { break; }
   }
 
   log("\nBye\n");
