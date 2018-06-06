@@ -383,6 +383,17 @@ struct State {
 class Checkpoint {
 private:
   static constexpr const int CHECK_STEP = 200;
+
+  struct HeaderV4 {
+    // <exponent> <iteration> <nErrors> <check-step> <checksum>
+    static constexpr const char *HEADER = "OWL 4 %d %d %d %d %016llx\n";
+
+    int E, k, nErrors, checkStep;
+    u64 checksum;
+
+    bool parse(const char *line) { return sscanf(line, HEADER, &E, &k, &nErrors, &checkStep, &checksum) == 5; }
+    bool write(FILE *fo) { return (fprintf(fo, HEADER, E, k, nErrors, checkStep, checksum) > 0); }
+  };
   
   struct HeaderV3 {
     // <exponent> <iteration> <nErrors> <check-step>
@@ -401,56 +412,84 @@ private:
     throw "Read";
   }
   
-  static bool write(const string &name, const State &state, int k, int nErrors, int checkStep) {
-    int E = state.E;
-    int nWords = (E - 1) / 32 + 1;
-    // log("nWords %d; state %d %d\n", nWords, int(state.data.size()), int(state.check.size()));
-    assert(int(state.data.size()) == nWords && int(state.check.size()) == nWords);
-    HeaderV3 header{E, k, nErrors, checkStep};
+  static bool write(int E, const string &name, const std::vector<u32> &check, int k, int nErrors, int checkStep) {
+    const int nWords = (E - 1) / 32 + 1;
+    assert(int(check.size()) == nWords);
+
+    u64 sum = checksum(check);
+    HeaderV4 header{E, k, nErrors, checkStep, sum};
     auto fo(open(name, "wb"));
     return fo
       && header.write(fo.get())
-      && write(fo.get(), state.data)
-      && write(fo.get(), state.check);
+      && write(fo.get(), check);
   }
 
   static std::string fileName(int E) { return std::to_string(E) + ".owl"; }
+
+  static u64 checksum(const std::vector<u32> &data) {
+    u32 a = 1;
+    u32 b = 0;
+    for (u32 x : data) {
+      a += x;
+      b += a;
+    }
+    return (u64(a) << 32) | b;
+  }
   
 public:
   
-  static State load(int E, int *k, int *nErrors, int *checkStep) {
+  static std::vector<u32> load(int E, int *k, int *nErrors, int *checkStep) {
     *k = 0;
     *nErrors = 0;
     *checkStep = CHECK_STEP;    
+    const int nWords = (E - 1) / 32 + 1;
     
-    if (auto fi{open(fileName(E), "rb", false)}) {
-      char line[256];
-      HeaderV3 header;
-      if (fgets(line, sizeof(line), fi.get()) && header.parse(line)) {
+    auto fi{open(fileName(E), "rb", false)};    
+    if (!fi) {
+      std::vector<u32> check(nWords);
+      check[0] = 1;
+      return check;
+    }
+    
+    char line[256];
+    if (!fgets(line, sizeof(line), fi.get())) { throw "checkpoint read header"; }
+    
+    {
+      HeaderV4 header;
+      if (header.parse(line)) {
         assert(header.E == E);
         *k = header.k;
         *nErrors = header.nErrors;
         *checkStep = header.checkStep;
+        std::vector<u32> check = read(fi.get(), nWords);
+        assert(header.checksum == checksum(check));
+        return check;
+      }        
+    }
 
-        const int nWords = (header.E - 1) / 32 + 1;
+    {
+      HeaderV3 header;
+      if (header.parse(line)) {
+        assert(header.E == E);
+        *k = header.k;
+        *nErrors = header.nErrors;
+        *checkStep = header.checkStep;
         std::vector<u32> data  = read(fi.get(), nWords);
         std::vector<u32> check = read(fi.get(), nWords);
-        return State(E, std::move(data), std::move(check));
+        return check;
+        // return State(E, std::move(data), std::move(check));
       }
-      throw "Checkpoint load";
-    } else {
-      return State(E);
     }
+    throw "Checkpoint load";
   }
   
-  static void save(const State &state, int k, int nErrors, int checkStep) {
-    int E = state.E;
+  static void save(int E, const vector<u32> &check, int k, int nErrors, int checkStep) {
     string saveFile = fileName(E);
     string strE = std::to_string(E);
     string tempFile = strE + "-temp.owl";
     string prevFile = strE + "-prev.owl";
     
-    if (write(tempFile, state, k, nErrors, checkStep)) {
+    if (write(E, tempFile, check, k, nErrors, checkStep)) {
       remove(prevFile.c_str());
       rename(saveFile.c_str(), prevFile.c_str());
       rename(tempFile.c_str(), saveFile.c_str());
@@ -458,7 +497,7 @@ public:
     const int persistStep = 20'000'000;
     if (k && (k % persistStep == 0)) {
       string persistFile = strE + "." + std::to_string(k) + ".owl";
-      write(persistFile, state, k, nErrors, checkStep);
+      write(E, persistFile, check, k, nErrors, checkStep);
     }
   }
 };
@@ -602,46 +641,60 @@ public:
   void logTimeKernels() {
     ::logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused});
   }
-  
-    
-  void writeState(const State &state) {
+
+  void writeState(const std::vector<u32> &check, int blockSize) {
     std::vector<int> temp(N);
-    expandBits(state.data, true, W, H, state.E, temp.data());
-    queue.write(bufData, temp);
-    // ::write(queue, true, bufData, N * sizeof(int), temp.get());
+    expandBits(check, true, W, H, E, temp.data());
+    queue.write(bufCheck, temp);
+    dataFromCheck(blockSize);
+  }
+  /*
+  void writeState(const State &state, int blockSize) {
+    std::vector<int> temp(N);
+
     expandBits(state.check, true, W, H, state.E, temp.data());
     queue.write(bufCheck, temp);
-    // ::write(queue, true, bufCheck, N * sizeof(int), temp.get());
+
+    dataFromCheck(blockSize);
+    auto tmp = queue.read<int>(bufData, N);    
+    
+    expandBits(state.data, true, W, H, state.E, temp.data());
+    printf("%d; %d %d, %d %d %d %d\n", blockSize, (int) tmp.size(), (int) temp.size(), tmp[0], tmp[1], temp[0], temp[1]);
+    assert(tmp == temp);
+    // queue.write(bufData, temp);
   }
-  
+
   State readState() {
-    // std::unique_ptr<int[]> temp(new int[N]);
     std::vector<int> temp = queue.read<int>(bufData, N);
-    // ::read(queue, true, bufData, N * sizeof(int), temp.get());
     std::vector<u32> compactData = compactBits(temp.data(), W, H, E);
     temp = queue.read<int>(bufCheck, N);
-    // ::read(queue, true, bufCheck, N * sizeof(int), temp.get());
     std::vector<u32> compactCheck = compactBits(temp.data(), W, H, E);
     temp.clear();
     return State(E, std::move(compactData), std::move(compactCheck));    
   }
+  */
 
+  std::vector<u32> roundtripRead(Buffer &buf) {
+    auto raw = queue.read<int>(buf, N);
+    queue.write(buf, raw);
+    return compactBits(raw.data(), W, H, E);
+  }
+  
+  std::vector<u32> roundtripData() { return roundtripRead(bufData); }
+  std::vector<u32> roundtripCheck() { return roundtripRead(bufCheck); }
+  
   void saveGood() {
     queue.copy<int>(bufData, bufGoodData, N);
     queue.copy<int>(bufCheck, bufGoodCheck, N);
-    // copyBuf(queue, bufData, bufGoodData, N * sizeof(int));
-    // copyBuf(queue, bufCheck, bufGoodCheck, N * sizeof(int));
   }
 
   void revertGood() {
     queue.copy<int>(bufGoodData, bufData, N);
     queue.copy<int>(bufGoodCheck, bufCheck, N);
-    // copyBuf(queue, bufGoodData, bufData, N * sizeof(int));
-    // copyBuf(queue, bufGoodCheck, bufCheck, N * sizeof(int));
   }
   
   u64 dataResidue() { return residue(bufData); }
-  void updateCheck() { modMul(bufCheck, bufData); }
+  void updateCheck() { modMul(bufData, bufCheck, false); }
   
   // Does not change "data". Updates "check".
   bool checkAndUpdate(int blockSize) {
@@ -652,14 +705,12 @@ public:
     doCheck.setArg("out", bufSmallOut);
     doCheck();
     auto readBuf = queue.read<int>(bufSmallOut, 2);
-    // ::read(queue, true, bufSmallOut, 2 * sizeof(int), &readBuf);
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
-    // printf("%d %d %016llx %016llx\n", isEqual, isNotZero, residue(bufCheck), residue(bufCheck2));
     return isEqual && isNotZero;
   }
 
-  void dataLoop(int reps) { modSqLoop(bufData, reps, false); }
+  void dataLoop(int reps) { modSqLoop(bufData, bufData, reps, false); }
   
 private:
   u64 residue(Buffer &buf) {
@@ -667,7 +718,6 @@ private:
     readResidue.setArg("out", bufSmallOut);
     readResidue();
     std::vector<int> readBuf = queue.read<int>(bufSmallOut, 64);
-    // ::read(queue, true, bufSmallOut, 64 * sizeof(int), readBuf);
     return residueFromRaw(N, E, readBuf);
   }
   
@@ -688,27 +738,33 @@ private:
     exitKerns(out, doMul3);
   }
 
-  void modSqLoop(Buffer &io, int nIters, bool doMul3) {
-    modSqLoop(io, io, nIters, doMul3);
-  }
+  // void modSqLoop(Buffer &io, int nIters, bool doMul3) { modSqLoop(io, io, nIters, doMul3); }
 
   // The modular multiplication io *= in.
-  void modMul(Buffer &io, Buffer &in) {
+  void modMul(Buffer &in, Buffer &io, bool doMul3) {
     directFFT(in, buf3);
     directFFT(io, buf2);
     multiply(); // input: buf2, buf3; output: buf2.
     fftH();
     transposeH();
-    exitKerns(io, false);
+    exitKerns(io, doMul3);
   };
 
+  // rebuild bufData based on bufCheck.
+  void dataFromCheck(int blockSize) {
+    modSqLoop(bufCheck, bufData, 1, false);
+    for (int i = 0; i < blockSize - 2; ++i) {
+      modMul(bufCheck, bufData, false);
+      modSqLoop(bufData, bufData, 1, false);
+    }
+    modMul(bufCheck, bufData, true);
+  }
+  
   void carry() {
     fftW();
     carryA();
     carryB();
-    // fftP.setArg();
     fftP();
-    // or, carryFused().
   }
 
   void tail() {
@@ -765,7 +821,10 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   int k = 0;
   int blockSize = 0;
 
-  gpu.writeState(Checkpoint::load(E, &k, &nErrors, &blockSize));
+  {
+    vector<u32> check = Checkpoint::load(E, &k, &nErrors, &blockSize);
+    gpu.writeState(check, blockSize);
+  }
   
   log("[%s] PRP M(%d): FFT %dK (%dx%dx2), %.2f bits/word, block %d, at iteration %d\n",
       longTimeStr().c_str(), E, N / 1024, W, H, E / float(N), blockSize, k);
@@ -788,7 +847,9 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   int startK = k;
   Stats stats;
 
-  u64 errorResidue = 0;  // Residue at the most recent error. Used for persistent-error detection.
+  // Residue at the most recent error. Used for persistent-error detection.
+  // Set it to something randomly so it's not easily hit by bad luck.
+  u64 errorResidue = 0xbad0beefdeadbeefull;
   
   Timer timer;
   while (true) {
@@ -797,9 +858,12 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     gpu.dataLoop(std::min(blockSize, kEnd - k));
     
     if (kEnd - k <= blockSize) {
+      auto words = gpu.roundtripData();
+      /*
       State state = gpu.readState();
-      gpu.writeState(state);
+      gpu.writeState(state, blockSize);
       std::vector<u32> words = std::move(state.data);
+      */
       u64 resRaw = residue(words);
       doDiv9(E, words);
       u64 resDiv = residue(words);
@@ -834,25 +898,17 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     }
 
     u64 res = gpu.dataResidue();
-    bool wouldSave = k < kEnd && ((k % 1'000'000 == 0) || stopRequested);    
-    State state;
+    bool wouldSave = k < kEnd && ((k % 100000 == 0) || stopRequested);    
+    std::vector<u32> compactCheck;
     // Read GPU state before "check" is updated in gpu.checkAndUpdate().
-    if (wouldSave) { state = gpu.readState(); }
+    if (wouldSave) { compactCheck = gpu.roundtripCheck(); }
     
     bool ok = gpu.checkAndUpdate(blockSize);
     doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats);
       
     if (wouldSave && ok) {
-      Checkpoint::save(state, k, nErrors, blockSize);
-      int loadK, loadNErrors, loadBlockSize;
-      gpu.writeState(Checkpoint::load(E, &loadK, &loadNErrors, &loadBlockSize));
-      assert(loadK == k && loadBlockSize == blockSize);
-      if (gpu.checkAndUpdate(blockSize)) {        
-        log("Saved: iteration %d (%.2fs)\n", k, timer.deltaMillis() * .001f);
-      } else {
-        log("Failed: save iteration %d (%.2fs)\n", k, timer.deltaMillis() * .001f);
-        ok = false;
-      }
+      Checkpoint::save(E, compactCheck, k, nErrors, blockSize);
+      log("Saved: iteration %d (%.2fs)\n", k, timer.deltaMillis() * .001f);
     }
         
     if (ok) {
