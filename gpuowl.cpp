@@ -40,10 +40,7 @@ static volatile int stopRequested = 0;
 
 void (*oldHandler)(int) = 0;
 
-void myHandler(int dummy) {
-  stopRequested = 1;
-  // signal(SIGINT, oldHandler);
-}
+void myHandler(int dummy) { stopRequested = 1; }
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
@@ -334,53 +331,6 @@ bool isAllZero(const std::vector<u32> &vect) {
   for (const auto x : vect) { if (x) { return false; } }
   return true;
 }
-
-struct State {
-  int E;
-  std::vector<u32> data, check;
-
-  State() :
-    E(0)
-  {}
-  
-  State(int E) :
-    E(E),
-    data((E - 1)/32 + 1),
-    check((E - 1)/32 + 1)
-  {
-    data[0]  = 3;
-    check[0] = 1;
-  }
-  
-  State(int E, std::vector<u32> &&data, std::vector<u32> &&check) :
-    E(E),
-    data(data),
-    check(check)
-  {
-    size_t nWords = (E - 1) / 32 + 1;
-    assert(data.size() == nWords);
-    assert(check.size() == nWords);
-  }
-
-  State(State &&other) :
-    E(other.E),
-    data(std::move(other.data)),
-    check(std::move(other.check))
-  {
-  }
-  
-  void operator=(State &&other) {
-    assert(E == 0 || E == other.E);
-    E = other.E;
-    data  = std::move(other.data);
-    check = std::move(other.check);
-  }
-
-  bool isValid() {
-    size_t nWords = (E - 1) / 32 + 1;
-    return data.size() == nWords && check.size() == nWords && !isAllZero(data) && (data == check);
-  }
-};
 
 class Checkpoint {
 private:
@@ -862,11 +812,6 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     
     if (kEnd - k <= blockSize) {
       auto words = gpu.roundtripData();
-      /*
-      State state = gpu.readState();
-      gpu.writeState(state, blockSize);
-      std::vector<u32> words = std::move(state.data);
-      */
       u64 resRaw = residue(words);
       doDiv9(E, words);
       u64 resDiv = residue(words);
