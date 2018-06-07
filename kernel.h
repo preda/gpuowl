@@ -27,8 +27,6 @@ class Kernel {
   }
   
 public:
-  // Kernel() {}
-  
   Kernel(cl_program program, Queue q, cl_device_id device, int workSize, const std::string &name, bool doTime) :
     kernel(makeKernel(program, name.c_str())),
     queue(q),
@@ -57,7 +55,7 @@ public:
   
   string getName() { return name; }
   
-  void setArg(const std::string &name, const auto &arg) {
+  template<typename T> void setArg(const std::string &name, const T &arg) {
     int pos = getArgPos(name);
     if (pos < 0) { log("setArg '%s' on '%s'\n", name.c_str(), this->name.c_str()); }
     assert(pos >= 0);

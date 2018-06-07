@@ -357,7 +357,7 @@ private:
     bool write(FILE *fo) { return (fprintf(fo, HEADER, E, k, nErrors, checkStep) > 0); }
   };
   
-  static bool write(FILE *fo, const auto &vect) { return fwrite(vect.data(), vect.size() * sizeof(vect[0]), 1, fo); }
+  static bool write(FILE *fo, const vector<u32> &vect) { return fwrite(vect.data(), vect.size() * sizeof(vect[0]), 1, fo); }
   static std::vector<u32> read(FILE *fi, int n) {
     std::vector<u32> vect(n);
     if (fread(vect.data(), n * sizeof(vect[0]), 1, fi)) { return std::move(vect); }
@@ -867,7 +867,7 @@ cl_device_id getDevice(const Args &args) {
   return device;
 }
 
-void append(auto &vect, auto what) { vect.insert(vect.end(), what); }
+// void append(auto &vect, auto what) { vect.insert(vect.end(), what); }
 
 string valueDefine(const string &key, u32 value) {
   return key + "=" + std::to_string(value) + "u";

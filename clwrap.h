@@ -262,7 +262,8 @@ cl_kernel makeKernel(cl_program program, const char *name) {
   return k;
 }
 
-void setArg(cl_kernel k, int pos, const auto &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
+template<typename T>
+void setArg(cl_kernel k, int pos, const T &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
 
 cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0) {
   int err;
@@ -354,6 +355,3 @@ public:
   void finish() { ::finish(queue); }
   
 };
-
-// void copyBuf(cl_queue q, cl_mem src, cl_mem dst, size_t size) { CHECK(clEnqueueCopyBuffer(q, src, dst, 0, 0, size, 0, nullptr, nullptr)); }
-
