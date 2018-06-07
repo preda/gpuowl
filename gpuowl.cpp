@@ -588,6 +588,10 @@ public:
     tailFused.setArg("io", buf2);
     tailFused.setArg("smallTrig", bufTrigH);
     tailFused.setArg("bigTrig", bufSquareTrig);
+
+    doCheck.setArg("in1", bufCheck);
+    doCheck.setArg("in2", bufCheck2);
+    doCheck.setArg("out", bufSmallOut);
   }
 
   void logTimeKernels() {
@@ -599,37 +603,6 @@ public:
     expandBits(check, true, W, H, E, temp.data());
     queue.write(bufCheck, temp);
     dataFromCheck(blockSize);
-  }
-  /*
-  void writeState(const State &state, int blockSize) {
-    std::vector<int> temp(N);
-
-    expandBits(state.check, true, W, H, state.E, temp.data());
-    queue.write(bufCheck, temp);
-
-    dataFromCheck(blockSize);
-    auto tmp = queue.read<int>(bufData, N);    
-    
-    expandBits(state.data, true, W, H, state.E, temp.data());
-    printf("%d; %d %d, %d %d %d %d\n", blockSize, (int) tmp.size(), (int) temp.size(), tmp[0], tmp[1], temp[0], temp[1]);
-    assert(tmp == temp);
-    // queue.write(bufData, temp);
-  }
-
-  State readState() {
-    std::vector<int> temp = queue.read<int>(bufData, N);
-    std::vector<u32> compactData = compactBits(temp.data(), W, H, E);
-    temp = queue.read<int>(bufCheck, N);
-    std::vector<u32> compactCheck = compactBits(temp.data(), W, H, E);
-    temp.clear();
-    return State(E, std::move(compactData), std::move(compactCheck));    
-  }
-  */
-
-  std::vector<u32> roundtripRead(Buffer &buf) {
-    auto raw = queue.read<int>(buf, N);
-    queue.write(buf, raw);
-    return compactBits(raw.data(), W, H, E);
   }
   
   std::vector<u32> roundtripData() { return roundtripRead(bufData); }
@@ -652,9 +625,6 @@ public:
   bool checkAndUpdate(int blockSize) {
     modSqLoop(bufCheck, bufCheck2, blockSize, true);
     updateCheck();
-    doCheck.setArg("in1", bufCheck);
-    doCheck.setArg("in2", bufCheck2);
-    doCheck.setArg("out", bufSmallOut);
     doCheck();
     auto readBuf = queue.read<int>(bufSmallOut, 2);
     bool isEqual   = readBuf[0];
@@ -665,6 +635,12 @@ public:
   void dataLoop(int reps) { modSqLoop(bufData, bufData, reps, false); }
   
 private:
+  std::vector<u32> roundtripRead(Buffer &buf) {
+    auto raw = queue.read<int>(buf, N);
+    queue.write(buf, raw);
+    return compactBits(raw.data(), W, H, E);
+  }
+  
   u64 residue(Buffer &buf) {
     readResidue.setArg("in", buf);
     readResidue.setArg("out", bufSmallOut);
@@ -689,8 +665,6 @@ private:
 
     exitKerns(out, doMul3);
   }
-
-  // void modSqLoop(Buffer &io, int nIters, bool doMul3) { modSqLoop(io, io, nIters, doMul3); }
 
   // The modular multiplication io *= in.
   void modMul(Buffer &in, Buffer &io, bool doMul3) {
@@ -762,8 +736,7 @@ private:
     fftP();
     transposeW();
     fftH();
-  };
-
+  }
 };
 
 bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
@@ -913,7 +886,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   assert(H == 2048);
 
   int N = 2 * W * H;
-  // int hN = N / 2;
   
   string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
@@ -926,8 +898,6 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
       valueDefine("HEIGHT", H),
       valueDefine("NH", nH),
       };
-
-  // float bitsPerWord = E / (float) N;
 
   bool useLongCarry = true; // args.carry == Args::CARRY_LONG || bitsPerWord < 15;  
   bool useSplitTail = args.tail == Args::TAIL_SPLIT;
