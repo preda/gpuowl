@@ -4,9 +4,6 @@
 #include <memory>
 #include <algorithm>
 
-// std::vector<u32> compactBits(int *data, int W, int H, int E);
-// void expandBits(const std::vector<u32> &compactBits, bool balanced, int W, int H, int E, int *data);
-
 int extra(unsigned N, unsigned E, unsigned k) {
   assert(E % N);
   u32 step = N - (E % N);

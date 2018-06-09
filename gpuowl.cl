@@ -541,6 +541,108 @@ KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
   if (isNotZero && !out[0].y) { out[0].y = true; }
 }
 
+uint dwordToBitpos(uint dword) { return 1 + (uint) (EXP * (ulong) dword / (NWORDS / 2)); }
+uint bitposToDword(uint bitpos) { return (NWORDS / 2) * (ulong) bitpos / EXP; }
+
+Word2 readDword(CP(Word2) data, uint k) { return data[k / HEIGHT + WIDTH * (k % HEIGHT)]; }
+
+ulong getWordBits(Word2 word, uint k, uint *outNBits, int *carryInOut) {
+  uint n1 = bitlen(2 * k + 0);
+  uint n2 = bitlen(2 * k + 1);
+  *outNBits = n1 + n2;
+
+  word.x += *carryInOut;
+  
+  if (word.x < 0) {
+    word.x += (1 << n1);
+    word.y -= 1;
+  }
+
+  if (word.y < 0) {
+    word.y += (1 << n2);
+    *carryInOut = -1;
+  } else {
+    *carryInOut = 0;
+  }
+  
+  return (((ulong) word.y) << n1) | word.x;
+}
+
+ulong readDwordBits(CP(Word2) data, uint k, uint *outNBits, int *carryInOut) {
+  return getWordBits(readDword(data, k), k, outNBits, carryInOut);
+}
+
+ulong maskBits(ulong bits, int n) { return bits % (1UL << n); }
+
+// This is damn tricky on the GPU: comparing balanced words with offset.
+KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {  
+  uint g  = get_group_id(0);
+  uint me = get_local_id(0);
+
+  if (g == 0 && me == 0) {
+    out[0] = true;  // initial in1 == in2: true
+    out[1] = false; // initial non-zero: false
+  }
+
+  uint gx = g % NW;
+  uint gy = g / NW;
+
+  in1 += G_W * gx + WIDTH * CARRY_LEN * gy;
+
+  uint k1  = CARRY_LEN * gy + HEIGHT * G_W * gx + HEIGHT * me;
+  uint bitpos1 = dwordToBitpos(k1);  
+  uint bitpos2 = (bitpos1 + offset >= EXP) ? bitpos1 + offset - EXP : (bitpos1 + offset);
+  uint k2  = bitposToDword(bitpos2);
+  uint bitInWord = bitpos2 - dwordToBitpos(k2);
+
+  int carry2 = 0;  
+  uint nBits2;
+  ulong bits2 = readDwordBits(in2, k2, &nBits2, &carry2);
+  bits2 >>= bitInWord;
+  nBits2 -= bitInWord;
+
+  if (nBits2 < 3) {
+    k2 = (k2 + 1) % (NWORDS / 2);
+    uint n;
+    ulong bits = readDwordBits(in2, k2, &n, &carry2);
+    bits2 = (bits2 << n) | bits;
+    nBits2 += n;
+  }
+  
+  int carry1 = 0;
+  uint nBits1;
+  ulong bits1 = getWordBits(in1[me], k1, &nBits1, &carry1);
+
+  // find a carry1 (-1, 0, or 1) that achieves bits1 == bits2 if possible.
+  uint m = min(nBits1, nBits2);
+  carry1 = maskBits(bits2, m) - maskBits(bits1, m);
+  if (abs(carry1) > 1) { out[0] = false; return; }
+
+  nBits1 = 0;
+
+  bool isNotZero = false;
+  
+  for (int i = -1;;) {
+    if (nBits1 == 0) {
+      if (++i >= CARRY_LEN) { break; }
+      Word2 w = in1[WIDTH * i + me];
+      if (w.x || w.y) { isNotZero = true; }
+      bits1 = getWordBits(w, k1 + i, &nBits1, &carry1);
+    }
+    if (nBits2 == 0) {
+      k2 = (k2 + 1) % (NWORDS / 2);
+      bits2 = readDwordBits(in2, k2, &nBits2, &carry2);      
+    }
+    uint m = min(nBits1, nBits2);
+    if (maskBits(bits1, m) != maskBits(bits2, m)) { out[0] = false; return; }
+    bits1 >>= m;
+    nBits1 -= m;
+    bits2 >>= m;
+    nBits2 -= m;
+  }
+  if (isNotZero && !out[1]) { out[1] = true; }
+}
+
 #if (WIDTH == 4096) && (NW == 8)
 
 KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {

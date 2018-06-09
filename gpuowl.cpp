@@ -498,6 +498,7 @@ class Gpu {
   Kernel tailFused;
   Kernel readResidue;
   Kernel doCheck;
+  Kernel compare;
   
   Buffer bufData, bufCheck, bufCheck2, bufGoodData, bufGoodCheck;
   Buffer bufTrigW, bufTrigH, bufTransTrig, bufSquareTrig;
@@ -530,6 +531,7 @@ public:
     LOAD(tailFused, hN / (2 * nH)),
     LOAD(readResidue, 32),
     LOAD(doCheck, hN / nW),
+    LOAD(compare, hN / 16),
 #undef LOAD
 
     bufData(     makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
@@ -592,6 +594,12 @@ public:
     doCheck.setArg("in1", bufCheck);
     doCheck.setArg("in2", bufCheck2);
     doCheck.setArg("out", bufSmallOut);
+
+    compare.setArg("in1", bufCheck);
+    compare.setArg("in2", bufCheck2);
+    uint zero = 0;
+    compare.setArg("offset", zero);
+    compare.setArg("out", bufSmallOut);
   }
 
   void logTimeKernels() {
@@ -625,11 +633,17 @@ public:
   bool checkAndUpdate(int blockSize) {
     modSqLoop(bufCheck, bufCheck2, blockSize, true);
     updateCheck();
+
+    compare();
+    auto readBuf1 = queue.read<int>(bufSmallOut, 2);
+    bool isEqual1   = readBuf1[0];
+    bool isNotZero1 = readBuf1[1];
+        
     doCheck();
     auto readBuf = queue.read<int>(bufSmallOut, 2);
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
-    return isEqual && isNotZero;
+    return isEqual && isNotZero && isEqual1 && isNotZero1;
   }
 
   void dataLoop(int reps) { modSqLoop(bufData, bufData, reps, false); }
@@ -866,8 +880,6 @@ cl_device_id getDevice(const Args &args) {
   }
   return device;
 }
-
-// void append(auto &vect, auto what) { vect.insert(vect.end(), what); }
 
 string valueDefine(const string &key, u32 value) {
   return key + "=" + std::to_string(value) + "u";
