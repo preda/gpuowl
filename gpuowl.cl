@@ -508,10 +508,15 @@ typedef CP(T2) restrict Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-// Read 1 + 31 word2s, needed for res64 computation.
-KERNEL(32) readResidue(CP(Word2) in, P(Word2) out) {
+// Read 64 Word2 starting at position 'start'.
+KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint start) {
+  // start == bitposToDword(offset);
   uint me = get_local_id(0);
-  out[me] = in[me ? WIDTH * (me - 1) : (WIDTH * HEIGHT - 1)];
+  uint k = (start + me + (NWORDS / 2 - 32)) % (NWORDS / 2);
+  uint y = k % HEIGHT;
+  uint x = k / HEIGHT;
+  out[me] = in[WIDTH * y + x];
+  // out[me] = in[me ? WIDTH * (me - 1) : (WIDTH * HEIGHT - 1)];
 }
 
 // out[0].x := equal(in1, in2); out[0].y := (in1 != zero).

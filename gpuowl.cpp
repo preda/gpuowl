@@ -455,16 +455,15 @@ public:
 };
 
 // compute res64 from balanced uncompressed ("raw") words.
-// the first 2 words are "before word 0" and used only for sign compensation of word 0.
+// the first 64 words are "before word 0" and used only for carry into word 0.
 u64 residueFromRaw(int N, int E, const vector<int> &words) {
-  assert(words.size() == 64);
+  assert(words.size() == 128);
   int carry = 0;
-  carry = (words[0] + carry < 0) ? -1 : 0;
-  carry = (words[1] + carry < 0) ? -1 : 0;
+  for (int i = 0; i < 64; ++i) { carry = (words[i] + carry < 0) ? -1 : 0; }
   
   u64 res = 0;
   int k = 0, hasBits = 0;
-  for (auto p = words.begin() + 2, end = words.end(); p < end && hasBits < 64; ++p, ++k) {
+  for (auto p = words.begin() + 64, end = words.end(); p < end && hasBits < 64; ++p, ++k) {
     int len = bitlen(N, E, k);
     int w = *p + carry;
     carry = (w < 0) ? -1 : 0;
@@ -529,7 +528,7 @@ public:
     LOAD(square,   hN / 2),
     LOAD(multiply, hN / 2),
     LOAD(tailFused, hN / (2 * nH)),
-    LOAD(readResidue, 32),
+    LOAD(readResidue, 64),
     LOAD(doCheck, hN / nW),
     LOAD(compare, hN / 16),
 #undef LOAD
@@ -600,6 +599,9 @@ public:
     uint zero = 0;
     compare.setArg("offset", zero);
     compare.setArg("out", bufSmallOut);
+
+    readResidue.setArg("in", bufData);
+    readResidue.setArg("out", bufSmallOut);
   }
 
   void logTimeKernels() {
@@ -626,7 +628,13 @@ public:
     queue.copy<int>(bufGoodCheck, bufCheck, N);
   }
   
-  u64 dataResidue() { return residue(bufData); }
+  u64 dataResidue() {
+    readResidue.setArg("start", 0);
+    readResidue();
+    std::vector<int> readBuf = queue.read<int>(bufSmallOut, 128);
+    return residueFromRaw(N, E, readBuf);
+  }
+  
   void updateCheck() { modMul(bufData, bufCheck, false); }
   
   // Does not change "data". Updates "check".
@@ -654,15 +662,7 @@ private:
     queue.write(buf, raw);
     return compactBits(raw.data(), W, H, E);
   }
-  
-  u64 residue(Buffer &buf) {
-    readResidue.setArg("in", buf);
-    readResidue.setArg("out", bufSmallOut);
-    readResidue();
-    std::vector<int> readBuf = queue.read<int>(bufSmallOut, 64);
-    return residueFromRaw(N, E, readBuf);
-  }
-  
+    
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
   // Optional multiply-by-3 at the end.
   void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
