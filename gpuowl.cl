@@ -297,7 +297,7 @@ void write(uint WG, uint N, T2 *u, G T2 *out, uint base) {
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
-void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut, local uint *lds) {
+void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   uint gx = g % NW;
@@ -643,6 +643,48 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
   if (isNotZero && !out[1]) { out[1] = true; }
 }
 
+/*
+Word wordMul2(Word a, uint bits, int *carry) {
+  a = a + a + *carry;
+  int half = 1 << (bits - 1);
+  int full = 1 << bits;
+  if (a >= half) {
+    a -= full;
+    *carry = 1;
+  } else if (a < -half) {
+    a += full;
+    *carry = -1;    
+  } else {
+    *carry = 0;
+  }
+  return a;
+}
+
+Word mul2(Word2 *io, uint k, Word carry) {
+  Word2 w = io[k];
+  w.x = wordMul2(w.x, bitlen(2 * k + 0), &carry);
+  w.y = wordMul2(w.y, bitlen(2 * k + 1), &carry);
+  io[k] = w;
+  return carry;  
+}
+*/
+
+// increase "offset" by 1, equivalent to a mul-2.
+KERNEL(G_W) shift(P(Word2) io, P(Carry) carryOut) {
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+  uint gx = g % NW;
+  uint gy = g / NW;
+  io += G_W * gx + WIDTH * CARRY_LEN * gy;
+  Carry carry = 0;
+  for (int i = 0; i < CARRY_LEN; ++i) {
+    uint p = WIDTH * i + me;
+    uint k = gy * CARRY_LEN + HEIGHT * G_W * gx + i + HEIGHT * me;
+    io[p] = carryWord(io[p] * 2, &carry, k);
+  }
+  carryOut[G_W * g + me] = carry;
+}
+
 #if (WIDTH == 4096) && (NW == 8)
 
 KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
@@ -761,13 +803,11 @@ KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
 }
 
 KERNEL(G_W) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
-  local uint lds[1];
-  carryACore(1, in, A, out, carryOut, lds);
+  carryACore(1, in, A, out, carryOut);
 }
 
 KERNEL(G_W) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
-  local uint lds[1];
-  carryACore(3, in, A, out, carryOut, lds);
+  carryACore(3, in, A, out, carryOut);
 }
 
 KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
