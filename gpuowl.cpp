@@ -671,10 +671,15 @@ private:
     transposeOut.setArg("in", buf);
     transposeOut.setArg("out", bufAux);
     transposeOut();    
-    
+
+    vector<u32> compact = compactBits(queue.read<int>(bufAux, N), E);
+    writeIn(expandBits(compact, N, E), buf);
+    return compact;
+    /*
     auto raw = queue.read<int>(bufAux, N);
     writeIn(raw, buf);    
     return compactBits(raw, E);
+    */
   }
     
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.

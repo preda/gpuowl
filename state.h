@@ -18,7 +18,7 @@ bool isBigWord(unsigned N, unsigned E, unsigned k) {
 
 u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
 
-std::vector<u32> compactBits(const vector<int> &dataVect, int E) {
+std::vector<u32> compactBits(const vector<int> &dataVect, int E/*, int offset*/) {
   std::vector<u32> out;
   out.reserve((E - 1) / 32 + 1);
 
@@ -28,6 +28,15 @@ std::vector<u32> compactBits(const vector<int> &dataVect, int E) {
   
   int N = dataVect.size();
   const int *data = dataVect.data();
+
+  /*
+  int startWord = offset * i64(N) / E;
+  assert(startWord >= 0 && startWord < N);
+
+  int startBit = offset - (startWord * i64(E) + N - 1) / N;
+  assert(startBit >= 0 && startBit < bitlen(N, E, startWord));
+  */
+  
   for (int p = 0; p < N; ++p) {
     int w = data[p] + carry;
     carry = 0;
@@ -73,7 +82,6 @@ std::vector<u32> compactBits(const vector<int> &dataVect, int E) {
 
 std::vector<int> expandBits(const std::vector<u32> &compactBits, int N, int E) {
   // This is similar to carry propagation.
-  // int N = 2 * W * H;
 
   std::vector<int> out(N);
   int *data = out.data();
