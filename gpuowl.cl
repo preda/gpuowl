@@ -461,9 +461,9 @@ void transposeWords(uint W, uint H, local Word2 *lds, const G Word2 *in, G Word2
   uint GPW = W / 64, GPH = H / 64;
 
   uint g = get_group_id(0);
-  uint gy = g & (GPH - 1);
+  uint gy = g % GPH;
   uint gx = g / GPH;
-  gx = (gy + gx) & (GPW - 1);
+  gx = (gy + gx) % GPW;
 
   in   += gy * 64 * W + gx * 64;
   out  += gy * 64     + gx * 64 * H;
@@ -916,12 +916,14 @@ KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig trig) {
   transpose(HEIGHT, WIDTH, lds, in, out, trig);
 }
 
-KERNEL(256) transposeWordsW(CP(Word2) in, P(Word2) out) {
+// from transposed to sequential.
+KERNEL(256) transposeOut(CP(Word2) in, P(Word2) out) {
   local Word2 lds[4096];
   transposeWords(WIDTH, HEIGHT, lds, in, out);
 }
 
-KERNEL(256) transposeWordsH(CP(Word2) in, P(Word2) out) {
+// from sequential to transposed.
+KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
   local Word2 lds[4096];
   transposeWords(HEIGHT, WIDTH, lds, in, out);
 }

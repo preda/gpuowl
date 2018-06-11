@@ -24,16 +24,19 @@ int &wordAt(int W, int H, int *data, int w) {
   return data[(line * W + col) * 2 + w % 2];
 }
 
-std::vector<u32> compactBits(int *data, int W, int H, int E) {
+std::vector<u32> compactBits(const vector<int> &dataVect, int N, int E) {
   std::vector<u32> out;
+  out.reserve((E - 1) / 32 + 1);
 
   int carry = 0;
   u32 outWord = 0;
   int haveBits = 0;
   
-  int N = 2 * W * H;
+  // int N = 2 * W * H;
+  assert(int(dataVect.size()) == N);
+  const int *data = dataVect.data();
   for (int p = 0; p < N; ++p) {
-    int w = wordAt(W, H, data, p) + carry;
+    int w = data[p] + carry;
     carry = 0;
     int bits = bitlen(N, E, p);
     while (w < 0) {
@@ -75,9 +78,13 @@ std::vector<u32> compactBits(int *data, int W, int H, int E) {
   return out;
 }
 
-void expandBits(const std::vector<u32> &compactBits, bool balanced, int W, int H, int E, int *data) {
+std::vector<int> expandBits(const std::vector<u32> &compactBits, int N, int E) {
   // This is similar to carry propagation.
-  int N = 2 * W * H;
+  // int N = 2 * W * H;
+
+  std::vector<int> out(N);
+  int *data = out.data();
+  
   int haveBits = 0;
   u64 bits = 0;
 
@@ -93,17 +100,18 @@ void expandBits(const std::vector<u32> &compactBits, bool balanced, int W, int H
     assert(haveBits >= len);
     int b = bits & ((1 << len) - 1);
     bits >>= len;
-    if (balanced) {
-      // turn the (len - 1) bit of b into sign bit.
-      b = (b << (32 - len)) >> (32 - len);
-      if (b < 0) { ++bits; }
-    }
-    wordAt(W, H, data, p) = b;
+
+    // turn the (len - 1) bit of b into sign bit.
+    b = (b << (32 - len)) >> (32 - len);
+    if (b < 0) { ++bits; }
+
+    data[p] = b;
     // bits = (bits - b) >> len;
     haveBits -= len;
   }
   assert(it == itEnd);
   assert(haveBits == 32 - E % 32);
-  assert(!bits || (balanced && (bits == 1)));
+  assert(bits == 0 || bits == 1);
   data[0] += bits;
+  return out;
 }

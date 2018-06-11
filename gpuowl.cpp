@@ -455,7 +455,7 @@ public:
 };
 
 // compute res64 from balanced uncompressed ("raw") words.
-// the first 64 words are "before word 0" and used only for carry into word 0.
+// the first 64 words are "before first word" and used only for carry into the first word.
 u64 residueFromRaw(int N, int E, const vector<int> &words) {
   assert(words.size() == 128);
   int carry = 0;
@@ -498,8 +498,10 @@ class Gpu {
   Kernel readResidue;
   Kernel doCheck;
   Kernel compare;
+  Kernel transposeIn, transposeOut;
   
-  Buffer bufData, bufCheck, bufCheck2, bufGoodData, bufGoodCheck;
+  Buffer bufData, bufCheck, bufAux;
+  Buffer bufGoodData, bufGoodCheck;
   Buffer bufTrigW, bufTrigH, bufTransTrig, bufSquareTrig;
   Buffer bufA, bufI;
   Buffer buf1, buf2, buf3;
@@ -531,11 +533,13 @@ public:
     LOAD(readResidue, 64),
     LOAD(doCheck, hN / nW),
     LOAD(compare, hN / 16),
+    LOAD(transposeIn, (W/64) * (H/64) * 256),
+    LOAD(transposeOut, (W/64) * (H/64) * 256),
 #undef LOAD
 
     bufData(     makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
     bufCheck(    makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-    bufCheck2(   makeBuf(context, BUF_RW, N * sizeof(int))),
+    bufAux(      makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
     bufGoodData( makeBuf(context, BUF_RW, N * sizeof(int))),
     bufGoodCheck(makeBuf(context, BUF_RW, N * sizeof(int))),    
     bufTrigW(genSmallTrig(context, W, nW)),
@@ -591,11 +595,11 @@ public:
     tailFused.setArg("bigTrig", bufSquareTrig);
 
     doCheck.setArg("in1", bufCheck);
-    doCheck.setArg("in2", bufCheck2);
+    doCheck.setArg("in2", bufAux);
     doCheck.setArg("out", bufSmallOut);
 
     compare.setArg("in1", bufCheck);
-    compare.setArg("in2", bufCheck2);
+    compare.setArg("in2", bufAux);
     uint zero = 0;
     compare.setArg("offset", zero);
     compare.setArg("out", bufSmallOut);
@@ -609,9 +613,8 @@ public:
   }
 
   void writeState(const std::vector<u32> &check, int blockSize) {
-    std::vector<int> temp(N);
-    expandBits(check, true, W, H, E, temp.data());
-    queue.write(bufCheck, temp);
+    std::vector<int> temp = expandBits(check, N, E);
+    writeIn(temp, bufCheck);
     dataFromCheck(blockSize);
   }
   
@@ -639,7 +642,7 @@ public:
   
   // Does not change "data". Updates "check".
   bool checkAndUpdate(int blockSize) {
-    modSqLoop(bufCheck, bufCheck2, blockSize, true);
+    modSqLoop(bufCheck, bufAux, blockSize, true);
     updateCheck();
 
     compare();
@@ -657,10 +660,21 @@ public:
   void dataLoop(int reps) { modSqLoop(bufData, bufData, reps, false); }
   
 private:
+  void writeIn(const vector<int> &words, Buffer &buf) {
+    queue.write(bufAux, words);
+    transposeIn.setArg("in", bufAux);
+    transposeIn.setArg("out", buf);
+    transposeIn();
+  }
+  
   std::vector<u32> roundtripRead(Buffer &buf) {
-    auto raw = queue.read<int>(buf, N);
-    queue.write(buf, raw);
-    return compactBits(raw.data(), W, H, E);
+    transposeOut.setArg("in", buf);
+    transposeOut.setArg("out", bufAux);
+    transposeOut();    
+    
+    auto raw = queue.read<int>(bufAux, N);
+    writeIn(raw, buf);    
+    return compactBits(raw, N, E);
   }
     
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
