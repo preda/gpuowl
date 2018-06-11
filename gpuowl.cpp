@@ -660,6 +660,13 @@ public:
   void dataLoop(int reps) { modSqLoop(bufData, bufData, reps, false); }
   
 private:
+  vector<int> readOut(Buffer &buf) {
+    transposeOut.setArg("in", buf);
+    transposeOut.setArg("out", bufAux);
+    transposeOut();    
+    return queue.read<int>(bufAux, N);
+  }
+  
   void writeIn(const vector<int> &words, Buffer &buf) {
     queue.write(bufAux, words);
     transposeIn.setArg("in", bufAux);
@@ -667,19 +674,10 @@ private:
     transposeIn();
   }
   
-  std::vector<u32> roundtripRead(Buffer &buf) {
-    transposeOut.setArg("in", buf);
-    transposeOut.setArg("out", bufAux);
-    transposeOut();    
-
-    vector<u32> compact = compactBits(queue.read<int>(bufAux, N), E);
+  std::vector<u32> roundtripRead(Buffer &buf) {    
+    vector<u32> compact = compactBits(readOut(buf), E);
     writeIn(expandBits(compact, N, E), buf);
     return compact;
-    /*
-    auto raw = queue.read<int>(bufAux, N);
-    writeIn(raw, buf);    
-    return compactBits(raw, E);
-    */
   }
     
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
