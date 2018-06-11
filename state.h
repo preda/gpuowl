@@ -16,59 +16,76 @@ bool isBigWord(unsigned N, unsigned E, unsigned k) {
   // return extra(N, E, k) < extra(N, E, k + 1);
 }
 
-u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
+int bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
 
-std::vector<u32> compactBits(const vector<int> &dataVect, int E/*, int offset*/) {
+u32 unbalance(int w, int nBits, int *carry) {
+  assert(*carry == 0 || *carry == -1);
+  w += *carry;
+  *carry = 0;
+  if (w < 0) {
+    w += (1 << nBits);
+    *carry = -1;
+  }
+  assert(0 <= w && w < (1 << nBits));
+  return w;
+}
+
+std::vector<u32> compactBits(const vector<int> &dataVect, int E, int offset) {
   std::vector<u32> out;
   out.reserve((E - 1) / 32 + 1);
 
-  int carry = 0;
-  u32 outWord = 0;
-  int haveBits = 0;
-  
   int N = dataVect.size();
   const int *data = dataVect.data();
 
-  /*
   int startWord = offset * i64(N) / E;
   assert(startWord >= 0 && startWord < N);
 
   int startBit = offset - (startWord * i64(E) + N - 1) / N;
   assert(startBit >= 0 && startBit < bitlen(N, E, startWord));
-  */
   
-  for (int p = 0; p < N; ++p) {
-    int w = data[p] + carry;
-    carry = 0;
-    int bits = bitlen(N, E, p);
-    while (w < 0) {
-      w += 1 << bits;
-      carry -= 1;
+  int carry = 0;
+  u32 outWord = 0;
+  int haveBits = 0;
+
+  for (int i = 0; i <= N; ++i) { // ! including N. Reason: go twice over startWord.
+    int p = (i + startWord) % N;
+    int nBits = bitlen(N, E, p);
+
+    u32 w = 0;
+    if (p == startWord) {
+      if (i == 0) {
+        w = unbalance(data[p], nBits, &carry);
+        w >>= startBit;
+        nBits -= startBit;
+      } else {
+        nBits = startBit;
+        w = unbalance(data[p] & ((1 << startBit) - 1), startBit, &carry);
+      }
+    } else {
+      w = unbalance(data[p], nBits, &carry);
     }
-    while (w >= (1 << bits)) {
-      w -= 1 << bits;
-      carry += 1;
-    }
-    assert(0 <= w && w < (1 << bits));
-    while (bits) {
+
+    assert(nBits > 0 || (i == N && startBit == 0));
+    assert(w < (1u << nBits));
+    
+    while (nBits) {
       assert(haveBits < 32);
       outWord |= w << haveBits;
-      if (haveBits + bits >= 32) {
+      if (haveBits + nBits >= 32) {
         w >>= (32 - haveBits);
-        bits -= (32 - haveBits);
+        nBits -= (32 - haveBits);
         out.push_back(outWord);
         outWord = 0;
         haveBits = 0;
       } else {
-        haveBits += bits;
-        bits = 0;
+        haveBits += nBits;
+        nBits = 0;
       }
     }
   }
-  if (haveBits) {
-    out.push_back(outWord);
-    haveBits = 0;
-  }
+
+  assert(haveBits);
+  out.push_back(outWord);
 
   for (int p = 0; carry; ++p) {
     i64 v = i64(out[p]) + carry;

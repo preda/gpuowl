@@ -675,7 +675,7 @@ private:
   }
   
   std::vector<u32> roundtripRead(Buffer &buf) {    
-    vector<u32> compact = compactBits(readOut(buf), E);
+    vector<u32> compact = compactBits(readOut(buf), E, 0);
     writeIn(expandBits(compact, N, E), buf);
     return compact;
   }
