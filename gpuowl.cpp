@@ -674,7 +674,7 @@ private:
     
     auto raw = queue.read<int>(bufAux, N);
     writeIn(raw, buf);    
-    return compactBits(raw, N, E);
+    return compactBits(raw, E);
   }
     
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.

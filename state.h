@@ -18,13 +18,7 @@ bool isBigWord(unsigned N, unsigned E, unsigned k) {
 
 u32 bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
 
-int &wordAt(int W, int H, int *data, int w) {
-  int col  = w / 2 / H;
-  int line = w / 2 % H;
-  return data[(line * W + col) * 2 + w % 2];
-}
-
-std::vector<u32> compactBits(const vector<int> &dataVect, int N, int E) {
+std::vector<u32> compactBits(const vector<int> &dataVect, int E) {
   std::vector<u32> out;
   out.reserve((E - 1) / 32 + 1);
 
@@ -32,8 +26,7 @@ std::vector<u32> compactBits(const vector<int> &dataVect, int N, int E) {
   u32 outWord = 0;
   int haveBits = 0;
   
-  // int N = 2 * W * H;
-  assert(int(dataVect.size()) == N);
+  int N = dataVect.size();
   const int *data = dataVect.data();
   for (int p = 0; p < N; ++p) {
     int w = data[p] + carry;
