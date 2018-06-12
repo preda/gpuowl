@@ -861,8 +861,9 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   
   const int N = 2 * W * H;
   int k, blockSize, nErrors;  
-  vector<u32> check;
 
+  log("[%s] PRP M(%d): FFT %dK (%dx%dx2), %.2f bits/word\n", longTimeStr().c_str(), E, N / 1024, W, H, E / float(N));
+  
   {
     LoadResult loaded = Checkpoint::load(E);
     if (!loaded.ok) {
@@ -872,13 +873,18 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     k = loaded.k;
     blockSize = loaded.blockSize;
     nErrors = loaded.nErrors;
-    check = std::move(loaded.bits);
-  }
+    gpu.writeState(loaded.bits, blockSize);
+    u64 res64 = gpu.dataResidue();
 
-  gpu.writeState(check, blockSize);
-  
-  log("[%s] PRP M(%d): FFT %dK (%dx%dx2), %.2f bits/word, block %d, at iteration %d\n",
-      longTimeStr().c_str(), E, N / 1024, W, H, E / float(N), blockSize, k);
+    if (loaded.res64) {
+      if (res64 == loaded.res64) {
+        log("OK loaded: %d/%d, blockSize %d, %016llx\n", k, E, blockSize, res64);
+      } else {
+        log("EE loaded: %d/%d, blockSize %d, %016llx != %016llx\n", k, E, blockSize, res64, loaded.res64);
+        return false;
+      }
+    }
+  }  
   
   const int kEnd = E;
   assert(k % blockSize == 0 && k < kEnd);
@@ -887,9 +893,9 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
 
   u64 res64 = gpu.dataResidue();
   if (gpu.checkAndUpdate(blockSize)) {
-    log("OK initial check; %016llx\n", res64);
+    log("OK initial check: %016llx\n", res64);
   } else {
-    log("Error at start, will stop. %016llx\n", res64);
+    log("EE initial check: %016llx\n", res64);
     return false;
   }
 
