@@ -455,15 +455,16 @@ public:
 };
 
 // compact 128bits from balanced uncompressed ("raw") words.
-// the first 64 words are "before first" and used only for carry into the first word.
-u128 residueFromRaw(int N, int E, const vector<int> &words) {
+// The words before 'start' are used only for carry into the first word.
+u128 residueFromRaw(int N, int E, const vector<int> &words, int start) {
   assert(words.size() == 128);
+  assert(start == 64 || start == 65);
   int carry = 0;
-  for (int i = 0; i < 64; ++i) { carry = (words[i] + carry < 0) ? -1 : 0; }
+  for (int i = 0; i < start; ++i) { carry = (words[i] + carry < 0) ? -1 : 0; }
   
   u128 res = 0;
   int k = 0, hasBits = 0;
-  for (auto p = words.begin() + 64, end = words.end(); p < end && hasBits < 128; ++p, ++k) {
+  for (auto p = words.begin() + start, end = words.end(); p < end && hasBits < 128; ++p, ++k) {
     int len = bitlen(N, E, k);
     int w = *p + carry;
     carry = (w < 0) ? -1 : 0;
@@ -662,15 +663,20 @@ public:
   }
   
   u64 dataResidue() {
-    u32 startDword = bitposToWord(E, N/2, offsetData);
-    // offsetData * u64(N/2) / E;
-    u32 startBit   = offsetData - wordToBitpos(E, N/2, startDword);
-    // (startDword * u64(E) + ((N/2) - 1)) / (N/2);
+    u32 startWord = bitposToWord(E, N, offsetData);
+    u32 startDword = startWord / 2;
     
-    readResidue.setArg("startDword", startDword);
+    u32 altStartDword = bitposToWord(E, N/2, offsetData);
+    assert(startDword == altStartDword);
+    
+    u32 earlyStart = (startDword + N/2 - 32) % (N/2);
+    readResidue.setArg("startDword", earlyStart);
     readResidue();
     std::vector<int> readBuf = queue.read<int>(bufSmallOut, 128);
-    u128 raw = residueFromRaw(N, E, readBuf);
+
+    u128 raw = residueFromRaw(N, E, readBuf, startWord % 2 + 64);
+
+    u32 startBit   = offsetData - wordToBitpos(E, N, startWord);
     return raw >> startBit;
   }
   
