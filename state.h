@@ -1,5 +1,8 @@
 #pragma once
 
+#include "common.h"
+#include "shared.h"
+
 #include <cstring>
 #include <memory>
 #include <algorithm>
@@ -37,10 +40,12 @@ std::vector<u32> compactBits(const vector<int> &dataVect, int E, int offset) {
   int N = dataVect.size();
   const int *data = dataVect.data();
 
-  int startWord = offset * i64(N) / E;
+  int startWord = bitposToWord(E, N, offset);
+  // offset * i64(N) / E;
   assert(startWord >= 0 && startWord < N);
 
-  int startBit = offset - (startWord * i64(E) + N - 1) / N;
+  int startBit = offset - wordToBitpos(E, N, startWord);
+  // (startWord * i64(E) + N - 1) / N;
   assert(startBit >= 0 && startBit < bitlen(N, E, startWord));
   
   int carry = 0;

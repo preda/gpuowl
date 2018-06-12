@@ -22,6 +22,12 @@
 #define G global
 #endif
 
+// Common type names C++ - OpenCL.
+typedef uint u32;
+typedef ulong u64;
+
+#include "shared.h"
+
 // Number of words
 #define NWORDS (WIDTH * HEIGHT * 2u)
 #define G_W (WIDTH  / NW)
@@ -509,10 +515,10 @@ typedef CP(T2) restrict Trig;
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 // Read 64 Word2 starting at position 'start'.
-KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint start) {
+KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint startDword) {
   // start == bitposToDword(offset);
   uint me = get_local_id(0);
-  uint k = (start + me + (NWORDS / 2 - 32)) % (NWORDS / 2);
+  uint k = (startDword + me + (NWORDS / 2 - 32)) % (NWORDS / 2);
   uint y = k % HEIGHT;
   uint x = k / HEIGHT;
   out[me] = in[WIDTH * y + x];
@@ -546,8 +552,10 @@ KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
   if (isNotZero && !out[0].y) { out[0].y = true; }
 }
 
-uint dwordToBitpos(uint dword) { return 1 + (uint) (EXP * (ulong) dword / (NWORDS / 2)); }
-uint bitposToDword(uint bitpos) { return (NWORDS / 2) * (ulong) bitpos / EXP; }
+uint dwordToBitpos(uint dword) { return wordToBitpos(EXP, NWORDS / 2, dword); }
+// { return (uint) ((EXP * (ulong) dword + ((NWORDS / 2) - 1))/ (NWORDS / 2)); }
+uint bitposToDword(uint bitpos) { return bitposToWord(EXP, NWORDS / 2, bitpos); }
+// { return (NWORDS / 2) * (ulong) bitpos / EXP; }
 
 Word2 readDword(CP(Word2) data, uint k) { return data[k / HEIGHT + WIDTH * (k % HEIGHT)]; }
 

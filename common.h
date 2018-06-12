@@ -8,6 +8,11 @@ typedef long long i64;
 typedef unsigned long long u64;
 typedef int      i32;
 typedef unsigned u32;
+typedef unsigned __int128 u128;
+
+// OpenCL type names. Conflicts with <sys/types.h>.
+// typedef u32 uint;
+// typedef u64 ulong;
 
 static_assert(sizeof(u32) == 4,   "size u32");
 static_assert(sizeof(u64) == 8,   "size u64");

@@ -454,22 +454,22 @@ public:
   }
 };
 
-// compute res64 from balanced uncompressed ("raw") words.
-// the first 64 words are "before first word" and used only for carry into the first word.
-u64 residueFromRaw(int N, int E, const vector<int> &words) {
+// compact 128bits from balanced uncompressed ("raw") words.
+// the first 64 words are "before first" and used only for carry into the first word.
+u128 residueFromRaw(int N, int E, const vector<int> &words) {
   assert(words.size() == 128);
   int carry = 0;
   for (int i = 0; i < 64; ++i) { carry = (words[i] + carry < 0) ? -1 : 0; }
   
-  u64 res = 0;
+  u128 res = 0;
   int k = 0, hasBits = 0;
-  for (auto p = words.begin() + 64, end = words.end(); p < end && hasBits < 64; ++p, ++k) {
+  for (auto p = words.begin() + 64, end = words.end(); p < end && hasBits < 128; ++p, ++k) {
     int len = bitlen(N, E, k);
     int w = *p + carry;
     carry = (w < 0) ? -1 : 0;
     if (w < 0) { w += (1 << len); }
     assert(w >= 0 && w < (1 << len));
-    res |= u64(w) << hasBits;
+    res |= u128(w) << hasBits;
     hasBits += len;    
   }
   return res;
@@ -507,6 +507,9 @@ class Gpu {
   Buffer buf1, buf2, buf3;
   Buffer bufCarry;
   Buffer bufSmallOut;
+
+  int offsetData, offsetCheck;
+  int offsetGoodData, offsetGoodCheck;
   
 public:
   Gpu(int E, int W, int H, cl_program program, cl_context context, cl_queue queue, cl_device_id device, bool timeKernels, bool useSplitTail) :
@@ -551,7 +554,10 @@ public:
     buf2{makeBuf(    context, BUF_RW, bufSize)},
     buf3{makeBuf(    context, BUF_RW, bufSize)},
     bufCarry{makeBuf(context, BUF_RW, bufSize)},
-    bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
+    bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int))),
+
+    offsetData(0), offsetCheck(0),
+    offsetGoodData(0), offsetGoodCheck(0)
   {
     setupWeights<double>(context, bufA, bufI, W, H, E);
 
@@ -615,27 +621,57 @@ public:
   void writeState(const std::vector<u32> &check, int blockSize) {
     std::vector<int> temp = expandBits(check, N, E);
     writeIn(temp, bufCheck);
-    dataFromCheck(blockSize);
+
+    // rebuild bufData based on bufCheck.
+    modSqLoop(bufCheck, bufData, 1, false);
+    for (int i = 0; i < blockSize - 2; ++i) {
+      modMul(bufCheck, bufData, false);
+      modSqLoop(bufData, bufData, 1, false);
+    }
+    modMul(bufCheck, bufData, true);
+
+    offsetData = offsetCheck = 0;
   }
   
-  std::vector<u32> roundtripData() { return roundtripRead(bufData); }
-  std::vector<u32> roundtripCheck() { return roundtripRead(bufCheck); }
+  std::vector<u32> roundtripData() {
+    vector<u32> compact = compactBits(readOut(bufData), E, offsetData);
+    writeIn(expandBits(compact, N, E), bufData);
+    offsetData = 0;
+    return compact;
+  }
+  
+  std::vector<u32> roundtripCheck() {
+    vector<u32> compact = compactBits(readOut(bufCheck), E, offsetCheck);
+    writeIn(expandBits(compact, N, E), bufCheck);
+    offsetCheck = 0;
+    return compact;
+  }
   
   void saveGood() {
     queue.copy<int>(bufData, bufGoodData, N);
     queue.copy<int>(bufCheck, bufGoodCheck, N);
+    offsetGoodData  = offsetData;
+    offsetGoodCheck = offsetCheck;
   }
 
   void revertGood() {
     queue.copy<int>(bufGoodData, bufData, N);
     queue.copy<int>(bufGoodCheck, bufCheck, N);
+    offsetData  = offsetGoodData;
+    offsetCheck = offsetGoodCheck;
   }
   
   u64 dataResidue() {
-    readResidue.setArg("start", 0);
+    u32 startDword = bitposToWord(E, N/2, offsetData);
+    // offsetData * u64(N/2) / E;
+    u32 startBit   = offsetData - wordToBitpos(E, N/2, startDword);
+    // (startDword * u64(E) + ((N/2) - 1)) / (N/2);
+    
+    readResidue.setArg("startDword", startDword);
     readResidue();
     std::vector<int> readBuf = queue.read<int>(bufSmallOut, 128);
-    return residueFromRaw(N, E, readBuf);
+    u128 raw = residueFromRaw(N, E, readBuf);
+    return raw >> startBit;
   }
   
   void updateCheck() { modMul(bufData, bufCheck, false); }
@@ -673,12 +709,14 @@ private:
     transposeIn.setArg("out", buf);
     transposeIn();
   }
-  
+
+  /*
   std::vector<u32> roundtripRead(Buffer &buf) {    
-    vector<u32> compact = compactBits(readOut(buf), E, 0);
+    vector<u32> compact = compactBits(readOut(buf), E, );
     writeIn(expandBits(compact, N, E), buf);
     return compact;
   }
+  */
     
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
   // Optional multiply-by-3 at the end.
@@ -706,16 +744,6 @@ private:
     transposeH();
     exitKerns(io, doMul3);
   };
-
-  // rebuild bufData based on bufCheck.
-  void dataFromCheck(int blockSize) {
-    modSqLoop(bufCheck, bufData, 1, false);
-    for (int i = 0; i < blockSize - 2; ++i) {
-      modMul(bufCheck, bufData, false);
-      modSqLoop(bufData, bufData, 1, false);
-    }
-    modMul(bufCheck, bufData, true);
-  }
   
   void carry() {
     fftW();
