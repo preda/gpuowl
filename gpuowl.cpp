@@ -33,7 +33,7 @@
 #define REV
 #endif
 
-#define VERSION "2.2-" REV
+#define VERSION "2.3-" REV
 #define PROGRAM "gpuowl"
 
 static volatile int stopRequested = 0;
@@ -229,7 +229,7 @@ std::string timeStr() {
   time_t t = time(NULL);
   char buf[64];
   // equivalent to: "%F %T"
-  strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", gmtime(&t));
+  strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S UTC", gmtime(&t));
   return buf;
 }
 
@@ -337,13 +337,53 @@ struct LoadResult {
   int k;
   int blockSize;
   int nErrors;
-  vector<u32> bits;    
+  vector<u32> bits;
+  u64 res64;
 };
 
 class Checkpoint {
 private:
   static constexpr const int BLOCK_SIZE = 200;
 
+  struct HeaderV5 {
+    static constexpr const char *HEADER_R = R"(OWL 5
+Comment: %255[^
+]
+Type: PRP
+Exponent: %d
+Iteration: %d
+PRP-block-size: %d
+Residue-64: 0x%016llx
+Errors: %d
+End-of-header:
+\0)";
+
+    static constexpr const char *HEADER_W = R"(OWL 5
+Comment: %s
+Type: PRP
+Exponent: %d
+Iteration: %d
+PRP-block-size: %d
+Residue-64: 0x%016llx
+Errors: %d
+End-of-header:
+\0)";
+
+    int E, k, blockSize;
+    int nErrors;
+    u64 res64;
+    string comment;
+    
+    bool parse(FILE *fi) {
+      char buf[256];
+      bool ok = fscanf(fi, HEADER_R, buf, &E, &k, &blockSize, &res64, &nErrors) == 6;
+      if (ok) { comment = buf; }
+      return ok;
+    }
+    
+    bool write(FILE *fo) { return (fprintf(fo, HEADER_W, comment.c_str(), E, k, blockSize, res64, nErrors) > 0); }
+  };
+  
   struct HeaderV4 {
     // <exponent> <iteration> <nErrors> <check-step> <checksum>
     static constexpr const char *HEADER = "OWL 4 %d %d %d %d %016llx\n";
@@ -371,16 +411,16 @@ private:
     return fread(out.data(), n * sizeof(u32), 1, fi);
   }
   
-  static bool write(int E, const string &name, const std::vector<u32> &check, int k, int nErrors, int checkStep) {
+  static bool write(int E, const string &name, const std::vector<u32> &check, int k, int nErrors, int blockSize, u64 res64) {
     const int nWords = (E - 1) / 32 + 1;
     assert(int(check.size()) == nWords);
 
-    u64 sum = checksum(check);
-    HeaderV4 header{E, k, nErrors, checkStep, sum};
+    // u64 sum = checksum(check);
+    HeaderV5 header{E, k, blockSize, nErrors, res64, string("gpuOwL v") + VERSION + "; " + timeStr()};
     auto fo(open(name, "wb"));
     return fo
       && header.write(fo.get())
-      && write(fo.get(), check);
+      && fwrite(check.data(), (E - 1)/8 + 1, 1, fo.get());
   }
 
   static std::string fileName(int E) { return std::to_string(E) + ".owl"; }
@@ -402,6 +442,23 @@ public:
     
     const int nWords = (E - 1) / 32 + 1;
     
+    {
+      auto fi{open(fileName(E), "rb", false)};    
+      if (!fi) {
+        std::vector<u32> check(nWords);
+        check[0] = 1;
+        return {true, 0, BLOCK_SIZE, 0, check};
+      }
+
+      HeaderV5 header;
+      if (header.parse(fi.get())) {
+        assert(header.E == E);
+        std::vector<u32> check(nWords);
+        if (!fread(check.data(), (E - 1) / 8 + 1, 1, fi.get())) { return {false}; }
+        return {true, header.k, header.blockSize, header.nErrors, check, header.res64};
+      }
+    }
+
     auto fi{open(fileName(E), "rb", false)};    
     if (!fi) {
       std::vector<u32> check(nWords);
@@ -411,16 +468,13 @@ public:
     
     char line[256];
     if (!fgets(line, sizeof(line), fi.get())) { return {false}; }
-    
+
     {
       HeaderV4 header;
       if (header.parse(line)) {
         assert(header.E == E);
         std::vector<u32> check;
-        if (!read(fi.get(), nWords, check) ||
-            header.checksum != checksum(check)) {
-          return {false};
-        }
+        if (!read(fi.get(), nWords, check) || header.checksum != checksum(check)) { return {false}; }
         return {true, header.k, header.checkStep, header.nErrors, check};
       }
     }
@@ -441,13 +495,13 @@ public:
     return {false};
   }
   
-  static void save(int E, const vector<u32> &check, int k, int nErrors, int checkStep) {
+  static void save(int E, const vector<u32> &check, int k, int nErrors, int checkStep, u64 res64) {
     string saveFile = fileName(E);
     string strE = std::to_string(E);
     string tempFile = strE + "-temp.owl";
     string prevFile = strE + "-prev.owl";
     
-    if (write(E, tempFile, check, k, nErrors, checkStep)) {
+    if (write(E, tempFile, check, k, nErrors, checkStep, res64)) {
       remove(prevFile.c_str());
       rename(saveFile.c_str(), prevFile.c_str());
       rename(tempFile.c_str(), saveFile.c_str());
@@ -455,7 +509,7 @@ public:
     const int persistStep = 20'000'000;
     if (k && (k % persistStep == 0)) {
       string persistFile = strE + "." + std::to_string(k) + ".owl";
-      write(E, persistFile, check, k, nErrors, checkStep);
+      write(E, persistFile, check, k, nErrors, checkStep, res64);
     }
   }
 };
@@ -877,13 +931,15 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     k += blockSize;
     auto delta = timer.deltaMillis();
     stats.add(delta * (1/float(blockSize)));
+
+    bool doStop = stopRequested;
     
-    if (stopRequested) {
+    if (doStop) {
       log("\nStopping, please wait..\n");
       signal(SIGINT, oldHandler);
     }
 
-    bool doCheck = (k % 50000 == 0) || (k >= kEnd) || stopRequested || (k - startK == 2 * blockSize);
+    bool doCheck = (k % 50000 == 0) || (k >= kEnd) || doStop || (k - startK == 2 * blockSize);
     if (!doCheck) {
       gpu.updateCheck();
       if (k % 10000 == 0) { doSmallLog(E, k, gpu.dataResidue(), stats, args.cpu); }
@@ -891,7 +947,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     }
 
     u64 res = gpu.dataResidue();
-    bool wouldSave = k < kEnd && ((k % 100000 == 0) || stopRequested);
+    bool wouldSave = k < kEnd && ((k % 100000 == 0) || doStop);
 
     // Read GPU state before "check" is updated in gpu.checkAndUpdate().
     std::vector<u32> compactCheck = wouldSave ? gpu.roundtripCheck() : vector<u32>();
@@ -899,7 +955,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     bool ok = gpu.checkAndUpdate(blockSize);
     bool doSave = wouldSave && ok;
     if (doSave) {
-      Checkpoint::save(E, compactCheck, k, nErrors, blockSize);
+      Checkpoint::save(E, compactCheck, k, nErrors, blockSize, res);
       
       // just for debug's sake, verify residue match.
       std::vector<u32> compactData = gpu.roundtripData();
@@ -928,7 +984,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       log("Rolled back to last good iteration %d\n", goodK);
     }
     if (args.timeKernels) { gpu.logTimeKernels(); }
-    if (stopRequested) { return false; }
+    if (doStop) { return false; }
   }
 }
 
