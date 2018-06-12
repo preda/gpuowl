@@ -715,14 +715,6 @@ private:
     transposeIn.setArg("out", buf);
     transposeIn();
   }
-
-  /*
-  std::vector<u32> roundtripRead(Buffer &buf) {    
-    vector<u32> compact = compactBits(readOut(buf), E, );
-    writeIn(expandBits(compact, N, E), buf);
-    return compact;
-  }
-  */
     
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
   // Optional multiply-by-3 at the end.
@@ -884,14 +876,24 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
     }
 
     u64 res = gpu.dataResidue();
-    bool wouldSave = k < kEnd && ((k % 100000 == 0) || stopRequested);    
-    std::vector<u32> compactCheck;
+    bool wouldSave = k < kEnd && ((k % 100000 == 0) || stopRequested);
+
     // Read GPU state before "check" is updated in gpu.checkAndUpdate().
-    if (wouldSave) { compactCheck = gpu.roundtripCheck(); }
+    std::vector<u32> compactCheck = wouldSave ? gpu.roundtripCheck() : vector<u32>();
     
     bool ok = gpu.checkAndUpdate(blockSize);
     bool doSave = wouldSave && ok;
-    if (doSave) { Checkpoint::save(E, compactCheck, k, nErrors, blockSize); }
+    if (doSave) {
+      Checkpoint::save(E, compactCheck, k, nErrors, blockSize);
+      
+      // just for debug's sake, verify residue match.
+      std::vector<u32> compactData = gpu.roundtripData();
+      u64 resAux = (u64(compactData[1]) << 32) | compactData[0];
+      if (resAux != res) {
+        log("Residue mismatch: %016llx %016llx\n", res, resAux);
+        return false;
+      }
+    }
     doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave, args.cpu);
     
     if (ok) {
