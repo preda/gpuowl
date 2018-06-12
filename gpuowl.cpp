@@ -332,9 +332,17 @@ bool isAllZero(const std::vector<u32> &vect) {
   return true;
 }
 
+struct LoadResult {
+  bool ok;
+  int k;
+  int blockSize;
+  int nErrors;
+  vector<u32> bits;    
+};
+
 class Checkpoint {
 private:
-  static constexpr const int CHECK_STEP = 200;
+  static constexpr const int BLOCK_SIZE = 200;
 
   struct HeaderV4 {
     // <exponent> <iteration> <nErrors> <check-step> <checksum>
@@ -358,10 +366,9 @@ private:
   };
   
   static bool write(FILE *fo, const vector<u32> &vect) { return fwrite(vect.data(), vect.size() * sizeof(vect[0]), 1, fo); }
-  static std::vector<u32> read(FILE *fi, int n) {
-    std::vector<u32> vect(n);
-    if (fread(vect.data(), n * sizeof(vect[0]), 1, fi)) { return std::move(vect); }
-    throw "Read";
+  static bool read(FILE *fi, int n, vector<u32> &out) {
+    out.resize(n);
+    return fread(out.data(), n * sizeof(u32), 1, fi);
   }
   
   static bool write(int E, const string &name, const std::vector<u32> &check, int k, int nErrors, int checkStep) {
@@ -390,49 +397,48 @@ private:
   
 public:
   
-  static std::vector<u32> load(int E, int *k, int *nErrors, int *checkStep) {
-    *k = 0;
-    *nErrors = 0;
-    *checkStep = CHECK_STEP;    
+  static LoadResult load(int E) {
+    // LoadResult ret{true, 0, BLOCK_SIZE, 0};
+    
     const int nWords = (E - 1) / 32 + 1;
     
     auto fi{open(fileName(E), "rb", false)};    
     if (!fi) {
       std::vector<u32> check(nWords);
       check[0] = 1;
-      return check;
+      return {true, 0, BLOCK_SIZE, 0, check};
     }
     
     char line[256];
-    if (!fgets(line, sizeof(line), fi.get())) { throw "checkpoint read header"; }
+    if (!fgets(line, sizeof(line), fi.get())) { return {false}; }
     
     {
       HeaderV4 header;
       if (header.parse(line)) {
         assert(header.E == E);
-        *k = header.k;
-        *nErrors = header.nErrors;
-        *checkStep = header.checkStep;
-        std::vector<u32> check = read(fi.get(), nWords);
-        assert(header.checksum == checksum(check));
-        return check;
-      }        
+        std::vector<u32> check;
+        if (!read(fi.get(), nWords, check) ||
+            header.checksum != checksum(check)) {
+          return {false};
+        }
+        return {true, header.k, header.checkStep, header.nErrors, check};
+      }
     }
 
     {
       HeaderV3 header;
       if (header.parse(line)) {
         assert(header.E == E);
-        *k = header.k;
-        *nErrors = header.nErrors;
-        *checkStep = header.checkStep;
-        std::vector<u32> data  = read(fi.get(), nWords);
-        std::vector<u32> check = read(fi.get(), nWords);
-        return check;
-        // return State(E, std::move(data), std::move(check));
+        std::vector<u32> data, check;
+        if (!read(fi.get(), nWords, data) ||
+            !read(fi.get(), nWords, check)) {
+          return {false};
+        }
+        return {true, header.k, header.checkStep, header.nErrors, check};        
       }
     }
-    throw "Checkpoint load";
+
+    return {false};
   }
   
   static void save(int E, const vector<u32> &check, int k, int nErrors, int checkStep) {
@@ -798,15 +804,24 @@ private:
 
 bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
                 bool *outIsPrime, u64 *outResidue, int *outNErrors) {
+  
   const int N = 2 * W * H;
-  int nErrors = 0;
-  int k = 0;
-  int blockSize = 0;
+  int k, blockSize, nErrors;  
+  vector<u32> check;
 
   {
-    vector<u32> check = Checkpoint::load(E, &k, &nErrors, &blockSize);
-    gpu.writeState(check, blockSize);
+    LoadResult loaded = Checkpoint::load(E);
+    if (!loaded.ok) {
+      log("Invalid checkpoint for exponent %d\n", E);
+      return false;
+    }
+    k = loaded.k;
+    blockSize = loaded.blockSize;
+    nErrors = loaded.nErrors;
+    check = std::move(loaded.bits);
   }
+
+  gpu.writeState(check, blockSize);
   
   log("[%s] PRP M(%d): FFT %dK (%dx%dx2), %.2f bits/word, block %d, at iteration %d\n",
       longTimeStr().c_str(), E, N / 1024, W, H, E / float(N), blockSize, k);
