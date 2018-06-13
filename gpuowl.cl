@@ -575,6 +575,12 @@ ulong getWordBits(Word2 word, uint k, uint *outNBits, int *carryInOut) {
   } else {
     *carryInOut = 0;
   }
+  /*
+  if (word.y < 0) {
+    word.y += (1 << n2);
+    *carryInOut -= 1;
+  }
+  */
   
   return (((ulong) word.y) << n1) | word.x;
 }
@@ -616,7 +622,7 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
     k2 = (k2 + 1) % (NWORDS / 2);
     uint n;
     ulong bits = readDwordBits(in2, k2, &n, &carry2);
-    bits2 = (bits2 << n) | bits;
+    bits2 |= (bits << nBits2);
     nBits2 += n;
   }
   
@@ -626,8 +632,10 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
 
   // find a carry1 (-1, 0, or 1) that achieves bits1 == bits2 if possible.
   uint m = min(nBits1, nBits2);
-  carry1 = maskBits(bits2, m) - maskBits(bits1, m);
+  // carry1 = ((long) maskBits(bits2, m)) - ((long) maskBits(bits1, m));
+  carry1 = ((long) (maskBits(bits2, m) - maskBits(bits1, m))) << (64 - m) >> (64 - m);
   if (abs(carry1) > 1) { out[0] = false; return; }
+    // out[1] = bitInWord; out[2] = nBits1; out[3] = nBits2; out[4] = carry1; out[5] = bits1; out[6] = bits2; return; }
 
   nBits1 = 0;
 

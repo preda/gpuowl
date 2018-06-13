@@ -438,8 +438,6 @@ End-of-header:
 public:
   
   static LoadResult load(int E) {
-    // LoadResult ret{true, 0, BLOCK_SIZE, 0};
-    
     const int nWords = (E - 1) / 32 + 1;
     
     {
@@ -447,7 +445,7 @@ public:
       if (!fi) {
         std::vector<u32> check(nWords);
         check[0] = 1;
-        return {true, 0, BLOCK_SIZE, 0, check};
+        return {true, 0, BLOCK_SIZE, 0, check, 0x3};
       }
 
       HeaderV5 header;
@@ -515,15 +513,15 @@ public:
 };
 
 // compact 128bits from balanced uncompressed ("raw") words.
-// The words before 'start' are used only for carry into the first word.
-u128 residueFromRaw(int N, int E, const vector<int> &words, int start) {
+u128 residueFromRaw(int N, int E, const vector<int> &words, int startWord) {
+  int start = startWord % 2 + 64;
   assert(words.size() == 128);
   assert(start == 64 || start == 65);
   int carry = 0;
   for (int i = 0; i < start; ++i) { carry = (words[i] + carry < 0) ? -1 : 0; }
   
   u128 res = 0;
-  int k = 0, hasBits = 0;
+  int k = startWord, hasBits = 0;
   for (auto p = words.begin() + start, end = words.end(); p < end && hasBits < 128; ++p, ++k) {
     int len = bitlen(N, E, k);
     int w = *p + carry;
@@ -550,6 +548,7 @@ class Gpu {
   Kernel fftH;
   Kernel carryA;
   Kernel carryM;
+  Kernel shift;
   Kernel carryB;
   Kernel transposeW;
   Kernel transposeH;
@@ -588,6 +587,7 @@ public:
     LOAD(fftH, hN / nH),    
     LOAD(carryA, hN / 16),
     LOAD(carryM, hN / 16),
+    LOAD(shift,  hN / 16),
     LOAD(carryB, hN / 16),
     LOAD(transposeW, (W/64) * (H/64) * 256),
     LOAD(transposeH, (W/64) * (H/64) * 256),
@@ -647,6 +647,9 @@ public:
     carryM.setArg("in", buf1);
     carryM.setArg("A", bufI);
     carryM.setArg("carryOut", bufCarry);
+
+    shift.setArg("io", bufData);
+    shift.setArg("carryOut", bufCarry);
 
     carryB.setArg("carryIn", bufCarry);
   
@@ -722,46 +725,119 @@ public:
     offsetCheck = offsetGoodCheck;
   }
   
-  u64 dataResidue() {
+  u64 dataResidue() { return bufResidue(bufData, offsetData); }
+  /*
     u32 startWord = bitposToWord(E, N, offsetData);
     u32 startDword = startWord / 2;
     
-    u32 altStartDword = bitposToWord(E, N/2, offsetData);
-    assert(startDword == altStartDword);
+    // u32 altStartDword = bitposToWord(E, N/2, offsetData);
+    // assert(startDword == altStartDword);
     
     u32 earlyStart = (startDword + N/2 - 32) % (N/2);
-    readResidue.setArg("startDword", earlyStart);
-    readResidue();
-    std::vector<int> readBuf = queue.read<int>(bufSmallOut, 128);
+    vector<int> readBuf = readSmall(bufData, earlyStart);
 
     u128 raw = residueFromRaw(N, E, readBuf, startWord % 2 + 64);
 
     u32 startBit   = offsetData - wordToBitpos(E, N, startWord);
     return raw >> startBit;
   }
+  */
   
-  void updateCheck() { modMul(bufData, bufCheck, false); }
+  void updateCheck() {
+    modMul(bufData, bufCheck, false);
+    offsetCheck = (offsetCheck + offsetData) % E;
+  }
   
   // Does not change "data". Updates "check".
-  bool checkAndUpdate(int blockSize) {
+  bool checkAndUpdate(int blockSize) {    
     modSqLoop(bufCheck, bufAux, blockSize, true);
+    u32 offsetAux = pow2(blockSize) * u64(offsetCheck) % E;
+    
     updateCheck();
 
+    u32 deltaOffset = (E + offsetAux - offsetCheck) % E;
+    compare.setArg("offset", deltaOffset);
     compare();
-    auto readBuf1 = queue.read<int>(bufSmallOut, 2);
-    bool isEqual1   = readBuf1[0];
-    bool isNotZero1 = readBuf1[1];
-        
+    auto readBuf = queue.read<int>(bufSmallOut, 2);
+    bool isEqual   = readBuf[0];
+    bool isNotZero = readBuf[1];
+    /*
+    printf("off %d %d %d %d; %d %d %d %d %d %08x %08x\n", offsetData, offsetCheck, offsetAux, deltaOffset, (int)isEqual1, readBuf1[1],
+           readBuf1[2], readBuf1[3], readBuf1[4], readBuf1[5], readBuf1[6]);
+    */
+    bool ok = isEqual && isNotZero;
+    if (!ok) {
+      u64 a = bufResidue(bufCheck, offsetCheck);
+      u64 b = bufResidue(bufAux, offsetAux);
+      printf("R %016llx %016llx\n", a, b);
+
+      /*
+      vector<int> v1 = readSmall(bufCheck, 0);
+      vector<int> v2 = readSmall(bufAux, 0);
+      for (int i = 0; i < 4; ++i) {
+        printf("%d %d %x, %d %x\n", i, v1[i], v1[i], v2[i], v2[i]);
+      }
+      */
+    }
+    /*
     doCheck();
     auto readBuf = queue.read<int>(bufSmallOut, 2);
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
-    return isEqual && isNotZero && isEqual1 && isNotZero1;
+    */
+    return ok;
   }
 
-  void dataLoop(int reps) { modSqLoop(bufData, bufData, reps, false); }
+  void dataLoop(int reps) {
+    modSqLoop(bufData, bufData, reps, false);
+    offsetData = pow2(reps) * u64(offsetData) % E;
+  }
+
+  void doShift() {
+    shift();
+    carryB.setArg("io", bufData);
+    carryB();
+    offsetData = (offsetData + 1) % E;
+  }
   
 private:
+  u64 bufResidue(Buffer &buf, u32 offset) {
+    u32 startWord = bitposToWord(E, N, offset);
+    u32 startDword = startWord / 2;
+    
+    // u32 altStartDword = bitposToWord(E, N/2, offsetData);
+    // assert(startDword == altStartDword);
+    
+    u32 earlyStart = (startDword + N/2 - 32) % (N/2);
+    vector<int> readBuf = readSmall(buf, earlyStart);
+
+    u128 raw = residueFromRaw(N, E, readBuf, startWord);
+
+    u32 startBit   = offset - wordToBitpos(E, N, startWord);
+    return raw >> startBit;
+  }
+  
+  vector<int> readSmall(Buffer &buf, u32 start) {
+    readResidue.setArg("in", buf);
+    readResidue.setArg("startDword", start);
+    readResidue();
+    return queue.read<int>(bufSmallOut, 128);                    
+  }
+  
+  // 2**n % E
+  u32 pow2(int n) {
+    assert(n > 0 && n < 1024); // assert((n >> 10) == 0);
+    int i = 9;
+    while ((n >> i) == 0) { --i; }
+    --i;
+    u32 x = 2;
+    for (; i >= 0; --i) {
+      x = (x * u64(x)) % E;
+      if (n & (1 << i)) { x = (2 * x) % E; }      
+    }
+    return x;
+  }
+  
   vector<int> readOut(Buffer &buf) {
     transposeOut.setArg("in", buf);
     transposeOut.setArg("out", bufAux);
@@ -892,10 +968,13 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   oldHandler = signal(SIGINT, myHandler);
 
   u64 res64 = gpu.dataResidue();
+  gpu.doShift();
+  u64 res2 = gpu.dataResidue();
+  
   if (gpu.checkAndUpdate(blockSize)) {
     log("OK initial check: %016llx\n", res64);
   } else {
-    log("EE initial check: %016llx\n", res64);
+    log("EE initial check: %016llx %016llx\n", res64, res2);
     return false;
   }
 
