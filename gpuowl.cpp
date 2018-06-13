@@ -985,8 +985,11 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
 
   // Residue at the most recent error. Used for persistent-error detection.
   // Set it to something randomly so it's not easily hit by bad luck.
-  const u64 randomResidue = 0xbad0beefdeadbeefull;
-  u64 errorResidue = randomResidue;
+  // const u64 randomResidue = 0xbad0beefdeadbeefull;
+  // u64 errorResidue = randomResidue;
+
+  // Number of sequential errors with no success in between. If this ever gets high enough, stop.
+  int nSeqErrors = 0;
   
   Timer timer;
   while (true) {
@@ -1056,13 +1059,14 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       if (k >= kEnd) { return true; }
       gpu.saveGood();
       goodK = k;
-      errorResidue = randomResidue;
+      // errorResidue = randomResidue;
+      nSeqErrors = 0;
     } else {
-      if (errorResidue == res) {
-        log("Persistent error; will stop.\n");
+      if (++nSeqErrors > 10) {
+        log("%d sequential errors, will stop.\n", nSeqErrors);
         return false;
       }
-      errorResidue = res;
+      // errorResidue = res;
       ++nErrors;
       gpu.revertGood();
       k = goodK;
