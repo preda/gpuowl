@@ -116,11 +116,13 @@ T2 weightAux(Word x, Word y, T2 weight) { return U2(x, y) * fabs(weight); }
 
 T2 weight(Word2 a, T2 w) { return weightAux(a.x, a.y, w); }
 
+/*
 T2 carryAndWeight(Word2 u, Carry *carry, T2 weight) {
   Word x = carryStep(u.x, carry, oldBitlen(weight.x));
   Word y = carryStep(u.y, carry, oldBitlen(weight.y));
   return weightAux(x, y, weight);
 }
+*/
 
 // No carry out. The final carry is "absorbed" in the last word.
 T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w) {
