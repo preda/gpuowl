@@ -437,7 +437,7 @@ End-of-header:
   
 public:
   
-  static LoadResult load(int E) {
+  static LoadResult load(int E, int preferredBlockSize) {
     const int nWords = (E - 1) / 32 + 1;
     
     {
@@ -445,7 +445,7 @@ public:
       if (!fi) {
         std::vector<u32> check(nWords);
         check[0] = 1;
-        return {true, 0, BLOCK_SIZE, 0, check, 0x3};
+        return {true, 0, preferredBlockSize, 0, check, 0x3};
       }
 
       HeaderV5 header;
@@ -768,24 +768,10 @@ public:
            readBuf1[2], readBuf1[3], readBuf1[4], readBuf1[5], readBuf1[6]);
     */
     bool ok = isEqual && isNotZero;
-    if (!ok) {
-      u64 a = bufResidue(bufCheck, offsetCheck);
-      u64 b = bufResidue(bufAux, offsetAux);
-      printf("R %016llx %016llx\n", a, b);
-
-      /*
-      vector<int> v1 = readSmall(bufCheck, 0);
-      vector<int> v2 = readSmall(bufAux, 0);
-      for (int i = 0; i < 4; ++i) {
-        printf("%d %d %x, %d %x\n", i, v1[i], v1[i], v2[i], v2[i]);
-      }
-      */
-    }
     /*
-    doCheck();
-    auto readBuf = queue.read<int>(bufSmallOut, 2);
-    bool isEqual   = readBuf[0];
-    bool isNotZero = readBuf[1];
+    u64 a = bufResidue(bufCheck, offsetCheck);
+    u64 b = bufResidue(bufAux, offsetAux);
+    printf("R %016llx %016llx\n", a, b);
     */
     return ok;
   }
@@ -936,7 +922,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   log("[%s] PRP M(%d): FFT %dK (%dx%dx2), %.2f bits/word\n", longTimeStr().c_str(), E, N / 1024, W, H, E / float(N));
   
   {
-    LoadResult loaded = Checkpoint::load(E);
+    LoadResult loaded = Checkpoint::load(E, args.blockSize);
     if (!loaded.ok) {
       log("Invalid checkpoint for exponent %d\n", E);
       return false;
@@ -956,6 +942,8 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       }
     }
   }  
+
+  const int checkStep = blockSize == 200 ? 50000 : (blockSize * blockSize);
   
   const int kEnd = E;
   assert(k % blockSize == 0 && k < kEnd);
@@ -1022,7 +1010,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       signal(SIGINT, oldHandler);
     }
 
-    bool doCheck = (k % 50000 == 0) || (k >= kEnd) || doStop || (k - startK == 2 * blockSize);
+    bool doCheck = (k % checkStep == 0) || (k >= kEnd) || doStop || (k - startK == 2 * blockSize);
     if (!doCheck) {
       gpu.updateCheck();
       if (k % 10000 == 0) { doSmallLog(E, k, gpu.dataResidue(), stats, args.cpu); }
@@ -1066,7 +1054,7 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       gpu.revertGood();
       k = goodK;
       auto offsets = gpu.getOffsets();
-      log("Rolled back to last good iteration %d. Offsets are now: data %d, check %d\n", goodK, offsets.first, offsets.second);
+      log("Back to last good iteration %d. Offsets are: data %d, check %d\n", goodK, offsets.first, offsets.second);
     }
     if (args.timeKernels) { gpu.logTimeKernels(); }
     if (doStop) { return false; }

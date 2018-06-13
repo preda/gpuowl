@@ -17,12 +17,14 @@ struct Args {
   bool timeKernels;
   int carry;
   int tail;
+  int blockSize;
   
   Args() :
     device(-1),
     timeKernels(false),
     carry(CARRY_LONG),
-    tail(TAIL_FUSED)
+    tail(TAIL_FUSED),
+    blockSize(200)    
   { }
   
   // return false to stop.
@@ -37,10 +39,9 @@ Command line options:
 -cpu  <name>      : specify the hardware name.
 -time             : display kernel profiling information.
 -tail fused|split : selects tail kernels variant (default 'fused').
-
--carry long|short : selects carry propagation (default 'long').
-    Long carry is safe but may be slower. 'short' may be used only with bits-per-word >= 15.
-
+-block 10 | 20 | 200 : selects PRP self-check block size.
+                    Smaller block is slower, but recovers faster from errors.
+                    Can only be changed when starting a new test.
 -device <N>   : select specific device among:
 )""");
       
@@ -101,7 +102,19 @@ Command line options:
       }
       log("-tail expects fused|split\n");
       return false;      
-    } else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {
+    } else if (!strcmp(arg, "-block")) {
+      if (i < argc - 1) {
+        std::string s = argv[++i];
+        if (s == "10" || s == "20" || s == "200") {
+          blockSize = atoi(s.c_str());
+          continue;
+        }
+      }
+      log("-block expects 10 | 20 | 200\n");
+      return false;      
+    } 
+
+    else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {
       if (i < argc - 1) {
         device = atoi(argv[++i]);
         int nDevices = getNumberOfDevices();
