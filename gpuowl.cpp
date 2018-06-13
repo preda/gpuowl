@@ -648,7 +648,7 @@ public:
     carryM.setArg("A", bufI);
     carryM.setArg("carryOut", bufCarry);
 
-    shift.setArg("io", bufData);
+    // shift.setArg("io", bufData);
     shift.setArg("carryOut", bufCarry);
 
     carryB.setArg("carryIn", bufCarry);
@@ -719,29 +719,31 @@ public:
   }
 
   void revertGood() {
+    // Shift good data by 1.
+    shift.setArg("io", bufGoodData);
+    shift();
+    carryB.setArg("io", bufGoodData);
+    carryB();
+    offsetGoodData = (offsetGoodData + 1) % E;
+    
     queue.copy<int>(bufGoodData, bufData, N);
     queue.copy<int>(bufGoodCheck, bufCheck, N);
     offsetData  = offsetGoodData;
     offsetCheck = offsetGoodCheck;
   }
-  
-  u64 dataResidue() { return bufResidue(bufData, offsetData); }
+
+  std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
+
   /*
-    u32 startWord = bitposToWord(E, N, offsetData);
-    u32 startDword = startWord / 2;
-    
-    // u32 altStartDword = bitposToWord(E, N/2, offsetData);
-    // assert(startDword == altStartDword);
-    
-    u32 earlyStart = (startDword + N/2 - 32) % (N/2);
-    vector<int> readBuf = readSmall(bufData, earlyStart);
-
-    u128 raw = residueFromRaw(N, E, readBuf, startWord % 2 + 64);
-
-    u32 startBit   = offsetData - wordToBitpos(E, N, startWord);
-    return raw >> startBit;
+  void doShift() {
+    shift();
+    carryB.setArg("io", bufData);
+    carryB();
+    offsetData = (offsetData + 1) % E;
   }
   */
+  
+  u64 dataResidue() { return bufResidue(bufData, offsetData); }
   
   void updateCheck() {
     modMul(bufData, bufCheck, false);
@@ -791,13 +793,6 @@ public:
   void dataLoop(int reps) {
     modSqLoop(bufData, bufData, reps, false);
     offsetData = pow2(reps) * u64(offsetData) % E;
-  }
-
-  void doShift() {
-    shift();
-    carryB.setArg("io", bufData);
-    carryB();
-    offsetData = (offsetData + 1) % E;
   }
   
 private:
@@ -968,13 +963,13 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
   oldHandler = signal(SIGINT, myHandler);
 
   u64 res64 = gpu.dataResidue();
-  gpu.doShift();
-  u64 res2 = gpu.dataResidue();
+  // gpu.doShift();
+  // u64 res2 = gpu.dataResidue();
   
   if (gpu.checkAndUpdate(blockSize)) {
     log("OK initial check: %016llx\n", res64);
   } else {
-    log("EE initial check: %016llx %016llx\n", res64, res2);
+    log("EE initial check: %016llx\n", res64);
     return false;
   }
 
@@ -1070,7 +1065,8 @@ bool checkPrime(Gpu &gpu, int W, int H, int E, cl_queue queue, cl_context contex
       ++nErrors;
       gpu.revertGood();
       k = goodK;
-      log("Rolled back to last good iteration %d\n", goodK);
+      auto offsets = gpu.getOffsets();
+      log("Rolled back to last good iteration %d. Offsets are now: data %d, check %d\n", goodK, offsets.first, offsets.second);
     }
     if (args.timeKernels) { gpu.logTimeKernels(); }
     if (doStop) { return false; }
