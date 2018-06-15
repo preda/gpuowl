@@ -26,31 +26,13 @@ exponent and the assignment ID (AID) from PrimeNet.
 * Run gpuowl. It prints progress report on stdout and in gpuowl.log, and writes result lines to results.txt
 * Submit the result lines from results.txt to http://mersenne.org/ manual testing.
 
-
 ## Build
 To build simply invoke "make" (or look inside the Makefile for a manual build).
 
 * a C++ compiler (e.g. gcc, clang)
 * an OpenCL implementation (which provides the **libOpenCL** library). Recommended: an AMD GPU with ROCm 1.7.
 
-
 ## See \"gpuowl -h\" for the command line options:
 
-```
-gpuOwL v2.0 GPU Mersenne primality checker
-Command line options:
-
--user <name>  : specify the user name.
--cpu  <name>  : specify the hardware name.
--longCarry    : use not-fused carry kernels (may be slower).
--longTail     : use not-fused tail kernels  (may be slower).
--dump <path>  : dump compiled ISA to the folder <path> that must exist.
--verbosity <level> : change amount of information logged. [0-2, default 0].
--device <N>   : select specific device among:
-    0 : Vega [Radeon RX Vega] 64 @83:0.0, gfx900 1630MHz
-```
-
 ## Self-test
-Right now there is no explicit self-testing in GpuOwl. Simply start GpuOwl with any valid exponent, and the built-in error
-checking kicks in, implicitly validating the computation. If you start seeing output lines with "OK", than it's working correctly.
-"EE" lines indicate computation errors.
+Simply start GpuOwl with any valid exponent, and the built-in error checking kicks in, validating the computation. If you start seeing output lines with "OK", than it's working correctly. "EE" lines indicate computation errors.
