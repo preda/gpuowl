@@ -1,17 +1,8 @@
-# GpuOwL 2.0
-GpuOwL is a Mersenne prime tester for GPUs. See the GIMPS project for context: http://mersenne.org/
+# gpuOwl
+gpuOwl is a Mersenne (see http://mersenne.org/ ) primality tester implemented in OpenCL, that works well on AMD GPUs.
 
-GpuOwl is implemented in OpenCL. It is known to work best on AMD GPUs, and may also work on Nvidia GPUs.
-
-GpuOwl 2.0 extends the FFT size to 5000K (625 * 4096 * 2), and at the same time abandons the old FFT sizes
-and the integer (NTT) transforms.
-
-
-## PRP: PRobable Prime test
-GpuOwl implements a base-3 PRP (probable prime) test. The reason for choosing PRP vs. LL (Lucas Lehmer) is the
-availability of a great error checking algorithm for the PRP, which enables very reliable computation on GPUs
-regardless of common hardware problems present on GPUs during long computation.
-
+gpuOwl implements the PRP test with a powerful self-validating algorithm that protects agains errors.
+gpuOwl uses FFT transforms of size 8M and 16M, and is best used with Mersenne exponents in the vicinity of 150M and 300M.
 
 ## Files used by gpuOwl
 * worktodo.txt : contains exponents to test, one entry per line
@@ -20,7 +11,6 @@ regardless of common hardware problems present on GPUs during long computation.
 * N-prev.owl : the previous checkpoint, to be used if N.ll is lost or corrupted
 * N.iteration.owl : a persistent checkpoint at the given iteration
 
-
 ## worktodo.txt
 The lines in worktodo.txt must be of one of these forms:
 * 70100200
@@ -28,11 +18,6 @@ The lines in worktodo.txt must be of one of these forms:
 
 The first form indicates just the exponent to test, while the form starting with PRP indicates both the
 exponent and the assignment ID (AID) from PrimeNet.
-
-GpuOwl also accepts the LL-test format lines from PrimeNet, but support for these may be removed in the future:
-* Test=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1
-* DoubleCheck=3181F68030F6BF3DCD32B77337D5EF6B,70100200,75,1
-
 
 ## Usage
 * Make sure that the gpuowl.cl file is in the same folder as the executable
@@ -65,24 +50,7 @@ Command line options:
     0 : Vega [Radeon RX Vega] 64 @83:0.0, gfx900 1630MHz
 ```
 
-
-## FFT size
-GpuOwl internally does repeated multiplication of very large numbers (tens of millions of bits large). The multiplication
-is done through a convolution, wich is done by using a pair of FFT and inverse-FFT transforms.
-
-
-## Not-fused kernels
-By default GpuOwl attempts to use fused kernels, which are huge kernels representing a few steps merged together. This has the
-advantage of reducing the number of global memory round-trips. OTOH these huge kernels use a lot of GPU resources (e.g. VGPRs)
-which may reduce occupancy.
-
-There are two fused kernels, let's call them "carry" and "tail"; The fusion can be disabled with "-longCarry" and "-longTail",
-respectivelly.
-
-(The non-fused kernels were called "legacy" kernels in previous versions).
-
-
 ## Self-test
 Right now there is no explicit self-testing in GpuOwl. Simply start GpuOwl with any valid exponent, and the built-in error
 checking kicks in, implicitly validating the computation. If you start seeing output lines with "OK", than it's working correctly.
-"EE" lines OTOH indicate computation errors, which are automatically retried.
+"EE" lines indicate computation errors.
