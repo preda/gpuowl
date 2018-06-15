@@ -32,7 +32,7 @@ To build simply invoke "make" (or look inside the Makefile for a manual build).
 * a C++ compiler (e.g. gcc, clang)
 * an OpenCL implementation (which provides the **libOpenCL** library). Recommended: an AMD GPU with ROCm 1.7.
 
-## See \"gpuowl -h\" for the command line options:
+## See \"gpuowl -h\" for the command line options.
 
 ## Self-test
 Simply start GpuOwl with any valid exponent, and the built-in error checking kicks in, validating the computation. If you start seeing output lines with "OK", than it's working correctly. "EE" lines indicate computation errors.
