@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
   cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
   
   Timer timer;
-  int N = 8 * 1024 * 1024;
+  int N = 20 * 1024 * 1024;
   double *data = new double[N]();  
   double *buf1;
   CHECK(cudaMalloc((void **)&buf1, (N + 1) * sizeof(double)));
@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
   CHECK(cudaMemcpy(buf2, data, N * sizeof(double), cudaMemcpyHostToDevice));
 
   std::vector<std::pair<float, int>> v;
-  for (int k = 4*1024*1024; k <= N; k += 2048) {
+  for (int k = 1024 * 1024; k <= N; k += 1024) {
     if (!isGood(k)) { continue; }
     int size = k;
     cufftHandle plan1, plan2;
@@ -55,17 +55,9 @@ int main(int argc, char **argv) {
       CHECK(cufftExecZ2D(plan2, (double2 *) buf2, buf1));
     }
     CHECK(cudaDeviceSynchronize());
-    float t1 = timer.deltaMillis() / float(reps);
-    printf("%5dK %2.2fms (%d MB)\n", size / 1024, t1, int(planSize1 / (1024 * 1024)));
-
-    /*
-    for (int i = 0; i < reps; ++i) { CHECK(cufftExecZ2D(plan2, (double2 *) buf1, buf1)); }
-    CHECK(cudaDeviceSynchronize());
-    float t2 = timer.deltaMillis() / float(reps);
-    printf("%5dK %2.2fms (%d MB)\n", size / 1024, t2, int(planSize2 / (1024 * 1024)));
-    */
+    float tt = timer.deltaMillis() / float(reps);
+    printf("%5dK %2.2f\n", size / 1024, tt);
     
-    float tt = t1;
     while (!v.empty() && v.back().first > tt) { v.pop_back(); }
     v.push_back(std::make_pair(tt, k));
     
@@ -77,6 +69,17 @@ int main(int argc, char **argv) {
   for (auto x : v) {
     isGood(x.second);
     printf("%.1f %.2f\n", x.second / float(1024), x.first);
+  }
+  printf("\n----\n");
+  for (auto x : v) {
+    int size = x.second;
+    if (size % (1024 * 1024) == 0) {
+      printf("%dM\n", size/(1024 * 1024));
+    } else if (size % 1024 == 0) {
+      printf("%dK\n", size / 1024);
+    } else {
+      printf("%d\n", size);
+    }
   }
   CHECK(cudaFree(buf1));
   CHECK(cudaFree(buf2));

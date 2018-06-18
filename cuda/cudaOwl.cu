@@ -135,8 +135,12 @@ vector<string> stringArgs(int argc, char **argv) {
 vector<int> getSizeTable() {
   if (auto fi = open("ffts.txt", "r")) {
     vector<int> ret;
-    int s;
-    while (fscanf(fi.get(), "%d", &s)) { ret.push_back(s); }
+    int s = 0;
+    char c;
+    while (fscanf(fi.get(), "%d%c", &s, &c)  == 2) {
+      int mul = c == 'M' ? 1024 * 1024 : c == 'K' ? 1024 : 1;
+      ret.push_back(s * mul);
+    }
     return ret;
   } else {
     return {2*1024*1024, 4*1024*1024, 8*1024*1024, 16*1024*1024, 32*1024*1024};
@@ -177,5 +181,5 @@ cudaOwl 85000001 -1     : use FFT size one-step-down from default.
 
   const u32 E = atoi(args[0].c_str());
   const u32 fftSize = getFFTSize(E, (args.size() >= 2) ? args[1] : "");
-  printf("Exponent %d, FFT %dK\n", E, fftSize / 1024);
+  printf("Exponent %d, FFT %dK, %.2f bits-per-word\n", E, fftSize / 1024, E / float(fftSize));
 }
