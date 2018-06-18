@@ -102,39 +102,45 @@ std::vector<u32> compactBits(const vector<int> &dataVect, int E, int offset) {
   return out;
 }
 
-std::vector<int> expandBits(const std::vector<u32> &compactBits, int N, int E) {
-  // This is similar to carry propagation.
+DUAL int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
+
+struct BitBucket {
+  u64 bits;
+  int size;
+
+  BitBucket() : bits(0), size(0) {}
+
+  void put32(u32 b) {
+    assert(size <= 32);
+    bits += (u64(b) << size);
+    size += 32;
+  }
+  
+  int popSigned(int n) {
+    assert(size >= n);
+    int b = lowBits(bits, n);
+    size -= n;
+    bits >>= n;
+    bits += (b < 0); // carry fixup.
+    return b;
+  }
+};
+
+vector<int> expandBits(const vector<u32> &compactBits, int N, int E) {
+  assert(E % 32 != 0);
 
   std::vector<int> out(N);
   int *data = out.data();
+  BitBucket bucket;
   
-  int haveBits = 0;
-  u64 bits = 0;
-
-  assert(E % 32 != 0);
   auto it = compactBits.cbegin(), itEnd = compactBits.cend();
   for (int p = 0; p < N; ++p) {
-    int len = bitlen(N, E, p);
-    if (haveBits < len) {
-      assert(it != itEnd);
-      bits += u64(*it++) << haveBits;
-      haveBits += 32;
-    }
-    assert(haveBits >= len);
-    int b = bits & ((1 << len) - 1);
-    bits >>= len;
-
-    // turn the (len - 1) bit of b into sign bit.
-    b = (b << (32 - len)) >> (32 - len);
-    if (b < 0) { ++bits; }
-
-    data[p] = b;
-    // bits = (bits - b) >> len;
-    haveBits -= len;
+    int len = bitlen(N, E, p);    
+    if (bucket.size < len) { assert(it != itEnd); bucket.put32(*it++); }
+    data[p] = bucket.popSigned(len);
   }
   assert(it == itEnd);
-  assert(haveBits == 32 - E % 32);
-  assert(bits == 0 || bits == 1);
-  data[0] += bits;
+  assert(bucket.size == 32 - E % 32 && (bucket.bits == 0 || bucket.bits == 1));
+  data[0] += bucket.bits; // carry wrap-around.
   return out;
 }

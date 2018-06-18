@@ -1,6 +1,13 @@
 // cudaOwl, a CUDA PRP Mersenne primality tester.
 // Copyright (C) 2017-2018 Mihai Preda.
 
+#define DEVICE static __device__
+#define GLOBAL static __global__
+#define DUAL static __device__ __host__
+
+#include "checkpoint.h"
+#include "common.h"
+
 #include <cufft.h>
 #include <cstdio>
 #include <cassert>
@@ -8,17 +15,10 @@
 #include <string>
 #include <vector>
 
-// typedef unsigned char byte;
-// typedef int      i32;
-typedef long long i64;
-typedef unsigned long long u64;
-typedef unsigned u32;
-typedef unsigned __int128 u128;
-
-using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
-
+/*
 namespace std { template<> struct default_delete<FILE> { void operator()(FILE *f) { if (f != nullptr) { fclose(f); } } }; }
 unique_ptr<FILE> open(const string &name, const char *mode) { return unique_ptr<FILE>(fopen(name.c_str(), mode)); }
+*/
 
 u32 step(u32 N, u32 E) { return N - (E % N); }
 u32 extra(u32 N, u32 E, u32 k) { return u64(step(N, E)) * k % N; }
@@ -41,12 +41,6 @@ void genWeights(int E, int N, double *aTab, double *iTab) {
     *pi++ = (bits == baseBits) ? ia : -ia;
   }
 }
-
-#define DEVICE static __device__
-#define GLOBAL static __global__
-#define DUAL static __device__ __host__
-
-DUAL int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
 
 DEVICE int carryStep(long x, long *carry, int bits) {
   x += *carry;
@@ -83,47 +77,6 @@ GLOBAL void carryB(uint base, const int2 *in, const long *carryIn, double2 *out,
   u32 size = gridDim.x * blockDim.x;
   u32 prev = id ? (id - 1) : (size - 1);
   out[id] = carryAndWeight(base, in[id], carryIn[prev], weights[id]);
-}
-
-struct BitBucket {
-  u64 bits;
-  int size;
-
-  BitBucket() : bits(0), size(0) {}
-
-  void put32(u32 b) {
-    assert(size <= 32);
-    bits += (u64(b) << size);
-    size += 32;
-  }
-  
-  int popSigned(int n) {
-    assert(size >= n);
-    int b = lowBits(bits, n);
-    size -= n;
-    bits >>= n;
-    bits += (b < 0); // carry fixup.
-    return b;
-  }
-};
-
-vector<int> expandBits(const vector<u32> &compactBits, int N, int E) {
-  assert(E % 32 != 0);
-
-  std::vector<int> out(N);
-  int *data = out.data();
-  BitBucket bucket;
-  
-  auto it = compactBits.cbegin(), itEnd = compactBits.cend();
-  for (int p = 0; p < N; ++p) {
-    int len = bitlen(N, E, p);    
-    if (bucket.size < len) { assert(it != itEnd); bucket.put32(*it++); }
-    data[p] = bucket.popSigned(len);
-  }
-  assert(it == itEnd);
-  assert(bucket.size == 32 - E % 32 && (bucket.bits == 0 || bucket.bits == 1));
-  data[0] += bucket.bits; // carry wrap-around.
-  return out;
 }
 
 vector<string> stringArgs(int argc, char **argv) {
