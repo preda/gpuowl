@@ -1,5 +1,5 @@
 cudaowl: cudaOwl.cu
-	nvcc -O2 -o cudaowl cudaOwl.cu -lcufft
+	nvcc -O2 -o cudaOwl cudaOwl.cu -lcufft
 
 fftbench: fftbench.cu
 	nvcc -O2 -o fftbench fftbench.cu -lcufft

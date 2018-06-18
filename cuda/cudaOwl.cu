@@ -1,38 +1,29 @@
-#include <cufft.h>
+// cudaOwl, a CUDA PRP Mersenne primality tester.
+// Copyright (C) 2017-2018 Mihai Preda.
 
+#include <cufft.h>
 #include <cstdio>
 #include <cassert>
 #include <memory>
-
 #include <string>
 #include <vector>
 
-typedef unsigned char byte;
+// typedef unsigned char byte;
+// typedef int      i32;
 typedef long long i64;
 typedef unsigned long long u64;
-typedef int      i32;
 typedef unsigned u32;
 typedef unsigned __int128 u128;
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
 namespace std { template<> struct default_delete<FILE> { void operator()(FILE *f) { if (f != nullptr) { fclose(f); } } }; }
-
 unique_ptr<FILE> open(const string &name, const char *mode) { return unique_ptr<FILE>(fopen(name.c_str(), mode)); }
 
-int extra(unsigned N, unsigned E, unsigned k) {
-  assert(E % N);
-  u32 step = N - (E % N);
-  return u64(step) * k % N;
-}
-
-bool isBigWord(unsigned N, unsigned E, unsigned k) {
-  u32 step = N - (E % N); 
-  return extra(N, E, k) + step < N;
-  // return extra(N, E, k) < extra(N, E, k + 1);
-}
-
-int bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
+u32 step(u32 N, u32 E) { return N - (E % N); }
+u32 extra(u32 N, u32 E, u32 k) { return u64(step(N, E)) * k % N; }
+bool isBigWord(u32 N, u32 E, u32 k) { return extra(N, E, k) + step(N, E) < N; }
+u32 bitlen(u32 N, u32 E, u32 k) { return E / N + isBigWord(N, E, k); }
 
 void genWeights(int E, int N, double *aTab, double *iTab) {
   double *pa = aTab;
@@ -51,38 +42,11 @@ void genWeights(int E, int N, double *aTab, double *iTab) {
   }
 }
 
-#ifndef M_PIl
-#define M_PIl 3.141592653589793238462643383279502884L
-#endif
-
-#define TAU (2 * M_PIl)
-
-double2 root1(u32 k, u32 N) { return double2{double(cosl(- TAU / N * k)), double(sinl(- TAU / N * k))}; }
-
-double2 *trig(double2 *p, int n, int B) {
-  for (int i = 0; i < n; ++i) { *p++ = root1(i, B); }
-  return p;
-}
-
-vector<double2> genSquareTrig(int N) {
-  vector<double2> tab(N / 4);
-  trig(tab.data(), N / 4, N);
-  return tab;
-}  
-  /*
-  const int size = H / 2 + W;
-  vector<double2> tab(size);
-  double2 *end = tab.data();
-  end = trig(end, H / 2, H * 2);
-  end = trig(end, W, W * H * 2);
-  assert(end - tab.data() == size);
-  return tab;
-  */
-
 #define DEVICE static __device__
 #define GLOBAL static __global__
+#define DUAL static __device__ __host__
 
-DEVICE int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
+DUAL int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
 
 DEVICE int carryStep(long x, long *carry, int bits) {
   x += *carry;
@@ -92,7 +56,7 @@ DEVICE int carryStep(long x, long *carry, int bits) {
 }
 
 DEVICE uint signBit(double a) { return __double_as_longlong(a) >> 63; }
-DEVICE uint bitlen(uint baseLen, double a) { return baseLen + signBit(a); }
+DEVICE uint bitlen(uint base, double a) { return base + signBit(a); }
 DEVICE long unweight(double x, double w) { return __double2ll_rn(x * fabs(w)); }
 
 DEVICE int2 unweightAndCarry(uint base, uint mul, double2 u, long *carry, double2 w) {
@@ -121,47 +85,97 @@ GLOBAL void carryB(uint base, const int2 *in, const long *carryIn, double2 *out,
   out[id] = carryAndWeight(base, in[id], carryIn[prev], weights[id]);
 }
 
-DEVICE double2 conjugate(double2 u) { return double2{u.x, -u.y}; }
-DEVICE double2 swap(double2 u) { return double2{u.y, u.x}; }
-DEVICE double2 mul(double2 a, double2 b) { return double2{a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x}; }
-DEVICE double2 mul(double2 a, uint k) { return double2{a.x * k, a.y * k}; }
-DEVICE double2 sq(double2 a) { return double2{(a.x + a.y) * (a.x - a.y), 2 * a.x * a.y}; }
-DEVICE double2 addsub(double2 a) { return double2{a.x + a.y, a.x - a.y}; }
-DEVICE double2 foo2(double2 a, double2 b) { a = addsub(a); b = addsub(b); return addsub(double2{a.x * b.x, a.y * b.y}); }
-DEVICE double2 foo(double2 a) { return foo2(a, a); }
+struct BitBucket {
+  u64 bits;
+  int size;
 
-GLOBAL void square(double2 *io, const double2 *bigTrig) {
-  u32 id = blockIdx.x * blockDim.x + threadIdx.x;
-  u32 size = gridDim.x * blockDim.x;
-  if (id == 0) {
-    io[0] = mul(foo(conjugate(io[0])), 4);
-    io[size / 2] = mul(sq(conjugate(io[size / 2])), 8);
-    return;
+  BitBucket() : bits(0), size(0) {}
+
+  void put32(u32 b) {
+    assert(size <= 32);
+    bits += (u64(b) << size);
+    size += 32;
   }
-
   
+  int popSigned(int n) {
+    assert(size >= n);
+    int b = lowBits(bits, n);
+    size -= n;
+    bits >>= n;
+    bits += (b < 0); // carry fixup.
+    return b;
+  }
+};
+
+vector<int> expandBits(const vector<u32> &compactBits, int N, int E) {
+  assert(E % 32 != 0);
+
+  std::vector<int> out(N);
+  int *data = out.data();
+  BitBucket bucket;
+  
+  auto it = compactBits.cbegin(), itEnd = compactBits.cend();
+  for (int p = 0; p < N; ++p) {
+    int len = bitlen(N, E, p);    
+    if (bucket.size < len) { assert(it != itEnd); bucket.put32(*it++); }
+    data[p] = bucket.popSigned(len);
+  }
+  assert(it == itEnd);
+  assert(bucket.size == 32 - E % 32 && (bucket.bits == 0 || bucket.bits == 1));
+  data[0] += bucket.bits; // carry wrap-around.
+  return out;
+}
+
+vector<string> stringArgs(int argc, char **argv) {
+  vector<string> out;
+  for (int i = 1; i < argc; ++i) { out.push_back(string(argv[i])); }
+  return out;
+}
+
+vector<int> getSizeTable() {
+  if (auto fi = open("ffts.txt", "r")) {
+    vector<int> ret;
+    int s;
+    while (fscanf(fi.get(), "%d", &s)) { ret.push_back(s); }
+    return ret;
+  } else {
+    return {2*1024*1024, 4*1024*1024, 8*1024*1024, 16*1024*1024, 32*1024*1024};
+  }
+}
+
+u32 defaultFFTSize(u32 E, int step) {
+  const float maxBitsPerWord = E <= 77600000 ? 18.5f : E <= 153000000 ? 18.25f : 18;
+  const int targetFFT = int(E / maxBitsPerWord + 0.5f);
+  vector<int> sizes = getSizeTable();
+  assert(!sizes.empty() && targetFFT <= sizes.back());
+  int i = 0;
+  while (sizes[i] < targetFFT) { ++i; }
+  assert(i < sizes.size() && targetFFT <= sizes[i]);
+  return sizes[min(max(0, i + step), int(sizes.size() - 1))];
+}
+
+u32 getFFTSize(u32 E, const string &userSizeStr) {
+  if (userSizeStr.size() < 1) { return defaultFFTSize(E, 0); }
+  if (userSizeStr[0] == '-' || userSizeStr[0] == '+') {
+    return defaultFFTSize(E, atoi(userSizeStr.c_str()));
+  }
+  int unit = (userSizeStr.back() == 'K') ? 1024 : (userSizeStr.back() == 'M') ? 1024*1024 : 1;
+  return atoi(userSizeStr.c_str()) * unit;
 }
 
 int main(int argc, char **argv) {
-}
-
-/*
-pair<int, string> worktodoReadLine() {
-  if (auto fi = open("worktodo.txt", "r")) {
-    char line[256];
-    while (fgets(line, sizeof(line), fi.get())) {
-      char aid[33] = {0};
-      int exp;
-      if ((sscanf(line, "%d", &exp) == 1) ||
-          (sscanf(line, "PRP=%32[0-9a-fA-F],%*d,%*d,%d", aid, &exp) == 2)) {
-        return {exp, aid};
-      }
-    }
+  auto args = stringArgs(argc, argv);
+  if (args.size() == 0 || args.size() > 2 || (args.size() >= 1 && (args[0] == "-h" || args[0] == "--help"))) {
+    printf(R"""(Usage: cudaOwl <exponent> [<FFT-size>]
+Examples:
+cudaOwl 85000001        : use the default FFT size for the exponent.
+cudaOwl 85000001 5000K  : use 5000K FFT.
+cudaOwl 85000001 -1     : use FFT size one-step-down from default.
+)""");
+    return 0;
   }
-  return {0, ""};
-}
 
-bool worktodoDelete(int E) {
-  
+  const u32 E = atoi(args[0].c_str());
+  const u32 fftSize = getFFTSize(E, (args.size() >= 2) ? args[1] : "");
+  printf("Exponent %d, FFT %dK\n", E, fftSize / 1024);
 }
-*/
