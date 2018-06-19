@@ -466,8 +466,7 @@ public:
   }
 
   void writeState(const std::vector<u32> &check, int blockSize) {
-    std::vector<int> temp = expandBits(check, N, E);
-    writeIn(temp, bufCheck);
+    writeIn(expandBits(check, N, E), bufCheck);
 
     // rebuild bufData based on bufCheck.
     modSqLoop(bufCheck, bufData, 1, false);
@@ -516,15 +515,6 @@ public:
   }
 
   std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
-
-  /*
-  void doShift() {
-    shift();
-    carryB.setArg("io", bufData);
-    carryB();
-    offsetData = (offsetData + 1) % E;
-  }
-  */
   
   u64 dataResidue() { return bufResidue(bufData, offsetData); }
   
@@ -546,16 +536,7 @@ public:
     auto readBuf = queue.read<int>(bufSmallOut, 2);
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
-    /*
-    printf("off %d %d %d %d; %d %d %d %d %d %08x %08x\n", offsetData, offsetCheck, offsetAux, deltaOffset, (int)isEqual1, readBuf1[1],
-           readBuf1[2], readBuf1[3], readBuf1[4], readBuf1[5], readBuf1[6]);
-    */
     bool ok = isEqual && isNotZero;
-    /*
-    u64 a = bufResidue(bufCheck, offsetCheck);
-    u64 b = bufResidue(bufAux, offsetAux);
-    printf("R %016llx %016llx\n", a, b);
-    */
     return ok;
   }
 
@@ -567,11 +548,7 @@ public:
 private:
   u64 bufResidue(Buffer &buf, u32 offset) {
     u32 startWord = bitposToWord(E, N, offset);
-    u32 startDword = startWord / 2;
-    
-    // u32 altStartDword = bitposToWord(E, N/2, offsetData);
-    // assert(startDword == altStartDword);
-    
+    u32 startDword = startWord / 2;    
     u32 earlyStart = (startDword + N/2 - 32) % (N/2);
     vector<int> readBuf = readSmall(buf, earlyStart);
 

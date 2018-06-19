@@ -7,6 +7,12 @@
 #include <memory>
 #include <algorithm>
 
+u32 step(u32 N, u32 E) { return N - (E % N); }
+u32 extra(u32 N, u32 E, u32 k) { return u64(step(N, E)) * k % N; }
+bool isBigWord(u32 N, u32 E, u32 k) { return extra(N, E, k) + step(N, E) < N; }
+u32 bitlen(u32 N, u32 E, u32 k) { return E / N + isBigWord(N, E, k); }
+
+/*
 int extra(unsigned N, unsigned E, unsigned k) {
   assert(E % N);
   u32 step = N - (E % N);
@@ -20,6 +26,7 @@ bool isBigWord(unsigned N, unsigned E, unsigned k) {
 }
 
 int bitlen(int N, int E, int k) { return E / N + isBigWord(N, E, k); }
+*/
 
 u32 unbalance(int w, int nBits, int *carry) {
   assert(*carry == 0 || *carry == -1);
@@ -46,7 +53,7 @@ std::vector<u32> compactBits(const vector<int> &dataVect, int E, int offset) {
 
   int startBit = offset - wordToBitpos(E, N, startWord);
   // (startWord * i64(E) + N - 1) / N;
-  assert(startBit >= 0 && startBit < bitlen(N, E, startWord));
+  assert(startBit >= 0 && startBit < int(bitlen(N, E, startWord)));
   
   int carry = 0;
   u32 outWord = 0;
