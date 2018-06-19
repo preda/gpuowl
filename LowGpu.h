@@ -5,8 +5,14 @@
 #include <vector>
 
 class LowGpu {
+protected:
   u32 E; // exponent.
   u32 N; // FFT size.
+
+  virtual vector<u32> readData() = 0;
+  virtual vector<u32> readCheck() = 0;
+  virtual vector<u32> writeData(const vector<u32> &v) = 0;
+  virtual vector<u32> writeCheck(const vector<u32> &v) = 0;
   
 public:
   LowGpu(u32 E, u32 N) : E(E), N(N) {}
@@ -26,10 +32,4 @@ public:
   virtual bool checkAndUpdate(int blockSize) = 0;
   virtual void updateCheck() = 0;
   virtual void dataLoop(int reps) = 0;
-  
-protected:
-  virtual vector<u32> readData() = 0;
-  virtual vector<u32> readCheck() = 0;
-  virtual vector<u32> writeData(const vector<u32> &v) = 0;
-  virtual vector<u32> writeCheck(const vector<u32> &v) = 0;
 };
