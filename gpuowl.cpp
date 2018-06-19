@@ -1,7 +1,7 @@
 // gpuOwL, a GPU OpenCL primality tester for Mersenne numbers.
 // Copyright (C) 2017 Mihai Preda.
 
-#include "LowGpu.h"
+#include "Gpu.h"
 #include "OpenGpu.h"
 #include "checkpoint.h"
 #include "worktodo.h"
@@ -136,7 +136,7 @@ bool isAllZero(const std::vector<u32> &vect) {
   return true;
 }
 
-bool checkPrime(LowGpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 *outResidue, int *outNErrors) {
+bool checkPrime(Gpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 *outResidue, int *outNErrors) {
   int k, blockSize, nErrors;  
 
   log("[%s] PRP M(%d): FFT %dK, %.2f bits/word\n", longTimeStr().c_str(), E, N / 1024, E / float(N));
@@ -165,7 +165,7 @@ bool checkPrime(LowGpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u
 
   const int checkStep = blockSize == 200 ? 50000 : (blockSize * blockSize);
   
-  const int kEnd = E;
+  const int kEnd = E; // Residue type-1, see http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k % blockSize == 0 && k < kEnd);
   
   oldHandler = signal(SIGINT, myHandler);

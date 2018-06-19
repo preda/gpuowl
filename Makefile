@@ -2,7 +2,7 @@
 # The included lib paths are for ROCm, AMDGPU-pro/Linux or MSYS-2/Windows.
 
 HEADERS = args.h clwrap.h common.h kernel.h state.h stats.h timeutil.h tinycl.h worktodo.h
-SRCS = LowGpu.cpp common.cpp
+SRCS = Gpu.cpp common.cpp
 LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L/c/Windows/System32
 
 all: gpuowl cudaowl fftbench
