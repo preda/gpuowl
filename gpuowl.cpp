@@ -190,16 +190,6 @@ void doDiv9(int E, std::vector<u32> &words) {
   doDiv3(E, words);
 }
 
-void initLog() {
-  logFiles.push_back(std::unique_ptr<FILE>(stdout));
-  if (auto fo = open("gpuowl.log", "a")) {
-#if defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
-    setlinebuf(fo.get());
-#endif
-    logFiles.push_back(std::move(fo));
-  }
-}
-
 string hexStr(u64 res) {
   char buf[64];
   snprintf(buf, sizeof(buf), "%016llx", res);

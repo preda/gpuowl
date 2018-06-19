@@ -1,7 +1,6 @@
 gpuowl
 cudaowl
-debug
-core
+fftbench
 gpuowl.log
 *.owl
 *.bak
@@ -10,3 +9,4 @@ results.txt
 results.old
 tmp/
 tmp?/
+cuda/
