@@ -339,6 +339,8 @@ protected:
   vector<u32> readCheck() { return compactBits(readOut(bufCheck), E, offsetCheck); }
   
 public:
+  void finish() { queue.finish(); }
+  
   void logTimeKernels() {
     ::logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused});
   }

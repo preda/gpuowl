@@ -32,4 +32,5 @@ public:
   virtual bool checkAndUpdate(int blockSize) = 0;
   virtual void updateCheck() = 0;
   virtual void dataLoop(int reps) = 0;
+  virtual void finish() = 0;
 };

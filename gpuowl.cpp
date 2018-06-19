@@ -136,13 +136,10 @@ bool isAllZero(const std::vector<u32> &vect) {
   return true;
 }
 
-bool checkPrime(LowGpu &gpu, int W, int H, int E, cl_queue queue, cl_context context, const Args &args,
-                bool *outIsPrime, u64 *outResidue, int *outNErrors) {
-  
-  const int N = 2 * W * H;
+bool checkPrime(LowGpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 *outResidue, int *outNErrors) {
   int k, blockSize, nErrors;  
 
-  log("[%s] PRP M(%d): FFT %dK (%dx%dx2), %.2f bits/word\n", longTimeStr().c_str(), E, N / 1024, W, H, E / float(N));
+  log("[%s] PRP M(%d): FFT %dK, %.2f bits/word\n", longTimeStr().c_str(), E, N / 1024, E / float(N));
   
   {
     LoadResult loaded = Checkpoint::load(E, args.blockSize);
@@ -174,8 +171,6 @@ bool checkPrime(LowGpu &gpu, int W, int H, int E, cl_queue queue, cl_context con
   oldHandler = signal(SIGINT, myHandler);
 
   u64 res64 = gpu.dataResidue();
-  // gpu.doShift();
-  // u64 res2 = gpu.dataResidue();
   
   if (gpu.checkAndUpdate(blockSize)) {
     log("OK initial check: %016llx\n", res64);
@@ -188,11 +183,6 @@ bool checkPrime(LowGpu &gpu, int W, int H, int E, cl_queue queue, cl_context con
   int goodK = k;
   int startK = k;
   Stats stats;
-
-  // Residue at the most recent error. Used for persistent-error detection.
-  // Set it to something randomly so it's not easily hit by bad luck.
-  // const u64 randomResidue = 0xbad0beefdeadbeefull;
-  // u64 errorResidue = randomResidue;
 
   // Number of sequential errors with no success in between. If this ever gets high enough, stop.
   int nSeqErrors = 0;
@@ -221,7 +211,7 @@ bool checkPrime(LowGpu &gpu, int W, int H, int E, cl_queue queue, cl_context con
       gpu.dataLoop(itersLeft);
     }
 
-    finish(queue);
+    gpu.finish();
     k += blockSize;
     auto delta = timer.deltaMillis();
     stats.add(delta * (1/float(blockSize)));
@@ -353,7 +343,7 @@ bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &a
   bool isPrime = false;
   u64 residue = 0;
   int nErrors = 0;
-  if (!checkPrime(gpu, W, H, E, queue, context, args, &isPrime, &residue, &nErrors)) { return false; }
+  if (!checkPrime(gpu, E, N, args, &isPrime, &residue, &nErrors)) { return false; }
   
   if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu, nErrors, N) && worktodoDelete(E))) { return false; }
 
