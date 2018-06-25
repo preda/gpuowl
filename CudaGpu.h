@@ -299,12 +299,9 @@ public:
   CudaGpu(u32 E, u32 N) :
     LowGpu(E, N)
   {
-    assert(N % 512 == 0);
-    cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
-
-    CC(cufftPlan1d(&plan1, N, CUFFT_D2Z, 1));
-    CC(cufftPlan1d(&plan2, N, CUFFT_Z2D, 1));
-
+    assert(N % 1024 == 0);
+    CC(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
+    
     {
       auto weights = genWeights(E, N);
       CC(cudaMalloc((void **)&bufA, N * sizeof(double)));
@@ -312,9 +309,11 @@ public:
       CC(cudaMalloc((void **)&bufSmall, 128 * sizeof(int)));
       CC(cudaMemcpy(bufA, weights.first.data(),  N * sizeof(double), cudaMemcpyHostToDevice));
       CC(cudaMemcpy(bufI, weights.second.data(), N * sizeof(double), cudaMemcpyHostToDevice));
-      log("w %.20f %.20f\n", weights.second[0], weights.second[1]);
-    }    
+    }
     
+    CC(cufftPlan1d(&plan1, N, CUFFT_D2Z, 1));
+    CC(cufftPlan1d(&plan2, N, CUFFT_Z2D, 1));
+        
     CC(cudaMalloc((void **)&bufData,  N * sizeof(int)));
     CC(cudaMalloc((void **)&bufCheck, N * sizeof(int)));
     CC(cudaMalloc((void **)&bufAux,   N * sizeof(int)));
@@ -350,8 +349,8 @@ public:
   static unique_ptr<Gpu> make(u32 E, Args &args) {
     u32 fft = fftSize(E, args.fftSize);
     vector<int> v = power2357(fft).second;
-    log("Exponent %u using FFT %dK (2^%d, 3^%d, 5^%d, 7^%d)\n", E, fft/1024, v[0], v[1], v[2], v[3]);
-    return unique_ptr<Gpu>(new CudaGpu(E, fftSize(E, args.fftSize)));
+    log("Exponent %u using FFT %dK (2^%d * 3^%d * 5^%d * 7^%d)\n", E, fft/1024, v[0], v[1], v[2], v[3]);
+    return unique_ptr<Gpu>(new CudaGpu(E, fft));
   }
   
   void finish() { cudaDeviceSynchronize(); }
