@@ -1,9 +1,10 @@
 // gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
 // Copyright (C) 2017 Mihai Preda.
 
-#include "clwrap.h"
-#include "common.h"
+#pragma once
 
+// #include "clwrap.h"
+#include "common.h"
 #include <string>
 #include <cstring>
 
@@ -18,13 +19,15 @@ struct Args {
   int carry;
   int tail;
   int blockSize;
+  int fftSize;
   
   Args() :
     device(-1),
     timeKernels(false),
     carry(CARRY_LONG),
     tail(TAIL_FUSED),
-    blockSize(200)    
+    blockSize(200),
+    fftSize(0)
   { }
   
   // return false to stop.
@@ -39,19 +42,26 @@ Command line options:
 -cpu  <name>      : specify the hardware name.
 -time             : display kernel profiling information.
 -tail fused|split : selects tail kernels variant (default 'fused').
--block 10 | 20 | 200 : selects PRP self-check block size.
-                    Smaller block is slower, but recovers faster from errors.
-                    Can only be changed when starting a new test.
--device <N>   : select specific device among:
+-fft <size>       : specify FFT size, such as: 5000K, 4M, +2, -1.
+-device <N>       : select specific device.
 )""");
-      
+      /*
       cl_device_id devices[16];
       int ndev = getDeviceIDs(false, 16, devices);
       for (int i = 0; i < ndev; ++i) {
         std::string info = getLongInfo(devices[i]);
         log("    %d : %s\n", i, info.c_str());
-      }      
+      }
+      */
       return false;
+    } else if (!strcmp(arg, "-fft")) {
+      if (i < argc - 1) {
+        string s = argv[++i];
+        fftSize = atoi(s.c_str()) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1));
+      } else {
+        log("-fft expects <size>\n");
+        return false;
+      }
     } else if (!strcmp(arg, "-dump")) {
       if (i < argc - 1 && argv[i + 1][0] != '-') {
         dump = argv[++i];
@@ -117,11 +127,13 @@ Command line options:
     else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {
       if (i < argc - 1) {
         device = atoi(argv[++i]);
+        /*
         int nDevices = getNumberOfDevices();
         if (device < 0 || device >= nDevices) {
           log("invalid -device %d (must be between [0, %d]\n", device, nDevices - 1);
           return false;
-        }        
+        }
+        */
       } else {
         log("-device expects <N> argument\n");
         return false;

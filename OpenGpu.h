@@ -3,6 +3,7 @@
 #include "LowGpu.h"
 #include "kernel.h"
 #include "state.h"
+#include "args.h"
 #include "common.h"
 
 #include <cmath>
@@ -157,26 +158,23 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   log("\n");
 }
 
-// compact 128bits from balanced uncompressed ("raw") words.
-u128 residueFromRaw(int N, int E, const vector<int> &words, int startWord) {
-  int start = startWord % 2 + 64;
-  assert(words.size() == 128);
-  assert(start == 64 || start == 65);
-  int carry = 0;
-  for (int i = 0; i < start; ++i) { carry = (words[i] + carry < 0) ? -1 : 0; }
-  
-  u128 res = 0;
-  int k = startWord, hasBits = 0;
-  for (auto p = words.begin() + start, end = words.end(); p < end && hasBits < 128; ++p, ++k) {
-    int len = bitlen(N, E, k);
-    int w = *p + carry;
-    carry = (w < 0) ? -1 : 0;
-    if (w < 0) { w += (1 << len); }
-    assert(w >= 0 && w < (1 << len));
-    res |= u128(w) << hasBits;
-    hasBits += len;    
+string valueDefine(const string &key, u32 value) { return key + "=" + std::to_string(value) + "u"; }
+
+cl_device_id getDevice(const Args &args) {
+  cl_device_id device = nullptr;
+  if (args.device >= 0) {
+    cl_device_id devices[16];
+    int n = getDeviceIDs(false, 16, devices);
+    assert(n > args.device);
+    device = devices[args.device];
+  } else {
+    int n = getDeviceIDs(true, 1, &device);
+    if (n <= 0) {
+      log("No GPU device found. See -h for how to select a specific device.\n");
+      return 0;
+    }
   }
-  return res;
+  return device;
 }
 
 class OpenGpu : public LowGpu<Buffer> {
@@ -184,7 +182,7 @@ class OpenGpu : public LowGpu<Buffer> {
   int hN, nW, nH, bufSize;
   bool useSplitTail;
   
-  cl_context context;
+  // Context context;
   Queue queue;
 
   Kernel fftP;
@@ -211,23 +209,19 @@ class OpenGpu : public LowGpu<Buffer> {
   Buffer bufCarry;
   Buffer bufSmallOut;
 
-  int offsetData, offsetCheck;
   int offsetGoodData, offsetGoodCheck;
-  
-public:
-  OpenGpu(int E, int W, int H, cl_program program, cl_context context, cl_queue queue, cl_device_id device, bool timeKernels, bool useSplitTail) :
+
+  OpenGpu(u32 E, u32 W, u32 H, cl_program program, cl_device_id device, cl_context context, bool timeKernels, bool useSplitTail) :
     LowGpu(E, W * H * 2),
-    W(W),
-    H(H),
     hN(N / 2), nW(8), nH(H / 256), bufSize(N * sizeof(double)),
     useSplitTail(useSplitTail),
-    context(context),
-    queue(queue),
+    // context(context),
+    queue(makeQueue(device, context)),    
 
-#define LOAD(name, workSize) name(program, queue, device, workSize, #name, timeKernels)
+#define LOAD(name, workSize) name(program, queue.get(), device, workSize, #name, timeKernels)
     LOAD(fftP, hN / nW),
     LOAD(fftW, hN / nW),
-    LOAD(fftH, hN / nH),    
+    LOAD(fftH, hN / nH),
     LOAD(carryA, hN / 16),
     LOAD(carryM, hN / 16),
     LOAD(shift,  hN / 16),
@@ -242,8 +236,8 @@ public:
     LOAD(compare, hN / 16),
     LOAD(transposeIn, (W/64) * (H/64) * 256),
     LOAD(transposeOut, (W/64) * (H/64) * 256),
-#undef LOAD
-
+#undef LOAD      
+    
     bufGoodData( makeBuf(context, BUF_RW, N * sizeof(int))),
     bufGoodCheck(makeBuf(context, BUF_RW, N * sizeof(int))),    
     bufTrigW(genSmallTrig(context, W, nW)),
@@ -257,7 +251,6 @@ public:
     bufCarry{makeBuf(context, BUF_RW, bufSize)},
     bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int))),
 
-    offsetData(0), offsetCheck(0),
     offsetGoodData(0), offsetGoodCheck(0)
   {
     bufData.reset( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
@@ -321,9 +314,54 @@ public:
     readResidue.setArg("in", bufData);
     readResidue.setArg("out", bufSmallOut);
   }
+  
+public:
+  static unique_ptr<Gpu> make(u32 E, Args &args) {
+    int W = (E < 153'000'000) ? 2048 : 4096;
+    int H = 2048;
+    int N = 2 * W * H;
+
+    string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
+
+    int nW = 8;
+    int nH = H / 256;
+  
+    vector<string> defines {valueDefine("EXP", E),
+        valueDefine("WIDTH", W),
+        valueDefine("NW", nW),
+        valueDefine("HEIGHT", H),
+        valueDefine("NH", nH),
+        };
+
+    bool useLongCarry = true; // args.carry == Args::CARRY_LONG || bitsPerWord < 15;  
+    bool useSplitTail = args.tail == Args::TAIL_SPLIT;
+  
+    log("Note: using %s carry and %s tail kernels\n",
+        useLongCarry ? "long" : "short", useSplitTail ? "split" : "fused");
+
+    string clArgs = args.clArgs;
+    if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
+
+    bool timeKernels = args.timeKernels;
+    
+    cl_device_id device = getDevice(args);
+    if (!device) { throw "No OpenCL device"; }
+
+    log("%s\n", getLongInfo(device).c_str());
+    if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
+
+    Context context(createContext(device));
+    Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs, defines, ""));
+    if (!program) { throw "OpenCL compilation"; }
+
+    return unique_ptr<Gpu>(new OpenGpu(E, W, H, program.get(), device, context.get(), timeKernels, useSplitTail));
+  }
+  
 
 protected:
-  bool equalNotZero(u32 deltaOffset) {
+  bool equalNotZero(Buffer &buf1, Buffer &buf2, u32 deltaOffset) {
+    compare.setArg("in1", buf1);
+    compare.setArg("in2", buf2);
     compare.setArg("offset", deltaOffset);
     compare();
     auto readBuf = queue.read<int>(bufSmallOut, 2);
@@ -363,8 +401,6 @@ public:
 
   std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
   
-  u64 dataResidue() { return bufResidue(bufData, offsetData); }
-    
 private:
   u64 bufResidue(Buffer &buf, u32 offset) {
     u32 startWord = bitposToWord(E, N, offset);
@@ -372,7 +408,7 @@ private:
     u32 earlyStart = (startDword + N/2 - 32) % (N/2);
     vector<int> readBuf = readSmall(buf, earlyStart);
 
-    u128 raw = residueFromRaw(N, E, readBuf, startWord);
+    u128 raw = residueFromRaw(readBuf, startWord);
 
     u32 startBit   = offset - wordToBitpos(E, N, startWord);
     return raw >> startBit;

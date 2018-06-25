@@ -23,9 +23,12 @@ public:
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }
 
   virtual u64 dataResidue() = 0;
-
+  virtual u64 checkResidue() = 0;
+  
   virtual bool checkAndUpdate(int blockSize) = 0;
   virtual void updateCheck() = 0;
   virtual void dataLoop(int reps) = 0;
   virtual void finish() = 0;
+
+  virtual u32 getFFTSize() = 0;
 };

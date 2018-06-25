@@ -272,6 +272,8 @@ cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr =
   return buf;
 }
 
+cl_mem makeBuf(Context &context, unsigned kind, size_t size, const void *ptr = 0) { return makeBuf(context.get(), kind, size, ptr); }
+
 cl_queue makeQueue(cl_device_id d, cl_context c) {
   int err;
   cl_queue q = clCreateCommandQueue(c, d, 0, &err);
@@ -328,30 +330,31 @@ std::string getKernelArgName(cl_kernel k, int pos) {
 }
 
 class Queue {
-  cl_queue queue;
+  QueueHolder queue;
   
 public:
   Queue(cl_queue queue) : queue(queue) {}
-  Queue(const Queue &other) : queue(other.queue) {}
+  // Queue(const Queue &other) : queue(other.queue) {}
 
   template<typename T> vector<T> read(Buffer &buf, size_t nItems) {
     vector<T> ret(nItems);
-    ::read(queue, true, buf, nItems * sizeof(T), ret.data());
+    ::read(queue.get(), true, buf, nItems * sizeof(T), ret.data());
     return ret;
   }
 
   template<typename T> void write(Buffer &buf, const vector<T> &vect) {
-    ::write(queue, true, buf, vect.size() * sizeof(T), vect.data());
+    ::write(queue.get(), true, buf, vect.size() * sizeof(T), vect.data());
   }
 
   template<typename T> void copy(Buffer &src, Buffer &dst, size_t nItems) {
-    ::copyBuf(queue, src, dst, nItems * sizeof(T));
+    ::copyBuf(queue.get(), src, dst, nItems * sizeof(T));
   }
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
-    ::run(queue, kernel, groupSize, workSize, name);
+    ::run(queue.get(), kernel, groupSize, workSize, name);
   }
 
-  void finish() { ::finish(queue); }
-  
+  void finish() { ::finish(queue.get()); }
+
+  cl_queue get() { return queue.get(); }
 };

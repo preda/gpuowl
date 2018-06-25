@@ -110,6 +110,10 @@ std::vector<u32> compactBits(const vector<int> &dataVect, int E, int offset) {
   return out;
 }
 
+#ifndef DUAL
+#define DUAL
+#endif
+
 DUAL int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
 
 struct BitBucket {

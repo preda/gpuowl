@@ -1,14 +1,12 @@
-// gpuOwL, a GPU OpenCL primality tester for Mersenne numbers.
-// Copyright (C) 2017 Mihai Preda.
+// gpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
 
 #include "Gpu.h"
-#include "OpenGpu.h"
 #include "checkpoint.h"
 #include "worktodo.h"
 #include "args.h"
 
 #include "timeutil.h"
-#include "state.h"
+// #include "state.h"
 #include "stats.h"
 #include "common.h"
 
@@ -107,6 +105,9 @@ void doSmallLog(int E, int k, u64 res, Stats &stats, const string &cpuName) {
   stats.reset();
 }
 
+// OpenCL or CUDA
+extern const char *VARIANT;
+
 bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
   std::string uid;
   if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
@@ -116,8 +117,8 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
     
   char buf[512];
   snprintf(buf, sizeof(buf),
-           R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "residue-type":1, "fft-length":"%dK", "res64":"%s", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s%s})-",
-           E, isPrime ? 'P' : 'C', fftSize / 1024, hexStr(res).c_str(), PROGRAM, VERSION, timeStr().c_str(),
+           R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "residue-type":1, "fft-length":"%dK", "res64":"%s", "program":{"name":"%s", "version":"%s-%s"}, "timestamp":"%s"%s%s%s})-",
+           E, isPrime ? 'P' : 'C', fftSize / 1024, hexStr(res).c_str(), PROGRAM, VERSION, VARIANT, timeStr().c_str(),
            errors.c_str(), uid.c_str(), aidJson.c_str());
   
   log("%s\n", buf);
@@ -136,10 +137,11 @@ bool isAllZero(const std::vector<u32> &vect) {
   return true;
 }
 
-bool checkPrime(Gpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 *outResidue, int *outNErrors) {
+bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outResidue, int *outNErrors) {
   int k, blockSize, nErrors;  
-
-  log("[%s] PRP M(%d): FFT %dK, %.2f bits/word\n", longTimeStr().c_str(), E, N / 1024, E / float(N));
+  u32 N = gpu->getFFTSize();
+  
+  log("[%s] PRP M(%d), FFT %dK, %.2f bits/word\n", longTimeStr().c_str(), E, N/1024, E / float(N));
   
   {
     LoadResult loaded = Checkpoint::load(E, args.blockSize);
@@ -150,8 +152,8 @@ bool checkPrime(Gpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 
     k = loaded.k;
     blockSize = loaded.blockSize;
     nErrors = loaded.nErrors;
-    gpu.writeState(loaded.bits, blockSize);
-    u64 res64 = gpu.dataResidue();
+    gpu->writeState(loaded.bits, blockSize);
+    u64 res64 = gpu->dataResidue();
 
     if (loaded.res64) {
       if (res64 == loaded.res64) {
@@ -170,16 +172,16 @@ bool checkPrime(Gpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 
   
   oldHandler = signal(SIGINT, myHandler);
 
-  u64 res64 = gpu.dataResidue();
+  u64 res64 = gpu->dataResidue();
   
-  if (gpu.checkAndUpdate(blockSize)) {
+  if (gpu->checkAndUpdate(blockSize)) {
     log("OK initial check: %016llx\n", res64);
   } else {
     log("EE initial check: %016llx\n", res64);
     return false;
   }
 
-  gpu.commit();
+  gpu->commit();
   int goodK = k;
   int startK = k;
   Stats stats;
@@ -191,10 +193,10 @@ bool checkPrime(Gpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 
   while (true) {
     assert(k % blockSize == 0);
 
-    gpu.dataLoop(std::min(blockSize, kEnd - k));
+    gpu->dataLoop(std::min(blockSize, kEnd - k));
     
     if (kEnd - k <= blockSize) {
-      auto words = gpu.roundtripData();
+      auto words = gpu->roundtripData();
       u64 resRaw = residue(words);
       doDiv9(E, words);
       u64 resDiv = residue(words);
@@ -208,10 +210,10 @@ bool checkPrime(Gpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 
       *outNErrors = nErrors;
       int itersLeft = blockSize - (kEnd - k);
       assert(itersLeft > 0);
-      gpu.dataLoop(itersLeft);
+      gpu->dataLoop(itersLeft);
     }
 
-    gpu.finish();
+    gpu->finish();
     k += blockSize;
     auto delta = timer.deltaMillis();
     stats.add(delta * (1/float(blockSize)));
@@ -225,24 +227,24 @@ bool checkPrime(Gpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 
 
     bool doCheck = (k % checkStep == 0) || (k >= kEnd) || doStop || (k - startK == 2 * blockSize);
     if (!doCheck) {
-      gpu.updateCheck();
-      if (k % 10000 == 0) { doSmallLog(E, k, gpu.dataResidue(), stats, args.cpu); }
+      gpu->updateCheck();
+      if (k % 10000 == 0) { doSmallLog(E, k, gpu->dataResidue(), stats, args.cpu); }
       continue;
     }
 
-    u64 res = gpu.dataResidue();
+    u64 res = gpu->dataResidue();
     bool wouldSave = k < kEnd && ((k % 100000 == 0) || doStop);
 
-    // Read GPU state before "check" is updated in gpu.checkAndUpdate().
-    std::vector<u32> compactCheck = wouldSave ? gpu.roundtripCheck() : vector<u32>();
+    // Read GPU state before "check" is updated in gpu->checkAndUpdate().
+    std::vector<u32> compactCheck = wouldSave ? gpu->roundtripCheck() : vector<u32>();
     
-    bool ok = gpu.checkAndUpdate(blockSize);
+    bool ok = gpu->checkAndUpdate(blockSize);
     bool doSave = wouldSave && ok;
     if (doSave) {
       Checkpoint::save(E, compactCheck, k, nErrors, blockSize, res);
       
       // just for debug's sake, verify residue match.
-      std::vector<u32> compactData = gpu.roundtripData();
+      std::vector<u32> compactData = gpu->roundtripData();
       u64 resAux = (u64(compactData[1]) << 32) | compactData[0];
       if (resAux != res) {
         log("Residue mismatch: %016llx %016llx\n", res, resAux);
@@ -253,9 +255,8 @@ bool checkPrime(Gpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 
     
     if (ok) {
       if (k >= kEnd) { return true; }
-      gpu.commit();
+      gpu->commit();
       goodK = k;
-      // errorResidue = randomResidue;
       nSeqErrors = 0;
     } else {
       if (++nSeqErrors > 10) {
@@ -264,36 +265,15 @@ bool checkPrime(Gpu &gpu, int E, int N, const Args &args, bool *outIsPrime, u64 
       }
       // errorResidue = res;
       ++nErrors;
-      gpu.rollback();
+      gpu->rollback();
       k = goodK;
-      // auto offsets = gpu.getOffsets();
+      // auto offsets = gpu->getOffsets();
       // log("Back to last good iteration %d. Offsets are: data %d, check %d\n", goodK, offsets.first, offsets.second);
       log("Back to last good iteration %d.\n", goodK);
     }
-    // if (args.timeKernels) { gpu.logTimeKernels(); }
+    // if (args.timeKernels) { gpu->logTimeKernels(); }
     if (doStop) { return false; }
   }
-}
-
-cl_device_id getDevice(const Args &args) {
-  cl_device_id device = nullptr;
-  if (args.device >= 0) {
-    cl_device_id devices[16];
-    int n = getDeviceIDs(false, 16, devices);
-    assert(n > args.device);
-    device = devices[args.device];
-  } else {
-    int n = getDeviceIDs(true, 1, &device);
-    if (n <= 0) {
-      log("No GPU device found. See -h for how to select a specific device.\n");
-      return 0;
-    }
-  }
-  return device;
-}
-
-string valueDefine(const string &key, u32 value) {
-  return key + "=" + std::to_string(value) + "u";
 }
 
 u32 modInv(u32 a, u32 m) {
@@ -304,82 +284,34 @@ u32 modInv(u32 a, u32 m) {
   assert(false);
 }
 
-bool doIt(cl_device_id device, cl_context context, cl_queue queue, const Args &args, const string &AID, int E, int W, int H) {
-  assert(W == 2048 || W == 4096);
-  assert(H == 2048);
-
-  int N = 2 * W * H;
-  
-  string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
-
-  int nW = 8;
-  int nH = H / 256;
-  
-  std::vector<string> defines {valueDefine("EXP", E),
-      valueDefine("WIDTH", W),
-      valueDefine("NW", nW),
-      valueDefine("HEIGHT", H),
-      valueDefine("NH", nH),
-      };
-
-  bool useLongCarry = true; // args.carry == Args::CARRY_LONG || bitsPerWord < 15;  
-  bool useSplitTail = args.tail == Args::TAIL_SPLIT;
-  
-  log("Note: using %s carry and %s tail kernels\n",
-      useLongCarry ? "long" : "short", useSplitTail ? "split" : "fused");
-
-  string clArgs = args.clArgs;
-  if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
-    
-  Holder<cl_program> program;
-
-  bool timeKernels = args.timeKernels;
-
-  program.reset(compile(device, context, "gpuowl", clArgs, defines, ""));
-  if (!program) { return false; }
-  OpenGpu gpu(E, W, H, program.get(), context, queue, device, timeKernels, useSplitTail);
-  program.reset();
-      
-  bool isPrime = false;
-  u64 residue = 0;
-  int nErrors = 0;
-  if (!checkPrime(gpu, E, N, args, &isPrime, &residue, &nErrors)) { return false; }
-  
-  if (!(writeResult(E, isPrime, residue, AID, args.user, args.cpu, nErrors, N) && worktodoDelete(E))) { return false; }
-
-  if (isPrime) { return false; } // Request stop if a prime is found.
-  
-  return true;
-}
+// selects OpenGpu or CudaGpu.
+unique_ptr<Gpu> makeGpu(u32 E, Args &args);
 
 int main(int argc, char **argv) {  
   initLog();
-  
-  log("gpuOwL v" VERSION " GPU Mersenne primality checker\n");
+
+  log("%s-%s %s\n", PROGRAM, VARIANT, VERSION);
   
   Args args;
-  
   if (!args.parse(argc, argv)) { return -1; }
-
-  cl_device_id device = getDevice(args);  
-  if (!device) { return -1; }
-
-  if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
-
-  std::string info = getLongInfo(device);
-  log("%s\n", info.c_str());
-  
-  Context context{createContext(device)};
-  QueueHolder queue{makeQueue(device, context.get())};
 
   while (true) {
     char AID[64];
     int E = worktodoReadExponent(AID);
     if (E <= 0) { break; }
 
-    int W = (E < 153000000) ? 2048 : 4096;
-    int H = 2048;
-    if (!doIt(device, context.get(), queue.get(), args, AID, E, W, H)) { break; }
+    bool isPrime = false;
+    u64 residue = 0;
+    int nErrors = 0;
+
+    unique_ptr<Gpu> gpu = makeGpu(E, args);
+
+    if (!checkPrime(gpu.get(), E, args, &isPrime, &residue, &nErrors)
+        || !writeResult(E, isPrime, residue, AID, args.user, args. cpu, nErrors, gpu->getFFTSize())
+        || !worktodoDelete(E)
+        || isPrime) {
+      break;
+    }
   }
 
   log("\nBye\n");

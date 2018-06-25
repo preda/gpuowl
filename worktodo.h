@@ -10,7 +10,7 @@
 #include <cassert>
 
 // It seems that 308M is impossible to do with a 16M FFT, so that's the upper limit.
-const int EXP_MIN = 10000000, EXP_MAX = 308000000;
+const int EXP_MIN = 1024, EXP_MAX = 308000000;
 
 int parseLine(const char *line, char *outAID) {
   int exp = 0;
