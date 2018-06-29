@@ -15,7 +15,7 @@
 
 #define CC(what) assert((what) == cudaSuccess)
 
-static std::pair<vector<double>, vector<double>> genWeights(uint E, uint N) {
+pair<vector<double>, vector<double>> genWeights(uint E, uint N) {
   vector<double> aTab, iTab;
   aTab.reserve(N);
   iTab.reserve(N);

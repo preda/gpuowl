@@ -18,12 +18,13 @@ const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
-template<typename T>
-void genWeights(int W, int H, int E, T *aTab, T *iTab) {
-  T *pa = aTab;
-  T *pi = iTab;
-
+template<typename T> pair<vector<T>, vector<T>> genWeights(int E, int W, int H) {
   int N = 2 * W * H;
+
+  vector<T> aTab, iTab;
+  aTab.reserve(N);
+  iTab.reserve(N);
+
   int baseBits = E / N;
   auto iN = 1 / (long double) N;
 
@@ -35,11 +36,13 @@ void genWeights(int W, int H, int E, T *aTab, T *iTab) {
         assert(bits == baseBits || bits == baseBits + 1);
         auto a = exp2l(extra(N, E, k) * iN);
         auto ia = 1 / (4 * N * a);
-        *pa++ = (bits == baseBits) ? a  : -a;
-        *pi++ = (bits == baseBits) ? ia : -ia;
+        aTab.push_back((bits == baseBits) ? a  : -a);
+        iTab.push_back((bits == baseBits) ? ia : -ia);
       }
     }
   }
+  assert(int(aTab.size()) == N && int(iTab.size()) == N);
+  return make_pair(aTab, iTab);
 }
 
 template<typename T> struct Pair { T x, y; };
@@ -120,15 +123,9 @@ cl_mem genSmallTrig(cl_context context, int size, int radix) {
 template<typename T>
 void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
   int N = 2 * W * H;
-  T *aTab    = new T[N];
-  T *iTab    = new T[N];
-  
-  genWeights(W, H, E, aTab, iTab);
-  bufA.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, aTab));
-  bufI.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, iTab));
-  
-  delete[] aTab;
-  delete[] iTab;
+  auto weights = genWeights<double>(E, W, H);
+  bufA.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, weights.first.data()));
+  bufI.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, weights.second.data()));
 }
 
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
