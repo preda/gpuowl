@@ -228,7 +228,8 @@ string join(const string &prefix, const vector<string> &elems) {
 
 cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
                    const vector<string> &defVect, const string &config) {
-  string args = join(" -D", defVect) + " " + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-kernel-arg-info ";
+  string args = join(" -D", defVect) + " " + extraArgs + " " + "-I. -cl-fast-relaxed-math ";
+  // -cl-kernel-arg-info
 
   cl_program program = 0;
   
@@ -264,6 +265,9 @@ cl_kernel makeKernel(cl_program program, const char *name) {
 
 template<typename T>
 void setArg(cl_kernel k, int pos, const T &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
+
+// Special-case Buffer argument: pass the wrapped cl_mem.
+void setArg(cl_kernel k, int pos, const Buffer &buf) { setArg(k, pos, buf.get()); }
 
 cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0) {
   int err;

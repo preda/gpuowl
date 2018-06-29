@@ -823,11 +823,11 @@ KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
   write(G_H, NH, u, io, 0);
 }
 
-KERNEL(G_W) carryA(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
+KERNEL(G_W) carryA(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A) {
   carryACore(1, in, A, out, carryOut);
 }
 
-KERNEL(G_W) carryM(CP(T2) in, CP(T2) A, P(Word2) out, P(Carry) carryOut) {
+KERNEL(G_W) carryM(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A) {
   carryACore(3, in, A, out, carryOut);
 }
 

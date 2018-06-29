@@ -257,62 +257,19 @@ class OpenGpu : public LowGpu<Buffer> {
         
     setupWeights<double>(context, bufA, bufI, W, H, E);
 
-    /*
-    fftP.setArg("out", buf1);
-    fftP.setArg("A", bufA);
-    fftP.setArg("smallTrig", bufTrigW);
-  
-    fftW.setArg("io", buf1);
-    fftW.setArg("smallTrig", bufTrigW);
-  
-    fftH.setArg("io", buf2);
-    fftH.setArg("smallTrig", bufTrigH);
-  
-    transposeW.setArg("in",  buf1);
-    transposeW.setArg("out", buf2);
-    transposeW.setArg("trig", bufTransTrig);
-
-    transposeH.setArg("in",  buf2);
-    transposeH.setArg("out", buf1);
-    transposeH.setArg("trig", bufTransTrig);
-  
-    carryA.setArg("in", buf1);
-    carryA.setArg("A", bufI);
-    carryA.setArg("carryOut", bufCarry);
-
-    carryM.setArg("in", buf1);
-    carryM.setArg("A", bufI);
-    carryM.setArg("carryOut", bufCarry);
-
-    // shift.setArg("io", bufData);
-    shift.setArg("carryOut", bufCarry);
-
-    carryB.setArg("carryIn", bufCarry);
-  
-    square.setArg("io", buf2);
-    square.setArg("bigTrig", bufSquareTrig);
-  
-    multiply.setArg("io", buf2);
-    multiply.setArg("in", buf3);
-    multiply.setArg("bigTrig", bufSquareTrig);
-  
-    tailFused.setArg("io", buf2);
-    tailFused.setArg("smallTrig", bufTrigH);
-    tailFused.setArg("bigTrig", bufSquareTrig);
-
-    doCheck.setArg("in1", bufCheck);
-    doCheck.setArg("in2", bufAux);
-    doCheck.setArg("out", bufSmallOut);
-
-    compare.setArg("in1", bufCheck);
-    compare.setArg("in2", bufAux);
-    uint zero = 0;
-    compare.setArg("offset", zero);
-    compare.setArg("out", bufSmallOut);
-
-    readResidue.setArg("in", bufData);
-    readResidue.setArg("out", bufSmallOut);
-    */
+    fftP.setFixedArgs(2, bufA, bufTrigW);
+    fftW.setFixedArgs(1, bufTrigW);
+    fftH.setFixedArgs(1, bufTrigH);
+    
+    transposeW.setFixedArgs(2, bufTransTrig);
+    transposeH.setFixedArgs(2, bufTransTrig);
+    
+    carryA.setFixedArgs(3, bufI);
+    carryM.setFixedArgs(3, bufI);
+    
+    square.setFixedArgs(1, bufSquareTrig);
+    multiply.setFixedArgs(2, bufSquareTrig);
+    tailFused.setFixedArgs(1, bufTrigH, bufSquareTrig);    
   }
   
 public:
@@ -360,9 +317,6 @@ public:
 
 protected:
   bool equalNotZero(Buffer &buf1, Buffer &buf2, u32 deltaOffset) {    
-    // compare.setArg("in1", buf1);
-    // compare.setArg("in2", buf2);
-    // compare.setArg("offset", deltaOffset);
     compare(buf1, buf2, deltaOffset, bufSmallOut);
     auto readBuf = queue.read<int>(bufSmallOut, 2);
     bool isEqual   = readBuf[0];
@@ -387,9 +341,7 @@ public:
 
   void rollback() {
     // Shift good data by 1.
-    // shift.setArg("io", bufGoodData);
     shift(bufGoodData, bufCarry);
-    // carryB.setArg("io", bufGoodData);
     carryB(bufGoodData, bufCarry);
     offsetGoodData = (offsetGoodData + 1) % E;
     
@@ -415,23 +367,17 @@ private:
   }
   
   vector<int> readSmall(Buffer &buf, u32 start) {
-    // readResidue.setArg("in", buf);
-    // readResidue.setArg("startDword", start);
     readResidue(buf, bufSmallOut, start);
     return queue.read<int>(bufSmallOut, 128);                    
   }
     
   vector<int> readOut(Buffer &buf) {
-    // transposeOut.setArg("in", buf);
-    // transposeOut.setArg("out", bufAux);
     transposeOut(buf, bufAux);
     return queue.read<int>(bufAux, N);
   }
   
   void writeIn(const vector<int> &words, Buffer &buf) {
     queue.write(bufAux, words);
-    // transposeIn.setArg("in", bufAux);
-    // transposeIn.setArg("out", buf);
     transposeIn(bufAux, buf);
   }
     
@@ -442,13 +388,6 @@ private:
             
     entryKerns(in, buf1, buf2);
       
-    // carry args needed for coreKerns.
-    /*
-    carryA.setArg("out", out);
-    carryB.setArg("io",  out);
-    fftP.setArg("in", out);
-    */
-
     for (int i = 0; i < nIters - 1; ++i) { coreKerns(buf1, out); }
 
     exitKerns(buf1, out, doMul3);
@@ -458,60 +397,52 @@ private:
   void modMul(Buffer &in, Buffer &io, bool doMul3) {
     directFFT(in, buf1, buf3);
     directFFT(io, buf1, buf2);
-    multiply(buf2, buf3, bufSquareTrig); // input: buf2, buf3; output: buf2.
-    fftH(buf2, bufTrigH);
-    transposeH(buf2, buf1, bufTransTrig);
+    multiply(buf2, buf3); // input: buf2, buf3; output: buf2.
+    fftH(buf2);
+    transposeH(buf2, buf1);
     exitKerns(buf1, io, doMul3);
   };
   
   void carry(Buffer &buf1, Buffer &bufTmp) {
-    fftW(buf1, bufTrigW);
-    carryA(buf1, bufI, bufTmp, bufCarry);
+    fftW(buf1);
+    carryA(buf1, bufTmp, bufCarry);
     carryB(bufTmp, bufCarry);
-    fftP(bufTmp, buf1, bufA, bufTrigW);
+    fftP(bufTmp, buf1);
   }
 
   void tail(Buffer &buf) {
     if (useSplitTail) {
-      fftH(buf, bufTrigH);
-      square(buf, bufSquareTrig);
-      fftH(buf, bufTrigH);
+      fftH(buf);
+      square(buf);
+      fftH(buf);
     } else {
-      tailFused(buf, bufTrigH, bufSquareTrig);
+      tailFused(buf);
     }
   }
 
   void entryKerns(Buffer &in, Buffer &buf1, Buffer &buf2) {
-    // fftP.setArg("in", in);      
-    fftP(in, buf1, bufA, bufTrigW);
-    transposeW(buf1, buf2, bufTransTrig);
+    fftP(in, buf1);
+    transposeW(buf1, buf2);
     tail(buf2);
-    transposeH(buf2, buf1, bufTransTrig);
+    transposeH(buf2, buf1);
   }
 
   void coreKerns(Buffer &buf1, Buffer &bufTmp) {
     carry(buf1, bufTmp);
-    transposeW(buf1, buf2, bufTransTrig);
+    transposeW(buf1, buf2);
     tail(buf2);
-    transposeH(buf2, buf1, bufTransTrig);
+    transposeH(buf2, buf1);
   }
 
-  void exitKerns(Buffer &buf1, Buffer &out, bool doMul3) {
-    // (doMul3 ? carryM : carryA).setArg("out", out);
-    // carryB.setArg("io",  out);
-    
-    fftW(buf1, bufTrigW);
-    doMul3 ? carryM(buf1, bufI, out, bufCarry) : carryA(buf1, bufI, out, bufCarry);
+  void exitKerns(Buffer &buf1, Buffer &out, bool doMul3) {    
+    fftW(buf1);
+    doMul3 ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
     carryB(out, bufCarry);
   }
 
   void directFFT(Buffer &in, Buffer &buf1, Buffer &out) {
-    // fftP.setArg("in", in);
-    // transposeW.setArg("out", out);
-    // fftH.setArg("io", out);
-      
-    fftP(in, buf1, bufA, bufTrigW);
-    transposeW(buf1, out, bufTransTrig);
-    fftH(out, bufTrigH);
+    fftP(in, buf1);
+    transposeW(buf1, out);
+    fftH(out);
   }
 };
