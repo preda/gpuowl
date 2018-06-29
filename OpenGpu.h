@@ -66,7 +66,7 @@ T2 *trig(T2 *p, int n, int B) {
 }
 
 // The generated trig table has two regions:
-// - a size-H half-circle.
+// - a size-H/2 quarter-circle.
 // - a region of granularity TAU / (2 * W * H), used in squaring.
 cl_mem genSquareTrig(cl_context context, int W, int H) {
   const int size = H/2 + W;
@@ -182,7 +182,6 @@ class OpenGpu : public LowGpu<Buffer> {
   int hN, nW, nH, bufSize;
   bool useSplitTail;
   
-  // Context context;
   Queue queue;
 
   Kernel fftP;
@@ -215,7 +214,6 @@ class OpenGpu : public LowGpu<Buffer> {
     LowGpu(E, W * H * 2),
     hN(N / 2), nW(8), nH(H / 256), bufSize(N * sizeof(double)),
     useSplitTail(useSplitTail),
-    // context(context),
     queue(makeQueue(device, context)),    
 
 #define LOAD(name, workSize) name(program, queue.get(), device, workSize, #name, timeKernels)
@@ -259,6 +257,7 @@ class OpenGpu : public LowGpu<Buffer> {
         
     setupWeights<double>(context, bufA, bufI, W, H, E);
 
+    /*
     fftP.setArg("out", buf1);
     fftP.setArg("A", bufA);
     fftP.setArg("smallTrig", bufTrigW);
@@ -313,6 +312,7 @@ class OpenGpu : public LowGpu<Buffer> {
 
     readResidue.setArg("in", bufData);
     readResidue.setArg("out", bufSmallOut);
+    */
   }
   
 public:
@@ -359,11 +359,11 @@ public:
   
 
 protected:
-  bool equalNotZero(Buffer &buf1, Buffer &buf2, u32 deltaOffset) {
-    compare.setArg("in1", buf1);
-    compare.setArg("in2", buf2);
-    compare.setArg("offset", deltaOffset);
-    compare();
+  bool equalNotZero(Buffer &buf1, Buffer &buf2, u32 deltaOffset) {    
+    // compare.setArg("in1", buf1);
+    // compare.setArg("in2", buf2);
+    // compare.setArg("offset", deltaOffset);
+    compare(buf1, buf2, deltaOffset, bufSmallOut);
     auto readBuf = queue.read<int>(bufSmallOut, 2);
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
@@ -387,10 +387,10 @@ public:
 
   void rollback() {
     // Shift good data by 1.
-    shift.setArg("io", bufGoodData);
-    shift();
-    carryB.setArg("io", bufGoodData);
-    carryB();
+    // shift.setArg("io", bufGoodData);
+    shift(bufGoodData, bufCarry);
+    // carryB.setArg("io", bufGoodData);
+    carryB(bufGoodData, bufCarry);
     offsetGoodData = (offsetGoodData + 1) % E;
     
     queue.copy<int>(bufGoodData, bufData, N);
@@ -415,24 +415,24 @@ private:
   }
   
   vector<int> readSmall(Buffer &buf, u32 start) {
-    readResidue.setArg("in", buf);
-    readResidue.setArg("startDword", start);
-    readResidue();
+    // readResidue.setArg("in", buf);
+    // readResidue.setArg("startDword", start);
+    readResidue(buf, bufSmallOut, start);
     return queue.read<int>(bufSmallOut, 128);                    
   }
     
   vector<int> readOut(Buffer &buf) {
-    transposeOut.setArg("in", buf);
-    transposeOut.setArg("out", bufAux);
-    transposeOut();    
+    // transposeOut.setArg("in", buf);
+    // transposeOut.setArg("out", bufAux);
+    transposeOut(buf, bufAux);
     return queue.read<int>(bufAux, N);
   }
   
   void writeIn(const vector<int> &words, Buffer &buf) {
     queue.write(bufAux, words);
-    transposeIn.setArg("in", bufAux);
-    transposeIn.setArg("out", buf);
-    transposeIn();
+    // transposeIn.setArg("in", bufAux);
+    // transposeIn.setArg("out", buf);
+    transposeIn(bufAux, buf);
   }
     
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
@@ -440,77 +440,78 @@ private:
   void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
     assert(nIters > 0);
             
-    entryKerns(in);
+    entryKerns(in, buf1, buf2);
       
     // carry args needed for coreKerns.
+    /*
     carryA.setArg("out", out);
     carryB.setArg("io",  out);
     fftP.setArg("in", out);
+    */
 
-    for (int i = 0; i < nIters - 1; ++i) { coreKerns(); }
+    for (int i = 0; i < nIters - 1; ++i) { coreKerns(buf1, out); }
 
-    exitKerns(out, doMul3);
+    exitKerns(buf1, out, doMul3);
   }
 
   // The modular multiplication io *= in.
   void modMul(Buffer &in, Buffer &io, bool doMul3) {
-    directFFT(in, buf3);
-    directFFT(io, buf2);
-    multiply(); // input: buf2, buf3; output: buf2.
-    fftH();
-    transposeH();
-    exitKerns(io, doMul3);
+    directFFT(in, buf1, buf3);
+    directFFT(io, buf1, buf2);
+    multiply(buf2, buf3, bufSquareTrig); // input: buf2, buf3; output: buf2.
+    fftH(buf2, bufTrigH);
+    transposeH(buf2, buf1, bufTransTrig);
+    exitKerns(buf1, io, doMul3);
   };
   
-  void carry() {
-    fftW();
-    carryA();
-    carryB();
-    fftP();
+  void carry(Buffer &buf1, Buffer &bufTmp) {
+    fftW(buf1, bufTrigW);
+    carryA(buf1, bufI, bufTmp, bufCarry);
+    carryB(bufTmp, bufCarry);
+    fftP(bufTmp, buf1, bufA, bufTrigW);
   }
 
-  void tail() {
+  void tail(Buffer &buf) {
     if (useSplitTail) {
-      fftH();
-      square();
-      fftH();      
+      fftH(buf, bufTrigH);
+      square(buf, bufSquareTrig);
+      fftH(buf, bufTrigH);
     } else {
-      tailFused();
+      tailFused(buf, bufTrigH, bufSquareTrig);
     }
   }
 
-  void entryKerns(Buffer &in) {
-    fftP.setArg("in", in);
-      
-    fftP();
-    transposeW();
-    tail();
-    transposeH();
+  void entryKerns(Buffer &in, Buffer &buf1, Buffer &buf2) {
+    // fftP.setArg("in", in);      
+    fftP(in, buf1, bufA, bufTrigW);
+    transposeW(buf1, buf2, bufTransTrig);
+    tail(buf2);
+    transposeH(buf2, buf1, bufTransTrig);
   }
 
-  void coreKerns() {
-    carry();
-    transposeW();
-    tail();
-    transposeH();
+  void coreKerns(Buffer &buf1, Buffer &bufTmp) {
+    carry(buf1, bufTmp);
+    transposeW(buf1, buf2, bufTransTrig);
+    tail(buf2);
+    transposeH(buf2, buf1, bufTransTrig);
   }
 
-  void exitKerns(Buffer &out, bool doMul3) {
-    (doMul3 ? carryM : carryA).setArg("out", out);
-    carryB.setArg("io",  out);
+  void exitKerns(Buffer &buf1, Buffer &out, bool doMul3) {
+    // (doMul3 ? carryM : carryA).setArg("out", out);
+    // carryB.setArg("io",  out);
     
-    fftW();
-    doMul3 ? carryM() : carryA();
-    carryB();
+    fftW(buf1, bufTrigW);
+    doMul3 ? carryM(buf1, bufI, out, bufCarry) : carryA(buf1, bufI, out, bufCarry);
+    carryB(out, bufCarry);
   }
 
-  void directFFT(Buffer &in, Buffer &out) {
-    fftP.setArg("in", in);
-    transposeW.setArg("out", out);
-    fftH.setArg("io", out);
+  void directFFT(Buffer &in, Buffer &buf1, Buffer &out) {
+    // fftP.setArg("in", in);
+    // transposeW.setArg("out", out);
+    // fftH.setArg("io", out);
       
-    fftP();
-    transposeW();
-    fftH();
+    fftP(in, buf1, bufA, bufTrigW);
+    transposeW(buf1, out, bufTransTrig);
+    fftH(out, bufTrigH);
   }
 };
