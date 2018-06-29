@@ -267,7 +267,7 @@ class OpenGpu : public LowGpu<Buffer> {
     carryA.setFixedArgs(3, bufI);
     carryM.setFixedArgs(3, bufI);
     
-    square.setFixedArgs(1, bufSquareTrig);
+    square.setFixedArgs(  1, bufSquareTrig);
     multiply.setFixedArgs(2, bufSquareTrig);
     tailFused.setFixedArgs(1, bufTrigH, bufSquareTrig);    
   }
@@ -313,21 +313,10 @@ public:
 
     return unique_ptr<Gpu>(new OpenGpu(E, W, H, program.get(), device, context.get(), timeKernels, useSplitTail));
   }
-  
 
-protected:
-  bool equalNotZero(Buffer &buf1, Buffer &buf2, u32 deltaOffset) {    
-    compare(buf1, buf2, deltaOffset, bufSmallOut);
-    auto readBuf = queue.read<int>(bufSmallOut, 2);
-    bool isEqual   = readBuf[0];
-    bool isNotZero = readBuf[1];
-    bool ok = isEqual && isNotZero;
-    return ok;
-  }
-  
-public:
   void finish() { queue.finish(); }
   
+protected:
   void logTimeKernels() {
     ::logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused});
   }
@@ -351,26 +340,8 @@ public:
     offsetCheck = offsetGoodCheck;
   }
 
-  std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
+  // Implementation of LowGpu's abstract methods below.
   
-private:
-  u64 bufResidue(Buffer &buf, u32 offset) {
-    u32 startWord = bitposToWord(E, N, offset);
-    u32 startDword = startWord / 2;    
-    u32 earlyStart = (startDword + N/2 - 32) % (N/2);
-    vector<int> readBuf = readSmall(buf, earlyStart);
-
-    u128 raw = residueFromRaw(readBuf, startWord);
-
-    u32 startBit   = offset - wordToBitpos(E, N, startWord);
-    return raw >> startBit;
-  }
-  
-  vector<int> readSmall(Buffer &buf, u32 start) {
-    readResidue(buf, bufSmallOut, start);
-    return queue.read<int>(bufSmallOut, 128);                    
-  }
-    
   vector<int> readOut(Buffer &buf) {
     transposeOut(buf, bufAux);
     return queue.read<int>(bufAux, N);
@@ -380,16 +351,13 @@ private:
     queue.write(bufAux, words);
     transposeIn(bufAux, buf);
   }
-    
+  
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
   // Optional multiply-by-3 at the end.
   void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
     assert(nIters > 0);
-            
     entryKerns(in, buf1, buf2);
-      
     for (int i = 0; i < nIters - 1; ++i) { coreKerns(buf1, out); }
-
     exitKerns(buf1, out, doMul3);
   }
 
@@ -402,7 +370,36 @@ private:
     transposeH(buf2, buf1);
     exitKerns(buf1, io, doMul3);
   };
+
+  bool equalNotZero(Buffer &buf1, Buffer &buf2, u32 deltaOffset) {    
+    compare(buf1, buf2, deltaOffset, bufSmallOut);
+    auto readBuf = queue.read<int>(bufSmallOut, 2);
+    bool isEqual   = readBuf[0];
+    bool isNotZero = readBuf[1];
+    bool ok = isEqual && isNotZero;
+    return ok;
+  }
   
+  u64 bufResidue(Buffer &buf, u32 offset) {
+    u32 startWord = bitposToWord(E, N, offset);
+    u32 startDword = startWord / 2;    
+    u32 earlyStart = (startDword + N/2 - 32) % (N/2);
+    vector<int> readBuf = readSmall(buf, earlyStart);
+
+    u128 raw = residueFromRaw(readBuf, startWord);
+
+    u32 startBit   = offset - wordToBitpos(E, N, startWord);
+    return raw >> startBit;
+  }
+  
+private:
+  std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
+  
+  vector<int> readSmall(Buffer &buf, u32 start) {
+    readResidue(buf, bufSmallOut, start);
+    return queue.read<int>(bufSmallOut, 128);                    
+  }
+          
   void carry(Buffer &buf1, Buffer &bufTmp) {
     fftW(buf1);
     carryA(buf1, bufTmp, bufCarry);
