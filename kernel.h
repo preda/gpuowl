@@ -22,7 +22,7 @@ class Kernel {
 
   template<typename T> void setArgs(int pos, const T &arg) { ::setArg(kernel.get(), pos, arg); }
   
-  template<typename T, typename... Args> void setArgs(int pos, const T &arg, Args &...tail) {
+  template<typename T, typename... Args> void setArgs(int pos, const T &arg, const Args &...tail) {
     setArgs(pos, arg);
     setArgs(pos + 1, tail...);
   }
@@ -43,7 +43,7 @@ public:
 
   template<typename... Args> void setFixedArgs(int pos, Args &...tail) { setArgs(pos, tail...); }
   
-  template<typename... Args> void operator()(Args &...args) {
+  template<typename... Args> void operator()(const Args &...args) {
     setArgs(0, args...);
     if (doTime) {
       finish(queue);

@@ -188,6 +188,7 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryM;
   Kernel shift;
   Kernel carryB;
+  Kernel res36;
   Kernel transposeW;
   Kernel transposeH;
   Kernel square;
@@ -221,6 +222,7 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryM, hN / 16),
     LOAD(shift,  hN / 16),
     LOAD(carryB, hN / 16),
+    LOAD(res36, hN / 16),
     LOAD(transposeW, (W/64) * (H/64) * 256),
     LOAD(transposeH, (W/64) * (H/64) * 256),
     LOAD(square,   hN / 2),
@@ -368,12 +370,32 @@ protected:
     exitKerns(buf1, io, doMul3);
   };
 
-  bool equalNotZero(Buffer &buf1, Buffer &buf2, u32 deltaOffset) {    
+  u64 reduce36(i64 x) {
+    i64 r = x / (1ll << 36) + x % (1ll << 36);
+    return (r < 0) ? r + (1ll << 36) - 1 : r;
+  }
+  
+  bool equalNotZero(Buffer &buf1, u32 offset1, Buffer &buf2, u32 offset2) {
+    int init[2] = {true, false};
+    write(queue.get(), false, bufSmallOut, sizeof(int) * 2, init);    
+    
+    u32 deltaOffset = (E + offset2 - offset1) % E;
     compare(buf1, buf2, deltaOffset, bufSmallOut);
     auto readBuf = queue.read<int>(bufSmallOut, 2);
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
     bool ok = isEqual && isNotZero;
+
+    i64 zero[2] = {0, 0};
+    i64 res[2] = {0, 0};
+    
+    write(queue.get(), false, bufSmallOut, 2 * sizeof(i64), &zero);
+    res36(buf1, offset1, bufSmallOut, 0);
+    res36(buf2, offset2, bufSmallOut, 1);
+    auto res = queue.read<i64>(bufSmallOut, 2);
+    u64 res1 = reduce36(res[0]);
+    u64 res2 = reduce36(res[1]);
+    if (res1 != res2) { log("res36 differ: %016llx %016llx\n", res1, res2); }
     return ok;
   }
   

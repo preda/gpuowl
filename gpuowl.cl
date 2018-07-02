@@ -15,6 +15,8 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
+// #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+
 // OpenCL 2.x introduces the "generic" memory space, so there's no need to specify "global" on pointers everywhere.
 #if __OPENCL_C_VERSION__ >= 200
 #define G
@@ -593,15 +595,59 @@ ulong readDwordBits(CP(Word2) data, uint k, uint *outNBits, int *carryInOut) {
 
 ulong maskBits(ulong bits, int n) { return bits % (1UL << n); }
 
+long reduce36(long x) { return (x >> 36) + (x & ((1ull << 36) - 1)); }
+
+long shifted36(int x, u32 offset, u32 wordPos) {
+  u32 bitPos = EXP - offset + wordToBitpos(EXP, NWORDS, wordPos);
+  bitPos = (bitPos >= EXP) ? bitPos - EXP : bitPos;
+
+  int base = 0;
+
+  int tops = EXP - bitPos;
+  if (tops < 22) {
+    base = (x >> tops);
+    x &= (1 << tops) - 1;
+  }
+  return base + (((long) x) << (bitPos % 36));
+}
+
+KERNEL(G_W) res36(CP(Word2) in, u32 offset, P(long) out, int outPos) {
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+
+  uint gx = g % NW;
+  uint gy = g / NW;
+  in += G_W * gx + WIDTH * CARRY_LEN * gy;
+
+  long res36 = 0; 
+  for (int i = 0; i < CARRY_LEN; ++i) {
+    Word2 w = in[i * WIDTH + me];
+    uint k = CARRY_LEN * gy + HEIGHT * G_W * gx + HEIGHT * me + i;
+    res36 += shifted36(w.x, offset, 2 * k + 0);
+    res36 += shifted36(w.y, offset, 2 * k + 1);
+  }
+  
+  local long localRes36;
+  if (me == 0) { localRes36 = 0; }
+  bar();
+  
+  atom_add(&localRes36, reduce36(res36));
+  bar();
+
+  if (me == 0) { atom_add(&out[outPos], localRes36); }
+}
+
 // This is damn tricky on the GPU: comparing balanced words with offset.
 KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {  
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
+  /*
   if (g == 0 && me == 0) {
     out[0] = true;  // initial in1 == in2: true
     out[1] = false; // initial non-zero: false
   }
+  */
 
   uint gx = g % NW;
   uint gy = g / NW;
