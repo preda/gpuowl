@@ -18,10 +18,10 @@ const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
-template<typename T> pair<vector<T>, vector<T>> genWeights(int E, int W, int H) {
+pair<vector<double>, vector<double>> genWeights(int E, int W, int H) {
   int N = 2 * W * H;
 
-  vector<T> aTab, iTab;
+  vector<double> aTab, iTab;
   aTab.reserve(N);
   iTab.reserve(N);
 
@@ -123,7 +123,7 @@ cl_mem genSmallTrig(cl_context context, int size, int radix) {
 template<typename T>
 void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
   int N = 2 * W * H;
-  auto weights = genWeights<double>(E, W, H);
+  auto weights = genWeights(E, W, H);
   bufA.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, weights.first.data()));
   bufI.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, weights.second.data()));
 }
