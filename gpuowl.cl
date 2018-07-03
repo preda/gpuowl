@@ -183,34 +183,6 @@ void fft8(T2 *u) {
   SWAP(u[3], u[6]);
 }
 
-// cos(tau/16)
-#define COS_T16 0x1.d906bcf328d46p-1
-// sin(tau/16)
-#define SIN_T16 0x1.87de2a6aea963p-2
-
-void fft16(T2 *u) {
-  for (int i = 0; i < 8; ++i) { X2(u[i], u[i + 8]); }
-
-  u[9]  = mul(u[ 9], U2(COS_T16, -SIN_T16));
-  u[10] = mul_t8(u[10]);
-  u[11] = mul(u[11], U2(SIN_T16, -COS_T16));
-  u[12] = mul_t4(u[12]);
-  u[13] = mul(u[13], U2(-SIN_T16, -COS_T16));
-  u[14] = mul_3t8(u[14]);
-  u[15] = mul(u[15], U2(-COS_T16, -SIN_T16));
-
-  fft8Core(u);
-  fft8Core(u + 8);
-  
-  // revbin [0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15] undo
-  SWAP(u[1],  u[8]);
-  SWAP(u[2],  u[4]);
-  SWAP(u[3],  u[12]);
-  SWAP(u[5],  u[10]);
-  SWAP(u[7],  u[14]);
-  SWAP(u[11], u[13]);
-}
-
 void shufl(uint WG, local T *lds, T2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   uint m = me / f;
@@ -237,17 +209,6 @@ void fft1K(local T *lds, T2 *u, const G T2 *trig) {
   }
 
   fft4(u);
-}
-
-void fft4K_256(local T *lds, T2 *u, const G T2 *trig) {
-  for (int s = 4; s >= 0; s -= 4) {
-    fft16(u);
-    if (s != 4) { bar(); }
-    shufl(256,   lds, u, 16, 1 << s);
-    tabMul(256, trig, u, 16, 1 << s); 
-  }
-
-  fft16(u);
 }
 
 void fft4K_512(local T *lds, T2 *u, const G T2 *trig) {
@@ -752,22 +713,6 @@ KERNEL(G_W) shift(P(Word2) io, P(Carry) carryOut) {
   carryOut[G_W * g + me] = carry;
 }
 
-#if (WIDTH == 4096) && (NW == 8)
-
-KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
-  local T lds[WIDTH];
-  T2 u[NW];
-
-  uint g = get_group_id(0);
-  io += WIDTH * g;
-
-  read(G_W, NW, u, io, 0);
-  fft4K_512(lds, u, smallTrig);
-  write(G_W, NW, u, io, 0);
-}
-
-#else
-
 KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   local T lds[WIDTH];
   T2 u[NW];
@@ -782,43 +727,19 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
 #elif WIDTH == 2048
   fft2K(lds, u, smallTrig);
 #elif WIDTH == 4096
-  fft4K_256(lds, u, smallTrig);
+
+#if G_W != 512
+#error expected group width 512.
+#endif
+  
+  fft4K_512(lds, u, smallTrig);
+  
 #else
 #error unexpected WIDTH.  
 #endif
   
   write(G_W, NW, u, io, 0);
 }
-
-#endif
-
-
-#if (WIDTH == 4096) && (NW == 8)
-
-// fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-KERNEL(512) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
-  local T lds[WIDTH];
-  T2 u[8];
-
-  uint g = get_group_id(0);
-  uint step = WIDTH * g;
-  A   += step;
-  in  += step;
-  out += step;
-
-  uint me = get_local_id(0);
-
-  for (int i = 0; i < 8; ++i) {
-    uint p = G_W * i + me;
-    u[i] = weight(in[p], A[p]);
-  }
-
-  fft4K_512(lds, u, smallTrig);
-  
-  write(512, 8, u, out, 0);
-}
-
-#else
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
@@ -839,19 +760,27 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   }
 
 #if   WIDTH == 1024
+  
   fft1K(lds, u, smallTrig);
+  
 #elif WIDTH == 2048
+  
   fft2K(lds, u, smallTrig);
+  
 #elif WIDTH == 4096
-  fft4K_256(lds, u, smallTrig);
+
+#if G_W != 512
+#error expected group width 512.
+#endif
+
+  fft4K_512(lds, u, smallTrig);
+  
 #else
 #error unexpected WIDTH.  
 #endif
   
   write(G_W, NW, u, out, 0);
 }
-
-#endif
 
 KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
   local T lds[HEIGHT];

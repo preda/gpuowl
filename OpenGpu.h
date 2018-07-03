@@ -387,7 +387,6 @@ protected:
     bool ok = isEqual && isNotZero;
 
     i64 zero[2] = {0, 0};
-    i64 res[2] = {0, 0};
     
     write(queue.get(), false, bufSmallOut, 2 * sizeof(i64), &zero);
     res36(buf1, offset1, bufSmallOut, 0);
