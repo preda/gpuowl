@@ -177,10 +177,11 @@ cl_device_id getDevice(const Args &args) {
 class OpenGpu : public LowGpu<Buffer> {
   int W, H;
   int hN, nW, nH, bufSize;
-  bool useSplitTail;
+  bool useSplitTail, useLongCarry;
   
   Queue queue;
 
+  Kernel carryFused;
   Kernel fftP;
   Kernel fftW;
   Kernel fftH;
@@ -204,17 +205,22 @@ class OpenGpu : public LowGpu<Buffer> {
   Buffer bufA, bufI;
   Buffer buf1, buf2, buf3;
   Buffer bufCarry;
+  Buffer bufReady;
   Buffer bufSmallOut;
 
   int offsetGoodData, offsetGoodCheck;
 
-  OpenGpu(u32 E, u32 W, u32 H, cl_program program, cl_device_id device, cl_context context, bool timeKernels, bool useSplitTail) :
+  OpenGpu(u32 E, u32 W, u32 H, cl_program program, cl_device_id device, cl_context context,
+          bool timeKernels, bool useSplitTail, bool useLongCarry) :
     LowGpu(E, W * H * 2),
-    hN(N / 2), nW(8), nH(H / 256), bufSize(N * sizeof(double)),
+    hN(N / 2), nW(8), nH(H / 256),
+    bufSize(N * sizeof(double)),
     useSplitTail(useSplitTail),
+    useLongCarry(useLongCarry),
     queue(makeQueue(device, context)),    
 
 #define LOAD(name, workSize) name(program, queue.get(), device, workSize, #name, timeKernels)
+    LOAD(carryFused, (hN + W) / nW),
     LOAD(fftP, hN / nW),
     LOAD(fftW, hN / nW),
     LOAD(fftH, hN / nH),
@@ -245,7 +251,8 @@ class OpenGpu : public LowGpu<Buffer> {
     buf1{makeBuf(    context, BUF_RW, bufSize)},
     buf2{makeBuf(    context, BUF_RW, bufSize)},
     buf3{makeBuf(    context, BUF_RW, bufSize)},
-    bufCarry{makeBuf(context, BUF_RW, bufSize)},
+    bufCarry{makeBuf(context, BUF_RW, bufSize)}, // TODO: halve size.
+    bufReady{makeBuf(context, BUF_RW, N * sizeof(int))},
     bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int))),
 
     offsetGoodData(0), offsetGoodCheck(0)
@@ -256,6 +263,8 @@ class OpenGpu : public LowGpu<Buffer> {
         
     setupWeights<double>(context, bufA, bufI, W, H, E);
 
+    carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
+    
     fftP.setFixedArgs(2, bufA, bufTrigW);
     fftW.setFixedArgs(1, bufTrigW);
     fftH.setFixedArgs(1, bufTrigH);
@@ -268,18 +277,49 @@ class OpenGpu : public LowGpu<Buffer> {
     
     square.setFixedArgs(  1, bufSquareTrig);
     multiply.setFixedArgs(2, bufSquareTrig);
-    tailFused.setFixedArgs(1, bufTrigH, bufSquareTrig);    
+    tailFused.setFixedArgs(1, bufTrigH, bufSquareTrig);
+
+    queue.zero(bufReady, N * sizeof(int));
+  }
+
+  std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
+  
+  vector<int> readSmall(Buffer &buf, u32 start) {
+    readResidue(buf, bufSmallOut, start);
+    return queue.read<int>(bufSmallOut, 128);                    
+  }
+
+  void tail(Buffer &buf) {
+    if (useSplitTail) {
+      fftH(buf);
+      square(buf);
+      fftH(buf);
+    } else {
+      tailFused(buf);
+    }
+  }
+
+  void exitKerns(Buffer &buf1, Buffer &out, bool doMul3) {    
+    fftW(buf1);
+    doMul3 ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
+    carryB(out, bufCarry);
+  }
+
+  void directFFT(Buffer &in, Buffer &buf1, Buffer &out) {
+    fftP(in, buf1);
+    transposeW(buf1, out);
+    fftH(out);
   }
   
 public:
   static unique_ptr<Gpu> make(u32 E, Args &args) {
-    int W = (E < 153'000'000) ? 2048 : 4096;
+    int W = (E < 153'000'000) ? (E < 77000000) ? 1024 : 2048 : 4096;
     int H = 2048;
     int N = 2 * W * H;
 
     string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
-    int nW = 8;
+    int nW = (W == 1024) ? 4 : 8;
     int nH = H / 256;
   
     vector<string> defines {valueDefine("EXP", E),
@@ -289,7 +329,8 @@ public:
         valueDefine("NH", nH),
         };
 
-    bool useLongCarry = true; // args.carry == Args::CARRY_LONG || bitsPerWord < 15;  
+    float bitsPerWord = E / float(N);
+    bool useLongCarry = (args.carry == Args::CARRY_LONG) || (bitsPerWord < 15);
     bool useSplitTail = args.tail == Args::TAIL_SPLIT;
   
     log("Note: using %s carry and %s tail kernels\n",
@@ -310,7 +351,7 @@ public:
     Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs, defines, ""));
     if (!program) { throw "OpenCL compilation"; }
 
-    return unique_ptr<Gpu>(new OpenGpu(E, W, H, program.get(), device, context.get(), timeKernels, useSplitTail));
+    return unique_ptr<Gpu>(new OpenGpu(E, W, H, program.get(), device, context.get(), timeKernels, useSplitTail, useLongCarry));
   }
 
   void finish() { queue.finish(); }
@@ -355,8 +396,27 @@ protected:
   // Optional multiply-by-3 at the end.
   void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
     assert(nIters > 0);
-    entryKerns(in, buf1, buf2);
-    for (int i = 0; i < nIters - 1; ++i) { coreKerns(buf1, out); }
+    
+    fftP(in, buf1);
+    transposeW(buf1, buf2);
+    tail(buf2);
+    transposeH(buf2, buf1);
+
+    for (int i = 0; i < nIters - 1; ++i) {
+      if (useLongCarry) {
+        fftW(buf1);
+        carryA(buf1, out, bufCarry);
+        carryB(out, bufCarry);
+        fftP(out, buf1);
+      } else {
+        carryFused(buf1, bufCarry, bufReady);
+      }
+        
+      transposeW(buf1, buf2);
+      tail(buf2);
+      transposeH(buf2, buf1);
+    }
+    
     exitKerns(buf1, out, doMul3);
   }
 
@@ -408,56 +468,5 @@ protected:
 
     u32 startBit   = offset - wordToBitpos(E, N, startWord);
     return raw >> startBit;
-  }
-  
-private:
-  std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
-  
-  vector<int> readSmall(Buffer &buf, u32 start) {
-    readResidue(buf, bufSmallOut, start);
-    return queue.read<int>(bufSmallOut, 128);                    
-  }
-          
-  void carry(Buffer &buf1, Buffer &bufTmp) {
-    fftW(buf1);
-    carryA(buf1, bufTmp, bufCarry);
-    carryB(bufTmp, bufCarry);
-    fftP(bufTmp, buf1);
-  }
-
-  void tail(Buffer &buf) {
-    if (useSplitTail) {
-      fftH(buf);
-      square(buf);
-      fftH(buf);
-    } else {
-      tailFused(buf);
-    }
-  }
-
-  void entryKerns(Buffer &in, Buffer &buf1, Buffer &buf2) {
-    fftP(in, buf1);
-    transposeW(buf1, buf2);
-    tail(buf2);
-    transposeH(buf2, buf1);
-  }
-
-  void coreKerns(Buffer &buf1, Buffer &bufTmp) {
-    carry(buf1, bufTmp);
-    transposeW(buf1, buf2);
-    tail(buf2);
-    transposeH(buf2, buf1);
-  }
-
-  void exitKerns(Buffer &buf1, Buffer &out, bool doMul3) {    
-    fftW(buf1);
-    doMul3 ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
-    carryB(out, bufCarry);
-  }
-
-  void directFFT(Buffer &in, Buffer &buf1, Buffer &out) {
-    fftP(in, buf1);
-    transposeW(buf1, out);
-    fftH(out);
   }
 };

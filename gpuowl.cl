@@ -211,7 +211,8 @@ void fft1K(local T *lds, T2 *u, const G T2 *trig) {
   fft4(u);
 }
 
-void fft4K_512(local T *lds, T2 *u, const G T2 *trig) {
+// asserts WG == 512
+void fft4K(local T *lds, T2 *u, const G T2 *trig) {
   for (int s = 6; s >= 0; s -= 3) {
     fft8(u);
     if (s != 6) { bar(); }
@@ -732,7 +733,7 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
 #error expected group width 512.
 #endif
   
-  fft4K_512(lds, u, smallTrig);
+  fft4K(lds, u, smallTrig);
   
 #else
 #error unexpected WIDTH.  
@@ -773,7 +774,7 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
 #error expected group width 512.
 #endif
 
-  fft4K_512(lds, u, smallTrig);
+  fft4K(lds, u, smallTrig);
   
 #else
 #error unexpected WIDTH.  
@@ -853,10 +854,12 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   
   read(G_W, NW, u, io, 0);
 
-#if WIDTH == 4096
-  fft4K_512(lds, u, smallTrig);
+#if   WIDTH == 4096
+  fft4K(lds, u, smallTrig);
 #elif WIDTH == 2048
   fft2K(lds, u, smallTrig);
+#elif WIDTH == 1024
+  fft1K(lds, u, smallTrig);  
 #else
 #error unexpected WIDTH.
 #endif
@@ -886,10 +889,12 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
     u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
   }
 
-#if WIDTH == 4096
-  fft4K_512(lds, u, smallTrig);
+#if   WIDTH == 4096
+  fft4K(lds, u, smallTrig);
 #elif WIDTH == 2048
   fft2K(lds, u, smallTrig);
+#elif WIDTH == 1024
+  fft1K(lds, u, smallTrig);
 #else
 #error unexpected WIDTH.
 #endif

@@ -361,4 +361,11 @@ public:
   void finish() { ::finish(queue.get()); }
 
   cl_queue get() { return queue.get(); }
+
+  void zero(Buffer &buf, size_t size) {
+    assert(size % sizeof(int) == 0);
+    int zero = 0;
+    CHECK(clEnqueueFillBuffer(queue.get(), buf.get(), &zero, sizeof(zero), 0, size, 0, 0, 0));
+    finish();
+  }
 };
