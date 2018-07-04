@@ -83,22 +83,6 @@ cl_mem genSquareTrig(cl_context context, int W, int H) {
   return buf;
 }
 
-// Trig table used by transpose. Has two regions:
-// - a size-2048 "full circle",
-// - a region of granularity W*H and size W*H/2048.
-cl_mem genTransTrig(cl_context context, int W, int H) {
-  const int M = 4096; // 2048
-  const int size = M + W * H / M;
-  auto *tab = new double2[size];
-  auto *end = tab;
-  end = trig(end, M, M);
-  end = trig(end, W * H / M, W * H);
-  assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
 template<typename T2>
 T2 *smallTrigBlock(int W, int H, T2 *p) {
   for (int line = 1; line < H; ++line) {
@@ -202,7 +186,7 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel transposeIn, transposeOut;
   
   Buffer bufGoodData, bufGoodCheck;
-  Buffer bufTrigW, bufTrigH, bufTransTrig, bufSquareTrig;
+  Buffer bufTrigW, bufTrigH, bufSquareTrig;
   Buffer bufA, bufI;
   Buffer buf1, buf2, buf3;
   Buffer bufCarry;
@@ -246,7 +230,6 @@ class OpenGpu : public LowGpu<Buffer> {
     bufGoodCheck(makeBuf(context, BUF_RW, N * sizeof(int))),    
     bufTrigW(genSmallTrig(context, W, nW)),
     bufTrigH(genSmallTrig(context, H, nH)),
-    bufTransTrig(genTransTrig(context, W, H)),
     bufSquareTrig(genSquareTrig(context, W, H)),
     
     buf1{makeBuf(    context, BUF_RW, bufSize)},
@@ -269,9 +252,6 @@ class OpenGpu : public LowGpu<Buffer> {
     fftP.setFixedArgs(2, bufA, bufTrigW);
     fftW.setFixedArgs(1, bufTrigW);
     fftH.setFixedArgs(1, bufTrigH);
-    
-    transposeW.setFixedArgs(2, bufTransTrig);
-    transposeH.setFixedArgs(2, bufTransTrig);
     
     carryA.setFixedArgs(3, bufI);
     carryM.setFixedArgs(3, bufI);

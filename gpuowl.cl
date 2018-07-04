@@ -397,7 +397,7 @@ double2 slowTrig(double angle) {
 }
 
 #define TRANSTRIG_M 4096
-void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G T2 *trig) {
+void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out) {
   uint GPW = W / 64, GPH = H / 64;
   
   uint g = get_group_id(0);
@@ -416,27 +416,18 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G 
   transposeLDS(lds, u);
 
   uint col = (64 * gy + mx);
-  // mul24() would work as well.
   T2 base = slowTrig(col * (64 * gx + my) * (M_PI / (WIDTH * HEIGHT / 2)));
   T2 step = slowTrig(col * (M_PI / (WIDTH * HEIGHT / 8)));
                      
   for (int i = 0; i < 16; ++i) {
-    // uint k = mul24(64 * gy + mx, 64 * gx + my + (uint) i * 4);
-    // (64 * gy + mx) * (64 * gx + my + i * 4);
-      
-#if COMPUTE_TRIG
-    u[i] = mul(u[i], slowTrig(k * (M_PI / (WIDTH * HEIGHT / 2))));    
-#else    
-    // u[i] = mul(u[i], mul(trig[k / (W * H / TRANSTRIG_M)], trig[TRANSTRIG_M + k % (W * H / TRANSTRIG_M)]));
-    
-    u[i] = mul(u[i], base);
+    out[(4 * i + my) * H + mx] = mul(u[i], base);
     base = mul(base, step);
-
-#endif
-    
-    out[(4 * i + my) * H + mx] = u[i];
   }
 }
+
+// (64 * gy + mx) * (64 * gx + my + i * 4);      
+// u[i] = mul(u[i], mul(trig[k / (W * H / TRANSTRIG_M)], trig[TRANSTRIG_M + k % (W * H / TRANSTRIG_M)]));    
+
 
 void transposeWords(uint W, uint H, local Word2 *lds, const G Word2 *in, G Word2 *out) {
   uint GPW = W / 64, GPH = H / 64;
@@ -911,14 +902,14 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   write(G_W, NW, u, io, 0);
 }
 
-KERNEL(256) transposeW(CP(T2) in, P(T2) out, Trig trig) {
+KERNEL(256) transposeW(CP(T2) in, P(T2) out) {
   local T lds[4096];
-  transpose(WIDTH, HEIGHT, lds, in, out, trig);
+  transpose(WIDTH, HEIGHT, lds, in, out);
 }
 
-KERNEL(256) transposeH(CP(T2) in, P(T2) out, Trig trig) {
+KERNEL(256) transposeH(CP(T2) in, P(T2) out) {
   local T lds[4096];
-  transpose(HEIGHT, WIDTH, lds, in, out, trig);
+  transpose(HEIGHT, WIDTH, lds, in, out);
 }
 
 // from transposed to sequential.
