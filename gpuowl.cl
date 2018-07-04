@@ -390,6 +390,13 @@ void transposeLDS(local T *lds, T2 *u) {
   }
 }
 
+double2 slowTrig(double angle) {
+  double c;
+  double s = sincos(angle, &c);
+  return U2(c, -s);
+}
+
+#define TRANSTRIG_M 4096
 void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G T2 *trig) {
   uint GPW = W / 64, GPH = H / 64;
   
@@ -408,20 +415,22 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out, const G 
 
   transposeLDS(lds, u);
 
+  uint col = (64 * gy + mx);
+  // mul24() would work as well.
+  T2 base = slowTrig(col * (64 * gx + my) * (M_PI / (WIDTH * HEIGHT / 2)));
+  T2 step = slowTrig(col * (M_PI / (WIDTH * HEIGHT / 8)));
+                     
   for (int i = 0; i < 16; ++i) {
-    uint k = mul24(64 * gy + mx, 64 * gx + my + (uint) i * 4);
+    // uint k = mul24(64 * gy + mx, 64 * gx + my + (uint) i * 4);
     // (64 * gy + mx) * (64 * gx + my + i * 4);
       
 #if COMPUTE_TRIG
+    u[i] = mul(u[i], slowTrig(k * (M_PI / (WIDTH * HEIGHT / 2))));    
+#else    
+    // u[i] = mul(u[i], mul(trig[k / (W * H / TRANSTRIG_M)], trig[TRANSTRIG_M + k % (W * H / TRANSTRIG_M)]));
     
-    double angle = k * (M_PI / (WIDTH * HEIGHT / 2));
-    double c;
-    double s = sincos(angle, &c);
-    u[i] = mul(u[i], U2(c, -s));
-    
-#else
-    
-    u[i] = mul(u[i], mul(trig[k / (W * H / 2048)], trig[2048 + k % (W * H / 2048)]));
+    u[i] = mul(u[i], base);
+    base = mul(base, step);
 
 #endif
     

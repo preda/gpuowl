@@ -70,7 +70,7 @@ T2 *trig(T2 *p, int n, int B) {
 
 // The generated trig table has two regions:
 // - a size-H/2 quarter-circle.
-// - a region of granularity TAU / (2 * W * H), used in squaring.
+// - a region of granularity (2*W*H), used in squaring.
 cl_mem genSquareTrig(cl_context context, int W, int H) {
   const int size = H/2 + W;
   auto *tab = new double2[size];
@@ -87,11 +87,12 @@ cl_mem genSquareTrig(cl_context context, int W, int H) {
 // - a size-2048 "full circle",
 // - a region of granularity W*H and size W*H/2048.
 cl_mem genTransTrig(cl_context context, int W, int H) {
-  const int size = 2048 + W * H / 2048;
+  const int M = 4096; // 2048
+  const int size = M + W * H / M;
   auto *tab = new double2[size];
   auto *end = tab;
-  end = trig(end, 2048, 2048);
-  end = trig(end, W * H / 2048, W * H);
+  end = trig(end, M, M);
+  end = trig(end, W * H / M, W * H);
   assert(end - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
   delete[] tab;
@@ -239,7 +240,7 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(compare, hN / 16),
     LOAD(transposeIn, (W/64) * (H/64) * 256),
     LOAD(transposeOut, (W/64) * (H/64) * 256),
-#undef LOAD      
+#undef LOAD
     
     bufGoodData( makeBuf(context, BUF_RW, N * sizeof(int))),
     bufGoodCheck(makeBuf(context, BUF_RW, N * sizeof(int))),    
@@ -454,7 +455,7 @@ protected:
     auto res = queue.read<i64>(bufSmallOut, 2);
     u64 res1 = reduce36(res[0]);
     u64 res2 = reduce36(res[1]);
-    if (res1 != res2) { log("res36 differ: %016llx %016llx\n", res1, res2); }
+    if (res1 != res2) { log("res36 differ: %09llx %09llx\n", res1, res2); }
     return ok;
   }
   

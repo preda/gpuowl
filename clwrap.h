@@ -338,7 +338,6 @@ class Queue {
   
 public:
   Queue(cl_queue queue) : queue(queue) {}
-  // Queue(const Queue &other) : queue(other.queue) {}
 
   template<typename T> vector<T> read(Buffer &buf, size_t nItems) {
     vector<T> ret(nItems);
