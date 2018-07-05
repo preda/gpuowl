@@ -256,9 +256,8 @@ class OpenGpu : public LowGpu<Buffer> {
     carryA.setFixedArgs(3, bufI);
     carryM.setFixedArgs(3, bufI);
     
-    square.setFixedArgs(  1, bufSquareTrig);
     multiply.setFixedArgs(2, bufSquareTrig);
-    tailFused.setFixedArgs(1, bufTrigH, bufSquareTrig);
+    tailFused.setFixedArgs(1, bufTrigH);
 
     queue.zero(bufReady, N * sizeof(int));
   }

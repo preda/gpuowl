@@ -289,9 +289,15 @@ void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *
   carryOut[G_W * g + me] = carry;
 }
 
+// Returns e^(-i * pi * k/n);
+double2 slowTrig(int k, int n) {
+  double c;
+  double s = sincos(M_PI / n * k, &c);
+  return U2(c, -s);
+}
+
 // Inputs normal (non-conjugate); outputs conjugate.
-// bigTrig: see genSquareTrig() in gpuowl.cpp
-void csquare(uint WG, uint W, uint H, G T2 *io, const G T2 *bigTrig) {
+void csquare(uint WG, uint W, uint H, G T2 *io) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
@@ -305,7 +311,8 @@ void csquare(uint WG, uint W, uint H, G T2 *io, const G T2 *bigTrig) {
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  T2 t = swap(mul(bigTrig[posInLine], bigTrig[W/2 + line]));
+  // T2 t = swap(mul(bigTrig[posInLine], bigTrig[W/2 + line]));
+  T2 t = swap(slowTrig(posInLine * H + line, W * H));
   
   uint k = line * W + posInLine;
   uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
@@ -390,13 +397,7 @@ void transposeLDS(local T *lds, T2 *u) {
   }
 }
 
-double2 slowTrig(double angle) {
-  double c;
-  double s = sincos(angle, &c);
-  return U2(c, -s);
-}
-
-#define TRANSTRIG_M 4096
+// Transpose the matrix of WxH, and MUL with FFT twiddles; by blocks of 64x64.
 void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out) {
   uint GPW = W / 64, GPH = H / 64;
   
@@ -416,8 +417,8 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out) {
   transposeLDS(lds, u);
 
   uint col = (64 * gy + mx);
-  T2 base = slowTrig(col * (64 * gx + my) * (M_PI / (WIDTH * HEIGHT / 2)));
-  T2 step = slowTrig(col * (M_PI / (WIDTH * HEIGHT / 8)));
+  T2 base = slowTrig(col * (64 * gx + my),  W * H / 2);
+  T2 step = slowTrig(col, W * H / 8);
                      
   for (int i = 0; i < 16; ++i) {
     out[(4 * i + my) * H + mx] = mul(u[i], base);
@@ -924,7 +925,7 @@ KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
   transposeWords(HEIGHT, WIDTH, lds, in, out);
 }
 
-KERNEL(G_H) square(P(T2) io, Trig bigTrig)  { csquare(G_H, HEIGHT, WIDTH, io, bigTrig); }
+KERNEL(G_H) square(P(T2) io)  { csquare(G_H, HEIGHT, WIDTH, io); }
 
 KERNEL(G_H) multiply(P(T2) io, CP(T2) in, Trig bigTrig)  { cmul(G_H, HEIGHT, WIDTH, io, in, bigTrig); }
 
@@ -943,13 +944,18 @@ void reverse(uint WG, local T2 *lds, T2 *u, bool bump) {
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[i * WG + me]; }
 }
 
-void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 tt, const G T2 *bigTrig, bool special) {
+void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
-  for (int i = 0; i < N / 2; ++i) {
+
+  T2 step = slowTrig(1, HEIGHT / WG);
+  
+  for (int i = 0; i < N / 2; ++i, base = mul(base, step)) {
     T2 a = u[i];
     T2 b = conjugate(v[N / 2 + i]);
-    T2 t = swap(mul(tt, bigTrig[WG * i + me]));
+    // T2 t = swap(mul(tt, bigTrig[WG * i + me]));
+    T2 t = swap(base);    
+    
     if (special && i == 0 && g == 0 && me == 0) {
       a = shl(foo(a), 2);
       b = shl(sq(b), 3);
@@ -970,7 +976,7 @@ void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 tt, const G T2 *bigTrig, bool spec
 
 // "fused tail" is equivalent to the sequence: fftH, square, fftH.
 // assert(H % 2 == 0);
-KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
+KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   local T lds[HEIGHT];
   T2 u[NH];
   T2 v[NH];
@@ -991,9 +997,9 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig, P(T2) bigTrig) {
   reverse(G_H, (local T2 *) lds, v, false);
 
   if (g == 0) { for (int i = NH / 2; i < NH; ++i) { SWAP(u[i], v[i]); } }
-  
-  halfSq(G_H, NH, u, v, bigTrig[W/2 + g],     bigTrig, true);
-  halfSq(G_H, NH, v, u, bigTrig[W/2 + line2], bigTrig, false);
+
+  halfSq(G_H, NH, u, v, slowTrig(g     + me * WIDTH, WIDTH * HEIGHT), true);
+  halfSq(G_H, NH, v, u, slowTrig(line2 + me * WIDTH, WIDTH * HEIGHT), false);
 
   if (g == 0) { for (int i = NH / 2; i < NH; ++i) { SWAP(u[i], v[i]); } }
 
