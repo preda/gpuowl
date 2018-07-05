@@ -987,16 +987,20 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   uint me = get_local_id(0);
   
   read(G_H, NH, u, io, g * W);
-  fft2K(lds, u, smallTrig);
-  reverse(G_H, (local T2 *) lds, u, g == 0);
-
   uint line2 = g ? H - g : (H / 2);
   read(G_H, NH, v, io, line2 * W);
+  
+  fft2K(lds, u, smallTrig);
   bar();
   fft2K(lds, v, smallTrig);
+  
+  reverse(G_H, (local T2 *) lds, u, g == 0);
+
   reverse(G_H, (local T2 *) lds, v, false);
 
   if (g == 0) { for (int i = NH / 2; i < NH; ++i) { SWAP(u[i], v[i]); } }
+
+  // T2 meTrig = slowTrig(me, HEIGHT);
 
   halfSq(G_H, NH, u, v, slowTrig(g     + me * WIDTH, WIDTH * HEIGHT), true);
   halfSq(G_H, NH, v, u, slowTrig(line2 + me * WIDTH, WIDTH * HEIGHT), false);
