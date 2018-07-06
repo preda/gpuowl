@@ -381,7 +381,7 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out) {
   uint GPW = W / 64, GPH = H / 64;
   
   uint g = get_group_id(0);
-  uint gy = g & (GPH - 1);
+  uint gy = g % GPH;
   uint gx = g / GPH;
   gx = (gy + gx) & (GPW - 1);
 
@@ -395,7 +395,7 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out) {
 
   transposeLDS(lds, u);
 
-  uint col = (64 * gy + mx);
+  uint col = 64 * gy + mx;
   T2 base = slowTrig(col * (64 * gx + my),  W * H / 2);
   T2 step = slowTrig(col, W * H / 8);
                      
@@ -753,8 +753,6 @@ KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
   write(G_H, NH, u, io, 0);
 }
 
-uint transposeD(uint y) { return y / ND + y % ND * HEIGHT; }
-
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
 void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
@@ -766,7 +764,7 @@ void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *
   Carry carry = 0;
 
   for (int i = 0; i < CARRY_LEN; ++i) {
-    uint p = G_W * gx + WIDTH * transposeD(CARRY_LEN * gy + i) + me;
+    uint p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
     out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p]);
   }
   carryOut[G_W * g + me] = carry;
