@@ -913,6 +913,40 @@ void reverse(uint WG, local T2 *lds, T2 *u, bool bump) {
   for (int i = 0; i < 4; ++i) { u[4 + i] = lds[i * WG + me]; }
 }
 
+void reverseLine(uint WG, local T *lds, T2 *u) {
+  uint me = get_local_id(0);
+  uint revMe = WG - 1 - me;
+  for (int b = 0; b < 2; ++b) {
+    bar();
+    for (int i = 0; i < 8; ++i) { lds[i * WG + revMe] = ((T *) (u + (7 - i)))[b]; }  
+    bar();
+    for (int i = 0; i < 8; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
+  }
+}
+
+void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base) {
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+
+  T2 step = slowTrig(1, HEIGHT / WG);
+  
+  for (int i = 0; i < N; ++i, base = mul(base, step)) {
+    T2 a = u[i];
+    T2 b = conjugate(v[i]);
+    T2 t = swap(base);    
+    X2(a, b);
+    b = mul(b, conjugate(t));
+    X2(a, b);
+    a = sq(a);
+    b = sq(b);
+    X2(a, b);
+    b = mul(b, t);
+    X2(a, b);
+    u[i] = conjugate(a);
+    v[i] = b;
+  }
+}
+
 void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
@@ -956,33 +990,34 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   uint me = get_local_id(0);
   
   read(G_H, NH, u, io, g * W);
-  uint line2 = g ? H - g : (H / 2);
-  read(G_H, NH, v, io, line2 * W);
+
+  if (g == 0 || g == H / 2) {
+    fft2K(lds, u, smallTrig);
+    for (int i = 0; i < NH; ++i) { v[i] = u[i]; }    
+    if (g == 0) {
+      reverse(G_H, (local T2 *)lds, v, true);
+      halfSq(G_H, NH, u, v, slowTrig(g + me * H, W * H), true);
+      reverse(G_H, (local T2 *)lds, v, true);
+    } else {
+      reverseLine(G_H, lds, v);
+      pairSq(G_H, NH / 2, u, v, slowTrig(g + me * H, W * H));
+      reverseLine(G_H, lds, v);
+    }
+    for (int i = NH / 2; i < NH; ++i) { u[i] = v[i]; }
+  } else {  
+    uint line2 = H - g;
+    read(G_H, NH, v, io, line2 * W);
+    fft2K(lds, u, smallTrig);
+    bar();
+    fft2K(lds, v, smallTrig);
+    reverseLine(G_H, lds, v);
+    pairSq(G_H, NH, u, v, slowTrig(g + me * H, W * H));
+    reverseLine(G_H, lds, v);
+    bar();
+    fft2K(lds, v, smallTrig);
+    write(G_H, NH, v, io, line2 * W);  
+  }
   
-  fft2K(lds, u, smallTrig);
-  bar();
-  fft2K(lds, v, smallTrig);
-  
-  reverse(G_H, (local T2 *) lds, u, g == 0);
-
-  reverse(G_H, (local T2 *) lds, v, false);
-
-  if (g == 0) { for (int i = NH / 2; i < NH; ++i) { SWAP(u[i], v[i]); } }
-
-  // T2 meTrig = slowTrig(me, HEIGHT);
-
-  halfSq(G_H, NH, u, v, slowTrig(g     + me * WIDTH, WIDTH * HEIGHT), true);
-  halfSq(G_H, NH, v, u, slowTrig(line2 + me * WIDTH, WIDTH * HEIGHT), false);
-
-  if (g == 0) { for (int i = NH / 2; i < NH; ++i) { SWAP(u[i], v[i]); } }
-
-  reverse(G_H, (local T2 *) lds, v, false);
-  reverse(G_H, (local T2 *) lds, u, g == 0);
-
-  bar();
-  fft2K(lds, v, smallTrig);
-  write(G_H, NH, v, io, line2 * W);
-
   bar();
   fft2K(lds, u, smallTrig);
   write(G_H, NH, u, io, g * W);

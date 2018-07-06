@@ -203,7 +203,7 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(transposeH, (W/64) * (H/64) * 256),
     LOAD(square,   hN / 2),
     LOAD(multiply, hN / 2),
-    LOAD(tailFused, hN / (2 * nH)),
+    LOAD(tailFused, (hN + 2 * H) / (2 * nH)),
     LOAD(readResidue, 64),
     LOAD(doCheck, hN / nW),
     LOAD(compare, hN / 16),
