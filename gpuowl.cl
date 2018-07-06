@@ -335,7 +335,7 @@ void csquare(uint WG, uint W, uint H, G T2 *io) {
 }
 
 // Like csquare(), but for multiplication.
-void cmul(uint WG, uint W, uint H, G T2 *io, const G T2 *in, const G T2 *bigTrig) {
+void cmul(uint WG, uint W, uint H, G T2 *io, const G T2 *in) {
   // const G T2 *bigTrig) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
@@ -350,7 +350,8 @@ void cmul(uint WG, uint W, uint H, G T2 *io, const G T2 *in, const G T2 *bigTrig
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  T2 t = swap(mul(bigTrig[posInLine], bigTrig[W/2 + line]));
+  // T2 t = swap(mul(bigTrig[posInLine], bigTrig[W/2 + line]));
+  T2 t = swap(slowTrig(posInLine * H + line, W * H));
   
   uint k = line * W + posInLine;
   uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
@@ -927,7 +928,7 @@ KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
 
 KERNEL(G_H) square(P(T2) io)  { csquare(G_H, HEIGHT, WIDTH, io); }
 
-KERNEL(G_H) multiply(P(T2) io, CP(T2) in, Trig bigTrig)  { cmul(G_H, HEIGHT, WIDTH, io, in, bigTrig); }
+KERNEL(G_H) multiply(P(T2) io, CP(T2) in)  { cmul(G_H, HEIGHT, WIDTH, io, in); }
 
 void reverse(uint WG, local T2 *lds, T2 *u, bool bump) {
   uint me = get_local_id(0);
@@ -948,6 +949,7 @@ void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
 
+  // T2 step = U2(0x1.d906bcf328d46p-1, -0x1.87de2a6aea963p-2);
   T2 step = slowTrig(1, HEIGHT / WG);
   
   for (int i = 0; i < N / 2; ++i, base = mul(base, step)) {

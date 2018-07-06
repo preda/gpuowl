@@ -68,21 +68,6 @@ T2 *trig(T2 *p, int n, int B) {
   return p;
 }
 
-// The generated trig table has two regions:
-// - a size-H/2 quarter-circle.
-// - a region of granularity (2*W*H), used in squaring.
-cl_mem genSquareTrig(cl_context context, int W, int H) {
-  const int size = H/2 + W;
-  auto *tab = new double2[size];
-  auto *end = tab;
-  end = trig(end, H/2,     H * 2);
-  end = trig(end, W,     W * H * 2);
-  assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
 template<typename T2>
 T2 *smallTrigBlock(int W, int H, T2 *p) {
   for (int line = 1; line < H; ++line) {
@@ -186,7 +171,7 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel transposeIn, transposeOut;
   
   Buffer bufGoodData, bufGoodCheck;
-  Buffer bufTrigW, bufTrigH, bufSquareTrig;
+  Buffer bufTrigW, bufTrigH;
   Buffer bufA, bufI;
   Buffer buf1, buf2, buf3;
   Buffer bufCarry;
@@ -230,7 +215,6 @@ class OpenGpu : public LowGpu<Buffer> {
     bufGoodCheck(makeBuf(context, BUF_RW, N * sizeof(int))),    
     bufTrigW(genSmallTrig(context, W, nW)),
     bufTrigH(genSmallTrig(context, H, nH)),
-    bufSquareTrig(genSquareTrig(context, W, H)),
     
     buf1{makeBuf(    context, BUF_RW, bufSize)},
     buf2{makeBuf(    context, BUF_RW, bufSize)},
@@ -256,7 +240,6 @@ class OpenGpu : public LowGpu<Buffer> {
     carryA.setFixedArgs(3, bufI);
     carryM.setFixedArgs(3, bufI);
     
-    multiply.setFixedArgs(2, bufSquareTrig);
     tailFused.setFixedArgs(1, bufTrigH);
 
     queue.zero(bufReady, N * sizeof(int));
