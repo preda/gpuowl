@@ -34,6 +34,8 @@ typedef ulong u64;
 #define NWORDS (WIDTH * HEIGHT * 2u)
 #define G_W (WIDTH  / NW)
 #define G_H (HEIGHT / NH)
+#define ND 1
+// #define BIGH (DEPTH * WIDTH)
 
 // Used in bitlen() and weighting.
 #define STEP (NWORDS - (EXP % NWORDS))
@@ -267,28 +269,6 @@ void write(uint WG, uint N, T2 *u, G T2 *out, uint base) {
   for (int i = 0; i < N; ++i) { out[base + i * WG + (uint) get_local_id(0)] = u[i]; }
 }
 
-// Carry propagation with optional MUL-3, over CARRY_LEN words.
-// Input is conjugated and inverse-weighted.
-void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
-  uint g  = get_group_id(0);
-  uint me = get_local_id(0);
-  uint gx = g % NW;
-  uint gy = g / NW;
-
-  uint step = G_W * gx + WIDTH * CARRY_LEN * gy;
-  in  += step;
-  out += step;
-  A   += step;
-
-  Carry carry = 0;
-
-  for (int i = 0; i < CARRY_LEN; ++i) {
-    uint p = WIDTH * i + me;
-    out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p]);
-  }
-  carryOut[G_W * g + me] = carry;
-}
-
 // Returns e^(-i * pi * k/n);
 double2 slowTrig(int k, int n) {
   double c;
@@ -311,7 +291,6 @@ void csquare(uint WG, uint W, uint H, G T2 *io) {
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  // T2 t = swap(mul(bigTrig[posInLine], bigTrig[W/2 + line]));
   T2 t = swap(slowTrig(posInLine * H + line, W * H));
   
   uint k = line * W + posInLine;
@@ -350,7 +329,6 @@ void cmul(uint WG, uint W, uint H, G T2 *io, const G T2 *in) {
   uint line = g / GPL;
   uint posInLine = g % GPL * WG + me;
 
-  // T2 t = swap(mul(bigTrig[posInLine], bigTrig[W/2 + line]));
   T2 t = swap(slowTrig(posInLine * H + line, W * H));
   
   uint k = line * W + posInLine;
@@ -674,32 +652,6 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
   if (isNotZero && !out[1]) { out[1] = true; }
 }
 
-/*
-Word wordMul2(Word a, uint bits, int *carry) {
-  a = a + a + *carry;
-  int half = 1 << (bits - 1);
-  int full = 1 << bits;
-  if (a >= half) {
-    a -= full;
-    *carry = 1;
-  } else if (a < -half) {
-    a += full;
-    *carry = -1;    
-  } else {
-    *carry = 0;
-  }
-  return a;
-}
-
-Word mul2(Word2 *io, uint k, Word carry) {
-  Word2 w = io[k];
-  w.x = wordMul2(w.x, bitlen(2 * k + 0), &carry);
-  w.y = wordMul2(w.y, bitlen(2 * k + 1), &carry);
-  io[k] = w;
-  return carry;  
-}
-*/
-
 // increase "offset" by 1, equivalent to a mul-2.
 KERNEL(G_W) shift(P(Word2) io, P(Carry) carryOut) {
   uint g = get_group_id(0);
@@ -801,6 +753,25 @@ KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
   write(G_H, NH, u, io, 0);
 }
 
+uint transposeD(uint y) { return y / ND + y % ND * HEIGHT; }
+
+// Carry propagation with optional MUL-3, over CARRY_LEN words.
+// Input is conjugated and inverse-weighted.
+void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
+  uint g  = get_group_id(0);
+  uint me = get_local_id(0);
+  uint gx = g % NW;
+  uint gy = g / NW;
+
+  Carry carry = 0;
+
+  for (int i = 0; i < CARRY_LEN; ++i) {
+    uint p = G_W * gx + WIDTH * transposeD(CARRY_LEN * gy + i) + me;
+    out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p]);
+  }
+  carryOut[G_W * g + me] = carry;
+}
+
 KERNEL(G_W) carryA(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A) {
   carryACore(1, in, A, out, carryOut);
 }
@@ -811,8 +782,7 @@ KERNEL(G_W) carryM(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A) {
 
 KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
   uint g  = get_group_id(0);
-  uint me = get_local_id(0);
-  
+  uint me = get_local_id(0);  
   uint gx = g % NW;
   uint gy = g / NW;
   
@@ -949,7 +919,6 @@ void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
 
-  // T2 step = U2(0x1.d906bcf328d46p-1, -0x1.87de2a6aea963p-2);
   T2 step = slowTrig(1, HEIGHT / WG);
   
   for (int i = 0; i < N / 2; ++i, base = mul(base, step)) {
