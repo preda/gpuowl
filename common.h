@@ -41,7 +41,10 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 #define REV
 #endif
 
-#define VERSION "3.0-" REV
+#define VERSION "3.1-" REV
+// Reason for version change:
+// 3.1 : use computed trig (instead of tables) in transpose and tailFused / square. Reworked tailFused.
+// 3.0 : add CUDA backend.
 
 unique_ptr<FILE> open(const string &name, const char *mode, bool doLog = true);
 
