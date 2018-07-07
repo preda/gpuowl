@@ -11,8 +11,7 @@
 class Kernel {
   Holder<cl_kernel> kernel;
   cl_queue queue;
-  int workSize;
-  int nArgs;
+  int workGroups;
   std::string name;
   u64 timeSum;
   u64 nCalls;
@@ -28,17 +27,15 @@ class Kernel {
   }
 
 public:
-  Kernel(cl_program program, cl_queue q, cl_device_id device, int workSize, const std::string &name, bool doTime) :
+  Kernel(cl_program program, cl_queue q, cl_device_id device, int workGroups, const std::string &name, bool doTime) :
     kernel(makeKernel(program, name.c_str())),
     queue(q),
-    workSize(workSize),
-    nArgs(getKernelNumArgs(kernel.get())),
+    workGroups(workGroups),
     name(name),
     doTime(doTime),
     groupSize(getWorkGroupSize(kernel.get(), device, name.c_str()))
   {
-    assert((workSize % groupSize == 0) || (log("%s\n", name.c_str()), false));
-    assert(nArgs >= 0);
+    // assert((workSize % groupSize == 0) || (log("%s\n", name.c_str()), false));
   }
 
   template<typename... Args> void setFixedArgs(int pos, Args &...tail) { setArgs(pos, tail...); }
@@ -48,11 +45,11 @@ public:
     if (doTime) {
       finish(queue);
       Timer timer;
-      run(queue, kernel.get(), groupSize, workSize, name);
+      run(queue, kernel.get(), groupSize, workGroups * groupSize, name);
       finish(queue);
       stats.add(timer.deltaMicros());
     } else {
-      run(queue, kernel.get(), groupSize, workSize, name);
+      run(queue, kernel.get(), groupSize, workGroups * groupSize, name);
     }
   }
   

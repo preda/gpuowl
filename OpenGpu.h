@@ -155,20 +155,22 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel fftP;
   Kernel fftW;
   Kernel fftH;
+  Kernel doCheck;
+  
   Kernel carryA;
   Kernel carryM;
   Kernel shift;
   Kernel carryB;
   Kernel res36;
-  Kernel transposeW;
-  Kernel transposeH;
+  Kernel compare;
+  
+  Kernel transposeW, transposeH;
+  Kernel transposeIn, transposeOut;
+  
   Kernel square;
   Kernel multiply;
   Kernel tailFused;
   Kernel readResidue;
-  Kernel doCheck;
-  Kernel compare;
-  Kernel transposeIn, transposeOut;
   
   Buffer bufGoodData, bufGoodCheck;
   Buffer bufTrigW, bufTrigH;
@@ -189,26 +191,26 @@ class OpenGpu : public LowGpu<Buffer> {
     useLongCarry(useLongCarry),
     queue(makeQueue(device, context)),    
 
-#define LOAD(name, workSize) name(program, queue.get(), device, workSize, #name, timeKernels)
-    LOAD(carryFused, (hN + W) / nW),
-    LOAD(fftP, hN / nW),
-    LOAD(fftW, hN / nW),
-    LOAD(fftH, hN / nH),
-    LOAD(carryA, hN / 16),
-    LOAD(carryM, hN / 16),
-    LOAD(shift,  hN / 16),
-    LOAD(carryB, hN / 16),
-    LOAD(res36, hN / 16),
-    LOAD(transposeW, (W/64) * (H/64) * 256),
-    LOAD(transposeH, (W/64) * (H/64) * 256),
-    LOAD(square,   hN / 2),
-    LOAD(multiply, hN / 2),
-    LOAD(tailFused, (W + 1) / 2 * 256),
-    LOAD(readResidue, 64),
-    LOAD(doCheck, hN / nW),
-    LOAD(compare, hN / 16),
-    LOAD(transposeIn, (W/64) * (H/64) * 256),
-    LOAD(transposeOut, (W/64) * (H/64) * 256),
+#define LOAD(name, workGroups) name(program, queue.get(), device, workGroups, #name, timeKernels)
+    LOAD(carryFused, H + 1),
+    LOAD(fftP, H),
+    LOAD(fftW, H),
+    LOAD(fftH, W),
+    LOAD(doCheck, H),
+    LOAD(carryA,  nW * (H/16)),
+    LOAD(carryM,  nW * (H/16)),
+    LOAD(shift,   nW * (H/16)),
+    LOAD(carryB,  nW * (H/16)),
+    LOAD(res36,   nW * (H/16)),
+    LOAD(compare, nW * (H/16)),
+    LOAD(transposeW,   (W/64) * (H/64)),
+    LOAD(transposeH,   (W/64) * (H/64)),
+    LOAD(transposeIn,  (W/64) * (H/64)),
+    LOAD(transposeOut, (W/64) * (H/64)),
+    LOAD(square,    nH * (W/2)),
+    LOAD(multiply,  nH * (W/2)),
+    LOAD(tailFused, (W + 1) / 2),
+    LOAD(readResidue, 1),
 #undef LOAD
     
     bufGoodData( makeBuf(context, BUF_RW, N * sizeof(int))),
@@ -276,7 +278,7 @@ class OpenGpu : public LowGpu<Buffer> {
   
 public:
   static unique_ptr<Gpu> make(u32 E, Args &args) {
-    int W = (E < 153'000'000) ? (E < 77000000) ? 1024 : 2048 : 4096;
+    int W = (E < 153'001'000) ? (E < 77000000) ? 1024 : 2048 : 4096;
     int H = 2048;
     int N = 2 * W * H;
 

@@ -34,8 +34,8 @@ typedef ulong u64;
 #define NWORDS (WIDTH * HEIGHT * 2u)
 #define G_W (WIDTH  / NW)
 #define G_H (HEIGHT / NH)
-#define ND 1
-// #define BIGH (DEPTH * WIDTH)
+#define SH HEIGHT
+#define NS HEIGHT / SH
 
 // Used in bitlen() and weighting.
 #define STEP (NWORDS - (EXP % NWORDS))
@@ -473,11 +473,6 @@ KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint startDword) {
 KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
-
-  if (g == 0 && me == 0) {
-    out[0].x = true;
-    out[0].y = false;
-  }
   
   uint step = WIDTH * g;
   in1 += step;
@@ -496,11 +491,8 @@ KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
   if (isNotZero && !out[0].y) { out[0].y = true; }
 }
 
-uint dwordToBitpos(uint dword) { return wordToBitpos(EXP, NWORDS / 2, dword); }
-// { return (uint) ((EXP * (ulong) dword + ((NWORDS / 2) - 1))/ (NWORDS / 2)); }
+uint dwordToBitpos(uint dword)  { return wordToBitpos(EXP, NWORDS / 2, dword); }
 uint bitposToDword(uint bitpos) { return bitposToWord(EXP, NWORDS / 2, bitpos); }
-// { return (NWORDS / 2) * (ulong) bitpos / EXP; }
-
 Word2 readDword(CP(Word2) data, uint k) { return data[k / HEIGHT + WIDTH * (k % HEIGHT)]; }
 
 ulong getWordBits(Word2 word, uint k, uint *outNBits, int *carryInOut) {
@@ -521,12 +513,6 @@ ulong getWordBits(Word2 word, uint k, uint *outNBits, int *carryInOut) {
   } else {
     *carryInOut = 0;
   }
-  /*
-  if (word.y < 0) {
-    word.y += (1 << n2);
-    *carryInOut -= 1;
-  }
-  */
   
   return (((ulong) word.y) << n1) | word.x;
 }
@@ -584,13 +570,6 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
 
-  /*
-  if (g == 0 && me == 0) {
-    out[0] = true;  // initial in1 == in2: true
-    out[1] = false; // initial non-zero: false
-  }
-  */
-
   uint gx = g % NW;
   uint gy = g / NW;
 
@@ -625,7 +604,6 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
   // carry1 = ((long) maskBits(bits2, m)) - ((long) maskBits(bits1, m));
   carry1 = ((long) (maskBits(bits2, m) - maskBits(bits1, m))) << (64 - m) >> (64 - m);
   if (abs(carry1) > 1) { out[0] = false; return; }
-    // out[1] = bitInWord; out[2] = nBits1; out[3] = nBits2; out[4] = carry1; out[5] = bits1; out[6] = bits2; return; }
 
   nBits1 = 0;
 
@@ -714,14 +692,10 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
     u[i] = weight(in[p], A[p]);
   }
 
-#if   WIDTH == 1024
-  
-  fft1K(lds, u, smallTrig);
-  
-#elif WIDTH == 2048
-  
-  fft2K(lds, u, smallTrig);
-  
+#if   WIDTH == 1024  
+  fft1K(lds, u, smallTrig);  
+#elif WIDTH == 2048  
+  fft2K(lds, u, smallTrig);  
 #elif WIDTH == 4096
 
 #if G_W != 512
@@ -977,23 +951,25 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
 
   bool isEvenLines = (H % 2 == 0);
   
-  // If the number of lines H is even, then group-0 can do two lines (0 and H/2).
+  // If the number of lines H is even, then group 0 can do two lines (0 and H/2).
   if (g != 0 || isEvenLines) {
     bar();
     fft2K(lds, v, smallTrig);
   }
 
   if (g == 0) {
+    // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, (local T2 *)lds, u + 4, true);
     pairSq(G_H, NH/2, u, u + 4, slowTrig(me, W), true);
     reverse(G_H, (local T2 *)lds, u + 4, true);
 
     if (isEvenLines) {
+      // Line H/2 also pairs with itself (but without offset).
       reverse(G_H, (local T2 *)lds, v + 4, false);
       pairSq(G_H, NH/2, v, v + 4, slowTrig(1 + 2 * me, 2 * W), false);
       reverse(G_H, (local T2 *)lds, v + 4, false);
     }
-  } else {
+  } else {    
     reverseLine(G_H, lds, v);
     pairSq(G_H, NH, u, v, slowTrig(g + me * H, W * H), false);
     reverseLine(G_H, lds, v);
