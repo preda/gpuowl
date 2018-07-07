@@ -56,7 +56,9 @@ int clEnqueueWriteBuffer(cl_command_queue, cl_mem, cl_bool, size_t, size_t, cons
                          unsigned numEvent, const cl_event *waitEvents, cl_event *outEvent);
 int clEnqueueCopyBuffer(cl_command_queue, cl_mem, cl_mem, size_t, size_t, size_t,
                         unsigned numEvent, const cl_event *waitEvents, cl_event *outEvent);
-
+int clEnqueueFillBuffer(cl_command_queue, cl_mem, const void *, size_t patternSize, size_t offset, size_t size,
+                        unsigned numEvent, const cl_event *waitEvents, cl_event *outEvent);
+  
 int clFlush(cl_command_queue);
 int clFinish(cl_command_queue);
 int clSetKernelArg(cl_kernel, unsigned, size_t, const void *);

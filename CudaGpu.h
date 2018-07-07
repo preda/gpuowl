@@ -15,7 +15,7 @@
 
 #define CC(what) assert((what) == cudaSuccess)
 
-static std::pair<vector<double>, vector<double>> genWeights(uint E, uint N) {
+pair<vector<double>, vector<double>> genWeights(uint E, uint N) {
   vector<double> aTab, iTab;
   aTab.reserve(N);
   iTab.reserve(N);
@@ -264,8 +264,8 @@ protected:
     carryFinal<<<N/4/256, 256>>>(baseBits, (int4 *) bufIo, (double4 *) bufI, (long *) bufBig2);
   }
 
-  bool equalNotZero(int *&buf1, int *&buf2, u32 deltaOffset) {
-    assert(deltaOffset == 0);
+  bool equalNotZero(int *&buf1, u32 offset1, int *&buf2, u32 offset2) {
+    assert(offset1 == 0 && offset2 == 0);
     int data[2] = {true, false};
     CC(cudaMemcpyAsync(bufSmall, data, 2 * sizeof(int), cudaMemcpyHostToDevice, 0));
     compare<<<N/2/256, 256>>>((int2 *) buf1, (int2 *) buf2, (int *) bufSmall);

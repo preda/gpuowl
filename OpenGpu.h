@@ -18,12 +18,13 @@ const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 // Sets the weighting vectors direct A and inverse iA (as per IBDWT).
-template<typename T>
-void genWeights(int W, int H, int E, T *aTab, T *iTab) {
-  T *pa = aTab;
-  T *pi = iTab;
-
+pair<vector<double>, vector<double>> genWeights(int E, int W, int H) {
   int N = 2 * W * H;
+
+  vector<double> aTab, iTab;
+  aTab.reserve(N);
+  iTab.reserve(N);
+
   int baseBits = E / N;
   auto iN = 1 / (long double) N;
 
@@ -35,11 +36,13 @@ void genWeights(int W, int H, int E, T *aTab, T *iTab) {
         assert(bits == baseBits || bits == baseBits + 1);
         auto a = exp2l(extra(N, E, k) * iN);
         auto ia = 1 / (4 * N * a);
-        *pa++ = (bits == baseBits) ? a  : -a;
-        *pi++ = (bits == baseBits) ? ia : -ia;
+        aTab.push_back((bits == baseBits) ? a  : -a);
+        iTab.push_back((bits == baseBits) ? ia : -ia);
       }
     }
   }
+  assert(int(aTab.size()) == N && int(iTab.size()) == N);
+  return make_pair(aTab, iTab);
 }
 
 template<typename T> struct Pair { T x, y; };
@@ -63,36 +66,6 @@ template<typename T2>
 T2 *trig(T2 *p, int n, int B) {
   for (int i = 0; i < n; ++i) { *p++ = root1<T2>(B, i); }
   return p;
-}
-
-// The generated trig table has two regions:
-// - a size-H half-circle.
-// - a region of granularity TAU / (2 * W * H), used in squaring.
-cl_mem genSquareTrig(cl_context context, int W, int H) {
-  const int size = H/2 + W;
-  auto *tab = new double2[size];
-  auto *end = tab;
-  end = trig(end, H/2,     H * 2);
-  end = trig(end, W,     W * H * 2);
-  assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
-  delete[] tab;
-  return buf;
-}
-
-// Trig table used by transpose. Has two regions:
-// - a size-2048 "full circle",
-// - a region of granularity W*H and size W*H/2048.
-cl_mem genTransTrig(cl_context context, int W, int H) {
-  const int size = 2048 + W * H / 2048;
-  auto *tab = new double2[size];
-  auto *end = tab;
-  end = trig(end, 2048, 2048);
-  end = trig(end, W * H / 2048, W * H);
-  assert(end - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
-  delete[] tab;
-  return buf;
 }
 
 template<typename T2>
@@ -120,15 +93,9 @@ cl_mem genSmallTrig(cl_context context, int size, int radix) {
 template<typename T>
 void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
   int N = 2 * W * H;
-  T *aTab    = new T[N];
-  T *iTab    = new T[N];
-  
-  genWeights(W, H, E, aTab, iTab);
-  bufA.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, aTab));
-  bufI.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, iTab));
-  
-  delete[] aTab;
-  delete[] iTab;
+  auto weights = genWeights(E, W, H);
+  bufA.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, weights.first.data()));
+  bufI.reset(makeBuf(context, BUF_CONST, sizeof(T) * N, weights.second.data()));
 }
 
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
@@ -180,11 +147,11 @@ cl_device_id getDevice(const Args &args) {
 class OpenGpu : public LowGpu<Buffer> {
   int W, H;
   int hN, nW, nH, bufSize;
-  bool useSplitTail;
+  bool useSplitTail, useLongCarry;
   
-  // Context context;
   Queue queue;
 
+  Kernel carryFused;
   Kernel fftP;
   Kernel fftW;
   Kernel fftH;
@@ -192,6 +159,7 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryM;
   Kernel shift;
   Kernel carryB;
+  Kernel res36;
   Kernel transposeW;
   Kernel transposeH;
   Kernel square;
@@ -203,22 +171,26 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel transposeIn, transposeOut;
   
   Buffer bufGoodData, bufGoodCheck;
-  Buffer bufTrigW, bufTrigH, bufTransTrig, bufSquareTrig;
+  Buffer bufTrigW, bufTrigH;
   Buffer bufA, bufI;
   Buffer buf1, buf2, buf3;
   Buffer bufCarry;
+  Buffer bufReady;
   Buffer bufSmallOut;
 
   int offsetGoodData, offsetGoodCheck;
 
-  OpenGpu(u32 E, u32 W, u32 H, cl_program program, cl_device_id device, cl_context context, bool timeKernels, bool useSplitTail) :
+  OpenGpu(u32 E, u32 W, u32 H, cl_program program, cl_device_id device, cl_context context,
+          bool timeKernels, bool useSplitTail, bool useLongCarry) :
     LowGpu(E, W * H * 2),
-    hN(N / 2), nW(8), nH(H / 256), bufSize(N * sizeof(double)),
+    hN(N / 2), nW(8), nH(H / 256),
+    bufSize(N * sizeof(double)),
     useSplitTail(useSplitTail),
-    // context(context),
+    useLongCarry(useLongCarry),
     queue(makeQueue(device, context)),    
 
 #define LOAD(name, workSize) name(program, queue.get(), device, workSize, #name, timeKernels)
+    LOAD(carryFused, (hN + W) / nW),
     LOAD(fftP, hN / nW),
     LOAD(fftW, hN / nW),
     LOAD(fftH, hN / nH),
@@ -226,6 +198,7 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryM, hN / 16),
     LOAD(shift,  hN / 16),
     LOAD(carryB, hN / 16),
+    LOAD(res36, hN / 16),
     LOAD(transposeW, (W/64) * (H/64) * 256),
     LOAD(transposeH, (W/64) * (H/64) * 256),
     LOAD(square,   hN / 2),
@@ -236,19 +209,18 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(compare, hN / 16),
     LOAD(transposeIn, (W/64) * (H/64) * 256),
     LOAD(transposeOut, (W/64) * (H/64) * 256),
-#undef LOAD      
+#undef LOAD
     
     bufGoodData( makeBuf(context, BUF_RW, N * sizeof(int))),
     bufGoodCheck(makeBuf(context, BUF_RW, N * sizeof(int))),    
     bufTrigW(genSmallTrig(context, W, nW)),
     bufTrigH(genSmallTrig(context, H, nH)),
-    bufTransTrig(genTransTrig(context, W, H)),
-    bufSquareTrig(genSquareTrig(context, W, H)),
     
     buf1{makeBuf(    context, BUF_RW, bufSize)},
     buf2{makeBuf(    context, BUF_RW, bufSize)},
     buf3{makeBuf(    context, BUF_RW, bufSize)},
-    bufCarry{makeBuf(context, BUF_RW, bufSize)},
+    bufCarry{makeBuf(context, BUF_RW, bufSize)}, // TODO: halve size.
+    bufReady{makeBuf(context, BUF_RW, N * sizeof(int))},
     bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int))),
 
     offsetGoodData(0), offsetGoodCheck(0)
@@ -259,71 +231,58 @@ class OpenGpu : public LowGpu<Buffer> {
         
     setupWeights<double>(context, bufA, bufI, W, H, E);
 
-    fftP.setArg("out", buf1);
-    fftP.setArg("A", bufA);
-    fftP.setArg("smallTrig", bufTrigW);
-  
-    fftW.setArg("io", buf1);
-    fftW.setArg("smallTrig", bufTrigW);
-  
-    fftH.setArg("io", buf2);
-    fftH.setArg("smallTrig", bufTrigH);
-  
-    transposeW.setArg("in",  buf1);
-    transposeW.setArg("out", buf2);
-    transposeW.setArg("trig", bufTransTrig);
+    carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
+    
+    fftP.setFixedArgs(2, bufA, bufTrigW);
+    fftW.setFixedArgs(1, bufTrigW);
+    fftH.setFixedArgs(1, bufTrigH);
+    
+    carryA.setFixedArgs(3, bufI);
+    carryM.setFixedArgs(3, bufI);
+    
+    tailFused.setFixedArgs(1, bufTrigH);
 
-    transposeH.setArg("in",  buf2);
-    transposeH.setArg("out", buf1);
-    transposeH.setArg("trig", bufTransTrig);
+    queue.zero(bufReady, N * sizeof(int));
+  }
+
+  std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
   
-    carryA.setArg("in", buf1);
-    carryA.setArg("A", bufI);
-    carryA.setArg("carryOut", bufCarry);
+  vector<int> readSmall(Buffer &buf, u32 start) {
+    readResidue(buf, bufSmallOut, start);
+    return queue.read<int>(bufSmallOut, 128);                    
+  }
 
-    carryM.setArg("in", buf1);
-    carryM.setArg("A", bufI);
-    carryM.setArg("carryOut", bufCarry);
+  void tail(Buffer &buf) {
+    if (useSplitTail) {
+      fftH(buf);
+      square(buf);
+      fftH(buf);
+    } else {
+      tailFused(buf);
+    }
+  }
 
-    // shift.setArg("io", bufData);
-    shift.setArg("carryOut", bufCarry);
+  void exitKerns(Buffer &buf1, Buffer &out, bool doMul3) {    
+    fftW(buf1);
+    doMul3 ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
+    carryB(out, bufCarry);
+  }
 
-    carryB.setArg("carryIn", bufCarry);
-  
-    square.setArg("io", buf2);
-    square.setArg("bigTrig", bufSquareTrig);
-  
-    multiply.setArg("io", buf2);
-    multiply.setArg("in", buf3);
-    multiply.setArg("bigTrig", bufSquareTrig);
-  
-    tailFused.setArg("io", buf2);
-    tailFused.setArg("smallTrig", bufTrigH);
-    tailFused.setArg("bigTrig", bufSquareTrig);
-
-    doCheck.setArg("in1", bufCheck);
-    doCheck.setArg("in2", bufAux);
-    doCheck.setArg("out", bufSmallOut);
-
-    compare.setArg("in1", bufCheck);
-    compare.setArg("in2", bufAux);
-    uint zero = 0;
-    compare.setArg("offset", zero);
-    compare.setArg("out", bufSmallOut);
-
-    readResidue.setArg("in", bufData);
-    readResidue.setArg("out", bufSmallOut);
+  void directFFT(Buffer &in, Buffer &buf1, Buffer &out) {
+    fftP(in, buf1);
+    transposeW(buf1, out);
+    fftH(out);
   }
   
 public:
   static unique_ptr<Gpu> make(u32 E, Args &args) {
-    int W = (E < 153'000'000) ? 2048 : 4096;
+    int W = (E < 153'000'000) ? (E < 77000000) ? 1024 : 2048 : 4096;
     int H = 2048;
     int N = 2 * W * H;
 
     string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
-    int nW = 8;
+    int nW = (W == 1024) ? 4 : 8;
     int nH = H / 256;
   
     vector<string> defines {valueDefine("EXP", E),
@@ -333,7 +292,8 @@ public:
         valueDefine("NH", nH),
         };
 
-    bool useLongCarry = true; // args.carry == Args::CARRY_LONG || bitsPerWord < 15;  
+    float bitsPerWord = E / float(N);
+    bool useLongCarry = (args.carry == Args::CARRY_LONG) || (bitsPerWord < 15);
     bool useSplitTail = args.tail == Args::TAIL_SPLIT;
   
     log("Note: using %s carry and %s tail kernels\n",
@@ -354,26 +314,12 @@ public:
     Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs, defines, ""));
     if (!program) { throw "OpenCL compilation"; }
 
-    return unique_ptr<Gpu>(new OpenGpu(E, W, H, program.get(), device, context.get(), timeKernels, useSplitTail));
+    return unique_ptr<Gpu>(new OpenGpu(E, W, H, program.get(), device, context.get(), timeKernels, useSplitTail, useLongCarry));
   }
-  
 
-protected:
-  bool equalNotZero(Buffer &buf1, Buffer &buf2, u32 deltaOffset) {
-    compare.setArg("in1", buf1);
-    compare.setArg("in2", buf2);
-    compare.setArg("offset", deltaOffset);
-    compare();
-    auto readBuf = queue.read<int>(bufSmallOut, 2);
-    bool isEqual   = readBuf[0];
-    bool isNotZero = readBuf[1];
-    bool ok = isEqual && isNotZero;
-    return ok;
-  }
-  
-public:
   void finish() { queue.finish(); }
   
+protected:
   void logTimeKernels() {
     ::logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused});
   }
@@ -387,10 +333,8 @@ public:
 
   void rollback() {
     // Shift good data by 1.
-    shift.setArg("io", bufGoodData);
-    shift();
-    carryB.setArg("io", bufGoodData);
-    carryB();
+    shift(bufGoodData, bufCarry);
+    carryB(bufGoodData, bufCarry);
     offsetGoodData = (offsetGoodData + 1) % E;
     
     queue.copy<int>(bufGoodData, bufData, N);
@@ -399,9 +343,84 @@ public:
     offsetCheck = offsetGoodCheck;
   }
 
-  std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
+  // Implementation of LowGpu's abstract methods below.
   
-private:
+  vector<int> readOut(Buffer &buf) {
+    transposeOut(buf, bufAux);
+    return queue.read<int>(bufAux, N);
+  }
+  
+  void writeIn(const vector<int> &words, Buffer &buf) {
+    queue.write(bufAux, words);
+    transposeIn(bufAux, buf);
+  }
+  
+  // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
+  // Optional multiply-by-3 at the end.
+  void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
+    assert(nIters > 0);
+    
+    fftP(in, buf1);
+    transposeW(buf1, buf2);
+    tail(buf2);
+    transposeH(buf2, buf1);
+
+    for (int i = 0; i < nIters - 1; ++i) {
+      if (useLongCarry) {
+        fftW(buf1);
+        carryA(buf1, out, bufCarry);
+        carryB(out, bufCarry);
+        fftP(out, buf1);
+      } else {
+        carryFused(buf1, bufCarry, bufReady);
+      }
+        
+      transposeW(buf1, buf2);
+      tail(buf2);
+      transposeH(buf2, buf1);
+    }
+    
+    exitKerns(buf1, out, doMul3);
+  }
+
+  // The modular multiplication io *= in.
+  void modMul(Buffer &in, Buffer &io, bool doMul3) {
+    directFFT(in, buf1, buf3);
+    directFFT(io, buf1, buf2);
+    multiply(buf2, buf3); // input: buf2, buf3; output: buf2.
+    fftH(buf2);
+    transposeH(buf2, buf1);
+    exitKerns(buf1, io, doMul3);
+  };
+
+  u64 reduce36(i64 x) {
+    i64 r = x / (1ll << 36) + x % (1ll << 36);
+    return (r < 0) ? r + (1ll << 36) - 1 : r;
+  }
+  
+  bool equalNotZero(Buffer &buf1, u32 offset1, Buffer &buf2, u32 offset2) {
+    int init[2] = {true, false};
+    write(queue.get(), false, bufSmallOut, sizeof(int) * 2, init);    
+    
+    u32 deltaOffset = (E + offset2 - offset1) % E;
+    compare(buf1, buf2, deltaOffset, bufSmallOut);
+    auto readBuf = queue.read<int>(bufSmallOut, 2);
+    bool isEqual   = readBuf[0];
+    bool isNotZero = readBuf[1];
+    bool ok = isEqual && isNotZero;
+
+    i64 zero[2] = {0, 0};
+    
+    write(queue.get(), false, bufSmallOut, 2 * sizeof(i64), &zero);
+    res36(buf1, offset1, bufSmallOut, 0);
+    res36(buf2, offset2, bufSmallOut, 1);
+    auto res = queue.read<i64>(bufSmallOut, 2);
+    u64 res1 = reduce36(res[0]);
+    u64 res2 = reduce36(res[1]);
+    if (res1 != res2) { log("res36 differ: %09llx %09llx\n", res1, res2); }
+    return ok;
+  }
+  
   u64 bufResidue(Buffer &buf, u32 offset) {
     u32 startWord = bitposToWord(E, N, offset);
     u32 startDword = startWord / 2;    
@@ -412,105 +431,5 @@ private:
 
     u32 startBit   = offset - wordToBitpos(E, N, startWord);
     return raw >> startBit;
-  }
-  
-  vector<int> readSmall(Buffer &buf, u32 start) {
-    readResidue.setArg("in", buf);
-    readResidue.setArg("startDword", start);
-    readResidue();
-    return queue.read<int>(bufSmallOut, 128);                    
-  }
-    
-  vector<int> readOut(Buffer &buf) {
-    transposeOut.setArg("in", buf);
-    transposeOut.setArg("out", bufAux);
-    transposeOut();    
-    return queue.read<int>(bufAux, N);
-  }
-  
-  void writeIn(const vector<int> &words, Buffer &buf) {
-    queue.write(bufAux, words);
-    transposeIn.setArg("in", bufAux);
-    transposeIn.setArg("out", buf);
-    transposeIn();
-  }
-    
-  // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
-  // Optional multiply-by-3 at the end.
-  void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
-    assert(nIters > 0);
-            
-    entryKerns(in);
-      
-    // carry args needed for coreKerns.
-    carryA.setArg("out", out);
-    carryB.setArg("io",  out);
-    fftP.setArg("in", out);
-
-    for (int i = 0; i < nIters - 1; ++i) { coreKerns(); }
-
-    exitKerns(out, doMul3);
-  }
-
-  // The modular multiplication io *= in.
-  void modMul(Buffer &in, Buffer &io, bool doMul3) {
-    directFFT(in, buf3);
-    directFFT(io, buf2);
-    multiply(); // input: buf2, buf3; output: buf2.
-    fftH();
-    transposeH();
-    exitKerns(io, doMul3);
-  };
-  
-  void carry() {
-    fftW();
-    carryA();
-    carryB();
-    fftP();
-  }
-
-  void tail() {
-    if (useSplitTail) {
-      fftH();
-      square();
-      fftH();      
-    } else {
-      tailFused();
-    }
-  }
-
-  void entryKerns(Buffer &in) {
-    fftP.setArg("in", in);
-      
-    fftP();
-    transposeW();
-    tail();
-    transposeH();
-  }
-
-  void coreKerns() {
-    carry();
-    transposeW();
-    tail();
-    transposeH();
-  }
-
-  void exitKerns(Buffer &out, bool doMul3) {
-    (doMul3 ? carryM : carryA).setArg("out", out);
-    carryB.setArg("io",  out);
-    
-    fftW();
-    doMul3 ? carryM() : carryA();
-    carryB();
-  }
-
-  void directFFT(Buffer &in, Buffer &out) {
-    fftP.setArg("in", in);
-    transposeW.setArg("out", out);
-    fftH.setArg("io", out);
-      
-    fftP();
-    transposeW();
-    fftH();
   }
 };

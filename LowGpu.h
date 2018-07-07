@@ -31,7 +31,7 @@ protected:
   
   virtual void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) = 0;
   virtual void modMul(Buffer &in, Buffer &io, bool doMul3) = 0;
-  virtual bool equalNotZero(Buffer &bufCheck, Buffer &bufAux, u32 deltaOffset) = 0;
+  virtual bool equalNotZero(Buffer &bufCheck, u32 offsetCheck, Buffer &bufAux, u32 offsetAux) = 0;
   virtual u64 bufResidue(Buffer &buf, u32 offset) = 0;
   
   vector<u32> readData()  { return compactBits(readOut(bufData),  E, offsetData); }
@@ -109,8 +109,7 @@ public:
     // log("aux1 %016llx\n", bufResidue(bufAux, 0));
     
     updateCheck();
-    u32 deltaOffset = (E + offsetAux - offsetCheck) % E;
-    return equalNotZero(bufCheck, bufAux, deltaOffset);
+    return equalNotZero(bufCheck, offsetCheck, bufAux, offsetAux);
   }
 
   void dataLoop(int reps) {

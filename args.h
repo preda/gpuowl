@@ -24,7 +24,7 @@ struct Args {
   Args() :
     device(-1),
     timeKernels(false),
-    carry(CARRY_LONG),
+    carry(CARRY_SHORT),
     tail(TAIL_FUSED),
     blockSize(200),
     fftSize(0)
