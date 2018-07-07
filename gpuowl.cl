@@ -904,13 +904,13 @@ void reverse(uint WG, local T2 *lds, T2 *u, bool bump) {
   
   bar();
 
-  lds[rm + 0 * WG] = u[7];
-  lds[rm + 1 * WG] = u[6];
-  lds[rm + 2 * WG] = u[5];  
-  lds[bump ? ((rm + 3 * WG) % (4 * WG)) : (rm + 3 * WG)] = u[4];
+  lds[rm + 0 * WG] = u[3];
+  lds[rm + 1 * WG] = u[2];
+  lds[rm + 2 * WG] = u[1];  
+  lds[bump ? ((rm + 3 * WG) % (4 * WG)) : (rm + 3 * WG)] = u[0];
   
   bar();
-  for (int i = 0; i < 4; ++i) { u[4 + i] = lds[i * WG + me]; }
+  for (int i = 0; i < 4; ++i) { u[i] = lds[i * WG + me]; }
 }
 
 void reverseLine(uint WG, local T *lds, T2 *u) {
@@ -924,8 +924,7 @@ void reverseLine(uint WG, local T *lds, T2 *u) {
   }
 }
 
-void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base) {
-  uint g = get_group_id(0);
+void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint me = get_local_id(0);
 
   T2 step = slowTrig(1, HEIGHT / WG);
@@ -934,32 +933,7 @@ void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base) {
     T2 a = u[i];
     T2 b = conjugate(v[i]);
     T2 t = swap(base);    
-    X2(a, b);
-    b = mul(b, conjugate(t));
-    X2(a, b);
-    a = sq(a);
-    b = sq(b);
-    X2(a, b);
-    b = mul(b, t);
-    X2(a, b);
-    u[i] = conjugate(a);
-    v[i] = b;
-  }
-}
-
-void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
-  uint g = get_group_id(0);
-  uint me = get_local_id(0);
-
-  T2 step = slowTrig(1, HEIGHT / WG);
-  
-  for (int i = 0; i < N / 2; ++i, base = mul(base, step)) {
-    T2 a = u[i];
-    T2 b = conjugate(v[N / 2 + i]);
-    // T2 t = swap(mul(tt, bigTrig[WG * i + me]));
-    T2 t = swap(base);    
-    
-    if (special && i == 0 && g == 0 && me == 0) {
+    if (special && i == 0 && me == 0) {
       a = shl(foo(a), 2);
       b = shl(sq(b), 3);
     } else {
@@ -973,7 +947,7 @@ void halfSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
       X2(a, b);
     }
     u[i] = conjugate(a);
-    v[N / 2 + i] = b;
+    v[i] = b;
   }
 }
 
@@ -988,36 +962,31 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   uint W = HEIGHT;
   uint g = get_group_id(0);
   uint me = get_local_id(0);
-  
+  uint line2 = g ? H - g : (H / 2);
+ 
   read(G_H, NH, u, io, g * W);
+  read(G_H, NH, v, io, line2 * W);
+  fft2K(lds, u, smallTrig);
+  bar();
+  fft2K(lds, v, smallTrig);
 
-  if (g == 0 || g == H / 2) {
-    fft2K(lds, u, smallTrig);
-    for (int i = 0; i < NH; ++i) { v[i] = u[i]; }    
-    if (g == 0) {
-      reverse(G_H, (local T2 *)lds, v, true);
-      halfSq(G_H, NH, u, v, slowTrig(g + me * H, W * H), true);
-      reverse(G_H, (local T2 *)lds, v, true);
-    } else {
-      reverseLine(G_H, lds, v);
-      pairSq(G_H, NH / 2, u, v, slowTrig(g + me * H, W * H));
-      reverseLine(G_H, lds, v);
-    }
-    for (int i = NH / 2; i < NH; ++i) { u[i] = v[i]; }
-  } else {  
-    uint line2 = H - g;
-    read(G_H, NH, v, io, line2 * W);
-    fft2K(lds, u, smallTrig);
-    bar();
-    fft2K(lds, v, smallTrig);
+  if (g == 0) {
+    reverse(G_H, (local T2 *)lds, u + 4, true);
+    pairSq(G_H, NH/2, u, u + 4, slowTrig(me, W), true);
+    reverse(G_H, (local T2 *)lds, u + 4, true);
+    
+    reverse(G_H, (local T2 *)lds, v + 4, false);
+    pairSq(G_H, NH/2, v, v + 4, slowTrig(1 + 2 * me, 2 * W), false);
+    reverse(G_H, (local T2 *)lds, v + 4, false);
+  } else {
     reverseLine(G_H, lds, v);
-    pairSq(G_H, NH, u, v, slowTrig(g + me * H, W * H));
+    pairSq(G_H, NH, u, v, slowTrig(g + me * H, W * H), false);
     reverseLine(G_H, lds, v);
-    bar();
-    fft2K(lds, v, smallTrig);
-    write(G_H, NH, v, io, line2 * W);  
   }
   
+  bar();
+  fft2K(lds, v, smallTrig);
+  write(G_H, NH, v, io, line2 * W);
   bar();
   fft2K(lds, u, smallTrig);
   write(G_H, NH, u, io, g * W);
