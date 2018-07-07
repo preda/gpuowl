@@ -974,26 +974,37 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   read(G_H, NH, u, io, g * W);
   read(G_H, NH, v, io, line2 * W);
   fft2K(lds, u, smallTrig);
-  bar();
-  fft2K(lds, v, smallTrig);
+
+  bool isEvenLines = (H % 2 == 0);
+  
+  // If the number of lines H is even, then group-0 can do two lines (0 and H/2).
+  if (g != 0 || isEvenLines) {
+    bar();
+    fft2K(lds, v, smallTrig);
+  }
 
   if (g == 0) {
     reverse(G_H, (local T2 *)lds, u + 4, true);
     pairSq(G_H, NH/2, u, u + 4, slowTrig(me, W), true);
     reverse(G_H, (local T2 *)lds, u + 4, true);
-    
-    reverse(G_H, (local T2 *)lds, v + 4, false);
-    pairSq(G_H, NH/2, v, v + 4, slowTrig(1 + 2 * me, 2 * W), false);
-    reverse(G_H, (local T2 *)lds, v + 4, false);
+
+    if (isEvenLines) {
+      reverse(G_H, (local T2 *)lds, v + 4, false);
+      pairSq(G_H, NH/2, v, v + 4, slowTrig(1 + 2 * me, 2 * W), false);
+      reverse(G_H, (local T2 *)lds, v + 4, false);
+    }
   } else {
     reverseLine(G_H, lds, v);
     pairSq(G_H, NH, u, v, slowTrig(g + me * H, W * H), false);
     reverseLine(G_H, lds, v);
   }
+
+  if (g != 0 || isEvenLines) {
+    bar();
+    fft2K(lds, v, smallTrig);
+    write(G_H, NH, v, io, line2 * W);
+  }
   
-  bar();
-  fft2K(lds, v, smallTrig);
-  write(G_H, NH, v, io, line2 * W);
   bar();
   fft2K(lds, u, smallTrig);
   write(G_H, NH, u, io, g * W);

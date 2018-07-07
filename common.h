@@ -30,12 +30,6 @@ void initLog();
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
-/*
-#ifndef DUAL
-#define DUAL
-#endif
-*/
-
 // The git revision should be passed through -D on the compiler command line (see Makefile).
 #ifndef REV
 #define REV
