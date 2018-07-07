@@ -300,7 +300,7 @@ public:
     LowGpu(E, N)
   {
     assert(N % 1024 == 0);
-    CC(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
+    cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync); // fail is OK.
     
     {
       auto weights = genWeights(E, N);
