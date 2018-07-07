@@ -900,14 +900,14 @@ KERNEL(G_H) multiply(P(T2) io, CP(T2) in)  { cmul(G_H, HEIGHT, WIDTH, io, in); }
 
 void reverse(uint WG, local T2 *lds, T2 *u, bool bump) {
   uint me = get_local_id(0);
-  uint rm = WG - 1 - me + bump;
+  uint revMe = WG - 1 - me + bump;
   
   bar();
 
-  lds[rm + 0 * WG] = u[3];
-  lds[rm + 1 * WG] = u[2];
-  lds[rm + 2 * WG] = u[1];  
-  lds[bump ? ((rm + 3 * WG) % (4 * WG)) : (rm + 3 * WG)] = u[0];
+  lds[revMe + 0 * WG] = u[3];
+  lds[revMe + 1 * WG] = u[2];
+  lds[revMe + 2 * WG] = u[1];  
+  lds[bump ? ((revMe + 3 * WG) % (4 * WG)) : (revMe + 3 * WG)] = u[0];
   
   bar();
   for (int i = 0; i < 4; ++i) { u[i] = lds[i * WG + me]; }
@@ -922,6 +922,13 @@ void reverseLine(uint WG, local T *lds, T2 *u) {
     bar();
     for (int i = 0; i < 8; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
   }
+
+#if 0
+  // Equivalent alternative using reverse():
+  reverse(WG, (local T2 *)lds, u, false);
+  reverse(WG, (local T2 *)lds, u + 4, false);
+  for (int i = 0; i < 4; ++i) { SWAP(u[i], u[i + 4]); }
+#endif
 }
 
 void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
