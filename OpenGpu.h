@@ -278,7 +278,7 @@ class OpenGpu : public LowGpu<Buffer> {
   
 public:
   static unique_ptr<Gpu> make(u32 E, Args &args) {
-    int W = (E < 153'001'000) ? (E < 77000000) ? 1024 : 2048 : 4096;
+    int W = (E < 153'100'000) ? (E < 77'500'000) ? 1024 : 2048 : 4096;
     int H = 2048;
     int N = 2 * W * H;
 

@@ -32,10 +32,11 @@ typedef ulong u64;
 
 // Number of words
 #define NWORDS (WIDTH * HEIGHT * 2u)
+#define ND (WIDTH * HEIGHT)
 #define G_W (WIDTH  / NW)
 #define G_H (HEIGHT / NH)
-#define SH HEIGHT
-#define NS HEIGHT / SH
+#define BLOCK_HEIGHT HEIGHT
+// #define NS HEIGHT / SH
 
 // Used in bitlen() and weighting.
 #define STEP (NWORDS - (EXP % NWORDS))
@@ -54,20 +55,11 @@ uint bitlen(uint k) { return EXP / NWORDS + isBigWord(k); }
 
 typedef double T;
 typedef double2 T2;
-
 typedef int Word;
 typedef int2 Word2;
 typedef long Carry;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
-
-T add1(T a, T b) { return a + b; }
-T sub1(T a, T b) { return a - b; }
-
-T2 add(T2 a, T2 b) { return a + b; }
-T2 sub(T2 a, T2 b) { return a - b; }
-
-T shl1(T a, uint k) { return a * (1 << k); }
 
 // complex mul
 T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
@@ -75,15 +67,13 @@ T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
 // complex square
 T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }
 
-T mul1(T a, T b) { return a * b; }
-
 T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
 T2 mul_t8(T2 a)  { return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return U2(a.x - a.y, a.x + a.y) * - M_SQRT1_2; } // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
+T  shl1(T a, uint k) { return a * (1 << k); }
 T2 shl(T2 a, uint k) { return U2(shl1(a.x, k), shl1(a.y, k)); }
 
-T2 addsub(T2 a) { return U2(add1(a.x, a.y), sub1(a.x, a.y)); }
 T2 swap(T2 a) { return U2(a.y, a.x); }
 T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
@@ -142,16 +132,18 @@ Word2 carryWord(Word2 a, Carry *carry, uint pos) {
   return a;
 }
 
+T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
+
 T2 foo2(T2 a, T2 b) {
   a = addsub(a);
   b = addsub(b);
-  return addsub(U2(mul1(a.x, b.x), mul1(a.y, b.y)));
+  return addsub(U2(a.x * b.x, a.y * b.y));
 }
 
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 T2 foo(T2 a) { return foo2(a, a); }
 
-#define X2(a, b) { T2 t = a; a = add(t, b); b = sub(t, b); }
+#define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
 void fft4Core(T2 *u) {
@@ -463,7 +455,7 @@ typedef CP(T2) restrict Trig;
 // Read 64 Word2 starting at position 'startDword'.
 KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint startDword) {
   uint me = get_local_id(0);
-  uint k = (startDword + me) % (NWORDS / 2);
+  uint k = (startDword + me) % ND;
   uint y = k % HEIGHT;
   uint x = k / HEIGHT;
   out[me] = in[WIDTH * y + x];
@@ -491,8 +483,8 @@ KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
   if (isNotZero && !out[0].y) { out[0].y = true; }
 }
 
-uint dwordToBitpos(uint dword)  { return wordToBitpos(EXP, NWORDS / 2, dword); }
-uint bitposToDword(uint bitpos) { return bitposToWord(EXP, NWORDS / 2, bitpos); }
+uint dwordToBitpos(uint dword)  { return wordToBitpos(EXP, ND, dword); }
+uint bitposToDword(uint bitpos) { return bitposToWord(EXP, ND, bitpos); }
 Word2 readDword(CP(Word2) data, uint k) { return data[k / HEIGHT + WIDTH * (k % HEIGHT)]; }
 
 ulong getWordBits(Word2 word, uint k, uint *outNBits, int *carryInOut) {
@@ -588,7 +580,7 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
   nBits2 -= bitInWord;
 
   if (nBits2 < 3) {
-    k2 = (k2 + 1) % (NWORDS / 2);
+    k2 = (k2 + 1) % ND;
     uint n;
     ulong bits = readDwordBits(in2, k2, &n, &carry2);
     bits2 |= (bits << nBits2);
@@ -617,7 +609,7 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
       bits1 = getWordBits(w, k1 + i, &nBits1, &carry1);
     }
     if (nBits2 == 0) {
-      k2 = (k2 + 1) % (NWORDS / 2);
+      k2 = (k2 + 1) % ND;
       bits2 = readDwordBits(in2, k2, &nBits2, &carry2);      
     }
     uint m = min(nBits1, nBits2);
