@@ -257,8 +257,16 @@ class OpenGpu : public LowGpu<Buffer> {
   
 public:
   static unique_ptr<Gpu> make(u32 E, Args &args) {
-    int W = (E < 153'100'000) ? (E < 77'500'000) ? 1024 : 2048 : 4096;
+    int Mi = 1024 * 1024;
+    int autoSize = (E < 153'100'000) ? (E < 77'500'000) ? 4*Mi : 8*Mi : 16*Mi;    
+    int fftSize = args.fftSize ? args.fftSize : autoSize;
+    if (args.fftSize && (args.fftSize < 10)) {
+      fftSize = (args.fftSize < 0) ? (autoSize / 2) : (autoSize * 2);
+    }
+
     int H = 2048;
+    int W = fftSize / (2 * H);
+    assert(W == 1024 || W == 2048 || W == 4096);
     int N = 2 * W * H;
 
     string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
