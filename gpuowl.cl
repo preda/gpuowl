@@ -31,13 +31,13 @@ typedef ulong u64;
 #include "shared.h"
 
 // Number of words
-#define NWORDS (WIDTH * HEIGHT * 2u)
-#define ND (WIDTH * HEIGHT)
-#define G_W (WIDTH  / NW)
-#define G_H (HEIGHT / NH)
+#define ND (WIDTH * BIG_HEIGHT)
+#define NWORDS (ND * 2u)
+#define G_W (WIDTH / NW)
+#define G_H (SMALL_HEIGHT / NH)
 
-#define SMALL_HEIGHT HEIGHT
-#define BIG_HEIGHT HEIGHT
+// #define SMALL_HEIGHT HEIGHT
+// #define BIG_HEIGHT HEIGHT
 // #define NS HEIGHT / SH
 
 // Used in bitlen() and weighting.
@@ -409,7 +409,7 @@ KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint startDword) {
 
 uint dwordToBitpos(uint dword)  { return wordToBitpos(EXP, ND, dword); }
 uint bitposToDword(uint bitpos) { return bitposToWord(EXP, ND, bitpos); }
-Word2 readDword(CP(Word2) data, uint k) { return data[k / HEIGHT + WIDTH * (k % HEIGHT)]; }
+Word2 readDword(CP(Word2) data, uint k) { return data[k / BIG_HEIGHT + WIDTH * (k % BIG_HEIGHT)]; }
 
 ulong getWordBits(Word2 word, uint k, uint *outNBits, int *carryInOut) {
   uint n1 = bitlen(2 * k + 0);
@@ -565,8 +565,7 @@ KERNEL(G_W) shift(P(Word2) io, P(Carry) carryOut) {
   Carry carry = 0;
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint p = WIDTH * i + me;
-    uint k = kAt(gx, gy, i);
-    io[p] = carryWord(io[p] * 2, &carry, k);
+    io[p] = carryWord(io[p] * 2, &carry, kAt(gx, gy, i));
   }
   carryOut[G_W * g + me] = carry;
 }
@@ -670,7 +669,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
   uint step = G_W * gx + WIDTH * CARRY_LEN * gy;
   io += step;
 
-  uint HB = HEIGHT / CARRY_LEN;
+  uint HB = BIG_HEIGHT / CARRY_LEN;
 
   // TODO: try & vs. %.
   uint prev = (gy + HB * G_W * gx + HB * me + (HB * WIDTH - 1)) % (HB * WIDTH);
@@ -696,7 +695,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   uint gr = get_group_id(0);
   uint me = get_local_id(0);
   
-  uint H = HEIGHT;
+  uint H = BIG_HEIGHT;
   uint line = gr % H;
   uint step = WIDTH * line;
   io += step;
@@ -872,7 +871,7 @@ void pairMul(uint WG, uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special)
 
 // "fused tail" is equivalent to the sequence: fftH, square, fftH.
 KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
-  local T lds[HEIGHT];
+  local T lds[SMALL_HEIGHT];
   T2 u[NH], v[NH], p[NH], q[NH];
 
   uint W = SMALL_HEIGHT;
@@ -936,7 +935,7 @@ KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
 
 // "fused tail" is equivalent to the sequence: fftH, square, fftH.
 KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
-  local T lds[HEIGHT];
+  local T lds[SMALL_HEIGHT];
   T2 u[NH];
   T2 v[NH];
 

@@ -275,7 +275,8 @@ public:
     vector<string> defines {valueDefine("EXP", E),
         valueDefine("WIDTH", W),
         valueDefine("NW", nW),
-        valueDefine("HEIGHT", H),
+        valueDefine("BIG_HEIGHT", H),
+        valueDefine("SMALL_HEIGHT", H),
         valueDefine("NH", nH),
         };
 
