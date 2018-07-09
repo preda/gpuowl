@@ -154,7 +154,6 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryFused;
   Kernel fftP;
   Kernel fftW;
-  Kernel doCheck;
   
   Kernel carryA;
   Kernel carryM;
@@ -192,7 +191,6 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryFused, H + 1),
     LOAD(fftP, H),
     LOAD(fftW, H),
-    LOAD(doCheck, H),
     LOAD(carryA,  nW * (H/16)),
     LOAD(carryM,  nW * (H/16)),
     LOAD(shift,   nW * (H/16)),

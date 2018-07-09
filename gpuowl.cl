@@ -35,7 +35,9 @@ typedef ulong u64;
 #define ND (WIDTH * HEIGHT)
 #define G_W (WIDTH  / NW)
 #define G_H (HEIGHT / NH)
+
 #define SMALL_HEIGHT HEIGHT
+#define BIG_HEIGHT HEIGHT
 // #define NS HEIGHT / SH
 
 // Used in bitlen() and weighting.
@@ -177,6 +179,35 @@ void fft8(T2 *u) {
   SWAP(u[3], u[6]);
 }
 
+// Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
+void fft5(T2 *u) {
+  const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
+  const double SIN2 = 0x1.89f188bdcd7afp+0; // sin(tau/5) + sin(2*tau/5), 1.53884176858762677931
+  const double SIN3 = 0x1.73fd61d9df543p-2; // sin(tau/5) - sin(2*tau/5), 0.36327126400268044959
+  const double COS1 = 0x1.1e3779b97f4a8p-1; // (cos(tau/5) - cos(2*tau/5))/2, 0.55901699437494745126
+
+  X2(u[2], u[3]);
+  X2(u[1], u[4]);
+  X2(u[1], u[2]);
+
+  T2 tmp = u[0];
+  u[0] += u[1];
+  u[1] = u[1] * (-0.25) + tmp;
+
+  u[2] *= COS1;
+  
+  tmp = (u[4] - u[3]) * SIN1;
+  tmp  = U2(tmp.y, -tmp.x);
+  
+  u[3] = U2(u[3].y, -u[3].x) * SIN2 + tmp;
+  u[4] = U2(-u[4].y, u[4].x) * SIN3 + tmp;
+  SWAP(u[3], u[4]);
+
+  X2(u[1], u[2]);
+  X2(u[1], u[4]);
+  X2(u[2], u[3]);
+}
+
 void shufl(uint WG, local T *lds, T2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   uint m = me / f;
@@ -316,10 +347,6 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out) {
   }
 }
 
-// (64 * gy + mx) * (64 * gx + my + i * 4);      
-// u[i] = mul(u[i], mul(trig[k / (W * H / TRANSTRIG_M)], trig[TRANSTRIG_M + k % (W * H / TRANSTRIG_M)]));    
-
-
 void transposeWords(uint W, uint H, local Word2 *lds, const G Word2 *in, G Word2 *out) {
   uint GPW = W / 64, GPH = H / 64;
 
@@ -375,31 +402,9 @@ typedef CP(T2) restrict Trig;
 KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint startDword) {
   uint me = get_local_id(0);
   uint k = (startDword + me) % ND;
-  uint y = k % HEIGHT;
-  uint x = k / HEIGHT;
+  uint y = k % BIG_HEIGHT;
+  uint x = k / BIG_HEIGHT;
   out[me] = in[WIDTH * y + x];
-}
-
-// out[0].x := equal(in1, in2); out[0].y := (in1 != zero).
-KERNEL(G_W) doCheck(CP(Word2) in1, CP(Word2) in2, P(Word2) out) {
-  uint g = get_group_id(0);
-  uint me = get_local_id(0);
-  
-  uint step = WIDTH * g;
-  in1 += step;
-  in2 += step;
-  
-  bool isEqual = true;
-  bool isNotZero = false;
-  for (int i = 0; i < NW; ++i) {
-    uint p = G_W * i + me;
-    Word2 a = in1[p];
-    Word2 b = in2[p];
-    if (a.x != b.x || a.y != b.y) { isEqual = false; }
-    if (a.x || a.y) { isNotZero = true; }
-  }
-  if (!isEqual) { out[0].x = false; }
-  if (isNotZero && !out[0].y) { out[0].y = true; }
 }
 
 uint dwordToBitpos(uint dword)  { return wordToBitpos(EXP, ND, dword); }
@@ -436,9 +441,12 @@ ulong maskBits(ulong bits, int n) { return bits % (1UL << n); }
 
 long reduce36(long x) { return (x >> 36) + (x & ((1ull << 36) - 1)); }
 
+u32 modExp(u32 x) { return (x >= EXP) ? x - EXP : x; }
+
 long shifted36(int x, u32 offset, u32 wordPos) {
   u32 bitPos = EXP - offset + wordToBitpos(EXP, NWORDS, wordPos);
-  bitPos = (bitPos >= EXP) ? bitPos - EXP : bitPos;
+  bitPos = modExp(bitPos);
+  // (bitPos >= EXP) ? bitPos - EXP : bitPos;
 
   int base = 0;
 
@@ -448,6 +456,10 @@ long shifted36(int x, u32 offset, u32 wordPos) {
     x &= (1 << tops) - 1;
   }
   return base + (((long) x) << (bitPos % 36));
+}
+
+uint kAt(uint gx, uint gy, uint i) {
+  return CARRY_LEN * gy + BIG_HEIGHT * G_W * gx + BIG_HEIGHT * ((uint) get_local_id(0)) + i;
 }
 
 KERNEL(G_W) res36(CP(Word2) in, u32 offset, P(long) out, int outPos) {
@@ -461,7 +473,8 @@ KERNEL(G_W) res36(CP(Word2) in, u32 offset, P(long) out, int outPos) {
   long res36 = 0; 
   for (int i = 0; i < CARRY_LEN; ++i) {
     Word2 w = in[i * WIDTH + me];
-    uint k = CARRY_LEN * gy + HEIGHT * G_W * gx + HEIGHT * me + i;
+    uint k = kAt(gx, gy, i);
+    // CARRY_LEN * gy + BIG_HEIGHT * G_W * gx + BIG_HEIGHT * me + i;
     res36 += shifted36(w.x, offset, 2 * k + 0);
     res36 += shifted36(w.y, offset, 2 * k + 1);
   }
@@ -486,9 +499,10 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
 
   in1 += G_W * gx + WIDTH * CARRY_LEN * gy;
 
-  uint k1  = CARRY_LEN * gy + HEIGHT * G_W * gx + HEIGHT * me;
+  uint k1  = kAt(gx, gy, 0);
+  // CARRY_LEN * gy + BIG_HEIGHT * G_W * gx + BIG_HEIGHT * me;
   uint bitpos1 = dwordToBitpos(k1);  
-  uint bitpos2 = (bitpos1 + offset >= EXP) ? bitpos1 + offset - EXP : (bitpos1 + offset);
+  uint bitpos2 = modExp(bitpos1 + offset);
   uint k2  = bitposToDword(bitpos2);
   uint bitInWord = bitpos2 - dwordToBitpos(k2);
 
@@ -551,7 +565,7 @@ KERNEL(G_W) shift(P(Word2) io, P(Carry) carryOut) {
   Carry carry = 0;
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint p = WIDTH * i + me;
-    uint k = gy * CARRY_LEN + HEIGHT * G_W * gx + i + HEIGHT * me;
+    uint k = kAt(gx, gy, i);
     io[p] = carryWord(io[p] * 2, &carry, k);
   }
   carryOut[G_W * g + me] = carry;
@@ -665,9 +679,10 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
   Carry carry = carryIn[WIDTH * prevLine + prevCol];
   
   for (int i = 0; i < CARRY_LEN; ++i) {
-    uint pos = CARRY_LEN * gy + HEIGHT * G_W * gx + HEIGHT * me + i;
+    uint k = kAt(gx, gy, i);
+    // CARRY_LEN * gy + HEIGHT * G_W * gx + HEIGHT * me + i;
     uint p = i * WIDTH + me;
-    io[p] = carryWord(io[p], &carry, pos);
+    io[p] = carryWord(io[p], &carry, k);
     if (!carry) { return; }
   }
 }
@@ -743,24 +758,24 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
 
 KERNEL(256) transposeW(CP(T2) in, P(T2) out) {
   local T lds[4096];
-  transpose(WIDTH, HEIGHT, lds, in, out);
+  transpose(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
 KERNEL(256) transposeH(CP(T2) in, P(T2) out) {
   local T lds[4096];
-  transpose(HEIGHT, WIDTH, lds, in, out);
+  transpose(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
 // from transposed to sequential.
 KERNEL(256) transposeOut(CP(Word2) in, P(Word2) out) {
   local Word2 lds[4096];
-  transposeWords(WIDTH, HEIGHT, lds, in, out);
+  transposeWords(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
 // from sequential to transposed.
 KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
   local Word2 lds[4096];
-  transposeWords(HEIGHT, WIDTH, lds, in, out);
+  transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
 void reverse(uint WG, local T2 *lds, T2 *u, bool bump) {
