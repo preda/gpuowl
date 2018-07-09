@@ -147,7 +147,7 @@ cl_device_id getDevice(const Args &args) {
 class OpenGpu : public LowGpu<Buffer> {
   int W, H;
   int hN, nW, nH, bufSize;
-  bool useSplitTail, useLongCarry;
+  bool useLongCarry;
   
   Queue queue;
 
@@ -167,9 +167,8 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
   
-  Kernel square;
-  Kernel multiply;
   Kernel tailFused;
+  Kernel mulFused;
   Kernel readResidue;
   
   Buffer bufGoodData, bufGoodCheck;
@@ -183,11 +182,10 @@ class OpenGpu : public LowGpu<Buffer> {
   int offsetGoodData, offsetGoodCheck;
 
   OpenGpu(u32 E, u32 W, u32 H, cl_program program, cl_device_id device, cl_context context,
-          bool timeKernels, bool useSplitTail, bool useLongCarry) :
+          bool timeKernels, bool useLongCarry) :
     LowGpu(E, W * H * 2),
     hN(N / 2), nW(8), nH(H / 256),
     bufSize(N * sizeof(double)),
-    useSplitTail(useSplitTail),
     useLongCarry(useLongCarry),
     queue(makeQueue(device, context)),    
 
@@ -207,9 +205,8 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(transposeH,   (W/64) * (H/64)),
     LOAD(transposeIn,  (W/64) * (H/64)),
     LOAD(transposeOut, (W/64) * (H/64)),
-    LOAD(square,    nH * (W/2)),
-    LOAD(multiply,  nH * (W/2)),
     LOAD(tailFused, (W + 1) / 2),
+    LOAD(mulFused,  (W + 1) / 2),
     LOAD(readResidue, 1),
 #undef LOAD
     
@@ -243,7 +240,8 @@ class OpenGpu : public LowGpu<Buffer> {
     carryM.setFixedArgs(3, bufI);
     
     tailFused.setFixedArgs(1, bufTrigH);
-
+    mulFused.setFixedArgs(2, bufTrigH);
+    
     queue.zero(bufReady, N * sizeof(int));
   }
 
@@ -254,26 +252,10 @@ class OpenGpu : public LowGpu<Buffer> {
     return queue.read<int>(bufSmallOut, 128);                    
   }
 
-  void tail(Buffer &buf) {
-    if (useSplitTail) {
-      fftH(buf);
-      square(buf);
-      fftH(buf);
-    } else {
-      tailFused(buf);
-    }
-  }
-
   void exitKerns(Buffer &buf1, Buffer &out, bool doMul3) {    
     fftW(buf1);
     doMul3 ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
     carryB(out, bufCarry);
-  }
-
-  void directFFT(Buffer &in, Buffer &buf1, Buffer &out) {
-    fftP(in, buf1);
-    transposeW(buf1, out);
-    fftH(out);
   }
   
 public:
@@ -296,10 +278,8 @@ public:
 
     float bitsPerWord = E / float(N);
     bool useLongCarry = (args.carry == Args::CARRY_LONG) || (bitsPerWord < 15);
-    bool useSplitTail = args.tail == Args::TAIL_SPLIT;
   
-    log("Note: using %s carry and %s tail kernels\n",
-        useLongCarry ? "long" : "short", useSplitTail ? "split" : "fused");
+    log("Note: using %s carry kernels\n", useLongCarry ? "long" : "short");
 
     string clArgs = args.clArgs;
     if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
@@ -316,14 +296,14 @@ public:
     Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs, defines, ""));
     if (!program) { throw "OpenCL compilation"; }
 
-    return unique_ptr<Gpu>(new OpenGpu(E, W, H, program.get(), device, context.get(), timeKernels, useSplitTail, useLongCarry));
+    return unique_ptr<Gpu>(new OpenGpu(E, W, H, program.get(), device, context.get(), timeKernels, useLongCarry));
   }
 
   void finish() { queue.finish(); }
   
 protected:
   void logTimeKernels() {
-    ::logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &square, &multiply, &tailFused});
+    ::logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &tailFused});
   }
   
   void commit() {
@@ -364,7 +344,7 @@ protected:
     
     fftP(in, buf1);
     transposeW(buf1, buf2);
-    tail(buf2);
+    tailFused(buf2);
     transposeH(buf2, buf1);
 
     for (int i = 0; i < nIters - 1; ++i) {
@@ -378,7 +358,7 @@ protected:
       }
         
       transposeW(buf1, buf2);
-      tail(buf2);
+      tailFused(buf2);
       transposeH(buf2, buf1);
     }
     
@@ -387,10 +367,17 @@ protected:
 
   // The modular multiplication io *= in.
   void modMul(Buffer &in, Buffer &io, bool doMul3) {
+    fftP(in, buf1);
+    transposeW(buf1, buf3);
+    fftP(io, buf1);
+    transposeW(buf1, buf2);
+    mulFused(buf2, buf3);
+    /*
     directFFT(in, buf1, buf3);
     directFFT(io, buf1, buf2);
     multiply(buf2, buf3); // input: buf2, buf3; output: buf2.
     fftH(buf2);
+    */
     transposeH(buf2, buf1);
     exitKerns(buf1, io, doMul3);
   };

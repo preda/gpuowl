@@ -35,7 +35,7 @@ typedef ulong u64;
 #define ND (WIDTH * HEIGHT)
 #define G_W (WIDTH  / NW)
 #define G_H (HEIGHT / NH)
-#define BLOCK_HEIGHT HEIGHT
+#define SMALL_HEIGHT HEIGHT
 // #define NS HEIGHT / SH
 
 // Used in bitlen() and weighting.
@@ -253,7 +253,7 @@ void fft2K(local T *lds, T2 *u, const G T2 *trig) {
   SWAP(u[3], u[6]);
 }
 
-void read(uint WG, uint N, T2 *u, G T2 *in, uint base) {
+void read(uint WG, uint N, T2 *u, const G T2 *in, uint base) {
   for (int i = 0; i < N; ++i) { u[i] = in[base + i * WG + (uint) get_local_id(0)]; }
 }
 
@@ -266,87 +266,6 @@ double2 slowTrig(int k, int n) {
   double c;
   double s = sincos(M_PI / n * k, &c);
   return U2(c, -s);
-}
-
-// Inputs normal (non-conjugate); outputs conjugate.
-void csquare(uint WG, uint W, uint H, G T2 *io) {
-  uint g  = get_group_id(0);
-  uint me = get_local_id(0);
-
-  if (g == 0 && me == 0) {
-    io[0]     = shl(foo(conjugate(io[0])), 2);
-    io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);
-    return;
-  }
-
-  uint GPL = W / (WG * 2); // "Groups Per Line", == 4.
-  uint line = g / GPL;
-  uint posInLine = g % GPL * WG + me;
-
-  T2 t = swap(slowTrig(posInLine * H + line, W * H));
-  
-  uint k = line * W + posInLine;
-  uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
-  
-  T2 a = io[k];
-  T2 b = conjugate(io[v]);
-  X2(a, b);
-  b = mul(b, conjugate(t));
-  X2(a, b);
-
-  a = sq(a);
-  b = sq(b);
-
-  X2(a, b);
-  b = mul(b,  t);
-  X2(a, b);
-  
-  io[k] = conjugate(a);
-  io[v] = b;
-}
-
-// Like csquare(), but for multiplication.
-void cmul(uint WG, uint W, uint H, G T2 *io, const G T2 *in) {
-  // const G T2 *bigTrig) {
-  uint g  = get_group_id(0);
-  uint me = get_local_id(0);
-
-  if (g == 0 && me == 0) {
-    io[0]     = shl(foo2(conjugate(io[0]), conjugate(in[0])), 2);
-    io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2])), 3);
-    return;
-  }
-
-  uint GPL = W / (WG * 2);
-  uint line = g / GPL;
-  uint posInLine = g % GPL * WG + me;
-
-  T2 t = swap(slowTrig(posInLine * H + line, W * H));
-  
-  uint k = line * W + posInLine;
-  uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
-  
-  T2 a = io[k];
-  T2 b = conjugate(io[v]);
-  X2(a, b);
-  b = mul(b, conjugate(t));
-  X2(a, b);
-  
-  T2 c = in[k];
-  T2 d = conjugate(in[v]);
-  X2(c, d);
-  d = mul(d, conjugate(t));
-  X2(c, d);
-
-  a = mul(a, c);
-  b = mul(b, d);
-
-  X2(a, b);
-  b = mul(b,  t);
-  X2(a, b);
-  
-  io[k] = conjugate(a);
-  io[v] = b;
 }
 
 // transpose LDS 64 x 64.
@@ -860,9 +779,46 @@ KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
   transposeWords(HEIGHT, WIDTH, lds, in, out);
 }
 
-KERNEL(G_H) square(P(T2) io)  { csquare(G_H, HEIGHT, WIDTH, io); }
+// Inputs normal (non-conjugate); outputs conjugate.
+KERNEL(G_H) square(P(T2) io)  {
+  uint WG = G_H;
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
 
-KERNEL(G_H) multiply(P(T2) io, CP(T2) in)  { cmul(G_H, HEIGHT, WIDTH, io, in); }
+  uint g  = get_group_id(0);
+  uint me = get_local_id(0);  
+
+  if (g == 0 && me == 0) {
+    io[0]     = shl(foo(conjugate(io[0])), 2);
+    io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);
+    return;
+  }
+
+  uint GPL = W / (WG * 2); // "Groups Per Line", == 4.
+  uint line = g / GPL;
+  uint posInLine = g % GPL * WG + me;
+
+  T2 t = swap(slowTrig(posInLine * H + line, W * H));
+  
+  uint k = line * W + posInLine;
+  uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
+  
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  X2(a, b);
+  b = mul(b, conjugate(t));
+  X2(a, b);
+
+  a = sq(a);
+  b = sq(b);
+
+  X2(a, b);
+  b = mul(b,  t);
+  X2(a, b);
+  
+  io[k] = conjugate(a);
+  io[v] = b;
+}
 
 void reverse(uint WG, local T2 *lds, T2 *u, bool bump) {
   uint me = get_local_id(0);
@@ -900,7 +856,7 @@ void reverseLine(uint WG, local T *lds, T2 *u) {
 void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint me = get_local_id(0);
 
-  T2 step = slowTrig(1, HEIGHT / WG);
+  T2 step = slowTrig(1, SMALL_HEIGHT / WG);
   
   for (int i = 0; i < N; ++i, base = mul(base, step)) {
     T2 a = u[i];
@@ -924,25 +880,122 @@ void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
   }
 }
 
+void pairMul(uint WG, uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
+  uint me = get_local_id(0);
+
+  T2 step = slowTrig(1, SMALL_HEIGHT / WG);
+  
+  for (int i = 0; i < N; ++i, base = mul(base, step)) {
+    T2 a = u[i];
+    T2 b = conjugate(v[i]);
+    T2 c = p[i];
+    T2 d = conjugate(q[i]);
+    T2 t = swap(base);
+    if (special && i == 0 && me == 0) {
+      a = shl(foo2(a, c), 2);
+      b = shl(mul(b, d), 3);
+    } else {
+      X2(a, b);
+      b = mul(b, conjugate(t));
+      X2(a, b);
+      X2(c, d);
+      d = mul(d, conjugate(t));
+      X2(c, d);      
+      a = mul(a, c);
+      b = mul(b, d);
+      X2(a, b);
+      b = mul(b, t);
+      X2(a, b);
+    }
+    u[i] = conjugate(a);
+    v[i] = b;
+  }
+}
+
 // "fused tail" is equivalent to the sequence: fftH, square, fftH.
-// assert(H % 2 == 0);
+KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
+  local T lds[HEIGHT];
+  T2 u[NH], v[NH], p[NH], q[NH];
+
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+  uint line2 = g ? H - g : (H / 2);
+  bool isEvenLines = (H % 2 == 0);
+  
+  read(G_H, NH, u, io, g * W);
+  read(G_H, NH, p, in, g * W);
+  if (g != 0 || isEvenLines) {
+    read(G_H, NH, v, io, line2 * W);
+    read(G_H, NH, q, in, line2 * W);
+  }
+  fft2K(lds, u, smallTrig);
+  bar();
+  fft2K(lds, p, smallTrig);
+
+  // If the number of lines H is even, then group 0 can do two lines (0 and H/2).
+  if (g != 0 || isEvenLines) {
+    bar();
+    fft2K(lds, v, smallTrig);
+    bar();
+    fft2K(lds, q, smallTrig);
+  }
+
+  if (g == 0) {
+    reverse(G_H, (local T2 *)lds, u + 4, true);
+    reverse(G_H, (local T2 *)lds, p + 4, true);
+    pairMul(G_H, NH/2, u, u + 4, p, p + 4, slowTrig(me, W), true);
+    reverse(G_H, (local T2 *)lds, u + 4, true);
+    reverse(G_H, (local T2 *)lds, p + 4, true);
+
+    if (isEvenLines) {
+      reverse(G_H, (local T2 *)lds, v + 4, false);
+      reverse(G_H, (local T2 *)lds, q + 4, false);
+      pairMul(G_H, NH/2, v, v + 4, q, q + 4, slowTrig(1 + 2 * me, 2 * W), false);
+      reverse(G_H, (local T2 *)lds, v + 4, false);
+      reverse(G_H, (local T2 *)lds, q + 4, false);
+    }
+  } else {    
+    reverseLine(G_H, lds, v);
+    reverseLine(G_H, lds, q);
+    pairMul(G_H, NH, u, v, p, q, slowTrig(g + me * H, W * H), false);
+    reverseLine(G_H, lds, v);
+    reverseLine(G_H, lds, q);
+  }
+
+  if (g != 0 || isEvenLines) {
+    bar();
+    fft2K(lds, v, smallTrig);
+    write(G_H, NH, v, io, line2 * W);
+  }
+  
+  bar();
+  fft2K(lds, u, smallTrig);
+  write(G_H, NH, u, io, g * W);
+}
+
+// "fused tail" is equivalent to the sequence: fftH, square, fftH.
 KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   local T lds[HEIGHT];
   T2 u[NH];
   T2 v[NH];
 
-  uint H = WIDTH;
-  uint W = HEIGHT;
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+
   uint g = get_group_id(0);
   uint me = get_local_id(0);
   uint line2 = g ? H - g : (H / 2);
- 
-  read(G_H, NH, u, io, g * W);
-  read(G_H, NH, v, io, line2 * W);
-  fft2K(lds, u, smallTrig);
-
   bool isEvenLines = (H % 2 == 0);
   
+  read(G_H, NH, u, io, g * W);
+  if (g != 0 || isEvenLines) {
+    read(G_H, NH, v, io, line2 * W);
+  }
+  fft2K(lds, u, smallTrig);
+
   // If the number of lines H is even, then group 0 can do two lines (0 and H/2).
   if (g != 0 || isEvenLines) {
     bar();

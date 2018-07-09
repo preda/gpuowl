@@ -9,7 +9,7 @@
 #include <cstring>
 
 struct Args {
-  enum {CARRY_SHORT = 0, CARRY_LONG = 1, TAIL_FUSED = 0, TAIL_SPLIT = 1};
+  enum {CARRY_SHORT = 0, CARRY_LONG = 1/*, TAIL_FUSED = 0, TAIL_SPLIT = 1*/};
   
   std::string clArgs;
   std::string user, cpu;
@@ -17,7 +17,7 @@ struct Args {
   int device;
   bool timeKernels;
   int carry;
-  int tail;
+  // int tail;
   int blockSize;
   int fftSize;
   
@@ -25,7 +25,7 @@ struct Args {
     device(-1),
     timeKernels(false),
     carry(CARRY_LONG),
-    tail(TAIL_FUSED),
+    // tail(TAIL_FUSED),
     blockSize(200),
     fftSize(0)
   { }
@@ -102,7 +102,7 @@ Command line options:
       }
       log("-carry expects short|long\n");
       return false;
-    } else if (!strcmp(arg, "-tail")) {
+    } /*else if (!strcmp(arg, "-tail")) {
       if (i < argc - 1) {
         std::string s = argv[++i];
         if (s == "fused" || s == "split") {
@@ -112,7 +112,8 @@ Command line options:
       }
       log("-tail expects fused|split\n");
       return false;      
-    } else if (!strcmp(arg, "-block")) {
+      } */
+    else if (!strcmp(arg, "-block")) {
       if (i < argc - 1) {
         std::string s = argv[++i];
         if (s == "10" || s == "20" || s == "200") {
