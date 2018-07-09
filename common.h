@@ -35,8 +35,9 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 #define REV
 #endif
 
-#define VERSION "3.1-" REV
+#define VERSION "3.2-" REV
 // Reason for version change:
+// 3.2 : always use fused tail. Drop un-fused fftH, square, multiply kernels.
 // 3.1 : use computed trig (instead of tables) in transpose and tailFused / square. Reworked tailFused.
 // 3.0 : add CUDA backend.
 

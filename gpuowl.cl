@@ -622,22 +622,6 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   write(G_W, NW, u, out, 0);
 }
 
-KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
-  local T lds[HEIGHT];
-  T2 u[NH];
-
-  uint g = get_group_id(0);
-  io += HEIGHT * g;
-
-  read(G_H, NH, u, io, 0);
-#if HEIGHT == 2048
-  fft2K(lds, u, smallTrig);
-#else
-#error unexpected HEIGHT.
-#endif
-  write(G_H, NH, u, io, 0);
-}
-
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
 void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
@@ -777,47 +761,6 @@ KERNEL(256) transposeOut(CP(Word2) in, P(Word2) out) {
 KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
   local Word2 lds[4096];
   transposeWords(HEIGHT, WIDTH, lds, in, out);
-}
-
-// Inputs normal (non-conjugate); outputs conjugate.
-KERNEL(G_H) square(P(T2) io)  {
-  uint WG = G_H;
-  uint W = SMALL_HEIGHT;
-  uint H = ND / W;
-
-  uint g  = get_group_id(0);
-  uint me = get_local_id(0);  
-
-  if (g == 0 && me == 0) {
-    io[0]     = shl(foo(conjugate(io[0])), 2);
-    io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);
-    return;
-  }
-
-  uint GPL = W / (WG * 2); // "Groups Per Line", == 4.
-  uint line = g / GPL;
-  uint posInLine = g % GPL * WG + me;
-
-  T2 t = swap(slowTrig(posInLine * H + line, W * H));
-  
-  uint k = line * W + posInLine;
-  uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
-  
-  T2 a = io[k];
-  T2 b = conjugate(io[v]);
-  X2(a, b);
-  b = mul(b, conjugate(t));
-  X2(a, b);
-
-  a = sq(a);
-  b = sq(b);
-
-  X2(a, b);
-  b = mul(b,  t);
-  X2(a, b);
-  
-  io[k] = conjugate(a);
-  io[v] = b;
 }
 
 void reverse(uint WG, local T2 *lds, T2 *u, bool bump) {

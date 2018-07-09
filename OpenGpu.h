@@ -154,7 +154,6 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryFused;
   Kernel fftP;
   Kernel fftW;
-  Kernel fftH;
   Kernel doCheck;
   
   Kernel carryA;
@@ -193,7 +192,6 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryFused, H + 1),
     LOAD(fftP, H),
     LOAD(fftW, H),
-    LOAD(fftH, W),
     LOAD(doCheck, H),
     LOAD(carryA,  nW * (H/16)),
     LOAD(carryM,  nW * (H/16)),
@@ -234,7 +232,6 @@ class OpenGpu : public LowGpu<Buffer> {
     
     fftP.setFixedArgs(2, bufA, bufTrigW);
     fftW.setFixedArgs(1, bufTrigW);
-    fftH.setFixedArgs(1, bufTrigH);
     
     carryA.setFixedArgs(3, bufI);
     carryM.setFixedArgs(3, bufI);
@@ -303,7 +300,7 @@ public:
   
 protected:
   void logTimeKernels() {
-    ::logTimeKernels({&fftP, &fftW, &fftH, &carryA, &carryM, &carryB, &transposeW, &transposeH, &tailFused});
+    ::logTimeKernels({&fftP, &fftW, &carryA, &carryM, &carryB, &transposeW, &transposeH, &tailFused});
   }
   
   void commit() {
@@ -372,12 +369,6 @@ protected:
     fftP(io, buf1);
     transposeW(buf1, buf2);
     mulFused(buf2, buf3);
-    /*
-    directFFT(in, buf1, buf3);
-    directFFT(io, buf1, buf2);
-    multiply(buf2, buf3); // input: buf2, buf3; output: buf2.
-    fftH(buf2);
-    */
     transposeH(buf2, buf1);
     exitKerns(buf1, io, doMul3);
   };
