@@ -261,7 +261,7 @@ class OpenGpu : public LowGpu<Buffer> {
 public:
   static unique_ptr<Gpu> make(u32 E, Args &args) {
     int Mi = 1024 * 1024;
-    int autoSize = (E < 153'100'000) ? (E < 77'500'000) ? 4*Mi : 8*Mi : 16*Mi;    
+    int autoSize = (E < 153'000'000) ? (E < 77'500'000) ? 4*Mi : 8*Mi : 16*Mi;    
     int fftSize = args.fftSize ? args.fftSize : autoSize;
     (void) fftSize;
     if (args.fftSize && (args.fftSize < 10)) {

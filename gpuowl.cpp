@@ -165,7 +165,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     }
   }  
 
-  const int checkStep = blockSize == 200 ? 50000 : (blockSize * blockSize);
+  const int checkStep = blockSize * blockSize;
   
   const int kEnd = E; // Residue type-1, see http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k % blockSize == 0 && k < kEnd);

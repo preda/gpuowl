@@ -26,7 +26,7 @@ struct Args {
     timeKernels(false),
     carry(CARRY_LONG),
     // tail(TAIL_FUSED),
-    blockSize(200),
+    blockSize(400),
     fftSize(0)
   { }
   
@@ -116,12 +116,12 @@ Command line options:
     else if (!strcmp(arg, "-block")) {
       if (i < argc - 1) {
         std::string s = argv[++i];
-        if (s == "10" || s == "20" || s == "200") {
+        if (s == "100" || s == "200" || s == "400") {
           blockSize = atoi(s.c_str());
           continue;
         }
       }
-      log("-block expects 10 | 20 | 200\n");
+      log("-block expects 100 | 200 | 400\n");
       return false;      
     } 
 

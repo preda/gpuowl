@@ -302,7 +302,6 @@ void transposeLDS(local T *lds, T2 *u) {
     if (b) { bar(); }
     for (int i = 0; i < 16; ++i) {
       uint l = i * 4 + me / 64;
-      // uint c = me % 64;
       lds[l * 64 + (me + l) % 64 ] = ((T *)(u + i))[b];
     }
     bar();
@@ -405,7 +404,8 @@ KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint startDword) {
 
 uint dwordToBitpos(uint dword)  { return wordToBitpos(EXP, ND, dword); }
 uint bitposToDword(uint bitpos) { return bitposToWord(EXP, ND, bitpos); }
-Word2 readDword(CP(Word2) data, uint k) { return data[k / BIG_HEIGHT + WIDTH * (k % BIG_HEIGHT)]; }
+uint transPos(uint k, uint width, uint height) { return k / height + k % height * width; }
+Word2 readDword(CP(Word2) data, uint k) { return data[transPos(k, WIDTH, BIG_HEIGHT)]; }
 
 ulong getWordBits(Word2 word, uint k, uint *outNBits, int *carryInOut) {
   uint n1 = bitlen(2 * k + 0);
@@ -442,7 +442,6 @@ u32 modExp(u32 x) { return (x >= EXP) ? x - EXP : x; }
 long shifted36(int x, u32 offset, u32 wordPos) {
   u32 bitPos = EXP - offset + wordToBitpos(EXP, NWORDS, wordPos);
   bitPos = modExp(bitPos);
-  // (bitPos >= EXP) ? bitPos - EXP : bitPos;
 
   int base = 0;
 
@@ -470,7 +469,6 @@ KERNEL(G_W) res36(CP(Word2) in, u32 offset, P(long) out, int outPos) {
   for (int i = 0; i < CARRY_LEN; ++i) {
     Word2 w = in[i * WIDTH + me];
     uint k = kAt(gx, gy, i);
-    // CARRY_LEN * gy + BIG_HEIGHT * G_W * gx + BIG_HEIGHT * me + i;
     res36 += shifted36(w.x, offset, 2 * k + 0);
     res36 += shifted36(w.y, offset, 2 * k + 1);
   }
@@ -496,7 +494,6 @@ KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {
   in1 += G_W * gx + WIDTH * CARRY_LEN * gy;
 
   uint k1  = kAt(gx, gy, 0);
-  // CARRY_LEN * gy + BIG_HEIGHT * G_W * gx + BIG_HEIGHT * me;
   uint bitpos1 = dwordToBitpos(k1);  
   uint bitpos2 = modExp(bitpos1 + offset);
   uint k2  = bitposToDword(bitpos2);
@@ -699,7 +696,6 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
 
   uint HB = BIG_HEIGHT / CARRY_LEN;
 
-  // TODO: try & vs. %.
   uint prev = (gy + HB * G_W * gx + HB * me + (HB * WIDTH - 1)) % (HB * WIDTH);
   uint prevLine = prev % HB;
   uint prevCol  = prev / HB;
@@ -707,7 +703,6 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
   
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint k = kAt(gx, gy, i);
-    // CARRY_LEN * gy + HEIGHT * G_W * gx + HEIGHT * me + i;
     uint p = i * WIDTH + me;
     io[p] = carryWord(io[p], &carry, k);
     if (!carry) { return; }
@@ -829,19 +824,12 @@ void reverseLine(uint WG, local T *lds, T2 *u) {
     bar();
     for (int i = 0; i < 8; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
   }
-
-#if 0
-  // Equivalent alternative using reverse():
-  reverse(WG, (local T2 *)lds, u, false);
-  reverse(WG, (local T2 *)lds, u + 4, false);
-  for (int i = 0; i < 4; ++i) { SWAP(u[i], u[i + 4]); }
-#endif
 }
 
-void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
+void pairSq(uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint me = get_local_id(0);
 
-  T2 step = slowTrig(1,  SMALL_HEIGHT / WG);
+  T2 step = slowTrig(1, 8);
   
   for (int i = 0; i < N; ++i, base = mul(base, step)) {
     T2 a = u[i];
@@ -865,10 +853,10 @@ void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
   }
 }
 
-void pairMul(uint WG, uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
+void pairMul(uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
   uint me = get_local_id(0);
 
-  T2 step = slowTrig(1, SMALL_HEIGHT / WG);
+  T2 step = slowTrig(1, 8);
   
   for (int i = 0; i < N; ++i, base = mul(base, step)) {
     T2 a = u[i];
@@ -897,7 +885,6 @@ void pairMul(uint WG, uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special)
   }
 }
 
-// "fused tail" is equivalent to the sequence: fftH, square, fftH.
 KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
   local T lds[SMALL_HEIGHT];
   T2 u[NH], v[NH];
@@ -908,13 +895,13 @@ KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
 
   uint line1 = get_group_id(0);
   uint line2 = line1 ? H - line1 : (H / 2);
-  uint g1 = line1 / WIDTH + line1 % WIDTH * RATIO;
-  uint g2 = line2 / WIDTH + line2 % WIDTH * RATIO;
+  uint g1 = transPos(line1, RATIO, WIDTH);
+  uint g2 = transPos(line2, RATIO, WIDTH);
   
   read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
   read(G_H, NH, p, in, g1 * SMALL_HEIGHT);
-  read(G_H, NH, v, io, g2 * W);
-  read(G_H, NH, q, in, g2 * W);
+  read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
+  read(G_H, NH, q, in, g2 * SMALL_HEIGHT);
 
   fft2K(lds, u, smallTrig);
   bar();
@@ -928,34 +915,33 @@ KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
   if (line1 == 0) {
     reverse(G_H, (local T2 *)lds, u + 4, true);
     reverse(G_H, (local T2 *)lds, p + 4, true);
-    pairMul(G_H, NH/2, u, u + 4, p, p + 4, slowTrig(me, W), true);
+    pairMul(NH/2, u, u + 4, p, p + 4, slowTrig(me, W), true);
     reverse(G_H, (local T2 *)lds, u + 4, true);
     reverse(G_H, (local T2 *)lds, p + 4, true);
 
     reverse(G_H, (local T2 *)lds, v + 4, false);
     reverse(G_H, (local T2 *)lds, q + 4, false);
-    pairMul(G_H, NH/2, v, v + 4, q, q + 4, slowTrig(1 + 2 * me, 2 * W), false);
+    pairMul(NH/2, v, v + 4, q, q + 4, slowTrig(1 + 2 * me, 2 * W), false);
     reverse(G_H, (local T2 *)lds, v + 4, false);
     reverse(G_H, (local T2 *)lds, q + 4, false);
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-    pairMul(G_H, NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
+    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }
 
   bar();
   fft2K(lds, v, smallTrig);
-  write(G_H, NH, v, io, g2 * W);
+  write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
   
   bar();
   fft2K(lds, u, smallTrig);
-  write(G_H, NH, u, io, g1 * W);
+  write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
 
-// "fused tail" is equivalent to the sequence: fftH, square, fftH.
-KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig/*, Trig bigTrig*/) {
+KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   local T lds[SMALL_HEIGHT];
   T2 u[NH], v[NH];
 
@@ -964,8 +950,8 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig/*, Trig bigTrig*/) {
 
   uint line1 = get_group_id(0);
   uint line2 = line1 ? H - line1 : (H / 2);
-  uint g1 = line1 / WIDTH + line1 % WIDTH * RATIO;
-  uint g2 = line2 / WIDTH + line2 % WIDTH * RATIO;
+  uint g1 = transPos(line1, RATIO, WIDTH);
+  uint g2 = transPos(line2, RATIO, WIDTH);
   
   read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
   read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
@@ -977,26 +963,22 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig/*, Trig bigTrig*/) {
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, (local T2 *)lds, u + 4, true);
-    pairSq(G_H, NH/2, u, u + 4, slowTrig(me, W), true);
+    pairSq(NH/2, u, u + 4, slowTrig(me, W), true);
     reverse(G_H, (local T2 *)lds, u + 4, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, (local T2 *)lds, v + 4, false);
-    pairSq(G_H, NH/2, v, v + 4, slowTrig(1 + 2 * me, 2 * W), false);
+    pairSq(NH/2, v, v + 4, slowTrig(1 + 2 * me, 2 * W), false);
     reverse(G_H, (local T2 *)lds, v + 4, false);
   } else {    
     reverseLine(G_H, lds, v);
-    // T2 a = slowTrig(line1, ND);
-    // T2 b = slowTrig(me, W);
-    // 
-    // bigTrig[G_H * line1 + me]
-    pairSq(G_H, NH, u, v, slowTrig(line1 + me * H, ND), false);
+    pairSq(NH, u, v, slowTrig(line1 + me * H, ND), false);
     reverseLine(G_H, lds, v);
   }
 
   bar(); fft2K(lds, v, smallTrig);
-  write(G_H, NH, v, io, g2 * W);
+  write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
   
   bar(); fft2K(lds, u, smallTrig);
-  write(G_H, NH, u, io, g1 * W);
+  write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
