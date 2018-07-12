@@ -83,7 +83,6 @@ public:
 
     // rebuild bufData based on bufCheck.
     modSqLoop(bufCheck, bufData, 1, false);
-    // log("A %016llx %016llx\n", dataResidue(), checkResidue());
     
     for (int i = 0; i < blockSize - 2; ++i) {
       modMul(bufCheck, bufData, false);
@@ -105,8 +104,6 @@ public:
     // log("check1 %016llx\n", bufResidue(bufCheck, 0));
     modSqLoop(bufCheck, bufAux, blockSize, true);
     u32 offsetAux = pow2(E, blockSize) * u64(offsetCheck) % E;
-
-    // log("aux1 %016llx\n", bufResidue(bufAux, 0));
     
     updateCheck();
     return equalNotZero(bufCheck, offsetCheck, bufAux, offsetAux);

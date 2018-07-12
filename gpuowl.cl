@@ -30,15 +30,11 @@ typedef ulong u64;
 
 #include "shared.h"
 
-// Number of words
 #define ND (WIDTH * BIG_HEIGHT)
 #define NWORDS (ND * 2u)
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
-
-// #define SMALL_HEIGHT HEIGHT
-// #define BIG_HEIGHT HEIGHT
-// #define NS HEIGHT / SH
+#define RATIO (BIG_HEIGHT / SMALL_HEIGHT)
 
 // Used in bitlen() and weighting.
 #define STEP (NWORDS - (EXP % NWORDS))
@@ -325,7 +321,7 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out) {
   uint g = get_group_id(0);
   uint gy = g % GPH;
   uint gx = g / GPH;
-  gx = (gy + gx) & (GPW - 1);
+  gx = (gy + gx) % GPW;
 
   in   += gy * 64 * W + gx * 64;
   out  += gy * 64     + gx * 64 * H;
@@ -635,6 +631,38 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   write(G_W, NW, u, out, 0);
 }
 
+KERNEL(256) fftMiddleIn(P(T2) io) {
+  T2 u[5];
+  uint N = SMALL_HEIGHT / 256;
+  uint g = get_group_id(0);
+  uint gx = g % N;
+  uint gy = g / N;
+  uint me = get_local_id(0);
+  io += BIG_HEIGHT * gy + 256 * gx;
+  read(SMALL_HEIGHT, 5, u, io, 0);
+  fft5(u);
+  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);
+  T2 t = step;
+  for (int i = 1; i < 5; ++i, t = mul(t, step)) { u[i] = mul(u[i], t); }
+  write(SMALL_HEIGHT, 5, u, io, 0);
+}
+
+KERNEL(256) fftMiddleOut(P(T2) io) {
+  T2 u[5];
+  uint N = SMALL_HEIGHT / 256;
+  uint g = get_group_id(0);
+  uint gx = g % N;
+  uint gy = g / N;
+  uint me = get_local_id(0);
+  io += BIG_HEIGHT * gy + 256 * gx;
+  read(SMALL_HEIGHT, 5, u, io, 0);
+  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);
+  T2 t = step;
+  for (int i = 1; i < 5; ++i, t = mul(t, step)) { u[i] = mul(u[i], t); }
+  fft5(u);
+  write(SMALL_HEIGHT, 5, u, io, 0);
+}
+
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
 void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
@@ -813,7 +841,7 @@ void reverseLine(uint WG, local T *lds, T2 *u) {
 void pairSq(uint WG, uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint me = get_local_id(0);
 
-  T2 step = slowTrig(1, SMALL_HEIGHT / WG);
+  T2 step = slowTrig(1,  SMALL_HEIGHT / WG);
   
   for (int i = 0; i < N; ++i, base = mul(base, step)) {
     T2 a = u[i];
@@ -857,7 +885,7 @@ void pairMul(uint WG, uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special)
       X2(a, b);
       X2(c, d);
       d = mul(d, conjugate(t));
-      X2(c, d);      
+      X2(c, d);
       a = mul(a, c);
       b = mul(b, d);
       X2(a, b);
@@ -872,118 +900,103 @@ void pairMul(uint WG, uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special)
 // "fused tail" is equivalent to the sequence: fftH, square, fftH.
 KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
   local T lds[SMALL_HEIGHT];
-  T2 u[NH], v[NH], p[NH], q[NH];
+  T2 u[NH], v[NH];
+  T2 p[NH], q[NH];
 
   uint W = SMALL_HEIGHT;
   uint H = ND / W;
 
-  uint g = get_group_id(0);
-  uint me = get_local_id(0);
-  uint line2 = g ? H - g : (H / 2);
-  bool isEvenLines = (H % 2 == 0);
+  uint line1 = get_group_id(0);
+  uint line2 = line1 ? H - line1 : (H / 2);
+  uint g1 = line1 / WIDTH + line1 % WIDTH * RATIO;
+  uint g2 = line2 / WIDTH + line2 % WIDTH * RATIO;
   
-  read(G_H, NH, u, io, g * W);
-  read(G_H, NH, p, in, g * W);
-  if (g != 0 || isEvenLines) {
-    read(G_H, NH, v, io, line2 * W);
-    read(G_H, NH, q, in, line2 * W);
-  }
+  read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
+  read(G_H, NH, p, in, g1 * SMALL_HEIGHT);
+  read(G_H, NH, v, io, g2 * W);
+  read(G_H, NH, q, in, g2 * W);
+
   fft2K(lds, u, smallTrig);
   bar();
   fft2K(lds, p, smallTrig);
+  bar();
+  fft2K(lds, v, smallTrig);
+  bar();
+  fft2K(lds, q, smallTrig);
 
-  // If the number of lines H is even, then group 0 can do two lines (0 and H/2).
-  if (g != 0 || isEvenLines) {
-    bar();
-    fft2K(lds, v, smallTrig);
-    bar();
-    fft2K(lds, q, smallTrig);
-  }
-
-  if (g == 0) {
+  uint me = get_local_id(0);
+  if (line1 == 0) {
     reverse(G_H, (local T2 *)lds, u + 4, true);
     reverse(G_H, (local T2 *)lds, p + 4, true);
     pairMul(G_H, NH/2, u, u + 4, p, p + 4, slowTrig(me, W), true);
     reverse(G_H, (local T2 *)lds, u + 4, true);
     reverse(G_H, (local T2 *)lds, p + 4, true);
 
-    if (isEvenLines) {
-      reverse(G_H, (local T2 *)lds, v + 4, false);
-      reverse(G_H, (local T2 *)lds, q + 4, false);
-      pairMul(G_H, NH/2, v, v + 4, q, q + 4, slowTrig(1 + 2 * me, 2 * W), false);
-      reverse(G_H, (local T2 *)lds, v + 4, false);
-      reverse(G_H, (local T2 *)lds, q + 4, false);
-    }
+    reverse(G_H, (local T2 *)lds, v + 4, false);
+    reverse(G_H, (local T2 *)lds, q + 4, false);
+    pairMul(G_H, NH/2, v, v + 4, q, q + 4, slowTrig(1 + 2 * me, 2 * W), false);
+    reverse(G_H, (local T2 *)lds, v + 4, false);
+    reverse(G_H, (local T2 *)lds, q + 4, false);
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-    pairMul(G_H, NH, u, v, p, q, slowTrig(g + me * H, W * H), false);
+    pairMul(G_H, NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }
 
-  if (g != 0 || isEvenLines) {
-    bar();
-    fft2K(lds, v, smallTrig);
-    write(G_H, NH, v, io, line2 * W);
-  }
+  bar();
+  fft2K(lds, v, smallTrig);
+  write(G_H, NH, v, io, g2 * W);
   
   bar();
   fft2K(lds, u, smallTrig);
-  write(G_H, NH, u, io, g * W);
+  write(G_H, NH, u, io, g1 * W);
 }
 
 // "fused tail" is equivalent to the sequence: fftH, square, fftH.
-KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
+KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig/*, Trig bigTrig*/) {
   local T lds[SMALL_HEIGHT];
-  T2 u[NH];
-  T2 v[NH];
+  T2 u[NH], v[NH];
 
   uint W = SMALL_HEIGHT;
   uint H = ND / W;
 
-  uint g = get_group_id(0);
-  uint me = get_local_id(0);
-  uint line2 = g ? H - g : (H / 2);
-  bool isEvenLines = (H % 2 == 0);
+  uint line1 = get_group_id(0);
+  uint line2 = line1 ? H - line1 : (H / 2);
+  uint g1 = line1 / WIDTH + line1 % WIDTH * RATIO;
+  uint g2 = line2 / WIDTH + line2 % WIDTH * RATIO;
   
-  read(G_H, NH, u, io, g * W);
-  if (g != 0 || isEvenLines) {
-    read(G_H, NH, v, io, line2 * W);
-  }
+  read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
+  read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
   fft2K(lds, u, smallTrig);
+  bar();
+  fft2K(lds, v, smallTrig);
 
-  // If the number of lines H is even, then group 0 can do two lines (0 and H/2).
-  if (g != 0 || isEvenLines) {
-    bar();
-    fft2K(lds, v, smallTrig);
-  }
-
-  if (g == 0) {
+  uint me = get_local_id(0);
+  if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, (local T2 *)lds, u + 4, true);
     pairSq(G_H, NH/2, u, u + 4, slowTrig(me, W), true);
     reverse(G_H, (local T2 *)lds, u + 4, true);
 
-    if (isEvenLines) {
-      // Line H/2 also pairs with itself (but without offset).
-      reverse(G_H, (local T2 *)lds, v + 4, false);
-      pairSq(G_H, NH/2, v, v + 4, slowTrig(1 + 2 * me, 2 * W), false);
-      reverse(G_H, (local T2 *)lds, v + 4, false);
-    }
+    // Line H/2 also pairs with itself (but without offset).
+    reverse(G_H, (local T2 *)lds, v + 4, false);
+    pairSq(G_H, NH/2, v, v + 4, slowTrig(1 + 2 * me, 2 * W), false);
+    reverse(G_H, (local T2 *)lds, v + 4, false);
   } else {    
     reverseLine(G_H, lds, v);
-    pairSq(G_H, NH, u, v, slowTrig(g + me * H, W * H), false);
+    // T2 a = slowTrig(line1, ND);
+    // T2 b = slowTrig(me, W);
+    // 
+    // bigTrig[G_H * line1 + me]
+    pairSq(G_H, NH, u, v, slowTrig(line1 + me * H, ND), false);
     reverseLine(G_H, lds, v);
   }
 
-  if (g != 0 || isEvenLines) {
-    bar();
-    fft2K(lds, v, smallTrig);
-    write(G_H, NH, v, io, line2 * W);
-  }
+  bar(); fft2K(lds, v, smallTrig);
+  write(G_H, NH, v, io, g2 * W);
   
-  bar();
-  fft2K(lds, u, smallTrig);
-  write(G_H, NH, u, io, g * W);
+  bar(); fft2K(lds, u, smallTrig);
+  write(G_H, NH, u, io, g1 * W);
 }

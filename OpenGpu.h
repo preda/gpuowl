@@ -145,7 +145,6 @@ cl_device_id getDevice(const Args &args) {
 }
 
 class OpenGpu : public LowGpu<Buffer> {
-  int W, H;
   int hN, nW, nH, bufSize;
   bool useLongCarry;
   
@@ -154,6 +153,8 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryFused;
   Kernel fftP;
   Kernel fftW;
+  Kernel fftMiddleIn;
+  Kernel fftMiddleOut;
   
   Kernel carryA;
   Kernel carryM;
@@ -179,38 +180,42 @@ class OpenGpu : public LowGpu<Buffer> {
 
   int offsetGoodData, offsetGoodCheck;
 
-  OpenGpu(u32 E, u32 W, u32 H, cl_program program, cl_device_id device, cl_context context,
+  OpenGpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
+          cl_program program, cl_device_id device, cl_context context,
           bool timeKernels, bool useLongCarry) :
-    LowGpu(E, W * H * 2),
-    hN(N / 2), nW(8), nH(H / 256),
+    LowGpu(E, W * BIG_H * 2),
+    hN(N / 2),
+    nW(nW),
+    nH(nH),
     bufSize(N * sizeof(double)),
     useLongCarry(useLongCarry),
     queue(makeQueue(device, context)),    
 
 #define LOAD(name, workGroups) name(program, queue.get(), device, workGroups, #name, timeKernels)
-    LOAD(carryFused, H + 1),
-    LOAD(fftP, H),
-    LOAD(fftW, H),
-    LOAD(carryA,  nW * (H/16)),
-    LOAD(carryM,  nW * (H/16)),
-    LOAD(shift,   nW * (H/16)),
-    LOAD(carryB,  nW * (H/16)),
-    LOAD(res36,   nW * (H/16)),
-    LOAD(compare, nW * (H/16)),
-    LOAD(transposeW,   (W/64) * (H/64)),
-    LOAD(transposeH,   (W/64) * (H/64)),
-    LOAD(transposeIn,  (W/64) * (H/64)),
-    LOAD(transposeOut, (W/64) * (H/64)),
-    LOAD(tailFused, (W + 1) / 2),
-    LOAD(mulFused,  (W + 1) / 2),
+    LOAD(carryFused, BIG_H + 1),
+    LOAD(fftP, BIG_H),
+    LOAD(fftW, BIG_H),
+    LOAD(fftMiddleIn, hN / (256 * 5)),
+    LOAD(fftMiddleOut, hN / (256 * 5)),
+    LOAD(carryA,  nW * (BIG_H/16)),
+    LOAD(carryM,  nW * (BIG_H/16)),
+    LOAD(shift,   nW * (BIG_H/16)),
+    LOAD(carryB,  nW * (BIG_H/16)),
+    LOAD(res36,   nW * (BIG_H/16)),
+    LOAD(compare, nW * (BIG_H/16)),
+    LOAD(transposeW,   (W/64) * (BIG_H/64)),
+    LOAD(transposeH,   (W/64) * (BIG_H/64)),
+    LOAD(transposeIn,  (W/64) * (BIG_H/64)),
+    LOAD(transposeOut, (W/64) * (BIG_H/64)),
+    LOAD(tailFused, (hN / SMALL_H) / 2),
+    LOAD(mulFused,  (hN / SMALL_H) / 2),
     LOAD(readResidue, 1),
 #undef LOAD
     
     bufGoodData( makeBuf(context, BUF_RW, N * sizeof(int))),
     bufGoodCheck(makeBuf(context, BUF_RW, N * sizeof(int))),    
     bufTrigW(genSmallTrig(context, W, nW)),
-    bufTrigH(genSmallTrig(context, H, nH)),
-    
+    bufTrigH(genSmallTrig(context, SMALL_H, nH)),
     buf1{makeBuf(    context, BUF_RW, bufSize)},
     buf2{makeBuf(    context, BUF_RW, bufSize)},
     buf3{makeBuf(    context, BUF_RW, bufSize)},
@@ -224,7 +229,7 @@ class OpenGpu : public LowGpu<Buffer> {
     bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufAux.reset(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
         
-    setupWeights<double>(context, bufA, bufI, W, H, E);
+    setupWeights<double>(context, bufA, bufI, W, BIG_H, E);
 
     carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
     
@@ -258,30 +263,32 @@ public:
     int Mi = 1024 * 1024;
     int autoSize = (E < 153'100'000) ? (E < 77'500'000) ? 4*Mi : 8*Mi : 16*Mi;    
     int fftSize = args.fftSize ? args.fftSize : autoSize;
+    (void) fftSize;
     if (args.fftSize && (args.fftSize < 10)) {
       fftSize = (args.fftSize < 0) ? (autoSize / 2) : (autoSize * 2);
     }
 
-    int H = 2048;
-    int W = fftSize / (2 * H);
+    int SMALL_HEIGHT = 2048;
+    int BIG_HEIGHT   = SMALL_HEIGHT * 5;
+    int W = 1024; // fftSize / (2 * H);
     assert(W == 1024 || W == 2048 || W == 4096);
-    int N = 2 * W * H;
+    int N = 2 * W * BIG_HEIGHT;
 
     string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
     int nW = (W == 1024) ? 4 : 8;
-    int nH = H / 256;
+    int nH = SMALL_HEIGHT / 256;
   
     vector<string> defines {valueDefine("EXP", E),
         valueDefine("WIDTH", W),
         valueDefine("NW", nW),
-        valueDefine("BIG_HEIGHT", H),
-        valueDefine("SMALL_HEIGHT", H),
+        valueDefine("BIG_HEIGHT", BIG_HEIGHT),
+        valueDefine("SMALL_HEIGHT", SMALL_HEIGHT),
         valueDefine("NH", nH),
         };
 
     float bitsPerWord = E / float(N);
-    bool useLongCarry = (args.carry == Args::CARRY_LONG) || (bitsPerWord < 15);
+    bool useLongCarry = (args.carry == Args::CARRY_LONG) || (bitsPerWord < 14);
   
     log("Note: using %s carry kernels\n", useLongCarry ? "long" : "short");
 
@@ -300,7 +307,8 @@ public:
     Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs, defines, ""));
     if (!program) { throw "OpenCL compilation"; }
 
-    return unique_ptr<Gpu>(new OpenGpu(E, W, H, program.get(), device, context.get(), timeKernels, useLongCarry));
+    return unique_ptr<Gpu>(new OpenGpu(E, W, BIG_HEIGHT, SMALL_HEIGHT, nW, nH,
+                                       program.get(), device, context.get(), timeKernels, useLongCarry));
   }
 
   void finish() { queue.finish(); }
@@ -348,7 +356,9 @@ protected:
     
     fftP(in, buf1);
     transposeW(buf1, buf2);
+    fftMiddleIn(buf2);
     tailFused(buf2);
+    fftMiddleOut(buf2);
     transposeH(buf2, buf1);
 
     for (int i = 0; i < nIters - 1; ++i) {
@@ -362,7 +372,9 @@ protected:
       }
         
       transposeW(buf1, buf2);
+      fftMiddleIn(buf2);
       tailFused(buf2);
+      fftMiddleOut(buf2);
       transposeH(buf2, buf1);
     }
     
@@ -373,9 +385,14 @@ protected:
   void modMul(Buffer &in, Buffer &io, bool doMul3) {
     fftP(in, buf1);
     transposeW(buf1, buf3);
+    fftMiddleIn(buf3);
+    
     fftP(io, buf1);
     transposeW(buf1, buf2);
+    fftMiddleIn(buf2);
+    
     mulFused(buf2, buf3);
+    fftMiddleOut(buf2);
     transposeH(buf2, buf1);
     exitKerns(buf1, io, doMul3);
   };
