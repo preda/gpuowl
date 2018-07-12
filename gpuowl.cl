@@ -247,7 +247,7 @@ void fft4K(local T *lds, T2 *u, const G T2 *trig) {
 void fft2K(local T *lds, T2 *u, const G T2 *trig) {
   for (int s = 5; s >= 2; s -= 3) {
     fft8(u);
-    if (s != 5) { bar(); }
+    bar();
     shufl(256,   lds, u, 8, 1 << s);
     tabMul(256, trig, u, 8, 1 << s);
   }
@@ -904,11 +904,8 @@ KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
   read(G_H, NH, q, in, g2 * SMALL_HEIGHT);
 
   fft2K(lds, u, smallTrig);
-  bar();
   fft2K(lds, p, smallTrig);
-  bar();
   fft2K(lds, v, smallTrig);
-  bar();
   fft2K(lds, q, smallTrig);
 
   uint me = get_local_id(0);
@@ -932,11 +929,9 @@ KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
     reverseLine(G_H, lds, q);
   }
 
-  bar();
   fft2K(lds, v, smallTrig);
   write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
   
-  bar();
   fft2K(lds, u, smallTrig);
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
@@ -956,7 +951,6 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
   read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
   fft2K(lds, u, smallTrig);
-  bar();
   fft2K(lds, v, smallTrig);
 
   uint me = get_local_id(0);
@@ -976,9 +970,9 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
     reverseLine(G_H, lds, v);
   }
 
-  bar(); fft2K(lds, v, smallTrig);
+  fft2K(lds, v, smallTrig);
   write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
   
-  bar(); fft2K(lds, u, smallTrig);
+  fft2K(lds, u, smallTrig);
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
