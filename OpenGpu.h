@@ -130,16 +130,16 @@ string valueDefine(const string &key, u32 value) { return key + "=" + std::to_st
 cl_device_id getDevice(const Args &args) {
   cl_device_id device = nullptr;
   if (args.device >= 0) {
-    cl_device_id devices[16];
-    int n = getDeviceIDs(false, 16, devices);
-    assert(n > args.device);
+    auto devices = getDeviceIDs(false);    
+    assert(int(devices.size()) > args.device);
     device = devices[args.device];
   } else {
-    int n = getDeviceIDs(true, 1, &device);
-    if (n <= 0) {
+    auto devices = getDeviceIDs(true);
+    if (devices.empty()) {
       log("No GPU device found. See -h for how to select a specific device.\n");
       return 0;
     }
+    device = devices[0];
   }
   return device;
 }
@@ -314,7 +314,7 @@ public:
 
     float bitsPerWord = E / float(N);
     string strMiddle = (MIDDLE == 1) ? "" : (string(", Middle ") + std::to_string(MIDDLE));
-    log("FFT %2dM: Width %d (%dx%d), Height %d (%dx%d)%s; %.2f bits/word\n",
+    log("FFT %dM: Width %d (%dx%d), Height %d (%dx%d)%s; %.2f bits/word\n",
         N >> 20, WIDTH, WIDTH / nW, nW, SMALL_HEIGHT, SMALL_HEIGHT / nH, nH, strMiddle.c_str(), bitsPerWord);
 
     if (bitsPerWord > 20) {

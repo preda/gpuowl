@@ -3,10 +3,12 @@
 
 #pragma once
 
-// #include "clwrap.h"
 #include "common.h"
 #include <string>
+#include <vector>
 #include <cstring>
+
+vector<string> getDevices();
 
 struct Args {
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
@@ -42,16 +44,12 @@ Command line options:
 -fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
 -block 100|200|400 : select PRP-check block size. Smaller block is slower but detects errors earlier.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
--device <N>        : select specific device.
+-device <N>        : select a specific device:
 )""");
-      /*
-      cl_device_id devices[16];
-      int ndev = getDeviceIDs(false, 16, devices);
-      for (int i = 0; i < ndev; ++i) {
-        std::string info = getLongInfo(devices[i]);
-        log("    %d : %s\n", i, info.c_str());
-      }
-      */
+      vector<string> devices = getDevices();
+      for (int i = 0; i < int(devices.size()); ++i) {
+        log(" %d : %s\n", i, devices[i].c_str());
+      }      
       return false;
     } else if (!strcmp(arg, "-fft")) {
       if (i < argc - 1) {

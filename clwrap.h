@@ -50,18 +50,18 @@ bool check(int err, const char *mes = nullptr) {
 #define CHECK(what) assert(check(what));
 #define CHECK2(what, mes) assert(check(what, mes));
 
-int getDeviceIDs(bool onlyGPU, size_t size, cl_device_id *out) {
-  cl_platform_id platforms[8];
-  unsigned nPlatforms;
-  CHECK(clGetPlatformIDs(8, platforms, &nPlatforms));
-  
-  unsigned n = 0;
-  for (int i = 0; i < (int) nPlatforms && size > n; ++i) {
-    unsigned delta = 0;
-    CHECK(clGetDeviceIDs(platforms[i], onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL, size - n, out + n, &delta));
-    n += delta;
+vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
+  cl_platform_id platforms[16];
+  int nPlatforms = 0;
+  CHECK(clGetPlatformIDs(16, platforms, (unsigned *) &nPlatforms));
+  vector<cl_device_id> ret;
+  cl_device_id devices[64];
+  for (int i = 0; i < nPlatforms; ++i) {
+    unsigned n = 0;
+    CHECK(clGetDeviceIDs(platforms[i], onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL, 64, devices, &n));
+    for (unsigned k = 0; k < n; ++k) { ret.push_back(devices[k]); }
   }
-  return n;
+  return ret;
 }
 
 int getNumberOfDevices() {
