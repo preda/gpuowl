@@ -299,22 +299,10 @@ class OpenGpu : public LowGpu<Buffer> {
   
 public:
   static unique_ptr<Gpu> make(u32 E, Args &args) {      
-    FftConfig config = getFftConfig(E, args.fftSize);
-    
-
-    /*
-    int autoSize = (E < 153'000'000) ? (E < 77'500'000) ? 4*Mi : 8*Mi : 16*Mi;    
-    int fftSize = args.fftSize ? args.fftSize : autoSize;
-    (void) fftSize;
-    if (args.fftSize && (args.fftSize < 10)) {
-      fftSize = (args.fftSize < 0) ? (autoSize / 2) : (autoSize * 2);
-    }
-    */
-
+    FftConfig config = getFftConfig(E, args.fftSize);    
     int WIDTH        = config.width;
     int SMALL_HEIGHT = config.height;
     int MIDDLE       = config.middle;
-    // int BIG_HEIGHT   = config.height * config.middle;
     int N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
 
     string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
@@ -323,8 +311,13 @@ public:
     int nH = 8;
 
     float bitsPerWord = E / float(N);
-    log("FFT %2dM: %d x %d x %d x 2 (Width: %dx%d, Height: %dx%d); %.3f bits/word\n",
+    log("FFT %2dM: %d x %d x %d x 2 (Width: %dx%d, Height: %dx%d); %.2f bits/word\n",
         N >> 20, WIDTH, SMALL_HEIGHT, MIDDLE, WIDTH / nW, nW, SMALL_HEIGHT / nH, nH, bitsPerWord);
+
+    if (bitsPerWord > 20) {
+      log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
+      throw "FFT size too small";
+    }
     
     bool useLongCarry = (bitsPerWord < 14.5f)
       || (args.carry == Args::CARRY_LONG)

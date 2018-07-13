@@ -229,6 +229,18 @@ void tabMul(uint WG, const G T2 *trig, T2 *u, uint n, uint f) {
   for (int i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
 }
 
+// 64x8
+void fft512(local T *lds, T2 *u, const G T2 *trig) {
+  for (int s = 3; s >= 0; s -= 3) {
+    fft8(u);
+    bar();
+    shufl( 64,  lds, u, 8, 1 << s);
+    tabMul(64, trig, u, 8, 1 << s);
+  }
+  fft8(u);
+}
+
+// 256x4
 void fft1K(local T *lds, T2 *u, const G T2 *trig) {
   for (int s = 6; s >= 0; s -= 2) {
     fft4(u);
@@ -240,7 +252,7 @@ void fft1K(local T *lds, T2 *u, const G T2 *trig) {
   fft4(u);
 }
 
-// asserts WG == 512
+// 512x8
 void fft4K(local T *lds, T2 *u, const G T2 *trig) {
   for (int s = 6; s >= 0; s -= 3) {
     fft8(u);
@@ -252,6 +264,7 @@ void fft4K(local T *lds, T2 *u, const G T2 *trig) {
   fft8(u);
 }
 
+// 256x8
 void fft2K(local T *lds, T2 *u, const G T2 *trig) {
   for (int s = 5; s >= 2; s -= 3) {
     fft8(u);
@@ -571,6 +584,31 @@ KERNEL(G_W) shift(P(Word2) io, P(Carry) carryOut) {
   carryOut[G_W * g + me] = carry;
 }
 
+void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
+#if   WIDTH == 1024
+  fft1K(lds, u, trig);
+#elif WIDTH == 2048
+  fft2K(lds, u, trig);
+#elif WIDTH == 4096
+#if G_W != 512
+#error expected group width 512.
+#endif
+  fft4K(lds, u, trig);
+#else
+#error unexpected WIDTH.  
+#endif  
+}
+
+void fft_HEIGHT(local T *lds, T2 *u, Trig trig) {
+#if SMALL_HEIGHT == 512
+  fft512(lds, u, trig);
+#elif SMALL_HEIGHT == 2048
+  fft2K(lds, u, trig);
+#else
+#error unexpected SMALL_HEIGHT.
+#endif
+}
+
 KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   local T lds[WIDTH];
   T2 u[NW];
@@ -579,23 +617,7 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   io += WIDTH * g;
 
   read(G_W, NW, u, io, 0);
-
-#if   WIDTH == 1024
-  fft1K(lds, u, smallTrig);
-#elif WIDTH == 2048
-  fft2K(lds, u, smallTrig);
-#elif WIDTH == 4096
-
-#if G_W != 512
-#error expected group width 512.
-#endif
-  
-  fft4K(lds, u, smallTrig);
-  
-#else
-#error unexpected WIDTH.  
-#endif
-  
+  fft_WIDTH(lds, u, smallTrig);  
   write(G_W, NW, u, io, 0);
 }
 
@@ -617,21 +639,7 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
     u[i] = weight(in[p], A[p]);
   }
 
-#if   WIDTH == 1024  
-  fft1K(lds, u, smallTrig);  
-#elif WIDTH == 2048  
-  fft2K(lds, u, smallTrig);  
-#elif WIDTH == 4096
-
-#if G_W != 512
-#error expected group width 512.
-#endif
-
-  fft4K(lds, u, smallTrig);
-  
-#else
-#error unexpected WIDTH.  
-#endif
+  fft_WIDTH(lds, u, smallTrig);
   
   write(G_W, NW, u, out, 0);
 }
@@ -738,15 +746,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
   
   read(G_W, NW, u, io, 0);
 
-#if   WIDTH == 4096
-  fft4K(lds, u, smallTrig);
-#elif WIDTH == 2048
-  fft2K(lds, u, smallTrig);
-#elif WIDTH == 1024
-  fft1K(lds, u, smallTrig);  
-#else
-#error unexpected WIDTH.
-#endif
+  fft_WIDTH(lds, u, smallTrig);
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
@@ -773,15 +773,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
     u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
   }
 
-#if   WIDTH == 4096
-  fft4K(lds, u, smallTrig);
-#elif WIDTH == 2048
-  fft2K(lds, u, smallTrig);
-#elif WIDTH == 1024
-  fft1K(lds, u, smallTrig);
-#else
-#error unexpected WIDTH.
-#endif
+  fft_WIDTH(lds, u, smallTrig);
 
   write(G_W, NW, u, io, 0);
 }
@@ -912,10 +904,10 @@ KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
   read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
   read(G_H, NH, q, in, g2 * SMALL_HEIGHT);
 
-  fft2K(lds, u, smallTrig);
-  fft2K(lds, p, smallTrig);
-  fft2K(lds, v, smallTrig);
-  fft2K(lds, q, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig);
+  fft_HEIGHT(lds, p, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig);
+  fft_HEIGHT(lds, q, smallTrig);
 
   uint me = get_local_id(0);
   if (line1 == 0) {
@@ -938,10 +930,10 @@ KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
     reverseLine(G_H, lds, q);
   }
 
-  fft2K(lds, v, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig);
   write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
   
-  fft2K(lds, u, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
 
@@ -959,8 +951,8 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   
   read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
   read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
-  fft2K(lds, u, smallTrig);
-  fft2K(lds, v, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig);
 
   uint me = get_local_id(0);
   if (line1 == 0) {
@@ -979,9 +971,9 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
     reverseLine(G_H, lds, v);
   }
 
-  fft2K(lds, v, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig);
   write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
   
-  fft2K(lds, u, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
