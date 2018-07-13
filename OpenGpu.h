@@ -186,6 +186,7 @@ FftConfig getFftConfig(u32 E, int argsFftSize) {
 class OpenGpu : public LowGpu<Buffer> {
   int hN, nW, nH, bufSize;
   bool useLongCarry;
+  bool useMiddle;
   
   Queue queue;
 
@@ -228,6 +229,7 @@ class OpenGpu : public LowGpu<Buffer> {
     nH(nH),
     bufSize(N * sizeof(double)),
     useLongCarry(useLongCarry),
+    useMiddle(BIG_H != SMALL_H),
     queue(makeQueue(device, context)),    
 
 #define LOAD(name, workGroups) name(program, queue.get(), device, workGroups, #name, timeKernels)
@@ -311,8 +313,9 @@ public:
     int nH = 8;
 
     float bitsPerWord = E / float(N);
-    log("FFT %2dM: %d x %d x %d x 2 (Width: %dx%d, Height: %dx%d); %.2f bits/word\n",
-        N >> 20, WIDTH, SMALL_HEIGHT, MIDDLE, WIDTH / nW, nW, SMALL_HEIGHT / nH, nH, bitsPerWord);
+    string strMiddle = (MIDDLE == 1) ? "" : (string(", Middle ") + std::to_string(MIDDLE));
+    log("FFT %2dM: Width %d (%dx%d), Height %d (%dx%d)%s; %.2f bits/word\n",
+        N >> 20, WIDTH, WIDTH / nW, nW, SMALL_HEIGHT, SMALL_HEIGHT / nH, nH, strMiddle.c_str(), bitsPerWord);
 
     if (bitsPerWord > 20) {
       log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
@@ -387,6 +390,16 @@ protected:
     queue.write(bufAux, words);
     transposeIn(bufAux, buf);
   }
+
+  void tW(Buffer &in, Buffer &out) {
+    transposeW(in, out);
+    if (useMiddle) { fftMiddleIn(out); }
+  }
+
+  void tH(Buffer &in, Buffer &out) {
+    if (useMiddle) { fftMiddleOut(in); }
+    transposeH(in, out);
+  }
   
   // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
   // Optional multiply-by-3 at the end.
@@ -394,11 +407,9 @@ protected:
     assert(nIters > 0);
     
     fftP(in, buf1);
-    transposeW(buf1, buf2);
-    fftMiddleIn(buf2);
+    tW(buf1, buf2);
     tailFused(buf2);
-    fftMiddleOut(buf2);
-    transposeH(buf2, buf1);
+    tH(buf2, buf1);
 
     for (int i = 0; i < nIters - 1; ++i) {
       if (useLongCarry) {
@@ -410,11 +421,9 @@ protected:
         carryFused(buf1, bufCarry, bufReady);
       }
         
-      transposeW(buf1, buf2);
-      fftMiddleIn(buf2);
+      tW(buf1, buf2);
       tailFused(buf2);
-      fftMiddleOut(buf2);
-      transposeH(buf2, buf1);
+      tH(buf2, buf1);
     }
     
     exitKerns(buf1, out, doMul3);
@@ -423,16 +432,14 @@ protected:
   // The modular multiplication io *= in.
   void modMul(Buffer &in, Buffer &io, bool doMul3) {
     fftP(in, buf1);
-    transposeW(buf1, buf3);
-    fftMiddleIn(buf3);
+    tW(buf1, buf3);
     
     fftP(io, buf1);
-    transposeW(buf1, buf2);
-    fftMiddleIn(buf2);
+    tW(buf1, buf2);
     
     mulFused(buf2, buf3);
-    fftMiddleOut(buf2);
-    transposeH(buf2, buf1);
+
+    tH(buf2, buf1);
     exitKerns(buf1, io, doMul3);
   };
 
