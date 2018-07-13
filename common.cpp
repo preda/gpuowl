@@ -1,5 +1,5 @@
 #include "common.h"
-
+#include <ctime>
 #include <cstdarg>
 
 vector<unique_ptr<FILE>> logFiles;
