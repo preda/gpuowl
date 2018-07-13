@@ -233,7 +233,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     }
 
     u64 res = gpu->dataResidue();
-    bool wouldSave = k < kEnd && ((k % 100000 == 0) || doStop);
+    bool wouldSave = k < kEnd; // && ((k % 100000 == 0) || doStop);
 
     // Read GPU state before "check" is updated in gpu->checkAndUpdate().
     std::vector<u32> compactCheck = wouldSave ? gpu->roundtripCheck() : vector<u32>();

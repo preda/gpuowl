@@ -144,6 +144,45 @@ cl_device_id getDevice(const Args &args) {
   return device;
 }
 
+struct FftConfig {
+  int fftSize;
+  u32 maxExp;
+  u32 width;
+  u32 height;
+  u32 middle;
+
+  FftConfig(u32 fftSizeM, u32 maxExpM, u32 widthK, u32 middle) :
+    fftSize(fftSizeM * 1024 * 1024),
+    maxExp(maxExpM * 1000 * 1000),
+    width(widthK * 1024),
+    height(fftSize / (width * middle * 2)),
+    middle(middle) {
+    // log("fft config %d\n", fftSize);
+  }
+};
+
+FftConfig getFftConfig(u32 E, int argsFftSize) {
+  vector<FftConfig> configs = {
+    { 4,  77, 1, 1}, // 2K
+    { 5,  96, 1, 5}, // 512
+    { 8, 153, 2, 1}, // 2K
+    {10, 190, 2, 5}, // 512
+    {16, 300, 4, 1}, // 2K
+    {20, 370, 1, 5}, // 2K
+  };
+
+  int i = 0;
+  int n = int(configs.size());
+  // log("A %d %d %d\n", n, argsFftSize, E);
+  if (argsFftSize < 10) { // fft delta or not specified.
+    while (i < n - 1 && configs[i].maxExp < E) { ++i; }      
+    i = max(0, min(i + argsFftSize, n - 1));
+  } else { // user-specified fft size.
+    while (i < n - 1 && argsFftSize > configs[i].fftSize) { ++i; }      
+  }
+  return configs[i];
+}
+
 class OpenGpu : public LowGpu<Buffer> {
   int hN, nW, nH, bufSize;
   bool useLongCarry;
@@ -259,38 +298,45 @@ class OpenGpu : public LowGpu<Buffer> {
   }
   
 public:
-  static unique_ptr<Gpu> make(u32 E, Args &args) {
-    int Mi = 1024 * 1024;
+  static unique_ptr<Gpu> make(u32 E, Args &args) {      
+    FftConfig config = getFftConfig(E, args.fftSize);
+    
+
+    /*
     int autoSize = (E < 153'000'000) ? (E < 77'500'000) ? 4*Mi : 8*Mi : 16*Mi;    
     int fftSize = args.fftSize ? args.fftSize : autoSize;
     (void) fftSize;
     if (args.fftSize && (args.fftSize < 10)) {
       fftSize = (args.fftSize < 0) ? (autoSize / 2) : (autoSize * 2);
     }
+    */
 
-    int SMALL_HEIGHT = 2048;
-    int BIG_HEIGHT   = SMALL_HEIGHT * 5;
-    int W = 1024; // fftSize / (2 * H);
-    assert(W == 1024 || W == 2048 || W == 4096);
-    int N = 2 * W * BIG_HEIGHT;
+    int WIDTH        = config.width;
+    int SMALL_HEIGHT = config.height;
+    int MIDDLE       = config.middle;
+    // int BIG_HEIGHT   = config.height * config.middle;
+    int N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
 
     string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
-    int nW = (W == 1024) ? 4 : 8;
-    int nH = SMALL_HEIGHT / 256;
-  
-    vector<string> defines {valueDefine("EXP", E),
-        valueDefine("WIDTH", W),
-        valueDefine("NW", nW),
-        valueDefine("BIG_HEIGHT", BIG_HEIGHT),
-        valueDefine("SMALL_HEIGHT", SMALL_HEIGHT),
-        valueDefine("NH", nH),
-        };
+    int nW = (WIDTH == 1024) ? 4 : 8;
+    int nH = 8;
 
     float bitsPerWord = E / float(N);
-    bool useLongCarry = (args.carry == Args::CARRY_LONG) || (bitsPerWord < 14);
+    log("FFT %2dM: %d x %d x %d x 2 (Width: %dx%d, Height: %dx%d); %.3f bits/word\n",
+        N >> 20, WIDTH, SMALL_HEIGHT, MIDDLE, WIDTH / nW, nW, SMALL_HEIGHT / nH, nH, bitsPerWord);
+    
+    bool useLongCarry = (bitsPerWord < 14.5f)
+      || (args.carry == Args::CARRY_LONG)
+      || (args.carry == Args::CARRY_AUTO && WIDTH >= 2048);
   
     log("Note: using %s carry kernels\n", useLongCarry ? "long" : "short");
+    
+    vector<string> defines {valueDefine("EXP", E),
+        valueDefine("WIDTH", WIDTH),
+        valueDefine("SMALL_HEIGHT", SMALL_HEIGHT),
+        valueDefine("RATIO", MIDDLE),
+        };
 
     string clArgs = args.clArgs;
     if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
@@ -307,7 +353,7 @@ public:
     Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs, defines, ""));
     if (!program) { throw "OpenCL compilation"; }
 
-    return unique_ptr<Gpu>(new OpenGpu(E, W, BIG_HEIGHT, SMALL_HEIGHT, nW, nH,
+    return unique_ptr<Gpu>(new OpenGpu(E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
                                        program.get(), device, context.get(), timeKernels, useLongCarry));
   }
 

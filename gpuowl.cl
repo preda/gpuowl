@@ -5,10 +5,6 @@
 // The pair (a, b) is sometimes interpreted as the complex value a + i*b.
 // The order of words is column-major (i.e. transposed from the usual row-major matrix order).
 
-// Expected defines: EXP the exponent.
-// WIDTH, HEIGHT
-// NW, NH
-
 #pragma OPENCL FP_CONTRACT ON
 
 #ifdef cl_khr_fp64
@@ -30,11 +26,23 @@ typedef ulong u64;
 
 #include "shared.h"
 
+// Expected defines: EXP the exponent.
+// WIDTH, SMALL_HEIGHT, RATIO.
+
+#define BIG_HEIGHT (SMALL_HEIGHT * RATIO)
 #define ND (WIDTH * BIG_HEIGHT)
 #define NWORDS (ND * 2u)
+
+#if WIDTH == 1024
+#define NW 4
+#else
+#define NW 8
+#endif
+
+#define NH 8
+
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
-#define RATIO (BIG_HEIGHT / SMALL_HEIGHT)
 
 // Used in bitlen() and weighting.
 #define STEP (NWORDS - (EXP % NWORDS))

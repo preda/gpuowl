@@ -9,7 +9,7 @@
 #include <cstring>
 
 struct Args {
-  enum {CARRY_SHORT = 0, CARRY_LONG = 1/*, TAIL_FUSED = 0, TAIL_SPLIT = 1*/};
+  enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
   
   std::string clArgs;
   std::string user, cpu;
@@ -17,15 +17,13 @@ struct Args {
   int device;
   bool timeKernels;
   int carry;
-  // int tail;
   int blockSize;
   int fftSize;
   
   Args() :
     device(-1),
     timeKernels(false),
-    carry(CARRY_LONG),
-    // tail(TAIL_FUSED),
+    carry(CARRY_AUTO),
     blockSize(400),
     fftSize(0)
   { }
@@ -38,12 +36,13 @@ struct Args {
       log(R"""(
 Command line options:
 
--user <name>      : specify the user name.
--cpu  <name>      : specify the hardware name.
--time             : display kernel profiling information.
--tail fused|split : selects tail kernels variant (default 'fused').
--fft <size>       : specify FFT size, such as: 5000K, 4M, +2, -1.
--device <N>       : select specific device.
+-user <name>       : specify the user name.
+-cpu  <name>       : specify the hardware name.
+-time              : display kernel profiling information.
+-fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
+-block 100|200|400 : select PRP-check block size. Smaller block is slower but detects errors earlier.
+-carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
+-device <N>        : select specific device.
 )""");
       /*
       cl_device_id devices[16];
@@ -102,18 +101,7 @@ Command line options:
       }
       log("-carry expects short|long\n");
       return false;
-    } /*else if (!strcmp(arg, "-tail")) {
-      if (i < argc - 1) {
-        std::string s = argv[++i];
-        if (s == "fused" || s == "split") {
-          tail = s == "fused" ? TAIL_FUSED : TAIL_SPLIT;
-          continue;
-        }
-      }
-      log("-tail expects fused|split\n");
-      return false;      
-      } */
-    else if (!strcmp(arg, "-block")) {
+    } else if (!strcmp(arg, "-block")) {
       if (i < argc - 1) {
         std::string s = argv[++i];
         if (s == "100" || s == "200" || s == "400") {
