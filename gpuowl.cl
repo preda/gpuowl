@@ -27,9 +27,9 @@ typedef ulong u64;
 #include "shared.h"
 
 // Expected defines: EXP the exponent.
-// WIDTH, SMALL_HEIGHT, RATIO.
+// WIDTH, SMALL_HEIGHT, MIDDLE.
 
-#define BIG_HEIGHT (SMALL_HEIGHT * RATIO)
+#define BIG_HEIGHT (SMALL_HEIGHT * MIDDLE)
 #define ND (WIDTH * BIG_HEIGHT)
 #define NWORDS (ND * 2u)
 
@@ -183,6 +183,23 @@ void fft8(T2 *u) {
   SWAP(u[3], u[6]);
 }
 
+/*
+void fft8(T2 *u) {
+  for (int i = 0; i < 4; ++i) { X2(u[i], u[i + 4]); }
+  u[6] = mul_t4(u[6]);
+
+  X2(u[0], u[2]);
+  X2(u[1], u[3]);
+  u[3] = mul_t4(u[3]);
+
+  X2(u[5], u[7]);
+  u[5] = mul_t4(u[5]) * M_SQRT1_2;
+  u[7] = u[7] * M_SQRT1_2;
+
+  X2(u[0], u[1]);
+}
+*/
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 void fft5(T2 *u) {
   const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
@@ -210,6 +227,79 @@ void fft5(T2 *u) {
   X2(u[1], u[2]);
   X2(u[1], u[4]);
   X2(u[2], u[3]);
+}
+
+// Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.7 "9-Point DFT".
+void fft9(T2 *u) {
+  const double C0 = 0x1.8836fa2cf5039p-1; //   0.766044443118978013 (2*c(u) - c(2*u) - c(4*u))/3
+  const double C1 = 0x1.e11f642522d1cp-1; //   0.939692620785908428 (c(u) + c(2*u) - 2*c(4*u))/3
+  const double C2 =-0x1.63a1a7e0b738ap-3; //  -0.173648177666930359 (c(u) - 2*c(2*u) + c(4*u))/3
+  const double C3 = 0x1.bb67ae8584caap-1; //   0.866025403784438597 s(3*u)
+  const double C4 = 0x1.491b7523c161dp-1; //   0.642787609686539363 s(u)
+  const double C5 = 0x1.5e3a8748a0bf5p-2; //   0.342020143325668713 s(4*u)
+  const double C6 = 0x1.f838b8c811c17p-1; //   0.984807753012208020 s(2*u)
+
+  X2(u[1], u[8]);
+  X2(u[2], u[7]);
+  X2(u[3], u[6]);
+  X2(u[4], u[5]);
+
+  T2 t5  = u[1] + u[2] + u[4];
+  T2 t10 = u[8] - u[7] + u[5];
+  T2 t11 = u[1] - u[2];
+  T2 t12 = u[2] - u[4];
+
+  T2 m0 = u[0] + u[3] + t5;
+  T2 m1 = u[3] * (3 / 2.0);
+  T2 m2 = - t5 / 2;
+
+  T2 t15 = u[4] - u[1];
+  T2 m3 = t11 * C0;
+  T2 m4 = t12 * C1;
+  T2 m5 = t15 * C2;
+
+  T2 s0 = -m3 - m4;
+  T2 s1 =  m5 - m4;
+
+  T2 m6 = mul_t4(t10)  * C3;
+  T2 m7 = mul_t4(u[6]) * C3;
+
+  // T2 t16 = u[8] - u[5];
+  // T2 t13 = -(u[7] + u[8]);
+  // T2 t14 = -(u[7] + u[5]);
+  T2 m8  = mul_t4(u[7] + u[8]) * C4;
+  T2 m9  = mul_t4(u[7] + u[5]) * C5;
+  T2 m10 = mul_t4(u[5] - u[8]) * C6;
+
+  T2 s2 = -m8 - m9;
+  T2 s3 = m9 - m10;
+
+  T2 s4 = m0 - t5;
+  T2 s5 = s4 - m1;
+  T2 s6 = s4 + m2;
+  T2 s7 = s5 - s0;
+  T2 s8 = s1 + s5;
+  T2 s9 = s0 - s1 + s5;
+  T2 s10 = m7 - s2;
+  T2 s11 = m7 - s3;
+  T2 s12 = m7 + s2 + s3;
+  
+  u[0] = m0;
+  u[1] = s7 + s10;
+  u[2] = s8 - s11;
+  u[3] = s6 + m6;
+  u[4] = s9 + s12;
+  u[5] = s9 - s12;
+  u[6] = s6 - m6;
+  u[7] = s8 + s11;
+  u[8] = s7 - s10;
+
+  /*
+  X2(u[4], u[5]);
+  X2(u[3], u[6]);
+  X2(u[2], u[7]);
+  X2(u[1], u[8]);
+  */
 }
 
 void shufl(uint WG, local T *lds, T2 *u, uint n, uint f) {
@@ -644,36 +734,56 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   write(G_W, NW, u, out, 0);
 }
 
+void middleMul(T2 *u, uint gx, uint me) {
+  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);
+  T2 t = step;
+  for (int i = 1; i < MIDDLE; ++i, t = mul(t, step)) { u[i] = mul(u[i], t); }
+}
+
 KERNEL(256) fftMiddleIn(P(T2) io) {
-  T2 u[5];
+  T2 u[MIDDLE];
   uint N = SMALL_HEIGHT / 256;
   uint g = get_group_id(0);
   uint gx = g % N;
   uint gy = g / N;
   uint me = get_local_id(0);
   io += BIG_HEIGHT * gy + 256 * gx;
-  read(SMALL_HEIGHT, 5, u, io, 0);
+  read(SMALL_HEIGHT, MIDDLE, u, io, 0);
+  
+#if MIDDLE == 5
   fft5(u);
-  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);
-  T2 t = step;
-  for (int i = 1; i < 5; ++i, t = mul(t, step)) { u[i] = mul(u[i], t); }
-  write(SMALL_HEIGHT, 5, u, io, 0);
+#elif MIDDLE == 9
+  fft9(u);
+#else
+#error
+#endif
+    
+  middleMul(u, gx, me);
+  
+  write(SMALL_HEIGHT, MIDDLE, u, io, 0);
 }
 
 KERNEL(256) fftMiddleOut(P(T2) io) {
-  T2 u[5];
+  T2 u[MIDDLE];
   uint N = SMALL_HEIGHT / 256;
   uint g = get_group_id(0);
   uint gx = g % N;
   uint gy = g / N;
   uint me = get_local_id(0);
   io += BIG_HEIGHT * gy + 256 * gx;
-  read(SMALL_HEIGHT, 5, u, io, 0);
-  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);
-  T2 t = step;
-  for (int i = 1; i < 5; ++i, t = mul(t, step)) { u[i] = mul(u[i], t); }
+  read(SMALL_HEIGHT, MIDDLE, u, io, 0);
+  
+  middleMul(u, gx, me);
+
+#if MIDDLE == 5
   fft5(u);
-  write(SMALL_HEIGHT, 5, u, io, 0);
+#elif MIDDLE == 9
+  fft9(u);
+#else
+#error
+#endif
+
+  write(SMALL_HEIGHT, MIDDLE, u, io, 0);
 }
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
@@ -896,8 +1006,8 @@ KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
 
   uint line1 = get_group_id(0);
   uint line2 = line1 ? H - line1 : (H / 2);
-  uint g1 = transPos(line1, RATIO, WIDTH);
-  uint g2 = transPos(line2, RATIO, WIDTH);
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
   
   read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
   read(G_H, NH, p, in, g1 * SMALL_HEIGHT);
@@ -946,8 +1056,8 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
 
   uint line1 = get_group_id(0);
   uint line2 = line1 ? H - line1 : (H / 2);
-  uint g1 = transPos(line1, RATIO, WIDTH);
-  uint g2 = transPos(line2, RATIO, WIDTH);
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
   
   read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
   read(G_H, NH, v, io, g2 * SMALL_HEIGHT);

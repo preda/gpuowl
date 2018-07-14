@@ -162,10 +162,12 @@ struct FftConfig {
 };
 
 FftConfig getFftConfig(u32 E, int argsFftSize) {
+  // sizeM, maxExpM, widthK, middle  // height
   vector<FftConfig> configs = {
     { 4,  77, 1, 1}, // 2K
     { 5,  96, 1, 5}, // 512
     { 8, 153, 2, 1}, // 2K
+    { 9, 160, 1, 9}, // 512
     {10, 190, 2, 5}, // 512
     {16, 300, 4, 1}, // 2K
     {20, 370, 1, 5}, // 2K
@@ -236,8 +238,8 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryFused, BIG_H + 1),
     LOAD(fftP, BIG_H),
     LOAD(fftW, BIG_H),
-    LOAD(fftMiddleIn, hN / (256 * 5)),
-    LOAD(fftMiddleOut, hN / (256 * 5)),
+    LOAD(fftMiddleIn,  hN / (256 * (BIG_H / SMALL_H))),
+    LOAD(fftMiddleOut, hN / (256 * (BIG_H / SMALL_H))),
     LOAD(carryA,  nW * (BIG_H/16)),
     LOAD(carryM,  nW * (BIG_H/16)),
     LOAD(shift,   nW * (BIG_H/16)),
@@ -331,7 +333,7 @@ public:
     vector<string> defines {valueDefine("EXP", E),
         valueDefine("WIDTH", WIDTH),
         valueDefine("SMALL_HEIGHT", SMALL_HEIGHT),
-        valueDefine("RATIO", MIDDLE),
+        valueDefine("MIDDLE", MIDDLE),
         };
 
     string clArgs = args.clArgs;
