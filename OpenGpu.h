@@ -260,8 +260,8 @@ class OpenGpu : public LowGpu<Buffer> {
     buf1{makeBuf(    context, BUF_RW, bufSize)},
     buf2{makeBuf(    context, BUF_RW, bufSize)},
     buf3{makeBuf(    context, BUF_RW, bufSize)},
-    bufCarry{makeBuf(context, BUF_RW, bufSize)}, // TODO: halve size.
-    bufReady{makeBuf(context, BUF_RW, N * sizeof(int))},
+    bufCarry{makeBuf(context, BUF_RW, bufSize / 2)},
+    bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
     bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int))),
 
     offsetGoodData(0), offsetGoodCheck(0)
@@ -283,7 +283,7 @@ class OpenGpu : public LowGpu<Buffer> {
     tailFused.setFixedArgs(1, bufTrigH);
     mulFused.setFixedArgs(2, bufTrigH);
     
-    queue.zero(bufReady, N * sizeof(int));
+    queue.zero(bufReady, BIG_H * sizeof(int));
   }
 
   std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
