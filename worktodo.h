@@ -9,9 +9,6 @@
 #include <cstring>
 #include <cassert>
 
-// It seems that 308M is impossible to do with a 16M FFT, so that's the upper limit.
-const int EXP_MIN = 1024, EXP_MAX = 370000000;
-
 int parseLine(const char *line, char *outAID) {
   int exp = 0;
   outAID[0] = 0;
@@ -38,11 +35,7 @@ int worktodoReadExponent(char *AID) {
     if (!fgets(line, sizeof(line), fi.get())) { break; }
     
     if (int exp = parseLine(line, AID)) {
-      if (exp >= EXP_MIN && exp <= EXP_MAX) {
-        return exp;
-      } else {
-        log("Exponent %d skipped: must be between %d and %d\n", exp, EXP_MIN, EXP_MAX);
-      }
+      return exp;
     } else {
       int n = strlen(line);
       if (n >= 2 && line[n - 2] == '\n') { line[n - 2] = 0; }

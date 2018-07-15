@@ -145,33 +145,56 @@ cl_device_id getDevice(const Args &args) {
 }
 
 struct FftConfig {
+  u32 width, height, middle;
   int fftSize;
   u32 maxExp;
-  u32 width;
-  u32 height;
-  u32 middle;
 
-  FftConfig(u32 fftSizeM, u32 maxExpM, u32 widthK, u32 middle) :
-    fftSize(fftSizeM * 1024 * 1024),
-    maxExp(maxExpM * 1000 * 1000),
-    width(widthK * 1024),
-    height(fftSize / (width * middle * 2)),
-    middle(middle) {
-    // log("fft config %d\n", fftSize);
+  FftConfig(u32 fftSize, double maxExp, u32 width, u32 height, u32 middle) :
+    width(width),
+    height(height),
+    middle(middle),
+    fftSize(width * height * middle * 2),
+    maxExp(fftSize * (17.88 + 0.36 * (24 - log2(fftSize)))) {
+    assert(width  == 512 || width == 1024 || width == 2048 || width == 4096);
+    assert(height == 512 || height == 2048);
+    assert(middle == 1 || middle == 5 || middle == 9);
   }
 };
 
-FftConfig getFftConfig(u32 E, int argsFftSize) {
-  // sizeM, maxExpM, widthK, middle  // height
-  vector<FftConfig> configs = {
-    { 4,  77, 1, 1}, // 2K
-    { 5,  96, 1, 5}, // 512
-    { 8, 153, 2, 1}, // 2K
-    { 9, 160, 1, 9}, // 512
-    {10, 190, 2, 5}, // 512
-    {16, 300, 4, 1}, // 2K
-    {20, 370, 1, 5}, // 2K
-  };
+vector<FftConfig> genConfigs() {
+  vector<FftConfig> configs;
+  for (u32 width : {512, 1024, 2048, 4096}) {
+    for (u32 height : {512, 2048}) {
+      for (u32 middle : {1, 5, 9}) {
+        u32 n = width * height * middle * 2;
+        double maxBPW = 17.88 + 0.36 * (24 - log2(n));
+        configs.push_back(FftConfig(n, n * maxBPW, width, height, middle));
+      }
+    }
+  }
+  std::sort(configs.begin(), configs.end(), [](const FftConfig &a, const FftConfig &b) { return a.fftSize < b.fftSize; });
+  return configs;
+}
+
+FftConfig getFftConfig(const vector<FftConfig> &configs, u32 E, int argsFftSize) {
+  // sizeM, maxExpM, width, middle  // height
+    /*
+    {
+    { 512, 10.3,  512,  512, 1}, // 19.6
+    {1024, 20.2, 1024,  512, 1}, // 19.25
+
+    {2048, 39.6,  512, 2048, 1}, // 18.9
+    {2560, 48.6,  512,  512, 5}, // 18.55
+    { 4,  77.8, 1024, 1}, // 2K, 18.55 18.6
+    {4608, x, 512, 512, 9}, //
+    { 5,  96,   1024, 5}, // 512, 
+    { 8, 153,   2048, 1}, // 2K, 18.239
+    { 9, 170,   1024, 9}, // 512
+    {10, 190,   2048, 5}, // 512
+    {16, 300,   4096, 1}, // 2K
+    {18, 333,    512, 9}  // 2K
+    {20, 370,   1024, 5}, // 2K
+    */
 
   int i = 0;
   int n = int(configs.size());
@@ -302,8 +325,17 @@ class OpenGpu : public LowGpu<Buffer> {
   }
   
 public:
-  static unique_ptr<Gpu> make(u32 E, Args &args) {      
-    FftConfig config = getFftConfig(E, args.fftSize);    
+  static unique_ptr<Gpu> make(u32 E, Args &args) {
+    vector<FftConfig> configs = genConfigs();
+    if (args.listFFT) {
+      log("   FFT  maxExp %4s %4s M\n", "W", "H");
+      for (auto c : configs) {
+        log("%5.1fM %6.1fM %4d %4d %d\n", c.fftSize / float(1024 * 1024), c.maxExp / float(1000 * 1000), c.width, c.height, c.middle);
+      }
+      log("\n");
+    }
+        
+    FftConfig config = getFftConfig(configs, E, args.fftSize);
     int WIDTH        = config.width;
     int SMALL_HEIGHT = config.height;
     int MIDDLE       = config.middle;
@@ -316,8 +348,8 @@ public:
 
     float bitsPerWord = E / float(N);
     string strMiddle = (MIDDLE == 1) ? "" : (string(", Middle ") + std::to_string(MIDDLE));
-    log("FFT %dM: Width %d (%dx%d), Height %d (%dx%d)%s; %.2f bits/word\n",
-        N >> 20, WIDTH, WIDTH / nW, nW, SMALL_HEIGHT, SMALL_HEIGHT / nH, nH, strMiddle.c_str(), bitsPerWord);
+    log("FFT %dK: Width %d (%dx%d), Height %d (%dx%d)%s; %.2f bits/word\n",
+        N / 1024, WIDTH, WIDTH / nW, nW, SMALL_HEIGHT, SMALL_HEIGHT / nH, nH, strMiddle.c_str(), bitsPerWord);
 
     if (bitsPerWord > 20) {
       log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);

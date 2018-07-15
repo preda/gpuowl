@@ -675,14 +675,13 @@ KERNEL(G_W) shift(P(Word2) io, P(Carry) carryOut) {
 }
 
 void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
-#if   WIDTH == 1024
+#if   WIDTH ==  512
+  fft512(lds, u, trig);
+#elif WIDTH == 1024
   fft1K(lds, u, trig);
 #elif WIDTH == 2048
   fft2K(lds, u, trig);
 #elif WIDTH == 4096
-#if G_W != 512
-#error expected group width 512.
-#endif
   fft4K(lds, u, trig);
 #else
 #error unexpected WIDTH.  
@@ -754,7 +753,7 @@ KERNEL(256) fftMiddleIn(P(T2) io) {
   fft5(u);
 #elif MIDDLE == 9
   fft9(u);
-#else
+#elif MIDDLE != 1
 #error
 #endif
     
@@ -779,7 +778,7 @@ KERNEL(256) fftMiddleOut(P(T2) io) {
   fft5(u);
 #elif MIDDLE == 9
   fft9(u);
-#else
+#elif MIDDLE != 1
 #error
 #endif
 

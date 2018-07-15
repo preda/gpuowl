@@ -18,6 +18,7 @@ struct Args {
   std::string dump;
   int device;
   bool timeKernels;
+  bool listFFT;
   int carry;
   int blockSize;
   int fftSize;
@@ -25,6 +26,7 @@ struct Args {
   Args() :
     device(-1),
     timeKernels(false),
+    listFFT(false),
     carry(CARRY_AUTO),
     blockSize(400),
     fftSize(0)
@@ -44,6 +46,7 @@ Command line options:
 -fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
 -block 100|200|400 : select PRP-check block size. Smaller block is slower but detects errors earlier.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
+-list fft          : display a list of available FFT configurations.
 -device <N>        : select a specific device:
 )""");
       vector<string> devices = getDevices();
@@ -51,6 +54,13 @@ Command line options:
         log(" %d : %s\n", i, devices[i].c_str());
       }      
       return false;
+    } else if (!strcmp(arg, "-list")) {
+      if (i < argc - 1 && !strcmp(argv[++i], "fft")) {
+        listFFT = true;
+      } else {
+        log("-list expects \"fft\"\n");
+        return false;
+      }
     } else if (!strcmp(arg, "-fft")) {
       if (i < argc - 1) {
         string s = argv[++i];
