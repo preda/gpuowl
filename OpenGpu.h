@@ -117,8 +117,8 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   for (Info info : infos) {
     StatsInfo stats = info.stats;
     float percent = 100 / total * stats.sum;
-    if (percent >= .5f) {
-      log("%3.1f%% %-10s : %5.0f [%5.0f, %5.0f] us/call   x %5d calls\n",
+    if (percent >= .1f) {
+      log("%4.1f%% %-14s : %5.0f [%5.0f, %5.0f] us/call   x %5d calls\n",
           percent, info.name.c_str(), stats.mean, stats.low, stats.high, stats.n);
     }
   }
@@ -391,7 +391,10 @@ public:
   
 protected:
   void logTimeKernels() {
-    ::logTimeKernels({&fftP, &fftW, &carryA, &carryM, &carryB, &transposeW, &transposeH, &tailFused});
+    ::logTimeKernels({&carryFused, &fftP, &fftW, &fftMiddleIn, &fftMiddleOut,
+          &carryA, &carryM, &shift, &carryB, &res36, &compare,
+          &transposeW, &transposeH, &transposeIn, &transposeOut,
+          &tailFused, &mulFused, &readResidue});
   }
   
   void commit() {

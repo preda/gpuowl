@@ -228,7 +228,10 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     bool doCheck = (k % checkStep == 0) || (k >= kEnd) || doStop || (k - startK == 2 * blockSize);
     if (!doCheck) {
       gpu->updateCheck();
-      if (k % 10000 == 0) { doSmallLog(E, k, gpu->dataResidue(), stats, args.cpu); }
+      if (k % 10000 == 0) {
+        doSmallLog(E, k, gpu->dataResidue(), stats, args.cpu);
+        if (args.timeKernels) { gpu->logTimeKernels(); }
+      }
       continue;
     }
 
@@ -271,7 +274,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
       // log("Back to last good iteration %d. Offsets are: data %d, check %d\n", goodK, offsets.first, offsets.second);
       log("Back to last good iteration %d.\n", goodK);
     }
-    // if (args.timeKernels) { gpu->logTimeKernels(); }
+    if (args.timeKernels) { gpu->logTimeKernels(); }
     if (doStop) { return false; }
   }
 }

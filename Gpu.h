@@ -31,4 +31,5 @@ public:
   virtual void finish() = 0;
 
   virtual u32 getFFTSize() = 0;
+  virtual void logTimeKernels() = 0;
 };

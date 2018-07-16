@@ -294,6 +294,10 @@ protected:
     
     return equal && notZero;
   }
+
+  void logTimeKernels() {
+    // TODO: implement
+  }
   
 public:
   CudaGpu(u32 E, u32 N) :
