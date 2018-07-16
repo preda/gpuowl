@@ -172,30 +172,11 @@ vector<FftConfig> genConfigs() {
       }
     }
   }
-  std::sort(configs.begin(), configs.end(), [](const FftConfig &a, const FftConfig &b) { return a.fftSize < b.fftSize; });
+  std::sort(configs.begin(), configs.end(), [](const FftConfig &a, const FftConfig &b) { return a.fftSize <= b.fftSize; });
   return configs;
 }
 
 FftConfig getFftConfig(const vector<FftConfig> &configs, u32 E, int argsFftSize) {
-  // sizeM, maxExpM, width, middle  // height
-    /*
-    {
-    { 512, 10.3,  512,  512, 1}, // 19.6
-    {1024, 20.2, 1024,  512, 1}, // 19.25
-
-    {2048, 39.6,  512, 2048, 1}, // 18.9
-    {2560, 48.6,  512,  512, 5}, // 18.55
-    { 4,  77.8, 1024, 1}, // 2K, 18.55 18.6
-    {4608, x, 512, 512, 9}, //
-    { 5,  96,   1024, 5}, // 512, 
-    { 8, 153,   2048, 1}, // 2K, 18.239
-    { 9, 170,   1024, 9}, // 512
-    {10, 190,   2048, 5}, // 512
-    {16, 300,   4096, 1}, // 2K
-    {18, 333,    512, 9}  // 2K
-    {20, 370,   1024, 5}, // 2K
-    */
-
   int i = 0;
   int n = int(configs.size());
   // log("A %d %d %d\n", n, argsFftSize, E);
