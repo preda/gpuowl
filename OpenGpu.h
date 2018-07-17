@@ -156,7 +156,7 @@ struct FftConfig {
     fftSize(width * height * middle * 2),
     maxExp(fftSize * (17.88 + 0.36 * (24 - log2(fftSize)))) {
     assert(width  == 512 || width == 1024 || width == 2048 || width == 4096);
-    assert(height == 512 || height == 2048);
+    assert(height == 512 || height == 1024 || height == 2048);
     assert(middle == 1 || middle == 5 || middle == 9);
   }
 };
@@ -164,7 +164,7 @@ struct FftConfig {
 vector<FftConfig> genConfigs() {
   vector<FftConfig> configs;
   for (u32 width : {512, 1024, 2048, 4096}) {
-    for (u32 height : {512, 2048}) {
+    for (u32 height : {512, 1024, 2048}) {
       for (u32 middle : {1, 5, 9}) {
         u32 n = width * height * middle * 2;
         double maxBPW = 17.88 + 0.36 * (24 - log2(n));
@@ -172,7 +172,13 @@ vector<FftConfig> genConfigs() {
       }
     }
   }
-  std::sort(configs.begin(), configs.end(), [](const FftConfig &a, const FftConfig &b) { return a.fftSize <= b.fftSize; });
+  std::sort(configs.begin(), configs.end(), [](const FftConfig &a, const FftConfig &b) {
+      if (a.fftSize != b.fftSize) { return (a.fftSize < b.fftSize); }
+      assert(a.width != b.width);
+      if (a.width == 1024) { return true; }
+      if (b.width == 1024) { return false; }
+      return (a.width < b.width);
+    });
   return configs;
 }
 
@@ -325,7 +331,7 @@ public:
     string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
     int nW = (WIDTH == 1024) ? 4 : 8;
-    int nH = 8;
+    int nH = (SMALL_HEIGHT == 1024) ? 4 : 8;
 
     float bitsPerWord = E / float(N);
     string strMiddle = (MIDDLE == 1) ? "" : (string(", Middle ") + std::to_string(MIDDLE));

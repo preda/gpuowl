@@ -39,7 +39,11 @@ typedef ulong u64;
 #define NW 8
 #endif
 
+#if SMALL_HEIGHT == 1024
+#define NH 4
+#else
 #define NH 8
+#endif
 
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
@@ -320,7 +324,7 @@ void fft512(local T *lds, T2 *u, const G T2 *trig) {
 void fft1K(local T *lds, T2 *u, const G T2 *trig) {
   for (int s = 6; s >= 0; s -= 2) {
     fft4(u);
-    if (s != 6) { bar(); }
+    bar();
     shufl(256,   lds, u, 4, 1 << s);
     tabMul(256, trig, u, 4, 1 << s);
   }
@@ -677,6 +681,8 @@ void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
 void fft_HEIGHT(local T *lds, T2 *u, Trig trig) {
 #if SMALL_HEIGHT == 512
   fft512(lds, u, trig);
+#elif SMALL_HEIGHT == 1024
+  fft1K(lds, u, trig);
 #elif SMALL_HEIGHT == 2048
   fft2K(lds, u, trig);
 #else
@@ -902,13 +908,20 @@ void reverse(uint WG, local T *rawLds, T2 *u, bool bump) {
   
   bar();
 
+#if NH == 8
   lds[revMe + 0 * WG] = u[3];
   lds[revMe + 1 * WG] = u[2];
   lds[revMe + 2 * WG] = u[1];  
   lds[bump ? ((revMe + 3 * WG) % (4 * WG)) : (revMe + 3 * WG)] = u[0];
+#elif NH == 4
+  lds[revMe + 0 * WG] = u[1];
+  lds[bump ? ((revMe + WG) % (2 * WG)) : (revMe + WG)] = u[0];  
+#else
+#error
+#endif
   
   bar();
-  for (int i = 0; i < 4; ++i) { u[i] = lds[i * WG + me]; }
+  for (int i = 0; i < NH/2; ++i) { u[i] = lds[i * WG + me]; }
 }
 
 void reverseLine(uint WG, local T *lds, T2 *u) {
@@ -916,16 +929,16 @@ void reverseLine(uint WG, local T *lds, T2 *u) {
   uint revMe = WG - 1 - me;
   for (int b = 0; b < 2; ++b) {
     bar();
-    for (int i = 0; i < 8; ++i) { lds[i * WG + revMe] = ((T *) (u + (7 - i)))[b]; }  
+    for (int i = 0; i < NH; ++i) { lds[i * WG + revMe] = ((T *) (u + ((NH - 1) - i)))[b]; }  
     bar();
-    for (int i = 0; i < 8; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
+    for (int i = 0; i < NH; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
   }
 }
 
 void pairSq(uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint me = get_local_id(0);
 
-  T2 step = slowTrig(1, 8);
+  T2 step = slowTrig(1, NH);
   
   for (int i = 0; i < N; ++i, base = mul(base, step)) {
     T2 a = u[i];
@@ -952,7 +965,7 @@ void pairSq(uint N, T2 *u, T2 *v, T2 base, bool special) {
 void pairMul(uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
   uint me = get_local_id(0);
 
-  T2 step = slowTrig(1, 8);
+  T2 step = slowTrig(1, NH);
   
   for (int i = 0; i < N; ++i, base = mul(base, step)) {
     T2 a = u[i];
@@ -1006,17 +1019,17 @@ KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
 
   uint me = get_local_id(0);
   if (line1 == 0) {
-    reverse(G_H, lds, u + 4, true);
-    reverse(G_H, lds, p + 4, true);
-    pairMul(NH/2, u, u + 4, p, p + 4, slowTrig(me, W), true);
-    reverse(G_H, lds, u + 4, true);
-    reverse(G_H, lds, p + 4, true);
+    reverse(G_H, lds, u + NH/2, true);
+    reverse(G_H, lds, p + NH/2, true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W), true);
+    reverse(G_H, lds, u + NH/2, true);
+    reverse(G_H, lds, p + NH/2, true);
 
-    reverse(G_H, lds, v + 4, false);
-    reverse(G_H, lds, q + 4, false);
-    pairMul(NH/2, v, v + 4, q, q + 4, slowTrig(1 + 2 * me, 2 * W), false);
-    reverse(G_H, lds, v + 4, false);
-    reverse(G_H, lds, q + 4, false);
+    reverse(G_H, lds, v + NH/2, false);
+    reverse(G_H, lds, q + NH/2, false);
+    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
+    reverse(G_H, lds, v + NH/2, false);
+    reverse(G_H, lds, q + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
@@ -1052,14 +1065,14 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   uint me = get_local_id(0);
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
-    reverse(G_H, lds, u + 4, true);
-    pairSq(NH/2, u, u + 4, slowTrig(me, W), true);
-    reverse(G_H, lds, u + 4, true);
+    reverse(G_H, lds, u + NH/2, true);
+    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W), true);
+    reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
-    reverse(G_H, lds, v + 4, false);
-    pairSq(NH/2, v, v + 4, slowTrig(1 + 2 * me, 2 * W), false);
-    reverse(G_H, lds, v + 4, false);
+    reverse(G_H, lds, v + NH/2, false);
+    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
+    reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
     pairSq(NH, u, v, slowTrig(line1 + me * H, ND), false);
