@@ -396,6 +396,10 @@ protected:
     shift(bufGoodData, bufCarry);
     carryB(bufGoodData, bufCarry);
     offsetGoodData = (offsetGoodData + 1) % E;
+
+    shift(bufGoodCheck, bufCarry);
+    carryB(bufGoodCheck, bufCarry);
+    offsetGoodCheck = (offsetGoodCheck + 1) % E;
     
     queue.copy<int>(bufGoodData, bufData, N);
     queue.copy<int>(bufGoodCheck, bufCheck, N);
