@@ -186,24 +186,9 @@ static cl_program loadSource(cl_context context, const string &name) {
   CHECK2(err, "clCreateProgramWithSource");
   return program;  
 }
-/*
-static cl_program createProgram(cl_device_id device, cl_context context, const string &name, const string &config) {
-  if (cl_program program = loadBinary(device, context, name, config)) { return program; }
-  
-  string stub = string("#include \"") + name + ".cl\"\n";
-  
-  const char *ptr = stub.c_str();
-  size_t size = stub.size();
-  int err;
-  cl_program program = clCreateProgramWithSource(context, 1, &ptr, &size, &err);
-  CHECK2(err, "clCreateProgram");
-  return program;
-}
-*/
 
 static bool build(cl_program program, cl_device_id device, const string &args) {
   Timer timer;
-  // string args = string("-I. -cl-fast-relaxed-math ") + extraArgs;
   int err = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
   bool ok = (err == CL_SUCCESS);
   if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }
@@ -228,7 +213,7 @@ string join(const string &prefix, const vector<string> &elems) {
 
 cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
                    const vector<string> &defVect, const string &config = "") {
-  string args = join(" -D", defVect) + " " + extraArgs + " " + "-I. -cl-fast-relaxed-math ";
+  string args = join(" -D", defVect) + " " + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-std=CL2.0 ";
   // -cl-kernel-arg-info
 
   cl_program program = 0;

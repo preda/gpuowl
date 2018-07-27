@@ -11,7 +11,9 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
-// #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+#pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
+
 
 // OpenCL 2.x introduces the "generic" memory space, so there's no need to specify "global" on pointers everywhere.
 #if __OPENCL_C_VERSION__ >= 200
@@ -828,7 +830,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-KERNEL(G_W) carryFused(P(T2) io, volatile P(Carry) carryShuttle, volatile P(uint) ready,
+KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
                        CP(T2) A, CP(T2) iA, Trig smallTrig) {
   local T lds[WIDTH];
 
@@ -853,7 +855,10 @@ KERNEL(G_W) carryFused(P(T2) io, volatile P(Carry) carryShuttle, volatile P(uint
     uint p = i * G_W + me;
     Carry carry = 0;
     wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p]);
-    if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
+    if (gr < H) {
+      atomic_store_explicit((atomic_long *) &carryShuttle[gr * WIDTH + p], carry, memory_order_release, memory_scope_device);
+      // carryShuttle[gr * WIDTH + p] = carry; }
+    }
   }
 
   bigBar();
@@ -870,7 +875,9 @@ KERNEL(G_W) carryFused(P(T2) io, volatile P(Carry) carryShuttle, volatile P(uint
 
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
-    Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
+    
+    Carry carry = atomic_load_explicit((atomic_long *) &carryShuttle[(gr - 1) * WIDTH + (p + WIDTH - gr / H) % WIDTH], memory_order_acquire, memory_scope_device);
+    // carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
     u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
   }
 
