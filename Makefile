@@ -16,3 +16,6 @@ cudaowl: ${HEADERS} ${SRCS} CudaGpu.h CudaGpu.cu
 
 fftbench: fftbench.cu
 	nvcc -O2 -o fftbench fftbench.cu -lcufft
+
+tf: ${HEADERS} tf.cpp
+	g++-8 -O2 tf.cpp common.cpp -otf -lOpenCL ${LIBPATH}

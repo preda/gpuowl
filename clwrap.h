@@ -227,7 +227,7 @@ string join(const string &prefix, const vector<string> &elems) {
 }
 
 cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
-                   const vector<string> &defVect, const string &config) {
+                   const vector<string> &defVect, const string &config = "") {
   string args = join(" -D", defVect) + " " + extraArgs + " " + "-I. -cl-fast-relaxed-math ";
   // -cl-kernel-arg-info
 
@@ -365,6 +365,6 @@ public:
     assert(size % sizeof(int) == 0);
     int zero = 0;
     CHECK(clEnqueueFillBuffer(queue.get(), buf.get(), &zero, sizeof(zero), 0, size, 0, 0, 0));
-    finish();
+    // finish();
   }
 };

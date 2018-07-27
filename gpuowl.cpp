@@ -291,7 +291,7 @@ u32 modInv(u32 a, u32 m) {
 unique_ptr<Gpu> makeGpu(u32 E, Args &args);
 
 int main(int argc, char **argv) {  
-  initLog();
+  initLog("gpuowl.log");
 
   log("%s-%s %s\n", PROGRAM, VARIANT, VERSION);
   

@@ -367,7 +367,7 @@ public:
     if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
 
     Context context(createContext(device));
-    Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs, defines, ""));
+    Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs, defines));
     if (!program) { throw "OpenCL compilation"; }
 
     return unique_ptr<Gpu>(new OpenGpu(E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,

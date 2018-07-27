@@ -26,7 +26,7 @@ void log(const char *fmt, ...) __attribute__ ((format(printf, 1, 2)));
 void log(const char *fmt, ...);
 #endif
 
-void initLog();
+void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 

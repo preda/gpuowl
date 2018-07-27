@@ -4,9 +4,9 @@
 
 vector<unique_ptr<FILE>> logFiles;
 
-void initLog() {
+void initLog(const char *logName) {
   logFiles.push_back(std::unique_ptr<FILE>(stdout));
-  if (auto fo = open("gpuowl.log", "a")) {
+  if (auto fo = open(logName, "a")) {
 #if defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
     setlinebuf(fo.get());
 #endif
