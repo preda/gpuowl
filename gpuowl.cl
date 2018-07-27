@@ -828,7 +828,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
+KERNEL(G_W) carryFused(P(T2) io, volatile P(Carry) carryShuttle, volatile P(uint) ready,
                        CP(T2) A, CP(T2) iA, Trig smallTrig) {
   local T lds[WIDTH];
 
