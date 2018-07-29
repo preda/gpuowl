@@ -11,8 +11,8 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
-#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
-#pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
+// #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+// #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
 
 // OpenCL 2.x introduces the "generic" memory space, so there's no need to specify "global" on pointers everywhere.
@@ -89,8 +89,7 @@ T2 shl(T2 a, uint k) { return U2(shl1(a.x, k), shl1(a.y, k)); }
 T2 swap(T2 a) { return U2(a.y, a.x); }
 T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
-void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
-void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
+void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
 
 Word lowBits(int u, uint bits) { return (u << (32 - bits)) >> (32 - bits); }
 
@@ -828,9 +827,19 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
   }
 }
 
+void release() {
+  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE, memory_order_release, memory_scope_device);
+  work_group_barrier(0);
+}
+
+void acquire() {
+  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE, memory_order_acquire, memory_scope_device);
+  work_group_barrier(0);
+}
+
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
+KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
                        CP(T2) A, CP(T2) iA, Trig smallTrig) {
   local T lds[WIDTH];
 
@@ -855,29 +864,29 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, volatile P(uint) ready,
     uint p = i * G_W + me;
     Carry carry = 0;
     wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p]);
-    if (gr < H) {
-      atomic_store_explicit((atomic_long *) &carryShuttle[gr * WIDTH + p], carry, memory_order_release, memory_scope_device);
-      // carryShuttle[gr * WIDTH + p] = carry; }
-    }
+    if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
-  bigBar();
-
+  release();
+  
   // Signal that this group is done writing the carry.
-  if (gr < H && me == 0) { atomic_xchg(&ready[gr], 1); }
+  if (gr < H && me == 0) {
+    atomic_store_explicit((atomic_uint *) &ready[gr], 1, memory_order_release, memory_scope_device); 
+  }
 
   if (gr == 0) { return; }
     
   // Wait until the previous group is ready with the carry.
-  if (me == 0) { while(!atomic_xchg(&ready[gr - 1], 0)); }
+  if (me == 0) {
+    while(!atomic_load_explicit((atomic_uint *) &ready[gr - 1], memory_order_acquire, memory_scope_device));
+    ready[gr - 1] = 0;
+  }
 
-  bigBar();
-
+  acquire();
+  
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
-    
-    Carry carry = atomic_load_explicit((atomic_long *) &carryShuttle[(gr - 1) * WIDTH + (p + WIDTH - gr / H) % WIDTH], memory_order_acquire, memory_scope_device);
-    // carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
+    Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
     u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
   }
 
