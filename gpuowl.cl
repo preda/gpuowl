@@ -828,13 +828,21 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
 }
 
 void release() {
+#if 0
   atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE, memory_order_release, memory_scope_device);
   work_group_barrier(0);
+#else
+  work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+#endif
 }
 
 void acquire() {
+#if 0
   atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE, memory_order_acquire, memory_scope_device);
   work_group_barrier(0);
+#else
+  work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+#endif
 }
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
