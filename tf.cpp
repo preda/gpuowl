@@ -163,10 +163,13 @@ int main(int argc, char **argv) {
   
   Kernel sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false);
   Kernel tf(program, queue.get(), device, 512, "tf", false);
-  // Kernel test(program, queue.get(), device, 1, "test", true);
+  Kernel initBtc(program, queue.get(), device, 1024, "initBtc", false);
 
   Buffer bufPrimes(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
                            sizeof(u32) * primes.size(), primes.data()));
+
+  Buffer bufModInvs(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
+                           sizeof(u32) * invs.size(), invs.data()));
 
   Buffer bufInvs(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
                            sizeof(u32) * primeInvs.size(), primeInvs.data()));
@@ -174,24 +177,30 @@ int main(int argc, char **argv) {
   Buffer bufBtc(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32) * primes.size()));
 
 
-  
   Buffer bufK(makeBuf(context, CL_MEM_READ_WRITE, BITS_PER_SIEVE * sizeof(u32)));
 
   Buffer bufN(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32)));
 
+  /*
   u64 k0 = startK(exp, startBit);
   auto btcs = initBtc(exp, k0, primes, invs);
   queue.write(bufBtc, btcs);
   queue.zero(bufN, sizeof(u32));
+  */
 
   Timer bigTime;
   
-  for(;; k0 += BITS_PER_CYCLE) {
+  for(u64 k0 = startK(exp, startBit); ; k0 += BITS_PER_CYCLE) {
     log("Starting bitlevel %.4f\n", bitLevel(exp, k0));
 
     for (int i = 0; i < NGOOD; ++i) {
       int c = classes[i];
       u64 k = k0 + c;
+      
+      initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
+
+      queue.zero(bufN, sizeof(u32));
+      
       sieve(bufPrimes, bufInvs, bufBtc, bufN, bufK);
       // log("after sieve\n");
       
@@ -202,8 +211,8 @@ int main(int argc, char **argv) {
       read(queue.get(), false, bufN, sizeof(i32), &readN);
       queue.zero(bufN, sizeof(i32));
 
+      /*
       u64 nextK = k0 + ((i == NGOOD - 1) ? BITS_PER_CYCLE : classes[i + 1]);
-
       // log("before initBtc\n");
       Timer t;
       btcs = initBtc(exp, nextK, primes, invs);
@@ -211,7 +220,9 @@ int main(int argc, char **argv) {
       // log("after initBtc\n");
       queue.write(bufBtc, btcs);
       u64 delta2 = t.deltaMicros();
-
+      */
+      queue.finish();
+      int delta1 = 0, delta2 = 0;
       log("bit %.4f, k %llu, class %3d / %3d (%4d), %d, time %d %d %d\n", bitLevel(exp, k0), k, i, NGOOD, c, readN, int(delta1), int(delta2), int(bigTime.deltaMicros()));
 
       if (readN < 0) {

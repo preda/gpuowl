@@ -274,12 +274,6 @@ uint4 OVER sub(uint4 a, uint4 b) { return toUint4(to128(a) - to128(b)); }
 uint3 OVER sub(uint3 a, uint3 b) { return toUint3(to128(a) - to128(b)); }
 bool equal(uint3 a, uint3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; }
 
-#if 0 //LLVM-GCN doesn't like 128bit shifts. See https://github.com/RadeonOpenCompute/ROCm/issues/490
-uint3 OVER lshift(uint3 u, uint k) { return toUint3(to128(u) << k); }
-uint4 OVER lshift(uint4 u, uint k) { return toUint4(to128(u) << k); }
-uint3 OVER rshift(uint4 u, uint k) { return toUint3(to128(u) >> k); }
-#endif
-
 uint alignbit(uint2 a, uint k) {
   assert(k <= 31, k);
   return toLong(a) >> (k & 31); // Squeeze a v_alignbit_b32 from the compiler.
@@ -469,13 +463,16 @@ KERNEL(1024) tf(uint exp, ulong kBase, global int *bufN, global uint *bufK) {
     uint3 m = toUint3(2 * exp * (u128) k + 1);
     if (isFactor(exp, m)) { bufN[0] = -kBit; }
   }
-  /*
-  ulong2 d = data[p];
+}
 
-  uint exp = d.x;
-  ulong k = d.y;
-  uint ee = 2 * exp;
-  uint3 m = toUint3(((u128) ee) * k + 1);
-  data[p] = expMod(exp, m);
-  */
+KERNEL(256) initBtc(uint N, uint exp, ulong k, global uint *primes, global uint *invs, global uint *outBtc) {
+  for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
+    uint prime = primes[i];
+    uint inv   = invs[i];
+    uint qMod  = (2 * exp * (k % prime) + 1) % prime;
+    uint btc   = (prime - qMod) * (ulong) inv % prime;
+    assert(btc < prime, btc);
+    // assert(2 * exp * u128(k + u64(btc) * NCLASS) % prime == prime - 1);
+    outBtc[i] = btc;
+  }
 }
