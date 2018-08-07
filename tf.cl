@@ -124,7 +124,7 @@ KERNEL(WG) sieve(const global uint * const primes, const global uint * const inv
     }
   }
 
-  for (int i = 45; i < 1 * 1024; ++i) {
+  for (int i = 45; i < 2 * 1024; ++i) {
     uint prime = primes[SWITCH + WG * i + me];
     uint inv = invs[SWITCH + WG * i + me];
     int btc = btcs[SWITCH + WG * i + me];    
@@ -455,17 +455,16 @@ bool isFactor(uint exp, uint3 m) {
 
 #define NCLASS 4620
 
-KERNEL(1024) tf(uint exp, ulong kBase, global int *bufN, global uint *bufK) {
-  int N = bufN[0];
+KERNEL(1024) tf(int N, uint exp, ulong kBase, global uint *bufK, global ulong *bufFound) {
   for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
     uint kBit = bufK[i];
     ulong k = kBase + kBit * (ulong) NCLASS;    
     uint3 m = toUint3(2 * exp * (u128) k + 1);
-    if (isFactor(exp, m)) { bufN[0] = -kBit; }
+    if (isFactor(exp, m)) { bufFound[0] = k; }
   }
 }
 
-KERNEL(256) initBtc(uint N, uint exp, ulong k, global uint *primes, global uint *invs, global uint *outBtc) {
+KERNEL(1024) initBtc(uint N, uint exp, ulong k, global uint *primes, global uint *invs, global uint *outBtc) {
   for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
     uint prime = primes[i];
     uint inv   = invs[i];

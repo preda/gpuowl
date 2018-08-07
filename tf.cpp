@@ -13,12 +13,14 @@
 
 typedef unsigned u32;
 typedef unsigned long long u64;
+typedef __uint128_t u128;
 
 using namespace std;
 
 struct Test {
   u32 exp;
   u64 k;
+  float bits;
 };
 
 Test tests[] = {
@@ -29,7 +31,6 @@ Test tests[] = {
 bool q1or7mod8(uint exp, uint c) { return !(c & 3) || ((c & 3) + (exp & 3) == 4); }
 
 template<u32 P> bool multiple(u32 exp, u32 c) { return 2 * c * u64(exp) % P == P - 1; }
-// { return (((uint) ((exp * (ulong)c) % p)) + 1) % p == 0; }
 
 bool isGoodClass(u32 exp, u32 c) {
   return q1or7mod8(exp, c)
@@ -99,8 +100,6 @@ vector<u32> initModInv(u32 exp, const vector<u32> &primes) {
   return invs;
 }
 
-typedef __uint128_t u128;
-
 vector<u32> initBtc(u32 exp, u64 k, const vector<u32> &primes, const vector<u32> &invs) {
   vector<u32> btcs;
   for (auto primeIt = primes.begin(), invIt = invs.begin(), primeEnd = primes.end(); primeIt != primeEnd; ++primeIt, ++invIt) {
@@ -115,37 +114,119 @@ vector<u32> initBtc(u32 exp, u64 k, const vector<u32> &primes, const vector<u32>
   return btcs;
 }
 
-u64 startK(u32 exp, float bits) {
+u64 startK(u32 exp, double bits) {
   u64 k = exp2(bits - 1) / exp;
   // ((__uint128_t(1) << (bits - 1)) + (exp - 2)) / exp;
   return k - k % NCLASS;
 }
 
-float bitLevel(u32 exp, u64 k) { return log2f(float(exp) * float(k) * 2 + 1); }
+double bitLevel(u32 exp, u64 k) { return log2(2 * exp * double(k) + 1); }
 
-void print(const vector<u32> &v) {
-  for (u32 x : v) { printf("%u, ", x); }
-  printf("\n(size %d)\n", int(v.size()));
+constexpr const int SIEVE_GROUPS = 1024;
+constexpr const int BITS_PER_GROUP = 32 * 1024 * 8;
+constexpr const int BITS_PER_SIEVE = SIEVE_GROUPS * BITS_PER_GROUP;
+constexpr const u64 BITS_PER_CYCLE = BITS_PER_SIEVE * u64(NCLASS);
+
+vector<u32> getPrimeInvs(const std::vector<u32> &primes) {
+  std::vector<u32> v;
+  v.reserve(primes.size());
+  for (u32 p : primes) { v.push_back(u32(-1) / p); }
+  return v;
 }
+
+class Tester {
+  vector<u32> primes;
+  Queue queue;
+
+  Kernel sieve, tf, initBtc;
+  Buffer bufPrimes, bufInvs, bufModInvs, bufBtc, bufK, bufN, bufFound;
+
+public:
+  Tester(cl_program program, cl_device_id device, cl_context context) :
+    primes(smallPrimes<1024 * 1024 * 8>(13)),
+    queue(makeQueue(device, context)),
+    
+    sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false),
+    tf(program, queue.get(), device, 512, "tf", false),
+    initBtc(program, queue.get(), device, 256, "initBtc", false),
+
+    bufPrimes(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
+                      sizeof(u32) * primes.size(), primes.data())),
+
+    bufInvs(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
+                    sizeof(u32) * primes.size(), getPrimeInvs(primes).data())),
+
+    bufModInvs(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32) * primes.size())),
+    
+    bufBtc(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32) * primes.size())),
+    bufK(makeBuf(context, CL_MEM_READ_WRITE, BITS_PER_SIEVE * sizeof(u32) / 4)),
+    bufN(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32))),
+    bufFound(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
+  {
+    printf("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
+
+    long double f = 1;
+    for (int i = 0; i < 1024 * 1024 + 64; ++i) {
+      u32 p = primes[i];
+      f *= (p - 1) / (long double) p;
+    }
+    printf("expected filter %.20g%%\n", double(f) * 100);
+  }
+  
+  u64 findFactor(u32 exp, double startBit, double endBit) {
+    auto classes = goodClasses(exp);
+    assert(classes[0] == 0);
+
+    auto invs = initModInv(exp, primes);
+    queue.write(bufModInvs, invs);
+    
+    queue.zero(bufFound, sizeof(u64));
+
+    u64 foundK = 0;
+
+    u64 k0 = startK(exp, startBit);
+    log("Exponent %u, k %llu (%.6f bits)\n", exp, k0, bitLevel(exp, k0));
+  
+    Timer timer, cycleTimer;
+
+    for( ; bitLevel(exp, k0) < endBit; k0 += BITS_PER_CYCLE) {
+      for (int i = 0; i < NGOOD; ++i) {
+        int c = classes[i];
+        u64 k = k0 + c;
+      
+        initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
+
+        queue.zero(bufN, sizeof(u32));
+        
+        sieve(bufPrimes, bufInvs, bufBtc, bufN, bufK);
+
+        uint n = queue.read<u32>(bufN, 1)[0];
+        
+        if (foundK) { return foundK; }
+        
+        tf(n, exp, k, bufK, bufFound);
+        read(queue.get(), false, bufFound, sizeof(u64), &foundK);
+        // log("%3.1f%% (class %4d): %d (%.3f%%), %.1fms\n", 100 * i / float(NGOOD), c, n, n / double(BITS_PER_SIEVE) * 100, timer.deltaMicros() / float(1000));
+      }
+      queue.finish();
+      log("Done k %llu (%.6f bits) in %.2fs\n", k0, bitLevel(exp, k0), cycleTimer.deltaMicros() / float(1'000'000));
+    }
+    return 0;
+  }
+  
+};
 
 int main(int argc, char **argv) {
   initLog("tf.log");
+
+  if (argc < 3) {
+    log("Usage: %s <exponent> <bitLevel>\n", argv[0]);
+    return 0;
+  }
   
   u32 exp = atoi(argv[1]);
-  float startBit = atof(argv[2]);
-  
-  auto primes = smallPrimes<1024 * 1024 * 8>(13);
+  double startBit = atof(argv[2]);
 
-  printf("%d primes up to %d\n", int(primes.size()), primes[primes.size() - 1]);
-
-  vector<u32> primeInvs;
-  primeInvs.reserve(primes.size());
-  for (u32 p : primes) { primeInvs.push_back(u32(-1) / p); }
-  
-  auto invs = initModInv(exp, primes);
-  auto classes = goodClasses(exp);
-  assert(classes[0] == 0);
-      
   auto devices = getDeviceIDs(true);
   cl_device_id device = devices[0];
   Context context(createContext(device));
@@ -154,129 +235,24 @@ int main(int argc, char **argv) {
   // if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/"+tf; }
   clArgs += " -cl-std=CL2.0 -save-temps=t0/tf";
   cl_program program = compile(device, context.get(), "tf", clArgs, defines);
-  Queue queue(makeQueue(device, context.get()));
 
-  const int SIEVE_GROUPS = 1024;
-  const int BITS_PER_GROUP = 32 * 1024 * 8;
-  const int BITS_PER_SIEVE = SIEVE_GROUPS * BITS_PER_GROUP; // 2^28, 256M
-  const u64 BITS_PER_CYCLE = BITS_PER_SIEVE * u64(NCLASS); // 2 ^ 40.2
-  
-  Kernel sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false);
-  Kernel tf(program, queue.get(), device, 512, "tf", false);
-  Kernel initBtc(program, queue.get(), device, 1024, "initBtc", false);
+  Tester tester(program, device, context.get());
 
-  Buffer bufPrimes(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
-                           sizeof(u32) * primes.size(), primes.data()));
-
-  Buffer bufModInvs(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
-                           sizeof(u32) * invs.size(), invs.data()));
-
-  Buffer bufInvs(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
-                           sizeof(u32) * primeInvs.size(), primeInvs.data()));
-  
-  Buffer bufBtc(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32) * primes.size()));
-
-
-  Buffer bufK(makeBuf(context, CL_MEM_READ_WRITE, BITS_PER_SIEVE * sizeof(u32)));
-
-  Buffer bufN(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32)));
-
-  /*
-  u64 k0 = startK(exp, startBit);
-  auto btcs = initBtc(exp, k0, primes, invs);
-  queue.write(bufBtc, btcs);
-  queue.zero(bufN, sizeof(u32));
-  */
-
-  Timer bigTime;
-  
-  for(u64 k0 = startK(exp, startBit); ; k0 += BITS_PER_CYCLE) {
-    log("Starting bitlevel %.4f\n", bitLevel(exp, k0));
-
-    for (int i = 0; i < NGOOD; ++i) {
-      int c = classes[i];
-      u64 k = k0 + c;
-      
-      initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
-
-      queue.zero(bufN, sizeof(u32));
-      
-      sieve(bufPrimes, bufInvs, bufBtc, bufN, bufK);
-      // log("after sieve\n");
-      
-      tf(exp, k, bufN, bufK);
-      // log("after tf\n");
-      
-      i32 readN;
-      read(queue.get(), false, bufN, sizeof(i32), &readN);
-      queue.zero(bufN, sizeof(i32));
-
-      /*
-      u64 nextK = k0 + ((i == NGOOD - 1) ? BITS_PER_CYCLE : classes[i + 1]);
-      // log("before initBtc\n");
-      Timer t;
-      btcs = initBtc(exp, nextK, primes, invs);
-      u64 delta1 = t.deltaMicros();
-      // log("after initBtc\n");
-      queue.write(bufBtc, btcs);
-      u64 delta2 = t.deltaMicros();
-      */
-      queue.finish();
-      int delta1 = 0, delta2 = 0;
-      log("bit %.4f, k %llu, class %3d / %3d (%4d), %d, time %d %d %d\n", bitLevel(exp, k0), k, i, NGOOD, c, readN, int(delta1), int(delta2), int(bigTime.deltaMicros()));
-
-      if (readN < 0) {
-        log("Found factor K: %llu\n", (k + (-readN) * u64(NCLASS)));
-        return 1;
-      }
-    }
-  }
-
-  /*
-  
-  // StatsInfo stats = sieve.resetStats(); printf("%d %f\n", stats.n, stats.mean);
-
-  
-  u64 data[2 * 256] = {0};
-  u64 *p = data;
-  for (int i = 0; i < 256; ++i) {
-    *p++ = 332196173;
-    *p++ = 15086682666063ull;
-  }
-  
-  Buffer bufSquare(makeBuf(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(u32) * 4 * 256, data));
-
-  for (auto t : tests) {    
-
-    for (int i = 0; i < 256; ++i) {
-      data[i*2] = t.exp;
-      data[i*2 + 1] = t.k;
-    }
-
-    write(queue.get(), true, bufSquare, sizeof(u32) * 4 * 256, data);
-    
-    // square(bufSquare);
-    square(bufSquare);
-
-    vector<u32> out = queue.read<u32>(bufSquare, 4 * 256);
-    int i;
-    for (i = 0; i < 256; ++i) {
-      if (!out[i*4]) {
-        // printf("%u %d\n", t.exp, i);
-        break;
-      }
-      // printf("%d %x'%08x'%08x\n", i, out[i*4+2], out[i*4+1], out[i*4]);
-    }
-    if (i == 256) {      
-      printf("ok %u\n", t.exp);
+  for (auto test : tests) {
+    u64 foundFactor = tester.findFactor(test.exp, test.bits - 0.001, test.bits + 0.001);
+    if (foundFactor == test.k) {
+      log("OK %u %llu\n", test.exp, foundFactor);
     } else {
-      printf("fail %u\n", t.exp);
+      log("FAIL %u %llu %llu\n", test.exp, foundFactor, test.k);
     }
+    // assert(foundFactor == test.k);
   }
+    
+  /*
 
-  return 0;
+  if (foundFactor) {
+    log("Found factor K: %llu\n", foundFactor);
+    return 1;
+  }
   */
-
-
-  // for (int i = 0; i < 512; ++i) { printf("%d %u\n", i, primes[i]); }
 }
