@@ -6,10 +6,7 @@
 
 #define assert(cond, value)
 // if (!(cond) /*&& (get_local_id(0) == 0)*/) { printf("assert #%d: %x\n", __LINE__, (uint) value); }
-
-#define printf DONT_USE
-
-// #define P(format, ...) if (get_local_id(0)==0) { printf(format, ##__VA_ARGS__); }
+// #define printf DONT_USE
 
 #define B13 (1ul | (1ul << 13) | (1ul << 26) | (1ul << 39) | (1ul << 52))
 #define B17 (1ul | (1ul << 17) | (1ul << 34) | (1ul << 51))
@@ -25,21 +22,9 @@ uint rem(int x, uint p, int inv) {
   return r;
 }
 
-uint modP(int x, uint p) {
-  uint r = rem(x, p, 0xffffffff / p);
-  assert(r < p, r);
-  return r;
-}
-
-  /*
-  int a = x - mul_hi(x, (int) (0xffffffff / p + 1)) * p;
-  int b = a - p;
-  return (b >= 0) ? b : a;
-  */
-
-uint modStep(int bit, int delta, int p) {
+uint modStep(int bit, int p, int step) {
   assert(p > 0, p);
-  int a = bit - delta % p;
+  int a = bit - step;
   uint r = (a < 0) ? a + p : a;
   assert(r < p, r);
   return r;
@@ -47,26 +32,29 @@ uint modStep(int bit, int delta, int p) {
 
 void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
 
-#define WG 512
-
 ulong shl64(ulong x, uint n) { return (n < 64) ? x << n : 0; }
 uint shl32(uint x, uint n) { return (n < 32) ? x << n : 0; }
 
-#define SIEVE2(i, p) filter(p, words, rem(btcs[i] - threadStart, p, invs[i]), 1 | shl64(1, p) | shl64(1, 2 * p) | shl64(1, 3 * p))
-#define SIEVE1(i, p) filter(p, words, rem(btcs[i] - threadStart, p, invs[i]), 1 | (1ul << p))
-#define SIEVE0(i, p) filter(p, words, rem(btcs[i] - threadStart, p, invs[i]), 1)
+#define SIEVE2(i, mask) filter(tab[i*3], words, rem(btcs[i] - threadStart, tab[i*3], tab[i*3+1]), mask, tab[i*3+2])
+#define SIEVE1(i) filter(tab[i*3], words, rem(btcs[i] - threadStart, tab[i*3], tab[i*3+1]), 1 | (1ul << tab[i*3]), tab[i*3+2])
+#define SIEVE0(i) filter(tab[i*3], words, rem(btcs[i] - threadStart, tab[i*3], tab[i*3+1]), 1, tab[i*3+2])
 
+#define SWITCH 64
+#define NPRIMES (256 * 1024 + SWITCH)
+#define WG 1024
 #define LDS_WORDS (8 * 1024)
 #define LDS_BITS (LDS_WORDS * 32)
 #define THREAD_WORDS (LDS_WORDS / WG)
 #define THREAD_DWORDS (THREAD_WORDS / 2)
 
-void filter(uint prime, ulong *words, uint pos, ulong mask) {
+void filter(uint prime, ulong *words, uint pos, ulong mask, int step) {
   for (int i = 0; i < THREAD_DWORDS; ++i) {
     words[i] |= shl64(mask, pos);
-    pos = modStep(pos, 64 * WG, prime);
+    pos = modStep(pos, prime, step);
   }
 }
+
+#define P(x) x, 0xffffffffu/x, 64*WG%x
 
 KERNEL(WG) sieve(const global uint * const primes, const global uint * const invs,
                  const global int * const btcs, global uint *outN, global uint *outK) {
@@ -77,52 +65,44 @@ KERNEL(WG) sieve(const global uint * const primes, const global uint * const inv
   local ulong *bigLds = (local ulong *)lds;
   
   uint threadStart = LDS_BITS * g + 64 * me;
-  // uint threadStart = LDS_BITS * g + (LDS_BITS / WG) * me;
+
+  for (int i = 0; i < THREAD_DWORDS; ++i) { bigLds[WG * i + me] = 0; }
 
   {
-    ulong words[THREAD_DWORDS];
-
-    uint pos = modP(btcs[0] - threadStart, 13);
-    for (int i = 0; i < THREAD_DWORDS; ++i) {
-      words[i] = B13 << pos;
-      pos = modStep(pos, 64 * WG, 13);
-    }
-
-
-#define SWITCH 64
+    ulong words[THREAD_DWORDS] = {0};
     
-    uint primes[] = {
-      13,   17,  19,  23,  29,  31,  37,  41,
-      43,   47,  53,  59,  61,  67,  71,  73,
-      79,   83,  89,  97, 101, 103, 107, 109,
-      113, 127, 131, 137, 139, 149, 151, 157,
-      163, 167, 173, 179, 181, 191, 193, 197,
-      199, 211, 223, 227, 229, 233, 239, 241,
-      251, 257, 263, 269, 271, 277, 281, 283,
-      293, 307, 311, 313, 317, 331, 337, 347,
+    uint tab[] = {
+P( 13), P( 17), P( 19), P( 23), P( 29), P( 31), P( 37), P( 41), P( 43), P( 47), P( 53), P( 59), P( 61), P( 67), P( 71), P( 73), 
+P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), P(131), P(137), P(139), P(149), P(151), P(157), 
+P(163), P(167), P(173), P(179), P(181), P(191), P(193), P(197), P(199), P(211), P(223), P(227), P(229), P(233), P(239), P(241), 
+P(251), P(257), P(263), P(269), P(271), P(277), P(281), P(283), P(293), P(307), P(311), P(313), P(317), P(331), P(337), P(347), 
+P(349), P(353), P(359), P(367), P(373), P(379), P(383), P(389), P(397), P(401), P(409), P(419), P(421), P(431), P(433), P(439), 
+P(443), P(449), P(457), P(461), P(463), P(467), P(479), P(487), P(491), P(499), P(503), P(509), P(521), P(523), P(541), P(547), 
+P(557), P(563), P(569), P(571), P(577), P(587), P(593), P(599), P(601), P(607), P(613), P(617), P(619), P(631), P(641), P(643), 
+P(647), P(653), P(659), P(661), P(673), P(677), P(683), P(691), P(701), P(709), P(719), P(727), P(733), P(739), P(743), P(751),
     };
-
-    // for (int i = 1; i < 6; ++i) { SIEVE2(i, primes[i]); }
-    SIEVE2(1, primes[1]);
-    SIEVE2(2, primes[2]);
-    SIEVE2(3, primes[3]);
-    SIEVE2(4, primes[4]);
-    SIEVE2(5, primes[5]);
-    for (int i =  6; i < 13; ++i) { SIEVE1(i, primes[i]); }
-    for (int i = 13; i < SWITCH; ++i) { SIEVE0(i, primes[i]); }
+    
+    SIEVE2(0, B13);
+    SIEVE2(1, B17);
+    SIEVE2(2, B19);
+    SIEVE2(3, B23);
+    SIEVE2(4, B29);
+    SIEVE2(5, B31);
+    for (int i =  6; i < 13; ++i) { SIEVE1(i); }
+    for (int i = 13; i < SWITCH; ++i) { SIEVE0(i); }
 
     for (int i = 0; i < THREAD_DWORDS; ++i) {
-      // bigLds[me * 16 + i] = words[i];
       bigLds[WG * i + me] = words[i];
     }
   }
 
   bar();
 
-  for (int i = 0; i < 512; ++i) {
-    uint prime = primes[SWITCH + WG * i + me];
-    uint inv = invs[SWITCH + WG * i + me];
-    int btc = btcs[SWITCH + WG * i + me];    
+  for (int i = 0; i < (NPRIMES - SWITCH) / WG; ++i) {
+    uint pos = SWITCH + WG * i + me;
+    uint prime = primes[pos];
+    uint inv   = invs[pos];
+    int btc    = btcs[pos];
     for (uint pos = rem(btc - LDS_BITS * g, prime, inv); pos < LDS_BITS; pos += prime) {
       atomic_or(&lds[pos / 32], 1 << (pos % 32));
     }
@@ -192,18 +172,6 @@ KERNEL(WG) sieve(const global uint * const primes, const global uint * const inv
     outK[WG * common + i + mePos] = (LDS_WORDS * g + WG * wordPos + me) * 32 + bit;    
   }
 #endif
-  
-  /*
-  uint pos = groupPos + mePos + 1;
-  for (int i = 0; i < 32; ++i) {
-    uint w = lds[WG * i + me];
-    for (int b = 0; b < 32; ++b) {
-      if ((w & (1u << b)) == 0) {
-        out[pos++] = (g * 8 * 1024 + i * WG + me) * 32 + b;
-      }
-    }
-  }
-  */
 }
 
 #define OVER __attribute__((overloadable))

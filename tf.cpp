@@ -54,7 +54,7 @@ vector<u32> goodClasses(u32 exp) {
 }
 
 // Returns all the primes < 2*N.
-template<u32 N> vector<u32> smallPrimes(u32 start) {
+template<u32 N> vector<u32> smallPrimes(u32 start, u32 maxSize) {
   vector<u32> primes;
   if (N < 1) { return primes; }
   if (2 >= start) { primes.push_back(2); }
@@ -69,7 +69,10 @@ template<u32 N> vector<u32> smallPrimes(u32 start) {
     last = p;
     notPrime[p] = true;
     u32 prime = 2 * p + 1;
-    if (prime >= start) { primes.push_back(prime); }
+    if (prime >= start) {
+      primes.push_back(prime);
+      if (primes.size() >= maxSize) { return primes; }
+    }
     if (p <= limit) { for (u32 i = 2 * p * (p + 1); i < N; i += prime) { notPrime[i] = true; } }
   }
 }
@@ -116,7 +119,6 @@ vector<u32> initBtcHost(u32 exp, u64 k, const vector<u32> &primes, const vector<
 
 u64 startK(u32 exp, double bits) {
   u64 k = exp2(bits - 1) / exp;
-  // ((__uint128_t(1) << (bits - 1)) + (exp - 2)) / exp;
   return k - k % NCLASS;
 }
 
@@ -143,7 +145,7 @@ class Tester {
 
 public:
   Tester(cl_program program, cl_device_id device, cl_context context) :
-    primes(smallPrimes<1024 * 1024 * 2>(13)),
+    primes(smallPrimes<1024 * 1024 * 2>(13, 256 * 1024 + 64)),
     queue(makeQueue(device, context)),
     
     sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false),
@@ -164,18 +166,20 @@ public:
     bufFound(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
   {
     printf("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
+    /*
+    // for (int i = 0; i < 128; ++i) { if (!(i % 16)) { printf("\n"); } printf("P(%3d), ", primes[i]);}
+    // for (int i = 0; i < 128; ++i) { printf("%d, ", (64 * 1024) % primes[i]); }
+    printf("\n");
+    
     int i = 0;
     while (primes[i] < 128 * 1024) { ++i; }
     printf("limit %d, %d %d\n", i - 1, primes[i-1], primes[i]);
     while (primes[i] < 256 * 1024) { ++i; }
     printf("limit %d, %d %d\n", i - 1, primes[i-1], primes[i]);
-
+    */
     
     long double f = 1;
-    for (int i = 0; i < 256 * 1024 + 64; ++i) {
-      u32 p = primes[i];
-      f *= (p - 1) / (long double) p;
-    }
+    for (u32 p : primes) { f *= (p - 1) / (double) p; }
     printf("expected filter %.20g%%\n", double(f) * 100);
   }
   
