@@ -5,9 +5,9 @@
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 #define assert(cond, value)
-// if (!(cond) && (get_local_id(0) == 0)) { printf("assert #%d: %x\n", __LINE__, (uint) value); }
+// if (!(cond) /*&& (get_local_id(0) == 0)*/) { printf("assert #%d: %x\n", __LINE__, (uint) value); }
 
-#define printf error
+#define printf DONT_USE
 
 // #define P(format, ...) if (get_local_id(0)==0) { printf(format, ##__VA_ARGS__); }
 
@@ -18,12 +18,18 @@
 #define B29 (1ul | (1ul << 29) | (1ul << 58))
 #define B31 (1ul | (1ul << 31) | (1ul << 62))
 
-int rem(int x, uint p, int inv) {
+uint rem(int x, uint p, int inv) {
   int a = x - mul_hi(x, inv) * p;
-  return (a < 0) ? a + p : a;
+  uint r = (a < 0) ? a + p : a;
+  assert(r < p, r);
+  return r;
 }
 
-int modP(int x, uint p) { return rem(x, p, 0xffffffff / p); }
+uint modP(int x, uint p) {
+  uint r = rem(x, p, 0xffffffff / p);
+  assert(r < p, r);
+  return r;
+}
 
   /*
   int a = x - mul_hi(x, (int) (0xffffffff / p + 1)) * p;
@@ -32,8 +38,11 @@ int modP(int x, uint p) { return rem(x, p, 0xffffffff / p); }
   */
 
 uint modStep(int bit, int delta, int p) {
+  assert(p > 0, p);
   int a = bit - delta % p;
-  return (a < 0) ? a + p : a;
+  uint r = (a < 0) ? a + p : a;
+  assert(r < p, r);
+  return r;
 }
 
 void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
@@ -110,26 +119,13 @@ KERNEL(WG) sieve(const global uint * const primes, const global uint * const inv
 
   bar();
 
-  for (int i = 0; i < 45; ++i) {
+  for (int i = 0; i < 512; ++i) {
     uint prime = primes[SWITCH + WG * i + me];
     uint inv = invs[SWITCH + WG * i + me];
     int btc = btcs[SWITCH + WG * i + me];    
     for (uint pos = rem(btc - LDS_BITS * g, prime, inv); pos < LDS_BITS; pos += prime) {
       atomic_or(&lds[pos / 32], 1 << (pos % 32));
-      
-      // if ((lds[pos / 32] & mask) == 0) { lds[pos / 32] |= mask; }
-      // uint read = lds[pos / 32];
-      // if ((read & mask) == 0) { lds[pos / 32] = read | mask; }
-      // lds[pos / 32] |= mask;
     }
-  }
-
-  for (int i = 45; i < 2 * 1024; ++i) {
-    uint prime = primes[SWITCH + WG * i + me];
-    uint inv = invs[SWITCH + WG * i + me];
-    int btc = btcs[SWITCH + WG * i + me];    
-    uint pos = rem(btc - LDS_BITS * g, prime, inv);
-    if (pos < LDS_BITS) { atomic_or(&lds[pos / 32], 1 << (pos % 32)); }
   }
   
   bar();
@@ -303,7 +299,7 @@ uint3 OVER rshift(uint4 u, uint k) {
 float OVER toFloat(uint x, float y) { return y * (1l << 32) + x; }
 float OVER toFloat(uint2 u) { return toFloat(u.x, u.y); }
 float OVER toFloat(uint3 u) { return toFloat(u.x, toFloat(u.y, u.z)); }
-float floatInv(uint2 u) { return as_float(as_uint(1 / toFloat(u)) - 3); } // lower bound.
+float floatInv(uint2 u) { return as_float(as_uint(1 / toFloat(u)) - 4); } // lower bound.
 
 // See mfaktc: tf_barrett96_div.cu
 uint3 div192(uint3 n) {
@@ -471,7 +467,7 @@ KERNEL(1024) initBtc(uint N, uint exp, ulong k, global uint *primes, global uint
     uint qMod  = (2 * exp * (k % prime) + 1) % prime;
     uint btc   = (prime - qMod) * (ulong) inv % prime;
     assert(btc < prime, btc);
-    // assert(2 * exp * u128(k + u64(btc) * NCLASS) % prime == prime - 1);
+    // assert(2 * exp * (u128) (k + ((ulong) btc) * NCLASS) % prime == prime - 1, 0);
     outBtc[i] = btc;
   }
 }

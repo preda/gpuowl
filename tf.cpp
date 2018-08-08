@@ -100,7 +100,7 @@ vector<u32> initModInv(u32 exp, const vector<u32> &primes) {
   return invs;
 }
 
-vector<u32> initBtc(u32 exp, u64 k, const vector<u32> &primes, const vector<u32> &invs) {
+vector<u32> initBtcHost(u32 exp, u64 k, const vector<u32> &primes, const vector<u32> &invs) {
   vector<u32> btcs;
   for (auto primeIt = primes.begin(), invIt = invs.begin(), primeEnd = primes.end(); primeIt != primeEnd; ++primeIt, ++invIt) {
     u32 prime = *primeIt;
@@ -143,7 +143,7 @@ class Tester {
 
 public:
   Tester(cl_program program, cl_device_id device, cl_context context) :
-    primes(smallPrimes<1024 * 1024 * 8>(13)),
+    primes(smallPrimes<1024 * 1024 * 2>(13)),
     queue(makeQueue(device, context)),
     
     sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false),
@@ -164,9 +164,15 @@ public:
     bufFound(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
   {
     printf("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
+    int i = 0;
+    while (primes[i] < 128 * 1024) { ++i; }
+    printf("limit %d, %d %d\n", i - 1, primes[i-1], primes[i]);
+    while (primes[i] < 256 * 1024) { ++i; }
+    printf("limit %d, %d %d\n", i - 1, primes[i-1], primes[i]);
 
+    
     long double f = 1;
-    for (int i = 0; i < 1024 * 1024 + 64; ++i) {
+    for (int i = 0; i < 256 * 1024 + 64; ++i) {
       u32 p = primes[i];
       f *= (p - 1) / (long double) p;
     }
@@ -177,8 +183,8 @@ public:
     auto classes = goodClasses(exp);
     assert(classes[0] == 0);
 
-    auto invs = initModInv(exp, primes);
-    queue.write(bufModInvs, invs);
+    auto modInvs = initModInv(exp, primes);
+    queue.write(bufModInvs, modInvs);
     
     queue.zero(bufFound, sizeof(u64));
 
@@ -196,6 +202,8 @@ public:
       
         initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
 
+        // queue.write(bufBtc, initBtcHost(exp, k, primes, modInvs));
+        
         queue.zero(bufN, sizeof(u32));
         
         sieve(bufPrimes, bufInvs, bufBtc, bufN, bufK);
@@ -206,7 +214,7 @@ public:
         
         tf(n, exp, k, bufK, bufFound);
         read(queue.get(), false, bufFound, sizeof(u64), &foundK);
-        // log("%3.1f%% (class %4d): %d (%.3f%%), %.1fms\n", 100 * i / float(NGOOD), c, n, n / double(BITS_PER_SIEVE) * 100, timer.deltaMicros() / float(1000));
+        log("%3.1f%% (class %4d): %d (%.3f%%), %.1fms\n", 100 * i / float(NGOOD), c, n, n / double(BITS_PER_SIEVE) * 100, timer.deltaMicros() / float(1000));
       }
       queue.finish();
       log("Done k %llu (%.6f bits) in %.2fs\n", k0, bitLevel(exp, k0), cycleTimer.deltaMicros() / float(1'000'000));
@@ -219,14 +227,12 @@ public:
 int main(int argc, char **argv) {
   initLog("tf.log");
 
+  bool doSelfTest = false;
   if (argc < 3) {
     log("Usage: %s <exponent> <bitLevel>\n", argv[0]);
-    return 0;
+    doSelfTest = true;
   }
   
-  u32 exp = atoi(argv[1]);
-  double startBit = atof(argv[2]);
-
   auto devices = getDeviceIDs(true);
   cl_device_id device = devices[0];
   Context context(createContext(device));
@@ -238,21 +244,21 @@ int main(int argc, char **argv) {
 
   Tester tester(program, device, context.get());
 
-  for (auto test : tests) {
-    u64 foundFactor = tester.findFactor(test.exp, test.bits - 0.001, test.bits + 0.001);
-    if (foundFactor == test.k) {
-      log("OK %u %llu\n", test.exp, foundFactor);
-    } else {
-      log("FAIL %u %llu %llu\n", test.exp, foundFactor, test.k);
+  if (doSelfTest) {
+    for (auto test : tests) {
+      u64 foundFactor = tester.findFactor(test.exp, test.bits - 0.001, test.bits + 0.001);
+      if (foundFactor == test.k) {
+        log("OK %u %llu\n", test.exp, foundFactor);
+      } else {
+        log("FAIL %u %llu %llu\n", test.exp, foundFactor, test.k);
+      }
     }
-    // assert(foundFactor == test.k);
+  } else {
+    u32 exp = atoi(argv[1]);
+    double startBit = atof(argv[2]);
+    if (u64 factor = tester.findFactor(exp, startBit, startBit + 10)) {
+      log("%u has a factor: %llu\n", exp, factor);
+      return 1;
+    }
   }
-    
-  /*
-
-  if (foundFactor) {
-    log("Found factor K: %llu\n", foundFactor);
-    return 1;
-  }
-  */
 }
