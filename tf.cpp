@@ -122,11 +122,12 @@ u64 startK(u32 exp, double bits) {
 
 double bitLevel(u32 exp, u64 k) { return log2(2 * exp * double(k) + 1); }
 
-constexpr const int SIEVE_GROUPS = 1024;
+constexpr const int SIEVE_GROUPS = 4 * 1024;
 constexpr const int BITS_PER_GROUP = 32 * 1024 * 8;
 constexpr const int BITS_PER_SIEVE = SIEVE_GROUPS * BITS_PER_GROUP;
 constexpr const u64 BITS_PER_CYCLE = BITS_PER_SIEVE * u64(NCLASS);
-constexpr const int SWITCH = 32;
+constexpr const int SPECIAL_PRIMES = 32;
+constexpr const int NPRIMES = 256 * 1024 + SPECIAL_PRIMES;
 
 vector<u32> getPrimeInvs(const std::vector<u32> &primes) {
   std::vector<u32> v;
@@ -144,7 +145,7 @@ class Tester {
 
 public:
   Tester(cl_program program, cl_device_id device, cl_context context) :
-    primes(smallPrimes<1024 * 1024 * 2>(13, 256 * 1024 + SWITCH)),
+    primes(smallPrimes<1024 * 1024 * 2>(13, NPRIMES)),
     queue(makeQueue(device, context)),
     
     sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false),
@@ -160,11 +161,12 @@ public:
     bufModInvs(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32) * primes.size())),
     
     bufBtc(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32) * primes.size())),
-    bufK(makeBuf(context, CL_MEM_READ_WRITE, BITS_PER_SIEVE * sizeof(u32) / 4)),
+    bufK(makeBuf(context, CL_MEM_READ_WRITE, BITS_PER_SIEVE * sizeof(u32) / 5)),
     bufN(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32))),
     bufFound(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
   {
-    printf("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
+    log("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
+    log("Sieve: allocating %.1f MB of GPU memory\n", BITS_PER_SIEVE * sizeof(u32) / float(1024 * 1024 * 5));
     long double f = 1;
     for (u32 p : primes) { f *= (p - 1) / (double) p; }
     printf("expected filter %8.5f%%\n", double(f) * 100);
@@ -237,11 +239,11 @@ int main(int argc, char **argv) {
   auto devices = getDeviceIDs(true);
   cl_device_id device = devices[0];
   Context context(createContext(device));
-  vector<string> defines;
   string clArgs = "";
   // if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/"+tf; }
   clArgs += " -cl-std=CL2.0 -save-temps=t0/tf";
-  cl_program program = compile(device, context.get(), "tf", clArgs, defines);
+  cl_program program = compile(device, context.get(), "tf", clArgs,
+                               {{"NCLASS", NCLASS}, {"SPECIAL_PRIMES", SPECIAL_PRIMES}, {"NPRIMES", NPRIMES}, });
 
   Tester tester(program, device, context.get());
 

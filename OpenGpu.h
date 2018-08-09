@@ -125,7 +125,7 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   log("\n");
 }
 
-string valueDefine(const string &key, u32 value) { return key + "=" + std::to_string(value) + "u"; }
+// string valueDefine(const string &key, u32 value) { return key + "=" + std::to_string(value) + "u"; }
 
 cl_device_id getDevice(const Args &args) {
   cl_device_id device = nullptr;
@@ -348,12 +348,14 @@ public:
       || (args.carry == Args::CARRY_AUTO && WIDTH >= 2048);
   
     log("Note: using %s carry kernels\n", useLongCarry ? "long" : "short");
-    
+
+    /*
     vector<string> defines {valueDefine("EXP", E),
         valueDefine("WIDTH", WIDTH),
         valueDefine("SMALL_HEIGHT", SMALL_HEIGHT),
         valueDefine("MIDDLE", MIDDLE),
         };
+    */
 
     string clArgs = args.clArgs;
     if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
@@ -367,7 +369,8 @@ public:
     if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
 
     Context context(createContext(device));
-    Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs, defines));
+    Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs,
+                                       {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}}));
     if (!program) { throw "OpenCL compilation"; }
 
     return unique_ptr<Gpu>(new OpenGpu(E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,

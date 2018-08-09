@@ -212,9 +212,10 @@ string join(const string &prefix, const vector<string> &elems) {
 }
 
 cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
-                   const vector<string> &defVect, const string &config = "") {
-  string args = join(" -D", defVect) + " " + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-std=CL2.0 ";
-  // -cl-kernel-arg-info
+                   const vector<pair<string, unsigned>> &defines, const string &config = "") {
+  string strDefines;
+  for (auto d : defines) { strDefines = strDefines + "-D" + d.first + "=" + to_string(d.second) + "u "; }
+  string args = strDefines + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-std=CL2.0 ";
 
   cl_program program = 0;
   

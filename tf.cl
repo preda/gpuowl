@@ -39,12 +39,10 @@ uint shl32(uint x, uint n) { return (n < 32) ? x << n : 0; }
 #define SIEVE1(i) filter(tab[i*3], words, rem(btcs[i] - threadStart, tab[i*3], tab[i*3+1]), 1 | (1ul << tab[i*3]), tab[i*3+2])
 #define SIEVE0(i) filter(tab[i*3], words, rem(btcs[i] - threadStart, tab[i*3], tab[i*3+1]), 1, tab[i*3+2])
 
-#define SWITCH 32
-#define NPRIMES (256 * 1024 + SWITCH)
-#define WG 1024
+#define SIEVE_WG 1024
 #define LDS_WORDS (8 * 1024)
 #define LDS_BITS (LDS_WORDS * 32)
-#define THREAD_WORDS (LDS_WORDS / WG)
+#define THREAD_WORDS (LDS_WORDS / SIEVE_WG)
 #define THREAD_DWORDS (THREAD_WORDS / 2)
 
 void filter(uint prime, ulong *words, uint pos, ulong mask, int step) {
@@ -54,9 +52,9 @@ void filter(uint prime, ulong *words, uint pos, ulong mask, int step) {
   }
 }
 
-#define P(x) x, 0xffffffffu/x, 64*WG%x
+#define P(x) x, 0xffffffffu / x, 64 * SIEVE_WG % x
 
-KERNEL(WG) sieve(const global uint * const primes, const global uint * const invs,
+KERNEL(SIEVE_WG) sieve(const global uint * const primes, const global uint * const invs,
                  const global int * const btcs, global uint *outN, global uint *outK) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
@@ -68,7 +66,7 @@ KERNEL(WG) sieve(const global uint * const primes, const global uint * const inv
   {
     ulong words[THREAD_DWORDS] = {0};
     
-    uint tab[SWITCH * 3] = {
+    uint tab[SPECIAL_PRIMES * 3] = {
 P( 13), P( 17), P( 19), P( 23), P( 29), P( 31), P( 37), P( 41), P( 43), P( 47), P( 53), P( 59), P( 61), P( 67), P( 71), P( 73), 
 P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), P(131), P(137), P(139), P(149), P(151), P(157),
 // P(163), P(167), P(173), P(179), P(181), P(191), P(193), P(197), P(199), P(211), P(223), P(227), P(229), P(233), P(239), P(241), 
@@ -85,19 +83,19 @@ P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), 
     SIEVE2(3, B23);
     SIEVE2(4, B29);
     SIEVE2(5, B31);
-    for (int i =  6; i < 13; ++i) { SIEVE1(i); }
-    for (int i = 13; i < SWITCH; ++i) { SIEVE0(i); }
+    for (int i =  6; i < min(13u, SPECIAL_PRIMES); ++i) { SIEVE1(i); }
+    for (int i = 13; i < SPECIAL_PRIMES; ++i) { SIEVE0(i); }
 
     local ulong *bigLds = (local ulong *)lds;
     for (int i = 0; i < THREAD_DWORDS; ++i) {
-      bigLds[WG * i + me] = words[i];
+      bigLds[SIEVE_WG * i + me] = words[i];
     }
   }
 
   bar();
 
-  for (int i = 0; i < (NPRIMES - SWITCH) / WG; ++i) {
-    uint pos = SWITCH + WG * i + me;
+  for (int i = 0; i < (NPRIMES - SPECIAL_PRIMES) / SIEVE_WG; ++i) {
+    uint pos = SPECIAL_PRIMES + SIEVE_WG * i + me;
     uint prime = primes[pos];
     uint inv   = invs[pos];
     int btc    = btcs[pos];
@@ -111,7 +109,7 @@ P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), 
   uint count = 0;
   
   for (int i = 0; i < THREAD_WORDS; ++i) {
-    count += popcount(~lds[WG * i + me]);
+    count += popcount(~lds[SIEVE_WG * i + me]);
   }
 
   uint save0, save1;
@@ -153,23 +151,21 @@ P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), 
   
   if (me == 0) { lds[0] = save0; }
 
-#if 1
   int wordPos = 0;
   uint word = ~lds[me];
   for (int i = 0; i < common; ++i) {
-    while (word == 0) { word = ~lds[me + WG * ++wordPos]; }
+    while (word == 0) { word = ~lds[me + SIEVE_WG * ++wordPos]; }
     uint bit = ctz(word);
     word &= word - 1; // clear last bit set.
-    outK[i * WG + me] = (LDS_WORDS * g + WG * wordPos + me) * 32 + bit;
+    outK[i * SIEVE_WG + me] = (LDS_WORDS * g + SIEVE_WG * wordPos + me) * 32 + bit;
   }
 
   for (int i = 0; i < count - common; ++i) {
-    while (word == 0) { word = ~lds[me + WG * ++wordPos]; }
+    while (word == 0) { word = ~lds[me + SIEVE_WG * ++wordPos]; }
     uint bit = ctz(word);
     word &= word - 1; // clear last bit set.
-    outK[WG * common + i + mePos] = (LDS_WORDS * g + WG * wordPos + me) * 32 + bit;    
+    outK[SIEVE_WG * common + i + mePos] = (LDS_WORDS * g + SIEVE_WG * wordPos + me) * 32 + bit;    
   }
-#endif
 }
 
 #define OVER __attribute__((overloadable))
@@ -383,8 +379,6 @@ bool isFactor(uint exp, uint3 m) {
   a = sub(a, mul(m, n).xyz);
   return equal(a, (uint3)(1, 0, 0)) || equal(a, add(m, 1));
 }
-
-#define NCLASS 4620
 
 KERNEL(1024) tf(int N, uint exp, ulong kBase, global uint *bufK, global ulong *bufFound) {
   for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
