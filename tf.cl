@@ -62,16 +62,13 @@ KERNEL(WG) sieve(const global uint * const primes, const global uint * const inv
   uint me = get_local_id(0);
 
   local uint lds[LDS_WORDS];
-  local ulong *bigLds = (local ulong *)lds;
   
   uint threadStart = LDS_BITS * g + 64 * me;
-
-  for (int i = 0; i < THREAD_DWORDS; ++i) { bigLds[WG * i + me] = 0; }
 
   {
     ulong words[THREAD_DWORDS] = {0};
     
-    uint tab[] = {
+    uint tab[SWITCH * 3] = {
 P( 13), P( 17), P( 19), P( 23), P( 29), P( 31), P( 37), P( 41), P( 43), P( 47), P( 53), P( 59), P( 61), P( 67), P( 71), P( 73), 
 P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), P(131), P(137), P(139), P(149), P(151), P(157),
 // P(163), P(167), P(173), P(179), P(181), P(191), P(193), P(197), P(199), P(211), P(223), P(227), P(229), P(233), P(239), P(241), 
@@ -91,6 +88,7 @@ P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), 
     for (int i =  6; i < 13; ++i) { SIEVE1(i); }
     for (int i = 13; i < SWITCH; ++i) { SIEVE0(i); }
 
+    local ulong *bigLds = (local ulong *)lds;
     for (int i = 0; i < THREAD_DWORDS; ++i) {
       bigLds[WG * i + me] = words[i];
     }

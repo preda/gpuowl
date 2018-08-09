@@ -46,14 +46,12 @@ constexpr const u32 NGOOD  = (2 * 2 * 4 * 6 * 10);
 vector<u32> goodClasses(u32 exp) {
   vector<u32> good;
   good.reserve(NGOOD);
-  for (u32 c = 0; c < NCLASS; ++c) {
-    if (isGoodClass(exp, c)) { good.push_back(c); }
-  }
+  for (u32 c = 0; c < NCLASS; ++c) { if (isGoodClass(exp, c)) { good.push_back(c); } }
   assert(good.size() == NGOOD);
   return good;
 }
 
-// Returns all the primes < 2*N.
+// Returns all the primes p such that: p >= start and p < 2*N; at most maxSize primes.
 template<u32 N> vector<u32> smallPrimes(u32 start, u32 maxSize) {
   vector<u32> primes;
   if (N < 1) { return primes; }
@@ -79,6 +77,7 @@ template<u32 N> vector<u32> smallPrimes(u32 start, u32 maxSize) {
 
 // 1/n modulo prime
 u32 modInv(u32 n, u32 prime) {
+  const u32 saveN = n;
   u32 q = prime / n;
   u32 d = prime - q * n;
   int x = -q;
@@ -89,17 +88,16 @@ u32 modInv(u32 n, u32 prime) {
     { int save = x; x = prevX - q * x; prevX = save; }   // prevX = set(x, prevX - q * x);
   }
   u32 ret = (prevX >= 0) ? prevX : (prevX + prime);
-  assert(ret < prime);
+  
+  assert(ret < prime && ret * (u64) saveN % prime == 1);
+  
   return ret;
 }
 
 vector<u32> initModInv(u32 exp, const vector<u32> &primes) {
   vector<u32> invs;
   invs.reserve(primes.size());
-  for (u32 prime : primes) {
-    // assert(prime < u32(-1) / NCLASS); // to prevent 32bit overflow in mul below.
-    invs.push_back(modInv(2 * NCLASS * u64(exp) % prime, prime));
-  }
+  for (u32 prime : primes) { invs.push_back(modInv(2 * NCLASS * u64(exp) % prime, prime)); }
   return invs;
 }
 
@@ -111,7 +109,7 @@ vector<u32> initBtcHost(u32 exp, u64 k, const vector<u32> &primes, const vector<
     u32 qMod = (2 * exp * (k % prime) + 1) % prime;
     u32 btc = (prime - qMod) * u64(inv) % prime;
     assert(btc < prime);
-    // assert(2 * exp * u128(k + u64(btc) * NCLASS) % prime == prime - 1);
+    assert(2 * exp * u128(k + u64(btc) * NCLASS) % prime == prime - 1);
     btcs.push_back(btc);
   }
   return btcs;
@@ -167,21 +165,9 @@ public:
     bufFound(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
   {
     printf("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
-    /*
-    // for (int i = 0; i < 128; ++i) { if (!(i % 16)) { printf("\n"); } printf("P(%3d), ", primes[i]);}
-    // for (int i = 0; i < 128; ++i) { printf("%d, ", (64 * 1024) % primes[i]); }
-    printf("\n");
-    
-    int i = 0;
-    while (primes[i] < 128 * 1024) { ++i; }
-    printf("limit %d, %d %d\n", i - 1, primes[i-1], primes[i]);
-    while (primes[i] < 256 * 1024) { ++i; }
-    printf("limit %d, %d %d\n", i - 1, primes[i-1], primes[i]);
-    */
-    
     long double f = 1;
     for (u32 p : primes) { f *= (p - 1) / (double) p; }
-    printf("expected filter %.20g%%\n", double(f) * 100);
+    printf("expected filter %8.5f%%\n", double(f) * 100);
   }
   
   u64 findFactor(u32 exp, double startBit, double endBit) {
@@ -197,7 +183,17 @@ public:
 
     u64 k0 = startK(exp, startBit);
     log("Exponent %u, k %llu (%.6f bits)\n", exp, k0, bitLevel(exp, k0));
-  
+
+    if (false) { // count bits on host for one class (testing).
+      auto btcs = initBtcHost(exp, k0 + 3, primes, modInvs);
+      auto bits = make_unique<bitset<256 * 1024 * 1024>>();
+      for (int i = 0; i < primes.size(); ++i) {
+        u32 prime = primes[i];
+        for(u32 b = btcs[i]; b < 256 * 1024 * 1024; b += prime) { bits->set(b); }
+      }
+      log("Count %d\n", int(256 * 1024 * 1024 - bits->count()));
+    }
+    
     Timer timer, cycleTimer;
 
     for( ; bitLevel(exp, k0) < endBit; k0 += BITS_PER_CYCLE) {
