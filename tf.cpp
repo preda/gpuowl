@@ -193,12 +193,12 @@ public:
 
     if (false) { // count bits on host for one class (testing).
       auto btcs = initBtcHost(exp, k0 + 3, primes, modInvs);
-      auto bits = make_unique<bitset<256 * 1024 * 1024>>();
+      auto bits = make_unique<bitset<BITS_PER_SIEVE>>();
       for (int i = 0; i < primes.size(); ++i) {
         u32 prime = primes[i];
-        for(u32 b = btcs[i]; b < 256 * 1024 * 1024; b += prime) { bits->set(b); }
+        for(u32 b = btcs[i]; b < BITS_PER_SIEVE; b += prime) { bits->set(b); }
       }
-      log("Count %d\n", int(256 * 1024 * 1024 - bits->count()));
+      log("Count %d\n", int(BITS_PER_SIEVE - bits->count()));
     }
     
     Timer timer, cycleTimer;
