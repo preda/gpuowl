@@ -128,6 +128,7 @@ constexpr const int SIEVE_GROUPS = 1024;
 constexpr const int BITS_PER_GROUP = 32 * 1024 * 8;
 constexpr const int BITS_PER_SIEVE = SIEVE_GROUPS * BITS_PER_GROUP;
 constexpr const u64 BITS_PER_CYCLE = BITS_PER_SIEVE * u64(NCLASS);
+constexpr const int SWITCH = 32;
 
 vector<u32> getPrimeInvs(const std::vector<u32> &primes) {
   std::vector<u32> v;
@@ -145,7 +146,7 @@ class Tester {
 
 public:
   Tester(cl_program program, cl_device_id device, cl_context context) :
-    primes(smallPrimes<1024 * 1024 * 2>(13, 256 * 1024 + 64)),
+    primes(smallPrimes<1024 * 1024 * 2>(13, 256 * 1024 + SWITCH)),
     queue(makeQueue(device, context)),
     
     sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false),
