@@ -66,8 +66,8 @@ KERNEL(SIEVE_WG) sieve(const global uint * const primes, const global uint * con
     ulong words[THREAD_DWORDS] = {0};
     
     uint tab[SPECIAL_PRIMES * 3] = {
-      // P( 13),
-P( 17), P( 19), P( 23), P( 29), P( 31), P( 37), P( 41), P( 43), P( 47), P( 53), P( 59), P( 61), P( 67), P( 71), P( 73), 
+// P( 13),
+        P( 17), P( 19), P( 23), P( 29), P( 31), P( 37), P( 41), P( 43), P( 47), P( 53), P( 59), P( 61), P( 67), P( 71), P( 73), 
 P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), P(131), P(137), P(139), P(149), P(151), P(157),
 P(163),
 //         P(167), P(173), P(179), P(181), P(191), P(193), P(197), P(199), P(211), P(223), P(227), P(229), P(233), P(239), P(241), 
@@ -192,6 +192,7 @@ ulong mul64(uint a, uint b) { return mad64(a, b, 0); }
 */
 
 typedef unsigned long long u128;
+
 u128 OVER to128(uint3 u) { return (((u128) u.z) << 64) | (((ulong) u.y) << 32) | u.x; }
 u128 OVER to128(uint4 u) { return (((u128) u.w) << 96) | to128(u.xyz); }
 uint3 toUint3(u128 a) { return (uint3) (a, a >> 32, a >> 64); }
@@ -211,13 +212,14 @@ uint alignbit(uint2 a, uint k) {
   assert(k <= 31, k);
   return toLong(a) >> (k & 31); // Squeeze a v_alignbit_b32 from the compiler.
 }
-// uint align(uint2 a, uint k) { return toLong(a) >> (32 - k); }
 
 uint3 OVER lshift(uint3 u, uint k) {
   assert(k > 0 && k <= 32, k);
   k = (32 - k) & 31;
   return (uint3) (alignbit((uint2)(0, u.x), k), alignbit(u.xy, k), alignbit(u.yz, k));
 }
+
+// uint3 lshift1(uint3 u) { return toUint3(to128(u) * 2); }
 
 uint4 OVER lshift(uint4 u, uint k) {
   assert(k > 0 && k <= 32, k);
@@ -313,7 +315,7 @@ uint3 div192(uint3 n) {
   return res;
 }
 
-uint8 square94(uint3 u) {
+uint8 square(uint3 u) {
   uint c = 2 * u.z;
   ulong ab = mad64(u.x, u.y, 0);
   ulong abLow = ab << 33;
@@ -371,7 +373,7 @@ bool isFactor(uint exp, uint3 m) {
   uint3 a = mod(b, m, u);
 
   do {
-    a = mod(square94(a), m, u);
+    a = mod(square(a), m, u);
     if (exp >> 31) { a = lshift(a, 1); }
     // if (get_local_id(0) == 0) { printf("%x%08x%08x\n", a.z, a.y, a.x); }
   } while (exp <<= 1);
@@ -381,7 +383,8 @@ bool isFactor(uint exp, uint3 m) {
   return equal(a, (uint3)(1, 0, 0)) || equal(a, add(m, 1));
 }
 
-KERNEL(1024) tf(int N, uint exp, ulong kBase, global uint *bufK, global ulong *bufFound) {
+#define TF_WG 1024
+KERNEL(TF_WG) tf(int N, uint exp, ulong kBase, global uint *bufK, global ulong *bufFound) {
   for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
     uint kBit = bufK[i];
     ulong k = kBase + kBit * (ulong) NCLASS;    

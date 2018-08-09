@@ -224,7 +224,7 @@ public:
         
         tf(n, exp, k, bufK, bufFound);
         read(queue.get(), false, bufFound, sizeof(u64), &foundK);
-        log("%3.1f%% (class %4d): %d (%.3f%%), %.1fms\n", 100 * i / float(NGOOD), c, n, n / double(BITS_PER_SIEVE) * 100, timer.deltaMicros() / float(1000));
+        log("%5.2f%% %5d: %d (%.3f%%), %.1fms\n", 100 * i / float(NGOOD), c, n, n / double(BITS_PER_SIEVE) * 100, timer.deltaMicros() / float(1000));
       }
       queue.finish();
       log("Done k %llu (%.6f bits) in %.2fs\n", k0, bitLevel(exp, k0), cycleTimer.deltaMicros() / float(1'000'000));
