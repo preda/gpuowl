@@ -357,39 +357,36 @@ uint3 mod(uint8 b, uint3 m, uint3 u) {
   return sub(b.xyz, mulLow(m, mulHi(rshift(b.s2345, (31 - clz(m.z))), u)));
 }
 
-bool isFactor(uint exp, uint3 m) {
-  // int shift = 31 - clz(m.z);
-  exp <<= clz(exp); // flush left.
-  uint topBits = (((exp << 1) >> 30)) ? 7 : 8;
-  uint preShift = exp >> (32 - topBits);
-  assert(preShift >= 80 && preShift < 160, preShift);
-  exp <<= topBits;
-
-  // if (get_local_id(0) == 0) { printf("preShift %d\n", preShift); }
-  
-  uint8 b = (uint8) (0, 0, toUint2(shl64(1, preShift - 64)), shl32(1, preShift - 128), 0, 0, 0);
-  
+bool isFactor(uint flushed, uint3 m, uint4 preshifted) {
+  uint8 b = (uint8) (0, 0, preshifted, 0, 0);  
   uint3 u = div192(m);
   uint3 a = mod(b, m, u);
 
   do {
     a = mod(square(a), m, u);
-    if (exp >> 31) { a = lshift(a, 1); }
-    // if (get_local_id(0) == 0) { printf("%x%08x%08x\n", a.z, a.y, a.x); }
-  } while (exp <<= 1);
+    if (flushed >> 31) { a = lshift(a, 1); }
+  } while (flushed <<= 1);
+  
   uint n = toFloat(a.yz) * floatInv(m.yz);
-  // if (get_local_id(0) == 0) { printf("%.20g %.20g %u\n", toFloat(a.yz), floatInv(m.yz), n); }
   a = sub(a, mul(m, n).xyz);
   return equal(a, (uint3)(1, 0, 0)) || equal(a, add(m, 1));
 }
 
 #define TF_WG 1024
-KERNEL(TF_WG) tf(int N, uint exp, ulong kBase, global uint *bufK, global ulong *bufFound) {
+KERNEL(TF_WG) tf(int N, uint exponent, ulong kBase, global uint *bufK, global ulong *bufFound) {
+  assert(exponent & 1, exponent);
+  uint flushed = exponent << clz(exponent); // flush left.
+  uint topBits = ((flushed >> 24) < 178) ? 8 : 7;
+  uint shift   = flushed >> (32 - topBits);
+  assert(shift >= 89 && shift < 178, shift);
+  flushed <<= topBits;
+  uint4 preshifted = (uint4) (toUint2(shl64(1, shift - 64)), toUint2(shl64(1, shift - 128)));
+  
   for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
     uint kBit = bufK[i];
     ulong k = kBase + kBit * (ulong) NCLASS;    
-    uint3 m = toUint3(2 * exp * (u128) k + 1);
-    if (isFactor(exp, m)) { bufFound[0] = k; }
+    uint3 m = toUint3(2 * exponent * (u128) k + 1);
+    if (isFactor(flushed, m, preshifted)) { bufFound[0] = k; }
   }
 }
 
