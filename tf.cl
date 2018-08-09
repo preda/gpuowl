@@ -8,7 +8,7 @@
 // if (!(cond) /*&& (get_local_id(0) == 0)*/) { printf("assert #%d: %x\n", __LINE__, (uint) value); }
 // #define printf DONT_USE
 
-#define B13 (1ul | (1ul << 13) | (1ul << 26) | (1ul << 39) | (1ul << 52))
+// #define B13 (1ul | (1ul << 13) | (1ul << 26) | (1ul << 39) | (1ul << 52))
 #define B17 (1ul | (1ul << 17) | (1ul << 34) | (1ul << 51))
 #define B19 (1ul | (1ul << 19) | (1ul << 38) | (1ul << 57))
 #define B23 (1ul | (1ul << 23) | (1ul << 46))
@@ -40,7 +40,6 @@ uint shl32(uint x, uint n) { return (n < 32) ? x << n : 0; }
 #define SIEVE0(i) filter(tab[i*3], words, rem(btcs[i] - threadStart, tab[i*3], tab[i*3+1]), 1, tab[i*3+2])
 
 #define SIEVE_WG 1024
-#define LDS_WORDS (8 * 1024)
 #define LDS_BITS (LDS_WORDS * 32)
 #define THREAD_WORDS (LDS_WORDS / SIEVE_WG)
 #define THREAD_DWORDS (THREAD_WORDS / 2)
@@ -67,9 +66,11 @@ KERNEL(SIEVE_WG) sieve(const global uint * const primes, const global uint * con
     ulong words[THREAD_DWORDS] = {0};
     
     uint tab[SPECIAL_PRIMES * 3] = {
-P( 13), P( 17), P( 19), P( 23), P( 29), P( 31), P( 37), P( 41), P( 43), P( 47), P( 53), P( 59), P( 61), P( 67), P( 71), P( 73), 
+      // P( 13),
+P( 17), P( 19), P( 23), P( 29), P( 31), P( 37), P( 41), P( 43), P( 47), P( 53), P( 59), P( 61), P( 67), P( 71), P( 73), 
 P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), P(131), P(137), P(139), P(149), P(151), P(157),
-// P(163), P(167), P(173), P(179), P(181), P(191), P(193), P(197), P(199), P(211), P(223), P(227), P(229), P(233), P(239), P(241), 
+P(163),
+//         P(167), P(173), P(179), P(181), P(191), P(193), P(197), P(199), P(211), P(223), P(227), P(229), P(233), P(239), P(241), 
 // P(251), P(257), P(263), P(269), P(271), P(277), P(281), P(283), P(293), P(307), P(311), P(313), P(317), P(331), P(337), P(347), 
 // P(349), P(353), P(359), P(367), P(373), P(379), P(383), P(389), P(397), P(401), P(409), P(419), P(421), P(431), P(433), P(439), 
 // P(443), P(449), P(457), P(461), P(463), P(467), P(479), P(487), P(491), P(499), P(503), P(509), P(521), P(523), P(541), P(547), 
@@ -77,14 +78,14 @@ P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), 
 // P(647), P(653), P(659), P(661), P(673), P(677), P(683), P(691), P(701), P(709), P(719), P(727), P(733), P(739), P(743), P(751),
     };
     
-    SIEVE2(0, B13);
-    SIEVE2(1, B17);
-    SIEVE2(2, B19);
-    SIEVE2(3, B23);
-    SIEVE2(4, B29);
-    SIEVE2(5, B31);
-    for (int i =  6; i < min(13u, SPECIAL_PRIMES); ++i) { SIEVE1(i); }
-    for (int i = 13; i < SPECIAL_PRIMES; ++i) { SIEVE0(i); }
+    // SIEVE2(0, B13);
+    SIEVE2(0, B17);
+    SIEVE2(1, B19);
+    SIEVE2(2, B23);
+    SIEVE2(3, B29);
+    SIEVE2(4, B31);
+    for (int i =  5; i < min(12u, SPECIAL_PRIMES); ++i) { SIEVE1(i); }
+    for (int i = 12; i < SPECIAL_PRIMES; ++i) { SIEVE0(i); }
 
     local ulong *bigLds = (local ulong *)lds;
     for (int i = 0; i < THREAD_DWORDS; ++i) {

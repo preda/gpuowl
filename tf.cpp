@@ -37,11 +37,12 @@ bool isGoodClass(u32 exp, u32 c) {
     && !multiple<3>(exp, c)
     && !multiple<5>(exp, c)
     && !multiple<7>(exp, c)
-    && !multiple<11>(exp, c);
+    && !multiple<11>(exp, c)
+    && !multiple<13>(exp, c);
 }
 
-constexpr const u32 NCLASS = (4 * 3 * 5 * 7 * 11);
-constexpr const u32 NGOOD  = (2 * 2 * 4 * 6 * 10);
+constexpr const u32 NCLASS = (4 * 3 * 5 * 7 * 11 * 13); // 60060
+constexpr const u32 NGOOD  = (2 * 2 * 4 * 6 * 10 * 12); // 11520
 
 vector<u32> goodClasses(u32 exp) {
   vector<u32> good;
@@ -149,7 +150,7 @@ class Tester {
 
 public:
   Tester(cl_program program, cl_device_id device, cl_context context) :
-    primes(smallPrimes<1024 * 1024 * 4>(13, NPRIMES)),
+    primes(smallPrimes<1024 * 1024 * 4>(17, NPRIMES)),
     queue(makeQueue(device, context)),
     
     sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false),
@@ -177,7 +178,7 @@ public:
     printf("expected filter %8.3f%%\n", double(f) * 100);
   }
   
-  u64 findFactor(u32 exp, double startBit, double endBit) {
+  u64 findFactor(u32 exp, double startBit, double endBit, int startClass = 0) {
     auto classes = goodClasses(exp);
     assert(classes[0] == 0);
 
@@ -206,6 +207,7 @@ public:
     for( ; bitLevel(exp, k0) < endBit; k0 += BITS_PER_CYCLE) {
       for (int i = 0; i < NGOOD; ++i) {
         int c = classes[i];
+        if (c < startClass) { continue; }
         u64 k = k0 + c;
       
         initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
@@ -247,14 +249,16 @@ int main(int argc, char **argv) {
   string clArgs = "";
   // if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/"+tf; }
   clArgs += " -cl-std=CL2.0 -save-temps=t0/tf";
-  cl_program program = compile(device, context.get(), "tf", clArgs,
-                               {{"NCLASS", NCLASS}, {"SPECIAL_PRIMES", SPECIAL_PRIMES}, {"NPRIMES", NPRIMES}, });
+  cl_program program =
+    compile(device, context.get(), "tf", clArgs,
+            {{"NCLASS", NCLASS}, {"SPECIAL_PRIMES", SPECIAL_PRIMES}, {"NPRIMES", NPRIMES}, {"LDS_WORDS", LDS_WORDS}, });
 
   Tester tester(program, device, context.get());
 
   if (doSelfTest) {
     for (auto test : tests) {
-      u64 foundFactor = tester.findFactor(test.exp, test.bits - 0.001, test.bits + 0.001);
+      u32 c = test.k % NCLASS;
+      u64 foundFactor = tester.findFactor(test.exp, test.bits - 0.001, test.bits + 0.001, c);
       if (foundFactor == test.k) {
         log("OK %u %llu\n", test.exp, foundFactor);
       } else {
