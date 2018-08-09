@@ -174,8 +174,6 @@ P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), 
 
 #define OVER __attribute__((overloadable))
 
-// struct uint6 { uint x, y, z, w, d4, d5; };
-
 ulong mad64(uint a, uint b, ulong c) { return a * (ulong) b + c; }
 /*
     ulong r;
@@ -196,36 +194,11 @@ ulong mul64(uint a, uint b) { return mad64(a, b, 0); }
   return r;
 */
 
-uint4 OVER mul(uint3 n, uint q) {
-  // return toUint4(toU128(n) * q);
-  
-  ulong a = mul64(n.x, q);
-  ulong b = mad64(n.y, q, a >> 32);
-  ulong c = mad64(n.z, q, b >> 32);
-  return (uint4)(a, b, c, c >> 32);
-}
-
-#define USE128 1
-
-#if USE128
-
 typedef unsigned long long u128;
 u128 OVER to128(uint3 u) { return (((u128) u.z) << 64) | (((ulong) u.y) << 32) | u.x; }
 u128 OVER to128(uint4 u) { return (((u128) u.w) << 96) | to128(u.xyz); }
 uint3 toUint3(u128 a) { return (uint3) (a, a >> 32, a >> 64); }
 uint4 toUint4(u128 a) { return (uint4) (toUint3(a), a >> 96); }
-
-#endif
-
-#if 0
-uint3 add(uint3 a, uint3 b) {
-  ulong x = a.x + (ulong) b.x;
-  ulong y = a.y + (ulong) b.y + (x >> 32);
-  uint  z = a.z + b.z + (y >> 32);
-  return (uint3) (x, y, z);
-}
-#endif
-
 ulong toLong(uint2 a) { return (((ulong) a.y) << 32) | a.x; }
 uint2 toUint2(long a) { return (uint2)(a, a >> 32); }
 
@@ -234,6 +207,7 @@ uint3 OVER add(uint3 a, uint3 b) { return toUint3(to128(a) + to128(b)); }
 uint3 OVER add(uint3 a, uint x) { return toUint3(to128(a) + x); }
 uint4 OVER sub(uint4 a, uint4 b) { return toUint4(to128(a) - to128(b)); }
 uint3 OVER sub(uint3 a, uint3 b) { return toUint3(to128(a) - to128(b)); }
+uint4 OVER mul(uint3 n, uint q) { return toUint4(to128(n) * q); }
 bool equal(uint3 a, uint3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; }
 
 uint alignbit(uint2 a, uint k) {
@@ -260,8 +234,6 @@ uint3 OVER rshift(uint4 u, uint k) {
   return (uint3) (alignbit(u.xy, k), alignbit(u.yz, k), alignbit(u.zw, k));
 }
 
-
-// float OVER toFloat(ulong x) { return ((float) (x >> 32)) * (1l << 32) + (uint) x; }
 float OVER toFloat(uint x, float y) { return y * (1l << 32) + x; }
 float OVER toFloat(uint2 u) { return toFloat(u.x, u.y); }
 float OVER toFloat(uint3 u) { return toFloat(u.x, toFloat(u.y, u.z)); }
@@ -358,22 +330,19 @@ uint8 square94(uint3 u) {
   return (uint8)((uint) aa, aa >> 32, (uint) bb, (uint) bc, (uint) cc, cc >> 32, 0, 0);
 }
 
-uint3 mulLow(uint3 u, uint3 v) {
-#if USE128
-  return toUint3(to128(u) * to128(v));
-#else
+uint3 mulLow(uint3 u, uint3 v) { return toUint3(to128(u) * to128(v)); }
+#if 0
   ulong ad = mul64(u.x, v.x);
   ulong ae = mad64(u.x, v.y, ad >> 32);
   ulong db = mad64(u.y, v.x, ae);
   uint z = u.y * v.y + u.x * v.z + u.z * v.x + (uint) (db >> 32);
-  return (uint3)(ad >> 32, db >> 32, z);
+  return (uint3)(ad, db, z);
 #endif
-}
 
 uint3 mulHi(uint3 u, uint3 v) {
   ulong t = mul_hi(u.x, v.z) + (ulong) mul_hi(u.z, v.x);
   
-#if USE128
+#if 1
   return toUint3(((toLong(u.yz) * (u128) toLong(v.yz)) >> 32) + t);
 #else
   ulong a  = mul_hi(u.y, v.y) + t;
