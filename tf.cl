@@ -201,8 +201,6 @@ uint3 OVER lshift(uint3 u, uint k) {
   return (uint3) (alignbit((uint2)(0, u.x), k), alignbit(u.xy, k), alignbit(u.yz, k));
 }
 
-// uint3 lshift1(uint3 u) { return toUint3(to128(u) * 2); }
-
 uint4 OVER lshift(uint4 u, uint k) {
   assert(k > 0 && k <= 32, k);
   k = (32 - k) & 31;

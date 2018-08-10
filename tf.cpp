@@ -130,9 +130,9 @@ constexpr const int BITS_PER_SIEVE = SIEVE_GROUPS * BITS_PER_GROUP;
 constexpr const u64 BITS_PER_CYCLE = BITS_PER_SIEVE * u64(NCLASS);
 
 constexpr const int SPECIAL_PRIMES = 32;
-constexpr const int NPRIMES = 256 * 1024 + SPECIAL_PRIMES;
+constexpr const int NPRIMES = 288 * 1024 + SPECIAL_PRIMES;
 
-constexpr const u32 KBUF_BYTES = BITS_PER_SIEVE / 5 * sizeof(u32);
+constexpr const u32 KBUF_BYTES = BITS_PER_SIEVE / 4 * sizeof(u32);
 
 vector<u32> getPrimeInvs(const std::vector<u32> &primes) {
   std::vector<u32> v;
@@ -160,7 +160,7 @@ public:
     queue(makeQueue(device, context)),
     
     sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false),
-    tf(program, queue.get(), device, 512, "tf", false),
+    tf(program, queue.get(), device, 1024, "tf", false),
     initBtc(program, queue.get(), device, 256, "initBtc", false),
 
     bufPrimes(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,

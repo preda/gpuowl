@@ -279,14 +279,6 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
   }
 }
 
-u32 modInv(u32 a, u32 m) {
-  a = a % m;
-  for (u32 i = 1; i < m; ++i) {
-    if (a * i % m == 1) { return i; }
-  }
-  assert(false);
-}
-
 // selects OpenGpu or CudaGpu.
 unique_ptr<Gpu> makeGpu(u32 E, Args &args);
 
