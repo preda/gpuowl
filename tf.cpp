@@ -218,6 +218,7 @@ public:
     int startCycle = startPos / NGOOD;    
     k0 += startCycle * BITS_PER_CYCLE;
     for(int cycle = startCycle; cycle < nCycle; ++cycle, k0 += BITS_PER_CYCLE) {
+      log("M%u starting cycle %d/%d, K %llu\n", exp, cycle, nCycle, k0);
       for (int i = (cycle == startCycle) ? startPos % NGOOD : 0; i < NGOOD; ++i) {
         int c = classes[i];
         u64 k = k0 + c;
@@ -246,18 +247,17 @@ public:
           int hours = etaMins / 60 % 24;
           int mins  = etaMins % 60;
           
-          printf("%4d/%d (%.2f%%), M%u %g-%g, %.3fs (%.0f GHz), ETA %dd %02d:%02d, candidates %llu (%.3f%%)\n",
+          log("%4d/%d (%.2f%%), M%u %g-%g, %.3fs (%.0f GHz), ETA %dd %02d:%02d, FCs %llu (%.3f%%)\n",
                  nDone / 64, nCycle * NGOOD / 64, nDone * 100 / float(nCycle * NGOOD),
                  exp, startBit, endBit,
                  secs, speed, days, hours, mins,
                  nFiltered, nFiltered / (float(BITS_PER_SIEVE) * 64) * 100);
           nFiltered = 0;
-        }
-        
-        // printf("%5.2f%% %5d: %d (%.3f%%), %.1fms\n", 100 * i / float(NGOOD), c, n, n / double(BITS_PER_SIEVE) * 100, timer.deltaMicros() / float(1000));
+        }        
       }
       queue.finish();
-      log("Done k %llu (%.6f bits) in %.2fs\n", k0, bitLevel(exp, k0), cycleTimer.deltaMicros() / float(1'000'000));
+      if (foundK) { return foundK; }
+      log("M%u done cycle %d/%d, K %llu, in %.0fs\n", exp, cycle, nCycle, k0, cycleTimer.deltaMicros() / float(1'000'000));
     }
     return 0;
   }

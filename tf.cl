@@ -172,24 +172,6 @@ P(163),
 #define OVER __attribute__((overloadable))
 
 ulong mad64(uint a, uint b, ulong c) { return a * (ulong) b + c; }
-/*
-    ulong r;
-  __asm("v_mad_u64_u32 %0, vcc, %1, %2, %3\n"
-        : "=v"(r)
-        : "v"(a), "v"(b), "v"(c)
-        : "vcc");
-  return r;
-*/
-
-ulong mul64(uint a, uint b) { return mad64(a, b, 0); }
-/*
-  ulong r;
-  __asm("v_mad_u64_u32 %0, vcc, %1, %2, 0\n"
-        : "=v"(r)
-        : "v"(a), "v"(b)
-        : "vcc");
-  return r;
-*/
 
 typedef unsigned long long u128;
 
@@ -317,7 +299,7 @@ uint3 div192(uint3 n) {
 
 uint8 square(uint3 u) {
   uint c = 2 * u.z;
-  ulong ab = mad64(u.x, u.y, 0);
+  ulong ab = u.x * (ulong) u.y;
   ulong abLow = ab << 33;
   ulong aa = mad64(u.x, u.x, abLow);
   ulong abHigh = (ab >> 31) + (aa < abLow);
@@ -326,30 +308,13 @@ uint8 square(uint3 u) {
   ulong bc = mad64(u.y, c, bb >> 32);
   uint bcHigh = ((uint) (bc >> 32)) + (bb < ac);
   ulong cc = mad64(u.z, u.z, bcHigh);
-  return (uint8)((uint) aa, aa >> 32, (uint) bb, (uint) bc, (uint) cc, cc >> 32, 0, 0);
+  return (uint8)(aa, aa >> 32, bb, bc, cc, cc >> 32, 0, 0);
 }
 
 uint3 mulLow(uint3 u, uint3 v) { return toUint3(to128(u) * to128(v)); }
-#if 0
-  ulong ad = mul64(u.x, v.x);
-  ulong ae = mad64(u.x, v.y, ad >> 32);
-  ulong db = mad64(u.y, v.x, ae);
-  uint z = u.y * v.y + u.x * v.z + u.z * v.x + (uint) (db >> 32);
-  return (uint3)(ad, db, z);
-#endif
 
 uint3 mulHi(uint3 u, uint3 v) {
-  ulong t = mul_hi(u.x, v.z) + (ulong) mul_hi(u.z, v.x);
-  
-#if 1
-  return toUint3(((toLong(u.yz) * (u128) toLong(v.yz)) >> 32) + t);
-#else
-  ulong a  = mul_hi(u.y, v.y) + t;
-  ulong bf = mad64(u.y, v.z, a);
-  ulong ec = mad64(u.z, v.y, bf);
-  ulong cf = mad64(u.z, v.z, (ec >> 32) + (bf < a) + (ec < bf));
-  return (uint3) (ec, cf, cf >> 32);
-#endif
+  return toUint3(mul_hi(u.x, v.z) + (ulong) mul_hi(u.z, v.x) + ((toLong(u.yz) * (u128) toLong(v.yz)) >> 32));
 }
 
 // b % m, given u the "inverse" of m.
