@@ -141,6 +141,12 @@ vector<u32> getPrimeInvs(const std::vector<u32> &primes) {
   return v;
 }
 
+// Convert number of K candidates to GHzDays. See primenet_ghzdays() in mfakto output.c
+float ghzDays(u64 ks) { return ks * (0.016968 * 1680 / (1ul << 46)); }
+
+// Speed, in GHz == GHzDays / days.
+float ghz(u64 ks, float secs) { return 24 * 3600 * ghzDays(ks) / secs; }
+
 class Tester {
   vector<u32> primes;
   Queue queue;
@@ -189,7 +195,10 @@ public:
 
     u64 foundK = 0;
 
-    u64 k0 = startK(exp, startBit);
+    u64 k0   = startK(exp, startBit);
+    u64 kEnd = startK(exp, endBit);
+    int nCycle = (kEnd - k0 + (BITS_PER_CYCLE - 1)) / BITS_PER_CYCLE;
+    
     log("Exponent %u, k %llu, bits %.4f to %.4f\n", exp, k0, bitLevel(exp, k0), bitLevel(exp, k0 + BITS_PER_CYCLE));
 
     if (false) { // count bits on host for one class (testing).
@@ -204,7 +213,7 @@ public:
     
     Timer timer, cycleTimer;
 
-    for( ; bitLevel(exp, k0) < endBit; k0 += BITS_PER_CYCLE) {
+    for(int cycle = 0; cycle < nCycle; ++cycle, k0 += BITS_PER_CYCLE) {
       for (int i = 0; i < NGOOD; ++i) {
         int c = classes[i];
         if (c < startClass) { continue; }
@@ -224,7 +233,22 @@ public:
         
         tf(n, exp, k, bufK, bufFound);
         read(queue.get(), false, bufFound, sizeof(u64), &foundK);
-        log("%5.2f%% %5d: %d (%.3f%%), %.1fms\n", 100 * i / float(NGOOD), c, n, n / double(BITS_PER_SIEVE) * 100, timer.deltaMicros() / float(1000));
+        
+        if (i % 64 == 63) {
+          float secs = timer.deltaMicros() / 1000000.0f;
+          float speed = ghz(64 * BITS_PER_CYCLE / NGOOD, secs);
+          int nDone = (i + 1) + cycle * NGOOD;
+          int nToGo = nCycle * NGOOD - nDone;
+          int etaMins = int(nToGo * secs / (64 * 60) + .5f);
+          int days  = etaMins / (24 * 60);
+          int hours = etaMins / 60 % 24;
+          int mins  = etaMins % 60;
+          
+          printf("M%u %g to %g: %.2f%% %4d, %.3f s (%.0f GHz), ETA %dd %02d:%02d\n",
+                 exp, startBit, endBit, nDone * 100 / float(nCycle * NGOOD), nDone / 64, secs, speed, days, hours, mins);
+        }
+        
+        // printf("%5.2f%% %5d: %d (%.3f%%), %.1fms\n", 100 * i / float(NGOOD), c, n, n / double(BITS_PER_SIEVE) * 100, timer.deltaMicros() / float(1000));
       }
       queue.finish();
       log("Done k %llu (%.6f bits) in %.2fs\n", k0, bitLevel(exp, k0), cycleTimer.deltaMicros() / float(1'000'000));
@@ -239,7 +263,7 @@ int main(int argc, char **argv) {
 
   bool doSelfTest = false;
   if (argc < 3) {
-    log("Usage: %s <exponent> <bitLevel>\n", argv[0]);
+    log("Usage: %s <exponent> <start bit> [<end bit>]\n", argv[0]);
     doSelfTest = true;
   }
   
@@ -268,7 +292,8 @@ int main(int argc, char **argv) {
   } else {
     u32 exp = atoi(argv[1]);
     double startBit = atof(argv[2]);
-    if (u64 factor = tester.findFactor(exp, startBit, startBit + 10)) {
+    double endBit = (argc >= 4) ? atof(argv[3]) : int(startBit + 1);
+    if (u64 factor = tester.findFactor(exp, startBit, endBit)) {
       log("%u has a factor: %llu\n", exp, factor);
       return 1;
     }
