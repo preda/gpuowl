@@ -184,7 +184,7 @@ public:
     printf("expected filter %8.3f%%\n", double(f) * 100);
   }
   
-  u64 findFactor(u32 exp, double startBit, double endBit, int startClass = 0) {
+  u64 findFactor(u32 exp, double startBit, double endBit, int startPos = 0) {
     auto classes = goodClasses(exp);
     assert(classes[0] == 0);
 
@@ -212,28 +212,30 @@ public:
     }
     
     Timer timer, cycleTimer;
+    u64 nFiltered = 0;
 
-    for(int cycle = 0; cycle < nCycle; ++cycle, k0 += BITS_PER_CYCLE) {
-      for (int i = 0; i < NGOOD; ++i) {
+    startPos *= 64;
+    int startCycle = startPos / NGOOD;    
+    k0 += startCycle * BITS_PER_CYCLE;
+    for(int cycle = startCycle; cycle < nCycle; ++cycle, k0 += BITS_PER_CYCLE) {
+      for (int i = (cycle == startCycle) ? startPos % NGOOD : 0; i < NGOOD; ++i) {
         int c = classes[i];
-        if (c < startClass) { continue; }
         u64 k = k0 + c;
       
         initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
-
-        // queue.write(bufBtc, initBtcHost(exp, k, primes, modInvs));
         
         queue.zero(bufN, sizeof(u32));
         
         sieve(bufPrimes, bufInvs, bufBtc, bufN, bufK);
 
         uint n = queue.read<u32>(bufN, 1)[0];
-        
         if (foundK) { return foundK; }
         
         tf(n, exp, k, bufK, bufFound);
         read(queue.get(), false, bufFound, sizeof(u64), &foundK);
         
+        nFiltered += n;
+                        
         if (i % 64 == 63) {
           float secs = timer.deltaMicros() / 1000000.0f;
           float speed = ghz(64 * BITS_PER_CYCLE / NGOOD, secs);
@@ -244,8 +246,12 @@ public:
           int hours = etaMins / 60 % 24;
           int mins  = etaMins % 60;
           
-          printf("M%u %g to %g: %.2f%% %4d, %.3f s (%.0f GHz), ETA %dd %02d:%02d\n",
-                 exp, startBit, endBit, nDone * 100 / float(nCycle * NGOOD), nDone / 64, secs, speed, days, hours, mins);
+          printf("%4d/%d (%.2f%%), M%u %g-%g, %.3fs (%.0f GHz), ETA %dd %02d:%02d, candidates %llu (%.3f%%)\n",
+                 nDone / 64, nCycle * NGOOD / 64, nDone * 100 / float(nCycle * NGOOD),
+                 exp, startBit, endBit,
+                 secs, speed, days, hours, mins,
+                 nFiltered, nFiltered / (float(BITS_PER_SIEVE) * 64) * 100);
+          nFiltered = 0;
         }
         
         // printf("%5.2f%% %5d: %d (%.3f%%), %.1fms\n", 100 * i / float(NGOOD), c, n, n / double(BITS_PER_SIEVE) * 100, timer.deltaMicros() / float(1000));
@@ -255,15 +261,16 @@ public:
     }
     return 0;
   }
-  
 };
+
+// queue.write(bufBtc, initBtcHost(exp, k, primes, modInvs));
 
 int main(int argc, char **argv) {
   initLog("tf.log");
 
   bool doSelfTest = false;
   if (argc < 3) {
-    log("Usage: %s <exponent> <start bit> [<end bit>]\n", argv[0]);
+    log("Usage: %s <exponent> <start bit> [<end bit> [<start position>]]\n", argv[0]);
     doSelfTest = true;
   }
   
@@ -291,9 +298,11 @@ int main(int argc, char **argv) {
     }
   } else {
     u32 exp = atoi(argv[1]);
+    
     double startBit = atof(argv[2]);
     double endBit = (argc >= 4) ? atof(argv[3]) : int(startBit + 1);
-    if (u64 factor = tester.findFactor(exp, startBit, endBit)) {
+    int startPos = (argc >= 5) ? atoi(argv[4]) : 0;
+    if (u64 factor = tester.findFactor(exp, startBit, endBit, startPos)) {
       log("%u has a factor: %llu\n", exp, factor);
       return 1;
     }
