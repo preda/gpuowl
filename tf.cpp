@@ -184,7 +184,7 @@ public:
     printf("expected filter %8.3f%%\n", double(f) * 100);
   }
   
-  u64 findFactor(u32 exp, double startBit, double endBit, int startPos = 0) {
+  u64 findFactor(u32 exp, double startBit, double endBit, int startPos, int targetClass = 0) {
     auto classes = goodClasses(exp);
     assert(classes[0] == 0);
 
@@ -198,6 +198,7 @@ public:
     u64 k0   = startK(exp, startBit);
     u64 kEnd = startK(exp, endBit);
     int nCycle = (kEnd - k0 + (BITS_PER_CYCLE - 1)) / BITS_PER_CYCLE;
+    printf("ncycle %d, startPos %d\n", nCycle, startPos);
     
     log("Exponent %u, k %llu, bits %.4f to %.4f\n", exp, k0, bitLevel(exp, k0), bitLevel(exp, k0 + BITS_PER_CYCLE));
 
@@ -221,6 +222,7 @@ public:
       log("M%u starting cycle %d/%d, K %llu\n", exp, cycle, nCycle, k0);
       for (int i = (cycle == startCycle) ? startPos % NGOOD : 0; i < NGOOD; ++i) {
         int c = classes[i];
+        if (c < targetClass) { continue; }
         u64 k = k0 + c;
       
         initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
@@ -288,8 +290,8 @@ int main(int argc, char **argv) {
 
   if (doSelfTest) {
     for (auto test : tests) {
-      u32 c = test.k % NCLASS;
-      u64 foundFactor = tester.findFactor(test.exp, test.bits - 0.001, test.bits + 0.001, c);
+      u32 targetClass = test.k % NCLASS;
+      u64 foundFactor = tester.findFactor(test.exp, test.bits - 0.001, test.bits + 0.001, 0, targetClass);
       if (foundFactor == test.k) {
         log("OK %u %llu\n", test.exp, foundFactor);
       } else {
