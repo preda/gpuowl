@@ -132,7 +132,7 @@ constexpr const u64 BITS_PER_CYCLE = BITS_PER_SIEVE * u64(NCLASS);
 constexpr const int SPECIAL_PRIMES = 32;
 constexpr const int NPRIMES = 288 * 1024 + SPECIAL_PRIMES;
 
-constexpr const u32 KBUF_BYTES = BITS_PER_SIEVE / 4 * sizeof(u32);
+constexpr const u32 KBUF_BYTES = BITS_PER_SIEVE / 5 * sizeof(u32);
 
 vector<u32> getPrimeInvs(const std::vector<u32> &primes) {
   std::vector<u32> v;

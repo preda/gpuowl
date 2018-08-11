@@ -81,7 +81,7 @@ std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, const strin
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
   
-  char buf[128];
+  char buf[256];
   snprintf(buf, sizeof(buf), "%s %s%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f]; ETA %dd %02d:%02d; %s",
            shortTimeStr().c_str(),
            cpuName.empty() ? "" : (cpuName + " ").c_str(),
