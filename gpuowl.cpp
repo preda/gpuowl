@@ -108,18 +108,17 @@ void doSmallLog(int E, int k, u64 res, Stats &stats, const string &cpuName) {
 // OpenCL or CUDA
 extern const char *VARIANT;
 
-bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std::string &user, const std::string &cpu, int nErrors, int fftSize) {
+bool writeResult(const char *part, int E, const char *workType, const char *status, const std::string &AID, const std::string &user, const std::string &cpu) {
   std::string uid;
   if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
   if (!cpu.empty())  { uid += ", \"computer\":\"" + cpu + '"'; }
   std::string aidJson = AID.empty() ? "" : ", \"aid\":\"" + AID + '"';
-  std::string errors = ", \"errors\":{\"gerbicz\":" + std::to_string(nErrors) + "}";
+  // std::string errors = ", \"errors\":{\"gerbicz\":" + std::to_string(nErrors) + "}";
     
   char buf[512];
   snprintf(buf, sizeof(buf),
-           R"-({"exponent":%d, "worktype":"PRP-3", "status":"%c", "residue-type":1, "fft-length":"%dK", "res64":"%s", "program":{"name":"%s", "version":"%s-%s"}, "timestamp":"%s"%s%s%s})-",
-           E, isPrime ? 'P' : 'C', fftSize / 1024, hexStr(res).c_str(), PROGRAM, VERSION, VARIANT, timeStr().c_str(),
-           errors.c_str(), uid.c_str(), aidJson.c_str());
+           R"""({"exponent":%d, "worktype":"%s", "status":"%s", "program":{"name":"%s", "version":"%s-%s"}, "timestamp":"%s"%s%s %s})""",
+           E, workType, status, PROGRAM, VERSION, VARIANT, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part);
   
   log("%s\n", buf);
   if (auto fo = open("results.txt", "a")) {
@@ -128,6 +127,26 @@ bool writeResult(int E, bool isPrime, u64 res, const std::string &AID, const std
   } else {
     return false;
   }
+}
+
+bool writeResultPRP(int E, bool isPrime, u64 res, const string &AID, const string &user, const string &cpu, int nErrors, int fftSize) {
+  char buf[256];
+  snprintf(buf, sizeof(buf), R"""("residue-type":1, "fft-length":"%dK", "res64":"%s", "errors":{"gerbicz":%d})""",
+           fftSize / 1024, hexStr(res).c_str(), nErrors);
+
+  return writeResult(buf, E, "PRP-3", isPrime ? "P" : "C", AID, user, cpu);
+}
+
+bool writeResultTF(int E, u64 factor, int bitLo, int bitHi, u64 beginK, u64 endK,
+                   const string &AID, const string &user, const string &cpu) {
+  bool hasFactor = factor != 0;
+  string factorStr = hasFactor ? string(", \"factors\":[") + to_string(factor) + "]" : "";
+  
+  char buf[256];
+  snprintf(buf, sizeof(buf), R"""("bit-lo":%d, "bit-hi":%d, "begin-k":%llu, "end-k":%llu%s)""",
+           bitLo, bitHi, beginK, endK, factorStr.c_str());
+           
+  return writeResult(buf, E, "TF", hasFactor ? "F" : "NF", AID, user, cpu);
 }
 
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }
@@ -302,7 +321,7 @@ int main(int argc, char **argv) {
     unique_ptr<Gpu> gpu = makeGpu(E, args);
 
     if (!checkPrime(gpu.get(), E, args, &isPrime, &residue, &nErrors)
-        || !writeResult(E, isPrime, residue, AID, args.user, args. cpu, nErrors, gpu->getFFTSize())
+        || !writeResultPRP(E, isPrime, residue, AID, args.user, args. cpu, nErrors, gpu->getFFTSize())
         || !worktodoDelete(E)
         || isPrime) {
       break;
