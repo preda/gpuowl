@@ -12,6 +12,3 @@ vector<string> getDevices() {
   for (auto id : getDeviceIDs(false)) { ret.push_back(getLongInfo(id)); }
   return ret;
 }
-
-// VMT here.
-TF::~TF() { }

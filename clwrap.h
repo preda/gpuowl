@@ -50,6 +50,9 @@ bool check(int err, const char *mes = nullptr) {
 #define CHECK(what) assert(check(what));
 #define CHECK2(what, mes) assert(check(what, mes));
 
+const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
+const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
+
 vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
   cl_platform_id platforms[16];
   int nPlatforms = 0;
