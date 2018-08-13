@@ -310,19 +310,19 @@ int main(int argc, char **argv) {
   if (!args.parse(argc, argv)) { return -1; }
 
   while (true) {
-    char AID[64];
-    int E = worktodoReadExponent(AID);
-    if (E <= 0) { break; }
-
+    Task task = Worktodo::getTask();
+    if (task.kind == Task::NONE) { break; }
+    assert(task.kind == Task::PRP);
+    
     bool isPrime = false;
     u64 residue = 0;
     int nErrors = 0;
 
-    unique_ptr<Gpu> gpu = makeGpu(E, args);
+    unique_ptr<Gpu> gpu = makeGpu(task.exponent, args);
 
-    if (!checkPrime(gpu.get(), E, args, &isPrime, &residue, &nErrors)
-        || !writeResultPRP(E, isPrime, residue, AID, args.user, args. cpu, nErrors, gpu->getFFTSize())
-        || !worktodoDelete(E)
+    if (!checkPrime(gpu.get(), task.exponent, args, &isPrime, &residue, &nErrors)
+        || !writeResultPRP(task.exponent, isPrime, residue, task.AID, args.user, args. cpu, nErrors, gpu->getFFTSize())
+        || !Worktodo::deleteTask(task)
         || isPrime) {
       break;
     }

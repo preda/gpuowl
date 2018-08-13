@@ -9,61 +9,65 @@
 #include <cstring>
 #include <cassert>
 
-int parseLine(const char *line, char *outAID) {
-  int exp = 0;
-  outAID[0] = 0;
-  
-  if (false
-      || (sscanf(line, "Test=%32[0-9a-fA-F],%d", outAID, &exp) == 2)
-      || (sscanf(line, "DoubleCheck=%32[0-9a-fA-F],%d", outAID, &exp) == 2)
-      || (sscanf(line, "PRP=%32[0-9a-fA-F],%*d,%*d,%d", outAID, &exp) == 2)
-      || (sscanf(line, "Test=%d", &exp) == 1)
-      || (sscanf(line, "%d", &exp) == 1)) {
-    return exp;
-  }
-  
-  outAID[0] = 0;
-  return 0;
-}
+struct Task {
+  enum Kind {NONE = 0, PRP, TF, LL};
 
-int worktodoReadExponent(char *AID) {
-  auto fi{open("worktodo.txt", "r")};
-  if (!fi) { return 0; }
+  Kind kind;
+  u32 exponent;
+  string AID;  
+  string line; // the verbatim worktodo line, used in deleteTask().
 
-  while (true) {
-    char line[256];
-    if (!fgets(line, sizeof(line), fi.get())) { break; }
-    
-    if (int exp = parseLine(line, AID)) {
-      return exp;
-    } else {
-      int n = strlen(line);
-      if (n >= 2 && line[n - 2] == '\n') { line[n - 2] = 0; }
-      if (n >= 1 && line[n - 1] == '\n') { line[n - 1] = 0; }
-      log("worktodo.txt: \"%s\" ignored\n", line);
-    }
-  }
-  return 0;
-}
+  // TF only
+  int bitLo, bitHi;  
+};
 
-bool worktodoDelete(int E) {
-  bool lineDeleted = false;
+class Worktodo {
+public:
+  static Task getTask() {
+    if (auto fi{open("worktodo.txt", "r")}) {
+      char line[512];
+      while (fgets(line, sizeof(line), fi.get())) {
+        u32 exp = 0;
+        char outAID[64] = {0};
+        int bitLo = 0, bitHi = 0;
+        if ((sscanf(line, "Test=%32[0-9a-fA-F],%u", outAID, &exp) == 2)
+            || (sscanf(line, "DoubleCheck=%32[0-9a-fA-F],%u", outAID, &exp) == 2)
+            || (sscanf(line, "PRP=%32[0-9a-fA-F],%*d,%*d,%u", outAID, &exp) == 2)
+            || (sscanf(line, "Test=%u", &exp) == 1)
+            || (sscanf(line, "%u", &exp) == 1)          
+            || (sscanf(line, "Factor=%32[0-9a-fA-F],%u,%d,%d", outAID, &exp, &bitLo, &bitHi) == 4)
+            || (sscanf(line, "Factor=%u,%d,%d", &exp, &bitLo, &bitHi) == 3)
+            ) {
+          return Task{bitLo ? Task::TF : Task::PRP, exp, outAID, line, bitLo, bitHi};
+        }
 
-  {
-    auto fi{open("worktodo.txt", "rb")};
-    auto fo{open("worktodo-tmp.tmp", "wb")};
-    if (!(fi && fo)) { return false; }
-
-    char line[512];
-    char AID[64];
-    while (fgets(line, sizeof(line), fi.get())) {
-      if (!lineDeleted && (parseLine(line, AID) == E)) {
-        lineDeleted = true;
-      } else {
-        fputs(line, fo.get());
+        int n = strlen(line);
+        if (n >= 2 && line[n - 2] == '\n') { line[n - 2] = 0; }
+        if (n >= 1 && line[n - 1] == '\n') { line[n - 1] = 0; }
+        log("worktodo.txt: \"%s\" ignored\n", line);
       }
     }
+    return Task{Task::NONE};
   }
 
-  return lineDeleted && (rename("worktodo.txt", "worktodo.bak") == 0) && (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
-}
+  static bool deleteTask(const Task &task) {
+    bool lineDeleted = false;
+
+    {
+      auto fi{open("worktodo.txt", "rb")};
+      auto fo{open("worktodo-tmp.tmp", "wb")};
+      if (!(fi && fo)) { return false; }
+      
+      char line[512];
+      while (fgets(line, sizeof(line), fi.get())) {
+        if (!lineDeleted && !strcmp(line, task.line.c_str())) {
+          lineDeleted = true;
+        } else {
+          fputs(line, fo.get());
+        }
+      }
+    }
+
+    return lineDeleted && (rename("worktodo.txt", "worktodo.bak") == 0) && (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
+  }
+};
