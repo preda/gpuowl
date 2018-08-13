@@ -1,6 +1,7 @@
 // gpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
 
 #include "Gpu.h"
+#include "TF.h"
 #include "checkpoint.h"
 #include "worktodo.h"
 #include "args.h"
@@ -300,6 +301,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
 
 // selects OpenGpu or CudaGpu.
 unique_ptr<Gpu> makeGpu(u32 E, Args &args);
+unique_ptr<TF> makeTF(Args &args);
 
 int main(int argc, char **argv) {  
   initLog("gpuowl.log");
@@ -312,19 +314,30 @@ int main(int argc, char **argv) {
   while (true) {
     Task task = Worktodo::getTask();
     if (task.kind == Task::NONE) { break; }
-    assert(task.kind == Task::PRP);
-    
-    bool isPrime = false;
-    u64 residue = 0;
-    int nErrors = 0;
 
-    unique_ptr<Gpu> gpu = makeGpu(task.exponent, args);
+    u32 exp = task.exponent;
+    if (task.kind == Task::PRP) {    
+      bool isPrime = false;
+      u64 residue = 0;
+      int nErrors = 0;
+      unique_ptr<Gpu> gpu = makeGpu(task.exponent, args);
 
-    if (!checkPrime(gpu.get(), task.exponent, args, &isPrime, &residue, &nErrors)
-        || !writeResultPRP(task.exponent, isPrime, residue, task.AID, args.user, args. cpu, nErrors, gpu->getFFTSize())
-        || !Worktodo::deleteTask(task)
-        || isPrime) {
-      break;
+      if (!checkPrime(gpu.get(), exp, args, &isPrime, &residue, &nErrors)
+          || !writeResultPRP(exp, isPrime, residue, task.AID, args.user, args.cpu, nErrors, gpu->getFFTSize())
+          || !Worktodo::deleteTask(task)
+          || isPrime) { // stop on prime found.
+        break;
+      }
+    } else {
+      assert(task.kind == Task::TF);
+      unique_ptr<TF> tf = makeTF(args);
+      u64 beginK = 0, endK = 0;
+      u64 factor = tf->factor(exp, task.bitLo, task.bitHi, &beginK, &endK);
+      if (!writeResultTF(exp, factor, task.bitLo, task.bitHi, beginK, endK, task.AID, args.user, args.cpu)
+          || !Worktodo::deleteTask(task)
+          || factor) { // stop on factor found.
+        break;
+      }
     }
   }
 

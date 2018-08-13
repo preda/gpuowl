@@ -349,14 +349,6 @@ public:
   
     log("Note: using %s carry kernels\n", useLongCarry ? "long" : "short");
 
-    /*
-    vector<string> defines {valueDefine("EXP", E),
-        valueDefine("WIDTH", WIDTH),
-        valueDefine("SMALL_HEIGHT", SMALL_HEIGHT),
-        valueDefine("MIDDLE", MIDDLE),
-        };
-    */
-
     string clArgs = args.clArgs;
     if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
 
