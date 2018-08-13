@@ -2,7 +2,7 @@
 #all: openowl cudaowl
 
 HEADERS = args.h clwrap.h common.h kernel.h state.h stats.h timeutil.h tinycl.h worktodo.h Gpu.h LowGpu.h TF.h OpenTF.h
-SRCS = Gpu.cpp common.cpp gpuowl.cpp
+SRCS = common.cpp gpuowl.cpp
 
 # Edit the path in -L below if needed, to the folder containing OpenCL.dll on Windows or libOpenCL.so on UNIX.
 # The included lib paths are for ROCm, AMDGPU-pro/Linux or MSYS-2/Windows.

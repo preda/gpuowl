@@ -12,7 +12,7 @@ protected:
   virtual vector<u32> writeCheck(const vector<u32> &v) = 0;
   
 public:
-  virtual ~Gpu();
+  virtual ~Gpu() {};
 
   virtual void writeState(const vector<u32> &check, int blockSize) = 0;
   
