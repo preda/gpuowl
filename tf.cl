@@ -15,11 +15,17 @@
 #define B29 (1ul | (1ul << 29) | (1ul << 58))
 #define B31 (1ul | (1ul << 31) | (1ul << 62))
 
-uint rem(int x, uint p, int inv) {
-  int a = x - mul_hi(x, inv) * p;
+// This reminder function prefers x negative. (has a wider valid range on x<0).
+uint rem(int x, uint p, uint inv) {
+  int a = x - mul_hi(x, (int) inv) * p;
   uint r = (a < 0) ? a + p : a;
   assert(r < p, r);
   return r;
+}
+
+// Reminder at round.
+uint roundRem(int x, uint p, uint inv, uint round) {
+  return rem(x - rem(BITS_PER_SIEVE, p, inv) * round, p, inv);
 }
 
 uint modStep(int bit, int p, int step) {
@@ -54,15 +60,15 @@ void filter(uint prime, ulong *words, uint pos, ulong mask, int step) {
 #define P(x) x, 0xffffffffu / x, 64 * SIEVE_WG % x
 
 KERNEL(SIEVE_WG) sieve(const global uint * const primes, const global uint * const invs,
-                 const global int * const btcs, global uint *outN, global uint *outK) {
+                       global int *btcs, global uint *outN, global uint *outK/*, global int *nextBtc*/) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
 
   local uint lds[LDS_WORDS];
   
-  uint threadStart = LDS_BITS * g + 64 * me;
-
   {
+    uint threadStart = LDS_BITS * g + 64 * me;
+    
     ulong words[THREAD_DWORDS] = {0};
     
     uint tab[SPECIAL_PRIMES * 3] = {
@@ -95,14 +101,24 @@ P(163),
 
   bar();
 
+  // if (g == get_num_groups(0) - 1 && me < SPECIAL_PRIMES) { nextBtc[me] = rem(btcs[me] - BITS_PER_SIEVE, primes[me], invs[me]); }
+
   for (int i = 0; i < (NPRIMES - SPECIAL_PRIMES) / SIEVE_WG; ++i) {
-    uint pos = SPECIAL_PRIMES + SIEVE_WG * i + me;
-    uint prime = primes[pos];
-    uint inv   = invs[pos];
-    int btc    = btcs[pos];
-    for (uint pos = rem(btc - LDS_BITS * g, prime, inv); pos < LDS_BITS; pos += prime) {
-      atomic_or(&lds[pos / 32], 1 << (pos % 32));
+    uint p = SPECIAL_PRIMES + SIEVE_WG * i + me;
+    uint prime = primes[p];
+    uint inv   = invs[p];
+    int btc    = btcs[p];
+    uint bitPos = rem(btc - LDS_BITS * g, prime, inv);
+    while (bitPos < LDS_BITS) {
+      atomic_or(&lds[bitPos / 32], 1 << (bitPos % 32));
+      bitPos += prime;
     }
+    /*
+    if (g == get_num_groups(0) - 1) {
+      nextBtc[p] = bitPos - LDS_BITS;
+      assert(bitPos - LDS_BITS >= 0 && bitPos - LDS_BITS < prime, bitPos);
+    }
+    */
   }
   
   bar();
@@ -336,7 +352,7 @@ bool isFactor(uint flushed, uint3 m, uint4 preshifted) {
 }
 
 #define TF_WG 1024
-KERNEL(TF_WG) tf(int N, uint exponent, ulong kBase, global uint *bufK, global ulong *bufFound) {
+KERNEL(TF_WG) tf(global uint *bufN, uint exponent, ulong kBase, global uint *bufK, global ulong *bufFound) {
   assert(exponent & 1, exponent);
   uint flushed = exponent << clz(exponent); // flush left.
   uint topBits = ((flushed >> 24) < 178) ? 8 : 7;
@@ -344,7 +360,8 @@ KERNEL(TF_WG) tf(int N, uint exponent, ulong kBase, global uint *bufK, global ul
   assert(shift >= 89 && shift < 178, shift);
   flushed <<= topBits;
   uint4 preshifted = (uint4) (toUint2(shl64(1, shift - 64)), toUint2(shl64(1, shift - 128)));
-  
+
+  uint N = bufN[0];
   for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
     uint kBit = bufK[i];
     ulong k = kBase + kBit * (ulong) NCLASS;    
@@ -362,5 +379,17 @@ KERNEL(1024) initBtc(uint N, uint exp, ulong k, global uint *primes, global uint
     assert(btc < prime, btc);
     // assert(2 * exp * (u128) (k + ((ulong) btc) * NCLASS) % prime == prime - 1, 0);
     outBtc[i] = btc;
+  }
+}
+
+KERNEL(256) stepBtc(uint N, global uint *primes, global uint *steps, global uint *btcs, global uint *bufN, global ulong *sumN) {
+  if (get_global_id(0) == 0) {
+    sumN[0] += bufN[0];
+    bufN[0] = 0;
+  }
+  
+  for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
+    btcs[i] = modStep(btcs[i], primes[i], steps[i]);
+    // btcs[i] = rem(btcs[i] - BITS_PER_SIEVE, primes[i], invs[i]);
   }
 }

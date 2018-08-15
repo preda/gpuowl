@@ -123,10 +123,10 @@ u64 startK(u32 exp, double bits) {
 
 double bitLevel(u32 exp, u64 k) { return log2(2 * exp * double(k) + 1); }
 
-constexpr const int SIEVE_GROUPS = 4 * 1024;
-constexpr const int LDS_WORDS = 8 * 1024;
-constexpr const int BITS_PER_GROUP = 32 * LDS_WORDS;
-constexpr const int BITS_PER_SIEVE = SIEVE_GROUPS * BITS_PER_GROUP;
+constexpr const u32 SIEVE_GROUPS = 8 * 1024;
+constexpr const u32 LDS_WORDS = 8 * 1024;
+constexpr const u32 BITS_PER_GROUP = 32 * LDS_WORDS;
+constexpr const u32 BITS_PER_SIEVE = SIEVE_GROUPS * BITS_PER_GROUP;
 constexpr const u64 BITS_PER_CYCLE = BITS_PER_SIEVE * u64(NCLASS);
 
 constexpr const int SPECIAL_PRIMES = 32;
@@ -141,6 +141,13 @@ vector<u32> getPrimeInvs(const std::vector<u32> &primes) {
   return v;
 }
 
+vector<u32> getSteps(const vector<u32> &primes) {
+  std::vector<u32> v;
+  v.reserve(primes.size());
+  for (u32 p : primes) { v.push_back(BITS_PER_SIEVE % p); }
+  return v;
+}
+
 // Convert number of K candidates to GHzDays. See primenet_ghzdays() in mfakto output.c
 float ghzDays(u64 ks) { return ks * (0.016968 * 1680 / (1ul << 46)); }
 
@@ -151,8 +158,8 @@ class Tester {
   vector<u32> primes;
   Queue queue;
 
-  Kernel sieve, tf, initBtc;
-  Buffer bufPrimes, bufInvs, bufModInvs, bufBtc, bufK, bufN, bufFound;
+  Kernel sieve, tf, initBtc, stepBtc;
+  Buffer bufPrimes, bufInvs, bufSteps, bufModInvs, bufBtc, bufBtc2, bufK, bufN, bufFound, bufTotal;
 
 public:
   Tester(cl_program program, cl_device_id device, cl_context context) :
@@ -162,6 +169,8 @@ public:
     sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false),
     tf(program, queue.get(), device, 1024, "tf", false),
     initBtc(program, queue.get(), device, 256, "initBtc", false),
+    stepBtc(program, queue.get(), device, 256, "stepBtc", false),
+    // test(program, queue.get(), device, 256, "test", false),
 
     bufPrimes(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
                       sizeof(u32) * primes.size(), primes.data())),
@@ -169,14 +178,37 @@ public:
     bufInvs(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
                     sizeof(u32) * primes.size(), getPrimeInvs(primes).data())),
 
+    bufSteps(makeBuf(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
+                    sizeof(u32) * primes.size(), getSteps(primes).data())),
+    
     bufModInvs(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32) * primes.size())),
     
     bufBtc(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32) * primes.size())),
+    bufBtc2(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32) * primes.size())),
     bufK(makeBuf(context, CL_MEM_READ_WRITE, KBUF_BYTES)),
     bufN(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32))),
-    bufFound(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
+    bufFound(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64))),
+    bufTotal(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
   {
     assert(primes.size() == NPRIMES);
+    /*
+    for (int i = 1; i < NPRIMES / 1024; ++i) {
+      int p = i * 1024 + SPECIAL_PRIMES;
+      if (primes[p] >= 1024 * 1024) {
+        printf("1M at %d %d\n", i, primes[p]);
+        break;
+      }
+    }
+        
+    int maxPDiff = 0, maxInvDiff = 0;
+    auto primeInvs = getPrimeInvs(primes);
+    for (int i = 2 * 1024 + SPECIAL_PRIMES; i < NPRIMES; ++i) {
+      maxPDiff = max<int>(primes[i] - int(primes[i - 1024]), maxPDiff);
+      maxInvDiff = max<int>(maxInvDiff, primeInvs[i - 1024] - int(primeInvs[i]));
+    }
+    printf("%d %d\n", maxPDiff, maxInvDiff);
+    */
+    
     log("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
     log("Sieve: allocating %.1f MB of GPU memory\n", KBUF_BYTES / float(1024 * 1024));
     long double f = 1;
@@ -215,52 +247,49 @@ public:
     Timer timer, cycleTimer;
     u64 nFiltered = 0;
 
-    startPos *= 64;
-    int startCycle = startPos / NGOOD;    
-    k0 += startCycle * BITS_PER_CYCLE;
-    for(int cycle = startCycle; cycle < nCycle; ++cycle, k0 += BITS_PER_CYCLE) {
-      log("M%u starting cycle %d/%d, K %llu\n", exp, cycle, nCycle, k0);
-      for (int i = (cycle == startCycle) ? startPos % NGOOD : 0; i < NGOOD; ++i) {
-        int c = classes[i];
-        if (c < targetClass) { continue; }
-        u64 k = k0 + c;
+    for (int i = 0; i < NGOOD; ++i) {
+      int c = classes[i];
+      u64 k = k0 + c;
+      initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
+      ulong nFiltered = 0;
+      queue.zero(bufN, sizeof(u32));
+      queue.zero(bufTotal, sizeof(u64));
       
-        initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
-        
-        queue.zero(bufN, sizeof(u32));
-        
+      for (int round = 0; round < 32; ++round) {
+        // sieve(bufPrimes, bufInvs, ((round&1) == 0) ? bufBtc : bufBtc2, bufN, bufK, ((round&1) == 0) ? bufBtc2 : bufBtc);
         sieve(bufPrimes, bufInvs, bufBtc, bufN, bufK);
-
-        uint n = queue.read<u32>(bufN, 1)[0];
-        if (foundK) { return foundK; }
-        
-        tf(n, exp, k, bufK, bufFound);
-        read(queue.get(), false, bufFound, sizeof(u64), &foundK);
-        
-        nFiltered += n;
-                        
-        if (i % 64 == 63) {
-          float secs = timer.deltaMicros() / 1000000.0f;
-          float speed = ghz(64 * BITS_PER_CYCLE / NGOOD, secs);
-          int nDone = (i + 1) + cycle * NGOOD;
-          int nToGo = nCycle * NGOOD - nDone;
-          int etaMins = int(nToGo * secs / (64 * 60) + .5f);
-          int days  = etaMins / (24 * 60);
-          int hours = etaMins / 60 % 24;
-          int mins  = etaMins % 60;
-          
-          log("%4d/%d (%.2f%%), M%u %g-%g, %.3fs (%.0f GHz), ETA %dd %02d:%02d, FCs %llu (%.3f%%)\n",
-                 nDone / 64, nCycle * NGOOD / 64, nDone * 100 / float(nCycle * NGOOD),
-                 exp, startBit, endBit,
-                 secs, speed, days, hours, mins,
-                 nFiltered, nFiltered / (float(BITS_PER_SIEVE) * 64) * 100);
-          nFiltered = 0;
-        }        
+        // uint n = queue.read<u32>(bufN, 1)[0];
+        // nFiltered += n;
+        tf(bufN, exp, k, bufK, bufFound);
+        // test(bufN, bufTotal);
+        stepBtc((round < 63) ? (int) primes.size() : 0, bufPrimes, bufSteps, bufBtc, bufN, bufTotal);
+        /*
+        auto v = queue.read<u32>(bufBtc, 64);
+        for (u32 x : v) { printf("%u\n", x); }
+        */
+        // read(queue.get(), false, bufFound, sizeof(u64), &foundK);        
       }
-      queue.finish();
+      // queue.finish();
+      foundK = queue.read<u64>(bufFound, 1)[0];
+      nFiltered = queue.read<u64>(bufTotal, 1)[0];
       if (foundK) { return foundK; }
-      log("M%u done cycle %d/%d, K %llu, in %.0fs\n", exp, cycle, nCycle, k0, cycleTimer.deltaMicros() / float(1'000'000));
-    }
+      
+      float secs = timer.deltaMicros() / 1000000.0f;
+      float speed = ghz(32 * BITS_PER_CYCLE / NGOOD, secs);
+      int etaMins = 0;
+      // int(nToGo * secs / (64 * 60) + .5f);
+      int days  = etaMins / (24 * 60);
+      int hours = etaMins / 60 % 24;
+      int mins  = etaMins % 60;
+      
+      log("#%4d (%4d), M%u %g-%g, %.3fs (%.0f GHz), ETA %dd %02d:%02d, FCs %lu (%.3f%%)\n",
+          i, c,
+          exp, startBit, endBit,
+          secs, speed, days, hours, mins,
+          nFiltered, nFiltered / (float(BITS_PER_SIEVE) * 32) * 100);
+    }    
+    queue.finish();
+    if (foundK) { return foundK; }
     return 0;
   }
 };
@@ -282,9 +311,12 @@ int main(int argc, char **argv) {
   string clArgs = "";
   // if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/"+tf; }
   clArgs += " -cl-std=CL2.0 -save-temps=t0/tf";
+
+#define EXP(name) {#name, name}
   cl_program program =
-    compile(device, context.get(), "tf", clArgs,
-            {{"NCLASS", NCLASS}, {"SPECIAL_PRIMES", SPECIAL_PRIMES}, {"NPRIMES", NPRIMES}, {"LDS_WORDS", LDS_WORDS}, });
+    compile(device, context.get(), "tf", clArgs, {EXP(NCLASS), EXP(SPECIAL_PRIMES), EXP(NPRIMES), EXP(LDS_WORDS), EXP(BITS_PER_SIEVE)});
+#undef EXP       
+  // {{"NCLASS", NCLASS}, {"SPECIAL_PRIMES", SPECIAL_PRIMES}, {"NPRIMES", NPRIMES}, {"LDS_WORDS", LDS_WORDS}, {"SIEVE_BITS", SIEVE_BITS});
 
   Tester tester(program, device, context.get());
 
