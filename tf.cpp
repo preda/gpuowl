@@ -123,7 +123,7 @@ u64 startK(u32 exp, double bits) {
 
 double bitLevel(u32 exp, u64 k) { return log2(2 * exp * double(k) + 1); }
 
-constexpr const u32 SIEVE_GROUPS = 8 * 1024;
+constexpr const u32 SIEVE_GROUPS = 4 * 1024;
 constexpr const u32 LDS_WORDS = 8 * 1024;
 constexpr const u32 BITS_PER_GROUP = 32 * LDS_WORDS;
 constexpr const u32 BITS_PER_SIEVE = SIEVE_GROUPS * BITS_PER_GROUP;
@@ -167,7 +167,7 @@ public:
     queue(makeQueue(device, context)),
     
     sieve(program, queue.get(), device, SIEVE_GROUPS, "sieve", false),
-    tf(program, queue.get(), device, 1024, "tf", false),
+    tf(program, queue.get(), device, 4096, "tf", false),
     initBtc(program, queue.get(), device, 256, "initBtc", false),
     stepBtc(program, queue.get(), device, 256, "stepBtc", false),
     // test(program, queue.get(), device, 256, "test", false),
@@ -191,23 +191,6 @@ public:
     bufTotal(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
   {
     assert(primes.size() == NPRIMES);
-    /*
-    for (int i = 1; i < NPRIMES / 1024; ++i) {
-      int p = i * 1024 + SPECIAL_PRIMES;
-      if (primes[p] >= 1024 * 1024) {
-        printf("1M at %d %d\n", i, primes[p]);
-        break;
-      }
-    }
-        
-    int maxPDiff = 0, maxInvDiff = 0;
-    auto primeInvs = getPrimeInvs(primes);
-    for (int i = 2 * 1024 + SPECIAL_PRIMES; i < NPRIMES; ++i) {
-      maxPDiff = max<int>(primes[i] - int(primes[i - 1024]), maxPDiff);
-      maxInvDiff = max<int>(maxInvDiff, primeInvs[i - 1024] - int(primeInvs[i]));
-    }
-    printf("%d %d\n", maxPDiff, maxInvDiff);
-    */
     
     log("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
     log("Sieve: allocating %.1f MB of GPU memory\n", KBUF_BYTES / float(1024 * 1024));
@@ -255,38 +238,28 @@ public:
       queue.zero(bufN, sizeof(u32));
       queue.zero(bufTotal, sizeof(u64));
       
-      for (int round = 0; round < 32; ++round) {
-        // sieve(bufPrimes, bufInvs, ((round&1) == 0) ? bufBtc : bufBtc2, bufN, bufK, ((round&1) == 0) ? bufBtc2 : bufBtc);
+      for (int round = 0; round < 64; ++round) {
         sieve(bufPrimes, bufInvs, bufBtc, bufN, bufK);
-        // uint n = queue.read<u32>(bufN, 1)[0];
-        // nFiltered += n;
         tf(bufN, exp, k, bufK, bufFound);
-        // test(bufN, bufTotal);
         stepBtc((round < 63) ? (int) primes.size() : 0, bufPrimes, bufSteps, bufBtc, bufN, bufTotal);
-        /*
-        auto v = queue.read<u32>(bufBtc, 64);
-        for (u32 x : v) { printf("%u\n", x); }
-        */
-        // read(queue.get(), false, bufFound, sizeof(u64), &foundK);        
       }
-      // queue.finish();
       foundK = queue.read<u64>(bufFound, 1)[0];
       nFiltered = queue.read<u64>(bufTotal, 1)[0];
       if (foundK) { return foundK; }
       
       float secs = timer.deltaMicros() / 1000000.0f;
-      float speed = ghz(32 * BITS_PER_CYCLE / NGOOD, secs);
+      float speed = ghz(64 * BITS_PER_CYCLE / NGOOD, secs);
       int etaMins = 0;
       // int(nToGo * secs / (64 * 60) + .5f);
       int days  = etaMins / (24 * 60);
       int hours = etaMins / 60 % 24;
       int mins  = etaMins % 60;
       
-      log("#%4d (%4d), M%u %g-%g, %.3fs (%.0f GHz), ETA %dd %02d:%02d, FCs %lu (%.3f%%)\n",
+      log("#%4d (%4d), M%u %g-%g, %.3fs (%.0f GHz), ETA %dd %02d:%02d, FCs %lu (%.4f%%)\n",
           i, c,
           exp, startBit, endBit,
           secs, speed, days, hours, mins,
-          nFiltered, nFiltered / (float(BITS_PER_SIEVE) * 32) * 100);
+          nFiltered, nFiltered / (double(BITS_PER_SIEVE) * 64) * 100);
     }    
     queue.finish();
     if (foundK) { return foundK; }

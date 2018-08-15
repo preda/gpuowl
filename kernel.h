@@ -42,14 +42,18 @@ public:
   
   template<typename... Args> void operator()(const Args &...args) {
     setArgs(0, args...);
+    run(workGroups);
+  }
+
+  void run(u32 nWorkGroups) {
     if (doTime) {
       finish(queue);
       Timer timer;
-      run(queue, kernel.get(), groupSize, workGroups * groupSize, name);
+      ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
       finish(queue);
       stats.add(timer.deltaMicros());
     } else {
-      run(queue, kernel.get(), groupSize, workGroups * groupSize, name);
+      ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
     }
   }
   

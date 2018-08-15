@@ -71,7 +71,7 @@ KERNEL(SIEVE_WG) sieve(const global uint * const primes, const global uint * con
     
     ulong words[THREAD_DWORDS] = {0};
     
-    uint tab[SPECIAL_PRIMES * 3] = {
+    uint tab[/* SPECIAL_PRIMES*3 */] = {
 // P( 13),
         P( 17), P( 19), P( 23), P( 29), P( 31), P( 37), P( 41), P( 43), P( 47), P( 53), P( 59), P( 61), P( 67), P( 71), P( 73), 
 P( 79), P( 83), P( 89), P( 97), P(101), P(103), P(107), P(109), P(113), P(127), P(131), P(137), P(139), P(149), P(151), P(157),
@@ -92,7 +92,7 @@ P(163),
     SIEVE2(4, B31);
     for (int i =  5; i < min(12u, SPECIAL_PRIMES); ++i) { SIEVE1(i); }
     for (int i = 12; i < SPECIAL_PRIMES; ++i) { SIEVE0(i); }
-
+    
     local ulong *bigLds = (local ulong *)lds;
     for (int i = 0; i < THREAD_DWORDS; ++i) {
       bigLds[SIEVE_WG * i + me] = words[i];
@@ -370,7 +370,7 @@ KERNEL(TF_WG) tf(global uint *bufN, uint exponent, ulong kBase, global uint *buf
   }
 }
 
-KERNEL(1024) initBtc(uint N, uint exp, ulong k, global uint *primes, global uint *invs, global uint *outBtc) {
+KERNEL(256) initBtc(uint N, uint exp, ulong k, global uint *primes, global uint *invs, global uint *outBtc) {
   for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
     uint prime = primes[i];
     uint inv   = invs[i];

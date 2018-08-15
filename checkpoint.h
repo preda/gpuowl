@@ -18,6 +18,17 @@ class Checkpoint {
 private:
   static constexpr const int BLOCK_SIZE = 200;
 
+  struct HeaderTF1 {
+    // Exponent, bitHi, classDone, classTotal.
+    static constexpr const char *HEADER = "OWL TF 1 %d %d %d %d\n";
+    int E;
+    int bitHi;
+    int classDone, classTotal;
+
+    bool write(FILE *fo) { return fprintf(fo, HEADER, E, bitHi, classDone, classTotal) > 0; }
+    bool parse(FILE *fi) { return fscanf(fi, HEADER, &E, &bitHi, &classDone, &classTotal) == 4; }    
+  };
+  
   struct HeaderV5 {
     static constexpr const char *HEADER_R = R"(OWL 5
 Comment: %255[^
@@ -96,7 +107,7 @@ End-of-header:
       && fwrite(check.data(), (E - 1)/8 + 1, 1, fo.get());
   }
 
-  static std::string fileName(int E) { return std::to_string(E) + ".owl"; }
+  static std::string fileName(int E, const string &suffix = "") { return std::to_string(E) + suffix + ".owl"; }
 
   static u64 checksum(const std::vector<u32> &data) {
     u32 a = 1;
@@ -109,6 +120,38 @@ End-of-header:
   }
   
 public:
+
+  static bool loadTF(int E, int *outBitHi, int *outClassDone, int *outClassTotal) {
+    if (auto fi{open(fileName(E, ".tf"), "rb", false)}) {
+      HeaderTF1 h;
+      bool ok = h.parse(fi.get());
+      assert(ok && h.E == E);
+      if (ok) {
+        *outBitHi = h.bitHi;
+        *outClassDone = h.classDone;
+        *outClassTotal = h.classTotal;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool saveTF(int E, int bitHi, int classDone, int classTotal) {
+    string saveFile = fileName(E, ".tf");
+    string tempFile = fileName(E, "-temp.tf");
+    string prevFile = fileName(E, "-prev.tf");
+
+    HeaderTF1 header{E, bitHi, classDone, classTotal};
+    {
+      auto fo(open(tempFile, "wb"));
+      if (!fo || !header.write(fo.get())) { return false; }
+    }
+
+    remove(prevFile.c_str());
+    rename(saveFile.c_str(), prevFile.c_str());
+    rename(tempFile.c_str(), saveFile.c_str());
+    return true;
+  }
   
   static LoadResult load(int E, int preferredBlockSize) {
     const int nWords = (E - 1) / 32 + 1;
