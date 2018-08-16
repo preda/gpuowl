@@ -190,6 +190,40 @@ uint3 OVER add(uint3 a, uint3 b) { return toUint3(to128(a) + to128(b)); }
 uint3 OVER add(uint3 a, uint x) { return toUint3(to128(a) + x); }
 uint4 OVER sub(uint4 a, uint4 b) { return toUint4(to128(a) - to128(b)); }
 uint3 OVER sub(uint3 a, uint3 b) { return toUint3(to128(a) - to128(b)); }
+
+#if NO_128
+uint3 OVER add(uint3 a, uint3 b) {
+  ulong a0 = toLong(a.xy);
+  ulong b0 = toLong(b.xy);
+  ulong c0 = a0 + b0;
+  return (uint3)(toUint2(c0), a.z + b.z + (c0 < a0));
+}
+
+uint3 OVER add(uint3 a, uint x) {
+  ulong a0 = toLong(a.xy);
+  ulong c0 = a0 + x;
+  return (uint3)(toUint2(c0), a.z + (c0 < a0));
+}
+
+uint4 OVER sub(uint4 a, uint4 b) {
+  ulong a0 = toLong(a.xy);
+  ulong a1 = toLong(a.zw);
+  ulong b0 = toLong(b.xy);
+  ulong b1 = toLong(b.zw);
+  ulong c0 = a0 - b0;
+  ulong c1 = a1 - b1 - (c0 > a0);
+  return (uint4)(toUint2(c0), toUint2(c1));
+}
+
+uint3 OVER sub(uint3 a, uint3 b) {
+  ulong a0 = toLong(a.xy);
+  ulong b0 = toLong(b.xy);
+  ulong c0 = a0 - b0;
+  uint c1 = a.z - b.z - (c0 > a0);
+  return (uint3)(toUint2(c0), c1);
+}
+#endif
+
 uint4 OVER mul(uint3 n, uint q) { return toUint4(to128(n) * q); }
 bool equal(uint3 a, uint3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; }
 
@@ -317,6 +351,12 @@ uint3 mulLow(uint3 u, uint3 v) { return toUint3(to128(u) * to128(v)); }
 uint3 mulHi(uint3 u, uint3 v) {
   return toUint3(mul_hi(u.x, v.z) + (ulong) mul_hi(u.z, v.x) + ((toLong(u.yz) * (u128) toLong(v.yz)) >> 32));
 }
+  
+#if NO_128
+  uint3 base = toUint3((toLong(u.yz) * (u128) toLong(v.yz)) >> 32);
+  base = add(base, mul_hi(u.x, v.z));
+  return add(base, mul_hi(u.z, v.x));
+#endif
 
 // b % m, given u the "inverse" of m.
 uint3 mod(uint8 b, uint3 m, uint3 u) {
