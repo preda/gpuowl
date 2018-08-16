@@ -48,7 +48,5 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
 unique_ptr<FILE> open(const string &name, const char *mode, bool doLog = true);
 
-string timeStr(const char *format);
 string timeStr();
-string longTimeStr();
-string shortTimeStr();
+// string longTimeStr();

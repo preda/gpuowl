@@ -201,7 +201,7 @@ public:
     long double f = 1;
     for (int i = NPRIMES - 1; i >= 0; --i) { u32 p = primes[i]; f *= (p - 1) / (double) p; }
     // for (u32 p : primes) { f *= (p - 1) / (double) p; }
-    printf("expected filter %.4f%%\n", double(f) * 100); 
+    log("Sieve with %d primes (up to %d), expected %.4f%%\n", NPRIMES, primes[NPRIMES - 1], double(f) * 100); 
   }
     
   u64 findFactor(u32 exp, int bitLo, int nDone, int nTotal, u64 *outBeginK, u64 *outEndK) {

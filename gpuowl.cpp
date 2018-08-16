@@ -73,7 +73,7 @@ string hexStr(u64 res) {
   return buf;
 }
 
-std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, const string &cpuName) {
+std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info) {
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
   
@@ -83,26 +83,24 @@ std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, const strin
   int mins  = etaMins % 60;
   
   char buf[256];
-  snprintf(buf, sizeof(buf), "%s %s%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f]; ETA %dd %02d:%02d; %s",
-           shortTimeStr().c_str(),
-           cpuName.empty() ? "" : (cpuName + " ").c_str(),
+  snprintf(buf, sizeof(buf), "%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f]; ETA %dd %02d:%02d; %s",
            k, E, k * percent, info.mean, info.low, info.high, days, hours, mins,
            hexStr(res).c_str());
   return buf;
 }
 
-void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, bool didSave, const string &cpuName) {
+void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, bool didSave) {
   std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
   log("%s %s (check %.2fs)%s%s\n",
       checkOK ? "OK" : "EE",
-      makeLogStr(E, k, res, stats.getStats(), cpuName).c_str(),
+      makeLogStr(E, k, res, stats.getStats()).c_str(),
       timeCheck * .001f, errors.c_str(),
       didSave ? " (saved)" : "");
   stats.reset();
 }
 
-void doSmallLog(int E, int k, u64 res, Stats &stats, const string &cpuName) {
-  printf("   %s\n", makeLogStr(E, k, res, stats.getStats(), cpuName).c_str());
+void doSmallLog(int E, int k, u64 res, Stats &stats) {
+  log("   %s\n", makeLogStr(E, k, res, stats.getStats()).c_str());
   stats.reset();
 }
 
@@ -161,7 +159,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
   int k, blockSize, nErrors;  
   u32 N = gpu->getFFTSize();
   
-  log("[%s] PRP M(%d), FFT %dK, %.2f bits/word\n", longTimeStr().c_str(), E, N/1024, E / float(N));
+  log("PRP M(%d), FFT %dK, %.2f bits/word\n", E, N/1024, E / float(N));
   
   {
     LoadResult loaded = Checkpoint::load(E, args.blockSize);
@@ -241,7 +239,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     bool doStop = stopRequested;
     
     if (doStop) {
-      log("\nStopping, please wait..\n");
+      log("Stopping, please wait..\n");
       signal(SIGINT, oldHandler);
     }
 
@@ -249,7 +247,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     if (!doCheck) {
       gpu->updateCheck();
       if (k % 10000 == 0) {
-        doSmallLog(E, k, gpu->dataResidue(), stats, args.cpu);
+        doSmallLog(E, k, gpu->dataResidue(), stats);
         if (args.timeKernels) { gpu->logTimeKernels(); }
       }
       continue;
@@ -274,7 +272,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
         return false;
       }
     }
-    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave, args.cpu);
+    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave);
     
     if (ok) {
       if (k >= kEnd) { return true; }
@@ -329,14 +327,17 @@ void doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
   }  
 }
 
+extern string globalCpuName;
+
 int main(int argc, char **argv) {  
   initLog("gpuowl.log");
 
-  log("%s-%s %s\n", PROGRAM, VARIANT, VERSION);
-  
   Args args;
   if (!args.parse(argc, argv)) { return -1; }
+  if (!args.cpu.empty()) { globalCpuName = args.cpu; }
 
+  log("%s-%s %s\n", PROGRAM, VARIANT, VERSION);
+  
   while (true) {
     Task task = Worktodo::getTask();
     if (task.kind == Task::NONE) { break; }
@@ -363,6 +364,6 @@ int main(int argc, char **argv) {
     }
   }
 
-  log("\nBye\n");
+  log("Bye\n");
 }
 
