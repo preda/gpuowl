@@ -23,11 +23,6 @@ uint rem(int x, uint p, uint inv) {
   return r;
 }
 
-// Reminder at round.
-uint roundRem(int x, uint p, uint inv, uint round) {
-  return rem(x - rem(BITS_PER_SIEVE, p, inv) * round, p, inv);
-}
-
 uint modStep(int bit, int p, int step) {
   assert(p > 0, p);
   int a = bit - step;
@@ -101,8 +96,6 @@ P(163),
 
   bar();
 
-  // if (g == get_num_groups(0) - 1 && me < SPECIAL_PRIMES) { nextBtc[me] = rem(btcs[me] - BITS_PER_SIEVE, primes[me], invs[me]); }
-
   for (int i = 0; i < (NPRIMES - SPECIAL_PRIMES) / SIEVE_WG; ++i) {
     uint p = SPECIAL_PRIMES + SIEVE_WG * i + me;
     uint prime = primes[p];
@@ -113,12 +106,6 @@ P(163),
       atomic_or(&lds[bitPos / 32], 1 << (bitPos % 32));
       bitPos += prime;
     }
-    /*
-    if (g == get_num_groups(0) - 1) {
-      nextBtc[p] = bitPos - LDS_BITS;
-      assert(bitPos - LDS_BITS >= 0 && bitPos - LDS_BITS < prime, bitPos);
-    }
-    */
   }
   
   bar();
@@ -388,8 +375,5 @@ KERNEL(256) stepBtc(uint N, global uint *primes, global uint *steps, global uint
     bufN[0] = 0;
   }
   
-  for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
-    btcs[i] = modStep(btcs[i], primes[i], steps[i]);
-    // btcs[i] = rem(btcs[i] - BITS_PER_SIEVE, primes[i], invs[i]);
-  }
+  for (int i = get_global_id(0); i < N; i += get_global_size(0)) { btcs[i] = modStep(btcs[i], primes[i], steps[i]); }
 }

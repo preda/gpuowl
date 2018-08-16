@@ -35,8 +35,9 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 #define REV
 #endif
 
-#define VERSION "3.6-" REV
+#define VERSION "3.7-" REV
 // Reason for version change:
+// 3.7 : integrated TF
 // 3.6 : initial TF
 // 3.5 : require OpenCL 2.x
 // 3.4 : add factor-9 FFT step, and more FFT sizes.

@@ -1,3 +1,5 @@
+// Copyright (C) 2017-2018 Mihai Preda.
+
 #pragma once
 
 #include "TF.h"
@@ -163,7 +165,7 @@ public:
     Context context(createContext(device));
 #define DEF(name) {#name, name}
     Holder<cl_program> program(compile(device, context.get(), "tf", clArgs,
-                                       {DEF(NCLASS), DEF(SPECIAL_PRIMES), DEF(NPRIMES), DEF(LDS_WORDS), DEF(BITS_PER_SIEVE)}));
+                                       {DEF(NCLASS), DEF(SPECIAL_PRIMES), DEF(NPRIMES), DEF(LDS_WORDS)}));
 #undef DEF
     
     if (!program) { throw "OpenCL compilation"; }
