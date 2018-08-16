@@ -34,6 +34,7 @@ public:
         if (false
             || (sscanf(line, "%u", &exp) == 1)          
             || (sscanf(line, "Factor=%u,%d,%d", &exp, &bitLo, &bitHi) == 3)
+            || (sscanf(line, "Factor=N/A,%u,%d,%d", &exp, &bitLo, &bitHi) == 3)
             || (sscanf(line, "PRP=%32[0-9a-fA-F],%*d,%*d,%u,%*d,%d", outAID, &exp, &bitLo) == 3)
             || (sscanf(line, "Factor=%32[0-9a-fA-F],%u,%d,%d", outAID, &exp, &bitLo, &bitHi) == 4)
             ) {

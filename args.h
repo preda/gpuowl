@@ -39,7 +39,7 @@ struct Args {
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
-      log(R"""(
+      printf(R"(
 Command line options:
 
 -user <name>       : specify the user name.
@@ -51,10 +51,10 @@ Command line options:
 -list fft          : display a list of available FFT configurations.
 -tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
 -device <N>        : select a specific device:
-)""");
+)");
       vector<string> devices = getDevices();
       for (int i = 0; i < int(devices.size()); ++i) {
-        log(" %d : %s\n", i, devices[i].c_str());
+        printf(" %d : %s\n", i, devices[i].c_str());
       }      
       return false;
     } else if (!strcmp(arg, "-list")) {
