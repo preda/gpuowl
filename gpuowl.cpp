@@ -302,7 +302,8 @@ unique_ptr<Gpu> makeGpu(u32 E, Args &args);
 unique_ptr<TF> makeTF(Args &args);
 
 // Ideally how far we want an exponent TF-ed.
-int targetBits(u32 exp) { return (exp >= 332000000) ? 81 : (exp >= 160000000) ? 80 : (exp >= 80000000) ? 79 : 0; }
+int targetBits(u32 exp) { return 81 + 3 * (log2(exp) - log2(332000000)); }
+// return (exp >= 332000000) ? 81 : (exp >= 160000000) ? 78 : (exp >= 80000000) ? 75 : 0; }
 
 void doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
   if (bitLo >= bitEnd) { return; }

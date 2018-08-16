@@ -196,11 +196,9 @@ public:
     bufTotal(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
   {
     assert(primes.size() == NPRIMES);
-    // log("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
     // log("Sieve: allocating %.1f MB of GPU memory\n", KBUF_BYTES / float(1024 * 1024));
     long double f = 1;
-    for (int i = NPRIMES - 1; i >= 0; --i) { u32 p = primes[i]; f *= (p - 1) / (double) p; }
-    // for (u32 p : primes) { f *= (p - 1) / (double) p; }
+    for (u32 p : primes) { f *= (p - 1) / (double) p; }
     log("Sieve with %d primes (up to %d), expected %.4f%%\n", NPRIMES, primes[NPRIMES - 1], double(f) * 100); 
   }
     
@@ -217,7 +215,7 @@ public:
     *outBeginK = k0;
     *outEndK   = k0 + BITS_PER_GROUP * u64(NCLASS) * nSieveGroups;
     
-    log("TF %u %d-%d, K %llu - %llu, %d * %d + %d groups, start at #%d\n",
+    log("TF %u %d-%d, K %llu - %llu, %dx%d + 1x%d groups, start from class #%d\n",
         exp, bitLo, bitLo + 1, k0, *outEndK,
         nSieveGroups / SIEVE_GROUPS, SIEVE_GROUPS, nSieveGroups % SIEVE_GROUPS, nDone);
     // exp >> (24 - __builtin_clz(exp)));
