@@ -116,7 +116,7 @@ bool writeResult(const char *part, int E, const char *workType, const char *stat
     
   char buf[512];
   snprintf(buf, sizeof(buf),
-           R"""({"exponent":%d, "worktype":"%s", "status":"%s", "program":{"name":"%s", "version":"%s-%s"}, "timestamp":"%s"%s%s %s})""",
+           R"""({"exponent":%d, "worktype":"%s", "status":"%s", "program":{"name":"%s", "version":"%s-%s"}, "timestamp":"%s"%s%s, %s})""",
            E, workType, status, PROGRAM, VERSION, VARIANT, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part);
   
   log("%s\n", buf);
