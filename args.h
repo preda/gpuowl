@@ -22,6 +22,7 @@ struct Args {
   int carry;
   int blockSize;
   int fftSize;
+  int tfDelta;
   
   Args() :
     device(-1),
@@ -29,7 +30,8 @@ struct Args {
     listFFT(false),
     carry(CARRY_AUTO),
     blockSize(400),
-    fftSize(0)
+    fftSize(0),
+    tfDelta(-1000)
   { }
   
   // return false to stop.
@@ -47,6 +49,7 @@ Command line options:
 -block 100|200|400 : select PRP-check block size. Smaller block is slower but detects errors earlier.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -list fft          : display a list of available FFT configurations.
+-tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
 -device <N>        : select a specific device:
 )""");
       vector<string> devices = getDevices();
@@ -67,6 +70,13 @@ Command line options:
         fftSize = atoi(s.c_str()) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1));
       } else {
         log("-fft expects <size>\n");
+        return false;
+      }
+    } else if (!strcmp(arg, "-tf")) {
+      if (i < argc - 1) {
+        tfDelta = atoi(argv[++i]);
+      } else {
+        log("-tf expects <bit-offset>\n");
         return false;
       }
     } else if (!strcmp(arg, "-dump")) {

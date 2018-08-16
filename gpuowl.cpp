@@ -138,14 +138,14 @@ bool writeResultPRP(int E, bool isPrime, u64 res, const string &AID, const strin
   return writeResult(buf, E, "PRP-3", isPrime ? "P" : "C", AID, user, cpu);
 }
 
-bool writeResultTF(int E, u64 factor, int bitLo, int bitHi, u64 beginK, u64 endK,
+bool writeResultTF(int E, u64 factor, int bitLo, u64 beginK, u64 endK,
                    const string &AID, const string &user, const string &cpu) {
   bool hasFactor = factor != 0;
   string factorStr = hasFactor ? string(", \"factors\":[") + to_string(factor) + "]" : "";
   
   char buf[256];
-  snprintf(buf, sizeof(buf), R"""("bit-lo":%d, "bit-hi":%d, "begin-k":%llu, "end-k":%llu%s)""",
-           bitLo, bitHi, beginK, endK, factorStr.c_str());
+  snprintf(buf, sizeof(buf), R"""("bitlo":%d, "bithi":%d, "begink":%llu, "endk":%llu, "rangecomplete":%s%s)""",
+           bitLo, bitLo + 1, beginK, endK, hasFactor ? "false" : "true", factorStr.c_str());
            
   return writeResult(buf, E, "TF", hasFactor ? "F" : "NF", AID, user, cpu);
 }
@@ -303,6 +303,32 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
 unique_ptr<Gpu> makeGpu(u32 E, Args &args);
 unique_ptr<TF> makeTF(Args &args);
 
+// Ideally how far we want an exponent TF-ed.
+int targetBits(u32 exp) { return (exp >= 332000000) ? 81 : (exp >= 160000000) ? 80 : (exp >= 80000000) ? 79 : 0; }
+
+void doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
+  if (bitLo >= bitEnd) { return; }
+  
+  int nDone = 0, nTotal = 0;
+  int bitInWork = Checkpoint::loadTF(exp, &nDone, &nTotal);
+
+  if (bitInWork >= bitEnd) { return; }
+  
+  if (bitInWork < bitLo) {
+    nDone = 0;
+  } else {
+    bitLo = bitInWork;
+  }
+
+  unique_ptr<TF> tf = makeTF(args);
+  
+  for (int bit = bitLo; bit < bitEnd; ++bit, nDone = 0) {
+    u64 beginK = 0, endK = 0;
+    u64 factor = tf->findFactor(exp, bit, nDone, nTotal, &beginK, &endK);
+    if (!writeResultTF(exp, factor, bit, beginK, endK, AID, args.user, args.cpu) || factor) { break; }
+  }  
+}
+
 int main(int argc, char **argv) {  
   initLog("gpuowl.log");
 
@@ -316,7 +342,9 @@ int main(int argc, char **argv) {
     if (task.kind == Task::NONE) { break; }
 
     u32 exp = task.exponent;
-    if (task.kind == Task::PRP) {    
+    if (task.kind == Task::PRP) {
+      if (task.bitLo) { doTF(exp, task.bitLo, targetBits(exp) + args.tfDelta, args, task.AID); }
+      
       bool isPrime = false;
       u64 residue = 0;
       int nErrors = 0;
@@ -329,15 +357,9 @@ int main(int argc, char **argv) {
         break;
       }
     } else {
-      assert(task.kind == Task::TF);
-      unique_ptr<TF> tf = makeTF(args);
-      u64 beginK = 0, endK = 0;
-      u64 factor = tf->factor(exp, task.bitLo, task.bitHi, &beginK, &endK);
-      if (!writeResultTF(exp, factor, task.bitLo, task.bitHi, beginK, endK, task.AID, args.user, args.cpu)
-          || !Worktodo::deleteTask(task)
-          || factor) { // stop on factor found.
-        break;
-      }
+      assert(task.kind == Task::TF && task.bitLo < task.bitHi);
+      doTF(exp, task.bitLo, task.bitHi, args, task.AID);
+      if (!Worktodo::deleteTask(task)) { break; }
     }
   }
 

@@ -4,6 +4,7 @@
 
 #include "kernel.h"
 #include "timeutil.h"
+#include "checkpoint.h"
 
 #include <cmath>
 #include <cassert>
@@ -32,6 +33,7 @@ vector<u32> goodClasses(u32 exp) {
   good.reserve(NGOOD);
   for (u32 c = 0; c < NCLASS; ++c) { if (isGoodClass(exp, c)) { good.push_back(c); } }
   assert(good.size() == NGOOD);
+  assert(good[0] == 0);
   return good;
 }
 
@@ -124,6 +126,13 @@ vector<u32> getPrimeInvs(const std::vector<u32> &primes) {
   return v;
 }
 
+vector<u32> getSteps(const vector<u32> &primes) {
+  std::vector<u32> v;
+  v.reserve(primes.size());
+  for (u32 p : primes) { v.push_back(BITS_PER_SIEVE % p); }
+  return v;
+}
+
 // Convert number of K candidates to GHzDays. See primenet_ghzdays() in mfakto output.c
 float ghzDays(u64 ks) { return ks * (0.016968 * 1680 / (1ul << 46)); }
 
@@ -134,8 +143,8 @@ class OpenTF : public TF {
   vector<u32> primes;
   Queue queue;
 
-  Kernel sieve, tf, initBtc;
-  Buffer bufPrimes, bufInvs, bufModInvs, bufBtc, bufK, bufN, bufFound;
+  Kernel sieve, tf, initBtc, stepBtc;
+  Buffer bufPrimes, bufInvs, bufSteps, bufModInvs, bufBtc, bufK, bufN, bufFound, bufTotal;
   
 public:
   static unique_ptr<TF> make(Args &args) {
@@ -152,9 +161,11 @@ public:
     if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
 
     Context context(createContext(device));
+#define DEF(name) {#name, name}
     Holder<cl_program> program(compile(device, context.get(), "tf", clArgs,
-                      {{"NCLASS", NCLASS}, {"SPECIAL_PRIMES", SPECIAL_PRIMES}, {"NPRIMES", NPRIMES}, {"LDS_WORDS", LDS_WORDS}, }));
-
+                                       {DEF(NCLASS), DEF(SPECIAL_PRIMES), DEF(NPRIMES), DEF(LDS_WORDS), DEF(BITS_PER_SIEVE)}));
+#undef DEF
+    
     if (!program) { throw "OpenCL compilation"; }
     
     return std::make_unique<OpenTF>(program.get(), device, context.get(), timeKernels);
@@ -166,93 +177,92 @@ public:
 
 #define LOAD(name, workGroups) name(program, queue.get(), device, workGroups, #name, timeKernels)
     LOAD(sieve, SIEVE_GROUPS),
-    LOAD(tf, 1024),
+    LOAD(tf, 4096),
     LOAD(initBtc, 256),
+    LOAD(stepBtc, 256),
 #undef LOAD
 
-    bufPrimes(makeBuf( context, BUF_CONST, sizeof(u32) * primes.size(), primes.data())),    
-    bufInvs(makeBuf(   context, BUF_CONST, sizeof(u32) * primes.size(), getPrimeInvs(primes).data())),
-    bufModInvs(makeBuf(context, CL_MEM_READ_WRITE,    sizeof(u32) * primes.size())),
+    bufPrimes(makeBuf( context, BUF_CONST, sizeof(u32) * NPRIMES, primes.data())),    
+    bufInvs(makeBuf(   context, BUF_CONST, sizeof(u32) * NPRIMES, getPrimeInvs(primes).data())),
+    bufSteps(makeBuf(  context, BUF_CONST, sizeof(u32) * NPRIMES, getSteps(primes).data())),
+    bufModInvs(makeBuf(context, CL_MEM_READ_WRITE,    sizeof(u32) * NPRIMES)),
     
     bufBtc(makeBuf(context, BUF_RW, sizeof(u32) * primes.size())),
     bufK(makeBuf(context, BUF_RW, KBUF_BYTES)),
     bufN(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u32))),
-    bufFound(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))    
+    bufFound(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64))),
+    bufTotal(makeBuf(context, CL_MEM_READ_WRITE, sizeof(u64)))
   {
     assert(primes.size() == NPRIMES);
-    log("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
-    log("Sieve: allocating %.1f MB of GPU memory\n", KBUF_BYTES / float(1024 * 1024));
+    // log("Using %d primes (up to %d)\n", int(primes.size()), primes[primes.size() - 1]);
+    // log("Sieve: allocating %.1f MB of GPU memory\n", KBUF_BYTES / float(1024 * 1024));
     long double f = 1;
-    for (u32 p : primes) { f *= (p - 1) / (double) p; }
-    printf("expected filter %8.3f%%\n", double(f) * 100); 
+    for (int i = NPRIMES - 1; i >= 0; --i) { u32 p = primes[i]; f *= (p - 1) / (double) p; }
+    // for (u32 p : primes) { f *= (p - 1) / (double) p; }
+    printf("expected filter %.4f%%\n", double(f) * 100); 
   }
-  
-  u64 factor(u32 exp, int bitLo, int bitHi, u64 *outBeginK, u64 *outEndK) {
+    
+  u64 findFactor(u32 exp, int bitLo, int nDone, int nTotal, u64 *outBeginK, u64 *outEndK) {
+    assert(nDone == 0 || nTotal == NGOOD);
+    
     auto classes = goodClasses(exp);
-    assert(classes[0] == 0);
+    queue.write(bufModInvs, initModInv(exp, primes));
+    
+    u64 k0   = startK(exp, bitLo);
+    u64 kEnd = startK(exp, bitLo + 1);
+
+    u32 nSieveGroups = ((kEnd - k0) / NCLASS + (BITS_PER_GROUP - 1)) / BITS_PER_GROUP;
+    *outBeginK = k0;
+    *outEndK   = k0 + BITS_PER_GROUP * u64(NCLASS) * nSieveGroups;
+    
+    log("TF %u %d-%d, K %llu - %llu, %d * %d + %d groups, start at #%d\n",
+        exp, bitLo, bitLo + 1, k0, *outEndK,
+        nSieveGroups / SIEVE_GROUPS, SIEVE_GROUPS, nSieveGroups % SIEVE_GROUPS, nDone);
+    // exp >> (24 - __builtin_clz(exp)));
+
+    sieve.setFixedArgs(0, bufPrimes, bufInvs, bufBtc, bufN, bufK);
+    stepBtc.setFixedArgs(1, bufPrimes, bufSteps, bufBtc, bufN, bufTotal);
 
     queue.zero(bufFound, sizeof(u64));
-    
-    auto modInvs = initModInv(exp, primes);
-    queue.write(bufModInvs, modInvs);
-    
-    u64 foundK = 0;
+    queue.zero(bufN, sizeof(u32));
+    queue.zero(bufTotal, sizeof(u64));
 
-    u64 k0   = startK(exp, bitLo);
-    u64 kEnd = startK(exp, bitHi);
-    int nCycle = (kEnd - k0 + (BITS_PER_CYCLE - 1)) / BITS_PER_CYCLE;
-    // printf("ncycle %d, startPos %d\n", nCycle, startPos);
-
-    *outBeginK = k0;
-    *outEndK   = k0 + nCycle * BITS_PER_CYCLE;
-    
-    log("TF %u, bit %d - %d, K %llu - %llu, %d\n", exp, bitLo, bitHi, k0, k0 + nCycle * BITS_PER_CYCLE, exp >> (24 - __builtin_clz(exp)));
-    
-    Timer timer, cycleTimer;
-    u64 nFiltered = 0;
-
-    for(int cycle = 0; cycle < nCycle; ++cycle, k0 += BITS_PER_CYCLE) {
-      log("M%u starting cycle %d/%d, K %llu\n", exp, cycle, nCycle, k0);
-      for (int i = 0; i < int(NGOOD); ++i) {
-        int c = classes[i];
-        // if (c < targetClass) { continue; }
-        u64 k = k0 + c;
-      
-        initBtc((u32) primes.size(), exp, k, bufPrimes, bufModInvs, bufBtc);
-        
-        queue.zero(bufN, sizeof(u32));
-        
-        sieve(bufPrimes, bufInvs, bufBtc, bufN, bufK);
-
-        uint n = queue.read<u32>(bufN, 1)[0];
-        if (foundK) { return foundK; }
-        
-        tf(n, exp, k, bufK, bufFound);
-        read(queue.get(), false, bufFound, sizeof(u64), &foundK);
-        
-        nFiltered += n;
-                        
-        if (i % 64 == 63) {
-          float secs = timer.deltaMicros() / 1000000.0f;
-          float speed = ghz(64 * BITS_PER_CYCLE / NGOOD, secs);
-          int nDone = (i + 1) + cycle * NGOOD;
-          int nToGo = nCycle * NGOOD - nDone;
-          int etaMins = int(nToGo * secs / (64 * 60) + .5f);
-          int days  = etaMins / (24 * 60);
-          int hours = etaMins / 60 % 24;
-          int mins  = etaMins % 60;
-          
-          log("%4d/%d (%.2f%%), M%u %d-%d, %.3fs (%.0f GHz), ETA %dd %02d:%02d, FCs %llu (%.3f%%)\n",
-                 nDone / 64, nCycle * NGOOD / 64, nDone * 100 / float(nCycle * NGOOD),
-                 exp, bitLo, bitHi,
-                 secs, speed, days, hours, mins,
-                 nFiltered, nFiltered / (float(BITS_PER_SIEVE) * 64) * 100);
-          nFiltered = 0;
-        }        
+    Timer timer;
+    for (u32 i = nDone; i < NGOOD; ++i) {
+      int c = classes[i];
+      u64 k = k0 + c;
+      initBtc(NPRIMES, exp, k, bufPrimes, bufModInvs, bufBtc);
+      for (int groupsLeft = nSieveGroups; groupsLeft > 0; groupsLeft -= SIEVE_GROUPS, k += BITS_PER_CYCLE) {
+        sieve.run(min(groupsLeft, SIEVE_GROUPS));
+        tf(bufN, exp, k, bufK, bufFound);
+        stepBtc((groupsLeft <= SIEVE_GROUPS) ? 0 : NPRIMES); // , bufPrimes, bufSteps, bufBtc, bufN, bufTotal);
       }
-      queue.finish();
+      u64 nFiltered = 0; // queue.read<u64>(bufTotal, 1)[0];
+      read(queue.get(), false, bufTotal, sizeof(u64), &nFiltered);
+      queue.zero(bufTotal, sizeof(u64));
+      u64 foundK = queue.read<u64>(bufFound, 1)[0];
+        
+      float secs = timer.deltaMicros() / 1000000.0f;
+      float speed = ghz(BITS_PER_GROUP * u64(NCLASS) * nSieveGroups / NGOOD, secs);
+      int etaMins = int((NGOOD - (i + 1)) * secs / 60 + .5f);
+      int days  = etaMins / (24 * 60);
+      int hours = etaMins / 60 % 24;
+      int mins  = etaMins % 60;
+          
+      log("TF %u %d-%d %.2f%%, class %4d (%4d), %.3fs (%.0f GHz), ETA %dd %02d:%02d, FCs %llu (%.4f%%)\n",
+          exp, bitLo, bitLo + 1, (i + 1) * 100.0f / NGOOD,
+          i, c,
+          secs, speed,
+          days, hours, mins,
+          nFiltered, nFiltered / (float(BITS_PER_GROUP) * nSieveGroups) * 100);
+
+      if (i == NGOOD - 1) { // bit level complete.
+        Checkpoint::saveTF(exp, bitLo + 1, 0, NGOOD);
+      } else {        
+        Checkpoint::saveTF(exp, bitLo, i + 1, NGOOD);
+      }
+      
       if (foundK) { return foundK; }
-      log("M%u done cycle %d/%d, K %llu, in %.0fs\n", exp, cycle, nCycle, k0, cycleTimer.deltaMicros() / float(1'000'000));
     }
     return 0;
   }

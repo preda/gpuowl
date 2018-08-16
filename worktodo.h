@@ -16,9 +16,10 @@ struct Task {
   u32 exponent;
   string AID;  
   string line; // the verbatim worktodo line, used in deleteTask().
-
+  int bitLo;   // Some PRP tasks contain "factored up to" bitlevel.
+  
   // TF only
-  int bitLo, bitHi;  
+  int bitHi;
 };
 
 class Worktodo {
@@ -30,15 +31,13 @@ public:
         u32 exp = 0;
         char outAID[64] = {0};
         int bitLo = 0, bitHi = 0;
-        if ((sscanf(line, "Test=%32[0-9a-fA-F],%u", outAID, &exp) == 2)
-            || (sscanf(line, "DoubleCheck=%32[0-9a-fA-F],%u", outAID, &exp) == 2)
-            || (sscanf(line, "PRP=%32[0-9a-fA-F],%*d,%*d,%u", outAID, &exp) == 2)
-            || (sscanf(line, "Test=%u", &exp) == 1)
+        if (false
             || (sscanf(line, "%u", &exp) == 1)          
-            || (sscanf(line, "Factor=%32[0-9a-fA-F],%u,%d,%d", outAID, &exp, &bitLo, &bitHi) == 4)
             || (sscanf(line, "Factor=%u,%d,%d", &exp, &bitLo, &bitHi) == 3)
+            || (sscanf(line, "PRP=%32[0-9a-fA-F],%*d,%*d,%u,%*d,%d", outAID, &exp, &bitLo) == 3)
+            || (sscanf(line, "Factor=%32[0-9a-fA-F],%u,%d,%d", outAID, &exp, &bitLo, &bitHi) == 4)
             ) {
-          return Task{bitLo ? Task::TF : Task::PRP, exp, outAID, line, bitLo, bitHi};
+          return Task{bitHi ? Task::TF : Task::PRP, exp, outAID, line, bitLo, bitHi};
         }
 
         int n = strlen(line);

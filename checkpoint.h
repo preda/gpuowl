@@ -22,11 +22,11 @@ private:
     // Exponent, bitHi, classDone, classTotal.
     static constexpr const char *HEADER = "OWL TF 1 %d %d %d %d\n";
     int E;
-    int bitHi;
-    int classDone, classTotal;
+    int bitInWork;
+    int nDone, nTotal;
 
-    bool write(FILE *fo) { return fprintf(fo, HEADER, E, bitHi, classDone, classTotal) > 0; }
-    bool parse(FILE *fi) { return fscanf(fi, HEADER, &E, &bitHi, &classDone, &classTotal) == 4; }    
+    bool write(FILE *fo) { return fprintf(fo, HEADER, E, bitInWork, nDone, nTotal) > 0; }
+    bool parse(FILE *fi) { return fscanf(fi, HEADER, &E, &bitInWork, &nDone, &nTotal) == 4; }    
   };
   
   struct HeaderV5 {
@@ -121,27 +121,26 @@ End-of-header:
   
 public:
 
-  static bool loadTF(int E, int *outBitHi, int *outClassDone, int *outClassTotal) {
+  static int loadTF(int E, int *nDone, int *nTotal) {
     if (auto fi{open(fileName(E, ".tf"), "rb", false)}) {
       HeaderTF1 h;
-      bool ok = h.parse(fi.get());
-      assert(ok && h.E == E);
-      if (ok) {
-        *outBitHi = h.bitHi;
-        *outClassDone = h.classDone;
-        *outClassTotal = h.classTotal;
-        return true;
+      if (h.parse(fi.get()) && h.E == E) {
+        *nDone  = h.nDone;
+        *nTotal = h.nTotal;
+        return h.bitInWork;
+      } else {
+        assert(false);
       }
     }
-    return false;
+    return 0;
   }
 
-  static bool saveTF(int E, int bitHi, int classDone, int classTotal) {
+  static bool saveTF(int E, int bitInWork, int nDone, int nTotal) {
     string saveFile = fileName(E, ".tf");
     string tempFile = fileName(E, "-temp.tf");
     string prevFile = fileName(E, "-prev.tf");
 
-    HeaderTF1 header{E, bitHi, classDone, classTotal};
+    HeaderTF1 header{E, bitInWork, nDone, nTotal};
     {
       auto fo(open(tempFile, "wb"));
       if (!fo || !header.write(fo.get())) { return false; }
