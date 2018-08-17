@@ -302,16 +302,16 @@ unique_ptr<Gpu> makeGpu(u32 E, Args &args);
 unique_ptr<TF> makeTF(Args &args);
 
 // Ideally how far we want an exponent TF-ed.
-int targetBits(u32 exp) { return 81 + 3 * (log2(exp) - log2(332000000)); }
+int targetBits(u32 exp) { return 81 + 2.5 * (log2(exp) - log2(332000000)); }
 // return (exp >= 332000000) ? 81 : (exp >= 160000000) ? 78 : (exp >= 80000000) ? 75 : 0; }
 
-void doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
-  if (bitLo >= bitEnd) { return; }
+bool doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
+  if (bitLo >= bitEnd) { return true; }
   
   int nDone = 0, nTotal = 0;
   int bitInWork = Checkpoint::loadTF(exp, &nDone, &nTotal);
 
-  if (bitInWork >= bitEnd) { return; }
+  if (bitInWork >= bitEnd) { return true; }
   
   if (bitInWork < bitLo) {
     nDone = 0;
@@ -320,12 +320,14 @@ void doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
   }
 
   unique_ptr<TF> tf = makeTF(args);
+  if (!tf) { return false; }
   
   for (int bit = bitLo; bit < bitEnd; ++bit, nDone = 0) {
     u64 beginK = 0, endK = 0;
     u64 factor = tf->findFactor(exp, bit, nDone, nTotal, &beginK, &endK);
-    if (!writeResultTF(exp, factor, bit, beginK, endK, AID, args.user, args.cpu) || factor) { break; }
-  }  
+    if (!writeResultTF(exp, factor, bit, beginK, endK, AID, args.user, args.cpu) || factor) { return false; }
+  }
+  return true;
 }
 
 extern string globalCpuName;
@@ -360,7 +362,10 @@ int main(int argc, char **argv) {
       }
     } else {
       assert(task.kind == Task::TF && task.bitLo < task.bitHi);
-      doTF(exp, task.bitLo, task.bitHi, args, task.AID);
+      if (!doTF(exp, task.bitLo, task.bitHi, args, task.AID)) {
+        log("No TF implementation available, please drop or comment the TF lines in worktodo.txt\n");
+        break;
+      }
       if (!Worktodo::deleteTask(task)) { break; }
     }
   }
