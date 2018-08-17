@@ -14,7 +14,7 @@
 #include <bitset>
 
 // q := 2*exp*c + 1. Is q==1 or q==7 (mod 8)?
-bool q1or7mod8(uint exp, uint c) { return !(c & 3) || ((c & 3) + (exp & 3) == 4); }
+bool q1or7mod8(u32 exp, u32 c) { return !(c & 3) || ((c & 3) + (exp & 3) == 4); }
 
 template<u32 P> bool multiple(u32 exp, u32 c) { return 2 * c * u64(exp) % P == P - 1; }
 
@@ -136,7 +136,7 @@ vector<u32> getSteps(const vector<u32> &primes) {
 }
 
 // Convert number of K candidates to GHzDays. See primenet_ghzdays() in mfakto output.c
-float ghzDays(u64 ks) { return ks * (0.016968 * 1680 / (1ul << 46)); }
+float ghzDays(u64 ks) { return ks * (0.016968 * 1680 / (1ull << 46)); }
 
 // Speed, in GHz == GHzDays / days.
 float ghz(u64 ks, float secs) { return 24 * 3600 * ghzDays(ks) / secs; }

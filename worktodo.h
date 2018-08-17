@@ -73,6 +73,10 @@ public:
       }
     }
 
-    return lineDeleted && (rename("worktodo.txt", "worktodo.bak") == 0) && (rename("worktodo-tmp.tmp", "worktodo.txt") == 0);
+    if (!lineDeleted) { return false; }
+    remove("worktodo.bak");
+    rename("worktodo.txt", "worktodo.bak");
+    rename("worktodo-tmp.tmp", "worktodo.txt");
+    return true;
   }
 };
