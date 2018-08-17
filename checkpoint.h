@@ -14,19 +14,35 @@ struct LoadResult {
   u64 res64;
 };
 
+struct TFState {
+  int bitLo;
+  int bitHi;
+  int nDone;
+  int nTotal;
+};
+
 class Checkpoint {
 private:
-  static constexpr const int BLOCK_SIZE = 200;
-
-  struct HeaderTF1 {
-    // Exponent, bitHi, classDone, classTotal.
-    static constexpr const char *HEADER = "OWL TF 1 %d %d %d %d\n";
+  struct HeaderTF2 {
+    // Exponent, bitLo, bitHi, classDone, classTotal.
+    static constexpr const char *HEADER = "OWL TF 2 %d %d %d %d %d\n";
     int E;
-    int bitInWork;
+    int bitLo, bitHi;
     int nDone, nTotal;
 
-    bool write(FILE *fo) { return fprintf(fo, HEADER, E, bitInWork, nDone, nTotal) > 0; }
-    bool parse(FILE *fi) { return fscanf(fi, HEADER, &E, &bitInWork, &nDone, &nTotal) == 4; }    
+    bool write(FILE *fo) { return fprintf(fo, HEADER, E, bitLo, bitHi, nDone, nTotal) > 0; }
+    bool parse(const char *line) { return sscanf(line, HEADER, &E, &bitLo, &bitHi, &nDone, &nTotal) == 5; }
+  };
+
+  struct HeaderTF1 {
+    // Exponent, bitLo, classDone, classTotal.
+    static constexpr const char *HEADER = "OWL TF 1 %d %d %d %d\n";
+    int E;
+    int bitLo;
+    int nDone, nTotal;
+
+    bool write(FILE *fo) { return fprintf(fo, HEADER, E, bitLo, nDone, nTotal) > 0; }
+    bool parse(const char *line) { return sscanf(line, HEADER, &E, &bitLo, &nDone, &nTotal) == 4; }    
   };
   
   struct HeaderV5 {
@@ -121,26 +137,38 @@ End-of-header:
   
 public:
 
-  static int loadTF(int E, int *nDone, int *nTotal) {
+  static TFState loadTF(int E) {
     if (auto fi{open(fileName(E, ".tf"), "rb", false)}) {
-      HeaderTF1 h;
-      if (h.parse(fi.get()) && h.E == E) {
-        *nDone  = h.nDone;
-        *nTotal = h.nTotal;
-        return h.bitInWork;
-      } else {
-        assert(false);
+      char line[256];
+      if (!fgets(line, sizeof(line), fi.get())) { return {0}; }
+
+      {
+        HeaderTF2 h;
+        if (h.parse(line)) {
+          assert(h.E == E && h.bitLo < h.bitHi);
+          return {h.bitLo, h.bitHi, h.nDone, h.nTotal};
+        }
       }
+      
+      {
+        HeaderTF1 h;
+        if (h.parse(line)) {
+          assert(h.E == E);
+          return {h.bitLo, h.bitLo + 1, h.nDone, h.nTotal};
+        }
+      }
+
+      assert(false);
     }
-    return 0;
+    return {0};
   }
 
-  static bool saveTF(int E, int bitInWork, int nDone, int nTotal) {
+  static bool saveTF(int E, int bitLo, int bitEnd, int nDone, int nTotal) {
     string saveFile = fileName(E, ".tf");
     string tempFile = fileName(E, "-temp.tf");
     string prevFile = fileName(E, "-prev.tf");
 
-    HeaderTF1 header{E, bitInWork, nDone, nTotal};
+    HeaderTF2 header{E, bitLo, bitEnd, nDone, nTotal};
     {
       auto fo(open(tempFile, "wb"));
       if (!fo || !header.write(fo.get())) { return false; }
@@ -172,13 +200,8 @@ public:
       }
     }
 
-    auto fi{open(fileName(E), "rb", false)};    
-    if (!fi) {
-      std::vector<u32> check(nWords);
-      check[0] = 1;
-      return {true, 0, BLOCK_SIZE, 0, check};
-    }
-    
+    auto fi{open(fileName(E), "rb", false)};
+    assert(fi);
     char line[256];
     if (!fgets(line, sizeof(line), fi.get())) { return {false}; }
 

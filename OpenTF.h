@@ -202,21 +202,22 @@ public:
     log("Sieve with %d primes (up to %d), expected %.4f%%\n", NPRIMES, primes[NPRIMES - 1], double(f) * 100); 
   }
     
-  u64 findFactor(u32 exp, int bitLo, int nDone, int nTotal, u64 *outBeginK, u64 *outEndK) {
+  u64 findFactor(u32 exp, int bitLo, int bitEnd, int nDone, int nTotal, u64 *outBeginK, u64 *outEndK) {
     assert(nDone == 0 || nTotal == NGOOD);
+    assert(bitLo < bitEnd);
     
     auto classes = goodClasses(exp);
     queue.write(bufModInvs, initModInv(exp, primes));
     
     u64 k0   = startK(exp, bitLo);
-    u64 kEnd = startK(exp, bitLo + 1);
+    u64 kEnd = startK(exp, bitEnd);
 
     u32 nSieveGroups = ((kEnd - k0) / NCLASS + (BITS_PER_GROUP - 1)) / BITS_PER_GROUP;
     *outBeginK = k0;
     *outEndK   = k0 + BITS_PER_GROUP * u64(NCLASS) * nSieveGroups;
     
     log("TF %u %d-%d, K %llu - %llu, %dx%d + 1x%d groups, start from class #%d\n",
-        exp, bitLo, bitLo + 1, k0, *outEndK,
+        exp, bitLo, bitEnd, k0, *outEndK,
         nSieveGroups / SIEVE_GROUPS, SIEVE_GROUPS, nSieveGroups % SIEVE_GROUPS, nDone);
     // exp >> (24 - __builtin_clz(exp)));
 
@@ -250,19 +251,15 @@ public:
       int mins  = etaMins % 60;
           
       log("TF %u %d-%d %.2f%%, class %4d (%4d), %.3fs (%.0f GHz), ETA %dd %02d:%02d, FCs %llu (%.4f%%)\n",
-          exp, bitLo, bitLo + 1, (i + 1) * 100.0f / NGOOD,
+          exp, bitLo, bitEnd, (i + 1) * 100.0f / NGOOD,
           i, c,
           secs, speed,
           days, hours, mins,
           nFiltered, nFiltered / (float(BITS_PER_GROUP) * nSieveGroups) * 100);
 
-      if (i == NGOOD - 1) { // bit level complete.
-        Checkpoint::saveTF(exp, bitLo + 1, 0, NGOOD);
-      } else {        
-        Checkpoint::saveTF(exp, bitLo, i + 1, NGOOD);
-      }
-      
       if (foundK) { return foundK; }
+      
+      Checkpoint::saveTF(exp, bitLo, bitEnd, i + 1, NGOOD);
     }
     return 0;
   }

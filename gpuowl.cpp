@@ -136,14 +136,14 @@ bool writeResultPRP(int E, bool isPrime, u64 res, const string &AID, const strin
   return writeResult(buf, E, "PRP-3", isPrime ? "P" : "C", AID, user, cpu);
 }
 
-bool writeResultTF(int E, u64 factor, int bitLo, u64 beginK, u64 endK,
+bool writeResultTF(int E, u64 factor, int bitLo, int bitHi, u64 beginK, u64 endK,
                    const string &AID, const string &user, const string &cpu) {
   bool hasFactor = factor != 0;
   string factorStr = hasFactor ? string(", \"factors\":[") + to_string(factor) + "]" : "";
   
   char buf[256];
   snprintf(buf, sizeof(buf), R"""("bitlo":%d, "bithi":%d, "begink":%llu, "endk":%llu, "rangecomplete":%s%s)""",
-           bitLo, bitLo + 1, beginK, endK, hasFactor ? "false" : "true", factorStr.c_str());
+           bitLo, bitHi, beginK, endK, hasFactor ? "false" : "true", factorStr.c_str());
            
   return writeResult(buf, E, "TF", hasFactor ? "F" : "NF", AID, user, cpu);
 }
@@ -305,29 +305,26 @@ unique_ptr<TF> makeTF(Args &args);
 int targetBits(u32 exp) { return 81 + 2.5 * (log2(exp) - log2(332000000)); }
 // return (exp >= 332000000) ? 81 : (exp >= 160000000) ? 78 : (exp >= 80000000) ? 75 : 0; }
 
+// Return true if a factor was found.
 bool doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
-  if (bitLo >= bitEnd) { return true; }
+  if (bitLo >= bitEnd) { return false; }
   
-  int nDone = 0, nTotal = 0;
-  int bitInWork = Checkpoint::loadTF(exp, &nDone, &nTotal);
+  TFState state = Checkpoint::loadTF(exp);
+  if (state.bitLo >= bitEnd || (state.nDone == state.nTotal && state.bitHi >= bitEnd)) { return false; }
 
-  if (bitInWork >= bitEnd) { return true; }
+  if (state.bitLo > bitLo) { bitLo = state.bitLo; }
   
-  if (bitInWork < bitLo) {
-    nDone = 0;
-  } else {
-    bitLo = bitInWork;
-  }
+  if (bitLo >= bitEnd) { return false; }
 
   unique_ptr<TF> tf = makeTF(args);
-  if (!tf) { return false; }
-  
-  for (int bit = bitLo; bit < bitEnd; ++bit, nDone = 0) {
-    u64 beginK = 0, endK = 0;
-    u64 factor = tf->findFactor(exp, bit, nDone, nTotal, &beginK, &endK);
-    if (!writeResultTF(exp, factor, bit, beginK, endK, AID, args.user, args.cpu) || factor) { return false; }
-  }
-  return true;
+  assert(tf);
+
+  u64 beginK = 0, endK = 0;
+  int nDone = (state.bitHi >= bitEnd) ? state.nDone : 0;
+  u64 factor = tf->findFactor(exp, bitLo, bitEnd, nDone, state.nTotal, &beginK, &endK);
+  bool ok = writeResultTF(exp, factor, bitLo, bitEnd, beginK, endK, AID, args.user, args.cpu);
+  assert(ok);
+  return (factor != 0);
 }
 
 extern string globalCpuName;
@@ -347,7 +344,10 @@ int main(int argc, char **argv) {
 
     u32 exp = task.exponent;
     if (task.kind == Task::PRP) {
-      if (task.bitLo) { doTF(exp, task.bitLo, targetBits(exp) + args.tfDelta, args, task.AID); }
+      if (task.bitLo && TF::enabled() && doTF(exp, task.bitLo, targetBits(exp) + args.tfDelta, args, task.AID)) {
+        if (!Worktodo::deleteTask(task)) { break; }
+        continue;
+      }
       
       bool isPrime = false;
       u64 residue = 0;
@@ -361,7 +361,7 @@ int main(int argc, char **argv) {
         break;
       }
     } else {
-      assert(task.kind == Task::TF && task.bitLo < task.bitHi);
+      assert(task.kind == Task::TF && task.bitLo < task.bitHi && TF::enabled());
       if (!doTF(exp, task.bitLo, task.bitHi, args, task.AID)) {
         log("No TF implementation available, please drop or comment the TF lines in worktodo.txt\n");
         break;

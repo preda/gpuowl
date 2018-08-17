@@ -35,8 +35,9 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 #define REV
 #endif
 
-#define VERSION "3.7-" REV
+#define VERSION "3.8-" REV
 // Reason for version change:
+// 3.8 : TF multi-bit in one pass. OWL TF savefile v2.
 // 3.7 : integrated TF
 // 3.6 : initial TF
 // 3.5 : require OpenCL 2.x
