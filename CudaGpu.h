@@ -15,7 +15,7 @@
 
 #define CC(what) assert((what) == cudaSuccess)
 
-pair<vector<double>, vector<double>> genWeights(uint E, uint N) {
+pair<vector<double>, vector<double>> genWeights(u32 E, u32 N) {
   vector<double> aTab, iTab;
   aTab.reserve(N);
   iTab.reserve(N);
@@ -42,38 +42,38 @@ DEVICE int carryStep(long x, long *carry, int bits) {
   return w;
 }
 
-DEVICE uint signBit(double a) { return __double_as_longlong(a) < 0; } // return (a < 0);
-DEVICE uint bitlen(uint base, double a) { return base + signBit(a); }
+DEVICE u32 signBit(double a) { return __double_as_longlong(a) < 0; } // return (a < 0);
+DEVICE u32 bitlen(u32 base, double a) { return base + signBit(a); }
 DEVICE long unweight(double x, double w) { return __double2ll_rn(x * fabs(w)); }
 
 DEVICE double2 mul(double2 a, double2 b) { return double2{a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x}; }
 DEVICE double2 sq(double2 a) { return double2{(a.x + a.y) * (a.x - a.y), 2 * a.x * a.y}; }
 
-template<uint mul>
-DEVICE int unweightAndCarry(uint base, double u, double w, long *carry) {
+template<u32 mul>
+DEVICE int unweightAndCarry(u32 base, double u, double w, long *carry) {
   return carryStep(mul * unweight(u, w), carry, bitlen(base, w));
 }
 
 /*
-DEVICE int2 unweightAndCarry(uint base, uint mul, double2 u, long *carry, double2 w) {
+DEVICE int2 unweightAndCarry(u32 base, u32 mul, double2 u, long *carry, double2 w) {
   int a = carryStep(mul * unweight(u.x, w.x), carry, bitlen(base, w.x));
   int b = carryStep(mul * unweight(u.y, w.y), carry, bitlen(base, w.y));
   return int2{a, b};
 }
 
-DEVICE double2 carryAndWeight(uint base, int2 u, long carry, double2 w) {
+DEVICE double2 carryAndWeight(u32 base, int2 u, long carry, double2 w) {
   double a = carryStep(u.x, &carry, bitlen(base, w.x)) * fabs(w.x);
   double b = (u.y + carry) * fabs(w.y);
   return double2{a, b};
 }
 */
 
-DEVICE double carryAndWeight(uint base, int u, double w, long *carry) {
+DEVICE double carryAndWeight(u32 base, int u, double w, long *carry) {
   return fabs(w) * carryStep(u, carry, bitlen(base, w));
 }
 
-template<uint mul>
-KERNEL void carryA(uint base, const double4 *in, int4 *out, long *carryOut, const double4 *weight) {
+template<u32 mul>
+KERNEL void carryA(u32 base, const double4 *in, int4 *out, long *carryOut, const double4 *weight) {
   u32 id = blockIdx.x * blockDim.x + threadIdx.x;
   long carry = 0;
   double4 u = in[id];
@@ -88,7 +88,7 @@ KERNEL void carryA(uint base, const double4 *in, int4 *out, long *carryOut, cons
   carryOut[next] = carry;
 }
 
-DEVICE void carryBcore(uint base, const int4 *in, long carry, double4 *out, const double4 *weight) {
+DEVICE void carryBcore(u32 base, const int4 *in, long carry, double4 *out, const double4 *weight) {
   u32 id = blockIdx.x * blockDim.x + threadIdx.x;
   int4 u = in[id];
   double4 w = weight[id];
@@ -99,16 +99,16 @@ DEVICE void carryBcore(uint base, const int4 *in, long carry, double4 *out, cons
   out[id] = double4{a, b, c, d};
 }
 
-KERNEL void carryB(uint base, const int4 *in, const long *carryIn, double4 *out, const double4 *weight) {
+KERNEL void carryB(u32 base, const int4 *in, const long *carryIn, double4 *out, const double4 *weight) {
   u32 id = blockIdx.x * blockDim.x + threadIdx.x;
   carryBcore(base, in, carryIn[id], out, weight);
 }
 
-KERNEL void preWeight(uint base, const int4 *in, const double4 *weight, double4 *out) {
+KERNEL void preWeight(u32 base, const int4 *in, const double4 *weight, double4 *out) {
   carryBcore(base, in, 0, out, weight);
 }
 
-KERNEL void carryFinal(uint base, int4 *io, const double4 *weight, const long *carryIn) {
+KERNEL void carryFinal(u32 base, int4 *io, const double4 *weight, const long *carryIn) {
   u32 id = blockIdx.x * blockDim.x + threadIdx.x;
   int4 u = io[id];
   double4 w = weight[id];
@@ -121,7 +121,7 @@ KERNEL void carryFinal(uint base, int4 *io, const double4 *weight, const long *c
 }
 
 /*
-KERNEL void readResidue(uint N2, const int2 *in, int2 *out) {
+KERNEL void readResidue(u32 N2, const int2 *in, int2 *out) {
   u32 id = blockIdx.x * blockDim.x + threadIdx.x;
   u32 p = (id >= 32) ? id - 32 : (N2 - 32 + id);
   out[id] = in[p];
@@ -130,7 +130,7 @@ KERNEL void readResidue(uint N2, const int2 *in, int2 *out) {
 
 /*
 // like carryA, but with mul3.
-KERNEL void carryM(uint base, const double2 *in, int2 *out, long *carryOut, const double2 *weights) {
+KERNEL void carryM(u32 base, const double2 *in, int2 *out, long *carryOut, const double2 *weights) {
   u32 id = blockIdx.x * blockDim.x + threadIdx.x;
   long carry = 0;
   out[id] = unweightAndCarry(base, 3, in[id], &carry, weights[id]);
@@ -139,7 +139,7 @@ KERNEL void carryM(uint base, const double2 *in, int2 *out, long *carryOut, cons
   carryOut[next] = carry;
 }
 
-KERNEL void carryB(uint base, const int2 *in, const long *carryIn, double2 *out, const double2 *weights) {
+KERNEL void carryB(u32 base, const int2 *in, const long *carryIn, double2 *out, const double2 *weights) {
   u32 id = blockIdx.x * blockDim.x + threadIdx.x;
   out[id] = carryAndWeight(base, in[id], carryIn[in], weights[id]);
 }

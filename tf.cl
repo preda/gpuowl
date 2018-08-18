@@ -87,7 +87,6 @@ P(163),
     SIEVE2(4, B31);
     for (int i =  5; i < min(12u, SPECIAL_PRIMES); ++i) { SIEVE1(i); }
     for (int i = 12; i < SPECIAL_PRIMES; ++i) { SIEVE0(i); }
-    
     local ulong *bigLds = (local ulong *)lds;
     for (int i = 0; i < THREAD_DWORDS; ++i) {
       bigLds[SIEVE_WG * i + me] = words[i];
@@ -99,12 +98,8 @@ P(163),
   for (int i = 0; i < (NPRIMES - SPECIAL_PRIMES) / SIEVE_WG; ++i) {
     uint p = SPECIAL_PRIMES + SIEVE_WG * i + me;
     uint prime = primes[p];
-    uint inv   = invs[p];
-    int btc    = btcs[p];
-    uint bitPos = rem(btc - LDS_BITS * g, prime, inv);
-    while (bitPos < LDS_BITS) {
-      atomic_or(&lds[bitPos / 32], 1 << (bitPos % 32));
-      bitPos += prime;
+    for (uint bitPos = rem(btcs[p] - LDS_BITS * g, prime, invs[p]); bitPos < LDS_BITS; bitPos += prime) {
+      atomic_or(&lds[bitPos / 32], 1u << (bitPos % 32));
     }
   }
   
@@ -401,7 +396,7 @@ KERNEL(256) initBtc(uint N, uint exp, ulong k, global uint *primes, global uint 
   for (int i = get_global_id(0); i < N; i += get_global_size(0)) {
     uint prime = primes[i];
     uint inv   = invs[i];
-    uint qMod  = (2 * exp * (k % prime) + 1) % prime;
+    uint qMod  = (2 * exp * (ulong) (k % prime) + 1) % prime;
     uint btc   = (prime - qMod) * (ulong) inv % prime;
     assert(btc < prime, btc);
     // assert(2 * exp * (u128) (k + ((ulong) btc) * NCLASS) % prime == prime - 1, 0);

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdio>
+#include <cstdint>
+
 #include <memory>
 #include <vector>
 
@@ -9,7 +11,11 @@ typedef long long i64;
 typedef unsigned long long u64;
 typedef int      i32;
 typedef unsigned u32;
+
+// try one of these for a 128bit integer.
 typedef unsigned __int128 u128;
+// typedef uint128_t u128;
+// typedef __uint128_t u128;
 
 static_assert(sizeof(u32) == 4,   "size u32");
 static_assert(sizeof(u64) == 8,   "size u64");
