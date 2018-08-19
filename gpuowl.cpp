@@ -5,6 +5,7 @@
 #include "checkpoint.h"
 #include "worktodo.h"
 #include "args.h"
+#include "ghzdays.h"
 
 #include "timeutil.h"
 // #include "state.h"
@@ -73,7 +74,7 @@ string hexStr(u64 res) {
   return buf;
 }
 
-std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info) {
+std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, float ghzMsPerIt) {
   int end = ((E - 1) / 1000 + 1) * 1000;
   float percent = 100 / float(end);
   
@@ -83,24 +84,24 @@ std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info) {
   int mins  = etaMins % 60;
   
   char buf[256];
-  snprintf(buf, sizeof(buf), "%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f]; ETA %dd %02d:%02d; %s",
-           k, E, k * percent, info.mean, info.low, info.high, days, hours, mins,
+  snprintf(buf, sizeof(buf), "%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f] (%.1f GHz-day/day); ETA %dd %02d:%02d; %s",
+           k, E, k * percent, info.mean, info.low, info.high, ghzMsPerIt / info.mean, days, hours, mins,
            hexStr(res).c_str());
   return buf;
 }
 
-void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, bool didSave) {
+void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, bool didSave, float ghzMsPerIt) {
   std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
   log("%s %s (check %.2fs)%s%s\n",
       checkOK ? "OK" : "EE",
-      makeLogStr(E, k, res, stats.getStats()).c_str(),
+      makeLogStr(E, k, res, stats.getStats(), ghzMsPerIt).c_str(),
       timeCheck * .001f, errors.c_str(),
       didSave ? " (saved)" : "");
   stats.reset();
 }
 
-void doSmallLog(int E, int k, u64 res, Stats &stats) {
-  log("   %s\n", makeLogStr(E, k, res, stats.getStats()).c_str());
+void doSmallLog(int E, int k, u64 res, Stats &stats, float ghzMsPerIt) {
+  log("   %s\n", makeLogStr(E, k, res, stats.getStats(), ghzMsPerIt).c_str());
   stats.reset();
 }
 
@@ -159,7 +160,9 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
   int k, blockSize, nErrors;  
   u32 N = gpu->getFFTSize();
   
-  log("PRP M(%d), FFT %dK, %.2f bits/word\n", E, N/1024, E / float(N));
+  log("PRP M(%d), FFT %dK, %.2f bits/word, %.0f GHz-day\n", E, N/1024, E / float(N), ghzDays(E, N));
+
+  float ghzMsPerIt = ghzSecsPerIt(N) * 1000;
   
   {
     LoadResult loaded = Checkpoint::load(E, args.blockSize);
@@ -247,7 +250,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     if (!doCheck) {
       gpu->updateCheck();
       if (k % 10000 == 0) {
-        doSmallLog(E, k, gpu->dataResidue(), stats);
+        doSmallLog(E, k, gpu->dataResidue(), stats, ghzMsPerIt);
         if (args.timeKernels) { gpu->logTimeKernels(); }
       }
       continue;
@@ -272,7 +275,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
         return false;
       }
     }
-    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave);
+    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave, ghzMsPerIt);
     
     if (ok) {
       if (k >= kEnd) { return true; }
@@ -331,6 +334,9 @@ extern string globalCpuName;
 
 int main(int argc, char **argv) {  
   initLog("gpuowl.log");
+
+  // for ()
+  
 
   Args args;
   if (!args.parse(argc, argv)) { return -1; }

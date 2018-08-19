@@ -33,7 +33,8 @@ public:
         char outAID[64] = {0};
         int bitLo = 0, bitHi = 0;
 
-        if (sscanf(line, "%u", &exp) == 1 ||
+        if (sscanf(line, "%u,%d", &exp, &bitLo) == 2 ||
+            sscanf(line, "%u", &exp) == 1 ||
             sscanf(line, "PRP=N/A,%*d,%*d,%u,%*d,%d", &exp, &bitLo) == 2 ||
             sscanf(line, "PRP=%32[0-9a-fA-F],%*d,%*d,%u,%*d,%d", outAID, &exp, &bitLo) == 3) {
           return Task{Task::PRP, exp, outAID, line, bitLo, bitHi};
