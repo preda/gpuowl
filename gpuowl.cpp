@@ -345,6 +345,7 @@ int main(int argc, char **argv) {
     u32 exp = task.exponent;
     if (task.kind == Task::PRP) {
       if (task.bitLo && TF::enabled() && doTF(exp, task.bitLo, targetBits(exp) + args.tfDelta, args, task.AID)) {
+        // If a factor is found by TF, skip and drop the PRP task.
         if (!Worktodo::deleteTask(task)) { break; }
         continue;
       }
@@ -361,11 +362,9 @@ int main(int argc, char **argv) {
         break;
       }
     } else {
-      assert(task.kind == Task::TF && task.bitLo < task.bitHi && TF::enabled());
-      if (!doTF(exp, task.bitLo, task.bitHi, args, task.AID)) {
-        log("No TF implementation available, please drop or comment the TF lines in worktodo.txt\n");
-        break;
-      }
+      assert(task.kind == Task::TF && task.bitLo < task.bitHi);
+      assert(TF::enabled());      
+      doTF(exp, task.bitLo, task.bitHi, args, task.AID);
       if (!Worktodo::deleteTask(task)) { break; }
     }
   }
