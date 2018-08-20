@@ -188,23 +188,6 @@ void fft8(T2 *u) {
   SWAP(u[3], u[6]);
 }
 
-/*
-void fft8(T2 *u) {
-  for (int i = 0; i < 4; ++i) { X2(u[i], u[i + 4]); }
-  u[6] = mul_t4(u[6]);
-
-  X2(u[0], u[2]);
-  X2(u[1], u[3]);
-  u[3] = mul_t4(u[3]);
-
-  X2(u[5], u[7]);
-  u[5] = mul_t4(u[5]) * M_SQRT1_2;
-  u[7] = u[7] * M_SQRT1_2;
-
-  X2(u[0], u[1]);
-}
-*/
-
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 void fft5(T2 *u) {
   const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
