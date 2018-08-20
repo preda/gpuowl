@@ -2,6 +2,7 @@
 
 #include "stats.h"
 #include "clwrap.h"
+#include "timeutil.h"
 #include "common.h"
 
 #include <string>

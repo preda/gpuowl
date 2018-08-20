@@ -497,9 +497,7 @@ protected:
     u32 earlyStart = (startDword + N/2 - 32) % (N/2);
     vector<int> readBuf = readSmall(buf, earlyStart);
 
-    u128 raw = residueFromRaw(readBuf, startWord);
-
     u32 startBit   = offset - wordToBitpos(E, N, startWord);
-    return raw >> startBit;
+    return residueFromRaw(readBuf, startWord, startBit);
   }
 };

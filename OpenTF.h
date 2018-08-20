@@ -7,11 +7,19 @@
 #include "kernel.h"
 #include "timeutil.h"
 #include "checkpoint.h"
+#include "args.h"
 
 #include <cmath>
 #include <cassert>
 #include <vector>
 #include <bitset>
+
+// try one of these for a 128bit integer.
+typedef unsigned __int128 u128;
+// typedef uint128_t u128;
+// typedef __uint128_t u128;
+
+cl_device_id getDevice(const Args &args);
 
 // q := 2*exp*c + 1. Is q==1 or q==7 (mod 8)?
 bool q1or7mod8(u32 exp, u32 c) { return !(c & 3) || ((c & 3) + (exp & 3) == 4); }
