@@ -1,28 +1,22 @@
-// Copyright (C) 2017 Mihai Preda.
+// Copyright (C) 2017-2018 Mihai Preda.
 
 #pragma once
 
-#include "common.h"
-#include <sys/time.h>
+#include <chrono>
+
+using namespace std::chrono;
 
 class Timer {
-  u64 prev;
+  high_resolution_clock::time_point prev;
 
-  static u64 timeMicros() {
-    struct timeval tv;
-    gettimeofday(&tv, 0);
-    return u64(tv.tv_sec) * 1000000 + tv.tv_usec;
+  auto delta() {
+    auto save = prev;
+    return (prev = high_resolution_clock::now()) - save;
   }
-
- public:
-  Timer() : prev(timeMicros()) { }
-
-  u64 deltaMicros() {
-    u64 now = timeMicros();
-    u64 delta = now - prev;
-    prev = now;
-    return delta;
-  }
-
-  int deltaMillis() { return (int) (deltaMicros() / 1000); }
+  
+public:
+  Timer() : prev(high_resolution_clock::now()) { }
+  
+  long deltaMicros() { return duration_cast<microseconds>(delta()).count(); }
+  int deltaMillis() { return duration_cast<milliseconds>(delta()).count(); }
 };
