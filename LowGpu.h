@@ -49,30 +49,6 @@ protected:
     return v;
   }
 
-  // compact 128bits from balanced uncompressed ("raw") words.
-  /*
-  u128 residueFromRaw(const vector<int> &words, int startWord) {
-    int start = startWord % 2 + 64;
-    assert(words.size() == 128);
-    assert(start == 64 || start == 65);
-    int carry = 0;
-    for (int i = 0; i < start; ++i) { carry = (words[i] + carry < 0) ? -1 : 0; }
-    
-    u128 res = 0;
-    int k = startWord, hasBits = 0;
-    for (auto p = words.begin() + start, end = words.end(); p < end && hasBits < 128; ++p, ++k) {
-      int len = bitlen(N, E, k);
-      int w = *p + carry;
-      carry = (w < 0) ? -1 : 0;
-      if (w < 0) { w += (1 << len); }
-      assert(w >= 0 && w < (1 << len));
-      res |= u128(w) << hasBits;
-      hasBits += len;    
-    }
-    return res;
-  }
-  */
-
   // compact 64bits from balanced uncompressed ("raw") words.
   u64 residueFromRaw(const vector<int> &words, int startWord, u32 startBit) {
     int start = startWord % 2 + 64;

@@ -209,7 +209,6 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryM;
   Kernel shift;
   Kernel carryB;
-  Kernel res36;
   Kernel compare;
   
   Kernel transposeW, transposeH;
@@ -251,7 +250,6 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryM,  nW * (BIG_H/16)),
     LOAD(shift,   nW * (BIG_H/16)),
     LOAD(carryB,  nW * (BIG_H/16)),
-    LOAD(res36,   nW * (BIG_H/16)),
     LOAD(compare, nW * (BIG_H/16)),
     LOAD(transposeW,   (W/64) * (BIG_H/64)),
     LOAD(transposeH,   (W/64) * (BIG_H/64)),
@@ -371,7 +369,7 @@ public:
 protected:
   void logTimeKernels() {
     ::logTimeKernels({&carryFused, &fftP, &fftW, &fftMiddleIn, &fftMiddleOut,
-          &carryA, &carryM, &shift, &carryB, &res36, &compare,
+          &carryA, &carryM, &shift, &carryB, &compare,
           &transposeW, &transposeH, &transposeIn, &transposeOut,
           &tailFused, &mulFused, &readResidue});
   }
@@ -478,16 +476,6 @@ protected:
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
     bool ok = isEqual && isNotZero;
-
-    i64 zero[2] = {0, 0};
-    
-    write(queue.get(), false, bufSmallOut, 2 * sizeof(i64), &zero);
-    res36(buf1, offset1, bufSmallOut, 0);
-    res36(buf2, offset2, bufSmallOut, 1);
-    auto res = queue.read<i64>(bufSmallOut, 2);
-    u64 res1 = reduce36(res[0]);
-    u64 res2 = reduce36(res[1]);
-    if (res1 != res2) { log("res36 differ: %09llx %09llx\n", res1, res2); }
     return ok;
   }
   
