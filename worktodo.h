@@ -26,7 +26,7 @@ struct Task {
 class Worktodo {
 public:
   static Task getTask() {
-    if (auto fi{open("worktodo.txt", "r")}) {
+    if (auto fi{open("worktodo.txt", "rb")}) {
       char line[512];
       while (fgets(line, sizeof(line), fi.get())) {
         u32 exp = 0;
@@ -75,7 +75,10 @@ public:
       }
     }
 
-    if (!lineDeleted) { return false; }
+    if (!lineDeleted) {
+      log("worktodo.txt: could not find the line \"%s\" to delete\n", task.line.c_str());
+      return false;
+    }
     remove("worktodo.bak");
     rename("worktodo.txt", "worktodo.bak");
     rename("worktodo-tmp.tmp", "worktodo.txt");
