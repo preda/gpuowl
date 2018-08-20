@@ -3,6 +3,7 @@
 #include "common.h"
 
 #include <vector>
+#include <string>
 #include <cassert>
 
 struct LoadResult {
