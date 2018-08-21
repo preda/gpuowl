@@ -99,5 +99,5 @@ public:
 
   cl_queue get() { return queue.get(); }
 
-  void zero(Buffer &buf, size_t size);
+  void zero(Buffer &buf, size_t sizeBytes);
 };

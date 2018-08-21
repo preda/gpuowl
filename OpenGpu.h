@@ -1,3 +1,6 @@
+// gpuOwl, a Mersenne primality tester.
+// Copyright (C) 2017-2018 Mihai Preda.
+
 #pragma once
 
 #include "LowGpu.h"
@@ -207,9 +210,7 @@ class OpenGpu : public LowGpu<Buffer> {
   
   Kernel carryA;
   Kernel carryM;
-  Kernel shift;
   Kernel carryB;
-  Kernel compare;
   
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
@@ -217,6 +218,8 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel tailFused;
   Kernel mulFused;
   Kernel readResidue;
+  Kernel isNotZero;
+  Kernel isEqual;
   
   Buffer bufGoodData, bufGoodCheck;
   Buffer bufTrigW, bufTrigH;
@@ -246,9 +249,7 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(fftMiddleOut, hN / (256 * (BIG_H / SMALL_H))),
     LOAD(carryA,  nW * (BIG_H/16)),
     LOAD(carryM,  nW * (BIG_H/16)),
-    LOAD(shift,   nW * (BIG_H/16)),
     LOAD(carryB,  nW * (BIG_H/16)),
-    LOAD(compare, nW * (BIG_H/16)),
     LOAD(transposeW,   (W/64) * (BIG_H/64)),
     LOAD(transposeH,   (W/64) * (BIG_H/64)),
     LOAD(transposeIn,  (W/64) * (BIG_H/64)),
@@ -256,6 +257,8 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(tailFused, (hN / SMALL_H) / 2),
     LOAD(mulFused,  (hN / SMALL_H) / 2),
     LOAD(readResidue, 1),
+    LOAD(isNotZero, 256),
+    LOAD(isEqual, 256),
 #undef LOAD
     
     bufGoodData( makeBuf(context, BUF_RW, N * sizeof(int))),
@@ -363,9 +366,9 @@ public:
 protected:
   void logTimeKernels() {
     ::logTimeKernels({&carryFused, &fftP, &fftW, &fftMiddleIn, &fftMiddleOut,
-          &carryA, &carryM, &shift, &carryB, &compare,
+          &carryA, &carryM, &carryB,
           &transposeW, &transposeH, &transposeIn, &transposeOut,
-          &tailFused, &mulFused, &readResidue});
+          &tailFused, &mulFused, &readResidue, &isNotZero, &isEqual});
   }
   
   void commit() {
@@ -448,15 +451,11 @@ protected:
   }
   
   bool equalNotZero(Buffer &buf1, Buffer &buf2) {
-    int init[2] = {true, false};
-    write(queue.get(), false, bufSmallOut, sizeof(int) * 2, init);    
-    
-    compare(buf1, buf2, 0, bufSmallOut);
-    auto readBuf = queue.read<int>(bufSmallOut, 2);
-    bool isEqual   = readBuf[0];
-    bool isNotZero = readBuf[1];
-    bool ok = isEqual && isNotZero;
-    return ok;
+    queue.zero(bufSmallOut, sizeof(int));
+    u32 sizeBytes = N * sizeof(int);
+    isNotZero(sizeBytes, buf1, bufSmallOut);
+    isEqual(sizeBytes, buf1, buf2, bufSmallOut);
+    return queue.read<int>(bufSmallOut, 1)[0];
   }
   
   u64 bufResidue(Buffer &buf) {

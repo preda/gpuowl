@@ -1,5 +1,5 @@
 // gpuOwl, an OpenCL Mersenne primality test.
-// Copyright (C) 2017 Mihai Preda.
+// Copyright (C) 2017-2018 Mihai Preda.
 
 // The data is organized in pairs of words in a matrix WIDTH x HEIGHT.
 // The pair (a, b) is sometimes interpreted as the complex value a + i*b.
@@ -490,120 +490,29 @@ KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint startDword) {
 uint dwordToBitpos(uint dword)  { return wordToBitpos(EXP, ND, dword); }
 uint bitposToDword(uint bitpos) { return bitposToWord(EXP, ND, bitpos); }
 uint transPos(uint k, uint width, uint height) { return k / height + k % height * width; }
-Word2 readDword(CP(Word2) data, uint k) { return data[transPos(k, WIDTH, BIG_HEIGHT)]; }
-
-ulong getWordBits(Word2 word, uint k, uint *outNBits, int *carryInOut) {
-  uint n1 = bitlen(2 * k + 0);
-  uint n2 = bitlen(2 * k + 1);
-  *outNBits = n1 + n2;
-
-  word.x += *carryInOut;
-  
-  if (word.x < 0) {
-    word.x += (1 << n1);
-    word.y -= 1;
-  }
-
-  if (word.y < 0) {
-    word.y += (1 << n2);
-    *carryInOut = -1;
-  } else {
-    *carryInOut = 0;
-  }
-  
-  return (((ulong) word.y) << n1) | word.x;
-}
-
-ulong readDwordBits(CP(Word2) data, uint k, uint *outNBits, int *carryInOut) {
-  return getWordBits(readDword(data, k), k, outNBits, carryInOut);
-}
-
-ulong maskBits(ulong bits, int n) { return bits % (1UL << n); }
-
-u32 modExp(u32 x) { return (x >= EXP) ? x - EXP : x; }
 
 uint kAt(uint gx, uint gy, uint i) {
   return CARRY_LEN * gy + BIG_HEIGHT * G_W * gx + BIG_HEIGHT * ((uint) get_local_id(0)) + i;
 }
 
-// This is damn tricky on the GPU: comparing balanced words with offset.
-KERNEL(G_W) compare(CP(Word2) in1, CP(Word2) in2, uint offset, P(int) out) {  
-  uint g  = get_group_id(0);
-  uint me = get_local_id(0);
-
-  uint gx = g % NW;
-  uint gy = g / NW;
-
-  in1 += G_W * gx + WIDTH * CARRY_LEN * gy;
-
-  uint k1  = kAt(gx, gy, 0);
-  uint bitpos1 = dwordToBitpos(k1);  
-  uint bitpos2 = modExp(bitpos1 + offset);
-  uint k2  = bitposToDword(bitpos2);
-  uint bitInWord = bitpos2 - dwordToBitpos(k2);
-
-  int carry2 = 0;  
-  uint nBits2;
-  ulong bits2 = readDwordBits(in2, k2, &nBits2, &carry2);
-  bits2 >>= bitInWord;
-  nBits2 -= bitInWord;
-
-  if (nBits2 < 3) {
-    k2 = (k2 + 1) % ND;
-    uint n;
-    ulong bits = readDwordBits(in2, k2, &n, &carry2);
-    bits2 |= (bits << nBits2);
-    nBits2 += n;
-  }
-  
-  int carry1 = 0;
-  uint nBits1;
-  ulong bits1 = getWordBits(in1[me], k1, &nBits1, &carry1);
-
-  // find a carry1 (-1, 0, or 1) that achieves bits1 == bits2 if possible.
-  uint m = min(nBits1, nBits2);
-  // carry1 = ((long) maskBits(bits2, m)) - ((long) maskBits(bits1, m));
-  carry1 = ((long) (maskBits(bits2, m) - maskBits(bits1, m))) << (64 - m) >> (64 - m);
-  if (abs(carry1) > 1) { out[0] = false; return; }
-
-  nBits1 = 0;
-
-  bool isNotZero = false;
-  
-  for (int i = -1;;) {
-    if (nBits1 == 0) {
-      if (++i >= CARRY_LEN) { break; }
-      Word2 w = in1[WIDTH * i + me];
-      if (w.x || w.y) { isNotZero = true; }
-      bits1 = getWordBits(w, k1 + i, &nBits1, &carry1);
+// outEqual must be "true" on entry.
+KERNEL(256) isEqual(uint sizeBytes, global long *in1, global long *in2, P(bool) outEqual) {
+  for (int p = get_global_id(0); p < sizeBytes / sizeof(long); p += get_global_size(0)) {
+    if (in1[p] != in2[p]) {
+      *outEqual = false;
+      return;
     }
-    if (nBits2 == 0) {
-      k2 = (k2 + 1) % ND;
-      bits2 = readDwordBits(in2, k2, &nBits2, &carry2);      
-    }
-    uint m = min(nBits1, nBits2);
-    if (maskBits(bits1, m) != maskBits(bits2, m)) { out[0] = false; return; }
-    bits1 >>= m;
-    nBits1 -= m;
-    bits2 >>= m;
-    nBits2 -= m;
   }
-  if (isNotZero && !out[1]) { out[1] = true; }
 }
 
-// increase "offset" by 1, equivalent to a mul-2.
-KERNEL(G_W) shift(P(Word2) io, P(Carry) carryOut) {
-  uint g = get_group_id(0);
-  uint me = get_local_id(0);
-  uint gx = g % NW;
-  uint gy = g / NW;
-  io += G_W * gx + WIDTH * CARRY_LEN * gy;
-  Carry carry = 0;
-  for (int i = 0; i < CARRY_LEN; ++i) {
-    uint p = WIDTH * i + me;
-    io[p] = carryWord(io[p] * 2, &carry, kAt(gx, gy, i));
+// outNotZero must be "false" on entry.
+KERNEL(256) isNotZero(uint sizeBytes, global long *in, P(bool) outNotZero) {
+  for (int p = get_global_id(0); p < sizeBytes / sizeof(long); p += get_global_size(0)) {
+    if (in[p] != 0) {
+      *outNotZero = true;
+      return;
+    }
   }
-  carryOut[G_W * g + me] = carry;
 }
 
 void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
