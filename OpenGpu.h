@@ -463,6 +463,6 @@ protected:
     u32 startDword = startWord / 2;
     u32 earlyStart = (startDword + N/2 - 32) % (N/2);
     vector<int> readBuf = readSmall(buf, earlyStart);
-    return residueFromRaw(readBuf, startWord, 0);
+    return residueFromRaw(readBuf, startWord);
   }
 };

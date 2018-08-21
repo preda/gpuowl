@@ -372,6 +372,6 @@ public:
     vector<int> words(128);
     CC(cudaMemcpyAsync(words.data(), buf + (N - 64), 64 * sizeof(int), cudaMemcpyDeviceToHost));
     CC(cudaMemcpy(words.data() + 64, buf, 64 * sizeof(int), cudaMemcpyDeviceToHost));
-    return residueFromRaw(words, 0, 0);
+    return residueFromRaw(words, 0);
   }
 };
