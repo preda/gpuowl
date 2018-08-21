@@ -281,13 +281,12 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
   }
 }
 
-// selects OpenGpu or CudaGpu.
+// selects OpenCL or CUDA implementation.
 unique_ptr<Gpu> makeGpu(u32 E, Args &args);
 unique_ptr<TF> makeTF(Args &args);
 
 // Ideally how far we want an exponent TF-ed.
 int targetBits(u32 exp) { return 81 + 2.5 * (log2(exp) - log2(332000000)); }
-// return (exp >= 332000000) ? 81 : (exp >= 160000000) ? 78 : (exp >= 80000000) ? 75 : 0; }
 
 // Return true if a factor was found.
 bool doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
@@ -315,9 +314,6 @@ extern string globalCpuName;
 
 int main(int argc, char **argv) {  
   initLog("gpuowl.log");
-
-  // for ()
-  
 
   Args args;
   if (!args.parse(argc, argv)) { return -1; }

@@ -31,13 +31,9 @@ void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
-// The git revision should be passed through -D on the compiler command line (see Makefile).
-#ifndef REV
-#define REV
-#endif
-
-#define VERSION "3.8-" REV
+#define BASE_VERSION "3.9"
 // Reason for version change:
+// 3.9 : use save/load path vs. commit/rollback
 // 3.8 : TF multi-bit in one pass. OWL TF savefile v2.
 // 3.7 : integrated TF
 // 3.6 : initial TF
@@ -48,7 +44,13 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 // 3.1 : use computed trig (instead of tables) in transpose and tailFused / square. Reworked tailFused.
 // 3.0 : add CUDA backend.
 
+// The git revision should be passed through -D on the compiler command line (see Makefile).
+#ifdef REV
+#define VERSION BASE_VERSION "-" REV
+#else
+#define VERSION BASE_VERSION
+#endif
+
 unique_ptr<FILE> open(const string &name, const char *mode, bool doLog = true);
 
 string timeStr();
-// string longTimeStr();
