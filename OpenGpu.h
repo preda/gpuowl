@@ -444,11 +444,6 @@ protected:
     tH(buf2, buf1);
     exitKerns(buf1, io, doMul3);
   };
-
-  u64 reduce36(i64 x) {
-    i64 r = x / (1ll << 36) + x % (1ll << 36);
-    return (r < 0) ? r + (1ll << 36) - 1 : r;
-  }
   
   bool equalNotZero(Buffer &buf1, Buffer &buf2) {
     queue.zero(bufSmallOut, sizeof(int));
@@ -459,10 +454,8 @@ protected:
   }
   
   u64 bufResidue(Buffer &buf) {
-    u32 startWord = 0;
-    u32 startDword = startWord / 2;
-    u32 earlyStart = (startDword + N/2 - 32) % (N/2);
+    u32 earlyStart = N/2 - 32;
     vector<int> readBuf = readSmall(buf, earlyStart);
-    return residueFromRaw(readBuf, startWord);
+    return residueFromRaw(readBuf);
   }
 };
