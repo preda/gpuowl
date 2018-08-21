@@ -226,8 +226,6 @@ class OpenGpu : public LowGpu<Buffer> {
   Buffer bufReady;
   Buffer bufSmallOut;
 
-  int offsetGoodData, offsetGoodCheck;
-
   OpenGpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
           cl_program program, cl_device_id device, cl_context context,
           bool timeKernels, bool useLongCarry) :
@@ -269,9 +267,7 @@ class OpenGpu : public LowGpu<Buffer> {
     buf3{makeBuf(    context, BUF_RW, bufSize)},
     bufCarry{makeBuf(context, BUF_RW, bufSize / 2)},
     bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
-    bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int))),
-
-    offsetGoodData(0), offsetGoodCheck(0)
+    bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
   {
     bufData.reset( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
@@ -293,8 +289,6 @@ class OpenGpu : public LowGpu<Buffer> {
     queue.zero(bufReady, BIG_H * sizeof(int));
   }
 
-  std::pair<int, int> getOffsets() { return std::pair<int, int>(offsetData, offsetCheck); }
-  
   vector<int> readSmall(Buffer &buf, u32 start) {
     readResidue(buf, bufSmallOut, start);
     return queue.read<int>(bufSmallOut, 128);                    
@@ -377,24 +371,11 @@ protected:
   void commit() {
     queue.copy<int>(bufData, bufGoodData, N);
     queue.copy<int>(bufCheck, bufGoodCheck, N);
-    offsetGoodData  = offsetData;
-    offsetGoodCheck = offsetCheck;
   }
 
   void rollback() {
-    // Shift good data by 1.
-    shift(bufGoodData, bufCarry);
-    carryB(bufGoodData, bufCarry);
-    offsetGoodData = (offsetGoodData + 1) % E;
-
-    shift(bufGoodCheck, bufCarry);
-    carryB(bufGoodCheck, bufCarry);
-    offsetGoodCheck = (offsetGoodCheck + 1) % E;
-    
     queue.copy<int>(bufGoodData, bufData, N);
     queue.copy<int>(bufGoodCheck, bufCheck, N);
-    offsetData  = offsetGoodData;
-    offsetCheck = offsetGoodCheck;
   }
 
   // Implementation of LowGpu's abstract methods below.
@@ -466,12 +447,11 @@ protected:
     return (r < 0) ? r + (1ll << 36) - 1 : r;
   }
   
-  bool equalNotZero(Buffer &buf1, u32 offset1, Buffer &buf2, u32 offset2) {
+  bool equalNotZero(Buffer &buf1, Buffer &buf2) {
     int init[2] = {true, false};
     write(queue.get(), false, bufSmallOut, sizeof(int) * 2, init);    
     
-    u32 deltaOffset = (E + offset2 - offset1) % E;
-    compare(buf1, buf2, deltaOffset, bufSmallOut);
+    compare(buf1, buf2, 0, bufSmallOut);
     auto readBuf = queue.read<int>(bufSmallOut, 2);
     bool isEqual   = readBuf[0];
     bool isNotZero = readBuf[1];
@@ -479,13 +459,11 @@ protected:
     return ok;
   }
   
-  u64 bufResidue(Buffer &buf, u32 offset) {
-    u32 startWord = bitposToWord(E, N, offset);
-    u32 startDword = startWord / 2;    
+  u64 bufResidue(Buffer &buf) {
+    u32 startWord = 0;
+    u32 startDword = startWord / 2;
     u32 earlyStart = (startDword + N/2 - 32) % (N/2);
     vector<int> readBuf = readSmall(buf, earlyStart);
-
-    u32 startBit   = offset - wordToBitpos(E, N, startWord);
-    return residueFromRaw(readBuf, startWord, startBit);
+    return residueFromRaw(readBuf, startWord, 0);
   }
 };

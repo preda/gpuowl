@@ -264,8 +264,7 @@ protected:
     carryFinal<<<N/4/256, 256>>>(baseBits, (int4 *) bufIo, (double4 *) bufI, (long *) bufBig2);
   }
 
-  bool equalNotZero(int *&buf1, u32 offset1, int *&buf2, u32 offset2) {
-    assert(offset1 == 0 && offset2 == 0);
+  bool equalNotZero(int *&buf1, int *&buf2) {
     int data[2] = {true, false};
     CC(cudaMemcpyAsync(bufSmall, data, 2 * sizeof(int), cudaMemcpyHostToDevice, 0));
     compare<<<N/2/256, 256>>>((int2 *) buf1, (int2 *) buf2, (int *) bufSmall);
@@ -360,7 +359,6 @@ public:
   void finish() { cudaDeviceSynchronize(); }
 
   void commit() {
-    assert(offsetData == 0 && offsetCheck == 0);
     goodData = readOut(bufData);
     goodCheck = readOut(bufCheck);
   }
@@ -370,9 +368,7 @@ public:
     writeIn(goodCheck, bufCheck);
   }
 
-  u64 bufResidue(int *&buf, u32 offset) {
-    assert(offset == 0);
-    // readResidue<<<1, 64>>>(N/2, (int2 *) bufData, (int2 *) bufSmall);
+  u64 bufResidue(int *&buf) {
     vector<int> words(128);
     CC(cudaMemcpyAsync(words.data(), buf + (N - 64), 64 * sizeof(int), cudaMemcpyDeviceToHost));
     CC(cudaMemcpy(words.data() + 64, buf, 64 * sizeof(int), cudaMemcpyDeviceToHost));
