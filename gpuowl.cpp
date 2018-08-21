@@ -165,13 +165,15 @@ bool load(Gpu *gpu, u32 E, u32 desiredBlockSize, int *outK, int *outBlockSize, i
 
   gpu->writeState(loaded.bits, loaded.blockSize);
   u64 res64 = gpu->dataResidue();
-
-  if (loaded.res64 && res64 != loaded.res64) {
+  bool resOK = !loaded.res64 || res64 == loaded.res64;
+  
+  if (resOK && gpu->checkAndUpdate(loaded.blockSize)) {
+    log("OK loaded: %d/%d, blockSize %d, %016llx\n", loaded.k, E, loaded.blockSize, res64);
+  } else {
     log("EE loaded: %d/%d, blockSize %d, %016llx, expected %016llx\n", loaded.k, E, loaded.blockSize, res64, loaded.res64);
     return false;
   }
   
-  log("OK loaded: %d/%d, blockSize %d, %016llx\n", loaded.k, E, loaded.blockSize, res64);
   *outK = loaded.k;
   *outBlockSize = loaded.blockSize;
   *outNErrors = loaded.nErrors;
@@ -194,13 +196,6 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
   assert(k % blockSize == 0 && k < kEnd);
   
   oldHandler = signal(SIGINT, myHandler);
-
-  if (gpu->checkAndUpdate(blockSize)) {
-    log("OK initial check\n");
-  } else {
-    log("EE initial check\n");
-    return false;
-  }
 
   int startK = k;
   Stats stats;
