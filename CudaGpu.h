@@ -121,14 +121,6 @@ KERNEL void carryFinal(u32 base, int4 *io, const double4 *weight, const long *ca
 }
 
 /*
-KERNEL void readResidue(u32 N2, const int2 *in, int2 *out) {
-  u32 id = blockIdx.x * blockDim.x + threadIdx.x;
-  u32 p = (id >= 32) ? id - 32 : (N2 - 32 + id);
-  out[id] = in[p];
-}
-*/
-
-/*
 // like carryA, but with mul3.
 KERNEL void carryM(u32 base, const double2 *in, int2 *out, long *carryOut, const double2 *weights) {
   u32 id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -273,21 +265,7 @@ protected:
     if (!equal) {
       u64 res1 = checkResidue();
       u64 res2 = bufResidue(bufAux);
-      log("check %d %d %016llx %016llx\n", (int)equal, (int)notZero, res1, res2);
-      if (res1 == res2) {
-        vector<int> check(N);
-        vector<int> aux(N);
-        cudaMemcpy(check.data(), bufCheck, N * sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(aux.data(), bufAux, N * sizeof(int), cudaMemcpyDeviceToHost);
-        int nDiff = 0;
-        for (int i = 0; i < N; ++i) {
-          if (check[i] != aux[i]) {
-            ++nDiff;
-            log("diff %d: %d %d\n", i, check[i], aux[i]);
-            if (nDiff > 20) { break; }
-          }
-        }
-      }
+      log("check failed: %d %016llx %016llx\n", (int)notZero, res1, res2);
     }
     
     return equal && notZero;
