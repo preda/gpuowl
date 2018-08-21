@@ -156,35 +156,37 @@ bool isAllZero(const std::vector<u32> &vect) {
   return true;
 }
 
+bool load(Gpu *gpu, u32 E, u32 desiredBlockSize, int *outK, int *outBlockSize, int *outNErrors) {
+  LoadResult loaded = Checkpoint::load(E, desiredBlockSize);
+  if (!loaded.ok) {
+    log("Invalid checkpoint for exponent %d\n", E);
+    return false;
+  }
+
+  gpu->writeState(loaded.bits, loaded.blockSize);
+  u64 res64 = gpu->dataResidue();
+
+  if (loaded.res64 && res64 != loaded.res64) {
+    log("EE loaded: %d/%d, blockSize %d, %016llx, expected %016llx\n", loaded.k, E, loaded.blockSize, res64, loaded.res64);
+    return false;
+  }
+  
+  log("OK loaded: %d/%d, blockSize %d, %016llx\n", loaded.k, E, loaded.blockSize, res64);
+  *outK = loaded.k;
+  *outBlockSize = loaded.blockSize;
+  *outNErrors = loaded.nErrors;
+  return true;
+}
+
 bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outResidue, int *outNErrors) {
-  int k, blockSize, nErrors;  
+  int k = 0, blockSize = 0, nErrors = 0;
   u32 N = gpu->getFFTSize();
   
   log("PRP M(%d), FFT %dK, %.2f bits/word, %.0f GHz-day\n", E, N/1024, E / float(N), ghzDays(E, N));
 
   float ghzMsPerIt = ghzSecsPerIt(N) * 1000;
-  
-  {
-    LoadResult loaded = Checkpoint::load(E, args.blockSize);
-    if (!loaded.ok) {
-      log("Invalid checkpoint for exponent %d\n", E);
-      return false;
-    }
-    k = loaded.k;
-    blockSize = loaded.blockSize;
-    nErrors = loaded.nErrors;
-    gpu->writeState(loaded.bits, blockSize);
-    u64 res64 = gpu->dataResidue();
 
-    if (loaded.res64) {
-      if (res64 == loaded.res64) {
-        log("OK loaded: %d/%d, blockSize %d, %016llx\n", k, E, blockSize, res64);
-      } else {
-        log("EE loaded: %d/%d, blockSize %d, %016llx != %016llx\n", k, E, blockSize, res64, loaded.res64);
-        return false;
-      }
-    }
-  }  
+  if (!load(gpu, E, args.blockSize, &k, &blockSize, &nErrors)) { return false; }
 
   const int checkStep = blockSize * blockSize;
   
@@ -193,17 +195,13 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
   
   oldHandler = signal(SIGINT, myHandler);
 
-  u64 res64 = gpu->dataResidue();
-  
   if (gpu->checkAndUpdate(blockSize)) {
-    log("OK initial check: %016llx\n", res64);
+    log("OK initial check\n");
   } else {
-    log("EE initial check: %016llx\n", res64);
+    log("EE initial check\n");
     return false;
   }
 
-  gpu->commit();
-  int goodK = k;
   int startK = k;
   Stats stats;
 
@@ -257,43 +255,26 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     }
 
     u64 res = gpu->dataResidue();
-    bool wouldSave = k < kEnd; // && ((k % 100000 == 0) || doStop);
 
     // Read GPU state before "check" is updated in gpu->checkAndUpdate().
-    std::vector<u32> compactCheck = wouldSave ? gpu->roundtripCheck() : vector<u32>();
+    std::vector<u32> compactCheck = gpu->roundtripCheck();
     
     bool ok = gpu->checkAndUpdate(blockSize);
-    bool doSave = wouldSave && ok;
-    if (doSave) {
-      Checkpoint::save(E, compactCheck, k, nErrors, blockSize, res);
-      
-      // just for debug's sake, verify residue match.
-      std::vector<u32> compactData = gpu->roundtripData();
-      u64 resAux = (u64(compactData[1]) << 32) | compactData[0];
-      if (resAux != res) {
-        log("Residue mismatch: %016llx %016llx\n", res, resAux);
-        return false;
-      }
-    }
+    bool doSave = (k < kEnd) && ok;
+    if (doSave) { Checkpoint::save(E, compactCheck, k, nErrors, blockSize, res); }
+    
     doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave, ghzMsPerIt);
     
     if (ok) {
       if (k >= kEnd) { return true; }
-      gpu->commit();
-      goodK = k;
       nSeqErrors = 0;
     } else {
-      if (++nSeqErrors > 10) {
+      if (++nSeqErrors > 2) {
         log("%d sequential errors, will stop.\n", nSeqErrors);
         return false;
       }
-      // errorResidue = res;
+      if (!load(gpu, E, args.blockSize, &k, &blockSize, &nErrors)) { return false; }
       ++nErrors;
-      gpu->rollback();
-      k = goodK;
-      // auto offsets = gpu->getOffsets();
-      // log("Back to last good iteration %d. Offsets are: data %d, check %d\n", goodK, offsets.first, offsets.second);
-      log("Back to last good iteration %d.\n", goodK);
     }
     if (args.timeKernels) { gpu->logTimeKernels(); }
     if (doStop) { return false; }

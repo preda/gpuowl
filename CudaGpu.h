@@ -192,7 +192,6 @@ static pair<bool, vector<int>> power2357(int n) {
 
 class CudaGpu : public LowGpu<int *> {
   cufftHandle plan1, plan2;
-  vector<int> goodData, goodCheck;
   double *bufA, *bufI;
   void *bufBig1, *bufBig2, *bufBig3;
   int *bufSmall;
@@ -357,16 +356,6 @@ public:
   }
   
   void finish() { cudaDeviceSynchronize(); }
-
-  void commit() {
-    goodData = readOut(bufData);
-    goodCheck = readOut(bufCheck);
-  }
-
-  void rollback() {
-    writeIn(goodData, bufData);
-    writeIn(goodCheck, bufCheck);
-  }
 
   u64 bufResidue(int *&buf) {
     vector<int> words(128);

@@ -221,7 +221,6 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel isNotZero;
   Kernel isEqual;
   
-  Buffer bufGoodData, bufGoodCheck;
   Buffer bufTrigW, bufTrigH;
   Buffer bufA, bufI;
   Buffer buf1, buf2, buf3;
@@ -261,8 +260,6 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(isEqual, 256),
 #undef LOAD
     
-    bufGoodData( makeBuf(context, BUF_RW, N * sizeof(int))),
-    bufGoodCheck(makeBuf(context, BUF_RW, N * sizeof(int))),    
     bufTrigW(genSmallTrig(context, W, nW)),
     bufTrigH(genSmallTrig(context, SMALL_H, nH)),
     buf1{makeBuf(    context, BUF_RW, bufSize)},
@@ -371,16 +368,6 @@ protected:
           &tailFused, &mulFused, &readResidue, &isNotZero, &isEqual});
   }
   
-  void commit() {
-    queue.copy<int>(bufData, bufGoodData, N);
-    queue.copy<int>(bufCheck, bufGoodCheck, N);
-  }
-
-  void rollback() {
-    queue.copy<int>(bufGoodData, bufData, N);
-    queue.copy<int>(bufGoodCheck, bufCheck, N);
-  }
-
   // Implementation of LowGpu's abstract methods below.
   
   vector<int> readOut(Buffer &buf) {

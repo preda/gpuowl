@@ -16,9 +16,6 @@ public:
 
   virtual void writeState(const vector<u32> &check, int blockSize) = 0;
   
-  virtual void commit() = 0;   // Make a copy for rollback() to revert to.
-  virtual void rollback() = 0; // Revert to the state at most recent commit().
-
   vector<u32> roundtripData()  { return writeData(readData()); }
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }
 
