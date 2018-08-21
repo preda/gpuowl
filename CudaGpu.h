@@ -273,7 +273,7 @@ protected:
     bool notZero = data[1];
     if (!equal) {
       u64 res1 = checkResidue();
-      u64 res2 = bufResidue(bufAux, 0);
+      u64 res2 = bufResidue(bufAux);
       log("check %d %d %016llx %016llx\n", (int)equal, (int)notZero, res1, res2);
       if (res1 == res2) {
         vector<int> check(N);
