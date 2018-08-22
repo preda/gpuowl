@@ -11,17 +11,6 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
-// #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
-// #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
-
-
-// OpenCL 2.x introduces the "generic" memory space, so there's no need to specify "global" on pointers everywhere.
-#if __OPENCL_C_VERSION__ >= 200
-#define G
-#else
-#define G global
-#endif
-
 // Common type names C++ - OpenCL.
 typedef uint u32;
 typedef ulong u64;
@@ -106,10 +95,6 @@ uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
 uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
 
 Carry unweight(T x, T weight) { return rint(x * fabs(weight)); }  
-// return rint(weighted);
-// float err = rounded - weighted;
-// *maxErr = max(*maxErr, fabs(err));
-
 
 Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight) {
   Word a = carryStep(mul * unweight(u.x, weight.x), carry, oldBitlen(weight.x));
@@ -120,14 +105,6 @@ Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight) {
 T2 weightAux(Word x, Word y, T2 weight) { return U2(x, y) * fabs(weight); }
 
 T2 weight(Word2 a, T2 w) { return weightAux(a.x, a.y, w); }
-
-/*
-T2 carryAndWeight(Word2 u, Carry *carry, T2 weight) {
-  Word x = carryStep(u.x, carry, oldBitlen(weight.x));
-  Word y = carryStep(u.y, carry, oldBitlen(weight.y));
-  return weightAux(x, y, weight);
-}
-*/
 
 // No carry out. The final carry is "absorbed" in the last word.
 T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w) {
@@ -288,13 +265,13 @@ void shufl(uint WG, local T *lds, T2 *u, uint n, uint f) {
   }
 }
 
-void tabMul(uint WG, const G T2 *trig, T2 *u, uint n, uint f) {
+void tabMul(uint WG, const T2 *trig, T2 *u, uint n, uint f) {
   uint me = get_local_id(0);
   for (int i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
 }
 
 // 64x8
-void fft512(local T *lds, T2 *u, const G T2 *trig) {
+void fft512(local T *lds, T2 *u, const T2 *trig) {
   for (int s = 3; s >= 0; s -= 3) {
     fft8(u);
     bar();
@@ -305,7 +282,7 @@ void fft512(local T *lds, T2 *u, const G T2 *trig) {
 }
 
 // 256x4
-void fft1K(local T *lds, T2 *u, const G T2 *trig) {
+void fft1K(local T *lds, T2 *u, const T2 *trig) {
   for (int s = 6; s >= 0; s -= 2) {
     fft4(u);
     bar();
@@ -317,7 +294,7 @@ void fft1K(local T *lds, T2 *u, const G T2 *trig) {
 }
 
 // 512x8
-void fft4K(local T *lds, T2 *u, const G T2 *trig) {
+void fft4K(local T *lds, T2 *u, const T2 *trig) {
   for (int s = 6; s >= 0; s -= 3) {
     fft8(u);
     if (s != 6) { bar(); }
@@ -329,7 +306,7 @@ void fft4K(local T *lds, T2 *u, const G T2 *trig) {
 }
 
 // 256x8
-void fft2K(local T *lds, T2 *u, const G T2 *trig) {
+void fft2K(local T *lds, T2 *u, const T2 *trig) {
   for (int s = 5; s >= 2; s -= 3) {
     fft8(u);
     bar();
@@ -365,11 +342,11 @@ void fft2K(local T *lds, T2 *u, const G T2 *trig) {
   SWAP(u[3], u[6]);
 }
 
-void read(uint WG, uint N, T2 *u, const G T2 *in, uint base) {
+void read(uint WG, uint N, T2 *u, const T2 *in, uint base) {
   for (int i = 0; i < N; ++i) { u[i] = in[base + i * WG + (uint) get_local_id(0)]; }
 }
 
-void write(uint WG, uint N, T2 *u, G T2 *out, uint base) {
+void write(uint WG, uint N, T2 *u, T2 *out, uint base) {
   for (int i = 0; i < N; ++i) { out[base + i * WG + (uint) get_local_id(0)] = u[i]; }
 }
 
@@ -399,7 +376,7 @@ void transposeLDS(local T *lds, T2 *u) {
 }
 
 // Transpose the matrix of WxH, and MUL with FFT twiddles; by blocks of 64x64.
-void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out) {
+void transpose(uint W, uint H, local T *lds, const T2 *in, T2 *out) {
   uint GPW = W / 64, GPH = H / 64;
   
   uint g = get_group_id(0);
@@ -427,7 +404,7 @@ void transpose(uint W, uint H, local T *lds, const G T2 *in, G T2 *out) {
   }
 }
 
-void transposeWords(uint W, uint H, local Word2 *lds, const G Word2 *in, G Word2 *out) {
+void transposeWords(uint W, uint H, local Word2 *lds, const Word2 *in, Word2 *out) {
   uint GPW = W / 64, GPH = H / 64;
 
   uint g = get_group_id(0);
@@ -630,7 +607,7 @@ KERNEL(256) fftMiddleOut(P(T2) io) {
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
-void carryACore(uint mul, const G T2 *in, const G T2 *A, G Word2 *out, G Carry *carryOut) {
+void carryACore(uint mul, const T2 *in, const T2 *A, Word2 *out, Carry *carryOut) {
   uint g  = get_group_id(0);
   uint me = get_local_id(0);
   uint gx = g % NW;
