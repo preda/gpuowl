@@ -107,7 +107,7 @@ constexpr const int BITS_PER_SIEVE = SIEVE_GROUPS * BITS_PER_GROUP;
 constexpr const u64 BITS_PER_CYCLE = BITS_PER_SIEVE * u64(NCLASS);
 
 constexpr const int SPECIAL_PRIMES = 32;
-constexpr const int NPRIMES = 288 * 1024 + SPECIAL_PRIMES;
+constexpr const int NPRIMES = 320 * 1024 + SPECIAL_PRIMES;
 
 constexpr const u32 KBUF_BYTES = BITS_PER_SIEVE / 5 * sizeof(u32);
 
