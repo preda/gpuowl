@@ -14,11 +14,6 @@
 #include <vector>
 #include <bitset>
 
-// try one of these for a 128bit integer.
-typedef unsigned __int128 u128;
-// typedef uint128_t u128;
-// typedef __uint128_t u128;
-
 cl_device_id getDevice(const Args &args);
 
 // q := 2*exp*c + 1. Is q==1 or q==7 (mod 8)?
@@ -95,20 +90,6 @@ vector<u32> initModInv(u32 exp, const vector<u32> &primes) {
   invs.reserve(primes.size());
   for (u32 prime : primes) { invs.push_back(modInv(2 * NCLASS * u64(exp) % prime, prime)); }
   return invs;
-}
-
-vector<u32> initBtcHost(u32 exp, u64 k, const vector<u32> &primes, const vector<u32> &invs) {
-  vector<u32> btcs;
-  for (auto primeIt = primes.begin(), invIt = invs.begin(), primeEnd = primes.end(); primeIt != primeEnd; ++primeIt, ++invIt) {
-    u32 prime = *primeIt;
-    u32 inv   = *invIt;
-    u32 qMod = (2 * exp * (k % prime) + 1) % prime;
-    u32 btc = (prime - qMod) * u64(inv) % prime;
-    assert(btc < prime);
-    assert(2 * exp * u128(k + u64(btc) * NCLASS) % prime == prime - 1);
-    btcs.push_back(btc);
-  }
-  return btcs;
 }
 
 u64 startK(u32 exp, int bits) {

@@ -11,9 +11,6 @@ LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -
 openowl: ${HEADERS} ${SRCS} OpenGpu.h OpenGpu.cpp
 	g++ -O2 -DREV=\"`git rev-parse --short HEAD``git diff-files --quiet || echo -mod`\" -Wall -std=c++14 OpenGpu.cpp OpenTF.cpp clwrap.cpp ${SRCS} -o openowl -lOpenCL ${LIBPATH}
 
-openowl-notf: ${HEADERS} ${SRCS} OpenGpu.h OpenGpu.cpp
-	g++ -O2 -DREV=\"`git rev-parse --short HEAD``git diff-files --quiet || echo -mod`\" -Wall -std=c++14 OpenGpu.cpp NoTF.cpp clwrap.cpp ${SRCS} -o openowl-notf -lOpenCL ${LIBPATH}
-
 cudaowl: ${HEADERS} ${SRCS} CudaGpu.h CudaGpu.cu
 	nvcc -O2 -DREV=\"`git rev-parse --short HEAD``git diff-files --quiet || echo -mod`\" -o cudaowl CudaGpu.cu NoTF.cpp ${SRCS} -lcufft
 
