@@ -298,7 +298,7 @@ bool doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
 
   u64 beginK = 0, endK = 0;
   int nDone = (state.bitHi >= bitEnd) ? state.nDone : 0;
-  u64 factor = tf->findFactor(exp, bitLo, bitEnd, nDone, state.nTotal, &beginK, &endK);
+  u64 factor = tf->findFactor(exp, bitLo, bitEnd, nDone, state.nTotal, &beginK, &endK, args.timeKernels);
   bool ok = writeResultTF(exp, factor, bitLo, bitEnd, beginK, endK, AID, args.user, args.cpu);
   assert(ok);
   return (factor != 0);

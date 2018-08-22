@@ -15,6 +15,7 @@
 #include <bitset>
 
 cl_device_id getDevice(const Args &args);
+void logTimeKernels(std::initializer_list<Kernel *> kerns);
 
 // q := 2*exp*c + 1. Is q==1 or q==7 (mod 8)?
 bool q1or7mod8(u32 exp, u32 c) { return !(c & 3) || ((c & 3) + (exp & 3) == 4); }
@@ -191,7 +192,7 @@ public:
     log("Sieve with %d primes (up to %d), expected %.4f%%\n", NPRIMES, primes[NPRIMES - 1], double(f) * 100); 
   }
     
-  u64 findFactor(u32 exp, int bitLo, int bitEnd, int nDone, int nTotal, u64 *outBeginK, u64 *outEndK) {
+  u64 findFactor(u32 exp, int bitLo, int bitEnd, int nDone, int nTotal, u64 *outBeginK, u64 *outEndK, bool timeKernels) {
     assert(nDone == 0 || nTotal == NGOOD);
     assert(bitLo < bitEnd);
     
@@ -245,6 +246,8 @@ public:
           secs, speed,
           days, hours, mins,
           nFiltered, nFiltered / (float(BITS_PER_GROUP) * nSieveGroups) * 100);
+
+      if (timeKernels) { logTimeKernels({&sieve, &tf, &stepBtc, &initBtc}); }
 
       if (foundK) { return foundK; }
       

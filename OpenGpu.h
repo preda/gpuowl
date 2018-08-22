@@ -118,14 +118,12 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
     StatsInfo stats = info.stats;
     float percent = 100 / total * stats.sum;
     if (percent >= .1f) {
-      log("%4.1f%% %-14s : %5.0f [%5.0f, %5.0f] us/call   x %5d calls\n",
+      log("%4.1f%% %-14s : %6.0f [%5.0f, %6.0f] us/call   x %5d calls\n",
           percent, info.name.c_str(), stats.mean, stats.low, stats.high, stats.n);
     }
   }
   log("\n");
 }
-
-// string valueDefine(const string &key, u32 value) { return key + "=" + std::to_string(value) + "u"; }
 
 cl_device_id getDevice(const Args &args) {
   cl_device_id device = nullptr;
