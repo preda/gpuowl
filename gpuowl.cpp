@@ -8,7 +8,6 @@
 #include "ghzdays.h"
 
 #include "timeutil.h"
-// #include "state.h"
 #include "stats.h"
 #include "common.h"
 
