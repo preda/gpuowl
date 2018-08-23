@@ -83,19 +83,18 @@ std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, float ghzMs
   int mins  = etaMins % 60;
   
   char buf[256];
-  snprintf(buf, sizeof(buf), "%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f] (%.1f GHz-day/day); ETA %dd %02d:%02d; %s",
+  snprintf(buf, sizeof(buf), "%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f] (%.1f GHz-days/day); ETA %dd %02d:%02d; %s",
            k, E, k * percent, info.mean, info.low, info.high, ghzMsPerIt / info.mean, days, hours, mins,
            hexStr(res).c_str());
   return buf;
 }
 
-void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, bool didSave, float ghzMsPerIt) {
+void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, float ghzMsPerIt) {
   std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
-  log("%s %s (check %.2fs)%s%s\n",
+  log("%s %s (check %.2fs)%s\n",
       checkOK ? "OK" : "EE",
       makeLogStr(E, k, res, stats.getStats(), ghzMsPerIt).c_str(),
-      timeCheck * .001f, errors.c_str(),
-      didSave ? " (saved)" : "");
+      timeCheck * .001f, errors.c_str());
   stats.reset();
 }
 
@@ -183,7 +182,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
   int k = 0, blockSize = 0, nErrors = 0;
   u32 N = gpu->getFFTSize();
   
-  log("PRP M(%d), FFT %dK, %.2f bits/word, %.0f GHz-day\n", E, N/1024, E / float(N), ghzDays(E, N));
+  log("PRP M(%d), FFT %dK, %.2f bits/word, %.0f GHz-days\n", E, N/1024, E / float(N), ghzDays(E, N));
 
   float ghzMsPerIt = ghzSecsPerIt(N) * 1000;
 
@@ -257,7 +256,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     bool doSave = (k < kEnd) && ok;
     if (doSave) { Checkpoint::save(E, compactCheck, k, nErrors, blockSize, res); }
     
-    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, doSave, ghzMsPerIt);
+    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, ghzMsPerIt);
     
     if (ok) {
       if (k >= kEnd) { return true; }
