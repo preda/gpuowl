@@ -271,6 +271,7 @@ void tabMul(uint WG, const T2 *trig, T2 *u, uint n, uint f) {
 }
 
 void shuflAndMul(uint WG, local T *lds, const T2 *trig, T2 *u, uint n, uint f) {
+#if 0
   uint me = get_local_id(0);
   uint m = me / f;
   
@@ -281,10 +282,11 @@ void shuflAndMul(uint WG, local T *lds, const T2 *trig, T2 *u, uint n, uint f) {
     for (uint i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
   }
 
-  for (int i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
-  
-  // shufl(WG, lds, u, n, f);
-  // tabMul(WG, trig, u, n, f);
+  for (int i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }  
+#else
+  shufl(WG, lds, u, n, f);
+  tabMul(WG, trig, u, n, f);
+#endif
 }
 
 // 64x8
@@ -302,7 +304,6 @@ void fft1K(local T *lds, T2 *u, const T2 *trig) {
     fft4(u);
     shuflAndMul(256, lds, trig, u, 4, 1 << s);
   }
-
   fft4(u);
 }
 
@@ -312,16 +313,14 @@ void fft4K(local T *lds, T2 *u, const T2 *trig) {
     fft8(u);
     shuflAndMul(512, lds, trig, u, 8, s);
   }
-
+  fft8(u);
+}
   /*
   for (int s = 6; s >= 0; s -= 3) {
     fft8(u);
     shuflAndMul(512, lds, trig, u, 8, s);
   }
   */
-
-  fft8(u);
-}
 
 // 256x8
 void fft2K(local T *lds, T2 *u, const T2 *trig) {
