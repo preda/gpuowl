@@ -38,6 +38,7 @@ bool check(int err, const char *mes = nullptr);
 #define CHECK(what) assert(check(what));
 
 vector<cl_device_id> getDeviceIDs(bool onlyGPU);
+string getHwName(cl_device_id id);
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
 cl_context createContext(cl_device_id device);

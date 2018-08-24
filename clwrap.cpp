@@ -71,7 +71,7 @@ static string getBoardName(cl_device_id id) {
   return getInfoMaybe(id, CL_DEVICE_BOARD_NAME_AMD, sizeof(boardName), boardName) ? boardName : "";
 }
 
-static string getHwName(cl_device_id id) {
+string getHwName(cl_device_id id) {
   char name[64];
   getInfo(id, CL_DEVICE_NAME, sizeof(name), name);
   return name;
@@ -189,7 +189,7 @@ cl_program compile(cl_device_id device, cl_context context, const string &name, 
 
   cl_program program = 0;
 
-  string binFile = string("precompiled/") + name + config + ".so";
+  string binFile = string("precompiled/") + getHwName(device) + "_" + name + config + ".so";
   if (usePrecompiled && (program = loadBinary(device, context, binFile))) {
     if (build(program, device, args)) {
       return program;
