@@ -23,6 +23,7 @@ struct Args {
   int blockSize;
   int fftSize;
   int tfDelta;
+  bool usePrecompiled;
   
   Args() :
     device(-1),
@@ -31,7 +32,8 @@ struct Args {
     carry(CARRY_AUTO),
     blockSize(400),
     fftSize(0),
-    tfDelta(-1000)
+    tfDelta(-1000),
+    usePrecompiled(false)
   { }
   
   // return false to stop.
@@ -63,7 +65,9 @@ Command line options:
       } else {
         log("-list expects \"fft\"\n");
         return false;
-      }
+      }              
+    } else if (!strcmp(arg, "-precompiled")) {
+      usePrecompiled = true;
     } else if (!strcmp(arg, "-fft")) {
       if (i < argc - 1) {
         string s = argv[++i];

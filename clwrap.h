@@ -47,7 +47,7 @@ void release(cl_mem buf);
 void release(cl_queue queue);
 void release(cl_kernel k);
 cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
-                   const vector<pair<string, unsigned>> &defines, const string &config = "");
+                   const vector<pair<string, unsigned>> &defines, bool usePrecompiled);
 cl_kernel makeKernel(cl_program program, const char *name);
 
 template<typename T>

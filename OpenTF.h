@@ -155,7 +155,8 @@ public:
     Context context(createContext(device));
 #define DEF(name) {#name, name}
     Holder<cl_program> program(compile(device, context.get(), "tf", clArgs,
-                                       {DEF(NCLASS), DEF(SPECIAL_PRIMES), DEF(NPRIMES), DEF(LDS_WORDS)}));
+                                       {DEF(NCLASS), DEF(SPECIAL_PRIMES), DEF(NPRIMES), DEF(LDS_WORDS)},
+                                       args.usePrecompiled));
 #undef DEF
     
     if (!program) { throw "OpenCL compilation"; }

@@ -129,8 +129,7 @@ static string readFile(const string &name) {
   return ret;
 }
 
-static cl_program loadBinary(cl_device_id device, cl_context context, const string &name, const string &config) {
-  string binFile = string("precompiled/") + name + "_" + config + ".so";
+static cl_program loadBinary(cl_device_id device, cl_context context, const string &binFile) {
   string binary = readFile(binFile);
   cl_program program = 0;
   if (!binary.empty()) {  
@@ -178,21 +177,20 @@ static bool build(cl_program program, cl_device_id device, const string &args) {
   return ok;
 }
 
-string join(const string &prefix, const vector<string> &elems) {
-  string big = "";
-  for (auto s : elems) { big += prefix + s; }
-  return big;
-}
-
 cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
-                   const vector<pair<string, unsigned>> &defines, const string &config) {
+                   const vector<pair<string, unsigned>> &defines, bool usePrecompiled) {
   string strDefines;
-  for (auto d : defines) { strDefines = strDefines + "-D" + d.first + "=" + to_string(d.second) + "u "; }
+  string config;
+  for (auto d : defines) {
+    strDefines = strDefines + "-D" + d.first + "=" + to_string(d.second) + "u ";
+    config = config + "_" + to_string(d.second);
+  }
   string args = strDefines + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-std=CL2.0 ";
 
   cl_program program = 0;
-  
-  if (!config.empty() && (program = loadBinary(device, context, name, config))) {
+
+  string binFile = string("precompiled/") + name + config + ".so";
+  if (usePrecompiled && (program = loadBinary(device, context, binFile))) {
     if (build(program, device, args)) {
       return program;
     } else {
@@ -202,6 +200,7 @@ cl_program compile(cl_device_id device, cl_context context, const string &name, 
 
   if ((program = loadSource(context, name))) {
     if (build(program, device, args)) {
+      if (usePrecompiled) { dumpBinary(program, binFile); }      
       return program;
     } else {
       release(program);

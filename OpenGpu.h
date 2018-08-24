@@ -349,7 +349,8 @@ public:
 
     Context context(createContext(device));
     Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs,
-                                       {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}}));
+                                       {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}},
+                                       args.usePrecompiled));
     if (!program) { throw "OpenCL compilation"; }
 
     return unique_ptr<Gpu>(new OpenGpu(E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
