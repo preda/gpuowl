@@ -19,8 +19,8 @@ protected:
   virtual bool equalNotZero(Buffer &bufCheck, Buffer &bufAux) = 0;
   virtual u64 bufResidue(Buffer &buf) = 0;
   
-  vector<u32> readData()  { return compactBits(readOut(bufData),  E, 0); }
-  vector<u32> readCheck() { return compactBits(readOut(bufCheck), E, 0); }
+  vector<u32> readData()  { return compactBits(readOut(bufData),  E); }
+  vector<u32> readCheck() { return compactBits(readOut(bufCheck), E); }
 
   vector<u32> writeData(const vector<u32> &v) {
     writeIn(expandBits(v, N, E), bufData);
