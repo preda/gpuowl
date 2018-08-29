@@ -166,9 +166,9 @@ bool load(Gpu *gpu, u32 E, u32 desiredBlockSize, int *outK, int *outBlockSize, i
   bool resOK = !loaded.res64 || res64 == loaded.res64;
   
   if (resOK && gpu->checkAndUpdate(loaded.blockSize)) {
-    log("OK loaded: %d/%d, blockSize %d, %016llx\n", loaded.k, E, loaded.blockSize, res64);
+    log("OK loaded %s: %d/%d, blockSize %d, %016llx\n", (globalCpuName.empty() ? "" : " ") + globalCpuName, loaded.k, E, loaded.blockSize, res64);
   } else {
-    log("EE loaded: %d/%d, blockSize %d, %016llx, expected %016llx\n", loaded.k, E, loaded.blockSize, res64, loaded.res64);
+    log("EE loaded %s: %d/%d, blockSize %d, %016llx, expected %016llx\n", (globalCpuName.empty() ? "" : " ") + globalCpuName, loaded.k, E, loaded.blockSize, res64, loaded.res64);
     return false;
   }
   
