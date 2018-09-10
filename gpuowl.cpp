@@ -298,6 +298,9 @@ bool checkPM1(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string &outFactor) 
     }
   }
 
+  assert(k == bits.size());
+  if (k != loaded.k) { Checkpoint::savePM1(E, gpu->readData(), k, B1); }
+
   outFactor = GCD(E, gpu->readData());
   // log("GCD %s\n", outFactor.c_str());
   return true;
