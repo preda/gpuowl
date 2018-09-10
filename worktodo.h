@@ -57,6 +57,7 @@ public:
         u32 B1 = 0;
         if (sscanf(line, "PFactor=N/A,1,2,%u,-1", &exp) == 1 ||
             sscanf(line, "PFactor=B1:%u,%u", &B1, &exp) == 2 ||
+            sscanf(line, "PFactor=B1:%u,%32[0-9a-fA-F],1,2,%u,-1", &B1, outAID, &exp) == 3 ||
             sscanf(line, "PFactor=%32[0-9a-fA-F],1,2,%u,-1", outAID, &exp) == 2) {
           return Task{Task::PM1, exp, outAID, line, 0, 0, B1};
         }
