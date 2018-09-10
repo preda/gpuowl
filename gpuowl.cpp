@@ -11,6 +11,7 @@
 #include "stats.h"
 #include "common.h"
 
+#include <gmp.h>
 #include <cassert>
 #include <cstdio>
 #include <ctime>
@@ -22,6 +23,9 @@
 #include <functional>
 
 #include <signal.h>
+
+// Check that mpz "_ui" takes 64-bit.
+static_assert(sizeof(long) == 8, "size long");
 
 #define PROGRAM "gpuowl"
 
@@ -73,18 +77,24 @@ string hexStr(u64 res) {
   return buf;
 }
 
-std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, float ghzMsPerIt) {
-  int end = ((E - 1) / 1000 + 1) * 1000;
+std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, float ghzMsPerIt, u32 nIters = 0) {
+  int end = nIters ? nIters : (((E - 1) / 1000 + 1) * 1000);
   float percent = 100 / float(end);
   
   int etaMins = (end - k) * info.mean * (1 / 60000.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
-  
+
+  string ghzStr;
   char buf[256];
-  snprintf(buf, sizeof(buf), "%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f] (%.1f GHz-days/day); ETA %dd %02d:%02d; %s",
-           k, E, k * percent, info.mean, info.low, info.high, ghzMsPerIt / info.mean, days, hours, mins,
+  if (ghzMsPerIt) {
+    snprintf(buf, sizeof(buf), " (%.1f GHz-days/day)", ghzMsPerIt / info.mean);
+    ghzStr = buf;
+  }
+  
+  snprintf(buf, sizeof(buf), "%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f]%s; ETA %dd %02d:%02d; %s",
+           k, nIters ? nIters : E, k * percent, info.mean, info.low, info.high, ghzStr.c_str(), days, hours, mins,
            hexStr(res).c_str());
   return buf;
 }
@@ -147,6 +157,13 @@ bool writeResultTF(int E, u64 factor, int bitLo, int bitHi, u64 beginK, u64 endK
   return writeResult(buf, E, "TF", hasFactor ? "F" : "NF", AID, user, cpu);
 }
 
+bool writeResultPM1(int E, const string &factor, u32 B1, const string &AID, const string &user, const string &cpu) {
+  string factorStr = factor.empty() ? "" : ", \"factors\":[" + factor + "]";
+  char buf[256];
+  snprintf(buf, sizeof(buf), "\"B1\":%u%s", B1, factorStr.c_str());
+  return writeResult(buf, E, "PM1", factor.empty() ? "NF" : "F", AID, user, cpu);
+}
+
 template<typename T, int N> constexpr int size(T (&)[N]) { return N; }
 
 bool isAllZero(const std::vector<u32> &vect) {
@@ -175,6 +192,114 @@ bool load(Gpu *gpu, u32 E, u32 desiredBlockSize, int *outK, int *outBlockSize, i
   *outK = loaded.k;
   *outBlockSize = loaded.blockSize;
   *outNErrors = loaded.nErrors;
+  return true;
+}
+
+static void powerSmooth(mpz_t a, u32 exp, u32 B1, u32 B2 = 0) {
+  if (B2 == 0) { B2 = B1; }
+  assert(B2 >= sqrt(B1));
+
+  mpz_set_ui(a, u64(exp) << 20); // boost 2s.
+
+  mpz_t b; mpz_init(b);
+  
+  for (int k = log2(B1); k > 1; --k) {
+    u32 limit = pow(B1, 1.0 / k);
+    mpz_primorial_ui(b, limit);
+    mpz_mul(a, a, b);
+  }
+  
+  mpz_primorial_ui(b, B2);
+  mpz_mul(a, a, b);
+  mpz_clear(b);
+}
+
+// "Rev" means: most significant bit first.
+vector<bool> powerSmoothBitsRev(u32 exp, u32 B1) {
+  mpz_t a;
+  mpz_init(a);
+  powerSmooth(a, exp, B1);
+  int nBits = mpz_sizeinbase(a, 2);
+  vector<bool> bits;
+  for (int i = nBits - 1; i >= 0; --i) { bits.push_back(mpz_tstbit(a, i)); }
+  assert(int(bits.size()) == nBits);
+  mpz_clear(a);
+  return bits;
+}
+
+string GCD(u32 exp, const vector<u32> &bits) {
+  mpz_t b;
+  mpz_init(b);
+  mpz_import(b, bits.size(), -1 /*order: LSWord first*/, sizeof(u32), 0 /*endianess: native*/, 0 /*nails*/, bits.data());
+  mpz_sub_ui(b, b, 1);
+  assert(mpz_sizeinbase(b, 2) <= exp);
+  
+  mpz_t m;
+  // m := 2^exp - 1.
+  mpz_init_set_ui(m, 1);
+  mpz_mul_2exp(m, m, exp);
+  mpz_sub_ui(m, m, 1);
+  assert(mpz_sizeinbase(m, 2) == exp);
+    
+  mpz_gcd(m, m, b);
+    
+  mpz_clear(b);
+
+  if (mpz_cmp_ui(m, 1) == 0) { return ""; }
+
+  char *buf = mpz_get_str(nullptr, 10, m);
+  string ret = buf;
+  free(buf);
+
+  mpz_clear(m);
+  return ret;
+}
+
+static u32 getB1(u32 exp, float prpTimeFraction) { return exp * prpTimeFraction / 1.4429f; }
+
+bool checkPM1(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string &outFactor) {  
+  LoadResult loaded = Checkpoint::loadPM1(E, taskB1 ? taskB1 : getB1(E, 0.02));
+  if (!loaded.ok) {
+    log("Could not load PM1 savefile for %u\n", E);
+    return false;
+  }
+
+  u32 N = gpu->getFFTSize();
+  u32 B1 = loaded.B1;
+  u32 k  = loaded.k;
+
+  vector<bool> bits = powerSmoothBitsRev(E, B1);
+  assert(bits.front()); // most significant bit is 1.
+  
+  gpu->writeData(loaded.bits);
+  
+  log("P-1 M(%d), FFT %dK, %.2f bits/word, B1 %u, at %u, %016llx\n", E, N/1024, E / float(N), B1, k, gpu->dataResidue());
+
+  // oldHandler = signal(SIGINT, myHandler);
+  
+  Stats stats;  
+  Timer timer;
+
+  const u32 step = 1000;
+  while (k < bits.size()) {
+    assert(k % step == 0);
+    u32 nIts = min(u32(bits.size() - k), 1000u);    
+    vector<bool> muls(bits.begin() + k, bits.begin() + (k + nIts));
+    gpu->dataLoop(muls);
+    gpu->finish();
+    stats.add(timer.deltaMillis() / float(nIts));
+    k += nIts;
+    
+    if (k % 10000 == 0) {
+      log("   %s\n", makeLogStr(E, k, gpu->dataResidue(), stats.getStats(), 0, bits.size()).c_str());
+      stats.reset();
+      // doSmallLog(E, k, gpu->dataResidue(), stats, 0);
+      Checkpoint::savePM1(E, gpu->readData(), k, B1);
+    }
+  }
+
+  outFactor = GCD(E, gpu->readData());
+  // log("GCD %s\n", outFactor.c_str());
   return true;
 }
 
@@ -335,6 +460,15 @@ int main(int argc, char **argv) {
           || !writeResultPRP(exp, isPrime, residue, task.AID, args.user, args.cpu, nErrors, gpu->getFFTSize())
           || !Worktodo::deleteTask(task)
           || isPrime) { // stop on prime found.
+        break;
+      }
+    } else if (task.kind == Task::PM1) {
+      unique_ptr<Gpu> gpu = makeGpu(task.exponent, args);
+      string factor;
+      if (!checkPM1(gpu.get(), exp, task.B1, args, factor)
+          || !writeResultPM1(exp, factor, task.B1, task.AID, args.user, args.cpu)
+          || !Worktodo::deleteTask(task)
+          || !factor.empty()) {
         break;
       }
     } else {

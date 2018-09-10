@@ -689,7 +689,7 @@ void acquire() {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
+KERNEL(G_W) carryFused(uint mul, P(T2) io, P(Carry) carryShuttle, P(uint) ready,
                        CP(T2) A, CP(T2) iA, Trig smallTrig) {
   local T lds[WIDTH];
 
@@ -713,7 +713,13 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
     Carry carry = 0;
-    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p]);
+    
+#ifdef NO_MUL
+    wu[i] = unweightAndCarry(1,   conjugate(u[i]), &carry, iA[p]);
+#else
+    wu[i] = unweightAndCarry(mul, conjugate(u[i]), &carry, iA[p]);
+#endif
+    
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 

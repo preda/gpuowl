@@ -54,6 +54,8 @@ Command line options:
 -tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
 -device <N>        : select a specific device:
 )");
+
+      // -b1 <value>        : B1 bound for stage one of Pollard's P-1.
       vector<string> devices = getDevices();
       for (int i = 0; i < int(devices.size()); ++i) {
         printf(" %d : %s\n", i, devices[i].c_str());
@@ -66,7 +68,14 @@ Command line options:
         log("-list expects \"fft\"\n");
         return false;
       }              
-    } else if (!strcmp(arg, "-precompiled")) {
+    } /*else if (!strcmp(arg, "-b1")) {
+      if (i < argc - 1) {
+        b1 = atoi(argv[++i]);
+      } else {
+        log("-b1 expects <value>\n");
+        return false;
+      }
+      } */ else if (!strcmp(arg, "-precompiled")) {
       usePrecompiled = true;
     } else if (!strcmp(arg, "-fft")) {
       if (i < argc - 1) {

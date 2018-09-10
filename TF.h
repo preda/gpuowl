@@ -1,3 +1,5 @@
+// Copyright 2018 Mihai Preda
+
 #pragma once
 
 #include "common.h"

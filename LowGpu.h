@@ -15,6 +15,8 @@ protected:
   virtual void writeIn(const vector<int> &words, Buffer &buf) = 0;
   
   virtual void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) = 0;
+  virtual void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls) = 0;
+  
   virtual void modMul(Buffer &in, Buffer &io, bool doMul3) = 0;
   virtual bool equalNotZero(Buffer &bufCheck, Buffer &bufAux) = 0;
   virtual u64 bufResidue(Buffer &buf) = 0;
@@ -80,6 +82,6 @@ public:
   }
 
   void dataLoop(int reps) { modSqLoop(bufData, bufData, reps, false); }
-
+  void dataLoop(const vector<bool> &muls) { modSqLoop(bufData, bufData, muls); }
   u32 getFFTSize() { return N; }
 };

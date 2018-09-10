@@ -273,7 +273,7 @@ class OpenGpu : public LowGpu<Buffer> {
         
     setupWeights<double>(context, bufA, bufI, W, BIG_H, E);
 
-    carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
+    carryFused.setFixedArgs(4, bufA, bufI, bufTrigW);
     
     fftP.setFixedArgs(2, bufA, bufTrigW);
     fftW.setFixedArgs(1, bufTrigW);
@@ -292,12 +292,32 @@ class OpenGpu : public LowGpu<Buffer> {
     return queue.read<int>(bufSmallOut, 128);                    
   }
 
+  void entryKerns(Buffer &in) {
+    fftP(in, buf1);
+    tW(buf1, buf2);
+    tailFused(buf2);
+    tH(buf2, buf1);
+  }
+
   void exitKerns(Buffer &buf1, Buffer &out, bool doMul3) {    
     fftW(buf1);
     doMul3 ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
     carryB(out, bufCarry);
   }
   
+  void oneIteration(Buffer &tmp, bool doMul3) {
+    if (useLongCarry) {
+      exitKerns(buf1, tmp, doMul3);
+      fftP(tmp, buf1);
+    } else {
+      carryFused(doMul3 ? 3 : 1, buf1, bufCarry, bufReady);
+    }
+        
+    tW(buf1, buf2);
+    tailFused(buf2);
+    tH(buf2, buf1);
+  }
+    
 public:
   static unique_ptr<Gpu> make(u32 E, Args &args) {
     vector<FftConfig> configs = genConfigs();
@@ -393,28 +413,20 @@ protected:
   // Optional multiply-by-3 at the end.
   void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
     assert(nIters > 0);
-    
-    fftP(in, buf1);
-    tW(buf1, buf2);
-    tailFused(buf2);
-    tH(buf2, buf1);
 
-    for (int i = 0; i < nIters - 1; ++i) {
-      if (useLongCarry) {
-        fftW(buf1);
-        carryA(buf1, out, bufCarry);
-        carryB(out, bufCarry);
-        fftP(out, buf1);
-      } else {
-        carryFused(buf1, bufCarry, bufReady);
-      }
-        
-      tW(buf1, buf2);
-      tailFused(buf2);
-      tH(buf2, buf1);
-    }
+    entryKerns(in);
+
+    for (int i = 0; i < nIters - 1; ++i) { oneIteration(out, false); }
     
     exitKerns(buf1, out, doMul3);
+  }
+
+  // With a sequence of mul-by-3 bits.
+  void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls) {
+    assert(muls.size() > 0);
+    entryKerns(in);
+    for (auto it = muls.begin(), prevEnd = prev(muls.end()); it < prevEnd; ++it) { oneIteration(out, *it); }
+    exitKerns(buf1, out, muls.back());
   }
 
   // The modular multiplication io *= in.
