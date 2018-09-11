@@ -12,6 +12,7 @@
 #include <cmath>
 #include <memory>
 #include <functional>
+#include <tuple>
 
 typedef unsigned u32;
 typedef unsigned long long u64;
@@ -247,6 +248,7 @@ class Cover {
   vector<float> base;
   unique_ptr<Heap> heap;
   vector<pair<u32,u32>> primes100M;
+  unordered_multimap<u32, u32> zToP;
 
   float slopedValue(float value, u32 k) {
     return value * rslope * (slope - k);
@@ -265,13 +267,26 @@ class Cover {
         float value = pSlope(p, slopeStart, slope);
         base[z] += value;
         sum += value;
-
-        if (p < 100'000'000) { primes100M.push_back(make_pair(p, z)); }
+        if (p == u32(p)) {
+          if (p < 100'000'000) { primes100M.push_back(make_pair(p, z)); }
+          zToP.insert(make_pair(z, u32(p)));
+        }
       }
     }
     fprintf(stderr, "read sum %f\n", sum);
   }
 
+  vector<u32> pCover(vector<u32> zCover) {
+    vector<u32> pCover;
+    for (u32 z : zCover) {
+      auto [it, end] = zToP.equal_range(z);
+      assert(it != end);
+      for (; it != end; ++it) { pCover.push_back(it->second); }
+    }
+    sort(pCover.begin(), pCover.end());
+    return pCover;
+  }
+  
 public:
   Cover(u32 exp, u32 B1, u32 slope, float valueLimit, u32 pSlopeStart, u32 pSlope) :
     exp(exp),
@@ -323,26 +338,28 @@ public:
     fprintf(stderr, "covered under 100M: %u\n", total);
   }  
 
-  float remove(u32 k) {
+  // Return: (score, vector of covered).
+  pair<float, vector<u32>> remove(u32 k) {
     float sum = 0;
+    vector<u32> covered;
     for (u32 d : divisors(k)) {
       if (float value = base[d]) {
         sum += value;
+        covered.push_back(d);
         for (u32 multiple = d; multiple < exp; multiple += d) {
           heap->decrease(multiple, slopedValue(value, multiple), limit);
         }
       }
       base[d] = 0;
     }
-    return slopedValue(sum, k);
+    return make_pair(slopedValue(sum, k), covered);
   }
   
-  pair<u32, float> popBest() {
-    auto best = heap->top();
-    u32 k = best.first;
-    float s = remove(k);
-    assert(abs(best.second - s) < 0.0001f);
-    return best;
+  pair<u32, vector<u32>> popBest() {
+    auto [bestK, bestScore] = heap->top();
+    auto [rmScore, zCover] = remove(bestK);
+    assert(fabsf(bestScore - rmScore) < 0.0001f);
+    return make_pair(bestK, pCover(zCover));
   }
 
   size_t size() { return heap->size(); }
@@ -357,25 +374,13 @@ int main(int argc, char **argv) {
   const u32 B1  = 2000000;
   Cover cover(exp, B1, exp * 1.1, 0.5, 40'000'000, 20'000'000);
 
-  /*
-  for (u32 k : {
-650179, 656479, 681301, 783911, 786881, 788971, 789703, 789877, 826367, 841831,
-861829, 863201, 871511, 877199, 885673, 920281, 923053, 925693, 933119, 936601,
-942511, 945473, 946819, 953401, 957211, 957577, 960049, 960898, 964331, 967649,
-973561, 976597, 980131, 987953, 991297, 991351, 992287, 995734}) {
-    u32 s1 = cover.size();
-    float s = cover.remove(k);
-    fprintf(stderr, "prune %u : score %f, size delta %u\n", k, s, u32(s1 - cover.size()));
-  }
-  */
-  
   for (int i = 0; i < n && !cover.empty(); ++i) {
-    auto pp = cover.popBest();
-    u32 best = pp.first;
-    float score = pp.second;
-    printf("%8u %.1f\n", best, score);
-    if (i % 100000 == 0) { fprintf(stderr, "%8u %.1f %lu\n", best, score, cover.size()); }    
+    auto [k, pCover] = cover.popBest();
+    assert(!pCover.empty());
+    printf("%u %u", k, u32(pCover.size()));
+    for (u32 p : pCover) { printf(" %u", p); }
+    printf("\n");
+    // if (i % 100000 == 0) { fprintf(stderr, "%8u %.1f; heap size %lu\n", k, score, cover.size()); }    
   }
-
   cover.printStats();
 }

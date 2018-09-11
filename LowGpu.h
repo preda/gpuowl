@@ -1,3 +1,6 @@
+// gpuOwl, a Mersenne primality tester.
+// Copyright (C) 2017-2018 Mihai Preda.
+
 #pragma once
 
 #include "Gpu.h"
