@@ -27,24 +27,13 @@ class Checkpoint {
 private:
   struct HeaderTF2 {
     // Exponent, bitLo, bitHi, classDone, classTotal.
-    static constexpr const char *HEADER = "OWL TF 2 %d %d %d %d %d\n";
-    int E;
+    static constexpr const char *HEADER = "OWL TF 2 %u %d %d %d %d\n";
+    u32 E;
     int bitLo, bitHi;
     int nDone, nTotal;
 
     bool write(FILE *fo) { return fprintf(fo, HEADER, E, bitLo, bitHi, nDone, nTotal) > 0; }
     bool parse(const char *line) { return sscanf(line, HEADER, &E, &bitLo, &bitHi, &nDone, &nTotal) == 5; }
-  };
-
-  struct HeaderTF1 {
-    // Exponent, bitLo, classDone, classTotal.
-    static constexpr const char *HEADER = "OWL TF 1 %d %d %d %d\n";
-    int E;
-    int bitLo;
-    int nDone, nTotal;
-
-    bool write(FILE *fo) { return fprintf(fo, HEADER, E, bitLo, nDone, nTotal) > 0; }
-    bool parse(const char *line) { return sscanf(line, HEADER, &E, &bitLo, &nDone, &nTotal) == 4; }    
   };
 
   struct HeaderP1 {
@@ -55,6 +44,18 @@ private:
 
     bool write(FILE *fo) { return fprintf(fo, HEADER, E, k, B1) > 0; }
     bool parse(const char *line) { return sscanf(line, HEADER, &E, &k, &B1) == 3; }
+  };
+
+  struct HeaderPRP6 {
+    // Exponent, iteration, block-size, res64, nErrors.
+    static constexpr const char *HEADER = "OWL PRP 6 %u %u %u %016llx %d\n";
+
+    u32 E, k, blockSize;
+    int nErrors;
+    u64 res64;
+
+    bool parse(const char *line) { return sscanf(line, HEADER, &E, &k, &blockSize, &res64, &nErrors) == 4; }
+    bool write(FILE *fo) {        return fprintf(fo,  HEADER, E,   k,  blockSize,  res64,  nErrors) > 0; }
   };
   
   struct HeaderV5 {
@@ -95,44 +96,14 @@ End-of-header:
     
     bool write(FILE *fo) { return (fprintf(fo, HEADER_W, comment.c_str(), E, k, blockSize, res64, nErrors) > 0); }
   };
-  
-  struct HeaderV4 {
-    // <exponent> <iteration> <nErrors> <check-step> <checksum>
-    static constexpr const char *HEADER = "OWL 4 %u %u %d %u %016llx\n";
+    
+  // static bool write(FILE *fo, const vector<u32> &vect) { return fwrite(vect.data(), vect.size() * sizeof(vect[0]), 1, fo); }
 
-    u32 E, k;
-    int nErrors;
-    u32 checkStep;
-    u64 checksum;
-
-    bool parse(const char *line) { return sscanf(line, HEADER, &E, &k, &nErrors, &checkStep, &checksum) == 5; }
-    bool write(FILE *fo) { return (fprintf(fo, HEADER, E, k, nErrors, checkStep, checksum) > 0); }
-  };
-  
-  struct HeaderV3 {
-    // <exponent> <iteration> <nErrors> <check-step>
-    static constexpr const char *HEADER = "OWL 3 %u %u %d %u\n";
-
-    u32 E, k;
-    int nErrors;
-    u32 checkStep;
-
-    bool parse(const char *line) { return sscanf(line, HEADER, &E, &k, &nErrors, &checkStep) == 4; }
-    bool write(FILE *fo) { return (fprintf(fo, HEADER, E, k, nErrors, checkStep) > 0); }
-  };
-  
-  static bool write(FILE *fo, const vector<u32> &vect) { return fwrite(vect.data(), vect.size() * sizeof(vect[0]), 1, fo); }
-  static bool read(FILE *fi, int n, vector<u32> &out) {
-    out.resize(n);
-    return fread(out.data(), n * sizeof(u32), 1, fi);
-  }
-  
   static bool write(u32 E, const string &name, const std::vector<u32> &check, u32 k, int nErrors, u32 blockSize, u64 res64) {
     const int nWords = (E - 1) / 32 + 1;
     assert(int(check.size()) == nWords);
 
-    // u64 sum = checksum(check);
-    HeaderV5 header{E, k, blockSize, nErrors, res64, string("gpuOwL v") + VERSION + "; " + timeStr()};
+    HeaderPRP6 header{E, k, blockSize, nErrors, res64};
     auto fo(open(name, "wb"));
     return fo
       && header.write(fo.get())
@@ -153,33 +124,21 @@ End-of-header:
   
 public:
 
-  static TFState loadTF(int E) {
+  static TFState loadTF(u32 E) {
     if (auto fi{open(fileName(E, ".tf"), "rb", false)}) {
       char line[256];
       if (!fgets(line, sizeof(line), fi.get())) { return {0}; }
-
-      {
-        HeaderTF2 h;
-        if (h.parse(line)) {
-          assert(h.E == E && h.bitLo < h.bitHi);
-          return {h.bitLo, h.bitHi, h.nDone, h.nTotal};
-        }
+      HeaderTF2 h;
+      if (h.parse(line)) {
+        assert(h.E == E && h.bitLo < h.bitHi);
+        return {h.bitLo, h.bitHi, h.nDone, h.nTotal};
       }
-      
-      {
-        HeaderTF1 h;
-        if (h.parse(line)) {
-          assert(h.E == E);
-          return {h.bitLo, h.bitLo + 1, h.nDone, h.nTotal};
-        }
-      }
-
       assert(false);
     }
     return {0};
   }
 
-  static bool saveTF(int E, int bitLo, int bitEnd, int nDone, int nTotal) {
+  static bool saveTF(u32 E, int bitLo, int bitEnd, int nDone, int nTotal) {
     string saveFile = fileName(E, ".tf");
     string tempFile = fileName(E, "-temp.tf");
     string prevFile = fileName(E, "-prev.tf");
@@ -236,9 +195,9 @@ public:
     return true;    
   }
   
-  static LoadResult load(u32 E, u32 preferredBlockSize) {
+  static LoadResult loadPRP(u32 E, u32 preferredBlockSize) {
     const int nWords = (E - 1) / 32 + 1;
-    
+
     {
       auto fi{open(fileName(E), "rb", false)};    
       if (!fi) {
@@ -247,6 +206,23 @@ public:
         return {true, 0, preferredBlockSize, 0, check, 0x3};
       }
 
+      char line[256];
+      if (!fgets(line, sizeof(line), fi.get())) { return {false}; }
+      
+      HeaderPRP6 header;
+      if (header.parse(line)) {
+        assert(header.E == E);
+        vector<u32> check(nWords);
+        if (!fread(check.data(), (E - 1) / 8 + 1, 1, fi.get())) { return {false}; }
+        return {true, header.k, header.blockSize, header.nErrors, check, header.res64};
+      }
+    }
+    
+    
+    {
+      auto fi{open(fileName(E), "rb", false)};    
+      assert(fi);
+      
       HeaderV5 header;
       if (header.parse(fi.get())) {
         assert(header.E == E);
@@ -255,43 +231,14 @@ public:
         return {true, header.k, header.blockSize, header.nErrors, check, header.res64};
       }
     }
-
-    auto fi{open(fileName(E), "rb", false)};
-    assert(fi);
-    char line[256];
-    if (!fgets(line, sizeof(line), fi.get())) { return {false}; }
-
-    {
-      HeaderV4 header;
-      if (header.parse(line)) {
-        assert(header.E == E);
-        std::vector<u32> check;
-        if (!read(fi.get(), nWords, check) || header.checksum != checksum(check)) { return {false}; }
-        return {true, header.k, header.checkStep, header.nErrors, check};
-      }
-    }
-
-    {
-      HeaderV3 header;
-      if (header.parse(line)) {
-        assert(header.E == E);
-        std::vector<u32> data, check;
-        if (!read(fi.get(), nWords, data) ||
-            !read(fi.get(), nWords, check)) {
-          return {false};
-        }
-        return {true, header.k, header.checkStep, header.nErrors, check};        
-      }
-    }
-
+    
     return {false};
   }
   
-  static void save(u32 E, const vector<u32> &check, int k, int nErrors, int checkStep, u64 res64) {
+  static void savePRP(u32 E, const vector<u32> &check, int k, int nErrors, int checkStep, u64 res64) {
     string saveFile = fileName(E);
-    string strE = std::to_string(E);
-    string tempFile = strE + "-temp.owl";
-    string prevFile = strE + "-prev.owl";
+    string tempFile = fileName(E, "-temp"); // strE + "-temp.owl";
+    string prevFile = fileName(E, "-prev"); // strE + "-prev.owl";
     
     if (write(E, tempFile, check, k, nErrors, checkStep, res64)) {
       remove(prevFile.c_str());
@@ -300,7 +247,7 @@ public:
     }
     const int persistStep = 20'000'000;
     if (k && (k % persistStep == 0)) {
-      string persistFile = strE + "." + std::to_string(k) + ".owl";
+      string persistFile = fileName(E, "." + to_string(k)); // strE + "." + std::to_string(k) + ".owl";
       write(E, persistFile, check, k, nErrors, checkStep, res64);
     }
   }

@@ -172,7 +172,7 @@ bool isAllZero(const std::vector<u32> &vect) {
 }
 
 bool load(Gpu *gpu, u32 E, u32 desiredBlockSize, int *outK, int *outBlockSize, int *outNErrors) {
-  LoadResult loaded = Checkpoint::load(E, desiredBlockSize);
+  LoadResult loaded = Checkpoint::loadPRP(E, desiredBlockSize);
   if (!loaded.ok) {
     log("Invalid checkpoint for exponent %d\n", E);
     return false;
@@ -380,7 +380,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     
     bool ok = gpu->checkAndUpdate(blockSize);
     bool doSave = (k < kEnd) && ok;
-    if (doSave) { Checkpoint::save(E, compactCheck, k, nErrors, blockSize, res); }
+    if (doSave) { Checkpoint::savePRP(E, compactCheck, k, nErrors, blockSize, res); }
     
     doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, ghzMsPerIt);
     
