@@ -1,10 +1,9 @@
 openowl
-openowl-notf
-cudaowl
-fftbench
+kselect
 gpuowl.log
 *.owl
 *.bak
+*.txt
 worktodo.txt
 results.txt
 results.old

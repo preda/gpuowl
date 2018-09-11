@@ -148,7 +148,7 @@ bool writeResultPRP(int E, bool isPrime, u64 res, const string &AID, const strin
 bool writeResultTF(int E, u64 factor, int bitLo, int bitHi, u64 beginK, u64 endK,
                    const string &AID, const string &user, const string &cpu) {
   bool hasFactor = factor != 0;
-  string factorStr = hasFactor ? string(", \"factors\":[") + to_string(factor) + "]" : "";
+  string factorStr = hasFactor ? string(", \"factors\":[\"") + to_string(factor) + "\"]" : "";
   
   char buf[256];
   snprintf(buf, sizeof(buf), R"""("bitlo":%d, "bithi":%d, "begink":%llu, "endk":%llu, "rangecomplete":%s%s)""",
@@ -158,7 +158,7 @@ bool writeResultTF(int E, u64 factor, int bitLo, int bitHi, u64 beginK, u64 endK
 }
 
 bool writeResultPM1(int E, const string &factor, u32 B1, const string &AID, const string &user, const string &cpu) {
-  string factorStr = factor.empty() ? "" : ", \"factors\":[" + factor + "]";
+  string factorStr = factor.empty() ? "" : ", \"factors\":[\"" + factor + "\"]";
   char buf[256];
   snprintf(buf, sizeof(buf), "\"B1\":%u%s", B1, factorStr.c_str());
   return writeResult(buf, E, "PM1", factor.empty() ? "NF" : "F", AID, user, cpu);
@@ -293,7 +293,6 @@ bool checkPM1(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string &outFactor) 
     if (k % 10000 == 0) {
       log("   %s\n", makeLogStr(E, k, gpu->dataResidue(), stats.getStats(), 0, bits.size()).c_str());
       stats.reset();
-      // doSmallLog(E, k, gpu->dataResidue(), stats, 0);
       Checkpoint::savePM1(E, gpu->readData(), k, B1);
     }
   }
@@ -302,7 +301,6 @@ bool checkPM1(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string &outFactor) 
   if (k != loaded.k) { Checkpoint::savePM1(E, gpu->readData(), k, B1); }
 
   outFactor = GCD(E, gpu->readData());
-  // log("GCD %s\n", outFactor.c_str());
   return true;
 }
 
