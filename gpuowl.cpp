@@ -1,7 +1,7 @@
 // gpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
 
 #include "Gpu.h"
-#include "TF.h"
+#include "OpenTF.h"
 #include "checkpoint.h"
 #include "worktodo.h"
 #include "args.h"
@@ -113,9 +113,6 @@ void doSmallLog(int E, int k, u64 res, Stats &stats, float ghzMsPerIt) {
   stats.reset();
 }
 
-// OpenCL or CUDA
-extern const char *VARIANT;
-
 bool writeResult(const char *part, int E, const char *workType, const char *status, const std::string &AID, const std::string &user, const std::string &cpu) {
   std::string uid;
   if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
@@ -125,8 +122,8 @@ bool writeResult(const char *part, int E, const char *workType, const char *stat
     
   char buf[512];
   snprintf(buf, sizeof(buf),
-           R"""({"exponent":%d, "worktype":"%s", "status":"%s", "program":{"name":"%s", "version":"%s-%s"}, "timestamp":"%s"%s%s, %s})""",
-           E, workType, status, PROGRAM, VERSION, VARIANT, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part);
+           R"""({"exponent":%d, "worktype":"%s", "status":"%s", "program":{"name":"%s", "version":"%s"}, "timestamp":"%s"%s%s, %s})""",
+           E, workType, status, PROGRAM, VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part);
   
   log("%s\n", buf);
   if (auto fo = open("results.txt", "a")) {
@@ -402,7 +399,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
 
 // selects OpenCL or CUDA implementation.
 unique_ptr<Gpu> makeGpu(u32 E, Args &args);
-unique_ptr<TF> makeTF(Args &args);
+unique_ptr<TF> makeTF(Args &args) { return OpenTF::make(args); }
 
 // Ideally how far we want an exponent TF-ed.
 int targetBits(u32 exp) { return 81 + 2.5 * (log2(exp) - log2(332000000)); }
@@ -438,7 +435,7 @@ int main(int argc, char **argv) {
   if (!args.parse(argc, argv)) { return -1; }
   if (!args.cpu.empty()) { globalCpuName = args.cpu; }
 
-  log("%s-%s %s\n", PROGRAM, VARIANT, VERSION);
+  log("%s %s\n", PROGRAM, VERSION);
   
   while (true) {
     Task task = Worktodo::getTask();
@@ -446,7 +443,7 @@ int main(int argc, char **argv) {
 
     u32 exp = task.exponent;
     if (task.kind == Task::PRP) {
-      if (task.bitLo && TF::enabled() && doTF(exp, task.bitLo, targetBits(exp) + args.tfDelta, args, task.AID)) {
+      if (task.bitLo && doTF(exp, task.bitLo, targetBits(exp) + args.tfDelta, args, task.AID)) {
         // If a factor is found by TF, skip and drop the PRP task.
         if (!Worktodo::deleteTask(task)) { break; }
         continue;
@@ -474,7 +471,6 @@ int main(int argc, char **argv) {
       }
     } else {
       assert(task.kind == Task::TF && task.bitLo < task.bitHi);
-      assert(TF::enabled());      
       doTF(exp, task.bitLo, task.bitHi, args, task.AID);
       if (!Worktodo::deleteTask(task)) { break; }
     }

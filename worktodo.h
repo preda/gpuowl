@@ -4,7 +4,6 @@
 #pragma once
 
 #include "common.h"
-#include "TF.h"
 
 #include <cstdio>
 #include <cstring>
@@ -46,10 +45,9 @@ public:
         }
 
         outAID[0] = 0;
-        if (TF::enabled() &&
-            (sscanf(line, "Factor=%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
-             sscanf(line, "Factor=N/A,%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
-             sscanf(line, "Factor=%32[0-9a-fA-F],%u,%d,%d", outAID, &exp, &bitLo, &bitHi) == 4)) {
+        if (sscanf(line, "Factor=%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
+            sscanf(line, "Factor=N/A,%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
+            sscanf(line, "Factor=%32[0-9a-fA-F],%u,%d,%d", outAID, &exp, &bitLo, &bitHi) == 4) {
           return Task{Task::TF, exp, outAID, line, bitLo, bitHi};
         }
 

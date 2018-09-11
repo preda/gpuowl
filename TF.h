@@ -10,6 +10,4 @@ public:
   virtual ~TF() {};
 
   virtual u64 findFactor(u32 exp, int bitLo, int bitHi, int nDone, int nTotal, u64 *outBeginK, u64 *outEndK, bool timeKernels) = 0;
-
-  static bool enabled();
 };
