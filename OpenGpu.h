@@ -270,6 +270,7 @@ class OpenGpu : public LowGpu<Buffer> {
     bufData.reset( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufAux.reset(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
+    bufBase.reset( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
         
     setupWeights<double>(context, bufA, bufI, W, BIG_H, E);
 

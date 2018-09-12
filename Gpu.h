@@ -12,7 +12,7 @@ protected:
 public:
   virtual ~Gpu() {};
 
-  virtual void writeState(const vector<u32> &check, int blockSize) = 0;
+  virtual void writeState(const vector<u32> &check, const vector<u32> &base, int blockSize) = 0;
   
   vector<u32> roundtripData()  { return writeData(readData()); }
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }

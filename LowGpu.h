@@ -12,7 +12,7 @@ protected:
   u32 E; // exponent.
   u32 N; // FFT size.
 
-  Buffer bufData, bufCheck, bufAux;
+  Buffer bufData, bufCheck, bufAux, bufBase;
 
   virtual vector<int> readOut(Buffer &buf) = 0;
   virtual void writeIn(const vector<int> &words, Buffer &buf) = 0;
@@ -37,6 +37,11 @@ protected:
     return v;
   }
 
+  vector<u32> writeBase(const vector<u32> &v) {
+    writeIn(expandBits(v, N, E), bufBase);
+    return v;
+  }
+
   // compact 64bits from balanced uncompressed ("raw") words.
   u64 residueFromRaw(const vector<int> &words) {
     assert(words.size() == 128);
@@ -56,30 +61,33 @@ protected:
     }
     return res;
   }
-
+  
 public:
   LowGpu(u32 E, u32 N) : E(E), N(N) {}
 
   u64 dataResidue() { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }
   
-  void writeState(const vector<u32> &check, int blockSize) {
+  void writeState(const vector<u32> &check, const vector<u32> &base, int blockSize) {
     writeCheck(check);
-
-    // rebuild bufData based on bufCheck.
+    writeBase(base);
+    
     modSqLoop(bufCheck, bufData, 1, false);
     
     for (int i = 0; i < blockSize - 2; ++i) {
       modMul(bufCheck, bufData, false);
       modSqLoop(bufData, bufData, 1, false);
     }
-    modMul(bufCheck, bufData, true);
+    modMul(bufCheck, bufData, false); 
+
+    modMul(bufBase, bufData, false);
   }
 
   void updateCheck() { modMul(bufData, bufCheck, false); }
   
   bool checkAndUpdate(int blockSize) {
-    modSqLoop(bufCheck, bufAux, blockSize, true);
+    modSqLoop(bufCheck, bufAux, blockSize, false);
+    modMul(bufBase, bufAux, false);
     updateCheck();
     return equalNotZero(bufCheck, bufAux);
   }

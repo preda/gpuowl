@@ -168,8 +168,36 @@ bool isAllZero(const std::vector<u32> &vect) {
   return true;
 }
 
-bool load(Gpu *gpu, u32 E, u32 desiredBlockSize, int *outK, int *outBlockSize, int *outNErrors) {
+bool loadPRP(Gpu *gpu, u32 E, u32 desiredBlockSize, int *outK, int *outBlockSize, int *outNErrors) {
   LoadResult loaded = Checkpoint::loadPRP(E, desiredBlockSize);
+  if (!loaded.ok) {
+    log("Invalid checkpoint for exponent %d\n", E);
+    return false;
+  }
+
+  {
+    vector<u32> base((E - 1) / 32 + 1);
+    base[0] = 3;
+    gpu->writeState(loaded.bits, base, loaded.blockSize);
+  }
+  u64 res64 = gpu->dataResidue();
+  bool resOK = !loaded.res64 || res64 == loaded.res64;
+  
+  if (resOK && gpu->checkAndUpdate(loaded.blockSize)) {
+    log("OK loaded: %d/%d, blockSize %d, %016llx\n", loaded.k, E, loaded.blockSize, res64);
+  } else {
+    log("EE loaded: %d/%d, blockSize %d, %016llx, expected %016llx\n", loaded.k, E, loaded.blockSize, res64, loaded.res64);
+    return false;
+  }
+  
+  *outK = loaded.k;
+  *outBlockSize = loaded.blockSize;
+  *outNErrors = loaded.nErrors;
+  return true;
+}
+/*
+bool loadPRPF(Gpu *gpu, u32 E, u32 desiredB1, u32 desiredBlockSize, int *outK, int *outBlockSize, int *outNErrors) {
+  PRPFState loaded = Checkpoint::loadPRPF(E, desiredB1, desiredBlockSize);
   if (!loaded.ok) {
     log("Invalid checkpoint for exponent %d\n", E);
     return false;
@@ -191,6 +219,7 @@ bool load(Gpu *gpu, u32 E, u32 desiredBlockSize, int *outK, int *outBlockSize, i
   *outNErrors = loaded.nErrors;
   return true;
 }
+*/
 
 static void powerSmooth(mpz_t a, u32 exp, u32 B1, u32 B2 = 0) {
   if (B2 == 0) { B2 = B1; }
@@ -301,6 +330,12 @@ bool checkPM1(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string &outFactor) 
   return true;
 }
 
+bool checkPRPF(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string *outFactor) {
+  u32 N = gpu->getFFTSize();
+  log("PRP-1 M(%u), FFT %dK, %.2f bits/word\n", E, N/1024, E / float(N));
+  return false;
+}
+
 bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outResidue, int *outNErrors) {
   int k = 0, blockSize = 0, nErrors = 0;
   u32 N = gpu->getFFTSize();
@@ -309,7 +344,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
 
   float ghzMsPerIt = ghzSecsPerIt(N) * 1000;
 
-  if (!load(gpu, E, args.blockSize, &k, &blockSize, &nErrors)) { return false; }
+  if (!loadPRP(gpu, E, args.blockSize, &k, &blockSize, &nErrors)) { return false; }
 
   const int checkStep = blockSize * blockSize;
   
@@ -389,7 +424,12 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
         log("%d sequential errors, will stop.\n", nSeqErrors);
         return false;
       }
-      if (!load(gpu, E, args.blockSize, &k, &blockSize, &nErrors)) { return false; }
+      
+      // re-try failed load once.
+      if (!loadPRP(gpu, E, args.blockSize, &k, &blockSize, &nErrors) &&
+          !loadPRP(gpu, E, args.blockSize, &k, &blockSize, &nErrors)) {
+        return false;
+      }
       ++nErrors;
     }
     if (args.timeKernels) { gpu->logTimeKernels(); }
@@ -467,7 +507,9 @@ int main(int argc, char **argv) {
       break;
 
     case Task::PRPF: {
-
+      unique_ptr<Gpu> gpu = makeGpu(task.exponent, args);
+      string factor;
+      checkPRPF(gpu.get(), exp, task.B1, args, &factor);
     }
       break;
 
