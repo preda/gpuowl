@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <string>
+// #include <initializer_list>
 #include <cassert>
 
 struct LoadResult {
@@ -16,6 +17,17 @@ struct LoadResult {
   u32 B1;
 };
 
+struct PRPFState {
+  bool ok;
+  int stage;
+  u32 k;
+  u32 B1;
+  u32 blockSize;
+  u64 res64;
+  vector<u32> base;
+  vector<u32> check;
+};
+
 struct TFState {
   int bitLo;
   int bitHi;
@@ -25,6 +37,22 @@ struct TFState {
 
 class Checkpoint {
 private:
+  struct HeaderPRPF1 {
+    static constexpr const char *HEADER = "OWL PRPF 1 %d %u %u %u %u %016llx\n";
+    // PRPF proceeds by first doing a first-stage P-1(B1), followed by PRP with the Base generated in the first stage.
+    // This is indicated by "stage" being 1 or 2.
+
+    int stage;
+    u32 E;
+    u32 k;
+    u32 B1;
+    u32 blockSize;
+    u64 res64;
+
+    bool write(FILE *fo) { return fprintf(fo, HEADER, stage, E, k, B1, blockSize, res64) > 0; }
+    bool parse(const char *line) { return sscanf(line, HEADER, &stage, &E, &k, &B1, &blockSize, &res64) == 6; }
+  };
+  
   struct HeaderTF2 {
     // Exponent, bitLo, bitHi, classDone, classTotal.
     static constexpr const char *HEADER = "OWL TF 2 %u %d %d %d %d\n";
@@ -99,6 +127,7 @@ End-of-header:
     
   // static bool write(FILE *fo, const vector<u32> &vect) { return fwrite(vect.data(), vect.size() * sizeof(vect[0]), 1, fo); }
 
+  /*
   static bool write(u32 E, const string &name, const std::vector<u32> &check, u32 k, int nErrors, u32 blockSize, u64 res64) {
     const int nWords = (E - 1) / 32 + 1;
     assert(int(check.size()) == nWords);
@@ -109,8 +138,7 @@ End-of-header:
       && header.write(fo.get())
       && fwrite(check.data(), (E - 1)/8 + 1, 1, fo.get());
   }
-
-  static std::string fileName(int E, const string &suffix = "") { return std::to_string(E) + suffix + ".owl"; }
+  */
 
   static u64 checksum(const std::vector<u32> &data) {
     u32 a = 1;
@@ -121,7 +149,51 @@ End-of-header:
     }
     return (u64(a) << 32) | b;
   }
+
+  static std::string fileName(int E, const string &suffix = "") { return std::to_string(E) + suffix + ".owl"; }
   
+  template<typename Header>
+  static bool write(const string &fileName, Header &header, const vector<const vector<u32> *> &datas) {
+    auto fo(open(fileName, "wb"));
+    if (!fo || !header.write(fo.get())) { return false; }
+    for (auto *pv : datas) {
+      assert(pv->size() == (header.E - 1) / 32 + 1);
+      if (!fwrite(pv->data(), pv->size() * 4, 1, fo.get())) { return false; }
+    }
+    return true;
+
+    /*
+    assert(base.size()  == (header.E - 1) / 32 + 1);
+    assert(check.size() == (header.E - 1) / 32 + 1);
+    auto fo(open(fileName, "wb"));
+    return fo
+      && header.write(fo.get())
+      && fwrite(base.data(),   base.size() * 4, 1, fo.get())
+      && fwrite(check.data(), check.size() * 4, 1, fo.get());
+    */
+  }
+
+
+  template<typename Header>
+  static bool save(Header &header, const string &suffix, const vector<const vector<u32> *> &datas = {}, const string &persist = "") {
+    u32 E = header.E;
+    string tempFile = fileName(E, "-temp" + suffix);
+    if (!write(tempFile, header, datas)) { return false; }
+
+    string prevFile = fileName(E, "-prev" + suffix);
+    remove(prevFile.c_str());
+
+    string saveFile = fileName(E, suffix);
+    rename(saveFile.c_str(), prevFile.c_str());
+    rename(tempFile.c_str(), saveFile.c_str());
+
+    if (!persist.empty()) {
+      string persistFile = fileName(E, persist + suffix);
+      return write(persistFile, header, datas);
+    }
+    return true;
+  }
+
 public:
 
   static TFState loadTF(u32 E) {
@@ -139,11 +211,14 @@ public:
   }
 
   static bool saveTF(u32 E, int bitLo, int bitEnd, int nDone, int nTotal) {
+    HeaderTF2 header{E, bitLo, bitEnd, nDone, nTotal};
+    return save(header, ".tf", {});
+    /*
     string saveFile = fileName(E, ".tf");
     string tempFile = fileName(E, "-temp.tf");
     string prevFile = fileName(E, "-prev.tf");
 
-    HeaderTF2 header{E, bitLo, bitEnd, nDone, nTotal};
+
     {
       auto fo(open(tempFile, "wb"));
       if (!fo || !header.write(fo.get())) { return false; }
@@ -153,6 +228,7 @@ public:
     rename(saveFile.c_str(), prevFile.c_str());
     rename(tempFile.c_str(), saveFile.c_str());
     return true;
+    */
   }
 
   static LoadResult loadPM1(u32 E, u32 B1) {
@@ -179,11 +255,14 @@ public:
   }
 
   static bool savePM1(u32 E, const vector<u32> &bits, u32 k, u32 B1) {
+    HeaderP1 header{E, k, B1};
+    return save(header, ".pm1", {&bits});
+
+    /*
     string saveFile = fileName(E, ".pm1");
     string tempFile = fileName(E, "-temp.pm1");
     string prevFile = fileName(E, "-prev.pm1");
 
-    HeaderP1 header{E, k, B1};
     {
       auto fo(open(tempFile, "wb"));
       if (!fo || !header.write(fo.get()) || !fwrite(bits.data(), (E - 1)/8 + 1, 1, fo.get())) { return false; }
@@ -192,7 +271,52 @@ public:
     remove(prevFile.c_str());
     rename(saveFile.c_str(), prevFile.c_str());
     rename(tempFile.c_str(), saveFile.c_str());
-    return true;    
+    return true;
+    */
+  }
+
+  static PRPFState loadPRPF(u32 E, u32 prefB1, u32 prefBlockSize) {
+    const int nWords = (E - 1) / 32 + 1;
+    const int nBytes = (E - 1) / 8 + 1;
+
+    vector<u32> base(nWords);
+    vector<u32> check(nWords);
+    
+    auto fi{open(fileName(E, ".prpf"), "rb", false)};
+    if (!fi) {
+      base[0] = 1;
+      return {true, 1, 0, prefB1, prefBlockSize, 0x1, base, check};
+    }
+
+    char line[256];
+    if (!fgets(line, sizeof(line), fi.get())) { return {false}; }
+
+    HeaderPRPF1 header;
+    if (header.parse(line)) {
+      assert(header.E == E);
+      if (!fread(base.data(), nBytes, 1, fi.get())) { return {false}; }
+      if (header.stage > 1) {
+        // In stage 2 there is also "check" in addition to "base".
+        if (!fread(check.data(), nBytes, 1, fi.get())) { return {false}; }
+      }
+      return {true, header.stage, header.k, header.B1, header.blockSize, header.res64, base, check};
+    }
+    return {false};
+  }
+
+  template<typename Header> bool write(const string &fileName, const Header &header, const vector<u32> &check) {
+    assert(check.size() == (header.E - 1) / 32 + 1);
+    auto fo(open(fileName, "wb"));
+    return fo
+      && header.write(fo.get())
+      && fwrite(check.data(), check.size() * 4, 1, fo.get());
+  }
+  
+  static bool savePRPF(u32 E, int stage, u32 k, u32 B1, u32 blockSize, u64 res64, const vector<u32> base, const vector<u32> check) {
+    assert(stage == 1 || stage == 2);
+    HeaderPRPF1 header{stage, E, k, B1, blockSize, res64};
+    bool doPersist = (stage == 1) ? k && k % 1'000'000 == 0 : (k % 10'000'000 == 0);    
+    return save(header, ".prpf", {&base, &check}, doPersist ? "."s + to_string(k) : ""s);
   }
   
   static LoadResult loadPRP(u32 E, u32 preferredBlockSize) {
@@ -213,12 +337,11 @@ public:
       if (header.parse(line)) {
         assert(header.E == E);
         vector<u32> check(nWords);
-        if (!fread(check.data(), (E - 1) / 8 + 1, 1, fi.get())) { return {false}; }
+        if (!fread(check.data(), nWords * 4, 1, fi.get())) { return {false}; }
         return {true, header.k, header.blockSize, header.nErrors, check, header.res64};
       }
     }
-    
-    
+        
     {
       auto fi{open(fileName(E), "rb", false)};    
       assert(fi);
@@ -235,20 +358,24 @@ public:
     return {false};
   }
   
-  static void savePRP(u32 E, const vector<u32> &check, int k, int nErrors, int checkStep, u64 res64) {
+  static bool savePRP(u32 E, const vector<u32> &check, u32 k, int nErrors, u32 checkStep, u64 res64) {
+    HeaderPRP6 header{E, k, checkStep, nErrors, res64};
+    const int persistStep = 20'000'000;    
+    bool doPersist = k && (k % persistStep == 0);
+    return save(header, "", {&check}, doPersist ? "."s + to_string(k) : ""s);
+
+    /*
+    string tempFile = fileName(E, "-temp");
+    if (!write(tempFile, header, check)) { return false; }
+
+    string prevFile = fileName(E, "-prev");
+    remove(prevFile.c_str());
+
     string saveFile = fileName(E);
-    string tempFile = fileName(E, "-temp"); // strE + "-temp.owl";
-    string prevFile = fileName(E, "-prev"); // strE + "-prev.owl";
+    rename(saveFile.c_str(), prevFile.c_str());
+    rename(tempFile.c_str(), saveFile.c_str());
     
-    if (write(E, tempFile, check, k, nErrors, checkStep, res64)) {
-      remove(prevFile.c_str());
-      rename(saveFile.c_str(), prevFile.c_str());
-      rename(tempFile.c_str(), saveFile.c_str());
-    }
-    const int persistStep = 20'000'000;
-    if (k && (k % persistStep == 0)) {
-      string persistFile = fileName(E, "." + to_string(k)); // strE + "." + std::to_string(k) + ".owl";
-      write(E, persistFile, check, k, nErrors, checkStep, res64);
-    }
+    return !k || (k % persistStep != 0) || write(fileName(E, "." + to_string(k)), header, check);
+    */
   }
 };
