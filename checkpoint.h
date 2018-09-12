@@ -4,7 +4,6 @@
 
 #include <vector>
 #include <string>
-// #include <initializer_list>
 #include <cassert>
 
 struct LoadResult {
@@ -125,21 +124,6 @@ End-of-header:
     bool write(FILE *fo) { return (fprintf(fo, HEADER_W, comment.c_str(), E, k, blockSize, res64, nErrors) > 0); }
   };
     
-  // static bool write(FILE *fo, const vector<u32> &vect) { return fwrite(vect.data(), vect.size() * sizeof(vect[0]), 1, fo); }
-
-  /*
-  static bool write(u32 E, const string &name, const std::vector<u32> &check, u32 k, int nErrors, u32 blockSize, u64 res64) {
-    const int nWords = (E - 1) / 32 + 1;
-    assert(int(check.size()) == nWords);
-
-    HeaderPRP6 header{E, k, blockSize, nErrors, res64};
-    auto fo(open(name, "wb"));
-    return fo
-      && header.write(fo.get())
-      && fwrite(check.data(), (E - 1)/8 + 1, 1, fo.get());
-  }
-  */
-
   static u64 checksum(const std::vector<u32> &data) {
     u32 a = 1;
     u32 b = 0;
@@ -161,18 +145,7 @@ End-of-header:
       if (!fwrite(pv->data(), pv->size() * 4, 1, fo.get())) { return false; }
     }
     return true;
-
-    /*
-    assert(base.size()  == (header.E - 1) / 32 + 1);
-    assert(check.size() == (header.E - 1) / 32 + 1);
-    auto fo(open(fileName, "wb"));
-    return fo
-      && header.write(fo.get())
-      && fwrite(base.data(),   base.size() * 4, 1, fo.get())
-      && fwrite(check.data(), check.size() * 4, 1, fo.get());
-    */
   }
-
 
   template<typename Header>
   static bool save(Header &header, const string &suffix, const vector<const vector<u32> *> &datas = {}, const string &persist = "") {
@@ -212,23 +185,7 @@ public:
 
   static bool saveTF(u32 E, int bitLo, int bitEnd, int nDone, int nTotal) {
     HeaderTF2 header{E, bitLo, bitEnd, nDone, nTotal};
-    return save(header, ".tf", {});
-    /*
-    string saveFile = fileName(E, ".tf");
-    string tempFile = fileName(E, "-temp.tf");
-    string prevFile = fileName(E, "-prev.tf");
-
-
-    {
-      auto fo(open(tempFile, "wb"));
-      if (!fo || !header.write(fo.get())) { return false; }
-    }
-
-    remove(prevFile.c_str());
-    rename(saveFile.c_str(), prevFile.c_str());
-    rename(tempFile.c_str(), saveFile.c_str());
-    return true;
-    */
+    return save(header, ".tf");
   }
 
   static LoadResult loadPM1(u32 E, u32 B1) {
@@ -257,22 +214,6 @@ public:
   static bool savePM1(u32 E, const vector<u32> &bits, u32 k, u32 B1) {
     HeaderP1 header{E, k, B1};
     return save(header, ".pm1", {&bits});
-
-    /*
-    string saveFile = fileName(E, ".pm1");
-    string tempFile = fileName(E, "-temp.pm1");
-    string prevFile = fileName(E, "-prev.pm1");
-
-    {
-      auto fo(open(tempFile, "wb"));
-      if (!fo || !header.write(fo.get()) || !fwrite(bits.data(), (E - 1)/8 + 1, 1, fo.get())) { return false; }
-    }
-      
-    remove(prevFile.c_str());
-    rename(saveFile.c_str(), prevFile.c_str());
-    rename(tempFile.c_str(), saveFile.c_str());
-    return true;
-    */
   }
 
   static PRPFState loadPRPF(u32 E, u32 prefB1, u32 prefBlockSize) {
@@ -363,19 +304,5 @@ public:
     const int persistStep = 20'000'000;    
     bool doPersist = k && (k % persistStep == 0);
     return save(header, "", {&check}, doPersist ? "."s + to_string(k) : ""s);
-
-    /*
-    string tempFile = fileName(E, "-temp");
-    if (!write(tempFile, header, check)) { return false; }
-
-    string prevFile = fileName(E, "-prev");
-    remove(prevFile.c_str());
-
-    string saveFile = fileName(E);
-    rename(saveFile.c_str(), prevFile.c_str());
-    rename(tempFile.c_str(), saveFile.c_str());
-    
-    return !k || (k % persistStep != 0) || write(fileName(E, "." + to_string(k)), header, check);
-    */
   }
 };
