@@ -81,7 +81,7 @@ private:
     int nErrors;
     u64 res64;
 
-    bool parse(const char *line) { return sscanf(line, HEADER, &E, &k, &blockSize, &res64, &nErrors) == 4; }
+    bool parse(const char *line) { return sscanf(line, HEADER, &E, &k, &blockSize, &res64, &nErrors) == 5; }
     bool write(FILE *fo) {        return fprintf(fo,  HEADER, E,   k,  blockSize,  res64,  nErrors) > 0; }
   };
   
@@ -169,6 +169,30 @@ End-of-header:
 
 public:
 
+  static bool saveTF(u32 E, int bitLo, int bitEnd, int nDone, int nTotal) {
+    HeaderTF2 header{E, bitLo, bitEnd, nDone, nTotal};
+    return save(header, ".tf");
+  }
+
+  static bool savePM1(u32 E, const vector<u32> &bits, u32 k, u32 B1) {
+    HeaderP1 header{E, k, B1};
+    return save(header, ".pm1", {&bits});
+  }
+
+  static bool savePRPF(u32 E, int stage, u32 k, u32 B1, u32 blockSize, u64 res64, const vector<u32> base, const vector<u32> check) {
+    assert(stage == 1 || stage == 2);
+    HeaderPRPF1 header{stage, E, k, B1, blockSize, res64};
+    bool doPersist = (stage == 1) ? k && k % 1'000'000 == 0 : (k % 10'000'000 == 0);    
+    return save(header, ".prpf", {&base, &check}, doPersist ? "."s + to_string(k) : ""s);
+  }
+
+  static bool savePRP(u32 E, const vector<u32> &check, u32 k, int nErrors, u32 checkStep, u64 res64) {
+    HeaderPRP6 header{E, k, checkStep, nErrors, res64};
+    const int persistStep = 20'000'000;    
+    bool doPersist = k && (k % persistStep == 0);
+    return save(header, "", {&check}, doPersist ? "."s + to_string(k) : ""s);
+  }
+  
   static TFState loadTF(u32 E) {
     if (auto fi{open(fileName(E, ".tf"), "rb", false)}) {
       char line[256];
@@ -181,11 +205,6 @@ public:
       assert(false);
     }
     return {0};
-  }
-
-  static bool saveTF(u32 E, int bitLo, int bitEnd, int nDone, int nTotal) {
-    HeaderTF2 header{E, bitLo, bitEnd, nDone, nTotal};
-    return save(header, ".tf");
   }
 
   static LoadResult loadPM1(u32 E, u32 B1) {
@@ -209,11 +228,6 @@ public:
       }
     }
     return {false};
-  }
-
-  static bool savePM1(u32 E, const vector<u32> &bits, u32 k, u32 B1) {
-    HeaderP1 header{E, k, B1};
-    return save(header, ".pm1", {&bits});
   }
 
   static PRPFState loadPRPF(u32 E, u32 prefB1, u32 prefBlockSize) {
@@ -252,14 +266,7 @@ public:
       && header.write(fo.get())
       && fwrite(check.data(), check.size() * 4, 1, fo.get());
   }
-  
-  static bool savePRPF(u32 E, int stage, u32 k, u32 B1, u32 blockSize, u64 res64, const vector<u32> base, const vector<u32> check) {
-    assert(stage == 1 || stage == 2);
-    HeaderPRPF1 header{stage, E, k, B1, blockSize, res64};
-    bool doPersist = (stage == 1) ? k && k % 1'000'000 == 0 : (k % 10'000'000 == 0);    
-    return save(header, ".prpf", {&base, &check}, doPersist ? "."s + to_string(k) : ""s);
-  }
-  
+    
   static LoadResult loadPRP(u32 E, u32 preferredBlockSize) {
     const int nWords = (E - 1) / 32 + 1;
 
@@ -297,12 +304,5 @@ public:
     }
     
     return {false};
-  }
-  
-  static bool savePRP(u32 E, const vector<u32> &check, u32 k, int nErrors, u32 checkStep, u64 res64) {
-    HeaderPRP6 header{E, k, checkStep, nErrors, res64};
-    const int persistStep = 20'000'000;    
-    bool doPersist = k && (k % persistStep == 0);
-    return save(header, "", {&check}, doPersist ? "."s + to_string(k) : ""s);
   }
 };
