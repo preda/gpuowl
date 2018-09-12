@@ -12,7 +12,7 @@
 struct Task {
   // static Task makePM1(u32 exp, u32 B1, const string &aid, const string &iniLine, 
   
-  enum Kind {NONE = 0, PRP, TF, LL, PM1};
+  enum Kind {NONE = 0, PRP, TF, PM1, PRPF};
 
   Kind kind;
   u32 exponent;
@@ -23,7 +23,7 @@ struct Task {
   // TF only
   int bitHi;
 
-  // PM1 only
+  // PM1 and PRPF only.
   u32 B1;
 };
 
@@ -60,6 +60,11 @@ public:
           return Task{Task::PM1, exp, outAID, line, 0, 0, B1};
         }
 
+        outAID[0] = 0;
+        if (sscanf(line, "PRPF=B1:%u,%u", &B1, &exp) == 2) {
+          return Task{Task::PRPF, exp, outAID, line, 0, 0, B1};
+        }
+        
         int n = strlen(line);
         if (n >= 2 && line[n - 2] == '\n') { line[n - 2] = 0; }
         if (n >= 1 && line[n - 1] == '\n') { line[n - 1] = 0; }

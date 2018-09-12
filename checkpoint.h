@@ -179,7 +179,7 @@ public:
     return save(header, ".pm1", {&bits});
   }
 
-  static bool savePRPF(u32 E, int stage, u32 k, u32 B1, u32 blockSize, u64 res64, const vector<u32> base, const vector<u32> check) {
+  static bool savePRPF(u32 E, int stage, u32 k, u32 B1, u32 blockSize, u64 res64, const vector<u32> &base, const vector<u32> &check) {
     assert(stage == 1 || stage == 2);
     HeaderPRPF1 header{stage, E, k, B1, blockSize, res64};
     bool doPersist = (stage == 1) ? k && k % 1'000'000 == 0 : (k % 10'000'000 == 0);    

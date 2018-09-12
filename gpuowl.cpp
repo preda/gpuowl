@@ -437,15 +437,18 @@ int main(int argc, char **argv) {
 
   log("%s %s\n", PROGRAM, VERSION);
   
-  while (true) {
+  bool stop = false;
+  while (!stop) {
     Task task = Worktodo::getTask();
-    if (task.kind == Task::NONE) { break; }
+    if (task.kind == Task::NONE) { stop = true; }
 
     u32 exp = task.exponent;
-    if (task.kind == Task::PRP) {
+    
+    switch (task.kind) {
+    case Task::PRP: {
       if (task.bitLo && doTF(exp, task.bitLo, targetBits(exp) + args.tfDelta, args, task.AID)) {
         // If a factor is found by TF, skip and drop the PRP task.
-        if (!Worktodo::deleteTask(task)) { break; }
+        if (!Worktodo::deleteTask(task)) { stop = true; }
         continue;
       }
       
@@ -458,22 +461,38 @@ int main(int argc, char **argv) {
           || !writeResultPRP(exp, isPrime, residue, task.AID, args.user, args.cpu, nErrors, gpu->getFFTSize())
           || !Worktodo::deleteTask(task)
           || isPrime) { // stop on prime found.
-        break;
+        stop = true;
       }
-    } else if (task.kind == Task::PM1) {
+    }
+      break;
+
+    case Task::PRPF: {
+
+    }
+      break;
+
+    case Task::PM1: {
       unique_ptr<Gpu> gpu = makeGpu(task.exponent, args);
       string factor;
       if (!checkPM1(gpu.get(), exp, task.B1, args, factor)
           || !writeResultPM1(exp, factor, task.B1, task.AID, args.user, args.cpu)
           || !Worktodo::deleteTask(task)
           || !factor.empty()) {
-        break;
+        stop = true;
       }
-    } else {
+    }
+      break;
+
+    case Task::TF: {
       assert(task.kind == Task::TF && task.bitLo < task.bitHi);
       doTF(exp, task.bitLo, task.bitHi, args, task.AID);
-      if (!Worktodo::deleteTask(task)) { break; }
+      if (!Worktodo::deleteTask(task)) { stop = true; }
     }
+      break;
+
+    default:
+      assert(false);      
+    }    
   }
 
   log("Bye\n");
