@@ -6,4 +6,4 @@ SRCS = common.cpp gpuowl.cpp
 LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L/c/Windows/System32 -L.
 
 openowl: ${HEADERS} ${SRCS} OpenGpu.h OpenGpu.cpp clwrap.cpp
-	g++ -O2 -DREV=\"`git rev-parse --short HEAD``git diff-files --quiet || echo -mod`\" -Wall -std=c++14 OpenGpu.cpp clwrap.cpp ${SRCS} -o openowl -lOpenCL -lgmp ${LIBPATH}
+	g++ -O2 -g -DREV=\"`git rev-parse --short HEAD``git diff-files --quiet || echo -mod`\" -Wall -std=c++14 OpenGpu.cpp clwrap.cpp ${SRCS} -o openowl -lOpenCL -lgmp ${LIBPATH}

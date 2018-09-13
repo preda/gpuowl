@@ -168,30 +168,40 @@ bool isAllZero(const std::vector<u32> &vect) {
   return true;
 }
 
-bool loadPRP(Gpu *gpu, u32 E, u32 desiredBlockSize, int *outK, int *outBlockSize, int *outNErrors) {
+bool loadPRP(Gpu *gpu, u32 E, u32 desiredBlockSize, u32 *outK, u32 *outBlockSize, u32 *outNErrors) {
+  PRPState loaded;
+  if (!loaded.load(E, desiredBlockSize)) {
+    log("Invalid checkpoint for exponent %d\n", E);
+    return false;
+  }
+
+  /*
   LoadResult loaded = Checkpoint::loadPRP(E, desiredBlockSize);
   if (!loaded.ok) {
     log("Invalid checkpoint for exponent %d\n", E);
     return false;
   }
+  */
 
+  u32 blockSize = loaded.blockSize;
+  u32 k = loaded.k;
   {
     vector<u32> base((E - 1) / 32 + 1);
     base[0] = 3;
-    gpu->writeState(loaded.bits, base, loaded.blockSize);
+    gpu->writeState(loaded.check, base, blockSize);
   }
   u64 res64 = gpu->dataResidue();
-  bool resOK = !loaded.res64 || res64 == loaded.res64;
+  bool resOK = (res64 == loaded.res64);
   
-  if (resOK && gpu->checkAndUpdate(loaded.blockSize)) {
-    log("OK loaded: %d/%d, blockSize %d, %016llx\n", loaded.k, E, loaded.blockSize, res64);
+  if (resOK && gpu->checkAndUpdate(blockSize)) {
+    log("OK loaded: %d/%d, blockSize %d, %016llx\n", k, E, blockSize, res64);
   } else {
-    log("EE loaded: %d/%d, blockSize %d, %016llx, expected %016llx\n", loaded.k, E, loaded.blockSize, res64, loaded.res64);
+    log("EE loaded: %d/%d, blockSize %d, %016llx, expected %016llx\n", k, E, blockSize, res64, loaded.res64);
     return false;
   }
   
-  *outK = loaded.k;
-  *outBlockSize = loaded.blockSize;
+  *outK = k;
+  *outBlockSize = blockSize;
   *outNErrors = loaded.nErrors;
   return true;
 }
@@ -203,9 +213,12 @@ bool loadPRPF(Gpu *gpu, u32 E, u32 desiredB1, u32 desiredBlockSize, int *outK, i
     return false;
   }
 
-  gpu->writeState(loaded.bits, loaded.blockSize);
-  u64 res64 = gpu->dataResidue();
-  bool resOK = !loaded.res64 || res64 == loaded.res64;
+  if (loaded.stage == 1) {
+    gpu->writeData(loaded.base);        
+  } else {  
+    gpu->writeState(loaded.check, loaded.base, loaded.blockSize);
+    u64 res64 = gpu->dataResidue();
+    bool resOK = res64 == loaded.res64;
   
   if (resOK && gpu->checkAndUpdate(loaded.blockSize)) {
     log("OK loaded: %d/%d, blockSize %d, %016llx\n", loaded.k, E, loaded.blockSize, res64);
@@ -283,12 +296,20 @@ string GCD(u32 exp, const vector<u32> &bits) {
 
 static u32 getB1(u32 exp, float prpTimeFraction) { return exp * prpTimeFraction / 1.4429f; }
 
-bool checkPM1(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string &outFactor) {  
+bool checkPM1(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string &outFactor) {
+  PFState loaded;
+  if (!loaded.load(E, taskB1 ? taskB1 : getB1(E, 0.02))) {
+    log("Could not load PM1 savefile for %u\n", E);
+    return false;
+  }
+
+  /*
   LoadResult loaded = Checkpoint::loadPM1(E, taskB1 ? taskB1 : getB1(E, 0.02));
   if (!loaded.ok) {
     log("Could not load PM1 savefile for %u\n", E);
     return false;
   }
+  */
 
   u32 N = gpu->getFFTSize();
   u32 B1 = loaded.B1;
@@ -297,7 +318,7 @@ bool checkPM1(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string &outFactor) 
   vector<bool> bits = powerSmoothBitsRev(E, B1);
   assert(bits.front()); // most significant bit is 1.
   
-  gpu->writeData(loaded.bits);
+  gpu->writeData(loaded.base);
   
   log("P-1 M(%d), FFT %dK, %.2f bits/word, B1 %u, at %u, %016llx\n", E, N/1024, E / float(N), B1, k, gpu->dataResidue());
 
@@ -319,12 +340,16 @@ bool checkPM1(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string &outFactor) 
     if (k % 10000 == 0) {
       log("   %s\n", makeLogStr(E, k, gpu->dataResidue(), stats.getStats(), 0, bits.size()).c_str());
       stats.reset();
-      Checkpoint::savePM1(E, gpu->readData(), k, B1);
+      PFState{k, u32(bits.size()), B1, gpu->readData()}.save(E);
+      // Checkpoint::savePM1(E, gpu->readData(), k, B1);
     }
   }
 
   assert(k == bits.size());
-  if (k != loaded.k) { Checkpoint::savePM1(E, gpu->readData(), k, B1); }
+  if (k != loaded.k) {
+    PFState{k, u32(bits.size()), B1, gpu->readData()}.save(E);
+    // Checkpoint::savePM1(E, gpu->readData(), k, B1);
+  }
 
   outFactor = GCD(E, gpu->readData());
   return true;
@@ -337,7 +362,7 @@ bool checkPRPF(Gpu *gpu, u32 E, u32 taskB1, const Args &args, string *outFactor)
 }
 
 bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outResidue, int *outNErrors) {
-  int k = 0, blockSize = 0, nErrors = 0;
+  u32 k = 0, blockSize = 0, nErrors = 0;
   u32 N = gpu->getFFTSize();
   
   log("PRP M(%d), FFT %dK, %.2f bits/word, %.0f GHz-days\n", E, N/1024, E / float(N), ghzDays(E, N));
@@ -348,7 +373,7 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
 
   const int checkStep = blockSize * blockSize;
   
-  const int kEnd = E; // Residue type-1, see http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
+  const u32 kEnd = E; // Residue type-1, see http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k % blockSize == 0 && k < kEnd);
   
   oldHandler = signal(SIGINT, myHandler);
@@ -412,7 +437,8 @@ bool checkPrime(Gpu *gpu, int E, const Args &args, bool *outIsPrime, u64 *outRes
     
     bool ok = gpu->checkAndUpdate(blockSize);
     bool doSave = (k < kEnd) && ok;
-    if (doSave) { Checkpoint::savePRP(E, compactCheck, k, nErrors, blockSize, res); }
+    if (doSave) { PRPState{k, blockSize, nErrors, res, compactCheck}.save(E); }
+      // Checkpoint::savePRP(E, compactCheck, k, nErrors, blockSize, res); }
     
     doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, ghzMsPerIt);
     
@@ -445,10 +471,12 @@ unique_ptr<TF> makeTF(Args &args) { return OpenTF::make(args); }
 int targetBits(u32 exp) { return 81 + 2.5 * (log2(exp) - log2(332000000)); }
 
 // Return true if a factor was found.
-bool doTF(u32 exp, int bitLo, int bitEnd, Args &args, const string &AID) {
+bool doTF(u32 exp, u32 bitLo, u32 bitEnd, Args &args, const string &AID) {
   if (bitLo >= bitEnd) { return false; }
   
-  TFState state = Checkpoint::loadTF(exp);
+  TFState state;
+  if (!state.load(exp)) { return false; }
+  // = Checkpoint::loadTF(exp);
   if (state.bitLo >= bitEnd || (state.nDone == state.nTotal && state.bitHi >= bitEnd)) { return false; }
 
   if (state.bitLo > bitLo) { bitLo = state.bitLo; }
@@ -486,7 +514,7 @@ int main(int argc, char **argv) {
     
     switch (task.kind) {
     case Task::PRP: {
-      if (task.bitLo && doTF(exp, task.bitLo, targetBits(exp) + args.tfDelta, args, task.AID)) {
+      if (task.bitLo && args.enableTF && doTF(exp, task.bitLo, targetBits(exp) + args.tfDelta, args, task.AID)) {
         // If a factor is found by TF, skip and drop the PRP task.
         if (!Worktodo::deleteTask(task)) { stop = true; }
         continue;

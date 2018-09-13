@@ -193,7 +193,7 @@ public:
     log("Sieve with %d primes (up to %d), expected %.4f%%\n", NPRIMES, primes[NPRIMES - 1], double(f) * 100); 
   }
     
-  u64 findFactor(u32 exp, int bitLo, int bitEnd, int nDone, int nTotal, u64 *outBeginK, u64 *outEndK, bool timeKernels) {
+  u64 findFactor(u32 exp, u32 bitLo, u32 bitEnd, u32 nDone, u32 nTotal, u64 *outBeginK, u64 *outEndK, bool timeKernels) {
     assert(nDone == 0 || nTotal == NGOOD);
     assert(bitLo < bitEnd);
     
@@ -207,7 +207,7 @@ public:
     *outBeginK = k0;
     *outEndK   = k0 + BITS_PER_GROUP * u64(NCLASS) * nSieveGroups;
     
-    log("TF %u %d-%d, K %llu - %llu, %dx%d + 1x%d groups, start from class #%d\n",
+    log("TF %u %u-%u, K %llu - %llu, %dx%d + 1x%d groups, start from class #%u\n",
         exp, bitLo, bitEnd, k0, *outEndK,
         nSieveGroups / SIEVE_GROUPS, SIEVE_GROUPS, nSieveGroups % SIEVE_GROUPS, nDone);
     // exp >> (24 - __builtin_clz(exp)));
@@ -251,8 +251,9 @@ public:
       if (timeKernels) { logTimeKernels({&sieve, &tf, &stepBtc, &initBtc}); }
 
       if (foundK) { return foundK; }
-      
-      Checkpoint::saveTF(exp, bitLo, bitEnd, i + 1, NGOOD);
+
+      TFState{bitLo, bitEnd, i + 1, NGOOD}.save(exp);
+      // Checkpoint::saveTF(exp, bitLo, bitEnd, i + 1, NGOOD);
     }
     return 0;
   }

@@ -23,6 +23,7 @@ struct Args {
   int blockSize;
   int fftSize;
   int tfDelta;
+  bool enableTF;
   bool usePrecompiled;
   
   Args() :
@@ -32,7 +33,8 @@ struct Args {
     carry(CARRY_AUTO),
     blockSize(400),
     fftSize(0),
-    tfDelta(-1000),
+    tfDelta(0),
+    enableTF(false),
     usePrecompiled(false)
   { }
   
@@ -88,6 +90,7 @@ Command line options:
     } else if (!strcmp(arg, "-tf")) {
       if (i < argc - 1) {
         tfDelta = atoi(argv[++i]);
+        enableTF = true;
       } else {
         log("-tf expects <bit-offset>\n");
         return false;
