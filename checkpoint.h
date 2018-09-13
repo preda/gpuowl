@@ -6,10 +6,32 @@
 #include <string>
 #include <cassert>
 
-std::string fileName(int E, const string &suffix = "") { return std::to_string(E) + suffix + ".owl"; }
+static std::string fileName(int E, const string &suffix = "") { return std::to_string(E) + suffix + ".owl"; }
+
+template<typename T> bool save(u32 E, T *state) {
+  string tempFile = fileName(E, "-temp"s + T::SUFFIX);
+  if (!state->saveImpl(E, tempFile)) { return false; }
+  
+  string prevFile = fileName(E, "-prev"s + T::SUFFIX);
+  remove(prevFile.c_str());
+  
+  string saveFile = fileName(E, T::SUFFIX);
+  rename(saveFile.c_str(), prevFile.c_str());
+  rename(tempFile.c_str(), saveFile.c_str());
+  
+  string persist = state->durableName();
+  return persist.empty() ? true : state->saveImpl(E, fileName(E, persist + T::SUFFIX));
+}
+
+bool write(FILE *fo, const vector<u32> &v) { return fwrite(v.data(), v.size() * sizeof(u32), 1, fo); }
+
+bool read(FILE *fi, u32 nWords, vector<u32> *v) {
+  v->resize(nWords);
+  return fread(v->data(), nWords * sizeof(u32), 1, fi);
+}
 
 struct PRPState_v5 {
-    static constexpr const char *HEADER_R = R"(OWL 5
+  static constexpr const char *HEADER_R = R"(OWL 5
 Comment: %255[^
 ]
 Type: PRP
@@ -22,7 +44,7 @@ End-of-header:
 \0)";
 
   static constexpr const char *SUFFIX = "";
-  
+
   u32 k;
   u32 blockSize;
   int nErrors;
@@ -46,30 +68,7 @@ End-of-header:
   }
 };
   
-template<typename State>
-bool save(u32 E, State *state) {
-  string tempFile = fileName(E, "-temp"s + State::SUFFIX);
-  if (!state->saveImpl(E, tempFile)) { return false; }
-  
-  string prevFile = fileName(E, "-prev"s + State::SUFFIX);
-  remove(prevFile.c_str());
-
-  string saveFile = fileName(E, State::SUFFIX);
-  rename(saveFile.c_str(), prevFile.c_str());
-  rename(tempFile.c_str(), saveFile.c_str());
-
-  string persist = state->durableName();
-  return persist.empty() ? true : state->saveImpl(E, fileName(E, persist + State::SUFFIX));
-}
-
-bool write(FILE *fo, const vector<u32> &v) { return fwrite(v.data(), v.size() * sizeof(u32), 1, fo); }
-bool read(FILE *fi, u32 nWords, vector<u32> *v) {
-  v->resize(nWords);
-  return fread(v->data(), nWords * sizeof(u32), 1, fi);
-}
-
 struct PRPState {
-public:
   // Exponent, iteration, block-size, res64, nErrors.
   static constexpr const char *HEADER = "OWL PRP 6 %u %u %u %016llx %u\n";
   static constexpr const char *SUFFIX = ".prp";
@@ -86,7 +85,6 @@ public:
     return true;
   }
   
-public:
   u32 k;
   u32 blockSize;
   u32 nErrors;
@@ -136,7 +134,9 @@ struct PFState {
   static constexpr const char *HEADER = "OWL PF 1 %u %u %u %u\n";
   static constexpr const char *SUFFIX = ".pf";
 
-  u32 k, kEnd, B1;
+  u32 k;
+  u32 kEnd;
+  u32 B1;
   vector<u32> base;
 
   bool saveImpl(u32 E, const string &name) {
@@ -183,12 +183,10 @@ struct PFState {
 };
 
 struct PRPFState {
-public:
   // E, k, B1, blockSize, res64
   static constexpr const char *HEADER = "OWL PRPF 1 %u %u %u %u %016llx\n";
   static constexpr const char *SUFFIX = ".prpf";
 
-public:
   u32 k;
   u32 B1;
   u32 blockSize;
