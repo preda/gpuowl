@@ -1,31 +1,16 @@
 // gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
-// Copyright (C) 2017 Mihai Preda.
+// Copyright (C) 2017-2018 Mihai Preda.
 
 #pragma once
 
+#include "Task.h"
+#include "args.h"
 #include "common.h"
 
 #include <cstdio>
-#include <cstring>
+// #include <cstring>
 #include <cassert>
-
-struct Task {
-  // static Task makePM1(u32 exp, u32 B1, const string &aid, const string &iniLine, 
-  
-  enum Kind {NONE = 0, PRP, TF, PM1, PRPF};
-
-  Kind kind;
-  u32 exponent;
-  string AID;  
-  string line; // the verbatim worktodo line, used in deleteTask().
-  int bitLo;   // Some PRP tasks contain "factored up to" bitlevel.
-  
-  // TF only
-  int bitHi;
-
-  // PM1 and PRPF only.
-  u32 B1;
-};
+#include <string>
 
 class Worktodo {
 public:
@@ -35,19 +20,19 @@ public:
       while (fgets(line, sizeof(line), fi.get())) {
         u32 exp = 0;
         char outAID[64] = {0};
-        int bitLo = 0, bitHi = 0;
+        u32 bitLo = 0, bitHi = 0;
 
         if (sscanf(line, "%u,%d", &exp, &bitLo) == 2 ||
             sscanf(line, "%u", &exp) == 1 ||
-            sscanf(line, "PRP=N/A,1,2,%u,-1,%d", &exp, &bitLo) == 2 ||
-            sscanf(line, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%d", outAID, &exp, &bitLo) == 3) {
+            sscanf(line, "PRP=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
+            sscanf(line, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
           return Task{Task::PRP, exp, outAID, line, bitLo, bitHi};
         }
 
         outAID[0] = 0;
         if (sscanf(line, "Factor=%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
             sscanf(line, "Factor=N/A,%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
-            sscanf(line, "Factor=%32[0-9a-fA-F],%u,%d,%d", outAID, &exp, &bitLo, &bitHi) == 4) {
+            sscanf(line, "Factor=%32[0-9a-fA-F],%u,%u,%u", outAID, &exp, &bitLo, &bitHi) == 4) {
           return Task{Task::TF, exp, outAID, line, bitLo, bitHi};
         }
 
@@ -75,8 +60,10 @@ public:
   }
 
   static bool deleteTask(const Task &task) {
-    bool lineDeleted = false;
+    // Some tasks don't originate in worktodo.txt and thus don't need deleting.
+    if (task.line.empty()) { return true; }
 
+    bool lineDeleted = false;
     {
       auto fi{open("worktodo.txt", "rb")};
       auto fo{open("worktodo-tmp.tmp", "wb")};

@@ -320,7 +320,7 @@ class OpenGpu : public LowGpu<Buffer> {
   }
     
 public:
-  static unique_ptr<Gpu> make(u32 E, Args &args) {
+  static unique_ptr<Gpu> make(u32 E, const Args &args) {
     vector<FftConfig> configs = genConfigs();
     if (args.listFFT) {
       log("   FFT  maxExp %4s %4s M\n", "W", "H");
@@ -366,7 +366,7 @@ public:
     if (!device) { throw "No OpenCL device"; }
 
     log("%s\n", getLongInfo(device).c_str());
-    if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
+    // if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
 
     Context context(createContext(device));
     Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs,

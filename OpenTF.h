@@ -139,8 +139,7 @@ class OpenTF : public TF {
   Buffer bufPrimes, bufInvs, bufSteps, bufModInvs, bufBtc, bufK, bufN, bufFound, bufTotal;
   
 public:
-  static unique_ptr<TF> make(Args &args) {
-
+  static unique_ptr<TF> make(const Args &args) {
     string clArgs = args.clArgs;
     if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/tf"; }
 
@@ -150,7 +149,7 @@ public:
     if (!device) { throw "No OpenCL device"; }
     
     log("%s\n", getLongInfo(device).c_str());
-    if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
+    // if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
 
     Context context(createContext(device));
 #define DEF(name) {#name, name}
@@ -193,7 +192,7 @@ public:
     log("Sieve with %d primes (up to %d), expected %.4f%%\n", NPRIMES, primes[NPRIMES - 1], double(f) * 100); 
   }
     
-  u64 findFactor(u32 exp, u32 bitLo, u32 bitEnd, u32 nDone, u32 nTotal, u64 *outBeginK, u64 *outEndK, bool timeKernels) {
+  string findFactor(u32 exp, u32 bitLo, u32 bitEnd, u32 nDone, u32 nTotal, u64 *outBeginK, u64 *outEndK, bool timeKernels) override {
     assert(nDone == 0 || nTotal == NGOOD);
     assert(bitLo < bitEnd);
     
@@ -250,11 +249,11 @@ public:
 
       if (timeKernels) { logTimeKernels({&sieve, &tf, &stepBtc, &initBtc}); }
 
-      if (foundK) { return foundK; }
+      if (foundK) { return to_string(foundK); }
 
       TFState{bitLo, bitEnd, i + 1, NGOOD}.save(exp);
       // Checkpoint::saveTF(exp, bitLo, bitEnd, i + 1, NGOOD);
     }
-    return 0;
+    return "";
   }
 };

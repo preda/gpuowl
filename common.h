@@ -52,6 +52,8 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 #define VERSION BASE_VERSION
 #endif
 
+#define PROGRAM "gpuowl"
+
 unique_ptr<FILE> open(const string &name, const char *mode, bool doLog = true);
 
 string timeStr();

@@ -4,13 +4,15 @@
 
 #include <vector>
 
+struct Args;
+
 class Gpu {
 protected:
   virtual vector<u32> readCheck() = 0;
   virtual vector<u32> writeCheck(const vector<u32> &v) = 0;
   
 public:
-  virtual ~Gpu() {};
+  virtual ~Gpu();
 
   virtual void writeState(const vector<u32> &check, const vector<u32> &base, int blockSize) = 0;
   
@@ -32,4 +34,8 @@ public:
 
   // Used directly only by PM1 (PRP uses roundtripData()).
   virtual vector<u32> readData() = 0;
+
+  string factorPM1(u32 E, u32 taskB1, const Args &args);
+  bool isPrimePRP(u32 E, const Args &args, u64 *res64, u32 *nErrors, u32 *fftSize);
+  bool isPrimePRPF(u32 E, u32 B1, const Args &args, u64 *res64, string *factor);
 };
