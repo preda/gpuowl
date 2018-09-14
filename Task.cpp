@@ -70,7 +70,14 @@ Result Task::execute(const Args &args) {
     u32 fftSize = 0;
     bool isPrime = makeGpu(exponent, args)->isPrimePRP(exponent, args, &res64, &nErrors, &fftSize);
     return Result{Result::PRP, "", 0, 0, isPrime, res64, nErrors, fftSize};
+    
+  } else if (kind == PRPF) {
+    u64 res64 = 0;
+    string factor;
+    bool isPrime = makeGpu(exponent, args)->isPrimePRPF(exponent, B1, args, &res64, &factor);
+    return Result{Result::PRPF, factor, 0, 0, isPrime, res64};
   }
+  
   assert(false);
   return Result{Result::NONE};
 }

@@ -3,89 +3,10 @@
 
 #pragma once
 
-#include "Task.h"
-#include "args.h"
-#include "common.h"
-
-#include <cstdio>
-// #include <cstring>
-#include <cassert>
-#include <string>
+class Task;
 
 class Worktodo {
 public:
-  static Task getTask() {
-    if (auto fi{openRead("worktodo.txt", true)}) {
-      char line[512];
-      while (fgets(line, sizeof(line), fi.get())) {
-        u32 exp = 0;
-        char outAID[64] = {0};
-        u32 bitLo = 0, bitHi = 0;
-
-        if (sscanf(line, "%u,%d", &exp, &bitLo) == 2 ||
-            sscanf(line, "%u", &exp) == 1 ||
-            sscanf(line, "PRP=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
-            sscanf(line, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-          return Task{Task::PRP, exp, outAID, line, bitLo, bitHi};
-        }
-
-        outAID[0] = 0;
-        if (sscanf(line, "Factor=%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
-            sscanf(line, "Factor=N/A,%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
-            sscanf(line, "Factor=%32[0-9a-fA-F],%u,%u,%u", outAID, &exp, &bitLo, &bitHi) == 4) {
-          return Task{Task::TF, exp, outAID, line, bitLo, bitHi};
-        }
-
-        outAID[0] = 0;
-        u32 B1 = 0;
-        if (sscanf(line, "PFactor=N/A,1,2,%u,-1", &exp) == 1 ||
-            sscanf(line, "PFactor=B1:%u,%u", &B1, &exp) == 2 ||
-            sscanf(line, "PFactor=B1:%u,%32[0-9a-fA-F],1,2,%u,-1", &B1, outAID, &exp) == 3 ||
-            sscanf(line, "PFactor=%32[0-9a-fA-F],1,2,%u,-1", outAID, &exp) == 2) {
-          return Task{Task::PM1, exp, outAID, line, 0, 0, B1};
-        }
-
-        outAID[0] = 0;
-        if (sscanf(line, "PRPF=B1:%u,%u", &B1, &exp) == 2) {
-          return Task{Task::PRPF, exp, outAID, line, 0, 0, B1};
-        }
-        
-        int n = strlen(line);
-        if (n >= 2 && line[n - 2] == '\n') { line[n - 2] = 0; }
-        if (n >= 1 && line[n - 1] == '\n') { line[n - 1] = 0; }
-        log("worktodo.txt: \"%s\" ignored\n", line);
-      }
-    }
-    return Task{Task::NONE};
-  }
-
-  static bool deleteTask(const Task &task) {
-    // Some tasks don't originate in worktodo.txt and thus don't need deleting.
-    if (task.line.empty()) { return true; }
-
-    bool lineDeleted = false;
-    {
-      auto fi{openRead("worktodo.txt", true)};
-      auto fo{openWrite("worktodo-tmp.tmp")};
-      if (!(fi && fo)) { return false; }
-      
-      char line[512];
-      while (fgets(line, sizeof(line), fi.get())) {
-        if (!lineDeleted && !strcmp(line, task.line.c_str())) {
-          lineDeleted = true;
-        } else {
-          fputs(line, fo.get());
-        }
-      }
-    }
-
-    if (!lineDeleted) {
-      log("worktodo.txt: could not find the line \"%s\" to delete\n", task.line.c_str());
-      return false;
-    }
-    remove("worktodo.bak");
-    rename("worktodo.txt", "worktodo.bak");
-    rename("worktodo-tmp.tmp", "worktodo.txt");
-    return true;
-  }
+  static Task getTask();
+  static bool deleteTask(const Task &task);
 };
