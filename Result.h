@@ -28,7 +28,7 @@ private:
              E, workType, status, PROGRAM, VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part);
   
     log("%s\n", buf);
-    auto fo = open("results.txt", "a");
+    auto fo = openAppend("results.txt");
     if (!fo) { return false; }
 
     fprintf(fo.get(), "%s\n", buf);

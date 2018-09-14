@@ -15,7 +15,7 @@
 class Worktodo {
 public:
   static Task getTask() {
-    if (auto fi{open("worktodo.txt", "rb")}) {
+    if (auto fi{openRead("worktodo.txt", true)}) {
       char line[512];
       while (fgets(line, sizeof(line), fi.get())) {
         u32 exp = 0;
@@ -65,8 +65,8 @@ public:
 
     bool lineDeleted = false;
     {
-      auto fi{open("worktodo.txt", "rb")};
-      auto fo{open("worktodo-tmp.tmp", "wb")};
+      auto fi{openRead("worktodo.txt", true)};
+      auto fo{openWrite("worktodo-tmp.tmp")};
       if (!(fi && fo)) { return false; }
       
       char line[512];

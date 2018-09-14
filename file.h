@@ -1,3 +1,5 @@
+// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+
 #pragma once
 
 #include <cstdio>
@@ -9,4 +11,7 @@ namespace std {
   };
 }
 
-unique_ptr<FILE> open(const string &name, const char *mode, bool doLog = true);
+
+unique_ptr<FILE> openRead(const string &name, bool logError = false);
+unique_ptr<FILE> openWrite(const string &name);
+unique_ptr<FILE> openAppend(const string &name);

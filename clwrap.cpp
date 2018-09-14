@@ -104,7 +104,7 @@ void release(cl_queue queue)     { CHECK(clReleaseCommandQueue(queue)); }
 void release(cl_kernel k)        { CHECK(clReleaseKernel(k)); }
 
 bool dumpBinary(cl_program program, const string &fileName) {
-  if (auto fo = open(fileName.c_str(), "wb")) {
+  if (auto fo = openWrite(fileName)) {
     size_t size;
     CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
     char *buf = new char[size + 1];
@@ -118,7 +118,7 @@ bool dumpBinary(cl_program program, const string &fileName) {
 
 static string readFile(const string &name) {
   string ret;
-  if (auto fi = open(name, "rb", false)) {
+  if (auto fi = openRead(name)) {
     char buf[1024];
     while (true) {
       size_t n = fread(buf, 1, sizeof(buf), fi.get());

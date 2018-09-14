@@ -1,7 +1,7 @@
 // GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
 
 #include "checkpoint.h"
-
+#include "file.h"
 #include <cassert>
 
 std::string fileName(int E, const string &suffix) { return std::to_string(E) + suffix + ".owl"; }
@@ -40,7 +40,7 @@ End-of-header:
     u32 nWords = (E - 1)/32 + 1;
     u32 nBytes = (E - 1)/8 + 1;
     
-    auto fi{open(fileName(E, SUFFIX), "rb", false)};
+    auto fi{openRead(fileName(E, SUFFIX))};
     if (!fi) { return false; }
     
     char buf[256];
@@ -67,7 +67,7 @@ bool PRPState::load_v5(u32 E) {
 
 void PRPState::loadInt(u32 E, u32 iniBlockSize) {    
   u32 nWords = (E - 1) / 32 + 1;
-  if (auto fi{open(fileName(E, SUFFIX), "rb", false)}) {
+  if (auto fi{openRead(fileName(E, SUFFIX))}) {
     char line[256];
     u32 fileE;    
     bool ok = fgets(line, sizeof(line), fi.get())
@@ -90,7 +90,7 @@ void PRPState::loadInt(u32 E, u32 iniBlockSize) {
 
 bool PRPState::saveImpl(u32 E, const string &name) {
   assert(check.size() == (E - 1) / 32 + 1);
-  auto fo(open(name, "wb"));
+  auto fo(openWrite(name));
   return fo
     && fprintf(fo.get(),  HEADER, E, k, blockSize, res64, nErrors) > 0
     && write(fo.get(), check);
@@ -102,7 +102,7 @@ string PRPState::durableName() {
 
 void PFState::loadInt(u32 E, u32 iniB1) {
   u32 nWords = (E - 1)/32 + 1;    
-  if (auto fi{open(fileName(E, SUFFIX), "rb", false)}) {
+  if (auto fi{openRead(fileName(E, SUFFIX))}) {
     char line[256];
     u32 fileE;
     if (!fgets(line, sizeof(line), fi.get())
@@ -124,7 +124,7 @@ void PFState::loadInt(u32 E, u32 iniB1) {
 bool PFState::saveImpl(u32 E, const string &name) {
   assert(base.size() == (E - 1) / 32 + 1);
     
-  auto fo(open(name, "wb"));
+  auto fo(openWrite(name));
   return fo
     && fprintf(fo.get(), HEADER, E, k, kEnd, B1) > 0
     && write(fo.get(), base);
@@ -132,7 +132,7 @@ bool PFState::saveImpl(u32 E, const string &name) {
 
 void PRPFState::loadInt(u32 E, u32 iniB1, u32 iniBlockSize) {
   u32 nWords = (E - 1) / 32 + 1;        
-  if (auto fi{open(fileName(E, SUFFIX), "rb", false)}) {
+  if (auto fi{openRead(fileName(E, SUFFIX))}) {
     char line[256];
     u32 fileE;
     if (fgets(line, sizeof(line), fi.get())
@@ -164,7 +164,7 @@ bool PRPFState::saveImpl(u32 E, string name) {
   u32 nWords = (E - 1) / 32 + 1;
   assert(base.size() == nWords && check.size() == nWords);
   
-  auto fo(open(name, "wb"));
+  auto fo(openWrite(name));
   return fo
     && fprintf(fo.get(), HEADER, E, k, B1, blockSize, res64) == 5
     && write(fo.get(), base)
@@ -172,11 +172,11 @@ bool PRPFState::saveImpl(u32 E, string name) {
 }
 
 bool PRPFState::canProceed(u32 E, u32 B1) {
-  return (B1 == 0) || open(fileName(E, SUFFIX), "rb", false) || PFState::load(E, B1).isCompleted();
+  return (B1 == 0) || openRead(fileName(E, SUFFIX)) || PFState::load(E, B1).isCompleted();
 }
 
 void TFState::loadInt(u32 E) {    
-  if (auto fi{open(fileName(E, SUFFIX), "rb", false)}) {
+  if (auto fi{openRead(fileName(E, SUFFIX))}) {
     u32 fileE;
     if (fscanf(fi.get(), HEADER, &fileE, &bitLo, &bitHi, &nDone, &nTotal) == 5) {
       assert(E == fileE);
@@ -191,6 +191,6 @@ void TFState::loadInt(u32 E) {
 }
 
 bool TFState::saveImpl(u32 E, string name) {
-  auto fo(open(name, "wb"));
+  auto fo(openWrite(name));
   return fo && fprintf(fo.get(), HEADER, E, bitLo, bitHi, nDone, nTotal) > 0;
 }
