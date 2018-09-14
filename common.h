@@ -1,10 +1,6 @@
+// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+
 #pragma once
-
-#include <cstdio>
-#include <cstdint>
-
-#include <memory>
-#include <vector>
 
 typedef unsigned char byte;
 typedef long long i64;
@@ -14,12 +10,6 @@ typedef unsigned u32;
 
 static_assert(sizeof(u32) == 4,   "size u32");
 static_assert(sizeof(u64) == 8,   "size u64");
-
-namespace std {
-  template<> struct default_delete<FILE> {
-    void operator()(FILE *f) { if (f != nullptr) { fclose(f); } }
-  };
-}
 
 #ifdef __GNUC__
 void log(const char *fmt, ...) __attribute__ ((format(printf, 1, 2)));
@@ -54,6 +44,4 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
 #define PROGRAM "gpuowl"
 
-unique_ptr<FILE> open(const string &name, const char *mode, bool doLog = true);
-
-string timeStr();
+// string timeStr();

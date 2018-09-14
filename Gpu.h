@@ -1,8 +1,11 @@
+// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+
 #pragma once
 
 #include "common.h"
 
 #include <vector>
+#include <string>
 
 struct Args;
 

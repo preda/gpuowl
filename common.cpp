@@ -1,6 +1,13 @@
+// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+
 #include "common.h"
-#include <ctime>
+#include "file.h"
+#include "timeutil.h"
+
 #include <cstdarg>
+#include <cstdio>
+#include <vector>
+#include <memory>
 
 vector<unique_ptr<FILE>> logFiles;
 string globalCpuName;
@@ -13,20 +20,6 @@ void initLog(const char *logName) {
 #endif
     logFiles.push_back(std::move(fo));
   }
-}
-
-string timeStr(const char *format) {
-  time_t t = time(NULL);
-  char buf[64];
-  strftime(buf, sizeof(buf), format, localtime(&t));
-  return buf;
-}
-
-string timeStr() {
-  time_t t = time(NULL);
-  char buf[64];
-  strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S UTC", gmtime(&t));   // equivalent to: "%F %T"
-  return buf;
 }
 
 string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }

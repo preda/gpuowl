@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <cassert>
+#include <memory>
 
 using std::string;
 using std::vector;
