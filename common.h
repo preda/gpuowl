@@ -21,8 +21,9 @@ void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
-#define BASE_VERSION "4.0"
+#define BASE_VERSION "4.1"
 // Reason for version change:
+// 4.1 : introduce PRP-1
 // 4.0 : add P-1 first stage; require GMP.
 // 3.9 : use save/load path vs. commit/rollback
 // 3.8 : TF multi-bit in one pass. OWL TF savefile v2.

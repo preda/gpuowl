@@ -31,7 +31,7 @@ struct Args {
     timeKernels(false),
     listFFT(false),
     carry(CARRY_AUTO),
-    blockSize(400),
+    blockSize(1000),
     fftSize(0),
     tfDelta(0),
     enableTF(false),
@@ -50,7 +50,7 @@ Command line options:
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
 -fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
--block 100|200|400 : select PRP-check block size. Smaller block is slower but detects errors earlier.
+-block 100|200|400|1000 : select PRP-check block size. Smaller block is slower but detects errors earlier.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -list fft          : display a list of available FFT configurations.
 -tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
