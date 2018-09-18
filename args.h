@@ -25,6 +25,7 @@ struct Args {
   int tfDelta;
   bool enableTF;
   bool usePrecompiled;
+  string ksetFile;
   
   Args() :
     device(-1),
@@ -35,7 +36,8 @@ struct Args {
     fftSize(0),
     tfDelta(0),
     enableTF(false),
-    usePrecompiled(false)
+    usePrecompiled(false),
+    ksetFile("kset.txt")
   { }
   
   // return false to stop.
@@ -54,6 +56,7 @@ Command line options:
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -list fft          : display a list of available FFT configurations.
 -tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
+-kset <file>       : give the name of a file with the list of Ks to test in PRP-1 (default: kset.txt).
 -device <N>        : select a specific device:
 )");
 
@@ -63,6 +66,13 @@ Command line options:
         printf(" %d : %s\n", i, devices[i].c_str());
       }      
       return false;
+    } else if (!strcmp(arg, "-kset")) {
+      if (i < argc - 1) {
+        ksetFile = argv[++i];
+      } else {
+        log("-kset expects <file-name>\n");
+        return false;
+      }
     } else if (!strcmp(arg, "-list")) {
       if (i < argc - 1 && !strcmp(argv[++i], "fft")) {
         listFFT = true;

@@ -216,7 +216,7 @@ bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string
   bool isPrime = false;
   Timer timer;
 
-  Kset kSet("set.txt"); // TODO
+  Kset kSet(args.ksetFile); // TODO
   u32 kSetPos = 0;
   while (kSet.get(kSetPos) <= k) { ++kSetPos; }
 
@@ -246,8 +246,9 @@ bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string
         this->dataLoop(nIters);
         k += nIters;
         if (k == kToTest) {
-          log("add test %u (%u)\n", k, kSetPos);
-          this->gcdAccumulate();
+          // log("add test %u (%u)\n", k, kSetPos);
+          bool isFirst = nGcdMuls == 0;
+          this->gcdAccumulate(isFirst);
           ++nGcdMuls;
           ++kSetPos;
         }

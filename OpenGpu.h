@@ -274,8 +274,8 @@ class OpenGpu : public LowGpu<Buffer> {
     bufAux.reset(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufBase.reset( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufAcc.reset(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
-    queue.zero(bufAcc, N * sizeof(int));
-    queue.write(bufAcc, vector<u32>{1});
+    // queue.zero(bufAcc, N * sizeof(int));
+    // queue.write(bufAcc, vector<u32>{1});
     
     setupWeights<double>(context, bufA, bufI, W, BIG_H, E);
 
@@ -451,9 +451,13 @@ protected:
     exitKerns(buf1, io, doMul3);
   };
 
-  void gcdAccumulate() override {
-    subtract(bufAux, bufData, bufBase);
-    modMul(bufAux, bufAcc, false);    
+  void gcdAccumulate(bool isFirst) override {
+    if (isFirst) {
+      subtract(bufAcc, bufData, bufBase);
+    } else {
+      subtract(bufAux, bufData, bufBase);
+      modMul(bufAux, bufAcc, false);
+    }
   }
   
   bool equalNotZero(Buffer &buf1, Buffer &buf2) {
