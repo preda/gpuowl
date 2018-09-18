@@ -218,10 +218,9 @@ bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string
 
   Kset kSet("set.txt"); // TODO
   u32 kSetPos = 0;
-  while (kSet.get(kSetPos).first <= k) { ++kSetPos; }
+  while (kSet.get(kSetPos) <= k) { ++kSetPos; }
 
   int nGcdMuls = 0;
-  int nCoverSum = 0;
   while (true) {
     assert(k % blockSize == 0);
   
@@ -240,7 +239,7 @@ bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string
       k += blockSize;
     } else {
       do {
-        auto [kToTest, nCover] = kSet.get(kSetPos);
+        u32 kToTest = kSet.get(kSetPos);
         assert(kToTest > k);
         u32 nIters = min(blockSize - (k % blockSize), kToTest - k);
         assert(nIters > 0);
@@ -250,7 +249,6 @@ bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string
           log("add test %u (%u)\n", k, kSetPos);
           this->gcdAccumulate();
           ++nGcdMuls;
-          nCoverSum += nCover;
           ++kSetPos;
         }
       } while (k % blockSize != 0);
@@ -281,11 +279,8 @@ bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string
     if (nGcdMuls > 0) {
       Timer gcdTimer;
       factor = GCD(E, acc, 0);
-      log("GCD: %d MULs covering %d primes in %.1fs, '%s'\n", nGcdMuls, nCoverSum, gcdTimer.deltaMillis()/1000.0f, factor.c_str());
+      log("GCD: %d MULs in %.1fs, '%s'\n", nGcdMuls, gcdTimer.deltaMillis()/1000.0f, factor.c_str());
       nGcdMuls = 0;
-      nCoverSum = 0;
-    } else {
-      assert(nCoverSum == 0);
     }
     bool ok = this->finishCheck();
     

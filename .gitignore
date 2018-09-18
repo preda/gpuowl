@@ -3,7 +3,6 @@ kselect
 gpuowl.log
 *.owl
 *.bak
-*.txt
 worktodo.txt
 results.txt
 results.old
