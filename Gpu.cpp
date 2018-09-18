@@ -7,6 +7,7 @@
 #include "timeutil.h"
 #include "ghzdays.h"
 #include "args.h"
+#include "Kset.h"
 
 #include <gmp.h>
 #include <cmath>
@@ -82,12 +83,13 @@ static vector<bool> powerSmoothBitsRev(u32 exp, u32 B1) {
   return bits;
 }
 
-static string GCD(u32 exp, const vector<u32> &bits) {
+static string GCD(u32 exp, const vector<u32> &bits, u32 sub) {
   mpz_t b;
   mpz_init(b);
   mpz_import(b, bits.size(), -1 /*order: LSWord first*/, sizeof(u32), 0 /*endianess: native*/, 0 /*nails*/, bits.data());
-  mpz_sub_ui(b, b, 1);
+  mpz_sub_ui(b, b, sub);
   assert(mpz_sizeinbase(b, 2) <= exp);
+  assert(mpz_cmp_ui(b, 0)); // b != 0.
   
   mpz_t m;
   // m := 2^exp - 1.
@@ -157,14 +159,163 @@ string Gpu::factorPM1(u32 E, u32 taskB1, const Args &args) {
   assert(k == bits.size());
   if (k != loaded.k) { PFState{k, u32(bits.size()), B1, this->readData()}.save(E); }
 
-  return GCD(E, this->readData());
+  return GCD(E, this->readData(), 1);
+}
+
+static bool loadPRPF(Gpu *gpu, u32 E, u32 desiredB1, u32 desiredBlockSize, u32 *outK, u32 *outB1, u32 *outBlockSize,
+                     vector<u32> *outBase) {
+  auto loaded = PRPFState::load(E, desiredB1, desiredBlockSize);
+
+  gpu->writeState(move(loaded.check), move(loaded.base), loaded.blockSize);
+  u64 res64 = gpu->dataResidue();
+  bool resOK = (res64 == loaded.res64);
+  
+  if (resOK && gpu->checkAndUpdate(loaded.blockSize)) {
+    log("OK loaded: %u/%u, B1 %u, blockSize %u, %016llx\n", loaded.k, E, loaded.B1, loaded.blockSize, res64);
+  } else {
+    log("EE loaded: %u/%u, B1 %u, blockSize %u, %016llx (expected %016llx)\n",
+        loaded.k, E, loaded.B1, loaded.blockSize, res64, loaded.res64);
+    return false;
+  }
+  
+  *outK         = loaded.k;
+  *outB1        = loaded.B1;
+  *outBlockSize = loaded.blockSize;
+  *outBase = move(loaded.base);
+  return true;
+}
+
+vector<u32> bitNeg(const vector<u32> &v) {
+  vector<u32> ret;
+  ret.reserve(v.size());
+  for (auto x : v) { ret.push_back(~x); }
+  return ret;
 }
 
 bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string *outFactor) {
   u32 N = this->getFFTSize();
   log("PRP-1 M(%u), FFT %dK, %.2f bits/word\n", E, N/1024, E / float(N));
 
-  return false; // todo  
+  taskB1 = taskB1 ? taskB1 : 2'000'000; // some default B1.
+
+  u32 k = 0, B1 = 0, blockSize = 0;
+  vector<u32> base;
+  if (!loadPRPF(this, E, taskB1, args.blockSize, &k, &B1, &blockSize, &base)) { throw "error at start"; }
+
+  const int checkStep = blockSize * blockSize;
+  const u32 kEnd = E - 1; // Type-4: http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
+  assert(k % blockSize == 0 && k < kEnd);
+
+  oldHandler = signal(SIGINT, myHandler);
+
+  int startK = k;
+  Stats stats;
+
+  int nSeqErrors = 0;
+
+  bool isPrime = false;
+  Timer timer;
+
+  Kset kSet("set.txt"); // TODO
+  u32 kSetPos = 0;
+  while (kSet.get(kSetPos).first <= k) { ++kSetPos; }
+
+  int nGcdMuls = 0;
+  int nCoverSum = 0;
+  while (true) {
+    assert(k % blockSize == 0);
+  
+    if (kEnd - k <= blockSize) {
+      this->dataLoop(kEnd - k);
+      auto words = this->roundtripData();      
+      u64 resRaw = (u64(words[1]) << 32) | words[0];
+      isPrime = (words == base || words == bitNeg(base));
+      log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, resRaw);
+      
+      *outRes64 = resRaw;
+      *outFactor = "";
+      int itersLeft = blockSize - (kEnd - k);
+      assert(itersLeft > 0);
+      this->dataLoop(itersLeft);
+      k += blockSize;
+    } else {
+      do {
+        auto [kToTest, nCover] = kSet.get(kSetPos);
+        assert(kToTest > k);
+        u32 nIters = min(blockSize - (k % blockSize), kToTest - k);
+        assert(nIters > 0);
+        this->dataLoop(nIters);
+        k += nIters;
+        if (k == kToTest) {
+          log("add test %u (%u)\n", k, kSetPos);
+          this->gcdAccumulate();
+          ++nGcdMuls;
+          nCoverSum += nCover;
+          ++kSetPos;
+        }
+      } while (k % blockSize != 0);
+    }
+    this->finish();
+    auto delta = timer.deltaMillis();
+    stats.add(delta * (1.0f / blockSize));
+    bool doStop = stopRequested;
+    if (doStop) {
+      log("Stopping, please wait..\n");
+      signal(SIGINT, oldHandler);
+    }
+    bool doCheck = (k % checkStep == 0) || ( k >= kEnd) || doStop || (k - startK == 2 * blockSize);
+    u64 res64 = this->dataResidue();
+    if (!doCheck) {
+      this->updateCheck();
+      if (k % 10000 == 0) {
+        doSmallLog(E, k, res64, stats, 0);
+        if (args.timeKernels) { this->logTimeKernels(); }
+      }
+      continue;
+    }
+
+    vector<u32> check  = this->roundtripCheck();
+    vector<u32> acc = this->readAcc();
+    this->startCheck(blockSize);
+    string factor;
+    if (nGcdMuls > 0) {
+      Timer gcdTimer;
+      factor = GCD(E, acc, 0);
+      log("GCD: %d MULs covering %d primes in %.1fs, '%s'\n", nGcdMuls, nCoverSum, gcdTimer.deltaMillis()/1000.0f, factor.c_str());
+      nGcdMuls = 0;
+      nCoverSum = 0;
+    } else {
+      assert(nCoverSum == 0);
+    }
+    bool ok = this->finishCheck();
+    
+    if (!factor.empty()) {
+      *outRes64 = 0;
+      *outFactor = factor;
+      return false;
+    }
+
+    bool doSave = k < kEnd && ok;
+    if (doSave) { PRPFState{k, B1, blockSize, res64, base, check}.save(E); }
+
+    doLog(E, k, timer.deltaMillis(), res64, ok, 0, stats, 0);
+    if (ok) {
+      if (k >= kEnd) { return isPrime; }
+      nSeqErrors = 0;
+    } else {
+      if (++nSeqErrors > 2) {
+        log("%d sequential errors, will stop.\n", nSeqErrors);
+        throw "too many errors";
+      }
+      // re-try failed load once.
+      if (!loadPRPF(this, E, B1, blockSize, &k, &B1, &blockSize, &base) &&
+          !loadPRPF(this, E, B1, blockSize, &k, &B1, &blockSize, &base)) {
+        throw "errors on retry";
+      }
+    }
+    if (args.timeKernels) { this->logTimeKernels(); }
+    if (doStop) { throw "stop requested"; }
+  }
 }
 
 static bool loadPRP(Gpu *gpu, u32 E, u32 desiredBlockSize, u32 *outK, u32 *outBlockSize, u32 *outNErrors) {
@@ -236,7 +387,6 @@ bool isAllZero(const std::vector<u32> &vect) {
   for (const auto x : vect) { if (x) { return false; } }
   return true;
 }
-
 
 bool Gpu::isPrimePRP(u32 E, const Args &args, u64 *outResidue, u32 *outNErrors, u32 *outFftSize) {
   u32 k = 0, blockSize = 0, nErrors = 0;

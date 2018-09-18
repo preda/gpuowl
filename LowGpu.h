@@ -12,7 +12,7 @@ protected:
   u32 E; // exponent.
   u32 N; // FFT size.
 
-  Buffer bufData, bufCheck, bufAux, bufBase;
+  Buffer bufData, bufCheck, bufAux, bufBase, bufAcc;
 
   virtual vector<int> readOut(Buffer &buf) = 0;
   virtual void writeIn(const vector<int> &words, Buffer &buf) = 0;
@@ -24,8 +24,9 @@ protected:
   virtual bool equalNotZero(Buffer &bufCheck, Buffer &bufAux) = 0;
   virtual u64 bufResidue(Buffer &buf) = 0;
   
-  vector<u32> readData()  { return compactBits(readOut(bufData),  E); }
-  vector<u32> readCheck() { return compactBits(readOut(bufCheck), E); }
+  vector<u32> readData()  override { return compactBits(readOut(bufData),  E); }
+  vector<u32> readCheck() override { return compactBits(readOut(bufCheck), E); }
+  vector<u32> readAcc()   override { return compactBits(readOut(bufAcc), E); }
 
   vector<u32> writeData(const vector<u32> &v) {
     writeIn(expandBits(v, N, E), bufData);
@@ -85,14 +86,16 @@ public:
 
   void updateCheck() { modMul(bufData, bufCheck, false); }
   
-  bool checkAndUpdate(int blockSize) {
+  void startCheck(int blockSize) override {
     modSqLoop(bufCheck, bufAux, blockSize, false);
     modMul(bufBase, bufAux, false);
     updateCheck();
-    return equalNotZero(bufCheck, bufAux);
   }
 
-  void dataLoop(int reps) { modSqLoop(bufData, bufData, reps, false); }
-  void dataLoop(const vector<bool> &muls) { modSqLoop(bufData, bufData, muls); }
-  u32 getFFTSize() { return N; }
+  // invoked after startCheck() !
+  bool finishCheck() override { return equalNotZero(bufCheck, bufAux); }
+
+  void dataLoop(int reps) override { modSqLoop(bufData, bufData, reps, false); }
+  void dataLoop(const vector<bool> &muls) override { modSqLoop(bufData, bufData, muls); }
+  u32 getFFTSize() override { return N; }
 };

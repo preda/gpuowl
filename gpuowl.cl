@@ -620,6 +620,34 @@ KERNEL(256) fftMiddleOut(P(T2) io) {
   write(SMALL_HEIGHT, MIDDLE, u, io, 0);
 }
 
+// io = io - delta.
+KERNEL(G_W) subtract(P(Word2) out, CP(Word2) in, CP(Word2) delta) {
+  uint g  = get_group_id(0);
+  uint me = get_local_id(0);
+  uint gx = g % NW;
+  uint gy = g / NW;
+
+  uint step = G_W * gx + WIDTH * CARRY_LEN * gy;
+  out   += step;
+  in    += step;
+  delta += step;
+  
+  Carry carry = 0;
+
+  for (int i = 0; i < CARRY_LEN - 1; ++i) {
+    uint k = kAt(gx, gy, i);
+    uint p = i * WIDTH + me;
+    out[p] = carryWord(in[p] - delta[p], &carry, k);
+  }
+
+  uint k = kAt(gx, gy, CARRY_LEN - 1);
+  uint p = (CARRY_LEN - 1) * WIDTH + me;
+  Word2 a = in[p] - delta[p];
+  a.x = carryStep(a.x, &carry, bitlen(2 * k + 0));
+  a.y = a.y + carry; // Sink carry into last word.
+  out[p] = a;
+}
+
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
 void carryACore(uint mul, const T2 *in, const T2 *A, Word2 *out, Carry *carryOut) {

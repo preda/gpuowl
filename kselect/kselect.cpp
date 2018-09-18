@@ -128,7 +128,8 @@ vector<u32> divisors(u32 x) {
 }
 
 class Heap {
-  vector<pair<u32, float>> heap;
+  typedef pair<u32, float> ValueType;
+  vector<ValueType> heap;
   vector<u32> kToPos;
 
   void heapSwap(u32 a, u32 b) {
@@ -139,48 +140,82 @@ class Heap {
     }
   }
 
+  static bool greater(ValueType a, ValueType b) {
+    return a.second > b.second || (a.second == b.second && a.first >= b.first);
+  }
+  
   void bubbleUp(u32 pos) {
     while (true) {
-      if (pos == 0) { return; }
+      if (pos == 0) { break; }
       u32 parent = (pos - 1) / 2;
+      if (greater(heap[parent], heap[pos])) { break; }
+      /*
       float parentValue = heap[parent].second;
       float childValue  = heap[pos].second;
       if (parentValue > childValue
           || (parentValue == childValue && heap[parent].first >= heap[pos].first)) {
         break;
       }
+      */
       heapSwap(pos, parent);
       pos = parent;
     }
   }
 
-  void bubbleDown(u32 pos) {
+  bool bubbleDown(u32 pos) {
+    /*
+    u32 p = kToPos[17017306];
+    u32 pp = (p - 1) / 2;
+    if (pos != p && pos != pp && heap[p].second > heap[pp].second) {
+      fprintf(stderr, "A %u %u %g %g %u %u\n",
+              pos, p, heap[p].second, heap[pp].second, heap[p].first, heap[pp].first);
+      assert(false);
+    }
+    */
+
+    bool lowered = false;
     while (true) {
       u32 child = 2 * pos + 1;
-      if (child >= heap.size()) { return; }
-      if (child + 1 < heap.size() && heap[child + 1].second > heap[child].second) { ++child; }
+      if (child >= heap.size()) { break; }
+      if (child + 1 < heap.size() && greater(heap[child + 1], heap[child])) { ++child; }
+      // heap[child + 1].second > heap[child].second) { ++child; }
+      if (greater(heap[pos], heap[child])) { break; }
+      /*
       float parentValue = heap[pos].second;
       float childValue = heap[child].second;
       if (parentValue > childValue
           || (parentValue == childValue && heap[pos].first >= heap[child].first)) {
         break;
       }
+      */
       heapSwap(pos, child);
       pos = child;
+      lowered = true;
     }
+
+    // if (heap[p].second > heap[pp].second) { fprintf(stderr, "B %u %u\n", pos, p); assert(false); }
+    return lowered;
   }
 
   u32 getPos(u32 k) {
     u32 pos = kToPos[k];
-    assert(k == heap[pos].first);
+    assert(pos < heap.size() && k == heap[pos].first);
     return pos;
   }
 
   void erasePos(u32 pos) {
+    /*
+    u32 p = kToPos[17017306];
+    if (heap[p].second > heap[(p - 1)/2].second) { fprintf(stderr, "AA %u %u\n", pos, p); assert(false); }
+    */
+    
     heapSwap(pos, heap.size() - 1);
     kToPos[heap.back().first] = 0;
     heap.pop_back();
-    bubbleDown(pos);
+    if (!bubbleDown(pos)) { bubbleUp(pos); }
+
+    // u32 p = kToPos[17017306];
+    // if (heap[p].second > heap[(p - 1)/2].second) { fprintf(stderr, "BB %u %u\n", pos, p); assert(false); }
   }
   
 public:
@@ -195,7 +230,7 @@ public:
   
   pair<u32, float> top() { return heap.front(); }
   
-  void pop() { erasePos(0); }
+  // void pop() { erasePos(0); }
   
   void push(u32 k, float value) {
     heap.push_back(make_pair(k, value));
@@ -205,17 +240,31 @@ public:
   }
 
   bool contains(u32 k) { return kToPos[k] || (!heap.empty() && k == heap.front().first); }
-  
+
+  float get(u32 k) { return heap[kToPos[k]].second; }
+
+  /*
+  pair<u32, u32> parentOf(u32 k) {
+    u32 pos = kToPos[k];
+    assert(pos);
+    pos = (pos - 1) / 2;
+    return make_pair(pos, heap[pos].first);
+  }
+  */
+
+  /*
   void updateValue(u32 k, float value) {
     u32 pos = getPos(k);
     assert(value < heap[pos].second);
     heap[pos].second = value;
     bubbleDown(pos);
   }
+  */
 
-  void erase(u32 k) { erasePos(getPos(k)); }
+  // void erase(u32 k) { erasePos(getPos(k)); }
 
   void decrease(u32 k, float delta, float limit) {
+    assert(delta > 0);
     if (contains(k)) {
       u32 pos = getPos(k);
       float newValue = heap[pos].second - delta;
@@ -246,16 +295,19 @@ class Cover {
   float rslope;
   float limit;
   vector<float> base;
+public:
   unique_ptr<Heap> heap;
+private:
   vector<pair<u32,u32>> primes100M;
-  unordered_multimap<u32, u32> zToP;
+  unordered_multimap<u32, u64> zToP;
 
   float slopedValue(float value, u32 k) {
     return value * rslope * (slope - k);
   }
 
   float pSlope(u64 p, u32 slopeStart, u32 slope) {
-    return (p < slopeStart) ? 1 : (float(slope) / (p - slopeStart + slope));
+    return (p < slopeStart) ? 1 : float(slope) / (p - slopeStart + slope);
+    // powf(float(slope) / (p - slopeStart + slope), 2.0f/3);
   }
   
   void read(u32 exp, u32 B1, u32 slopeStart, u32 slope) {
@@ -267,17 +319,15 @@ class Cover {
         float value = pSlope(p, slopeStart, slope);
         base[z] += value;
         sum += value;
-        if (p == u32(p)) {
-          if (p < 100'000'000) { primes100M.push_back(make_pair(p, z)); }
-          zToP.insert(make_pair(z, u32(p)));
-        }
+        if (p < 100'000'000) { primes100M.push_back(make_pair(p, z)); }
+        zToP.insert(make_pair(z, p));
       }
     }
     fprintf(stderr, "read sum %f\n", sum);
   }
 
-  vector<u32> pCover(vector<u32> zCover) {
-    vector<u32> pCover;
+  vector<u64> pCover(vector<u32> zCover) {
+    vector<u64> pCover;
     for (u32 z : zCover) {
       auto [it, end] = zToP.equal_range(z);
       assert(it != end);
@@ -313,22 +363,19 @@ public:
   }
 
   void printStats() {
-    u64 p = 0;
-    u32 z = 0;
-    u32 n = 31;
-    u32 step = 20'000'000;
-    vector<Counter> counters(5);
-    for (auto pp : primes100M) {
-      u32 p = pp.first;
-      u32 z = pp.second;
+    u32 step = 10'000'000;
+    vector<Counter> counters(10);
+    vector<u32> notCovered;
+    for (auto [p, z] : primes100M) {
       bool covered = z < exp && base[z] <= 0;
       u32 c = p / step;
-      assert(c < 5);
+      assert(c < counters.size());
       counters[c].mark(covered);
+      if (!covered && notCovered.size() < 20) { notCovered.push_back(p); }
     }
     
     u32 total = 0;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < int(counters.size()); ++i) {
       Counter c = counters[i];
       fprintf(stderr, "%7u (%6.2f%%) of %8u primes between %3uM and %3uM\n",
               c.on, c.on * 100.0f / c.total, c.total,
@@ -336,6 +383,12 @@ public:
       total += c.on;
     }
     fprintf(stderr, "covered under 100M: %u\n", total);
+
+    fprintf(stderr, "First not covered: ");
+    for (u32 p : notCovered) {
+      fprintf(stderr, "%u ", p);
+    }
+    fprintf(stderr, "\n");
   }  
 
   // Return: (score, vector of covered).
@@ -355,11 +408,14 @@ public:
     return make_pair(slopedValue(sum, k), covered);
   }
   
-  pair<u32, vector<u32>> popBest() {
+  tuple<u32, vector<u64>, float> popBest() {
     auto [bestK, bestScore] = heap->top();
     auto [rmScore, zCover] = remove(bestK);
-    assert(fabsf(bestScore - rmScore) < 0.0001f);
-    return make_pair(bestK, pCover(zCover));
+    if (fabs(bestScore - rmScore) > 0.0002f) {
+      fprintf(stderr, "score mismatch : %u, %g, %g\n", bestK, bestScore, rmScore);
+    }
+    // assert(fabsf(bestScore - rmScore) < 0.0002f);
+    return make_tuple(bestK, pCover(zCover), bestScore);
   }
 
   size_t size() { return heap->size(); }
@@ -368,19 +424,46 @@ public:
 };
 
 int main(int argc, char **argv) {
-  int n = (argc > 1) ? atoi(argv[1]) : 1800000;
+  int n = (argc > 1) ? atoi(argv[1]) : 2000000;
   
   const u32 exp = 88590000;
   const u32 B1  = 2000000;
-  Cover cover(exp, B1, exp * 1.1, 0.5, 40'000'000, 20'000'000);
 
+  u32 slopeStart = 40'000'000;
+  u32 slope = slopeStart;
+  Cover cover(exp, B1, exp * 1.2, 0.5, slopeStart, slope);
+
+  fprintf(stderr, "Prime slope %u, %u\n", slopeStart, slope);
+  u32 nCover = 0;
+  float lastScore = 0;
+  // Heap *h = cover.heap.get();
   for (int i = 0; i < n && !cover.empty(); ++i) {
-    auto [k, pCover] = cover.popBest();
+    auto [k, pCover, score] = cover.popBest();
+    lastScore = score;
     assert(!pCover.empty());
-    printf("%u %u", k, u32(pCover.size()));
-    for (u32 p : pCover) { printf(" %u", p); }
+    u32 nP = pCover.size();
+    nCover += nP;
+    printf("%u %u", k, nP);
+    for (u64 p : pCover) { printf(" %llu", p); }
     printf("\n");
-    // if (i % 100000 == 0) { fprintf(stderr, "%8u %.1f; heap size %lu\n", k, score, cover.size()); }    
+    if (i % 100000 == 0) {
+      fprintf(stderr, "%2d: %8u %g; heap size %lu\n", i / 100000, k, score, cover.size());
+      /*
+      fprintf(stderr, "%d %g %d %g; top %g\n",
+              int(h->contains(17017306)), h->get(17017306),
+              int(h->contains(17215306)), h->get(17215306),
+              h->top().second);
+      u32 k = 17017306;
+      while (k) {
+        auto [pos, kk] = h->parentOf(k);
+        k = kk;        
+        fprintf(stderr, " (%u %u %g)", k, pos, h->get(k));
+        if (!pos) { break; }
+      }
+      fprintf(stderr, "\n");
+      */
+    }
   }
   cover.printStats();
+  fprintf(stderr, "Total covered: %u; last score: %f\n", nCover, lastScore);
 }

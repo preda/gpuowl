@@ -209,6 +209,7 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryA;
   Kernel carryM;
   Kernel carryB;
+  Kernel subtract;
   
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
@@ -244,9 +245,10 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(fftW, BIG_H),
     LOAD(fftMiddleIn,  hN / (256 * (BIG_H / SMALL_H))),
     LOAD(fftMiddleOut, hN / (256 * (BIG_H / SMALL_H))),
-    LOAD(carryA,  nW * (BIG_H/16)),
-    LOAD(carryM,  nW * (BIG_H/16)),
-    LOAD(carryB,  nW * (BIG_H/16)),
+    LOAD(carryA,   nW * (BIG_H/16)),
+    LOAD(carryM,   nW * (BIG_H/16)),
+    LOAD(carryB,   nW * (BIG_H/16)),
+    LOAD(subtract, nW * (BIG_H/16)),
     LOAD(transposeW,   (W/64) * (BIG_H/64)),
     LOAD(transposeH,   (W/64) * (BIG_H/64)),
     LOAD(transposeIn,  (W/64) * (BIG_H/64)),
@@ -271,7 +273,10 @@ class OpenGpu : public LowGpu<Buffer> {
     bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufAux.reset(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufBase.reset( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
-        
+    bufAcc.reset(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
+    queue.zero(bufAcc, N * sizeof(int));
+    queue.write(bufAcc, vector<u32>{1});
+    
     setupWeights<double>(context, bufA, bufI, W, BIG_H, E);
 
     carryFused.setFixedArgs(4, bufA, bufI, bufTrigW);
@@ -293,7 +298,7 @@ class OpenGpu : public LowGpu<Buffer> {
     return queue.read<int>(bufSmallOut, 128);                    
   }
 
-  void entryKerns(Buffer &in) {
+  void entryKerns(Buffer &in, Buffer &buf1, Buffer &buf2) {
     fftP(in, buf1);
     tW(buf1, buf2);
     tailFused(buf2);
@@ -306,7 +311,7 @@ class OpenGpu : public LowGpu<Buffer> {
     carryB(out, bufCarry);
   }
   
-  void oneIteration(Buffer &tmp, bool doMul3) {
+  void oneIteration(Buffer &buf1, Buffer &buf2, Buffer &tmp, bool doMul3) {
     if (useLongCarry) {
       exitKerns(buf1, tmp, doMul3);
       fftP(tmp, buf1);
@@ -410,14 +415,14 @@ protected:
     transposeH(in, out);
   }
   
-  // The IBDWT convolution squaring loop with carry propagation, on 'io', done nIters times.
+  // The IBDWT convolution squaring loop with carry propagation, done nIters times.
   // Optional multiply-by-3 at the end.
   void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
     assert(nIters > 0);
 
-    entryKerns(in);
+    entryKerns(in, buf1, buf2);
 
-    for (int i = 0; i < nIters - 1; ++i) { oneIteration(out, false); }
+    for (int i = 0; i < nIters - 1; ++i) { oneIteration(buf1, buf2, out, false); }
     
     exitKerns(buf1, out, doMul3);
   }
@@ -425,8 +430,10 @@ protected:
   // With a sequence of mul-by-3 bits.
   void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls) {
     assert(muls.size() > 0);
-    entryKerns(in);
-    for (auto it = muls.begin(), prevEnd = prev(muls.end()); it < prevEnd; ++it) { oneIteration(out, *it); }
+    entryKerns(in, buf1, buf2);
+    for (auto it = muls.begin(), prevEnd = prev(muls.end()); it < prevEnd; ++it) {
+      oneIteration(buf1, buf2, out, *it);
+    }
     exitKerns(buf1, out, muls.back());
   }
 
@@ -443,6 +450,11 @@ protected:
     tH(buf2, buf1);
     exitKerns(buf1, io, doMul3);
   };
+
+  void gcdAccumulate() override {
+    subtract(bufAux, bufData, bufBase);
+    modMul(bufAux, bufAcc, false);    
+  }
   
   bool equalNotZero(Buffer &buf1, Buffer &buf2) {
     queue.zero(bufSmallOut, sizeof(int));

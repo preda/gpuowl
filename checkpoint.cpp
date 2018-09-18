@@ -166,7 +166,7 @@ bool PRPFState::saveImpl(u32 E, string name) {
   
   auto fo(openWrite(name));
   return fo
-    && fprintf(fo.get(), HEADER, E, k, B1, blockSize, res64) == 5
+    && fprintf(fo.get(), HEADER, E, k, B1, blockSize, res64) > 0
     && write(fo.get(), base)
     && write(fo.get(), check);    
 }

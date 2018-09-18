@@ -9,9 +9,11 @@
 
 string fileName(int E, const string &suffix = "");
 
-template<typename T> bool save(u32 E, T *state) {
+template<typename T> void save(u32 E, T *state) {
   string tempFile = fileName(E, "-temp"s + T::SUFFIX);
-  if (!state->saveImpl(E, tempFile)) { return false; }
+  if (!state->saveImpl(E, tempFile)) {
+    throw "can't save";
+  }
   
   string prevFile = fileName(E, "-prev"s + T::SUFFIX);
   remove(prevFile.c_str());
@@ -21,11 +23,44 @@ template<typename T> bool save(u32 E, T *state) {
   rename(tempFile.c_str(), saveFile.c_str());
   
   string persist = state->durableName();
-  return persist.empty() ? true : state->saveImpl(E, fileName(E, persist + T::SUFFIX));
+  if (!persist.empty() && !state->saveImpl(E, fileName(E, persist + T::SUFFIX))) {
+    throw "can't save";
+  }
 }
+
+class PRPFState {
+  friend void ::save<PRPFState>(u32, PRPFState *);
+
+  // E, k, B1, blockSize, res64
+  static constexpr const char *HEADER = "OWL PRPF 1 %u %u %u %u %016llx\n";
+  static constexpr const char *SUFFIX = ".prpf";
   
+  void loadInt(u32 E, u32 iniB1, u32 iniBlockSize);
+  bool saveImpl(u32 E, string name);
+  string durableName() { return (k % 20'000'000 == 0) ? "."s + to_string(k/1000000)+"M":""s; }
+  
+public:
+  u32 k;
+  u32 B1;
+  u32 blockSize;
+  u64 res64;
+  vector<u32> base;
+  vector<u32> check;
+
+  // P-1 must be completed before PRP-1 may start.
+  static bool canProceed(u32 E, u32 B1);
+
+  static PRPFState load(u32 E, u32 B1, u32 blockSize) {
+    PRPFState prpf;
+    prpf.loadInt(E, B1, blockSize);
+    return prpf;
+  }
+  
+  void save(u32 E) { ::save(E, this); }
+};
+
 class PRPState {
-  friend bool ::save<PRPState>(u32, PRPState *);
+  friend void ::save<PRPState>(u32, PRPState *);
 
   // Exponent, iteration, block-size, res64, nErrors.
   static constexpr const char *HEADER = "OWL PRP 6 %u %u %u %016llx %u\n";
@@ -49,11 +84,11 @@ public:
     return prp;
   }
   
-  bool save(u32 E) { return ::save(E, this); }
+  void save(u32 E) { ::save(E, this); }
 };
 
 class PFState {
-  friend bool ::save<PFState>(u32, PFState *);
+  friend void ::save<PFState>(u32, PFState *);
   
   // Exponent, iteration, total-iterations, B1.
   static constexpr const char *HEADER = "OWL PF 1 %u %u %u %u\n";
@@ -75,45 +110,12 @@ public:
     return pf;
   }
 
-  bool save(u32 E) { return ::save(E, this); }
-  bool isCompleted() { return k > 0 && k == kEnd - 1; }
-};
-
-class PRPFState {
-  friend bool ::save<PRPFState>(u32, PRPFState *);
-
-  // E, k, B1, blockSize, res64
-  static constexpr const char *HEADER = "OWL PRPF 1 %u %u %u %u %016llx\n";
-  static constexpr const char *SUFFIX = ".prpf";
-  
-  void loadInt(u32 E, u32 iniB1, u32 iniBlockSize);
-
-  bool saveImpl(u32 E, string name);
-
-  string durableName() { return (k % 20'000'000 == 0) ? "."s + to_string(k/1000000)+"M":""s; }
-  
-public:
-  u32 k;
-  u32 B1;
-  u32 blockSize;
-  u64 res64;
-  vector<u32> base;
-  vector<u32> check;
-
-  // P-1 must be completed before PRP-1 may start.
-  static bool canProceed(u32 E, u32 B1);
-
-  static PRPFState load(u32 E, u32 B1, u32 blockSize) {
-    PRPFState prpf;
-    prpf.loadInt(E, B1, blockSize);
-    return prpf;
-  }
-  
-  bool save(u32 E) { return ::save(E, this); }
+  void save(u32 E) { ::save(E, this); }
+  bool isCompleted() { return k > 0 && k == kEnd; }
 };
 
 class TFState {
-  friend bool ::save<TFState>(u32, TFState *);
+  friend void ::save<TFState>(u32, TFState *);
 
   // Exponent, bitLo, bitHi, classDone, classTotal.
   static constexpr const char *HEADER = "OWL TF 2 %u %u %u %u %u\n";
@@ -134,5 +136,5 @@ public:
     return tf;
   }
   
-  bool save(u32 E) { return ::save(E, this); }
+  void save(u32 E) { ::save(E, this); }
 };
