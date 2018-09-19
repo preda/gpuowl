@@ -309,18 +309,12 @@ void fft1K(local T *lds, T2 *u, const T2 *trig) {
 
 // 512x8
 void fft4K(local T *lds, T2 *u, const T2 *trig) {
-  for (int s = 64; s >= 1; s /= 8) {
+  for (int s = 6; s >= 0; s -= 3) {
     fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, s);
+    shuflAndMul(512, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 }
-  /*
-  for (int s = 6; s >= 0; s -= 3) {
-    fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, s);
-  }
-  */
 
 // 256x8
 void fft2K(local T *lds, T2 *u, const T2 *trig) {
