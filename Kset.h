@@ -2,24 +2,19 @@
 
 #pragma once
 
-#include "file.h"
 #include "common.h"
 
-#include <cassert>
 #include <vector>
+#include <string>
 
 class Kset {
   vector<u32> Ks;
-
+  u32 B1;
+  
 public:
-  Kset(const string &name) {
-    auto fi = openRead(name, true);
-    u32 k;
-    while (fscanf(fi.get(), "%u", &k) == 1) { Ks.push_back(k); }
-  }
+  Kset(const string &name);
 
-  u32 get(u32 pos) {
-    assert(pos <= Ks.size());
-    return (pos < Ks.size()) ? Ks[pos] : 0xffffffffu;    
-  }
+  u32 getB1() { return B1; }
+  
+  u32 get(u32 pos);
 };

@@ -40,8 +40,8 @@ Task Worktodo::getTask() {
       }
 
       outAID[0] = 0;
-      if (sscanf(line, "PRPF=B1:%u,%u", &B1, &exp) == 2) {
-        return Task{Task::PRPF, exp, outAID, line, 0, 0, B1};
+      if (sscanf(line, "PRPF=%u", &exp) == 1) {
+        return Task{Task::PRPF, exp, outAID, line, 0, 0, 0};
       }
         
       int n = strlen(line);

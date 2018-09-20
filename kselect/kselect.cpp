@@ -149,51 +149,22 @@ class Heap {
       if (pos == 0) { break; }
       u32 parent = (pos - 1) / 2;
       if (greater(heap[parent], heap[pos])) { break; }
-      /*
-      float parentValue = heap[parent].second;
-      float childValue  = heap[pos].second;
-      if (parentValue > childValue
-          || (parentValue == childValue && heap[parent].first >= heap[pos].first)) {
-        break;
-      }
-      */
       heapSwap(pos, parent);
       pos = parent;
     }
   }
 
   bool bubbleDown(u32 pos) {
-    /*
-    u32 p = kToPos[17017306];
-    u32 pp = (p - 1) / 2;
-    if (pos != p && pos != pp && heap[p].second > heap[pp].second) {
-      fprintf(stderr, "A %u %u %g %g %u %u\n",
-              pos, p, heap[p].second, heap[pp].second, heap[p].first, heap[pp].first);
-      assert(false);
-    }
-    */
-
     bool lowered = false;
     while (true) {
       u32 child = 2 * pos + 1;
       if (child >= heap.size()) { break; }
       if (child + 1 < heap.size() && greater(heap[child + 1], heap[child])) { ++child; }
-      // heap[child + 1].second > heap[child].second) { ++child; }
       if (greater(heap[pos], heap[child])) { break; }
-      /*
-      float parentValue = heap[pos].second;
-      float childValue = heap[child].second;
-      if (parentValue > childValue
-          || (parentValue == childValue && heap[pos].first >= heap[child].first)) {
-        break;
-      }
-      */
       heapSwap(pos, child);
       pos = child;
       lowered = true;
     }
-
-    // if (heap[p].second > heap[pp].second) { fprintf(stderr, "B %u %u\n", pos, p); assert(false); }
     return lowered;
   }
 
@@ -204,18 +175,17 @@ class Heap {
   }
 
   void erasePos(u32 pos) {
-    /*
-    u32 p = kToPos[17017306];
-    if (heap[p].second > heap[(p - 1)/2].second) { fprintf(stderr, "AA %u %u\n", pos, p); assert(false); }
-    */
-    
+    float x = heap.back().second;
     heapSwap(pos, heap.size() - 1);
     kToPos[heap.back().first] = 0;
+    bool goUp = x >= heap.back().second;
     heap.pop_back();
-    if (!bubbleDown(pos)) { bubbleUp(pos); }
-
-    // u32 p = kToPos[17017306];
-    // if (heap[p].second > heap[(p - 1)/2].second) { fprintf(stderr, "BB %u %u\n", pos, p); assert(false); }
+    if (goUp) {
+      bubbleUp(pos);
+    } else {
+      bubbleDown(pos);
+    }
+    // if (!bubbleDown(pos)) { bubbleUp(pos); }
   }
   
 public:
@@ -230,8 +200,6 @@ public:
   
   pair<u32, float> top() { return heap.front(); }
   
-  // void pop() { erasePos(0); }
-  
   void push(u32 k, float value) {
     heap.push_back(make_pair(k, value));
     u32 pos = heap.size() - 1;
@@ -242,26 +210,6 @@ public:
   bool contains(u32 k) { return kToPos[k] || (!heap.empty() && k == heap.front().first); }
 
   float get(u32 k) { return heap[kToPos[k]].second; }
-
-  /*
-  pair<u32, u32> parentOf(u32 k) {
-    u32 pos = kToPos[k];
-    assert(pos);
-    pos = (pos - 1) / 2;
-    return make_pair(pos, heap[pos].first);
-  }
-  */
-
-  /*
-  void updateValue(u32 k, float value) {
-    u32 pos = getPos(k);
-    assert(value < heap[pos].second);
-    heap[pos].second = value;
-    bubbleDown(pos);
-  }
-  */
-
-  // void erase(u32 k) { erasePos(getPos(k)); }
 
   void decrease(u32 k, float delta, float limit) {
     assert(delta > 0);
@@ -307,7 +255,6 @@ private:
 
   float pSlope(u64 p, u32 slopeStart, u32 slope) {
     return (p < slopeStart) ? 1 : float(slope) / (p - slopeStart + slope);
-    // powf(float(slope) / (p - slopeStart + slope), 2.0f/3);
   }
   
   void read(u32 exp, u32 B1, u32 slopeStart, u32 slope) {
@@ -424,19 +371,18 @@ public:
 };
 
 int main(int argc, char **argv) {
-  int n = (argc > 1) ? atoi(argv[1]) : 2000000;
+  int n = (argc > 1) ? atoi(argv[1]) : 800000;
   
-  const u32 exp = 88590000;
-  const u32 B1  = 2000000;
+  const u32 exp = 89000000;
+  const u32 B1  = 1000000;
 
-  u32 slopeStart = 40'000'000;
-  u32 slope = slopeStart;
-  Cover cover(exp, B1, exp * 1.2, 0.5, slopeStart, slope);
+  u32 slopeStart = 20'000'000;
+  u32 slope = 12'000'000;
+  Cover cover(exp, B1, exp * 1.3, 0.8, slopeStart, slope);
 
   fprintf(stderr, "Prime slope %u, %u\n", slopeStart, slope);
   u32 nCover = 0;
   float lastScore = 0;
-  // Heap *h = cover.heap.get();
   for (int i = 0; i < n && !cover.empty(); ++i) {
     auto [k, pCover, score] = cover.popBest();
     lastScore = score;
@@ -448,20 +394,6 @@ int main(int argc, char **argv) {
     printf("\n");
     if (i % 100000 == 0) {
       fprintf(stderr, "%2d: %8u %g; heap size %lu\n", i / 100000, k, score, cover.size());
-      /*
-      fprintf(stderr, "%d %g %d %g; top %g\n",
-              int(h->contains(17017306)), h->get(17017306),
-              int(h->contains(17215306)), h->get(17215306),
-              h->top().second);
-      u32 k = 17017306;
-      while (k) {
-        auto [pos, kk] = h->parentOf(k);
-        k = kk;        
-        fprintf(stderr, " (%u %u %g)", k, pos, h->get(k));
-        if (!pos) { break; }
-      }
-      fprintf(stderr, "\n");
-      */
     }
   }
   cover.printStats();

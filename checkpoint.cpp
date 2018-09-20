@@ -101,17 +101,23 @@ string PRPState::durableName() {
 }
 
 void PFState::loadInt(u32 E, u32 iniB1) {
-  u32 nWords = (E - 1)/32 + 1;    
-  if (auto fi{openRead(fileName(E, SUFFIX))}) {
+  u32 nWords = (E - 1)/32 + 1;
+  string name = fileName(E, SUFFIX);
+  if (auto fi{openRead(name)}) {
     char line[256];
     u32 fileE;
-    if (!fgets(line, sizeof(line), fi.get())
-        || !(sscanf(line, HEADER, &fileE, &k, &kEnd, &B1) == 4)
-        || !read(fi.get(), nWords, &base)) {
-      log("Could not load P-1 savefile for %u\n", E);
+    if (fgets(line, sizeof(line), fi.get())
+        || sscanf(line, HEADER, &fileE, &k, &kEnd, &B1) == 4
+        || read(fi.get(), nWords, &base)) {
+      assert(E == fileE);
+      if (iniB1 != B1) {
+        log("'%s' has B1=%u vs. B1=%u. Change requested B1 or remove savefile.\n", name.c_str(), B1, iniB1);
+        throw("B1 mismatch");      
+      }
+    } else {
+      log("Could not parse '%s'\n", name.c_str());
       throw "load";
     }
-    assert(E == fileE);
   } else {
     k = 0;
     kEnd = 0; // not known yet.
@@ -119,6 +125,7 @@ void PFState::loadInt(u32 E, u32 iniB1) {
     base = vector<u32>(nWords);
     base[0] = 1;
   }
+  assert(B1 == iniB1);
 }  
 
 bool PFState::saveImpl(u32 E, const string &name) {
@@ -131,8 +138,9 @@ bool PFState::saveImpl(u32 E, const string &name) {
 }
 
 void PRPFState::loadInt(u32 E, u32 iniB1, u32 iniBlockSize) {
-  u32 nWords = (E - 1) / 32 + 1;        
-  if (auto fi{openRead(fileName(E, SUFFIX))}) {
+  u32 nWords = (E - 1) / 32 + 1;
+  string name = fileName(E, SUFFIX);
+  if (auto fi{openRead(name)}) {
     char line[256];
     u32 fileE;
     if (fgets(line, sizeof(line), fi.get())
@@ -140,8 +148,13 @@ void PRPFState::loadInt(u32 E, u32 iniB1, u32 iniBlockSize) {
         && read(fi.get(), nWords, &base)
         && read(fi.get(), nWords, &check)) {
       assert(E == fileE);
+      if (iniB1 != B1) {
+        log("'%s' has B1=%u vs. B1=%u. Change B1 or remove savefile.\n", name.c_str(), B1, iniB1);
+        throw("B1 mismatch");
+      }
     } else {
-      throw "PRPF load";
+      log("Could not parse '%s'\n", name.c_str());
+      throw "load";
     }
   } else {
     PFState pf = PFState::load(E, iniB1);
@@ -172,7 +185,7 @@ bool PRPFState::saveImpl(u32 E, string name) {
 }
 
 bool PRPFState::canProceed(u32 E, u32 B1) {
-  return (B1 == 0) || openRead(fileName(E, SUFFIX)) || PFState::load(E, B1).isCompleted();
+  return openRead(fileName(E, SUFFIX)) || PFState::load(E, B1).isCompleted();
 }
 
 void TFState::loadInt(u32 E) {    

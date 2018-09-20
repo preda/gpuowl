@@ -23,7 +23,7 @@ struct Task {
   // TF only
   u32 bitHi;
 
-  // PM1 and PRPF only.
+  // PM1 only.
   u32 B1;
 
   operator bool() { return kind != NONE; }

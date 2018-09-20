@@ -162,24 +162,24 @@ string Gpu::factorPM1(u32 E, u32 taskB1, const Args &args) {
   return GCD(E, this->readData(), 1);
 }
 
-static bool loadPRPF(Gpu *gpu, u32 E, u32 desiredB1, u32 desiredBlockSize, u32 *outK, u32 *outB1, u32 *outBlockSize,
+static bool loadPRPF(Gpu *gpu, u32 E, u32 B1, u32 desiredBlockSize, u32 *outK, u32 *outBlockSize,
                      vector<u32> *outBase) {
-  auto loaded = PRPFState::load(E, desiredB1, desiredBlockSize);
+  auto loaded = PRPFState::load(E, B1, desiredBlockSize);
+  assert(loaded.B1 == B1);
 
   gpu->writeState(move(loaded.check), move(loaded.base), loaded.blockSize);
   u64 res64 = gpu->dataResidue();
   bool resOK = (res64 == loaded.res64);
   
   if (resOK && gpu->checkAndUpdate(loaded.blockSize)) {
-    log("OK loaded: %u/%u, B1 %u, blockSize %u, %016llx\n", loaded.k, E, loaded.B1, loaded.blockSize, res64);
+    log("OK loaded: %u/%u, B1 %u, blockSize %u, %016llx\n", loaded.k, E, B1, loaded.blockSize, res64);
   } else {
     log("EE loaded: %u/%u, B1 %u, blockSize %u, %016llx (expected %016llx)\n",
-        loaded.k, E, loaded.B1, loaded.blockSize, res64, loaded.res64);
+        loaded.k, E, B1, loaded.blockSize, res64, loaded.res64);
     return false;
   }
   
   *outK         = loaded.k;
-  *outB1        = loaded.B1;
   *outBlockSize = loaded.blockSize;
   *outBase = move(loaded.base);
   return true;
@@ -192,15 +192,14 @@ vector<u32> bitNeg(const vector<u32> &v) {
   return ret;
 }
 
-bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string *outFactor) {
+bool Gpu::isPrimePRPF(u32 E, u32 B1, const Args &args, u64 *outRes64, string *outFactor) {
+  assert(B1);
   u32 N = this->getFFTSize();
   log("PRP-1 M(%u), FFT %dK, %.2f bits/word\n", E, N/1024, E / float(N));
 
-  taskB1 = taskB1 ? taskB1 : 2'000'000; // some default B1.
-
-  u32 k = 0, B1 = 0, blockSize = 0;
+  u32 k = 0, blockSize = 0;
   vector<u32> base;
-  if (!loadPRPF(this, E, taskB1, args.blockSize, &k, &B1, &blockSize, &base)) { throw "error at start"; }
+  if (!loadPRPF(this, E, B1, args.blockSize, &k, &blockSize, &base)) { throw "error at start"; }
 
   const int checkStep = blockSize * blockSize;
   const u32 kEnd = E - 1; // Type-4: http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
@@ -216,7 +215,7 @@ bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string
   bool isPrime = false;
   Timer timer;
 
-  Kset kSet(args.ksetFile); // TODO
+  Kset kSet(args.ksetFile);
   u32 kSetPos = 0;
   while (kSet.get(kSetPos) <= k) { ++kSetPos; }
 
@@ -304,8 +303,8 @@ bool Gpu::isPrimePRPF(u32 E, u32 taskB1, const Args &args, u64 *outRes64, string
         throw "too many errors";
       }
       // re-try failed load once.
-      if (!loadPRPF(this, E, B1, blockSize, &k, &B1, &blockSize, &base) &&
-          !loadPRPF(this, E, B1, blockSize, &k, &B1, &blockSize, &base)) {
+      if (!loadPRPF(this, E, B1, blockSize, &k, &blockSize, &base) &&
+          !loadPRPF(this, E, B1, blockSize, &k, &blockSize, &base)) {
         throw "errors on retry";
       }
     }

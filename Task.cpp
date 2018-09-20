@@ -5,6 +5,7 @@
 #include "Result.h"
 #include "checkpoint.h"
 #include "args.h"
+#include "Kset.h"
 
 #include <cstdio>
 #include <cmath>
@@ -25,8 +26,13 @@ Task Task::morph(Args *args) {
     if (bitTarget > bitLo) {
       return Task{TF, exponent, "", "", bitLo, bitTarget, 0};
     }
-  } else if (kind == PRPF && !PRPFState::canProceed(exponent, B1)) {
-    return Task{PM1, exponent, "", "", 0, 0, B1};
+  } else if (kind == PRPF) {
+    assert(!B1);
+    Kset kset(args->ksetFile);
+    B1 = kset.getB1();
+    if (!PRPFState::canProceed(exponent, B1)) {
+      return Task{PM1, exponent, "", "", 0, 0, B1};
+    }
   } else if (kind == TF) {
     assert(bitLo < bitHi);
     auto state = TFState::load(exponent);
