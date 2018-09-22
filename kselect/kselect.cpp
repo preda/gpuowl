@@ -378,7 +378,7 @@ int main(int argc, char **argv) {
 
   u32 slopeStart = 20'000'000;
   u32 slope = 12'000'000;
-  Cover cover(exp, B1, exp * 1.3, 0.8, slopeStart, slope);
+  Cover cover(exp, B1, exp * 1.5, 0.8, slopeStart, slope);
 
   fprintf(stderr, "Prime slope %u, %u\n", slopeStart, slope);
   u32 nCover = 0;

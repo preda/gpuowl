@@ -56,14 +56,7 @@ Command line options:
         log("-list expects \"fft\"\n");
         return false;
       }              
-    } /*else if (!strcmp(arg, "-b1")) {
-      if (i < argc - 1) {
-        b1 = atoi(argv[++i]);
-      } else {
-        log("-b1 expects <value>\n");
-        return false;
-      }
-      } */ else if (!strcmp(arg, "-precompiled")) {
+    } else if (!strcmp(arg, "-precompiled")) {
       usePrecompiled = true;
     } else if (!strcmp(arg, "-fft")) {
       if (i < argc - 1) {
