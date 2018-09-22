@@ -10,7 +10,11 @@
 
 vector<string> getDevices();
 
-struct Args {
+class Args {
+private:
+  u32 B1;
+  
+public:
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
   
   std::string clArgs;
@@ -28,6 +32,7 @@ struct Args {
   string ksetFile;
   
   Args() :
+    B1(0),
     device(-1),
     timeKernels(false),
     listFFT(false),
@@ -39,6 +44,10 @@ struct Args {
     usePrecompiled(false),
     ksetFile("kset.txt")
   { }
+
+  u32 getB1() const {
+    return B1;
+  }
   
   // return false to stop.
   bool parse(int argc, char **argv) {

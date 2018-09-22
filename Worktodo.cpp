@@ -30,6 +30,7 @@ Task Worktodo::getTask() {
         return Task{Task::TF, exp, outAID, line, bitLo, bitHi};
       }
 
+      /*
       outAID[0] = 0;
       u32 B1 = 0;
       if (sscanf(line, "PFactor=N/A,1,2,%u,-1", &exp) == 1 ||
@@ -43,7 +44,8 @@ Task Worktodo::getTask() {
       if (sscanf(line, "PRPF=%u", &exp) == 1) {
         return Task{Task::PRPF, exp, outAID, line, 0, 0, 0};
       }
-        
+      */
+      
       int n = strlen(line);
       if (n >= 2 && line[n - 2] == '\n') { line[n - 2] = 0; }
       if (n >= 1 && line[n - 1] == '\n') { line[n - 1] = 0; }

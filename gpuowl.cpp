@@ -20,9 +20,7 @@ int main(int argc, char **argv) {
   try {
     while (Task task = Worktodo::getTask()) {
       task = task.morph(&args);    
-      if (Result result = task.execute(args)) {
-        result.write(args, task);
-      }
+      if (auto result = task.execute(args)) { result->write(args, task); }
       Worktodo::deleteTask(task);
     }
   } catch (const char *mes) {

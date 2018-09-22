@@ -16,5 +16,5 @@ public:
 
   u32 getB1() { return B1; }
   
-  u32 get(u32 pos);
+  u32 getFirstAfter(u32 k);
 };

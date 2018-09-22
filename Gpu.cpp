@@ -16,7 +16,7 @@
 // Check that mpz "_ui" takes 64-bit.
 static_assert(sizeof(long) == 8, "size long");
 
-std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, float ghzMsPerIt, u32 nIters = 0) {
+std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, u32 nIters = 0) {
   int end = nIters ? nIters : (((E - 1) / 1000 + 1) * 1000);
   float percent = 100 / float(end);
   
@@ -25,29 +25,31 @@ std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, float ghzMs
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
 
-  string ghzStr;
   char buf[256];
+  string ghzStr;
+  /*
   if (ghzMsPerIt) {
     snprintf(buf, sizeof(buf), " (%.1f GHz-days/day)", ghzMsPerIt / info.mean);
     ghzStr = buf;
   }
+  */
   
   snprintf(buf, sizeof(buf), "%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f]%s; ETA %dd %02d:%02d; %016llx",
            k, nIters ? nIters : E, k * percent, info.mean, info.low, info.high, ghzStr.c_str(), days, hours, mins, res);
   return buf;
 }
 
-void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, int nErrors, Stats &stats, float ghzMsPerIt) {
-  std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
-  log("%s %s (check %.2fs)%s\n",
+void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, Stats &stats) {
+  // std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
+  log("%s %s (check %.2fs)\n",
       checkOK ? "OK" : "EE",
-      makeLogStr(E, k, res, stats.getStats(), ghzMsPerIt).c_str(),
-      timeCheck * .001f, errors.c_str());
+      makeLogStr(E, k, res, stats.getStats()).c_str(),
+      timeCheck * .001f);
   stats.reset();
 }
 
-void doSmallLog(int E, int k, u64 res, Stats &stats, float ghzMsPerIt) {
-  log("   %s\n", makeLogStr(E, k, res, stats.getStats(), ghzMsPerIt).c_str());
+void doSmallLog(int E, int k, u64 res, Stats &stats) {
+  log("   %s\n", makeLogStr(E, k, res, stats.getStats()).c_str());
   stats.reset();
 }
 
@@ -112,7 +114,7 @@ static string GCD(u32 exp, const vector<u32> &bits, u32 sub) {
   return ret;
 }
 
-static u32 getB1(u32 exp, float prpTimeFraction) { return exp * prpTimeFraction / 1.4429f; }
+// static u32 getB1(u32 exp, float prpTimeFraction) { return exp * prpTimeFraction / 1.4429f; }
 
 static volatile int stopRequested = 0;
 void (*oldHandler)(int) = 0;
@@ -120,11 +122,11 @@ void myHandler(int dummy) { stopRequested = 1; }
 
 Gpu::~Gpu() {}
 
-string Gpu::factorPM1(u32 E, u32 taskB1, const Args &args) {
-  PFState loaded = PFState::load(E, taskB1 ? taskB1 : getB1(E, 0.02));
+string Gpu::factorPM1(u32 E, const Args &args) {
+  u32 B1 = args.getB1();
+  PFState loaded = PFState::load(E, B1);
 
   u32 N = this->getFFTSize();
-  u32 B1 = loaded.B1;
   u32 k  = loaded.k;
 
   vector<bool> bits = powerSmoothBitsRev(E, B1);
@@ -150,7 +152,7 @@ string Gpu::factorPM1(u32 E, u32 taskB1, const Args &args) {
     k += nIts;
     
     if (k % 10000 == 0) {
-      log("   %s\n", makeLogStr(E, k, this->dataResidue(), stats.getStats(), 0, bits.size()).c_str());
+      log("   %s\n", makeLogStr(E, k, this->dataResidue(), stats.getStats(), bits.size()).c_str());
       stats.reset();
       PFState{k, u32(bits.size()), B1, this->readData()}.save(E);
     }
@@ -162,6 +164,17 @@ string Gpu::factorPM1(u32 E, u32 taskB1, const Args &args) {
   return GCD(E, this->readData(), 1);
 }
 
+// Residue from compacted words.
+static u64 residue(const std::vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
+
+vector<u32> bitNeg(const vector<u32> &v) {
+  vector<u32> ret;
+  ret.reserve(v.size());
+  for (auto x : v) { ret.push_back(~x); }
+  return ret;
+}
+
+/*
 static bool loadPRPF(Gpu *gpu, u32 E, u32 B1, u32 desiredBlockSize, u32 *outK, u32 *outBlockSize,
                      vector<u32> *outBase) {
   auto loaded = PRPFState::load(E, B1, desiredBlockSize);
@@ -183,13 +196,6 @@ static bool loadPRPF(Gpu *gpu, u32 E, u32 B1, u32 desiredBlockSize, u32 *outK, u
   *outBlockSize = loaded.blockSize;
   *outBase = move(loaded.base);
   return true;
-}
-
-vector<u32> bitNeg(const vector<u32> &v) {
-  vector<u32> ret;
-  ret.reserve(v.size());
-  for (auto x : v) { ret.push_back(~x); }
-  return ret;
 }
 
 bool Gpu::isPrimePRPF(u32 E, u32 B1, const Args &args, u64 *outRes64, string *outFactor) {
@@ -312,39 +318,26 @@ bool Gpu::isPrimePRPF(u32 E, u32 B1, const Args &args, u64 *outRes64, string *ou
     if (doStop) { throw "stop requested"; }
   }
 }
+*/
 
-static bool loadPRP(Gpu *gpu, u32 E, u32 desiredBlockSize, u32 *outK, u32 *outBlockSize, u32 *outNErrors) {
-  auto loaded = PRPState::load(E, desiredBlockSize);
+static bool loadPRP(Gpu *gpu, u32 E, u32 B1, u32 desiredBlockSize, u32 *outK, u32 *outBlockSize, vector<u32> *outBase) {
+  auto loaded = PRPState::load(E, B1, desiredBlockSize);    
+  gpu->writeState(loaded.check, loaded.base, loaded.blockSize);
 
-  u32 blockSize = loaded.blockSize;
-  u32 k = loaded.k;
-  {
-    vector<u32> base((E - 1) / 32 + 1);
-    base[0] = 3;
-    gpu->writeState(move(loaded.check), base, blockSize);
-  }
   u64 res64 = gpu->dataResidue();
-  bool resOK = (res64 == loaded.res64);
+  bool ok = (res64 == loaded.res64);
+  gpu->updateCheck();
+  // bool ok = resOk && gpu->checkAndUpdate(loaded.blockSize);
+  log("%s loaded: %d/%d, B1 %u, blockSize %d, %016llx (expected %016llx)\n",
+      ok ? "OK" : "EE",  loaded.k, E, B1, loaded.blockSize, res64, loaded.res64);
+  if (!ok) { return false; }
   
-  if (resOK && gpu->checkAndUpdate(blockSize)) {
-    log("OK loaded: %d/%d, blockSize %d, %016llx\n", k, E, blockSize, res64);
-  } else {
-    log("EE loaded: %d/%d, blockSize %d, %016llx, expected %016llx\n", k, E, blockSize, res64, loaded.res64);
-    return false;
-  }
-  
-  *outK = k;
-  *outBlockSize = blockSize;
-  *outNErrors = loaded.nErrors;
+  *outK = loaded.k;
+  *outBlockSize = loaded.blockSize;
+  *outBase = loaded.base;
   return true;
 }
-
-// unique_ptr<Gpu> gpuHolder = makeGpu(E, args);
-// Gpu *gpu = gpuHolder.get();
-
-// Residue from compacted words.
-static u64 residue(const std::vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
-
+/*
 u32 mod3(const std::vector<u32> &words) {
   u32 r = 0;
   // uses the fact that 2**32 % 3 == 1.
@@ -377,26 +370,30 @@ void doDiv9(int E, std::vector<u32> &words) {
   doDiv3(E, words);
   doDiv3(E, words);
 }
+*/
 
+/*
 bool isAllZero(const std::vector<u32> &vect) {
   for (const auto x : vect) { if (x) { return false; } }
   return true;
 }
+*/
 
-bool Gpu::isPrimePRP(u32 E, const Args &args, u64 *outResidue, u32 *outNErrors, u32 *outFftSize) {
-  u32 k = 0, blockSize = 0, nErrors = 0;
+bool Gpu::isPrimePRP(u32 E, const Args &args, u64 *outRes, u64 *outBaseRes, string *outFactor) {
+  u32 B1 = args.getB1();
+
   u32 N = this->getFFTSize();
-  *outFftSize = N;
+  log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u\n", E, N/1024, E / float(N), B1);
   
-  log("PRP M(%d), FFT %dK, %.2f bits/word, %.0f GHz-days\n", E, N/1024, E / float(N), ghzDays(E, N));
+  u32 k = 0, blockSize = 0;
+  vector<u32> base;
 
-  float ghzMsPerIt = ghzSecsPerIt(N) * 1000;
-
-  if (!loadPRP(this, E, args.blockSize, &k, &blockSize, &nErrors)) { throw "error at start"; }
-
+  if (!loadPRP(this, E, B1, args.blockSize, &k, &blockSize, &base)) { throw "error at start"; }
+  
+  const u64 baseRes64 = residue(base);
+  *outBaseRes = baseRes64;
   const int checkStep = blockSize * blockSize;
-  
-  const u32 kEnd = E; // Residue type-1, see http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
+  const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k % blockSize == 0 && k < kEnd);
   
   oldHandler = signal(SIGINT, myHandler);
@@ -409,61 +406,86 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u64 *outResidue, u32 *outNErrors, 
 
   bool isPrime = false;
   Timer timer;
+
+  Kset kset(args.ksetFile);
+
+  int nGcdAcc = 0;
   while (true) {
     assert(k % blockSize == 0);
 
-    this->dataLoop(std::min(blockSize, kEnd - k));
-    
     if (kEnd - k <= blockSize) {
+      this->dataLoop(kEnd - k);
       auto words = this->roundtripData();
-      u64 resRaw = residue(words);
-      doDiv9(E, words);
-      u64 resDiv = residue(words);
-      words[0] = 0;
-      isPrime = (resRaw == 9) && isAllZero(words);
+      u64 res64 = residue(words);
+      isPrime = (words == base || words == bitNeg(base));
 
-      log("%s %8d / %d, %016llx (raw %016llx)\n", isPrime ? "PP" : "CC", kEnd, E, resDiv, resRaw);
+      log("%s %8d / %d, %016llx (base %016llx)\n", isPrime ? "PP" : "CC", kEnd, E, res64, baseRes64);
       
-      *outResidue = resDiv;
-      *outNErrors = nErrors;
+      *outRes = res64;
+      *outBaseRes = baseRes64;
       int itersLeft = blockSize - (kEnd - k);
       assert(itersLeft > 0);
       this->dataLoop(itersLeft);
+      k += blockSize;
+    } else {
+      do {
+        u32 kToTest = kset.getFirstAfter(k);
+        assert(kToTest > k);
+        u32 nIters = min(blockSize - (k % blockSize), kToTest - k);
+        assert(nIters > 0);
+        this->dataLoop(nIters);
+        k += nIters;
+        if (k == kToTest) {
+          bool isFirst = nGcdAcc == 0;
+          this->gcdAccumulate(isFirst);
+          ++nGcdAcc;
+        }
+      } while (k % blockSize != 0);
     }
 
-    this->finish();
-    k += blockSize;
+    u64 res64 = this->dataResidue();
+    // this->finish();
     auto delta = timer.deltaMillis();
-    stats.add(delta * (1/float(blockSize)));
-
+    stats.add(delta * (1.0f / blockSize));
     bool doStop = stopRequested;
-    
     if (doStop) {
       log("Stopping, please wait..\n");
       signal(SIGINT, oldHandler);
     }
 
     bool doCheck = (k % checkStep == 0) || (k >= kEnd) || doStop || (k - startK == 2 * blockSize);
+
     if (!doCheck) {
       this->updateCheck();
       if (k % 10000 == 0) {
-        doSmallLog(E, k, this->dataResidue(), stats, ghzMsPerIt);
+        doSmallLog(E, k, res64, stats);
         if (args.timeKernels) { this->logTimeKernels(); }
       }
       continue;
     }
 
-    u64 res = this->dataResidue();
+    vector<u32> check = this->roundtripCheck();
+    vector<u32> acc = this->readAcc();
+    this->startCheck(blockSize);
+    string factor;
+    if (nGcdAcc > 0) {
+      Timer gcdTimer;
+      factor = GCD(E, acc, 0);
+      log("GCD: %d MULs in %.1fs, '%s'\n", nGcdAcc, gcdTimer.deltaMillis()/1000.0f, factor.c_str());
+      nGcdAcc = 0;
+    }
+    bool ok = this->finishCheck();
 
-    // Read GPU state before "check" is updated in this->checkAndUpdate().
-    std::vector<u32> compactCheck = this->roundtripCheck();
+    if (!factor.empty()) {
+      *outRes = 0;
+      *outFactor = factor;
+      return false;
+    }
     
-    bool ok = this->checkAndUpdate(blockSize);
-    bool doSave = (k < kEnd) && ok;
-    if (doSave) { PRPState{k, blockSize, nErrors, res, compactCheck}.save(E); }
-      // Checkpoint::savePRP(E, compactCheck, k, nErrors, blockSize, res); }
+    bool doSave = k < kEnd && ok;
+    if (doSave) { PRPState{k, blockSize, res64, check, base}.save(E, B1); }
     
-    doLog(E, k, timer.deltaMillis(), res, ok, nErrors, stats, ghzMsPerIt);
+    doLog(E, k, timer.deltaMillis(), res64, ok, stats);
     
     if (ok) {
       if (k >= kEnd) { return isPrime; }
@@ -475,11 +497,10 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u64 *outResidue, u32 *outNErrors, 
       }
       
       // re-try failed load once.
-      if (!loadPRP(this, E, args.blockSize, &k, &blockSize, &nErrors) &&
-          !loadPRP(this, E, args.blockSize, &k, &blockSize, &nErrors)) {
+      if (!loadPRP(this, E, B1, blockSize, &k, &blockSize, &base) &&
+          !loadPRP(this, E, B1, blockSize, &k, &blockSize, &base)) {
         throw "errors on retry";
       }
-      ++nErrors;
     }
     if (args.timeKernels) { this->logTimeKernels(); }
     if (doStop) { throw "stop requested"; }

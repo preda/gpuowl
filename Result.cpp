@@ -11,6 +11,8 @@
 #include <cassert>
 #include <string>
 
+Result::~Result() {}
+
 static bool writeResult(const char *part, u32 E, const char *workType, const char *status,
                         const std::string &AID, const std::string &user, const std::string &cpu) {
   std::string uid;
@@ -33,42 +35,29 @@ static bool writeResult(const char *part, u32 E, const char *workType, const cha
 
 static string factorStr(const string &factor) { return factor.empty() ? "" : (", \"factors\":[\"" + factor + "\"]"); }
 
-bool Result::writeTF(const Args &args, const Task &task) {
+bool TFResult::write(const Args &args, const Task &task) {
   char buf[256];
   snprintf(buf, sizeof(buf), "\"bitlo\":%u, \"bithi\":%u, \"begink\":\"%llu\", \"endk\":\"%llu\", \"rangecomplete\":%s%s",
            task.bitLo, task.bitHi, beginK, endK, factor.empty() ? "true" : "false", factorStr(factor).c_str());           
   return writeResult(buf, task.exponent, "TF", factor.empty() ? "NF" : "F", task.AID, args.user, args.cpu);
 }
 
-bool Result::writePM1(const Args &args, const Task &task) {
+bool PFResult::write(const Args &args, const Task &task) {
   char buf[256];
-  snprintf(buf, sizeof(buf), "\"B1\":\"%u\"%s", task.B1, factorStr(factor).c_str());
+  snprintf(buf, sizeof(buf), "\"B1\":\"%u\"%s", args.getB1(), factorStr(factor).c_str());
   return writeResult(buf, task.exponent, "PM1", factor.empty() ? "NF" : "F", task.AID, args.user, args.cpu);
 }
 
-bool Result::writePRP(const Args &args, const Task &task) {
+bool PRPResult::write(const Args &args, const Task &task) {
   char buf[256];
-  snprintf(buf, sizeof(buf), "\"residue-type\":1, \"fft-length\":\"%uK\", \"res64\":\"%016llx\", \"errors\":{\"gerbicz\":%u}",
-           fftSize / 1024, res, nErrors);
-  
-  return writeResult(buf, task.exponent, "PRP-3", isPrime ? "P" : "C", task.AID, args.user, args.cpu);
-}
-
-bool Result::writePRPF(const Args &args, const Task &task) {
-  char buf[256];
-  snprintf(buf, sizeof(buf), "\"residue-type\":4, \"res64\":\"%016llx\"%s", res, factorStr(factor).c_str());
-  
-  return writeResult(buf, task.exponent, "PRPF", isPrime ? "P" : "C", task.AID, args.user, args.cpu);
-}
-
-bool Result::write(const Args &args, const Task &task) {
-  switch (kind) {
-  case TF: return writeTF(args, task);
-  case PM1: return writePM1(args, task);
-  case PRP: return writePRP(args, task);
-  case PRPF: return writePRPF(args, task);
-  case NONE: assert(false);
+  if (args.getB1() == 0) {
+    assert(baseRes64 == 3);
+    assert(factor.empty());
+    snprintf(buf, sizeof(buf), "\"res64\":\"%016llx\", \"residue-type\":4", res64);
+    return writeResult(buf, task.exponent, "PRP-3", isPrime ? "P" : "C", task.AID, args.user, args.cpu);
   }
-  assert(false);
-  return false;
+  
+  snprintf(buf, sizeof(buf), "\"B1\":\"%u\", \"res64\":\"%016llx\", \"res64base\":\"%016llx\"%s",
+           args.getB1(), res64, baseRes64, factorStr(factor).c_str());
+  return writeResult(buf, task.exponent, "PRPF", isPrime ? "P" : "C", task.AID, args.user, args.cpu);
 }

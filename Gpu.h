@@ -48,7 +48,7 @@ public:
   virtual void gcdAccumulate(bool isFirst) = 0;
   virtual vector<u32> readAcc() = 0;
 
-  string factorPM1(u32 E, u32 taskB1, const Args &args);
-  bool isPrimePRP(u32 E, const Args &args, u64 *res64, u32 *nErrors, u32 *fftSize);
-  bool isPrimePRPF(u32 E, u32 B1, const Args &args, u64 *res64, string *factor);
+  string factorPM1(u32 E, const Args &args);
+  bool isPrimePRP(u32 E, const Args &args, u64 *outRes, u64 *outBaseRes, string *outFactor);
+  // bool isPrimePRPF(u32 E, u32 B1, const Args &args, u64 *res64, string *factor);
 };

@@ -28,8 +28,6 @@ Errors: %d
 End-of-header:
 \0)";
 
-  static constexpr const char *SUFFIX = "";
-
   u32 k;
   u32 blockSize;
   int nErrors;
@@ -40,7 +38,7 @@ End-of-header:
     u32 nWords = (E - 1)/32 + 1;
     u32 nBytes = (E - 1)/8 + 1;
     
-    auto fi{openRead(fileName(E, SUFFIX))};
+    auto fi{openRead(fileName(E, ""))};
     if (!fi) { return false; }
     
     char buf[256];
@@ -59,45 +57,102 @@ bool PRPState::load_v5(u32 E) {
   
   k = v5.k;
   blockSize = v5.blockSize;
-  nErrors = v5.nErrors;
+  // nErrors = v5.nErrors;
   res64 = v5.res64;
   check = move(v5.check);
   return true;
 }
 
-void PRPState::loadInt(u32 E, u32 iniBlockSize) {    
+bool PRPState::load_v6(u32 E) {
+  const char *HEADER = "OWL PRP 6 %u %u %u %016llx %u\n";
   u32 nWords = (E - 1) / 32 + 1;
-  if (auto fi{openRead(fileName(E, SUFFIX))}) {
+  if (auto fi{openRead(fileName(E, ".prp"))}) {
     char line[256];
-    u32 fileE;    
+    u32 fileE;
+    u32 nErrors;
     bool ok = fgets(line, sizeof(line), fi.get())
       && sscanf(line, HEADER, &fileE, &k, &blockSize, &res64, &nErrors) == 5
       && read(fi.get(), nWords, &check);
-    if (!ok) {
-      log("Invalid PRP checkpoint for exponent %u\n", E);
-      throw "load";
+    if (ok) {
+      assert(E == fileE);
+      return true;
     }
-    assert(E == fileE);
-  } else if (!load_v5(E)) {
-    k = 0;
-    blockSize = iniBlockSize;
-    nErrors = 0;
-    res64 = 3;
-    check = vector<u32>(nWords);
-    check[0] = 1;
   }
+  return load_v5(E);
 }
 
-bool PRPState::saveImpl(u32 E, const string &name) {
+void PRPState::loadInt(u32 E, u32 B1, u32 iniBlockSize) {
+  u32 nWords = (E - 1) / 32 + 1;
+  string name = fileName(E, SUFFIX);
+  if (auto fi{openRead(name)}) {
+    char line[256];
+    u32 fileE;
+    u32 fileB1;
+    bool ok = fgets(line, sizeof(line), fi.get())
+      && sscanf(line, HEADER, &fileE, &k, &fileB1, &blockSize, &res64) == 5
+      && read(fi.get(), nWords, &check);
+    if (ok) {
+      assert(E == fileE);
+      if (fileB1 != B1) {
+        log("B1 mismatch: you want B1=%u but '%s' has B1=%u. You can [re]move the savefile to use the new B1.",
+            B1, name.c_str(), fileB1);
+        throw "B1 mismatch";
+      }
+      
+      if (B1 == 0) {
+        base = vector<u32>(nWords);
+        base[0] = 3;
+      } else {
+        bool ok = read(fi.get(), nWords, &base);
+        assert(ok);
+      }
+      return;
+    }
+  }
+  
+  if (load_v6(E)) {
+    if (B1 != 0) {
+      log("B1 mismatch: you want B1=%u but savefile has B1=0. You can [re]move the savefile to use the new B1.", B1);
+      throw "B1 mismatch";
+    }
+    base = vector<u32>(nWords);
+    base[0] = 3;
+    return;
+  }
+
+  PFState pf;
+  if (B1 == 0) {
+    base = vector<u32>(nWords);
+    base[0] = 3;
+  } else if ((pf = PFState::load(E, B1)).isCompleted()) {
+    base = move(pf.base);
+    assert(base.size() == nWords);
+  } else {
+    log("PRP with B1 != 0 needs completed P-1\n");
+    throw "P-1 not done";
+  }
+  
+  k = 0;
+  blockSize = iniBlockSize;
+  res64 = (u64(base[1]) << 32) | base[0];
+  check = vector<u32>(nWords);
+  check[0] = 1;
+}
+
+bool PRPState::saveImpl(u32 E, u32 B1, const string &name) {
   assert(check.size() == (E - 1) / 32 + 1);
   auto fo(openWrite(name));
   return fo
-    && fprintf(fo.get(),  HEADER, E, k, blockSize, res64, nErrors) > 0
+    && fprintf(fo.get(),  HEADER, E, k, B1, blockSize, res64) > 0
     && write(fo.get(), check);
 }
 
 string PRPState::durableName() {
   return k && (k % 20'000'000 == 0) ? "."s + to_string(k/1'000'000)+"M" : ""s;
+}
+
+bool PRPState::canProceed(u32 E, u32 B1) {
+  return openRead(fileName(E, SUFFIX)) || PFState::load(E, B1).isCompleted();
 }
 
 void PFState::loadInt(u32 E, u32 iniB1) {
@@ -111,7 +166,7 @@ void PFState::loadInt(u32 E, u32 iniB1) {
         || read(fi.get(), nWords, &base)) {
       assert(E == fileE);
       if (iniB1 != B1) {
-        log("'%s' has B1=%u vs. B1=%u. Change requested B1 or remove savefile.\n", name.c_str(), B1, iniB1);
+        log("'%s' has B1=%u vs. B1=%u. Change requested B1 or remove the savefile.\n", name.c_str(), B1, iniB1);
         throw("B1 mismatch");      
       }
     } else {
@@ -149,7 +204,7 @@ void PRPFState::loadInt(u32 E, u32 iniB1, u32 iniBlockSize) {
         && read(fi.get(), nWords, &check)) {
       assert(E == fileE);
       if (iniB1 != B1) {
-        log("'%s' has B1=%u vs. B1=%u. Change B1 or remove savefile.\n", name.c_str(), B1, iniB1);
+        log("'%s' has B1=%u vs. B1=%u. Change B1 using \"-kset\", or remove the savefile.\n", name.c_str(), B1, iniB1);
         throw("B1 mismatch");
       }
     } else {
@@ -182,10 +237,6 @@ bool PRPFState::saveImpl(u32 E, string name) {
     && fprintf(fo.get(), HEADER, E, k, B1, blockSize, res64) > 0
     && write(fo.get(), base)
     && write(fo.get(), check);    
-}
-
-bool PRPFState::canProceed(u32 E, u32 B1) {
-  return openRead(fileName(E, SUFFIX)) || PFState::load(E, B1).isCompleted();
 }
 
 void TFState::loadInt(u32 E) {    

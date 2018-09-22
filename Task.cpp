@@ -21,17 +21,18 @@ static u32 needsMoreTF(u32 exp, Args *args) {
 }
 
 Task Task::morph(Args *args) {    
-  if ((kind == PRP || kind == PRPF) && bitLo && args->enableTF) {
+  if (kind == PRP && bitLo && args->enableTF) {
     u32 bitTarget = needsMoreTF(exponent, args);
     if (bitTarget > bitLo) {
-      return Task{TF, exponent, "", "", bitLo, bitTarget, 0};
+      return Task{TF, exponent, "", "", bitLo, bitTarget};
     }
-  } else if (kind == PRPF) {
-    assert(!B1);
+  }
+
+  if (kind == PRP) {
     Kset kset(args->ksetFile);
-    B1 = kset.getB1();
-    if (!PRPFState::canProceed(exponent, B1)) {
-      return Task{PM1, exponent, "", "", 0, 0, B1};
+    u32 B1 = kset.getB1();
+    if (!PRPState::canProceed(exponent, B1)) {
+      return Task{PM1, exponent}; // , "", "", 0, 0, B1};
     }
   } else if (kind == TF) {
     assert(bitLo < bitHi);
@@ -55,35 +56,26 @@ vector<string> getDevices() {
   return ret;
 }
 
-Result Task::execute(const Args &args) {
+unique_ptr<Result> Task::execute(const Args &args) {
   if (kind == TF) {
     assert(bitLo <= bitHi);
-    if (bitLo == bitHi) { return Result{Result::NONE}; }
+    if (bitLo == bitHi) { return nullptr; }
     
     auto state = TFState::load(exponent);
     u32 classDone = (state.bitHi >= bitHi) ? state.nDone : 0;
     u64 beginK = 0, endK = 0;
     string factor = makeTF(args)->findFactor(exponent, bitLo, bitHi, classDone, state.nTotal, &beginK, &endK, args.timeKernels);
-    return Result{Result::TF, factor, beginK, endK};
-    
+    return make_unique<TFResult>(factor, beginK, endK);
   } else if (kind == PM1) {
-    string factor = makeGpu(exponent, args)->factorPM1(exponent, B1, args);
-    return Result{Result::PM1, factor};
-    
+    string factor = makeGpu(exponent, args)->factorPM1(exponent, args);
+    return make_unique<PFResult>(factor);    
   } else if (kind == PRP) {
     u64 res64 = 0;
-    u32 nErrors = 0;
-    u32 fftSize = 0;
-    bool isPrime = makeGpu(exponent, args)->isPrimePRP(exponent, args, &res64, &nErrors, &fftSize);
-    return Result{Result::PRP, "", 0, 0, isPrime, res64, nErrors, fftSize};
-    
-  } else if (kind == PRPF) {
-    u64 res64 = 0;
+    u64 baseRes64 = 0;
     string factor;
-    bool isPrime = makeGpu(exponent, args)->isPrimePRPF(exponent, B1, args, &res64, &factor);
-    return Result{Result::PRPF, factor, 0, 0, isPrime, res64};
+    bool isPrime = makeGpu(exponent, args)->isPrimePRP(exponent, args, &res64, &baseRes64, &factor);
+    return make_unique<PRPResult>(factor, isPrime, res64, baseRes64);
   }
-  
   assert(false);
-  return Result{Result::NONE};
+  return nullptr;
 }

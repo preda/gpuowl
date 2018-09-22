@@ -21,8 +21,9 @@ void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
-#define BASE_VERSION "4.1"
+#define BASE_VERSION "4.2"
 // Reason for version change:
+// 4.2 : change PRP residue type to "type-4" (from "type-1").
 // 4.1 : introduce PRP-1
 // 4.0 : add P-1 first stage; require GMP.
 // 3.9 : use save/load path vs. commit/rollback
