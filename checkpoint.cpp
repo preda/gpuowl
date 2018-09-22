@@ -162,8 +162,8 @@ void PFState::loadInt(u32 E, u32 iniB1) {
     char line[256];
     u32 fileE;
     if (fgets(line, sizeof(line), fi.get())
-        || sscanf(line, HEADER, &fileE, &k, &kEnd, &B1) == 4
-        || read(fi.get(), nWords, &base)) {
+        && sscanf(line, HEADER, &fileE, &k, &kEnd, &B1) == 4
+        && read(fi.get(), nWords, &base)) {
       assert(E == fileE);
       if (iniB1 != B1) {
         log("'%s' has B1=%u vs. B1=%u. Change requested B1 or remove the savefile.\n", name.c_str(), B1, iniB1);
