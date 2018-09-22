@@ -50,5 +50,4 @@ public:
 
   string factorPM1(u32 E, const Args &args);
   bool isPrimePRP(u32 E, const Args &args, u64 *outRes, u64 *outBaseRes, string *outFactor);
-  // bool isPrimePRPF(u32 E, u32 B1, const Args &args, u64 *res64, string *factor);
 };
