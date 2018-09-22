@@ -10,6 +10,7 @@
 class Kset {
   vector<u32> Ks;
   u32 B1;
+  vector<u32>::iterator hint;
   
 public:
   Kset(const string &name);
