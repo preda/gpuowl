@@ -144,7 +144,8 @@ bool PRPState::saveImpl(u32 E, u32 B1, const string &name) {
   auto fo(openWrite(name));
   return fo
     && fprintf(fo.get(),  HEADER, E, k, B1, blockSize, res64) > 0
-    && write(fo.get(), check);
+    && write(fo.get(), check)
+    && write(fo.get(), base);
 }
 
 string PRPState::durableName() {
@@ -190,53 +191,6 @@ bool PFState::saveImpl(u32 E, const string &name) {
   return fo
     && fprintf(fo.get(), HEADER, E, k, kEnd, B1) > 0
     && write(fo.get(), base);
-}
-
-void PRPFState::loadInt(u32 E, u32 iniB1, u32 iniBlockSize) {
-  u32 nWords = (E - 1) / 32 + 1;
-  string name = fileName(E, SUFFIX);
-  if (auto fi{openRead(name)}) {
-    char line[256];
-    u32 fileE;
-    if (fgets(line, sizeof(line), fi.get())
-        && sscanf(line, HEADER, &fileE, &k, &B1, &blockSize, &res64) == 5
-        && read(fi.get(), nWords, &base)
-        && read(fi.get(), nWords, &check)) {
-      assert(E == fileE);
-      if (iniB1 != B1) {
-        log("'%s' has B1=%u vs. B1=%u. Change B1 using \"-kset\", or remove the savefile.\n", name.c_str(), B1, iniB1);
-        throw("B1 mismatch");
-      }
-    } else {
-      log("Could not parse '%s'\n", name.c_str());
-      throw "load";
-    }
-  } else {
-    PFState pf = PFState::load(E, iniB1);
-    if (pf.isCompleted()) {
-      k = 0;
-      B1 = pf.B1;
-      blockSize = iniBlockSize;
-      base = move(pf.base);
-      assert(base.size() == nWords);
-      res64 = (u64(base[1]) << 32) | base[0];
-      check = vector<u32>(nWords);
-      check[0] = 1;
-    } else {
-      throw "PF not completed";
-    }
-  }
-}
-
-bool PRPFState::saveImpl(u32 E, string name) {
-  u32 nWords = (E - 1) / 32 + 1;
-  assert(base.size() == nWords && check.size() == nWords);
-  
-  auto fo(openWrite(name));
-  return fo
-    && fprintf(fo.get(), HEADER, E, k, B1, blockSize, res64) > 0
-    && write(fo.get(), base)
-    && write(fo.get(), check);    
 }
 
 void TFState::loadInt(u32 E) {    

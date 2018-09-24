@@ -151,13 +151,20 @@ int main() {
   u64 bigP;
   u32 p, z;
   u32 E = 90'000'000;
+
+  /*
   u32 B1 = 1'000'000;
-  double costB1 = 1.442 * B1; // approx nb. of squarings in P-1(B1).
   double pFirstStage  = 0.0166129;
-  double pSecondStage = 0.03753 - pFirstStage;
-    // 0.0364033 - pFirstStage;
+  double pSecondStage = 0.04 - pFirstStage;
+  */
+
+  u32 B1 = 730000;
+  double pFirstStage  = 0.0145;
+  double pSecondStage = 0.0375 - pFirstStage;
   
   while (fscanf(fi, "%llu %u\n", &bigP, &z) == 2) {
+    // if (36756720u % z == 0) { printf("%llu\n", bigP); }
+    
     u32 p = u32(bigP);
     if (bigP != p) { continue; }
     if (z >= E) { break; }
@@ -169,12 +176,15 @@ int main() {
   zv.push_back(pv.size());
   
   fclose(fi);
+  // exit(0);
 
   vector<Work> work;
   work.push_back({u32(B1 * 1.44), 0, 1u, pFirstStage});
   
   fi = stdin;
-  assert(fscanf(fi, "B1=1000000\n") == 0);
+  u32 b1 = 0;
+  assert(fscanf(fi, "B1=%u\n", &b1) == 1);
+  assert(b1 == B1);
   u32 lastK, prevK = 0;
   u32 k;
   double total = 0;
@@ -196,15 +206,16 @@ int main() {
     sum += cover(k);
     ++muls;
   }
-  u32 n = (k / 1000000 - lastK / 1000000) * 1000000;
-  work.push_back(Work{n, muls, 1u, sum});
+  u32 n = (E / 1000000 - lastK / 1000000) * 1000000;
+  work.push_back({n, muls, 1u, sum});
   total += sum;
 
   for (auto &w : work) { w.p *= pSecondStage / total; }
   work[0].p = pFirstStage;
 
+  // work.push_back({0, 0, 0, 0.5});
   work.push_back({u32(B1 * 1.44), 0, 0, 0});
-  work.push_back(Work{E, 0, 0, 0}); // double check
+  work.push_back({E, 0, 0, 0}); // double check
 
   for (auto w : work) {
     printf("%u %u %u %f\n", w.n, w.m, w.gcd, w.p);
@@ -213,37 +224,19 @@ int main() {
   double cost = 0;
   for (auto it = work.rbegin(), end = work.rend(); it != end; ++it) {
     cost = it->cost() + cost * (1 - it->p);
-    printf("%f\n", cost);
+    // printf("%f\n", cost);
   }
   printf("Cost %f\n", cost / E);
 
   work.clear();
-  work.push_back(Work{2200000, 0, 0, 0.031});
-  work.push_back(Work{E, 0, 0, 0});
-  work.push_back(Work{E, 0, 0, 0});
+  work.push_back({2200000u, 0, 1u, 0.031});
+  work.push_back({E, 0, 0, 0});
+  // work.push_back({0, 0, 0, 0.5});
+  work.push_back({E, 0, 0, 0});
   cost = 0;
   for (auto it = work.rbegin(), end = work.rend(); it != end; ++it) {
     cost = it->cost() + cost * (1 - it->p);
-    printf("%f\n", cost);
+    // printf("%f\n", cost);
   }
   printf("Cost %f\n", cost / E);
-  
-  
-  /*
-  
-  sv.push_back(sum);
-  nv.push_back(n);
-  total += sum;
-
-  printf("%u %u %u\n", k, prevK, nv.back());
-
-  double ss = 0;
-  for (u32 i = 0; i < sv.size(); ++i) {
-    double s = sv[i];
-    u32 n = max(nv[i], 1u);
-    ss += s;
-    printf("%dM : %.0f %.0f%% %g %u\n", i+1, 1000 / total * s, 100 / total * ss, s / (n), n);
-  }
-  */
-
 }

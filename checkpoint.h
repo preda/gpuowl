@@ -47,37 +47,6 @@ template<typename T> void save(u32 E, u32 B1, T *state) {
   }
 }
 
-class PRPFState {
-  friend void ::save<PRPFState>(u32, PRPFState *);
-
-  // E, k, B1, blockSize, res64
-  static constexpr const char *HEADER = "OWL PRPF 1 %u %u %u %u %016llx\n";
-  static constexpr const char *SUFFIX = ".prpf";
-  
-  void loadInt(u32 E, u32 iniB1, u32 iniBlockSize);
-  bool saveImpl(u32 E, string name);
-  string durableName() { return (k % 20'000'000 == 0) ? "."s + to_string(k/1000000)+"M":""s; }
-  
-public:
-  u32 k;
-  u32 B1;
-  u32 blockSize;
-  u64 res64;
-  vector<u32> base;
-  vector<u32> check;
-
-  // P-1 must be completed before PRP-1 may start.
-  static bool canProceed(u32 E, u32 B1);
-
-  static PRPFState load(u32 E, u32 B1, u32 blockSize) {
-    PRPFState prpf;
-    prpf.loadInt(E, B1, blockSize);
-    return prpf;
-  }
-  
-  void save(u32 E) { ::save(E, this); }
-};
-
 class PRPState {
   friend void ::save<PRPState>(u32, u32, PRPState *);
 

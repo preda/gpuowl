@@ -375,8 +375,17 @@ int main(int argc, char **argv) {
   int n = 800000;
   const u32 exp = 89000000;
   const u32 B1  = 1000000;
-  u32 slopeStart = 25'000'000;
+  u32 slopeStart = 20'000'000;
   u32 slope = 12'000'000;
+
+  
+  /*
+  int n = 600000;
+  const u32 exp = 89000000;
+  const u32 B1  = 730000;
+  u32 slopeStart = 14'000'000;
+  u32 slope = 14'000'000;
+  */
 
   /*
   int n = (argc > 1) ? atoi(argv[1]) : 2000000;
@@ -386,7 +395,7 @@ int main(int argc, char **argv) {
   u32 slope      = 45'000'000;
   */
   
-  Cover cover(exp, B1, exp * 2, 0.8, slopeStart, slope);
+  Cover cover(exp, B1, exp * 1.5, 0.6, slopeStart, slope);
 
   fprintf(stderr, "Prime slope %u, %u\n", slopeStart, slope);
   u32 nCover = 0;
