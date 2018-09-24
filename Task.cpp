@@ -29,9 +29,8 @@ Task Task::morph(Args *args) {
   }
 
   if (kind == PRP) {
-    Kset kset(args->ksetFile);
-    u32 B1 = kset.getB1();
-    if (!PRPState::canProceed(exponent, B1)) {
+    u32 B1 = args->getB1();
+    if (B1 && !PRPState::canProceed(exponent, B1)) {
       return Task{PM1, exponent}; // , "", "", 0, 0, B1};
     }
   } else if (kind == TF) {
