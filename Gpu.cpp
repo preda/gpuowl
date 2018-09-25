@@ -198,6 +198,11 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
   bool isPrime = false;
   Timer timer;
 
+  if (B1 != 0 && args.ksetFile.empty()) {
+    log("Please provide -kset kset.txt when B1 %u != 0\n", B1);
+    throw "B1 without kset";
+  }
+  
   Kset kset(args.ksetFile);
 
   int nGcdAcc = 0;

@@ -12,6 +12,9 @@ Kset::Kset(const string &name) {
       u32 k;
       while (fscanf(fi.get(), "%u", &k) == 1) { Ks.push_back(k); }
 
+    } else {
+      log("Can't read kset file '%s'\n", name.c_str());
+      throw "no kset file";
     }
   }
   Ks.push_back(0xffffffffu); // guard

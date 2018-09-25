@@ -13,7 +13,7 @@
 
 Result::~Result() {}
 
-static bool writeResult(const char *part, u32 E, const char *workType, const char *status,
+static bool writeResult(const string &part, u32 E, const char *workType, const string &status,
                         const std::string &AID, const std::string &user, const std::string &cpu) {
   std::string uid;
   if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
@@ -22,8 +22,8 @@ static bool writeResult(const char *part, u32 E, const char *workType, const cha
   
   char buf[512];
   snprintf(buf, sizeof(buf), "{\"exponent\":\"%u\", \"worktype\":\"%s\", \"status\":\"%s\", "
-           "\"program\":{\"name\":\"%s\", \"version\":\"%s\"}, \"timestamp\":\"%s\"%s%s, %s}",
-           E, workType, status, PROGRAM, VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part);
+           "\"program\":{\"name\":\"%s\", \"version\":\"%s\"}, \"timestamp\":\"%s\"%s%s%s}",
+           E, workType, status.c_str(), PROGRAM, VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part.c_str());
   
   log("%s\n", buf);
   auto fo = openAppend("results.txt");
@@ -42,24 +42,35 @@ bool TFResult::write(const Args &args, const Task &task) {
   return writeResult(buf, task.exponent, "TF", factor.empty() ? "NF" : "F", task.AID, args.user, args.cpu);
 }
 
-/*
-bool PFResult::write(const Args &args, const Task &task) {
-  char buf[256];
-  snprintf(buf, sizeof(buf), "\"B1\":\"%u\"%s", args.B1, factorStr(factor).c_str());
-  return writeResult(buf, task.exponent, "PM1", factor.empty() ? "NF" : "F", task.AID, args.user, args.cpu);
+static string resStr(u64 res64) {
+  char buf[64];
+  snprintf(buf, sizeof(buf), ", \"res64\":\"%016llx\"", res64);
+  return buf;
 }
-*/
 
 bool PRPResult::write(const Args &args, const Task &task) {
+  bool hasFactor = !factor.empty();
+  if (hasFactor) {
+    assert(!isPrime);
+    assert(res64 == 0);
+    assert(B1 != 0);
+  }
+
+  string status = isPrime ? "P" : (hasFactor ? "F" : "C");
+  
   char buf[256];
   if (B1 == 0) {
     assert(baseRes64 == 3);
-    assert(factor.empty());
-    snprintf(buf, sizeof(buf), "\"res64\":\"%016llx\", \"residue-type\":4", res64);
-    return writeResult(buf, task.exponent, "PRP-3", isPrime ? "P" : "C", task.AID, args.user, args.cpu);
+    string str = resStr(res64) + ", \"residue-type\":4";
+    return writeResult(str, task.exponent, "PRP-3", status, task.AID, args.user, args.cpu);
+  } else {
+    string r1 = hasFactor ? "" : resStr(res64);
+    string r2 = resStr(baseRes64);
+    
+    snprintf(buf, sizeof(buf), "%s%s, \"base\":{\"b1\":\"%u\", \"bias\":{\"2\":19}%s}",
+             factorStr(factor).c_str(), r1.c_str(), B1, r2.c_str());
+    return writeResult(buf, task.exponent, "PRP-1", status, task.AID, args.user, args.cpu);
   }
-  
-  snprintf(buf, sizeof(buf), "\"B1\":\"%u\", \"res64\":\"%016llx\", \"res64base\":\"%016llx\"%s",
-           B1, res64, baseRes64, factorStr(factor).c_str());
-  return writeResult(buf, task.exponent, "PRPF", isPrime ? "P" : "C", task.AID, args.user, args.cpu);
+  assert(false);
+  return false;
 }
