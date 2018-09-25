@@ -4,7 +4,29 @@
 #include "file.h"
 #include <cassert>
 
-std::string fileName(int E, const string &suffix) { return std::to_string(E) + suffix + ".owl"; }
+static std::string fileName(int E, const string &suffix) { return std::to_string(E) + suffix + ".owl"; }
+
+template<typename T> void save(u32 E, T *state) {
+  string tempFile = fileName(E, "-temp"s + T::SUFFIX);
+  if (!state->saveImpl(E, tempFile)) {
+    throw "can't save";
+  }
+  
+  string prevFile = fileName(E, "-prev"s + T::SUFFIX);
+  remove(prevFile.c_str());
+  
+  string saveFile = fileName(E, T::SUFFIX);
+  rename(saveFile.c_str(), prevFile.c_str());
+  rename(tempFile.c_str(), saveFile.c_str());
+  
+  string persist = state->durableName();
+  if (!persist.empty() && !state->saveImpl(E, fileName(E, persist + T::SUFFIX))) {
+    throw "can't save";
+  }
+}
+
+template void save<PRPState>(u32, PRPState *);
+template void save<TFState>(u32, TFState *);
 
 static bool write(FILE *fo, const vector<u32> &v) {
   return fwrite(v.data(), v.size() * sizeof(u32), 1, fo);
@@ -132,45 +154,6 @@ string PRPState::durableName() {
 }
 
 bool PRPState::exists(u32 E) { return openRead(fileName(E, SUFFIX)) || openRead(fileName(E,".prp")); }
-
-/*
-void PFState::loadInt(u32 E, u32 iniB1) {
-  u32 nWords = (E - 1)/32 + 1;
-  string name = fileName(E, SUFFIX);
-  if (auto fi{openRead(name)}) {
-    char line[256];
-    u32 fileE;
-    if (fgets(line, sizeof(line), fi.get())
-        && sscanf(line, HEADER, &fileE, &k, &kEnd, &B1) == 4
-        && read(fi.get(), nWords, &base)) {
-      assert(E == fileE);
-      if (iniB1 != B1) {
-        log("'%s' has B1=%u vs. B1=%u. Change requested B1 or remove the savefile.\n", name.c_str(), B1, iniB1);
-        throw("B1 mismatch");      
-      }
-    } else {
-      log("Could not parse '%s'\n", name.c_str());
-      throw "load";
-    }
-  } else {
-    k = 0;
-    kEnd = 0; // not known yet.
-    B1 = iniB1;
-    base = vector<u32>(nWords);
-    base[0] = 1;
-  }
-  assert(B1 == iniB1);
-}  
-
-bool PFState::saveImpl(u32 E, const string &name) {
-  assert(base.size() == (E - 1) / 32 + 1);
-    
-  auto fo(openWrite(name));
-  return fo
-    && fprintf(fo.get(), HEADER, E, k, kEnd, B1) > 0
-    && write(fo.get(), base);
-}
-*/
 
 void TFState::loadInt(u32 E) {    
   if (auto fi{openRead(fileName(E, SUFFIX))}) {

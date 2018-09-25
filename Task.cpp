@@ -39,15 +39,6 @@ Task Task::morph(Args *args) {
   return *this;
 }
 
-  /*
-  if (kind == PRP) {
-    u32 B1 = args->getB1();
-    if (B1 && !PRPState::canProceed(exponent, B1)) {
-      return Task{PM1, exponent}; // , "", "", 0, 0, B1};
-    }
-    } else */
-
-
 unique_ptr<TF> makeTF(const Args &args) { return OpenTF::make(args); }
 unique_ptr<Gpu> makeGpu(u32 E, const Args &args) { return OpenGpu::make(E, args); }
 
@@ -67,11 +58,7 @@ unique_ptr<Result> Task::execute(const Args &args) {
     u64 beginK = 0, endK = 0;
     string factor = makeTF(args)->findFactor(exponent, bitLo, bitHi, classDone, state.nTotal, &beginK, &endK, args.timeKernels);
     return make_unique<TFResult>(factor, beginK, endK);
-  } /*else if (kind == PM1) {
-    string factor = makeGpu(exponent, args)->factorPM1(exponent, args);
-    return make_unique<PFResult>(factor);    
-    } */
-  else if (kind == PRP) {
+  } else if (kind == PRP) {
     u64 res64 = 0;
     u64 baseRes64 = 0;
     string factor;
