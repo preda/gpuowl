@@ -25,7 +25,7 @@ Command line options:
 -list fft          : display a list of available FFT configurations.
 -tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
 -kset <file>       : give the name of a file with the list of Ks to test in PRP-1 (default kset.txt).
--B1 <value>        : B1 bound for PRP-1. Default 0 disables PRP-1. Try e.g. 1000000
+-B1 <value>        : B1 bound for PRP-1. 0 disables PRP-1. Try e.g. 1000000
 -device <N>        : select a specific device:
 )");
 
@@ -37,12 +37,15 @@ Command line options:
     } else if (!strcmp(arg, "-B1")) {
       if (i < argc - 1) {
         B1 = atoi(argv[++i]);
+        assert(B1 > 0);
+        if (ksetFile.empty()) { ksetFile = "kset.txt"; }
       } else {
         log("-B1 expects <value>\n");
       }
     } else if (!strcmp(arg, "-kset")) {
       if (i < argc - 1) {
         ksetFile = argv[++i];
+        if (B1 == 0) { B1 = 1000000; }
       } else {
         log("-kset expects <file-name>\n");
         return false;

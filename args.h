@@ -36,8 +36,7 @@ public:
     fftSize(0),
     tfDelta(0),
     enableTF(false),
-    usePrecompiled(false),
-    ksetFile("kset.txt")
+    usePrecompiled(false)
   { }
 
   // return false to stop.

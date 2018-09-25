@@ -9,8 +9,6 @@
 Kset::Kset(const string &name) {
   if (!name.empty()) {
     if (auto fi = openRead(name, true)) {
-      // bool ok = fscanf(fi.get(), "B1=%u\n", &B1) == 1;
-      // assert(ok);
       u32 k;
       while (fscanf(fi.get(), "%u", &k) == 1) { Ks.push_back(k); }
 
