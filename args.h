@@ -7,11 +7,11 @@
 
 class Args {
 private:
-  u32 B1;
   
 public:
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
-  
+
+  u32 B1;
   std::string clArgs;
   std::string user, cpu;
   std::string dump;
@@ -36,12 +36,9 @@ public:
     fftSize(0),
     tfDelta(0),
     enableTF(false),
-    usePrecompiled(false)
+    usePrecompiled(false),
+    ksetFile("kset.txt")
   { }
-
-  u32 getB1() const {
-    return B1;
-  }
 
   // return false to stop.
   bool parse(int argc, char **argv);

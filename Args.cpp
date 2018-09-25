@@ -23,28 +23,25 @@ Command line options:
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -list fft          : display a list of available FFT configurations.
 -tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
--kset <file>       : give the name of a file with the list of Ks to test in PRP-1.
+-kset <file>       : give the name of a file with the list of Ks to test in PRP-1 (default kset.txt).
+-B1 <value>        : B1 bound for PRP-1. Default 0 disables PRP-1. Try e.g. 1000000
 -device <N>        : select a specific device:
 )");
 
-      // -b1 <value>        : B1 bound for stage one of Pollard's P-1.
       vector<string> devices = getDevices();
       for (int i = 0; i < int(devices.size()); ++i) {
         printf(" %d : %s\n", i, devices[i].c_str());
       }      
       return false;
+    } else if (!strcmp(arg, "-B1")) {
+      if (i < argc - 1) {
+        B1 = atoi(argv[++i]);
+      } else {
+        log("-B1 expects <value>\n");
+      }
     } else if (!strcmp(arg, "-kset")) {
       if (i < argc - 1) {
         ksetFile = argv[++i];
-        if (auto fi = openRead(ksetFile, true)) {
-          if (fscanf(fi.get(), "B1=%u\n", &B1) != 1) {
-            log("Can't read B1 from kset file '%s'\n", ksetFile.c_str());
-            return false;
-          }
-        } else {
-          log("Can't open kset file '%s'\n", ksetFile.c_str());
-          return false;
-        }
       } else {
         log("-kset expects <file-name>\n");
         return false;

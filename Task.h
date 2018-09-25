@@ -11,7 +11,7 @@ class Args;
 class Result;
 
 struct Task {
-  enum Kind {NONE = 0, TF, PM1, PRP};
+  enum Kind {NONE = 0, TF, PRP};
 
   Kind kind;
   u32 exponent;
@@ -23,9 +23,6 @@ struct Task {
   
   // TF only
   u32 bitHi;
-
-  // PM1 only.
-  // u32 B1;
 
   operator bool() { return kind != NONE; }
 

@@ -42,15 +42,17 @@ bool TFResult::write(const Args &args, const Task &task) {
   return writeResult(buf, task.exponent, "TF", factor.empty() ? "NF" : "F", task.AID, args.user, args.cpu);
 }
 
+/*
 bool PFResult::write(const Args &args, const Task &task) {
   char buf[256];
-  snprintf(buf, sizeof(buf), "\"B1\":\"%u\"%s", args.getB1(), factorStr(factor).c_str());
+  snprintf(buf, sizeof(buf), "\"B1\":\"%u\"%s", args.B1, factorStr(factor).c_str());
   return writeResult(buf, task.exponent, "PM1", factor.empty() ? "NF" : "F", task.AID, args.user, args.cpu);
 }
+*/
 
 bool PRPResult::write(const Args &args, const Task &task) {
   char buf[256];
-  if (args.getB1() == 0) {
+  if (B1 == 0) {
     assert(baseRes64 == 3);
     assert(factor.empty());
     snprintf(buf, sizeof(buf), "\"res64\":\"%016llx\", \"residue-type\":4", res64);
@@ -58,6 +60,6 @@ bool PRPResult::write(const Args &args, const Task &task) {
   }
   
   snprintf(buf, sizeof(buf), "\"B1\":\"%u\", \"res64\":\"%016llx\", \"res64base\":\"%016llx\"%s",
-           args.getB1(), res64, baseRes64, factorStr(factor).c_str());
+           B1, res64, baseRes64, factorStr(factor).c_str());
   return writeResult(buf, task.exponent, "PRPF", isPrime ? "P" : "C", task.AID, args.user, args.cpu);
 }

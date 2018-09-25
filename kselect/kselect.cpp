@@ -254,7 +254,7 @@ private:
   }
 
   float pSlope(u64 p, u32 slopeStart, u32 slope) {
-    return (p < slopeStart) ? 1 : float(slope) / (p - slopeStart + slope);
+    return (p < slopeStart) ? 1 : (float(slope) / (p - (slopeStart - slope)));
   }
   
   void read(u32 exp, u32 B1, u32 slopeStart, u32 slope) {
@@ -358,7 +358,7 @@ public:
   tuple<u32, vector<u64>, float> popBest() {
     auto [bestK, bestScore] = heap->top();
     auto [rmScore, zCover] = remove(bestK);
-    if (fabs(bestScore - rmScore) > 0.0002f) {
+    if (fabs(bestScore - rmScore) > 0.001f) {
       fprintf(stderr, "score mismatch : %u, %g, %g\n", bestK, bestScore, rmScore);
     }
     // assert(fabsf(bestScore - rmScore) < 0.0002f);
@@ -375,8 +375,8 @@ int main(int argc, char **argv) {
   int n = 800000;
   const u32 exp = 89000000;
   const u32 B1  = 1000000;
-  u32 slopeStart = 20'000'000;
-  u32 slope = 12'000'000;
+  u32 slopeStart = 17'000'000;
+  u32 slope = 17'000'000;
 
   
   /*
@@ -395,7 +395,7 @@ int main(int argc, char **argv) {
   u32 slope      = 45'000'000;
   */
   
-  Cover cover(exp, B1, exp * 1.5, 0.6, slopeStart, slope);
+  Cover cover(exp, B1, exp * 1.5, 0.7, slopeStart, slope);
 
   fprintf(stderr, "Prime slope %u, %u\n", slopeStart, slope);
   u32 nCover = 0;

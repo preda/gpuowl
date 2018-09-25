@@ -6,15 +6,23 @@
 
 #include <vector>
 #include <string>
+#include <memory>
 
 struct Args;
+class GCD;
 
 class Gpu {
+  unique_ptr<GCD> gcd;
+
+  vector<u32> computeBase(u32 E, u32 B1);
+  void seedPRP(u32 E, u32 B1, u32 blockSize);
+  
 protected:
   virtual vector<u32> readCheck() = 0;
   virtual vector<u32> writeCheck(const vector<u32> &v) = 0;
   
 public:
+  Gpu();
   virtual ~Gpu();
 
   virtual void writeState(const vector<u32> &check, const vector<u32> &base, int blockSize) = 0;
@@ -48,6 +56,5 @@ public:
   virtual void gcdAccumulate(bool isFirst) = 0;
   virtual vector<u32> readAcc() = 0;
 
-  string factorPM1(u32 E, const Args &args);
-  bool isPrimePRP(u32 E, const Args &args, u64 *outRes, u64 *outBaseRes, string *outFactor);
+  bool isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outBaseRes, string *outFactor);
 };
