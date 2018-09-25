@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <cstring>
+#include <cassert>
 
 vector<string> getDevices();
 
@@ -19,7 +20,7 @@ Command line options:
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
 -fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
--block 100|200|400|1000 : select PRP-check block size. Smaller block is slower but detects errors earlier.
+-block <value>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -list fft          : display a list of available FFT configurations.
 -tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
@@ -113,14 +114,17 @@ Command line options:
       return false;
     } else if (!strcmp(arg, "-block")) {
       if (i < argc - 1) {
-        std::string s = argv[++i];
-        if (s == "100" || s == "200" || s == "400") {
-          blockSize = atoi(s.c_str());
-          continue;
+        blockSize = atoi(argv[++i]);
+        assert(blockSize > 0);
+        if (10000 % blockSize) {
+          log("Invalid blockSize %u, must divide 10000\n", blockSize);
+          return false;
         }
+        continue;
+      } else {
+        log("-block expects <value>\n");
+        return false;
       }
-      log("-block expects 100 | 200 | 400\n");
-      return false;      
     } 
 
     else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {

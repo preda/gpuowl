@@ -14,7 +14,6 @@
 #include <cmath>
 #include <signal.h>
 
-// Check that mpz "_ui" takes 64-bit.
 static_assert(sizeof(long) == 8, "size long");
 
 Gpu::Gpu() :
@@ -85,57 +84,11 @@ static vector<bool> powerSmoothBitsRev(u32 exp, u32 B1) {
   return bits;
 }
 
-// static u32 getB1(u32 exp, float prpTimeFraction) { return exp * prpTimeFraction / 1.4429f; }
-
 static volatile int stopRequested = 0;
 void (*oldHandler)(int) = 0;
 void myHandler(int dummy) { stopRequested = 1; }
 
 Gpu::~Gpu() {}
-
-/*
-string Gpu::factorPM1(u32 E, const Args &args) {
-  u32 B1 = args.getB1();
-  PFState loaded = PFState::load(E, B1);
-
-  u32 N = this->getFFTSize();
-  u32 k  = loaded.k;
-
-  vector<bool> bits = powerSmoothBitsRev(E, B1);
-  assert(bits.front()); // most significant bit is 1.
-  
-  this->writeData(move(loaded.base));
-  
-  log("P-1 M(%d), FFT %dK, %.2f bits/word, B1 %u, at %u, %016llx\n", E, N/1024, E / float(N), B1, k, this->dataResidue());
-
-  // oldHandler = signal(SIGINT, myHandler);
-  
-  Stats stats;  
-  Timer timer;
-
-  const u32 step = 1000;
-  while (k < bits.size()) {
-    assert(k % step == 0);
-    u32 nIts = min(u32(bits.size() - k), 1000u);    
-    vector<bool> muls(bits.begin() + k, bits.begin() + (k + nIts));
-    this->dataLoop(muls);
-    this->finish();
-    stats.add(timer.deltaMillis() / float(nIts));
-    k += nIts;
-    
-    if (k % 10000 == 0) {
-      log("   %s\n", makeLogStr(E, k, this->dataResidue(), stats.getStats(), bits.size()).c_str());
-      stats.reset();
-      PFState{k, u32(bits.size()), B1, this->readData()}.save(E);
-    }
-  }
-
-  assert(k == bits.size());
-  if (k != loaded.k) { PFState{k, u32(bits.size()), B1, this->readData()}.save(E); }
-
-  return GCD(E, this->readData(), 1);
-}
-*/
 
 // Residue from compacted words.
 static u64 residue(const std::vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
@@ -154,19 +107,11 @@ static PRPState loadPRP(Gpu *gpu, u32 E, u32 iniB1, u32 iniBlockSize) {
   u64 res64 = gpu->dataResidue();
   bool ok = (res64 == loaded.res64);
   gpu->updateCheck();
-  // bool ok = resOk && gpu->checkAndUpdate(loaded.blockSize);
   log("%s loaded: %d/%d, B1 %u, blockSize %d, %016llx (expected %016llx)\n",
       ok ? "OK" : "EE",  loaded.k, E, loaded.B1, loaded.blockSize, res64, loaded.res64);
   if (!ok) { throw "error on load"; }
   return loaded;
 }
-/*
-  *outK = loaded.k;
-  *outBlockSize = loaded.blockSize;
-  *outBase = loaded.base;
-  return true;
-}
-*/
 
 vector<u32> Gpu::computeBase(u32 E, u32 B1) {
   u32 nWords = (E - 1) / 32 + 1;
@@ -198,12 +143,10 @@ vector<u32> Gpu::computeBase(u32 E, u32 B1) {
   return this->readData();
 }
 
-void Gpu::seedPRP(u32 E, u32 B1, u32 blockSize) {
+pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
   u32 nWords = (E - 1) / 32 + 1;
-  vector<u32> check(nWords);
-  check[0] = 1;
-  vector<u32> base;
   
+  vector<u32> base;  
   if (B1 == 0) {
     base = vector<u32>(nWords);
     base[0] = 3;
@@ -212,14 +155,21 @@ void Gpu::seedPRP(u32 E, u32 B1, u32 blockSize) {
     log("Starting P-1 first-stage GCD\n");
     gcd->start(E, base, 1);
   }
-  PRPState{0, B1, blockSize, residue(base), check, base}.save(E);
+
+  vector<u32> check(nWords);
+  check[0] = 1;
+
+  return make_pair(check, base);
 }
 
 bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outBaseRes, string *outFactor) {
   u32 N = this->getFFTSize();
   log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u\n", E, N/1024, E / float(N), args.B1);
 
-  if (!PRPState::exists(E)) { seedPRP(E, args.B1, args.blockSize); }
+  if (!PRPState::exists(E)) {
+    auto[check, base] = seedPRP(E, args.B1);
+    PRPState{0, args.B1, args.blockSize, residue(base), check, base}.save(E);
+  }
 
   PRPState loaded = loadPRP(this, E, args.B1, args.blockSize);
   u32 k = loaded.k;
@@ -230,7 +180,9 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
   
   const u64 baseRes64 = residue(base);
   *outBaseRes = baseRes64;
-  const u32 checkStep = (blockSize == 512) ? (512 * 625) : (blockSize * blockSize);
+  assert(blockSize > 0 && 10000 % blockSize == 0);
+  const u32 checkStep = blockSize * blockSize;
+
   
   const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
@@ -284,7 +236,6 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
 
     u64 res64 = this->dataResidue(); // implies this->finish();
 
-    // gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
     if (gcd->isReady()) {
       string factor = gcd->get();
       log("GCD says: %s\n", factor.empty() ? "still no factor" : factor.c_str());
@@ -317,6 +268,11 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
     vector<u32> check = this->roundtripCheck();
     this->startCheck(blockSize);
     bool ok = this->finishCheck();
+
+    bool doSave = k < kEnd && ok;
+    if (doSave) { PRPState{k, B1, blockSize, res64, check, base}.save(E); }
+    
+    doLog(E, k, timer.deltaMillis(), res64, ok, stats);
     
     bool wantGCD = (doStop && nGcdAcc > 0) || (nGcdAcc > 2000 && k % 1000000u < checkStep);    
     if (wantGCD && ok) {
@@ -328,12 +284,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
         nGcdAcc = 0;
       }
     }
-                
-    bool doSave = k < kEnd && ok;
-    if (doSave) { PRPState{k, B1, blockSize, res64, check, base}.save(E); }
-    
-    doLog(E, k, timer.deltaMillis(), res64, ok, stats);
-    
+
     if (ok) {
       if (k >= kEnd) { return isPrime; }
       nSeqErrors = 0;
@@ -352,7 +303,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
     if (args.timeKernels) { this->logTimeKernels(); }
     if (doStop) {
       if (gcd->isOngoing()) {
-        log("Wating for GCD to finish..\n");
+        log("Waiting for GCD to finish..\n");
         gcd->wait();
         if (gcd->isReady()) {
           string factor = gcd->get();

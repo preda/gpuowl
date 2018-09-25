@@ -386,6 +386,8 @@ public:
   void finish() { queue.finish(); }
   
 protected:
+  void copyFromTo(Buffer &from, Buffer &to) override { queue.copy<int>(from, to, N); }
+  
   void logTimeKernels() {
     ::logTimeKernels({&carryFused, &fftP, &fftW, &fftMiddleIn, &fftMiddleOut,
           &carryA, &carryM, &carryB,

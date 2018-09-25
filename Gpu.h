@@ -15,7 +15,7 @@ class Gpu {
   unique_ptr<GCD> gcd;
 
   vector<u32> computeBase(u32 E, u32 B1);
-  void seedPRP(u32 E, u32 B1, u32 blockSize);
+  pair<vector<u32>, vector<u32>> seedPRP(u32 E, u32 B1);
   
 protected:
   virtual vector<u32> readCheck() = 0;
@@ -25,7 +25,7 @@ public:
   Gpu();
   virtual ~Gpu();
 
-  virtual void writeState(const vector<u32> &check, const vector<u32> &base, int blockSize) = 0;
+  virtual void writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize) = 0;
   
   vector<u32> roundtripData()  { return writeData(readData()); }
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }

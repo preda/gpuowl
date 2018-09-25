@@ -14,6 +14,8 @@ protected:
 
   Buffer bufData, bufCheck, bufAux, bufBase, bufAcc;
 
+  virtual void copyFromTo(Buffer &from, Buffer &to) = 0;
+  
   virtual vector<int> readOut(Buffer &buf) = 0;
   virtual void writeIn(const vector<int> &words, Buffer &buf) = 0;
   
@@ -69,18 +71,30 @@ public:
   u64 dataResidue() { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }
   
-  void writeState(const vector<u32> &check, const vector<u32> &base, int blockSize) {
+  void writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize) override {
+    assert(blockSize > 0);
+    
     writeCheck(check);
-    writeBase(base);
-    
-    modSqLoop(bufCheck, bufData, 1, false);
-    
-    for (int i = 0; i < blockSize - 2; ++i) {
-      modMul(bufCheck, bufData, false);
-      modSqLoop(bufData, bufData, 1, false);
-    }
-    modMul(bufCheck, bufData, false); 
+    copyFromTo(bufCheck, bufData);        
+    copyFromTo(bufCheck, bufBase);
 
+    u32 n = 0;
+    for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
+      modSqLoop(bufData, bufData, n, false);
+      modMul(bufBase, bufData, false);
+      copyFromTo(bufData, bufBase);
+    }
+
+    assert((n & (n - 1)) == 0);
+    assert(blockSize % n == 0);
+    
+    blockSize /= n;
+    for (u32 i = 0; i < blockSize - 1; ++i) {
+      modSqLoop(bufData, bufData, n, false);
+      modMul(bufBase, bufData, false);
+    }
+    
+    writeBase(base);
     modMul(bufBase, bufData, false);
   }
 

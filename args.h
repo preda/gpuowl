@@ -19,7 +19,7 @@ public:
   bool timeKernels;
   bool listFFT;
   int carry;
-  int blockSize;
+  u32 blockSize;
   int fftSize;
   int tfDelta;
   bool enableTF;
@@ -32,7 +32,7 @@ public:
     timeKernels(false),
     listFFT(false),
     carry(CARRY_AUTO),
-    blockSize(1000),
+    blockSize(400),
     fftSize(0),
     tfDelta(0),
     enableTF(false),
