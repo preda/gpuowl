@@ -5,7 +5,6 @@
 #include "checkpoint.h"
 #include "stats.h"
 #include "timeutil.h"
-#include "ghzdays.h"
 #include "args.h"
 #include "Kset.h"
 #include "GCD.h"
