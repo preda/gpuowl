@@ -180,8 +180,9 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
   const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
 
-  u32 B2 = args.B2 ? args.B2 : ((kEnd - 1) / blockSize + 1) * blockSize;
-  u32 beginGcd = B2 / 2 / blockSize * blockSize;
+  u32 B2 = args.B2 ? args.B2 : kEnd;
+  u32 beginAcc = B2 / 2 / blockSize;
+  u32 endAcc   = (B2 - 1) / blockSize + 1;
   
   vector<u32> base = loaded.base;
   
@@ -204,9 +205,10 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
   int nGcdAcc = 0;
   while (true) {
     assert(k % blockSize == 0);
-
+    bool doAcc = (k >= beginAcc * blockSize) && (k < endAcc * blockSize);
+    nGcdAcc += doAcc ? blockSize : 0;
     if (kEnd - k <= blockSize) {
-      this->dataLoop(kEnd - k);
+      this->dataLoop(kEnd - k, doAcc);
       auto words = this->roundtripData();
       u64 res64 = residue(words);
       isPrime = (words == base || words == bitNeg(base));
@@ -217,24 +219,14 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
       *outBaseRes = baseRes64;
       int itersLeft = blockSize - (kEnd - k);
       assert(itersLeft > 0);
-      this->dataLoop(itersLeft);
+      this->dataLoop(itersLeft, doAcc);
       k += blockSize;
     } else {
       do {
-        // u32 kToTest = kset.getFirstAfter(k);
-        // assert(kToTest > k);
         u32 nIters = blockSize;
-          // min(blockSize - (k % blockSize), kToTest - k);
         assert(nIters > 0);
-        this->dataLoop(nIters);
+        this->dataLoop(nIters, doAcc);
         k += nIters;
-        /*
-        if (k == kToTest) {
-          bool isFirst = nGcdAcc == 0;
-          this->gcdAccumulate(isFirst);
-          ++nGcdAcc;
-        }
-        */
       } while (k % blockSize != 0);
     }
 
@@ -278,8 +270,8 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
     
     doLog(E, k, timer.deltaMillis(), res64, ok, stats);
     
-    bool wantGCD = (doStop && nGcdAcc > 0) || (nGcdAcc > 2000 && k % 1000000u < checkStep);    
-    if (wantGCD && ok) {
+    bool wantGCD = ok && nGcdAcc;
+    if (wantGCD) {
       if (gcd->isOngoing()) {
         log("GCD: previous didn't finish\n");
       } else {
@@ -290,7 +282,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
     }
 
     if (ok) {
-      if (k >= kEnd) { return isPrime; }
+      if (isPrime || (k >= kEnd && k >= B2)) { return isPrime; }
       nSeqErrors = 0;
     } else {
       if (++nSeqErrors > 2) {

@@ -43,7 +43,7 @@ public:
     return finishCheck();
   }
   
-  virtual void dataLoop(int reps) = 0;
+  virtual void dataLoop(int reps, bool doAcc) = 0;
   virtual void dataLoop(const vector<bool> &muls) = 0;
   
   virtual void finish() = 0;

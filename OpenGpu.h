@@ -211,6 +211,7 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryM;
   Kernel carryB;
   Kernel subtract;
+  Kernel subtractT;
   
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
@@ -252,6 +253,7 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryM,   nW * (BIG_H/16)),
     LOAD(carryB,   nW * (BIG_H/16)),
     LOAD(subtract, nW * (BIG_H/16)),
+    LOAD(subtractT, BIG_H),
     LOAD(transposeW,   (W/64) * (BIG_H/64)),
     LOAD(transposeH,   (W/64) * (BIG_H/64)),
     LOAD(transposeIn,  (W/64) * (BIG_H/64)),
@@ -291,6 +293,8 @@ class OpenGpu : public LowGpu<Buffer> {
     carryM.setFixedArgs(3, bufI);
     
     queue.zero(bufReady, BIG_H * sizeof(int));
+    queue.zero(bufAcc,   N * sizeof(int));
+    queue.write(bufAcc, vector<u32>{1});
   }
 
   vector<int> readSmall(Buffer &buf, u32 start) {
@@ -437,7 +441,45 @@ protected:
     if (useMiddle) { fftMiddleOut(in); }
     transposeH(in, out);
   }
-  
+
+  void modSqLoopAcc(Buffer &in, Buffer &out, int nIters, bool doAcc) override {
+    assert(nIters > 0);
+
+    fftP(in, buf1);
+    if (doAcc) { fftP(bufAcc, buf3); }
+
+    for (int i = 0; ; ++i) {
+      tW(buf1, buf2);
+      fftH(buf2);
+
+      if (doAcc) {
+        tW(buf3, buf1);
+        fftH(buf1);
+        subtractT(buf3, buf2, bufBaseDown);
+        multiply(buf1, buf3);
+        fftH(buf1);
+        tH(buf1, buf3);
+      }
+
+      square(buf2);
+      fftH(buf2);
+      tH(buf2, buf1);
+
+      if (!useLongCarry && i < nIters - 1) {
+        carryFused(1, buf1, bufCarry, bufReady);
+        if (doAcc) { carryFused(1, buf3, bufCarry, bufReady); }
+      } else {
+        exitKerns(buf1, out, false);
+        if (doAcc) { exitKerns(buf3, bufAcc, false); }
+        assert(i < nIters);
+        if (i == nIters - 1) { break; }
+        fftP(out, buf1);
+        if (doAcc) { fftP(bufAcc, buf3); }
+      }
+    }
+  }
+
+  /*
   // The IBDWT convolution squaring loop with carry propagation, done nIters times.
   void modSqLoop(Buffer &in, Buffer &out, int nIters) override {
     assert(nIters > 0);
@@ -461,6 +503,7 @@ protected:
       }
     }
   }
+  */
 
   // With a sequence of mul-by-3 bits.
   void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls) override {
