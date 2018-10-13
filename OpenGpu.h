@@ -217,8 +217,6 @@ class OpenGpu : public LowGpu<Buffer> {
 
   Kernel square;
   Kernel multiply;
-  // Kernel tailFused;
-  // Kernel mulFused;
   Kernel readResidue;
   Kernel isNotZero;
   Kernel isEqual;
@@ -259,8 +257,6 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(transposeOut, (W/64) * (BIG_H/64)),
     LOAD(square,   (hN / SMALL_H)),
     LOAD(multiply, (hN / SMALL_H)),
-    // LOAD(tailFused, (hN / SMALL_H) / 2),
-    // LOAD(mulFused,  (hN / SMALL_H) / 2),
     LOAD(readResidue, 1),
     LOAD(isNotZero, 256),
     LOAD(isEqual, 256),
@@ -280,8 +276,6 @@ class OpenGpu : public LowGpu<Buffer> {
     bufAux.reset(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufBase.reset( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufAcc.reset(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
-    // queue.zero(bufAcc, N * sizeof(int));
-    // queue.write(bufAcc, vector<u32>{1});
     
     setupWeights<double>(context, bufA, bufI, W, BIG_H, E);
 
@@ -293,9 +287,6 @@ class OpenGpu : public LowGpu<Buffer> {
     
     carryA.setFixedArgs(3, bufI);
     carryM.setFixedArgs(3, bufI);
-    
-    // tailFused.setFixedArgs(1, bufTrigH);
-    // mulFused.setFixedArgs(2, bufTrigH);
     
     queue.zero(bufReady, BIG_H * sizeof(int));
   }
