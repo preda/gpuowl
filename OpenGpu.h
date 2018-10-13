@@ -216,8 +216,9 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel transposeIn, transposeOut;
 
   Kernel square;
+  Kernel multiply;
   // Kernel tailFused;
-  Kernel mulFused;
+  // Kernel mulFused;
   Kernel readResidue;
   Kernel isNotZero;
   Kernel isEqual;
@@ -256,9 +257,10 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(transposeH,   (W/64) * (BIG_H/64)),
     LOAD(transposeIn,  (W/64) * (BIG_H/64)),
     LOAD(transposeOut, (W/64) * (BIG_H/64)),
-    LOAD(square,    (hN / SMALL_H)),
+    LOAD(square,   (hN / SMALL_H)),
+    LOAD(multiply, (hN / SMALL_H)),
     // LOAD(tailFused, (hN / SMALL_H) / 2),
-    LOAD(mulFused,  (hN / SMALL_H) / 2),
+    // LOAD(mulFused,  (hN / SMALL_H) / 2),
     LOAD(readResidue, 1),
     LOAD(isNotZero, 256),
     LOAD(isEqual, 256),
@@ -293,7 +295,7 @@ class OpenGpu : public LowGpu<Buffer> {
     carryM.setFixedArgs(3, bufI);
     
     // tailFused.setFixedArgs(1, bufTrigH);
-    mulFused.setFixedArgs(2, bufTrigH);
+    // mulFused.setFixedArgs(2, bufTrigH);
     
     queue.zero(bufReady, BIG_H * sizeof(int));
   }
@@ -307,6 +309,13 @@ class OpenGpu : public LowGpu<Buffer> {
     fftH(buf);
     square(buf);
     fftH(buf);
+  }
+
+  void mulFused(Buffer &bufIo, Buffer &bufIn) {
+    fftH(bufIo);
+    fftH(bufIn);
+    multiply(bufIo, bufIn);
+    fftH(bufIo);
   }
   
   void entryKerns(Buffer &in, Buffer &buf1, Buffer &buf2) {
@@ -403,7 +412,7 @@ protected:
     ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
           &carryA, &carryM, &carryB,
           &transposeW, &transposeH, &transposeIn, &transposeOut,
-          &square, &mulFused, &readResidue, &isNotZero, &isEqual});
+          &square, &multiply, &readResidue, &isNotZero, &isEqual});
   }
   
   // Implementation of LowGpu's abstract methods below.

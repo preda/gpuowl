@@ -1024,6 +1024,83 @@ KERNEL(SMALL_HEIGHT / 2) square(P(T2) io) {
   io[k] = conjugate(a);
   io[v] = b;
 }
+
+// Like square(), but for multiplication.
+KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+  
+  uint line1 = get_group_id(0);
+  uint me = get_local_id(0);
+
+  if (line1 == 0 && me == 0) {
+    io[0]     = shl(foo2(conjugate(io[0]), conjugate(in[0])), 2);
+    io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2])), 3);
+    return;
+  }
+
+  uint line2 = (H - line1) % H;
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
+  uint k = g1 * W + me;
+  uint v = g2 * W + (W - 1) - me + (line1 == 0);
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  T2 t = swap(slowTrig(me * H + line1, W * H));
+  X2(a, b);
+  b = mul(b, conjugate(t));
+  X2(a, b);
+
+  T2 c = in[k];
+  T2 d = conjugate(in[v]);
+  X2(c, d);
+  d = mul(d, conjugate(t));
+  X2(c, d);
+
+  a = mul(a, c);
+  b = mul(b, d);
+
+  X2(a, b);
+  b = mul(b, t);
+  X2(a, b);
+
+  io[k] = conjugate(a);
+  io[v] = b;
+}
+
+/*
+  uint GPL = W / (WG * 2);
+  uint line = g / GPL;
+  uint posInLine = g % GPL * WG + me;
+
+  T2 t = swap(slowTrig(posInLine * H + line, W * H));
+  
+  uint k = line * W + posInLine;
+  uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
+  
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  X2(a, b);
+  b = mul(b, conjugate(t));
+  X2(a, b);
+  
+  T2 c = in[k];
+  T2 d = conjugate(in[v]);
+  X2(c, d);
+  d = mul(d, conjugate(t));
+  X2(c, d);
+
+  a = mul(a, c);
+  b = mul(b, d);
+
+  X2(a, b);
+  b = mul(b,  t);
+  X2(a, b);
+  
+  io[k] = conjugate(a);
+  io[v] = b;
+*/
+
 /*
   uint GPL = W / (G_H * 2); // "Groups Per Line", == 4.
   uint line = g / GPL;
