@@ -12,6 +12,7 @@ public:
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
   u32 B1;
+  u32 B2;
   std::string clArgs;
   std::string user, cpu;
   std::string dump;
@@ -24,10 +25,10 @@ public:
   int tfDelta;
   bool enableTF;
   bool usePrecompiled;
-  string ksetFile;
   
   Args() :
     B1(0),
+    B2(0),
     device(-1),
     timeKernels(false),
     listFFT(false),

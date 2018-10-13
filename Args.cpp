@@ -24,8 +24,8 @@ Command line options:
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -list fft          : display a list of available FFT configurations.
 -tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
--kset <file>       : give the name of a file with the list of Ks to test in PRP-1 (default kset.txt).
--B1 <value>        : B1 bound for PRP-1. 0 disables PRP-1. Try e.g. 1000000
+-B1 <value>        : B1 bound for PRP-1. 0 disables P-1. Try e.g. 1000000
+-B2 <value>        : B2 bound. 
 -device <N>        : select a specific device:
 )");
 
@@ -38,17 +38,15 @@ Command line options:
       if (i < argc - 1) {
         B1 = atoi(argv[++i]);
         assert(B1 > 0);
-        if (ksetFile.empty()) { ksetFile = "kset.txt"; }
       } else {
         log("-B1 expects <value>\n");
       }
-    } else if (!strcmp(arg, "-kset")) {
+    } else if (!strcmp(arg, "-B2")) {
       if (i < argc - 1) {
-        ksetFile = argv[++i];
-        if (B1 == 0) { B1 = 1000000; }
+        B2 = atoi(argv[++i]);
+        assert(B2 > 0);
       } else {
-        log("-kset expects <file-name>\n");
-        return false;
+        log("-B2 expects <value>\n");
       }
     } else if (!strcmp(arg, "-list")) {
       if (i < argc - 1 && !strcmp(argv[++i], "fft")) {
@@ -128,9 +126,7 @@ Command line options:
         log("-block expects <value>\n");
         return false;
       }
-    } 
-
-    else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {
+    } else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {
       if (i < argc - 1) {
         device = atoi(argv[++i]);
         /*
@@ -150,5 +146,10 @@ Command line options:
     }
   }
 
+  if (B1 == 0 && B2 != 0) {
+    log("B2 ignored because B1 == 0\n");
+    B2 = 0;
+  }
+  
   return true;
 }

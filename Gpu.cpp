@@ -174,17 +174,21 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
   u32 k = loaded.k;
   u32 B1 = loaded.B1;
   *outB1 = B1;
+
   u32 blockSize = loaded.blockSize;
+
+  const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
+  assert(k < kEnd);
+
+  u32 B2 = args.B2 ? args.B2 : ((kEnd - 1) / blockSize + 1) * blockSize;
+  u32 beginGcd = B2 / 2 / blockSize * blockSize;
+  
   vector<u32> base = loaded.base;
   
   const u64 baseRes64 = residue(base);
   *outBaseRes = baseRes64;
   assert(blockSize > 0 && 10000 % blockSize == 0);
   const u32 checkStep = blockSize * blockSize;
-
-  
-  const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
-  assert(k < kEnd);
   
   oldHandler = signal(SIGINT, myHandler);
 
@@ -196,13 +200,6 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
 
   bool isPrime = false;
   Timer timer;
-
-  if (B1 != 0 && args.ksetFile.empty()) {
-    log("Please provide -kset kset.txt when B1 %u != 0\n", B1);
-    throw "B1 without kset";
-  }
-  
-  Kset kset(args.ksetFile);
 
   int nGcdAcc = 0;
   while (true) {
@@ -224,17 +221,20 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
       k += blockSize;
     } else {
       do {
-        u32 kToTest = kset.getFirstAfter(k);
-        assert(kToTest > k);
-        u32 nIters = min(blockSize - (k % blockSize), kToTest - k);
+        // u32 kToTest = kset.getFirstAfter(k);
+        // assert(kToTest > k);
+        u32 nIters = blockSize;
+          // min(blockSize - (k % blockSize), kToTest - k);
         assert(nIters > 0);
         this->dataLoop(nIters);
         k += nIters;
+        /*
         if (k == kToTest) {
           bool isFirst = nGcdAcc == 0;
           this->gcdAccumulate(isFirst);
           ++nGcdAcc;
         }
+        */
       } while (k % blockSize != 0);
     }
 

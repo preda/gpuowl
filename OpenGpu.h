@@ -227,6 +227,7 @@ class OpenGpu : public LowGpu<Buffer> {
   Buffer bufCarry;
   Buffer bufReady;
   Buffer bufSmallOut;
+  Buffer bufBaseDown;
 
   OpenGpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
           cl_program program, cl_device_id device, cl_context context,
@@ -269,7 +270,8 @@ class OpenGpu : public LowGpu<Buffer> {
     buf3{makeBuf(    context, BUF_RW, bufSize)},
     bufCarry{makeBuf(context, BUF_RW, bufSize / 2)},
     bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
-    bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
+    bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int))),
+    bufBaseDown(makeBuf(context, BUF_RW, bufSize))
   {
     bufData.reset( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
     bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
@@ -407,6 +409,14 @@ protected:
   }
   
   // Implementation of LowGpu's abstract methods below.
+
+  vector<u32> writeBase(const vector<u32> &v) override {
+    writeIn(expandBits(v, N, E), bufBase);
+    fftP(bufBase, buf1);
+    tW(buf1, bufBaseDown);
+    fftH(bufBaseDown);
+    return v;
+  }
   
   vector<int> readOut(Buffer &buf) {
     transposeOut(buf, bufAux);
@@ -429,21 +439,35 @@ protected:
   }
   
   // The IBDWT convolution squaring loop with carry propagation, done nIters times.
-  // Optional multiply-by-3 at the end.
-  void modSqLoop(Buffer &in, Buffer &out, int nIters, bool doMul3) {
+  void modSqLoop(Buffer &in, Buffer &out, int nIters) override {
     assert(nIters > 0);
 
-    entryKerns(in, buf1, buf2);
+    fftP(in, buf1);
 
-    for (int i = 0; i < nIters - 1; ++i) { oneIteration(buf1, buf2, out, false); }
-    
-    exitKerns(buf1, out, doMul3);
+    for (int i = 0; ; ++i) {
+      tW(buf1, buf2);
+      fftH(buf2);
+      square(buf2);
+      fftH(buf2);
+      tH(buf2, buf1);
+
+      if (!useLongCarry && i < nIters - 1) {
+        carryFused(1, buf1, bufCarry, bufReady);        
+      } else {
+        exitKerns(buf1, out, false);
+        assert(i < nIters);
+        if (i == nIters - 1) { break; }
+        fftP(out, buf1);
+      }
+    }
   }
 
   // With a sequence of mul-by-3 bits.
-  void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls) {
+  void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls) override {
     assert(muls.size() > 0);
+    
     entryKerns(in, buf1, buf2);
+    
     for (auto it = muls.begin(), prevEnd = prev(muls.end()); it < prevEnd; ++it) {
       oneIteration(buf1, buf2, out, *it);
     }

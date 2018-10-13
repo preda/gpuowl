@@ -654,6 +654,16 @@ KERNEL(G_W) subtract(P(Word2) out, CP(Word2) in, CP(Word2) delta) {
   out[p] = a;
 }
 
+KERNEL(G_W) subtractT(P(T2) out, CP(T2) a, CP(T2) b) {
+  uint g = get_group_id(0);
+  uint me = get_local_id(0);
+  uint step = WIDTH * g;
+  out += step;
+  a   += step;
+  b   += step;
+  for (uint i = 0; i < NW; ++i) { out[G_W * i + me] = a[G_W * i + me] - b[G_W * i + me]; }
+}
+
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
 void carryACore(uint mul, const T2 *in, const T2 *A, Word2 *out, Carry *carryOut) {
