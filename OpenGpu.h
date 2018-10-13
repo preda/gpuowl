@@ -203,6 +203,7 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryFused;
   Kernel fftP;
   Kernel fftW;
+  Kernel fftH;
   Kernel fftMiddleIn;
   Kernel fftMiddleOut;
   
@@ -213,8 +214,9 @@ class OpenGpu : public LowGpu<Buffer> {
   
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
-  
-  Kernel tailFused;
+
+  Kernel square;
+  // Kernel tailFused;
   Kernel mulFused;
   Kernel readResidue;
   Kernel isNotZero;
@@ -243,6 +245,7 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryFused, BIG_H + 1),
     LOAD(fftP, BIG_H),
     LOAD(fftW, BIG_H),
+    LOAD(fftH, (hN / SMALL_H)),
     LOAD(fftMiddleIn,  hN / (256 * (BIG_H / SMALL_H))),
     LOAD(fftMiddleOut, hN / (256 * (BIG_H / SMALL_H))),
     LOAD(carryA,   nW * (BIG_H/16)),
@@ -253,7 +256,8 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(transposeH,   (W/64) * (BIG_H/64)),
     LOAD(transposeIn,  (W/64) * (BIG_H/64)),
     LOAD(transposeOut, (W/64) * (BIG_H/64)),
-    LOAD(tailFused, (hN / SMALL_H) / 2),
+    LOAD(square,    (hN / SMALL_H)),
+    // LOAD(tailFused, (hN / SMALL_H) / 2),
     LOAD(mulFused,  (hN / SMALL_H) / 2),
     LOAD(readResidue, 1),
     LOAD(isNotZero, 256),
@@ -283,11 +287,12 @@ class OpenGpu : public LowGpu<Buffer> {
     
     fftP.setFixedArgs(2, bufA, bufTrigW);
     fftW.setFixedArgs(1, bufTrigW);
+    fftH.setFixedArgs(1, bufTrigH);
     
     carryA.setFixedArgs(3, bufI);
     carryM.setFixedArgs(3, bufI);
     
-    tailFused.setFixedArgs(1, bufTrigH);
+    // tailFused.setFixedArgs(1, bufTrigH);
     mulFused.setFixedArgs(2, bufTrigH);
     
     queue.zero(bufReady, BIG_H * sizeof(int));
@@ -298,6 +303,12 @@ class OpenGpu : public LowGpu<Buffer> {
     return queue.read<int>(bufSmallOut, 128);                    
   }
 
+  void tailFused(Buffer &buf) {
+    fftH(buf);
+    square(buf);
+    fftH(buf);
+  }
+  
   void entryKerns(Buffer &in, Buffer &buf1, Buffer &buf2) {
     fftP(in, buf1);
     tW(buf1, buf2);
@@ -389,10 +400,10 @@ protected:
   void copyFromTo(Buffer &from, Buffer &to) override { queue.copy<int>(from, to, N); }
   
   void logTimeKernels() {
-    ::logTimeKernels({&carryFused, &fftP, &fftW, &fftMiddleIn, &fftMiddleOut,
+    ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
           &carryA, &carryM, &carryB,
           &transposeW, &transposeH, &transposeIn, &transposeOut,
-          &tailFused, &mulFused, &readResidue, &isNotZero, &isEqual});
+          &square, &mulFused, &readResidue, &isNotZero, &isEqual});
   }
   
   // Implementation of LowGpu's abstract methods below.

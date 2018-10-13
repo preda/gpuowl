@@ -539,6 +539,18 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   write(G_W, NW, u, io, 0);
 }
 
+KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
+  local T lds[SMALL_HEIGHT];
+  T2 u[NH];
+
+  uint g = get_group_id(0);
+  io += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
+
+  read(G_H, NH, u, io, 0);
+  fft_HEIGHT(lds, u, smallTrig);
+  write(G_H, NH, u, io, 0);
+}
+
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   local T lds[WIDTH];
@@ -979,3 +991,63 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
+
+KERNEL(SMALL_HEIGHT / 2) square(P(T2) io) {
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+
+  uint line1 = get_group_id(0);  
+  uint me = get_local_id(0);
+
+  if (line1 == 0 && me == 0) {
+    io[0]     = shl(foo(conjugate(io[0])), 2);
+    io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);
+    return;
+  }
+
+  uint line2 = (H - line1) % H;
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
+  uint k = g1 * W + me;
+  uint v = g2 * W + (W - 1) - me + (line1 == 0); // ((line - 1) >> 31);
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  T2 t = swap(slowTrig(me * H + line1, W * H));  
+  X2(a, b);
+  b = mul(b, conjugate(t));
+  X2(a, b);
+  a = sq(a);
+  b = sq(b);
+  X2(a, b);
+  b = mul(b, t);
+  X2(a, b);
+  io[k] = conjugate(a);
+  io[v] = b;
+}
+/*
+  uint GPL = W / (G_H * 2); // "Groups Per Line", == 4.
+  uint line = g / GPL;
+  uint posInLine = g % GPL * G_H + me;
+
+  T2 t = swap(slowTrig(posInLine * H + line, W * H));
+  
+  uint k = line * W + posInLine;
+  uint v = ((H - line) % H) * W + (W - 1) - posInLine + ((line - 1) >> 31);
+  
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  X2(a, b);
+  b = mul(b, conjugate(t));
+  X2(a, b);
+
+  a = sq(a);
+  b = sq(b);
+
+  X2(a, b);
+  b = mul(b,  t);
+  X2(a, b);
+  
+  io[k] = conjugate(a);
+  io[v] = b;
+}
+*/
