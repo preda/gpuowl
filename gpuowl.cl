@@ -802,11 +802,10 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
       io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);    
     } else {
       uint k = g1 * W + i * (W / 8) + me;
-      uint v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me; // ((line - 1) >> 31);
+      uint v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
       T2 a = io[k];
       T2 b = conjugate(io[v]);
       T2 t = swap(base);
-        // swap(slowTrig(me * H + line1, W * H));  
       X2(a, b);
       b = mul(b, conjugate(t));
       X2(a, b);
@@ -821,7 +820,6 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
   }
 }
 
-// Like square(), but for multiplication.
 KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   uint W = SMALL_HEIGHT;
   uint H = ND / W;
@@ -863,3 +861,52 @@ KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   io[k] = conjugate(a);
   io[v] = b;
 }
+
+#if 0
+// Alternative form
+KERNEL(SMALL_HEIGHT / 2 / 4) multiply(P(T2) io, CP(T2) in) {
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+
+  uint me = get_local_id(0);
+  uint line1 = get_group_id(0);
+  uint line2 = (H - line1) % H;
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
+
+  T2 base = slowTrig(me * H + line1, W * H);
+  T2 step = slowTrig(1, 8);
+
+  for (uint i = 0; i < 4; ++i, base = mul(base, step)) {
+    if (i == 0 && line1 == 0 && me == 0) {
+      io[0]     = shl(foo2(conjugate(io[0]), conjugate(in[0])), 2);
+      io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2])), 3);
+    } else {
+      uint k = g1 * W + i * (W / 8) + me;
+      uint v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
+      T2 a = io[k];
+      T2 b = conjugate(io[v]);
+      T2 t = swap(base);
+      X2(a, b);
+      b = mul(b, conjugate(t));
+      X2(a, b);
+
+      T2 c = in[k];
+      T2 d = conjugate(in[v]);
+      X2(c, d);
+      d = mul(d, conjugate(t));
+      X2(c, d);
+
+      a = mul(a, c);
+      b = mul(b, d);
+
+      X2(a, b);
+      b = mul(b, t);
+      X2(a, b);
+
+      io[k] = conjugate(a);
+      io[v] = b;
+    }
+  }
+}
+#endif
