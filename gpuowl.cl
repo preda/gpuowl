@@ -626,34 +626,6 @@ KERNEL(256) fftMiddleOut(P(T2) io) {
   write(SMALL_HEIGHT, MIDDLE, u, io, 0);
 }
 
-// io = io - delta.
-KERNEL(G_W) subtract(P(Word2) out, CP(Word2) in, CP(Word2) delta) {
-  uint g  = get_group_id(0);
-  uint me = get_local_id(0);
-  uint gx = g % NW;
-  uint gy = g / NW;
-
-  uint step = G_W * gx + WIDTH * CARRY_LEN * gy;
-  out   += step;
-  in    += step;
-  delta += step;
-  
-  Carry carry = 0;
-
-  for (int i = 0; i < CARRY_LEN - 1; ++i) {
-    uint k = kAt(gx, gy, i);
-    uint p = i * WIDTH + me;
-    out[p] = carryWord(in[p] - delta[p], &carry, k);
-  }
-
-  uint k = kAt(gx, gy, CARRY_LEN - 1);
-  uint p = (CARRY_LEN - 1) * WIDTH + me;
-  Word2 a = in[p] - delta[p];
-  a.x = carryStep(a.x, &carry, bitlen(2 * k + 0));
-  a.y = a.y + carry; // Sink carry into last word.
-  out[p] = a;
-}
-
 KERNEL(G_W) subtractT(P(T2) out, CP(T2) a, CP(T2) b) {
   uint g = get_group_id(0);
   uint me = get_local_id(0);
@@ -811,37 +783,42 @@ KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
-KERNEL(SMALL_HEIGHT / 2) square(P(T2) io) {
+KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
   uint W = SMALL_HEIGHT;
   uint H = ND / W;
 
-  uint line1 = get_group_id(0);  
   uint me = get_local_id(0);
-
-  if (line1 == 0 && me == 0) {
-    io[0]     = shl(foo(conjugate(io[0])), 2);
-    io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);
-    return;
-  }
-
+  uint line1 = get_group_id(0);
   uint line2 = (H - line1) % H;
   uint g1 = transPos(line1, MIDDLE, WIDTH);
   uint g2 = transPos(line2, MIDDLE, WIDTH);
-  uint k = g1 * W + me;
-  uint v = g2 * W + (W - 1) - me + (line1 == 0); // ((line - 1) >> 31);
-  T2 a = io[k];
-  T2 b = conjugate(io[v]);
-  T2 t = swap(slowTrig(me * H + line1, W * H));  
-  X2(a, b);
-  b = mul(b, conjugate(t));
-  X2(a, b);
-  a = sq(a);
-  b = sq(b);
-  X2(a, b);
-  b = mul(b, t);
-  X2(a, b);
-  io[k] = conjugate(a);
-  io[v] = b;
+
+  T2 base = slowTrig(me * H + line1, W * H);
+  T2 step = slowTrig(1, 8);
+  
+  for (uint i = 0; i < 4; ++i, base = mul(base, step)) {
+    if (i == 0 && line1 == 0 && me == 0) {
+      io[0]     = shl(foo(conjugate(io[0])), 2);
+      io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);    
+    } else {
+      uint k = g1 * W + i * (W / 8) + me;
+      uint v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me; // ((line - 1) >> 31);
+      T2 a = io[k];
+      T2 b = conjugate(io[v]);
+      T2 t = swap(base);
+        // swap(slowTrig(me * H + line1, W * H));  
+      X2(a, b);
+      b = mul(b, conjugate(t));
+      X2(a, b);
+      a = sq(a);
+      b = sq(b);
+      X2(a, b);
+      b = mul(b, t);
+      X2(a, b);
+      io[k] = conjugate(a);
+      io[v] = b;
+    }
+  }
 }
 
 // Like square(), but for multiplication.

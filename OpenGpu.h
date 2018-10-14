@@ -210,7 +210,6 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryA;
   Kernel carryM;
   Kernel carryB;
-  Kernel subtract;
   Kernel subtractT;
   
   Kernel transposeW, transposeH;
@@ -252,14 +251,13 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryA,   nW * (BIG_H/16)),
     LOAD(carryM,   nW * (BIG_H/16)),
     LOAD(carryB,   nW * (BIG_H/16)),
-    LOAD(subtract, nW * (BIG_H/16)),
     LOAD(subtractT, BIG_H),
     LOAD(transposeW,   (W/64) * (BIG_H/64)),
     LOAD(transposeH,   (W/64) * (BIG_H/64)),
     LOAD(transposeIn,  (W/64) * (BIG_H/64)),
     LOAD(transposeOut, (W/64) * (BIG_H/64)),
-    LOAD(square,   (hN / SMALL_H)),
-    LOAD(multiply, (hN / SMALL_H)),
+    LOAD(square,   hN / SMALL_H),
+    LOAD(multiply, hN / SMALL_H),
     LOAD(readResidue, 1),
     LOAD(isNotZero, 256),
     LOAD(isEqual, 256),
