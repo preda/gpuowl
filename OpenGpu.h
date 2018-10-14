@@ -302,43 +302,11 @@ class OpenGpu : public LowGpu<Buffer> {
     return queue.read<int>(bufSmallOut, 128);                    
   }
 
-  void tailFused(Buffer &buf) {
-    fftH(buf);
-    square(buf);
-    fftH(buf);
-  }
-
   void mulFused(Buffer &bufIo, Buffer &bufIn) {
     fftH(bufIo);
     fftH(bufIn);
     multiply(bufIo, bufIn);
     fftH(bufIo);
-  }
-  
-  void entryKerns(Buffer &in, Buffer &buf1, Buffer &buf2) {
-    fftP(in, buf1);
-    tW(buf1, buf2);
-    tailFused(buf2);
-    tH(buf2, buf1);
-  }
-
-  void exitKerns(Buffer &buf1, Buffer &out, bool doMul3) {    
-    fftW(buf1);
-    doMul3 ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
-    carryB(out, bufCarry);
-  }
-  
-  void oneIteration(Buffer &buf1, Buffer &buf2, Buffer &tmp, bool doMul3) {
-    if (useLongCarry) {
-      exitKerns(buf1, tmp, doMul3);
-      fftP(tmp, buf1);
-    } else {
-      carryFused(doMul3 ? 3 : 1, buf1, bufCarry, bufReady);
-    }
-        
-    tW(buf1, buf2);
-    tailFused(buf2);
-    tH(buf2, buf1);
   }
     
 public:
@@ -442,13 +410,13 @@ protected:
     transposeH(in, out);
   }
 
-  void modSqLoopAcc(Buffer &in, Buffer &out, int nIters, bool doAcc) override {
-    assert(nIters > 0);
+  void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls, bool doAcc) override {
+    assert(muls.size() > 0);
 
     fftP(in, buf1);
     if (doAcc) { fftP(bufAcc, buf3); }
 
-    for (int i = 0; ; ++i) {
+    for (auto it = muls.begin(), prevEnd = prev(muls.end()); ; ++it) {
       tW(buf1, buf2);
       fftH(buf2);
 
@@ -465,60 +433,31 @@ protected:
       fftH(buf2);
       tH(buf2, buf1);
 
-      if (!useLongCarry && i < nIters - 1) {
+      if (!useLongCarry && it < prevEnd && !*it) {
         carryFused(1, buf1, bufCarry, bufReady);
         if (doAcc) { carryFused(1, buf3, bufCarry, bufReady); }
       } else {
-        exitKerns(buf1, out, false);
-        if (doAcc) { exitKerns(buf3, bufAcc, false); }
-        assert(i < nIters);
-        if (i == nIters - 1) { break; }
+        assert(it < muls.end());
+        fftW(buf1);
+        *it ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
+        carryB(out, bufCarry);           
+       
+        if (doAcc) {
+          fftW(buf3);
+          carryA(buf3, bufAcc, bufCarry);
+          carryB(bufAcc, bufCarry);
+        }
+
+        if (it == prevEnd) { break; }
+        
         fftP(out, buf1);
         if (doAcc) { fftP(bufAcc, buf3); }
       }
     }
   }
 
-  /*
-  // The IBDWT convolution squaring loop with carry propagation, done nIters times.
-  void modSqLoop(Buffer &in, Buffer &out, int nIters) override {
-    assert(nIters > 0);
-
-    fftP(in, buf1);
-
-    for (int i = 0; ; ++i) {
-      tW(buf1, buf2);
-      fftH(buf2);
-      square(buf2);
-      fftH(buf2);
-      tH(buf2, buf1);
-
-      if (!useLongCarry && i < nIters - 1) {
-        carryFused(1, buf1, bufCarry, bufReady);        
-      } else {
-        exitKerns(buf1, out, false);
-        assert(i < nIters);
-        if (i == nIters - 1) { break; }
-        fftP(out, buf1);
-      }
-    }
-  }
-  */
-
-  // With a sequence of mul-by-3 bits.
-  void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls) override {
-    assert(muls.size() > 0);
-    
-    entryKerns(in, buf1, buf2);
-    
-    for (auto it = muls.begin(), prevEnd = prev(muls.end()); it < prevEnd; ++it) {
-      oneIteration(buf1, buf2, out, *it);
-    }
-    exitKerns(buf1, out, muls.back());
-  }
-
   // The modular multiplication io *= in.
-  void modMul(Buffer &in, Buffer &io, bool doMul3) {
+  void modMul(Buffer &in, Buffer &io) override {
     fftP(in, buf1);
     tW(buf1, buf3);
     
@@ -527,19 +466,13 @@ protected:
     
     mulFused(buf2, buf3);
 
-    tH(buf2, buf1);
-    exitKerns(buf1, io, doMul3);
+    tH(buf2, buf1);    
+
+    fftW(buf1);
+    carryA(buf1, io, bufCarry);
+    carryB(io, bufCarry);
   };
 
-  void gcdAccumulate(bool isFirst) override {
-    if (isFirst) {
-      subtract(bufAcc, bufData, bufBase);
-    } else {
-      subtract(bufAux, bufData, bufBase);
-      modMul(bufAux, bufAcc, false);
-    }
-  }
-  
   bool equalNotZero(Buffer &buf1, Buffer &buf2) {
     queue.zero(bufSmallOut, sizeof(int));
     u32 sizeBytes = N * sizeof(int);

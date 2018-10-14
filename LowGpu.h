@@ -19,10 +19,9 @@ protected:
   virtual vector<int> readOut(Buffer &buf) = 0;
   virtual void writeIn(const vector<int> &words, Buffer &buf) = 0;
   
-  virtual void modSqLoopAcc(Buffer &in, Buffer &out, int nIters, bool doAcc) = 0;
-  virtual void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls) = 0;
+  virtual void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls, bool doAcc) = 0;
   
-  virtual void modMul(Buffer &in, Buffer &io, bool doMul3) = 0;
+  virtual void modMul(Buffer &in, Buffer &io) = 0;
   virtual bool equalNotZero(Buffer &bufCheck, Buffer &bufAux) = 0;
   virtual u64 bufResidue(Buffer &buf) = 0;
   
@@ -77,8 +76,8 @@ public:
 
     u32 n = 0;
     for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
-      modSqLoopAcc(bufData, bufData, n, false);
-      modMul(bufBase, bufData, false);
+      modSqLoop(bufData, bufData, vector<bool>(n), false);
+      modMul(bufBase, bufData);
       copyFromTo(bufData, bufBase);
     }
 
@@ -87,26 +86,26 @@ public:
     
     blockSize /= n;
     for (u32 i = 0; i < blockSize - 1; ++i) {
-      modSqLoopAcc(bufData, bufData, n, false);
-      modMul(bufBase, bufData, false);
+      modSqLoop(bufData, bufData, vector<bool>(n), false);
+      modMul(bufBase, bufData);
     }
     
     writeBase(base);
-    modMul(bufBase, bufData, false);
+    modMul(bufBase, bufData);
   }
 
-  void updateCheck() { modMul(bufData, bufCheck, false); }
+  void updateCheck() { modMul(bufData, bufCheck); }
   
   void startCheck(int blockSize) override {
-    modSqLoopAcc(bufCheck, bufAux, blockSize, false);
-    modMul(bufBase, bufAux, false);
+    modSqLoop(bufCheck, bufAux, vector<bool>(blockSize), false);
+    modMul(bufBase, bufAux);
     updateCheck();
   }
 
   // invoked after startCheck() !
   bool finishCheck() override { return equalNotZero(bufCheck, bufAux); }
 
-  void dataLoop(int reps, bool doAcc) override { modSqLoopAcc(bufData, bufData, reps, doAcc); }
-  void dataLoop(const vector<bool> &muls) override { modSqLoop(bufData, bufData, muls); }
+  void dataLoop(int reps, bool doAcc) override { modSqLoop(bufData, bufData, vector<bool>(reps), doAcc); }
+  void dataLoop(const vector<bool> &muls) override { modSqLoop(bufData, bufData, muls, false); }
   u32 getFFTSize() override { return N; }
 };
