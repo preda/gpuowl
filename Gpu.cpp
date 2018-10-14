@@ -6,7 +6,6 @@
 #include "stats.h"
 #include "timeutil.h"
 #include "args.h"
-#include "Kset.h"
 #include "GCD.h"
 
 #include <gmp.h>

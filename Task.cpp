@@ -5,7 +5,6 @@
 #include "Result.h"
 #include "checkpoint.h"
 #include "args.h"
-#include "Kset.h"
 
 #include <cstdio>
 #include <cmath>
