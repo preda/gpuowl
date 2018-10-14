@@ -283,7 +283,7 @@ class OpenGpu : public LowGpu<Buffer> {
     
     setupWeights<double>(context, bufA, bufI, W, BIG_H, E);
 
-    carryFused.setFixedArgs(4, bufA, bufI, bufTrigW);
+    carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
     
     fftP.setFixedArgs(2, bufA, bufTrigW);
     fftW.setFixedArgs(1, bufTrigW);
@@ -434,8 +434,8 @@ protected:
       tH(buf2, buf1);
 
       if (!useLongCarry && it < prevEnd && !*it) {
-        carryFused(1, buf1, bufCarry, bufReady);
-        if (doAcc) { carryFused(1, buf3, bufCarry, bufReady); }
+        carryFused(buf1, bufCarry, bufReady);
+        if (doAcc) { carryFused(buf3, bufCarry, bufReady); }
       } else {
         assert(it < muls.end());
         fftW(buf1);
