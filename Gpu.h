@@ -34,14 +34,8 @@ public:
   virtual u64 dataResidue() = 0;
   virtual u64 checkResidue() = 0;
     
-  virtual void startCheck(int blockSize) = 0;
-  virtual bool finishCheck() = 0;
+  virtual bool doCheck(int blockSize) = 0;
   virtual void updateCheck() = 0;
-
-  bool checkAndUpdate(int blockSize) {
-    startCheck(blockSize);
-    return finishCheck();
-  }
   
   virtual void dataLoop(int reps, bool doAcc) = 0;
   virtual void dataLoop(const vector<bool> &muls) = 0;

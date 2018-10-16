@@ -96,14 +96,12 @@ public:
 
   void updateCheck() { modMul(bufData, bufCheck); }
   
-  void startCheck(int blockSize) override {
+  bool doCheck(int blockSize) override {
     modSqLoop(bufCheck, bufAux, vector<bool>(blockSize), false);
     modMul(bufBase, bufAux);
     updateCheck();
+    return equalNotZero(bufCheck, bufAux);
   }
-
-  // invoked after startCheck() !
-  bool finishCheck() override { return equalNotZero(bufCheck, bufAux); }
 
   void dataLoop(int reps, bool doAcc) override { modSqLoop(bufData, bufData, vector<bool>(reps), doAcc); }
   void dataLoop(const vector<bool> &muls) override { modSqLoop(bufData, bufData, muls, false); }

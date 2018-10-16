@@ -260,8 +260,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
     }
 
     vector<u32> check = this->roundtripCheck();
-    this->startCheck(blockSize);
-    bool ok = this->finishCheck();
+    bool ok = this->doCheck(blockSize);
 
     bool doSave = k < kEnd && ok;
     if (doSave) { PRPState{k, B1, blockSize, res64, check, base}.save(E); }
