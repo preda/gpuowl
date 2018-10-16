@@ -34,17 +34,6 @@ public:
   bool write(const Args &args, const Task &task) override;
 };
 
-/*
-class PFResult : public Result {
-public:
-  PFResult(const string &factor) :
-    Result(factor) {
-  }
-
-  bool write(const Args &args, const Task &task) override;
-};
-*/
-
 class PRPResult : public Result {
   bool isPrime;
   u32 B1;

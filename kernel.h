@@ -13,7 +13,7 @@ class Kernel {
   Holder<cl_kernel> kernel;
   cl_queue queue;
   int workGroups;
-  std::string name;
+  string name;
   u64 timeSum;
   u64 nCalls;
   bool doTime;

@@ -37,7 +37,6 @@ std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, u32 nIters 
 }
 
 void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, Stats &stats) {
-  // std::string errors = !nErrors ? "" : ("; (" + std::to_string(nErrors) + " errors)");
   log("%s %s (check %.2fs)\n",
       checkOK ? "OK" : "EE",
       makeLogStr(E, k, res, stats.getStats()).c_str(),
@@ -195,7 +194,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
   int startK = k;
   Stats stats;
 
-  // Number of sequential errors with no success in between. If this ever gets high enough, stop.
+  // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
   int nSeqErrors = 0;
 
   bool isPrime = false;

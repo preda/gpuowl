@@ -105,19 +105,19 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   };
 
   double total = 0;
-  std::vector<Info> infos;
+  vector<Info> infos;
   for (Kernel *k : kerns) {
     Info info{k->getName(), k->resetStats()};
     infos.push_back(info);
     total += info.stats.sum;
   }
 
-  std::sort(infos.begin(), infos.end(), [](const Info &a, const Info &b) { return a.stats.sum >= b.stats.sum; });
+  // std::sort(infos.begin(), infos.end(), [](const Info &a, const Info &b) { return a.stats.sum >= b.stats.sum; });
 
   for (Info info : infos) {
     StatsInfo stats = info.stats;
     float percent = 100 / total * stats.sum;
-    if (percent >= .1f) {
+    if (true || percent >= .1f) {
       log("%4.1f%% %-14s : %6.0f [%5.0f, %6.0f] us/call   x %5d calls\n",
           percent, info.name.c_str(), stats.mean, stats.low, stats.high, stats.n);
     }
@@ -299,13 +299,6 @@ class OpenGpu : public LowGpu<Buffer> {
     readResidue(buf, bufSmallOut, start);
     return queue.read<int>(bufSmallOut, 128);                    
   }
-
-  void mulFused(Buffer &bufIo, Buffer &bufIn) {
-    fftH(bufIo);
-    fftH(bufIn);
-    multiply(bufIo, bufIn);
-    fftH(bufIo);
-  }
     
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args) {
@@ -373,7 +366,7 @@ protected:
   
   void logTimeKernels() {
     ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
-          &carryA, &carryM, &carryB,
+          &carryA, &carryM, &carryB, &subtractT,
           &transposeW, &transposeH, &transposeIn, &transposeOut,
           &square, &multiply, &readResidue, &isNotZero, &isEqual});
   }
@@ -462,7 +455,10 @@ protected:
     fftP(io, buf1);
     tW(buf1, buf2);
     
-    mulFused(buf2, buf3);
+    fftH(buf2);
+    fftH(buf3);
+    multiply(buf2, buf3);
+    fftH(buf2);
 
     tH(buf2, buf1);    
 

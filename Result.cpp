@@ -69,7 +69,7 @@ bool PRPResult::write(const Args &args, const Task &task) {
     
     snprintf(buf, sizeof(buf), "%s%s, \"base\":{\"b1\":\"%u\", \"bias\":{\"2\":19}%s}",
              factorStr(factor).c_str(), r1.c_str(), B1, r2.c_str());
-    return writeResult(buf, task.exponent, "PRP-1", status, task.AID, args.user, args.cpu);
+    return writeResult(buf, task.exponent, "PRP,P-1", status, task.AID, args.user, args.cpu);
   }
   assert(false);
   return false;
