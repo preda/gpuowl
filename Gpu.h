@@ -47,7 +47,6 @@ public:
 
   virtual vector<u32> readData() = 0; // Used directly only by PM1 (PRP uses roundtripData()).
 
-  // virtual void gcdAccumulate(bool isFirst) = 0;
   virtual vector<u32> readAcc() = 0;
 
   bool isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outBaseRes, string *outFactor);
