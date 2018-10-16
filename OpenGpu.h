@@ -217,6 +217,7 @@ class OpenGpu : public LowGpu<Buffer> {
 
   Kernel square;
   Kernel multiply;
+  Kernel tailFused;
   Kernel readResidue;
   Kernel isNotZero;
   Kernel isEqual;
@@ -258,6 +259,7 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(transposeOut, (W/64) * (BIG_H/64)),
     LOAD(square,   hN / SMALL_H),
     LOAD(multiply, hN / SMALL_H),
+    LOAD(tailFused, (hN / SMALL_H) / 2),
     LOAD(readResidue, 1),
     LOAD(isNotZero, 256),
     LOAD(isEqual, 256),
@@ -289,6 +291,7 @@ class OpenGpu : public LowGpu<Buffer> {
     
     carryA.setFixedArgs(3, bufI);
     carryM.setFixedArgs(3, bufI);
+    tailFused.setFixedArgs(1, bufTrigH);
     
     queue.zero(bufReady, BIG_H * sizeof(int));
     queue.zero(bufAcc,   N * sizeof(int));
@@ -368,7 +371,7 @@ protected:
     ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
           &carryA, &carryM, &carryB, &subtractT,
           &transposeW, &transposeH, &transposeIn, &transposeOut,
-          &square, &multiply, &readResidue, &isNotZero, &isEqual});
+          &square, &multiply, &tailFused, &readResidue, &isNotZero, &isEqual});
   }
   
   // Implementation of LowGpu's abstract methods below.
@@ -409,19 +412,21 @@ protected:
 
     for (auto it = muls.begin(), prevEnd = prev(muls.end()); ; ++it) {
       tW(buf1, buf2);
-      fftH(buf2);
 
       if (doAcc) {
+        fftH(buf2);
         tW(buf3, buf1);
         fftH(buf1);
         subtractT(buf3, buf2, bufBaseDown);
         multiply(buf1, buf3);
         fftH(buf1);
         tH(buf1, buf3);
+        square(buf2);
+        fftH(buf2);
+      } else {
+        tailFused(buf2);
       }
 
-      square(buf2);
-      fftH(buf2);
       tH(buf2, buf1);
 
       if (!useLongCarry && it < prevEnd && !*it) {

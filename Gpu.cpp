@@ -205,7 +205,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outB
     assert(k % blockSize == 0);
     bool doAcc = (k >= beginAcc * blockSize) && (k < endAcc * blockSize);
     nGcdAcc += doAcc ? blockSize : 0;
-    if (kEnd - k <= blockSize) {
+    if (kEnd > k && kEnd - k <= blockSize) {
       this->dataLoop(kEnd - k, doAcc);
       auto words = this->roundtripData();
       u64 res64 = residue(words);
