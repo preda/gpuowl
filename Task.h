@@ -24,6 +24,9 @@ struct Task {
   // TF only
   u32 bitHi;
 
+  // PRP,P-1
+  u32 B1, B2;
+
   operator bool() { return kind != NONE; }
 
   // A different task may need to be done beforehand.

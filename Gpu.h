@@ -49,5 +49,5 @@ public:
 
   virtual vector<u32> readAcc() = 0;
 
-  bool isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outBaseRes, string *outFactor);
+  bool isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2, u64 *outRes, u64 *outBaseRes, string *outFactor);
 };

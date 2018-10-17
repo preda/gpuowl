@@ -159,26 +159,30 @@ pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
   return make_pair(check, base);
 }
 
-bool Gpu::isPrimePRP(u32 E, const Args &args, u32 *outB1, u64 *outRes, u64 *outBaseRes, string *outFactor) {
+bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2, u64 *outRes, u64 *outBaseRes, string *outFactor) {
   u32 N = this->getFFTSize();
-  log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u\n", E, N/1024, E / float(N), args.B1);
+  // if (B2 == 0) { B2 = B1; }
+  log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u, B2 %u\n", E, N/1024, E / float(N), B1, B2);
 
   if (!PRPState::exists(E)) {
-    auto[check, base] = seedPRP(E, args.B1);
-    PRPState{0, args.B1, args.blockSize, residue(base), check, base}.save(E);
+    auto[check, base] = seedPRP(E, B1);
+    PRPState{0, B1, args.blockSize, residue(base), check, base}.save(E);
   }
 
-  PRPState loaded = loadPRP(this, E, args.B1, args.blockSize);
+  PRPState loaded = loadPRP(this, E, B1, args.blockSize);
   u32 k = loaded.k;
-  u32 B1 = loaded.B1;
-  *outB1 = B1;
-
+  
+  if (loaded.B1 != B1) {
+    log("B1 mismatch %u %u\n", B1, loaded.B1);
+    throw "B1 mismatch";
+  }
+  
   u32 blockSize = loaded.blockSize;
 
   const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
 
-  u32 B2 = args.B2 ? args.B2 : kEnd;
+  if (B2 == 0 && B1 != 0) { B2 = kEnd; }
   u32 beginAcc = B2 / 2 / blockSize;
   u32 endAcc   = (B2 - 1) / blockSize + 1;
   
