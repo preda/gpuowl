@@ -19,8 +19,8 @@ int main(int argc, char **argv) {
   
   try {
     while (Task task = Worktodo::getTask()) {
-      task = task.morph(&args);    
-      if (auto result = task.execute(args)) { result->write(args, task); }
+      task = task.morph(&args);
+      task.execute(args);
       Worktodo::deleteTask(task);
     }
   } catch (const char *mes) {

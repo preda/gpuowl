@@ -47,24 +47,22 @@ vector<string> getDevices() {
   return ret;
 }
 
-unique_ptr<Result> Task::execute(const Args &args) {
+void Task::execute(const Args &args) {
   if (kind == TF) {
     assert(bitLo <= bitHi);
-    if (bitLo == bitHi) { return nullptr; }
+    if (bitLo == bitHi) { return; }
     
     auto state = TFState::load(exponent);
     u32 classDone = (state.bitHi >= bitHi) ? state.nDone : 0;
     u64 beginK = 0, endK = 0;
     string factor = makeTF(args)->findFactor(exponent, bitLo, bitHi, classDone, state.nTotal, &beginK, &endK, args.timeKernels);
-    return make_unique<TFResult>(factor, beginK, endK);
+    TFResult(factor, beginK, endK).write(args, *this);
   } else if (kind == PRP) {
     u64 res64 = 0;
     u64 baseRes64 = 0;
     string factor;
     u32 B1 = 0;
     bool isPrime = makeGpu(exponent, args)->isPrimePRP(exponent, args, &B1, &res64, &baseRes64, &factor);
-    return make_unique<PRPResult>(factor, isPrime, B1, res64, baseRes64);
+    PRPResult(factor, isPrime, B1, res64, baseRes64).write(args, *this);
   }
-  assert(false);
-  return nullptr;
 }

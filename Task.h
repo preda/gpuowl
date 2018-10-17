@@ -29,5 +29,5 @@ struct Task {
   // A different task may need to be done beforehand.
   Task morph(Args *args);
 
-  unique_ptr<Result> execute(const Args &args);
+  void execute(const Args &args);
 };
