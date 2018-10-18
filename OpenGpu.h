@@ -210,13 +210,13 @@ class OpenGpu : public LowGpu<Buffer> {
   Kernel carryA;
   Kernel carryM;
   Kernel carryB;
-  Kernel subtractT;
   
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
 
   Kernel square;
   Kernel multiply;
+  Kernel multiplySub;
   Kernel tailFused;
   Kernel readResidue;
   Kernel isNotZero;
@@ -252,13 +252,13 @@ class OpenGpu : public LowGpu<Buffer> {
     LOAD(carryA,   nW * (BIG_H/16)),
     LOAD(carryM,   nW * (BIG_H/16)),
     LOAD(carryB,   nW * (BIG_H/16)),
-    LOAD(subtractT, BIG_H),
     LOAD(transposeW,   (W/64) * (BIG_H/64)),
     LOAD(transposeH,   (W/64) * (BIG_H/64)),
     LOAD(transposeIn,  (W/64) * (BIG_H/64)),
     LOAD(transposeOut, (W/64) * (BIG_H/64)),
     LOAD(square,   hN / SMALL_H),
     LOAD(multiply, hN / SMALL_H),
+    LOAD(multiplySub, hN / SMALL_H),
     LOAD(tailFused, (hN / SMALL_H) / 2),
     LOAD(readResidue, 1),
     LOAD(isNotZero, 256),
@@ -369,9 +369,9 @@ protected:
   
   void logTimeKernels() {
     ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
-          &carryA, &carryM, &carryB, &subtractT,
+          &carryA, &carryM, &carryB,
           &transposeW, &transposeH, &transposeIn, &transposeOut,
-          &square, &multiply, &tailFused, &readResidue, &isNotZero, &isEqual});
+          &square, &multiply, &multiplySub, &tailFused, &readResidue, &isNotZero, &isEqual});
   }
   
   // Implementation of LowGpu's abstract methods below.
@@ -417,8 +417,7 @@ protected:
         fftH(buf2);
         tW(buf3, buf1);
         fftH(buf1);
-        subtractT(buf3, buf2, bufBaseDown);
-        multiply(buf1, buf3);
+        multiplySub(buf1, buf2, bufBaseDown);
         fftH(buf1);
         tH(buf1, buf3);
         square(buf2);

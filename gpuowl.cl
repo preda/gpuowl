@@ -626,16 +626,6 @@ KERNEL(256) fftMiddleOut(P(T2) io) {
   write(SMALL_HEIGHT, MIDDLE, u, io, 0);
 }
 
-KERNEL(G_W) subtractT(P(T2) out, CP(T2) a, CP(T2) b) {
-  uint g = get_group_id(0);
-  uint me = get_local_id(0);
-  uint step = WIDTH * g;
-  out += step;
-  a   += step;
-  b   += step;
-  for (uint i = 0; i < NW; ++i) { out[G_W * i + me] = a[G_W * i + me] - b[G_W * i + me]; }
-}
-
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
 void carryACore(uint mul, const T2 *in, const T2 *A, Word2 *out, Carry *carryOut) {
@@ -828,7 +818,7 @@ KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   uint me = get_local_id(0);
 
   if (line1 == 0 && me == 0) {
-    io[0]     = shl(foo2(conjugate(io[0]), conjugate(in[0])), 2);
+    io[0]     = shl(conjugate(foo2(io[0], in[0])), 2);
     io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2])), 3);
     return;
   }
@@ -847,6 +837,48 @@ KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
 
   T2 c = in[k];
   T2 d = conjugate(in[v]);
+  X2(c, d);
+  d = mul(d, conjugate(t));
+  X2(c, d);
+
+  a = mul(a, c);
+  b = mul(b, d);
+
+  X2(a, b);
+  b = mul(b, t);
+  X2(a, b);
+
+  io[k] = conjugate(a);
+  io[v] = b;
+}
+
+KERNEL(SMALL_HEIGHT / 2) multiplySub(P(T2) io, CP(T2) in, CP(T2) delta) {
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+  
+  uint line1 = get_group_id(0);
+  uint me = get_local_id(0);
+
+  if (line1 == 0 && me == 0) {
+    io[0]     = shl(conjugate(foo2(io[0], in[0] - delta[0])), 2);
+    io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2] - delta[W / 2])), 3);
+    return;
+  }
+
+  uint line2 = (H - line1) % H;
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
+  uint k = g1 * W + me;
+  uint v = g2 * W + (W - 1) - me + (line1 == 0);
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  T2 t = swap(slowTrig(me * H + line1, W * H));
+  X2(a, b);
+  b = mul(b, conjugate(t));
+  X2(a, b);
+
+  T2 c = in[k] - delta[k];
+  T2 d = conjugate(in[v] - delta[v]);
   X2(c, d);
   d = mul(d, conjugate(t));
   X2(c, d);
