@@ -202,6 +202,9 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
   u32 N = this->getFFTSize();
   log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u\n", E, N/1024, E / float(N), B1);
 
+  future<vector<u32>> ksetFuture;
+  if (B1 != 0) { ksetFuture = async(launch::async, kselect, E, B1); }
+  
   if (!PRPState::exists(E)) {
     auto[check, base] = seedPRP(E, B1);
     PRPState{0, B1, args.blockSize, residue(base), check, base}.save(E);
@@ -231,7 +234,13 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
 
   int startK = k;
 
-  auto kset = asSet(kselect(E, B1));
+  unordered_set<u32> kset;
+  if (ksetFuture.valid()) {
+    ksetFuture.wait();
+    kset = asSet(ksetFuture.get());
+  }
+  
+  log("Selected %u P-1 trial points\n", u32(kset.size()));
   
   Stats stats;
 
@@ -266,7 +275,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
 
     if (gcd->isReady()) {
       string factor = gcd->get();
-      log("GCD says: %s\n", factor.empty() ? "no factor" : factor.c_str());
+      log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
       if (!factor.empty()) {
         *outRes = 0;
         *outFactor = factor;
@@ -301,15 +310,27 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
     
     doLog(E, k, timer.deltaMillis(), res64, ok, stats);
     
-    bool wantGCD = ok && nGcdAcc;
+    bool wantGCD = ok && (nGcdAcc > 10000 || doStop);
     if (wantGCD) {
       if (gcd->isOngoing()) {
-        log("GCD: previous didn't finish\n");
-      } else {
-        log("Starting GCD over %u Ks\n", nGcdAcc);
-        gcd->start(E, this->readAcc(), 0);
-        nGcdAcc = 0;
+        log("Waiting for GCD to finish..\n");
+        gcd->wait();
       }
+
+      if (gcd->isReady()) {
+        string factor = gcd->get();
+        log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
+        if (!factor.empty()) {
+          *outRes = 0;
+          *outFactor = factor;
+          return false;
+        }
+      }
+
+      assert(!gcd->isOngoing());      
+      log("Starting GCD over %u points\n", nGcdAcc);
+      gcd->start(E, this->readAcc(), 0);
+      nGcdAcc = 0;
     }
 
     if (ok) {
@@ -332,16 +353,18 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
       if (gcd->isOngoing()) {
         log("Waiting for GCD to finish..\n");
         gcd->wait();
-        if (gcd->isReady()) {
-          string factor = gcd->get();
-          log("GCD says: %s\n", factor.empty() ? "no factor yet" : factor.c_str());
-          if (!factor.empty()) {
-            *outRes = 0;
-            *outFactor = factor;
-            return false;
-          }
+      }
+      if (gcd->isReady()) {
+        string factor = gcd->get();
+        log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
+        if (!factor.empty()) {
+          *outRes = 0;
+          *outFactor = factor;
+          return false;
         }
       }
+      assert(!gcd->isOngoing());
+      assert(nGcdAcc == 0 || !ok);
       throw "stop requested";
     }
   }
