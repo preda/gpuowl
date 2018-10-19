@@ -404,17 +404,54 @@ protected:
     transposeH(in, out);
   }
 
-  void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls, bool doAcc) override {
-    assert(muls.size() > 0);
+  void modSqLoopMul(Buffer &in, Buffer &out, const vector<bool> &muls) override {
+    assert(!muls.empty());
 
     fftP(in, buf1);
-    if (doAcc) { fftP(bufAcc, buf3); }
-
+    
     for (auto it = muls.begin(), prevEnd = prev(muls.end()); ; ++it) {
       tW(buf1, buf2);
+      tailFused(buf2);
+      tH(buf2, buf1);
 
-      if (doAcc) {
+      if (!useLongCarry && it < prevEnd && !*it) {
+        carryFused(buf1, bufCarry, bufReady);
+      } else {
+        assert(it < muls.end());
+        fftW(buf1);
+        *it ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
+        carryB(out, bufCarry);
+        if (it == prevEnd) { break; }        
+        fftP(out, buf1);
+      }
+    }
+  }
+
+  /*
+  template<typename T> static bool isAnySet(T begin, T end) {
+    for (auto it = begin; it < end; ++it) { if (*it) { return true; }}
+    return false;
+  }
+  */
+
+  void exitKerns(Buffer &buf, Buffer &bufWords) {
+    fftW(buf);
+    carryA(buf, bufWords, bufCarry);
+    carryB(bufWords, bufCarry);
+  }
+  
+  void modSqLoopAcc(Buffer &io, const vector<bool> &accs) override {
+    assert(!accs.empty());
+    bool dataIsOut = true;
+    bool accIsOut  = true;
+    
+    for (auto it = accs.begin(), end = accs.end(); it < end; ++it) {
+      if (dataIsOut) { fftP(io, buf1); }
+      tW(buf1, buf2);
+
+      if (*it) {
         fftH(buf2);
+        if (accIsOut) { fftP(bufAcc, buf3); }
         tW(buf3, buf1);
         fftH(buf1);
         multiplySub(buf1, buf2, bufBaseDown);
@@ -422,31 +459,24 @@ protected:
         tH(buf1, buf3);
         square(buf2);
         fftH(buf2);
+
+        accIsOut = useLongCarry || !any_of(next(it), end, [](bool on) {return on; });
+        if (accIsOut) {
+          exitKerns(buf3, bufAcc);
+        } else {
+          carryFused(buf3, bufCarry, bufReady);
+        }
       } else {
         tailFused(buf2);
       }
-
+      
       tH(buf2, buf1);
 
-      if (!useLongCarry && it < prevEnd && !*it) {
-        carryFused(buf1, bufCarry, bufReady);
-        if (doAcc) { carryFused(buf3, bufCarry, bufReady); }
+      dataIsOut = useLongCarry || it == prev(end);
+      if (dataIsOut) {
+        exitKerns(buf1, io);
       } else {
-        assert(it < muls.end());
-        fftW(buf1);
-        *it ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
-        carryB(out, bufCarry);           
-       
-        if (doAcc) {
-          fftW(buf3);
-          carryA(buf3, bufAcc, bufCarry);
-          carryB(bufAcc, bufCarry);
-        }
-
-        if (it == prevEnd) { break; }
-        
-        fftP(out, buf1);
-        if (doAcc) { fftP(bufAcc, buf3); }
+        carryFused(buf1, bufCarry, bufReady);
       }
     }
   }

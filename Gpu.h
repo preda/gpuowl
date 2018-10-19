@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <unordered_set>
 
 struct Args;
 class GCD;
@@ -36,9 +37,10 @@ public:
     
   virtual bool doCheck(int blockSize) = 0;
   virtual void updateCheck() = 0;
-  
-  virtual void dataLoop(int reps, bool doAcc) = 0;
-  virtual void dataLoop(const vector<bool> &muls) = 0;
+
+  // returns nb. of Ks selected for GCD accumulation.
+  virtual u32 dataLoopAcc(u32 kBegin, u32 kEnd, const unordered_set<u32> &kset) = 0;
+  virtual void dataLoopMul(const vector<bool> &muls) = 0;
   
   virtual void finish() = 0;
 
@@ -49,5 +51,5 @@ public:
 
   virtual vector<u32> readAcc() = 0;
 
-  bool isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2, u64 *outRes, u64 *outBaseRes, string *outFactor);
+  bool isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseRes, string *outFactor);
 };

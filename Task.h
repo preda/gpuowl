@@ -25,7 +25,7 @@ struct Task {
   u32 bitHi;
 
   // PRP,P-1
-  u32 B1, B2;
+  u32 B1;
 
   operator bool() { return kind != NONE; }
 

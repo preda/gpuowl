@@ -21,8 +21,9 @@ void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
-#define BASE_VERSION "4.4"
+#define BASE_VERSION "4.5"
 // Reason for version change:
+// 4.5 : yet another kset schedule.
 // 4.4 : new PRP,P-1 schedule.
 // 4.3 : drop P-1 as standalone task and savefile. Background GCD.
 // 4.2 : change PRP residue type to "type-4" (from "type-1").

@@ -7,6 +7,7 @@
 #include "timeutil.h"
 #include "args.h"
 #include "GCD.h"
+#include "Primes.h"
 
 #include <gmp.h>
 #include <cmath>
@@ -127,7 +128,7 @@ vector<u32> Gpu::computeBase(u32 E, u32 B1) {
   u32 k = 0;
   while (k < bits.size()) {
     u32 nIts = min(u32(bits.size() - k), 1000u);
-    this->dataLoop(vector<bool>(bits.begin() + k, bits.begin() + (k + nIts)));
+    this->dataLoopMul(vector<bool>(bits.begin() + k, bits.begin() + (k + nIts)));
     this->finish();
     stats.add(timer.deltaMillis() / float(nIts));
     k += nIts;
@@ -159,10 +160,47 @@ pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
   return make_pair(check, base);
 }
 
-bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2, u64 *outRes, u64 *outBaseRes, string *outFactor) {
+static vector<u32> kselect(u32 E, u32 B1) {
+  if (!B1) { return vector<u32>(); }
+  
+  Primes primes(E + 1000);
+  vector<bool> covered(E);
+  vector<bool> on(E);
+  
+  // u32 prevP = 0;  
+  for (u32 p : primes.from(B1)) {
+    u32 z = primes.zn2(p);
+    if (z >= E) {
+      // fprintf(stderr, "end: %u %u\n", prevP, p);
+      break;
+    }
+
+    if (!covered[z]) {
+      assert(!on[z]);
+      for (u32 d : primes.divisors(z)) {
+        covered[d] = true;
+        on[d] = false;
+      }
+      on[z] = true;
+    }
+    // prevP = p;    
+  }
+
+  vector<u32> ret;
+  for (u32 k = 0; k < E; ++k) {
+    if (on[k]) {
+      ret.push_back(k);
+      // if (k % 6986 == 0) { log("K(6986): %u\n", k); }
+    }
+  }
+  return ret;
+}
+
+static auto asSet(const vector<u32> &v) { return unordered_set<u32>(v.begin(), v.end()); }
+
+bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseRes, string *outFactor) {
   u32 N = this->getFFTSize();
-  // if (B2 == 0) { B2 = B1; }
-  log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u, B2 %u\n", E, N/1024, E / float(N), B1, B2);
+  log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u\n", E, N/1024, E / float(N), B1);
 
   if (!PRPState::exists(E)) {
     auto[check, base] = seedPRP(E, B1);
@@ -182,10 +220,6 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2, u64 *outRes, u64 *
   const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
 
-  if (B2 == 0 && B1 != 0) { B2 = kEnd; }
-  u32 beginAcc = B2 / 2 / blockSize;
-  u32 endAcc   = (B2 - 1) / blockSize + 1;
-  
   vector<u32> base = loaded.base;
   
   const u64 baseRes64 = residue(base);
@@ -196,6 +230,9 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2, u64 *outRes, u64 *
   oldHandler = signal(SIGINT, myHandler);
 
   int startK = k;
+
+  auto kset = asSet(kselect(E, B1));
+  
   Stats stats;
 
   // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
@@ -207,10 +244,8 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2, u64 *outRes, u64 *
   int nGcdAcc = 0;
   while (true) {
     assert(k % blockSize == 0);
-    bool doAcc = (k >= beginAcc * blockSize) && (k < endAcc * blockSize);
-    nGcdAcc += doAcc ? blockSize : 0;
-    if (kEnd > k && kEnd - k <= blockSize) {
-      this->dataLoop(kEnd - k, doAcc);
+    if (k < kEnd && k + blockSize >= kEnd) {
+      nGcdAcc += this->dataLoopAcc(k, kEnd, kset);
       auto words = this->roundtripData();
       u64 res64 = residue(words);
       isPrime = (words == base || words == bitNeg(base));
@@ -221,22 +256,17 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2, u64 *outRes, u64 *
       *outBaseRes = baseRes64;
       int itersLeft = blockSize - (kEnd - k);
       assert(itersLeft > 0);
-      this->dataLoop(itersLeft, doAcc);
-      k += blockSize;
+      nGcdAcc += this->dataLoopAcc(kEnd, kEnd + itersLeft, kset);
     } else {
-      do {
-        u32 nIters = blockSize;
-        assert(nIters > 0);
-        this->dataLoop(nIters, doAcc);
-        k += nIters;
-      } while (k % blockSize != 0);
+      nGcdAcc += this->dataLoopAcc(k, k + blockSize, kset);
     }
+    k += blockSize;
 
     u64 res64 = this->dataResidue(); // implies this->finish();
 
     if (gcd->isReady()) {
       string factor = gcd->get();
-      log("GCD says: %s\n", factor.empty() ? "still no factor" : factor.c_str());
+      log("GCD says: %s\n", factor.empty() ? "no factor" : factor.c_str());
       if (!factor.empty()) {
         *outRes = 0;
         *outFactor = factor;
@@ -283,7 +313,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2, u64 *outRes, u64 *
     }
 
     if (ok) {
-      if (isPrime || (k >= kEnd && k >= B2)) { return isPrime; }
+      if (isPrime || k >= kEnd) { return isPrime; }
       nSeqErrors = 0;
     } else {
       if (++nSeqErrors > 2) {

@@ -15,18 +15,18 @@ Task Worktodo::getTask() {
       u32 exp = 0;
       char outAID[64] = {0};
       u32 bitLo = 0, bitHi = 0;
-      u32 B1 = 0, B2 = 0;
+      u32 B1 = 0;
       
       // temporarilly PFactor lines are parsed as PRP-1.
       
-      if (sscanf(line, "%u,B1:%u,B2:%u", &exp, &B1, &B2) == 3 ||
+      if (sscanf(line, "%u,B1:%u", &exp, &B1) == 2 ||
           sscanf(line, "%u,%d", &exp, &bitLo) == 2 ||
           sscanf(line, "%u", &exp) == 1 ||
           sscanf(line, "PRP=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
           sscanf(line, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
           sscanf(line, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3 ||
           sscanf(line, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-        return Task{Task::PRP, exp, outAID, line, bitLo, bitHi, B1, B2};
+        return Task{Task::PRP, exp, outAID, line, bitLo, bitHi, B1};
       }
 
       outAID[0] = 0;

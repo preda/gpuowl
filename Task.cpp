@@ -61,7 +61,7 @@ void Task::execute(const Args &args) {
     u64 res64 = 0;
     u64 baseRes64 = 0;
     string factor;
-    bool isPrime = makeGpu(exponent, args)->isPrimePRP(exponent, args, B1, B2, &res64, &baseRes64, &factor);
+    bool isPrime = makeGpu(exponent, args)->isPrimePRP(exponent, args, B1, &res64, &baseRes64, &factor);
     PRPResult(factor, isPrime, B1, res64, baseRes64).write(args, *this);
   }
 }

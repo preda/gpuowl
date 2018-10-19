@@ -1,3 +1,5 @@
+// Copyright 2018 Mihai Preda
+
 #include "GCD.h"
 
 #include <gmp.h>

@@ -19,7 +19,8 @@ protected:
   virtual vector<int> readOut(Buffer &buf) = 0;
   virtual void writeIn(const vector<int> &words, Buffer &buf) = 0;
   
-  virtual void modSqLoop(Buffer &in, Buffer &out, const vector<bool> &muls, bool doAcc) = 0;
+  virtual void modSqLoopMul(Buffer &in, Buffer &out, const vector<bool> &muls) = 0;
+  virtual void modSqLoopAcc(Buffer &io, const vector<bool> &muls) = 0;
   
   virtual void modMul(Buffer &in, Buffer &io) = 0;
   virtual bool equalNotZero(Buffer &bufCheck, Buffer &bufAux) = 0;
@@ -76,7 +77,7 @@ public:
 
     u32 n = 0;
     for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
-      modSqLoop(bufData, bufData, vector<bool>(n), false);
+      dataLoopMul(vector<bool>(n));
       modMul(bufBase, bufData);
       copyFromTo(bufData, bufBase);
     }
@@ -86,7 +87,7 @@ public:
     
     blockSize /= n;
     for (u32 i = 0; i < blockSize - 1; ++i) {
-      modSqLoop(bufData, bufData, vector<bool>(n), false);
+      dataLoopMul(vector<bool>(n));
       modMul(bufBase, bufData);
     }
     
@@ -97,13 +98,26 @@ public:
   void updateCheck() { modMul(bufData, bufCheck); }
   
   bool doCheck(int blockSize) override {
-    modSqLoop(bufCheck, bufAux, vector<bool>(blockSize), false);
+    modSqLoopMul(bufCheck, bufAux, vector<bool>(blockSize));
     modMul(bufBase, bufAux);
     updateCheck();
     return equalNotZero(bufCheck, bufAux);
   }
 
-  void dataLoop(int reps, bool doAcc) override { modSqLoop(bufData, bufData, vector<bool>(reps), doAcc); }
-  void dataLoop(const vector<bool> &muls) override { modSqLoop(bufData, bufData, muls, false); }
+  u32 dataLoopAcc(u32 kBegin, u32 kEnd, const unordered_set<u32> &kset) {
+    assert(kEnd > kBegin);
+    vector<bool> accs;
+    u32 nAcc = 0;
+    for (u32 k = kBegin; k < kEnd; ++k) {
+      bool on = kset.count(k);
+      accs.push_back(on);
+      nAcc += on;
+    }
+    assert(accs.size() == kEnd - kBegin);
+    modSqLoopAcc(bufData, accs);
+    return nAcc;
+  }
+  
+  void dataLoopMul(const vector<bool> &muls) override { modSqLoopMul(bufData, bufData, muls); }
   u32 getFFTSize() override { return N; }
 };
