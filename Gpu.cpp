@@ -162,28 +162,26 @@ pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
 
 static vector<u32> kselect(u32 E, u32 B1) {
   if (!B1) { return vector<u32>(); }
-  
-  Primes primes(E + 1000);
+
+  // We want to go a bit beyond E.
+  // Anyway we only consider primes with z(p) < E. At small cost we cover more primes.
+  Primes primes(E + E/2);
   vector<bool> covered(E);
   vector<bool> on(E);
   
   // u32 prevP = 0;  
   for (u32 p : primes.from(B1)) {
     u32 z = primes.zn2(p);
-    if (z >= E) {
-      // fprintf(stderr, "end: %u %u\n", prevP, p);
-      break;
-    }
-
-    if (!covered[z]) {
-      assert(!on[z]);
-      for (u32 d : primes.divisors(z)) {
-        covered[d] = true;
-        on[d] = false;
+    if (z < E) {
+      if (!covered[z]) {
+        assert(!on[z]);
+        for (u32 d : primes.divisors(z)) {
+          covered[d] = true;
+          on[d] = false;
+        }
+        on[z] = true;
       }
-      on[z] = true;
     }
-    // prevP = p;    
   }
 
   vector<u32> ret;
