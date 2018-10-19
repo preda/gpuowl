@@ -273,8 +273,8 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
 
     if (gcd->isReady()) {
       string factor = gcd->get();
-      log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
       if (!factor.empty()) {
+        log("GCD: %s\n", factor.c_str());
         *outRes = 0;
         *outFactor = factor;
         return false;
@@ -317,8 +317,8 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
 
       if (gcd->isReady()) {
         string factor = gcd->get();
-        log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
         if (!factor.empty()) {
+          log("GCD: %s\n", factor.c_str());
           *outRes = 0;
           *outFactor = factor;
           return false;
@@ -354,8 +354,8 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
       }
       if (gcd->isReady()) {
         string factor = gcd->get();
-        log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
         if (!factor.empty()) {
+          log("GCD: %s\n", factor.c_str());
           *outRes = 0;
           *outFactor = factor;
           return false;
