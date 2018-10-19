@@ -751,6 +751,63 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   write(G_W, NW, u, io, 0);
 }
 
+// copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
+KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
+                       CP(T2) A, CP(T2) iA, Trig smallTrig) {
+  local T lds[WIDTH];
+
+  uint gr = get_group_id(0);
+  uint me = get_local_id(0);
+  
+  uint H = BIG_HEIGHT;
+  uint line = gr % H;
+  uint step = WIDTH * line;
+  io += step;
+  A  += step;
+  iA += step;
+  
+  T2 u[NW];
+  Word2 wu[NW];
+  
+  read(G_W, NW, u, io, 0);
+
+  fft_WIDTH(lds, u, smallTrig);
+  
+  for (int i = 0; i < NW; ++i) {
+    uint p = i * G_W + me;
+    Carry carry = 0;    
+    wu[i] = unweightAndCarry(3,   conjugate(u[i]), &carry, iA[p]);
+    if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
+  }
+
+  release();
+  
+  // Signal that this group is done writing the carry.
+  if (gr < H && me == 0) {
+    atomic_store_explicit((atomic_uint *) &ready[gr], 1, memory_order_release, memory_scope_device); 
+  }
+
+  if (gr == 0) { return; }
+    
+  // Wait until the previous group is ready with the carry.
+  if (me == 0) {
+    while(!atomic_load_explicit((atomic_uint *) &ready[gr - 1], memory_order_acquire, memory_scope_device));
+    ready[gr - 1] = 0;
+  }
+
+  acquire();
+  
+  for (int i = 0; i < NW; ++i) {
+    uint p = i * G_W + me;
+    Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
+    u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
+  }
+
+  fft_WIDTH(lds, u, smallTrig);
+
+  write(G_W, NW, u, io, 0);
+}
+
 KERNEL(256) transposeW(CP(T2) in, P(T2) out) {
   local T lds[4096];
   transpose(WIDTH, BIG_HEIGHT, lds, in, out);

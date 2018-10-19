@@ -201,6 +201,7 @@ class OpenGpu : public LowGpu<Buffer> {
   Queue queue;
 
   Kernel carryFused;
+  Kernel carryFusedMul;
   Kernel fftP;
   Kernel fftW;
   Kernel fftH;
@@ -244,6 +245,7 @@ class OpenGpu : public LowGpu<Buffer> {
 
 #define LOAD(name, workGroups) name(program, queue.get(), device, workGroups, #name, timeKernels)
     LOAD(carryFused, BIG_H + 1),
+    LOAD(carryFusedMul, BIG_H + 1),
     LOAD(fftP, BIG_H),
     LOAD(fftW, BIG_H),
     LOAD(fftH, (hN / SMALL_H)),
@@ -284,6 +286,7 @@ class OpenGpu : public LowGpu<Buffer> {
     setupWeights<double>(context, bufA, bufI, W, BIG_H, E);
 
     carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
+    carryFusedMul.setFixedArgs(3, bufA, bufI, bufTrigW);
     
     fftP.setFixedArgs(2, bufA, bufTrigW);
     fftW.setFixedArgs(1, bufTrigW);
@@ -368,7 +371,7 @@ protected:
   void copyFromTo(Buffer &from, Buffer &to) override { queue.copy<int>(from, to, N); }
   
   void logTimeKernels() {
-    ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
+    ::logTimeKernels({&carryFused, &carryFusedMul, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
           &carryA, &carryM, &carryB,
           &transposeW, &transposeH, &transposeIn, &transposeOut,
           &square, &multiply, &multiplySub, &tailFused, &readResidue, &isNotZero, &isEqual});
@@ -404,35 +407,26 @@ protected:
     transposeH(in, out);
   }
 
-  void modSqLoopMul(Buffer &in, Buffer &out, const vector<bool> &muls) override {
+  void modSqLoopMul(Buffer &io, const vector<bool> &muls) override {
     assert(!muls.empty());
-
-    fftP(in, buf1);
-    
-    for (auto it = muls.begin(), prevEnd = prev(muls.end()); ; ++it) {
+    bool dataIsOut = true;
+        
+    for (auto it = muls.begin(), end = muls.end(); it < end; ++it) {
+      if (dataIsOut) { fftP(io, buf1); }
       tW(buf1, buf2);
       tailFused(buf2);
       tH(buf2, buf1);
 
-      if (!useLongCarry && it < prevEnd && !*it) {
-        carryFused(buf1, bufCarry, bufReady);
-      } else {
-        assert(it < muls.end());
+      dataIsOut = useLongCarry || it == prev(end);
+      if (dataIsOut) {
         fftW(buf1);
-        *it ? carryM(buf1, out, bufCarry) : carryA(buf1, out, bufCarry);
-        carryB(out, bufCarry);
-        if (it == prevEnd) { break; }        
-        fftP(out, buf1);
+        *it ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
+        carryB(io, bufCarry);
+      } else {
+        *it ? carryFusedMul(buf1, bufCarry, bufReady) : carryFused(buf1, bufCarry, bufReady);
       }
     }
   }
-
-  /*
-  template<typename T> static bool isAnySet(T begin, T end) {
-    for (auto it = begin; it < end; ++it) { if (*it) { return true; }}
-    return false;
-  }
-  */
 
   void exitKerns(Buffer &buf, Buffer &bufWords) {
     fftW(buf);

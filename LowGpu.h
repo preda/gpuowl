@@ -19,7 +19,7 @@ protected:
   virtual vector<int> readOut(Buffer &buf) = 0;
   virtual void writeIn(const vector<int> &words, Buffer &buf) = 0;
   
-  virtual void modSqLoopMul(Buffer &in, Buffer &out, const vector<bool> &muls) = 0;
+  virtual void modSqLoopMul(Buffer &io, const vector<bool> &muls) = 0;
   virtual void modSqLoopAcc(Buffer &io, const vector<bool> &muls) = 0;
   
   virtual void modMul(Buffer &in, Buffer &io) = 0;
@@ -98,7 +98,8 @@ public:
   void updateCheck() { modMul(bufData, bufCheck); }
   
   bool doCheck(int blockSize) override {
-    modSqLoopMul(bufCheck, bufAux, vector<bool>(blockSize));
+    copyFromTo(bufCheck, bufAux);
+    modSqLoopMul(bufAux, vector<bool>(blockSize));
     modMul(bufBase, bufAux);
     updateCheck();
     return equalNotZero(bufCheck, bufAux);
@@ -118,6 +119,6 @@ public:
     return nAcc;
   }
   
-  void dataLoopMul(const vector<bool> &muls) override { modSqLoopMul(bufData, bufData, muls); }
+  void dataLoopMul(const vector<bool> &muls) override { modSqLoopMul(bufData, muls); }
   u32 getFFTSize() override { return N; }
 };
