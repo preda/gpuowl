@@ -3,14 +3,15 @@
 #include "Gpu.h"
 
 #include "checkpoint.h"
-#include "stats.h"
+#include "Stats.h"
 #include "timeutil.h"
 #include "args.h"
 #include "GCD.h"
 #include "Primes.h"
 
-#include <gmp.h>
 #include <cmath>
+#include <cassert>
+#include <gmp.h>
 #include <signal.h>
 
 static_assert(sizeof(long) == 8, "size long");

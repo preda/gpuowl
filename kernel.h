@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stats.h"
+#include "Stats.h"
 #include "clwrap.h"
 #include "timeutil.h"
 #include "common.h"
