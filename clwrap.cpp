@@ -293,3 +293,20 @@ void Queue::zero(Buffer &buf, size_t size) {
   CHECK(clEnqueueFillBuffer(queue.get(), buf.get(), &zero, sizeof(zero), 0, size, 0, 0, 0));
   // finish();
 }
+
+cl_device_id getDevice(int argsDevId) {
+  cl_device_id device = nullptr;
+  if (argsDevId >= 0) {
+    auto devices = getDeviceIDs(false);    
+    assert(int(devices.size()) > argsDevId);
+    device = devices[argsDevId];
+  } else {
+    auto devices = getDeviceIDs(true);
+    if (devices.empty()) {
+      log("No GPU device found. See -h for how to select a specific device.\n");
+      return 0;
+    }
+    device = devices[0];
+  }
+  return device;
+}

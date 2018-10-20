@@ -101,3 +101,5 @@ public:
 
   void zero(Buffer &buf, size_t sizeBytes);
 };
+
+cl_device_id getDevice(int argsDevId);

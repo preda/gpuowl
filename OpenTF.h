@@ -145,7 +145,7 @@ public:
 
     bool timeKernels = args.timeKernels;
     
-    cl_device_id device = getDevice(args);
+    cl_device_id device = getDevice(args.device);
     if (!device) { throw "No OpenCL device"; }
     
     log("%s\n", getLongInfo(device).c_str());

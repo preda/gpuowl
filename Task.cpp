@@ -1,6 +1,6 @@
 #include "Task.h"
 
-#include "OpenGpu.h"
+#include "Gpu.h"
 #include "OpenTF.h"
 #include "Result.h"
 #include "checkpoint.h"
@@ -39,7 +39,7 @@ Task Task::morph(Args *args) {
 }
 
 unique_ptr<TF> makeTF(const Args &args) { return OpenTF::make(args); }
-unique_ptr<Gpu> makeGpu(u32 E, const Args &args) { return OpenGpu::make(E, args); }
+unique_ptr<Gpu> makeGpu(u32 E, const Args &args) { return Gpu::make(E, args); }
 
 vector<string> getDevices() {
   vector<string> ret;

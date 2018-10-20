@@ -5,13 +5,13 @@
 
 #include <cassert>
 #include <memory>
-// #include <algorithm>
 #include <cmath>
 
 static u32 step(u32 N, u32 E) { return N - (E % N); }
 static u32 extra(u32 N, u32 E, u32 k) { return u64(step(N, E)) * k % N; }
 static bool isBigWord(u32 N, u32 E, u32 k) { return extra(N, E, k) + step(N, E) < N; }
 static u32 bitlen(u32 N, u32 E, u32 k) { return E / N + isBigWord(N, E, k); }
+static int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
 
 static u32 unbalance(int w, int nBits, int *carry) {
   assert(*carry == 0 || *carry == -1);
@@ -67,14 +67,6 @@ std::vector<u32> compactBits(const vector<int> &dataVect, int E) {
   assert(int(out.size()) == (E - 1) / 32 + 1);
   return out;
 }
-
-/*
-#ifndef DUAL
-#define DUAL
-#endif
-*/
-
-static int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
 
 struct BitBucket {
   u64 bits;
@@ -136,7 +128,6 @@ u64 residueFromRaw(u32 E, u32 N, const vector<int> &words) {
   return res;
 }
 
-// Sets the weighting vectors direct A and inverse iA (as per IBDWT).
 pair<vector<double>, vector<double>> genWeights(int E, int W, int H) {
   int N = 2 * W * H;
 
