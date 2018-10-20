@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "clwrap.h"
 #include "common.h"
 
 #include <vector>
@@ -13,43 +14,64 @@ struct Args;
 class GCD;
 
 class Gpu {
+protected:
+  u32 E;
+  u32 N;
+
+  Buffer bufData, bufCheck, bufAux, bufBase, bufAcc;
+  
   unique_ptr<GCD> gcd;
 
   vector<u32> computeBase(u32 E, u32 B1);
   pair<vector<u32>, vector<u32>> seedPRP(u32 E, u32 B1);
   
 protected:
-  virtual vector<u32> readCheck() = 0;
-  virtual vector<u32> writeCheck(const vector<u32> &v) = 0;
+  virtual void copyFromTo(Buffer &from, Buffer &to) = 0;
+  
+  virtual vector<int> readOut(Buffer &buf) = 0;
+  virtual void writeIn(const vector<int> &words, Buffer &buf) = 0;
+  
+  virtual void modSqLoopMul(Buffer &io, const vector<bool> &muls) = 0;
+  virtual void modSqLoopAcc(Buffer &io, const vector<bool> &muls) = 0;
+  
+  virtual void modMul(Buffer &in, Buffer &io) = 0;
+  virtual bool equalNotZero(Buffer &bufCheck, Buffer &bufAux) = 0;
+  virtual u64 bufResidue(Buffer &buf) = 0;
+  
+  virtual vector<u32> writeBase(const vector<u32> &v) = 0;
+
+  // u64 residueFromRaw(const vector<int> &words);
   
 public:
-  Gpu();
+  Gpu(u32 E, u32 N);
   virtual ~Gpu();
 
-  virtual void writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize) = 0;
+  void writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize);
   
   vector<u32> roundtripData()  { return writeData(readData()); }
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }
-  virtual vector<u32> writeData(const vector<u32> &v) = 0;
+
+  vector<u32> writeData(const vector<u32> &v);
+  vector<u32> writeCheck(const vector<u32> &v);
   
-  virtual u64 dataResidue() = 0;
-  virtual u64 checkResidue() = 0;
+  u64 dataResidue();
+  u64 checkResidue();
     
-  virtual bool doCheck(int blockSize) = 0;
-  virtual void updateCheck() = 0;
+  bool doCheck(int blockSize);
+  void updateCheck();
 
   // returns nb. of Ks selected for GCD accumulation.
-  virtual u32 dataLoopAcc(u32 kBegin, u32 kEnd, const unordered_set<u32> &kset) = 0;
-  virtual void dataLoopMul(const vector<bool> &muls) = 0;
+  u32 dataLoopAcc(u32 kBegin, u32 kEnd, const unordered_set<u32> &kset);
+  void dataLoopMul(const vector<bool> &muls);
   
   virtual void finish() = 0;
 
-  virtual u32 getFFTSize() = 0;
   virtual void logTimeKernels() = 0;
 
-  virtual vector<u32> readData() = 0; // Used directly only by PM1 (PRP uses roundtripData()).
-
-  virtual vector<u32> readAcc() = 0;
+  vector<u32> readCheck();
+  vector<u32> readData();
+  vector<u32> readAcc();
 
   bool isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseRes, string *outFactor);
+  u32 getFFTSize() { return N; }
 };

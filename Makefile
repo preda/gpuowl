@@ -1,5 +1,5 @@
-HEADERS = args.h checkpoint.h clwrap.h common.h kernel.h state.h timeutil.h tinycl.h worktodo.h Gpu.h LowGpu.h TF.h OpenTF.h OpenGpu.h Primes.h Stats.h
-SRCS = Worktodo.cpp Result.cpp common.cpp gpuowl.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp GCD.cpp Primes.cpp Stats.cpp
+HEADERS = args.h checkpoint.h clwrap.h common.h kernel.h state.h timeutil.h tinycl.h worktodo.h Gpu.h TF.h OpenTF.h OpenGpu.h Primes.h Stats.h
+SRCS = Worktodo.cpp Result.cpp common.cpp gpuowl.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp GCD.cpp Primes.cpp Stats.cpp state.cpp
 
 # Edit the path in -L below if needed, to the folder containing OpenCL.dll on Windows or libOpenCL.so on UNIX.
 # The included lib paths are for ROCm, AMDGPU-pro/Linux or MSYS-2/Windows.

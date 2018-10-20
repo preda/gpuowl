@@ -4,6 +4,7 @@
 
 #include "checkpoint.h"
 #include "Stats.h"
+#include "state.h"
 #include "timeutil.h"
 #include "args.h"
 #include "GCD.h"
@@ -16,10 +17,82 @@
 
 static_assert(sizeof(long) == 8, "size long");
 
-Gpu::Gpu() :
+Gpu::Gpu(u32 E, u32 N) :
+  E(E),
+  N(N),
   gcd(make_unique<GCD>())
 {
 }
+
+vector<u32> Gpu::readData()  { return compactBits(readOut(bufData),  E); }
+vector<u32> Gpu::readCheck() { return compactBits(readOut(bufCheck), E); }
+vector<u32> Gpu::readAcc()   { return compactBits(readOut(bufAcc), E); }
+
+vector<u32> Gpu::writeData(const vector<u32> &v) {
+  writeIn(expandBits(v, N, E), bufData);
+  return v;
+}
+
+vector<u32> Gpu::writeCheck(const vector<u32> &v) {
+  writeIn(expandBits(v, N, E), bufCheck);
+  return v;
+}
+
+void Gpu::writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize) {
+  assert(blockSize > 0);
+    
+  writeCheck(check);
+  copyFromTo(bufCheck, bufData);        
+  copyFromTo(bufCheck, bufBase);
+
+  u32 n = 0;
+  for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
+    dataLoopMul(vector<bool>(n));
+    modMul(bufBase, bufData);
+    copyFromTo(bufData, bufBase);
+  }
+
+  assert((n & (n - 1)) == 0);
+  assert(blockSize % n == 0);
+    
+  blockSize /= n;
+  for (u32 i = 0; i < blockSize - 1; ++i) {
+    dataLoopMul(vector<bool>(n));
+    modMul(bufBase, bufData);
+  }
+    
+  writeBase(base);
+  modMul(bufBase, bufData);
+}
+
+void Gpu::updateCheck() { modMul(bufData, bufCheck); }
+  
+bool Gpu::doCheck(int blockSize) {
+  copyFromTo(bufCheck, bufAux);
+  modSqLoopMul(bufAux, vector<bool>(blockSize));
+  modMul(bufBase, bufAux);
+  updateCheck();
+  return equalNotZero(bufCheck, bufAux);
+}
+
+u32 Gpu::dataLoopAcc(u32 kBegin, u32 kEnd, const unordered_set<u32> &kset) {
+  assert(kEnd > kBegin);
+  vector<bool> accs;
+  u32 nAcc = 0;
+  for (u32 k = kBegin; k < kEnd; ++k) {
+    bool on = kset.count(k);
+    accs.push_back(on);
+    nAcc += on;
+  }
+  assert(accs.size() == kEnd - kBegin);
+  modSqLoopAcc(bufData, accs);
+  return nAcc;
+}
+
+void Gpu::dataLoopMul(const vector<bool> &muls) { modSqLoopMul(bufData, muls); }
+
+u64 Gpu::dataResidue() { return bufResidue(bufData); }
+u64 Gpu::checkResidue() { return bufResidue(bufCheck); }
 
 std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, u32 nIters = 0) {
   int end = nIters ? nIters : (((E - 1) / 1000 + 1) * 1000);

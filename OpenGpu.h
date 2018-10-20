@@ -3,47 +3,20 @@
 
 #pragma once
 
-#include "LowGpu.h"
+#include "Gpu.h"
 #include "kernel.h"
 #include "state.h"
 #include "args.h"
 #include "common.h"
 
 #include <cmath>
+#include <algorithm>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
 
 #define TAU (2 * M_PIl)
-
-// Sets the weighting vectors direct A and inverse iA (as per IBDWT).
-pair<vector<double>, vector<double>> genWeights(int E, int W, int H) {
-  int N = 2 * W * H;
-
-  vector<double> aTab, iTab;
-  aTab.reserve(N);
-  iTab.reserve(N);
-
-  int baseBits = E / N;
-  auto iN = 1 / (long double) N;
-
-  for (int line = 0; line < H; ++line) {
-    for (int col = 0; col < W; ++col) {
-      for (int rep = 0; rep < 2; ++rep) {
-        int k = (line + col * H) * 2 + rep;
-        int bits  = bitlen(N, E, k);
-        assert(bits == baseBits || bits == baseBits + 1);
-        auto a = exp2l(extra(N, E, k) * iN);
-        auto ia = 1 / (4 * N * a);
-        aTab.push_back((bits == baseBits) ? a  : -a);
-        iTab.push_back((bits == baseBits) ? ia : -ia);
-      }
-    }
-  }
-  assert(int(aTab.size()) == N && int(iTab.size()) == N);
-  return make_pair(aTab, iTab);
-}
 
 template<typename T> struct Pair { T x, y; };
 
@@ -193,7 +166,7 @@ FftConfig getFftConfig(const vector<FftConfig> &configs, u32 E, int argsFftSize)
   return configs[i];
 }
 
-class OpenGpu : public LowGpu<Buffer> {
+class OpenGpu : public Gpu {
   int hN, nW, nH, bufSize;
   bool useLongCarry;
   bool useMiddle;
@@ -234,7 +207,7 @@ class OpenGpu : public LowGpu<Buffer> {
   OpenGpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
           cl_program program, cl_device_id device, cl_context context,
           bool timeKernels, bool useLongCarry) :
-    LowGpu(E, W * BIG_H * 2),
+    Gpu(E, W * BIG_H * 2),
     hN(N / 2),
     nW(nW),
     nH(nH),
@@ -506,6 +479,6 @@ protected:
   u64 bufResidue(Buffer &buf) {
     u32 earlyStart = N/2 - 32;
     vector<int> readBuf = readSmall(buf, earlyStart);
-    return residueFromRaw(readBuf);
+    return residueFromRaw(E, N, readBuf);
   }
 };

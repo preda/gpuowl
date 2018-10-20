@@ -3,14 +3,12 @@
 #pragma once
 
 #include "tinycl.h"
+#include "common.h"
 
 #include <string>
 #include <vector>
 #include <cassert>
 #include <memory>
-
-using std::string;
-using std::vector;
 
 typedef cl_command_queue cl_queue;
 
