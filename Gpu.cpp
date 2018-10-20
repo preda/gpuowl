@@ -48,7 +48,6 @@ static cl_mem genSmallTrig(cl_context context, int size, int radix) {
   auto *p = tab + radix;
   int w = 0;
   for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
-  // assert(w == size);
   assert(p - tab == size);
   cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
   delete[] tab;
@@ -102,11 +101,11 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   LOAD(isEqual, 256),
 #undef LOAD
 
-  bufData(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+  bufData( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   bufCheck(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-  bufAux(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-  bufBase(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-  bufAcc(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+  bufAux(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+  bufBase( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+  bufAcc(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   
   bufTrigW(genSmallTrig(context, W, nW)),
   bufTrigH(genSmallTrig(context, SMALL_H, nH)),
@@ -297,15 +296,12 @@ void Gpu::writeState(const vector<u32> &check, const vector<u32> &base, u32 bloc
   writeCheck(check);
   queue.copy<int>(bufCheck, bufData, N);
   queue.copy<int>(bufCheck, bufBase, N);
-  // copyFromTo(bufCheck, bufData);        
-  // copyFromTo(bufCheck, bufBase);
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     dataLoopMul(vector<bool>(n));
     modMul(bufBase, bufData);
     queue.copy<int>(bufData, bufBase, N);
-    // copyFromTo(bufData, bufBase);
   }
 
   assert((n & (n - 1)) == 0);
@@ -324,7 +320,6 @@ void Gpu::writeState(const vector<u32> &check, const vector<u32> &base, u32 bloc
 void Gpu::updateCheck() { modMul(bufData, bufCheck); }
   
 bool Gpu::doCheck(int blockSize) {
-  // copyFromTo(bufCheck, bufAux);
   queue.copy<int>(bufCheck, bufAux, N);
   modSqLoopMul(bufAux, vector<bool>(blockSize));
   modMul(bufBase, bufAux);
@@ -488,11 +483,7 @@ u64 Gpu::bufResidue(Buffer &buf) {
   return residueFromRaw(E, N, readBuf);
 }
 
-
-
-
-
-static std::string makeLogStr(int E, int k, u64 res, const StatsInfo &info, u32 nIters = 0) {
+static string makeLogStr(int E, int k, u64 res, const StatsInfo &info, u32 nIters = 0) {
   int end = nIters ? nIters : (((E - 1) / 1000 + 1) * 1000);
   float percent = 100 / float(end);
   
@@ -556,12 +547,12 @@ static vector<bool> powerSmoothBitsRev(u32 exp, u32 B1) {
 
 static volatile int stopRequested = 0;
 void (*oldHandler)(int) = 0;
-void myHandler(int dummy) { stopRequested = 1; }
+static void myHandler(int dummy) { stopRequested = 1; }
 
 // Residue from compacted words.
 static u64 residue(const std::vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
 
-vector<u32> bitNeg(const vector<u32> &v) {
+static vector<u32> bitNeg(const vector<u32> &v) {
   vector<u32> ret;
   ret.reserve(v.size());
   for (auto x : v) { ret.push_back(~x); }

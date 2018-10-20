@@ -1,4 +1,4 @@
-// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+// Copyright 2017 Mihai Preda.
 
 #pragma once
 
@@ -21,8 +21,9 @@ void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
-#define BASE_VERSION "4.5"
+#define BASE_VERSION "4.6"
 // Reason for version change:
+// 4.6 : merging LowGpu and OpenGpu back into Gpu.
 // 4.5 : yet another kset schedule.
 // 4.4 : new PRP,P-1 schedule.
 // 4.3 : drop P-1 as standalone task and savefile. Background GCD.
