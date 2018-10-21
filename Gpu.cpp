@@ -16,7 +16,8 @@
 #include <gmp.h>
 #include <signal.h>
 
-static_assert(sizeof(long) == 8, "size long");
+// The assert on sizeof(long) was needed when using mpz_ui with u64, which is not done anymore now.
+// static_assert(sizeof(long) == 8, "size long");
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -517,7 +518,9 @@ static void powerSmooth(mpz_t a, u32 exp, u32 B1, u32 B2 = 0) {
   if (B2 == 0) { B2 = B1; }
   assert(B2 >= sqrt(B1));
 
-  mpz_set_ui(a, u64(exp) << 20); // boost 2s.
+  mpz_set_ui(a, exp);
+  mpz_mul_2exp(a, a, 20); // boost 2s.
+  // mpz_set_ui(a, u64(exp) << 20); 
 
   mpz_t b; mpz_init(b);
   
@@ -626,7 +629,7 @@ static vector<u32> kselect(u32 E, u32 B1) {
 
   // We want to go a bit beyond E.
   // Anyway we only consider primes with z(p) < E. At small cost we cover more primes.
-  Primes primes(E + E/2);
+  Primes primes(E + E);
   vector<bool> covered(E);
   vector<bool> on(E);
   
@@ -635,7 +638,7 @@ static vector<u32> kselect(u32 E, u32 B1) {
     u32 z = primes.zn2(p);
     if (z < E) {
       if (!covered[z]) {
-        assert(!on[z]);
+        // assert(!on[z]);
         for (u32 d : primes.divisors(z)) {
           covered[d] = true;
           on[d] = false;
@@ -723,8 +726,8 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
       *outRes = res64;
       *outBaseRes = baseRes64;
       int itersLeft = blockSize - (kEnd - k);
-      assert(itersLeft > 0);
-      nGcdAcc += this->dataLoopAcc(kEnd, kEnd + itersLeft, kset);
+      // assert(itersLeft > 0);
+      if (itersLeft > 0) { nGcdAcc += this->dataLoopAcc(kEnd, kEnd + itersLeft, kset); }
     } else {
       nGcdAcc += this->dataLoopAcc(k, k + blockSize, kset);
     }

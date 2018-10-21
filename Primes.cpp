@@ -111,7 +111,7 @@ u32 Primes::zn2(u32 p) {
   
  again:
   for (u32 f : simpleFactors(d)) {
-    if (modExp2(p, d/f)==1) {
+    if (f!=2 && f!=3 && modExp2(p, d/f)==1) {
       d /= f;
       goto again;
     }
