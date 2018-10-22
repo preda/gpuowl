@@ -49,5 +49,3 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 #endif
 
 #define PROGRAM "gpuowl"
-
-// string timeStr();

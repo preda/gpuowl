@@ -10,13 +10,12 @@ extern string globalCpuName;
 
 int main(int argc, char **argv) {  
   initLog("gpuowl.log");
-
+  log("%s %s\n", PROGRAM, VERSION);
+  
   Args args;
   if (!args.parse(argc, argv)) { return -1; }
   if (!args.cpu.empty()) { globalCpuName = args.cpu; }
 
-  log("%s %s\n", PROGRAM, VERSION);
-  
   try {
     while (Task task = Worktodo::getTask()) {
       task = task.morph(&args);

@@ -24,8 +24,6 @@ Command line options:
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -list fft          : display a list of available FFT configurations.
 -tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
--B1 <value>        : B1 bound for PRP-1. 0 disables P-1. Try e.g. 1000000
--B2 <value>        : B2 bound. 
 -device <N>        : select a specific device:
 )");
 

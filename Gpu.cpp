@@ -168,12 +168,13 @@ struct FftConfig {
   int fftSize;
   u32 maxExp;
 
-  FftConfig(u32 fftSize, double maxExp, u32 width, u32 height, u32 middle) :
+  FftConfig(u32 width, u32 height, u32 middle) :
     width(width),
     height(height),
     middle(middle),
     fftSize(width * height * middle * 2),
-    maxExp(fftSize * (17.88 + 0.36 * (24 - log2(fftSize)))) {
+    // 17.88 + 0.36 * (24 - log2(n)); Update after feedback on 86700001, FFT 4608 (18.37b/w) being insufficient.
+    maxExp(fftSize * (17.77 + 0.33 * (24 - log2(fftSize)))) {
     assert(width  == 512 || width == 1024 || width == 2048 || width == 4096);
     assert(height == 512 || height == 1024 || height == 2048);
     assert(middle == 1 || middle == 5 || middle == 9);
@@ -185,9 +186,7 @@ static vector<FftConfig> genConfigs() {
   for (u32 width : {512, 1024, 2048, 4096}) {
     for (u32 height : {512, 1024, 2048}) {
       for (u32 middle : {1, 5, 9}) {
-        u32 n = width * height * middle * 2;
-        double maxBPW = 17.88 + 0.36 * (24 - log2(n));
-        configs.push_back(FftConfig(n, n * maxBPW, width, height, middle));
+        configs.push_back(FftConfig(width, height, middle));
       }
     }
   }
@@ -629,7 +628,7 @@ static vector<u32> kselect(u32 E, u32 B1) {
 
   // We want to go a bit beyond E.
   // Anyway we only consider primes with z(p) < E. At small cost we cover more primes.
-  Primes primes(E + E);
+  Primes primes(3 * E);
   vector<bool> covered(E);
   vector<bool> on(E);
   

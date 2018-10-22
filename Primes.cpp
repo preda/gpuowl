@@ -106,14 +106,11 @@ vector<u32> Primes::divisors(u32 x) {
 
 u32 Primes::zn2(u32 p) {
   u32 d = p - 1;
-  while (d%2==0 && modExp2(p, d/2)==1) { d /= 2; }
-  while (d%3==0 && modExp2(p, d/3)==1) { d /= 3; }
-  
- again:
+  if (modExp2(p, d/2) == 1) { d /= 2; }
   for (u32 f : simpleFactors(d)) {
-    if (f!=2 && f!=3 && modExp2(p, d/f)==1) {
+    if (modExp2(p, d/f) == 1) {
       d /= f;
-      goto again;
+      while (d % f == 0 && modExp2(p, d/f) == 1) { d /= f; }
     }
   }
   
