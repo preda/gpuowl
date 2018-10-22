@@ -788,10 +788,12 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
         }
       }
 
-      assert(!gcd->isOngoing());      
-      log("Starting GCD over %u points\n", nGcdAcc);
-      gcd->start(E, this->readAcc(), 0);
-      nGcdAcc = 0;
+      assert(!gcd->isOngoing());
+      if (nGcdAcc) {
+        log("Starting GCD over %u points\n", nGcdAcc);
+        gcd->start(E, this->readAcc(), 0);
+        nGcdAcc = 0;
+      }
     }
 
     if (ok) {
