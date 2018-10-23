@@ -11,8 +11,6 @@
 #include <cassert>
 #include <string>
 
-Result::~Result() {}
-
 static bool writeResult(const string &part, u32 E, const char *workType, const string &status,
                         const std::string &AID, const std::string &user, const std::string &cpu) {
   std::string uid;
@@ -48,7 +46,9 @@ static string resStr(u64 res64) {
   return buf;
 }
 
-bool PRPResult::write(const Args &args, const Task &task) {
+bool PRPResult::write(const Args &args, const Task &task, u32 fftSize) {
+  u32 B1 = task.B1;
+  
   bool hasFactor = !factor.empty();
   if (hasFactor) {
     assert(!isPrime);
@@ -57,20 +57,19 @@ bool PRPResult::write(const Args &args, const Task &task) {
   }
 
   string status = isPrime ? "P" : (hasFactor ? "F" : "C");
+  string fftLength = string(", \"fft-length\":") + to_string(fftSize);
   
   char buf[256];
   if (B1 == 0) {
     assert(baseRes64 == 3);
     string str = resStr(res64) + ", \"residue-type\":4";
-    return writeResult(str, task.exponent, "PRP-3", status, task.AID, args.user, args.cpu);
-  } else {
-    string r1 = hasFactor ? "" : resStr(res64);
-    string r2 = resStr(baseRes64);
-    
-    snprintf(buf, sizeof(buf), "%s%s, \"base\":{\"b1\":\"%u\", \"bias\":{\"2\":19}%s}",
-             factorStr(factor).c_str(), r1.c_str(), B1, r2.c_str());
-    return writeResult(buf, task.exponent, "PRP,P-1", status, task.AID, args.user, args.cpu);
+    return writeResult(fftLength + str, task.exponent, "PRP-3", status, task.AID, args.user, args.cpu);
   }
-  assert(false);
-  return false;
+  
+  string r1 = hasFactor ? "" : resStr(res64);
+  string r2 = resStr(baseRes64);
+    
+  snprintf(buf, sizeof(buf), "%s%s, \"base\":{\"b1\":\"%u\", \"bias\":{\"2\":19}%s}",
+           factorStr(factor).c_str(), r1.c_str(), B1, r2.c_str());
+  return writeResult(fftLength + buf, task.exponent, "PRP,P-1", status, task.AID, args.user, args.cpu);
 }

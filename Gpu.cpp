@@ -9,6 +9,7 @@
 #include "args.h"
 #include "GCD.h"
 #include "Primes.h"
+#include "Result.h"
 
 #include <cmath>
 #include <cassert>
@@ -628,7 +629,7 @@ static vector<u32> kselect(u32 E, u32 B1) {
 
   // We want to go a bit beyond E.
   // Anyway we only consider primes with z(p) < E. At small cost we cover more primes.
-  Primes primes(3 * E);
+  Primes primes(E);
   vector<bool> covered(E);
   vector<bool> on(E);
   
@@ -659,7 +660,7 @@ static vector<u32> kselect(u32 E, u32 B1) {
 
 static auto asSet(const vector<u32> &v) { return unordered_set<u32>(v.begin(), v.end()); }
 
-bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseRes, string *outFactor) {
+PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1) {
   u32 N = this->getFFTSize();
   log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u\n", E, N/1024, E / float(N), B1);
 
@@ -687,7 +688,6 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
   vector<u32> base = loaded.base;
   
   const u64 baseRes64 = residue(base);
-  *outBaseRes = baseRes64;
   assert(blockSize > 0 && 10000 % blockSize == 0);
   const u32 checkStep = blockSize * blockSize;
   
@@ -712,18 +712,17 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
   Timer timer;
 
   int nGcdAcc = 0;
+  u64 finalRes64 = 0;
   while (true) {
     assert(k % blockSize == 0);
     if (k < kEnd && k + blockSize >= kEnd) {
       nGcdAcc += this->dataLoopAcc(k, kEnd, kset);
       auto words = this->roundtripData();
-      u64 res64 = residue(words);
+      finalRes64 = residue(words);
       isPrime = (words == base || words == bitNeg(base));
 
-      log("%s %8d / %d, %016llx (base %016llx)\n", isPrime ? "PP" : "CC", kEnd, E, res64, baseRes64);
+      log("%s %8d / %d, %016llx (base %016llx)\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64, baseRes64);
       
-      *outRes = res64;
-      *outBaseRes = baseRes64;
       int itersLeft = blockSize - (kEnd - k);
       // assert(itersLeft > 0);
       if (itersLeft > 0) { nGcdAcc += this->dataLoopAcc(kEnd, kEnd + itersLeft, kset); }
@@ -738,9 +737,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
       string factor = gcd->get();
       if (!factor.empty()) {
         log("GCD: %s\n", factor.c_str());
-        *outRes = 0;
-        *outFactor = factor;
-        return false;
+        return PRPResult{factor, false, 0, baseRes64};
       }
     }
         
@@ -782,9 +779,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
         string factor = gcd->get();
         if (!factor.empty()) {
           log("GCD: %s\n", factor.c_str());
-          *outRes = 0;
-          *outFactor = factor;
-          return false;
+          return PRPResult{factor, false, 0, baseRes64};
         }
       }
 
@@ -797,7 +792,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
     }
 
     if (ok) {
-      if (isPrime || k >= kEnd) { return isPrime; }
+      if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, baseRes64}; }
       nSeqErrors = 0;
     } else {
       if (++nSeqErrors > 2) {
@@ -821,9 +816,7 @@ bool Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseR
         string factor = gcd->get();
         if (!factor.empty()) {
           log("GCD: %s\n", factor.c_str());
-          *outRes = 0;
-          *outFactor = factor;
-          return false;
+          return PRPResult{factor, false, 0, baseRes64};
         }
       }
       assert(!gcd->isOngoing());

@@ -1,4 +1,4 @@
-// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+// Copyright 2017 Mihai Preda.
 
 #pragma once
 
@@ -9,45 +9,19 @@
 class Task;
 class Args;
 
-class Result {
-protected:
+struct TFResult {
   string factor;
+  u64 beginK;
+  u64 endK;
 
-public:
-  Result(const string &factor) : factor(factor) {
-  }
-  
-  virtual ~Result();
-  virtual bool write(const Args &args, const Task &task) = 0;
+  bool write(const Args &args, const Task &task);
 };
 
-class TFResult : public Result {
-  u64 beginK, endK;
-
-public:
-  TFResult(const string &factor, u64 beginK, u64 endK) :
-    Result(factor),
-    beginK(beginK),
-    endK(endK) {
-  }
-
-  bool write(const Args &args, const Task &task) override;
-};
-
-class PRPResult : public Result {
+struct PRPResult {
+  string factor;
   bool isPrime;
-  u32 B1;
   u64 res64;
   u64 baseRes64;
 
-public:
-  PRPResult(const string &factor, bool isPrime, u32 B1, u64 res64, u64 baseRes64):
-    Result(factor),
-    isPrime(isPrime),
-    B1(B1),
-    res64(res64),
-    baseRes64(baseRes64) {
-  }
-
-  bool write(const Args &args, const Task &task) override;
+  bool write(const Args &args, const Task &task, u32 fftSize);
 };

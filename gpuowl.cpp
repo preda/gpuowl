@@ -19,7 +19,7 @@ int main(int argc, char **argv) {
   try {
     while (Task task = Worktodo::getTask()) {
       task = task.morph(&args);
-      task.execute(args);
+      if (!task.execute(args)) { break; }
       Worktodo::deleteTask(task);
     }
   } catch (const char *mes) {

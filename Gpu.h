@@ -12,6 +12,7 @@
 #include <unordered_set>
 
 struct Args;
+struct PRPResult;
 class GCD;
 
 class Gpu {
@@ -117,6 +118,6 @@ public:
   vector<u32> readData();
   vector<u32> readAcc();
 
-  bool isPrimePRP(u32 E, const Args &args, u32 B1, u64 *outRes, u64 *outBaseRes, string *outFactor);
+  PRPResult isPrimePRP(u32 E, const Args &args, u32 B1);
   u32 getFFTSize() { return N; }
 };

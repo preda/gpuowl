@@ -32,5 +32,5 @@ struct Task {
   // A different task may need to be done beforehand.
   Task morph(Args *args);
 
-  void execute(const Args &args);
+  bool execute(const Args &args);
 };
