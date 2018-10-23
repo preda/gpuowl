@@ -32,20 +32,6 @@ Command line options:
         printf(" %d : %s\n", i, devices[i].c_str());
       }      
       return false;
-    } else if (!strcmp(arg, "-B1")) {
-      if (i < argc - 1) {
-        B1 = atoi(argv[++i]);
-        assert(B1 > 0);
-      } else {
-        log("-B1 expects <value>\n");
-      }
-    } else if (!strcmp(arg, "-B2")) {
-      if (i < argc - 1) {
-        B2 = atoi(argv[++i]);
-        assert(B2 > 0);
-      } else {
-        log("-B2 expects <value>\n");
-      }
     } else if (!strcmp(arg, "-list")) {
       if (i < argc - 1 && !strcmp(argv[++i], "fft")) {
         listFFT = true;
@@ -142,11 +128,6 @@ Command line options:
       log("Argument '%s' not understood\n", arg);
       return false;
     }
-  }
-
-  if (B1 == 0 && B2 != 0) {
-    log("B2 ignored because B1 == 0\n");
-    B2 = 0;
   }
   
   return true;
