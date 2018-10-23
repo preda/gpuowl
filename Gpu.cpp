@@ -627,7 +627,6 @@ static vector<u32> kselect(u32 E, u32 B1, u32 B2) {
   vector<bool> covered(E);
   vector<bool> on(E);
   
-  // u32 prevP = 0;  
   for (u32 p : primes.from(B1)) {
     u32 z = primes.zn2(p);
     if (z < E) {
@@ -643,12 +642,7 @@ static vector<u32> kselect(u32 E, u32 B1, u32 B2) {
   }
 
   vector<u32> ret;
-  for (u32 k = 0; k < E; ++k) {
-    if (on[k]) {
-      ret.push_back(k);
-      // if (k % 6986 == 0) { log("K(6986): %u\n", k); }
-    }
-  }
+  for (u32 k = 0; k < E; ++k) { if (on[k]) { ret.push_back(k); } }
   return ret;
 }
 
