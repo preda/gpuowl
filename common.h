@@ -21,8 +21,9 @@ void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
-#define BASE_VERSION "4.6"
+#define BASE_VERSION "4.7"
 // Reason for version change:
+// 4.7 : parsing B1 & B2 bounds for PRP-1 in worktodo.txt
 // 4.6 : merging LowGpu and OpenGpu back into Gpu.
 // 4.5 : yet another kset schedule.
 // 4.4 : new PRP,P-1 schedule.

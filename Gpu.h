@@ -118,6 +118,6 @@ public:
   vector<u32> readData();
   vector<u32> readAcc();
 
-  PRPResult isPrimePRP(u32 E, const Args &args, u32 B1);
+  PRPResult isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2);
   u32 getFFTSize() { return N; }
 };

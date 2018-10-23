@@ -61,5 +61,5 @@ bool Task::execute(const Args &args) {
 
   assert(kind == PRP);
   auto gpu = makeGpu(exponent, args);
-  return gpu->isPrimePRP(exponent, args, B1).write(args, *this, gpu->getFFTSize());
+  return gpu->isPrimePRP(exponent, args, B1, B2).write(args, *this, gpu->getFFTSize());
 }

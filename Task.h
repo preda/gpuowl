@@ -26,6 +26,7 @@ struct Task {
 
   // PRP,P-1
   u32 B1;
+  u32 B2;
 
   operator bool() { return kind != NONE; }
 

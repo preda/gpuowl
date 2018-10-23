@@ -620,10 +620,10 @@ pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
   return make_pair(check, base);
 }
 
-static vector<u32> kselect(u32 E, u32 B1) {
+static vector<u32> kselect(u32 E, u32 B1, u32 B2) {
   if (!B1) { return vector<u32>(); }
 
-  Primes primes(E + 1);
+  Primes primes(B2 + 1);
   vector<bool> covered(E);
   vector<bool> on(E);
   
@@ -654,12 +654,14 @@ static vector<u32> kselect(u32 E, u32 B1) {
 
 static auto asSet(const vector<u32> &v) { return unordered_set<u32>(v.begin(), v.end()); }
 
-PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1) {
+PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   u32 N = this->getFFTSize();
-  log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u\n", E, N/1024, E / float(N), B1);
+  assert(B2 == 0 || B2 >= B1);
+  if (B1 != 0 && B2 == 0) { B2 = E; }
+  log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u, B2 %u\n", E, N/1024, E / float(N), B1, B2);
 
   future<vector<u32>> ksetFuture;
-  if (B1 != 0) { ksetFuture = async(launch::async, kselect, E, B1); }
+  if (B1 != 0) { ksetFuture = async(launch::async, kselect, E, B1, B2); }
   
   if (!PRPState::exists(E)) {
     auto[check, base] = seedPRP(E, B1);
