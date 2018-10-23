@@ -1,11 +1,11 @@
 #include "common.h"
 
 #include <vector>
-#include <unordered_set>
 
 class Primes {
+  u32 limit;
+  vector<bool> primeMap;
   vector<u32> primes;
-  unordered_set<u32> primeSet;
 
 public:
   struct Range {
@@ -15,9 +15,11 @@ public:
     T end() { return e; }
   };
 
-  Primes(u32 end);
+  Primes(u32 limit);
 
-  bool isPrime(u32 x) { return primeSet.count(x); }
+  bool isPrime(u32 x) {
+    return (x == 2) || ((x & 1) && (x <= limit) && primeMap[(x - 1) >> 1]);
+  }
 
   Range from(u32 p) {
     auto it = primes.cbegin(), end = primes.cend();
@@ -27,13 +29,8 @@ public:
 
   vector<pair<u32, u32>> factors(u32 x);
 
-  vector<u32> simpleFactors(u32 x) {
-    vector<u32> ret;
-    for (auto p : factors(x)) { ret.push_back(p.first); }
-    return ret;
-  }
-
   vector<u32> divisors(u32 x);
 
+  // Multiplicative order of 2 modulo p. Equivalent PARI-GP: z(p) = znorder(Mod(2, p)).
   u32 zn2(u32 p);
 };

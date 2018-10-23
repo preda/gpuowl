@@ -20,32 +20,26 @@ static u32 modExp2(u32 p, u32 e) {
   return r;
 }
 
-static vector<u32> genPrimes(u32 end) {
-  vector<u32> primes;
+Primes::Primes(u32 limit) :
+  limit(limit),
+  primeMap(limit/2)
+{
   primes.push_back(2);
-  vector<bool> notPrime(end / 2);
-  notPrime[0] = true;
+  primeMap[0] = true;
   u32 last = 0;
   while (true) {
     u32 p = last + 1;
-    while (p < end && notPrime[p]) { ++p; }
+    while (p < limit/2 && primeMap[p]) { ++p; }
     u32 prime = 2 * p + 1;
-    if (prime > end) { break; }
-    primes.push_back(prime);
-    
+    if (prime >= limit) { break; }
+    primes.push_back(prime);    
     last = p;
-    notPrime[p] = true;
     u64 s = 2 * u64(p) * (p + 1);
-    for (u32 i = s; s < end/2 && i < end/2; i += prime) { notPrime[i] = true; }
+    for (u32 i = s; s < limit/2 && i < limit/2; i += prime) { primeMap[i] = true; }
   }
+  primeMap.flip();
   // fprintf(stderr, "Generated %lu primes: [%u, %u]\n", primes.size(), primes.front(), primes.back());
-  return primes;
 }
-
-Primes::Primes(u32 end) :
-  primes(genPrimes(end)),
-  primeSet(primes.begin(), primes.end())
-{}
 
 vector<pair<u32, u32>> Primes::factors(u32 x) {
   vector<pair<u32, u32>> ret;
@@ -104,15 +98,30 @@ vector<u32> Primes::divisors(u32 x) {
   return divs;
 }
 
+static void step(u32 p, u32 &d, u32 &r, u32 k) {
+  while (r % k == 0 && d != k && modExp2(p, d / k) == 1) { d /= k; r /= k; }
+  while (r % k == 0) { r /= k; }
+}
+
 u32 Primes::zn2(u32 p) {
   u32 d = p - 1;
-  if (modExp2(p, d/2) == 1) { d /= 2; }
-  for (u32 f : simpleFactors(d)) {
-    if (modExp2(p, d/f) == 1) {
-      d /= f;
-      while (d % f == 0 && modExp2(p, d/f) == 1) { d /= f; }
-    }
+  u32 r = d;
+#define STEP(k) step(p, d, r, k);
+  STEP(2);
+  STEP(3);
+  STEP(5);
+  STEP(7);
+  STEP(11);
+  STEP(13);
+
+  for (u32 f : from(17)) {
+    if (r == 1) { return d; }
+    if (isPrime(r)) { break; }
+    STEP(f);
   }
+
+  STEP(r);
+#undef STEP
   
   return d;
 }

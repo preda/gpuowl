@@ -623,7 +623,7 @@ pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
 static vector<u32> kselect(u32 E, u32 B1) {
   if (!B1) { return vector<u32>(); }
 
-  Primes primes(E);
+  Primes primes(E + 1);
   vector<bool> covered(E);
   vector<bool> on(E);
   
@@ -685,18 +685,18 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1) {
   assert(blockSize > 0 && 10000 % blockSize == 0);
   const u32 checkStep = blockSize * blockSize;
   
-  Signal signal;
-
   int startK = k;
 
   unordered_set<u32> kset;
   if (ksetFuture.valid()) {
+    log("Please wait for P-1 trial points selection..\n");
     ksetFuture.wait();
     kset = asSet(ksetFuture.get());
   }
   
   log("Selected %u P-1 trial points\n", u32(kset.size()));
   
+  Signal signal;
   Stats stats;
 
   // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
