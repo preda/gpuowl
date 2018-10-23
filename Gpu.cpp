@@ -10,12 +10,12 @@
 #include "GCD.h"
 #include "Primes.h"
 #include "Result.h"
+#include "Signal.h"
 
 #include <cmath>
 #include <cassert>
 #include <algorithm>
 #include <gmp.h>
-#include <signal.h>
 
 // The assert on sizeof(long) was needed when using mpz_ui with u64, which is not done anymore now.
 // static_assert(sizeof(long) == 8, "size long");
@@ -548,10 +548,6 @@ static vector<bool> powerSmoothBitsRev(u32 exp, u32 B1) {
   return bits;
 }
 
-static volatile int stopRequested = 0;
-void (*oldHandler)(int) = 0;
-static void myHandler(int dummy) { stopRequested = 1; }
-
 // Residue from compacted words.
 static u64 residue(const std::vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
 
@@ -627,8 +623,6 @@ pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
 static vector<u32> kselect(u32 E, u32 B1) {
   if (!B1) { return vector<u32>(); }
 
-  // We want to go a bit beyond E.
-  // Anyway we only consider primes with z(p) < E. At small cost we cover more primes.
   Primes primes(E);
   vector<bool> covered(E);
   vector<bool> on(E);
@@ -691,7 +685,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1) {
   assert(blockSize > 0 && 10000 % blockSize == 0);
   const u32 checkStep = blockSize * blockSize;
   
-  oldHandler = signal(SIGINT, myHandler);
+  Signal signal;
 
   int startK = k;
 
@@ -743,10 +737,10 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1) {
         
     auto delta = timer.deltaMillis();
     stats.add(delta * (1.0f / blockSize));
-    bool doStop = stopRequested;
+    bool doStop = signal.stopRequested();
     if (doStop) {
       log("Stopping, please wait..\n");
-      signal(SIGINT, oldHandler);
+      signal.release();
     }
 
     bool doCheck = (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || doStop || (k - startK == 2 * blockSize);
