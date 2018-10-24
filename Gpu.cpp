@@ -17,9 +17,6 @@
 #include <algorithm>
 #include <gmp.h>
 
-// The assert on sizeof(long) was needed when using mpz_ui with u64, which is not done anymore now.
-// static_assert(sizeof(long) == 8, "size long");
-
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
 #endif
@@ -520,7 +517,6 @@ static void powerSmooth(mpz_t a, u32 exp, u32 B1, u32 B2 = 0) {
 
   mpz_set_ui(a, exp);
   mpz_mul_2exp(a, a, 20); // boost 2s.
-  // mpz_set_ui(a, u64(exp) << 20); 
 
   mpz_t b; mpz_init(b);
   
