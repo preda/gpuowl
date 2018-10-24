@@ -11,27 +11,18 @@ class Args;
 class Result;
 
 struct Task {
-  enum Kind {NONE = 0, TF, PRP};
+  enum Kind {NONE = 0, PRP};
 
   Kind kind;
   u32 exponent;
   string AID;  
   string line; // the verbatim worktodo line, used in deleteTask().
 
-  // TF & PRP (PRP tasks may contain "factored up to" bitlevel).
-  u32 bitLo;
-  
-  // TF only
-  u32 bitHi;
-
   // PRP,P-1
   u32 B1;
   u32 B2;
 
   operator bool() { return kind != NONE; }
-
-  // A different task may need to be done beforehand.
-  Task morph(Args *args);
 
   bool execute(const Args &args);
 };

@@ -33,13 +33,6 @@ static bool writeResult(const string &part, u32 E, const char *workType, const s
 
 static string factorStr(const string &factor) { return factor.empty() ? "" : (", \"factors\":[\"" + factor + "\"]"); }
 
-bool TFResult::write(const Args &args, const Task &task) {
-  char buf[256];
-  snprintf(buf, sizeof(buf), "\"bitlo\":%u, \"bithi\":%u, \"begink\":\"%llu\", \"endk\":\"%llu\", \"rangecomplete\":%s%s",
-           task.bitLo, task.bitHi, beginK, endK, factor.empty() ? "true" : "false", factorStr(factor).c_str());           
-  return writeResult(buf, task.exponent, "TF", factor.empty() ? "NF" : "F", task.AID, args.user, args.cpu);
-}
-
 static string resStr(u64 res64) {
   char buf[64];
   snprintf(buf, sizeof(buf), ", \"res64\":\"%016llx\"", res64);

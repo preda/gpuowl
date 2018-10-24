@@ -14,8 +14,8 @@ Task Worktodo::getTask() {
     while (fgets(line, sizeof(line), fi.get())) {
       u32 exp = 0;
       char outAID[64] = {0};
-      u32 bitLo = 0, bitHi = 0;
       u32 B1 = 0, B2 = 0;
+      u32 bitLo = 0;
       int pos = 0;
       char *tail = line;
       if (sscanf(line, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||
@@ -29,15 +29,7 @@ Task Worktodo::getTask() {
           sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
           sscanf(tail, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3 ||
           sscanf(tail, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-        return Task{Task::PRP, exp, outAID, line, bitLo, bitHi, B1, B2};
-      }
-
-      outAID[0] = 0;
-      if (sscanf(line, "Factor=%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
-          sscanf(line, "Factor=N/A,%u,%d,%d", &exp, &bitLo, &bitHi) == 3 ||
-          sscanf(line, "Factor=%32[0-9a-fA-F],%u,%u,%u", outAID, &exp, &bitLo, &bitHi) == 4) {
-        assert(B1==0 && B2==0);
-        return Task{Task::TF, exp, outAID, line, bitLo, bitHi};
+        return Task{Task::PRP, exp, outAID, line, B1, B2};
       }
       
       int n = strlen(line);

@@ -18,7 +18,6 @@ int main(int argc, char **argv) {
 
   try {
     while (Task task = Worktodo::getTask()) {
-      task = task.morph(&args);
       if (!task.execute(args)) { break; }
       Worktodo::deleteTask(task);
     }

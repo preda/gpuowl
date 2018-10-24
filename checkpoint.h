@@ -40,28 +40,3 @@ public:
   
   void save(u32 E) { ::save(E, this); }
 };
-
-class TFState {
-  friend void ::save<TFState>(u32, TFState *);
-
-  // Exponent, bitLo, bitHi, classDone, classTotal.
-  static constexpr const char *HEADER = "OWL TF 2 %u %u %u %u %u\n";
-  static constexpr const char *SUFFIX = ".tf";
-  
-  void loadInt(u32 E);
-  string durableName() { return ""; }
-
-  bool saveImpl(u32 E, string name);
-  
-public:
-  u32 bitLo, bitHi;
-  u32 nDone, nTotal;
-
-  static TFState load(u32 E) {
-    TFState tf;
-    tf.loadInt(E);
-    return tf;
-  }
-  
-  void save(u32 E) { ::save(E, this); }
-};

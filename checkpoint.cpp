@@ -26,7 +26,6 @@ template<typename T> void save(u32 E, T *state) {
 }
 
 template void save<PRPState>(u32, PRPState *);
-template void save<TFState>(u32, TFState *);
 
 static bool write(FILE *fo, const vector<u32> &v) {
   return fwrite(v.data(), v.size() * sizeof(u32), 1, fo);
@@ -154,23 +153,3 @@ string PRPState::durableName() {
 }
 
 bool PRPState::exists(u32 E) { return openRead(fileName(E, SUFFIX)) || openRead(fileName(E,".prp")); }
-
-void TFState::loadInt(u32 E) {    
-  if (auto fi{openRead(fileName(E, SUFFIX))}) {
-    u32 fileE;
-    if (fscanf(fi.get(), HEADER, &fileE, &bitLo, &bitHi, &nDone, &nTotal) == 5) {
-      assert(E == fileE);
-      assert(bitLo < bitHi);
-    } else {
-      log("Can't parse file '%s'\n", fileName(E, SUFFIX).c_str());
-      throw "parse";
-    }
-  } else {
-    bitLo = bitHi = nDone = nTotal = 0;
-  }
-}
-
-bool TFState::saveImpl(u32 E, string name) {
-  auto fo(openWrite(name));
-  return fo && fprintf(fo.get(), HEADER, E, bitLo, bitHi, nDone, nTotal) > 0;
-}

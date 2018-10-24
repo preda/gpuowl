@@ -9,14 +9,6 @@
 class Task;
 class Args;
 
-struct TFResult {
-  string factor;
-  u64 beginK;
-  u64 endK;
-
-  bool write(const Args &args, const Task &task);
-};
-
 struct PRPResult {
   string factor;
   bool isPrime;
