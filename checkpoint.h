@@ -16,8 +16,6 @@ class PRPState {
   static constexpr const char *HEADER = "OWL PRP 7 %u %u %u %u %016llx\n";
   static constexpr const char *SUFFIX = "";
   
-  bool load_v5(u32 E);
-  bool load_v6(u32 E);
   void loadInt(u32 E, u32 B1, u32 iniBlockSize);
   bool saveImpl(u32 E, const string &name);
   string durableName();

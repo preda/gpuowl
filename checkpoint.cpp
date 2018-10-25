@@ -36,72 +36,6 @@ static bool read(FILE *fi, u32 nWords, vector<u32> *v) {
   return fread(v->data(), nWords * sizeof(u32), 1, fi);
 }
 
-struct PRPState_v5 {
-  static constexpr const char *HEADER_R = R"(OWL 5
-Comment: %255[^
-]
-Type: PRP
-Exponent: %u
-Iteration: %u
-PRP-block-size: %u
-Residue-64: 0x%016llx
-Errors: %d
-End-of-header:
-\0)";
-
-  u32 k;
-  u32 blockSize;
-  int nErrors;
-  u64 res64;
-  vector<u32> check;
-  
-  bool load(u32 E) {
-    u32 nWords = (E - 1)/32 + 1;
-    u32 nBytes = (E - 1)/8 + 1;
-    
-    auto fi{openRead(fileName(E, ""))};
-    if (!fi) { return false; }
-    
-    char buf[256];
-    u32 fileE;
-    if (!(fscanf(fi.get(), HEADER_R, buf, &fileE, &k, &blockSize, &res64, &nErrors) == 6)) { return false; }
-    assert(E == fileE);
-    check = vector<u32>(nWords);
-    if (!fread(check.data(), nBytes, 1, fi.get())) { return false; }
-    return true;
-  }
-};
-
-bool PRPState::load_v5(u32 E) {
-  PRPState_v5 v5;
-  if (!v5.load(E)) { return false; }
-  
-  k = v5.k;
-  blockSize = v5.blockSize;
-  // nErrors = v5.nErrors;
-  res64 = v5.res64;
-  check = move(v5.check);
-  return true;
-}
-
-bool PRPState::load_v6(u32 E) {
-  const char *HEADER = "OWL PRP 6 %u %u %u %016llx %u\n";
-  u32 nWords = (E - 1) / 32 + 1;
-  if (auto fi{openRead(fileName(E, ".prp"))}) {
-    char line[256];
-    u32 fileE;
-    u32 nErrors;
-    bool ok = fgets(line, sizeof(line), fi.get())
-      && sscanf(line, HEADER, &fileE, &k, &blockSize, &res64, &nErrors) == 5
-      && read(fi.get(), nWords, &check);
-    if (ok) {
-      assert(E == fileE);
-      return true;
-    }
-  }
-  return load_v5(E);
-}
-
 void PRPState::loadInt(u32 E, u32 wantB1, u32 iniBlockSize) {
   u32 nWords = (E - 1) / 32 + 1;
   string name = fileName(E, SUFFIX);
@@ -127,13 +61,6 @@ void PRPState::loadInt(u32 E, u32 wantB1, u32 iniBlockSize) {
       return;
     }
   }
-  
-  if (load_v6(E)) {
-    if (wantB1 != 0) { log("B1 mismatch: using B1=0 from from savefile\n"); }
-    base = vector<u32>(nWords);
-    base[0] = 3;
-    return;
-  }
 
   log("PRP savefile not found '%s'\n", fileName(E, SUFFIX).c_str());
   assert(false);
@@ -152,4 +79,4 @@ string PRPState::durableName() {
   return k && (k % 20'000'000 == 0) ? "."s + to_string(k/1'000'000)+"M" : ""s;
 }
 
-bool PRPState::exists(u32 E) { return openRead(fileName(E, SUFFIX)) || openRead(fileName(E,".prp")); }
+bool PRPState::exists(u32 E) { return bool(openRead(fileName(E, SUFFIX))); }

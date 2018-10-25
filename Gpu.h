@@ -100,15 +100,15 @@ public:
   vector<u32> writeData(const vector<u32> &v);
   vector<u32> writeCheck(const vector<u32> &v);
   
-  u64 dataResidue();
-  u64 checkResidue();
+  u64 dataResidue()  { return bufResidue(bufData); }
+  u64 checkResidue() { return bufResidue(bufCheck); }
     
   bool doCheck(int blockSize);
   void updateCheck();
 
-  // returns nb. of Ks selected for GCD accumulation.
-  u32 dataLoopAcc(u32 kBegin, u32 kEnd, const unordered_set<u32> &kset);
-  void dataLoopMul(const vector<bool> &muls);
+  void dataLoopMul(const vector<bool> &muls) { modSqLoopMul(bufData, muls); }
+  void dataLoopAcc(const vector<bool> &accs) { modSqLoopAcc(bufData, accs); }
+  u32 dataLoopAcc(u32 begin, u32 end, const vector<bool> &kset);
   
   void finish();
 

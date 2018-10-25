@@ -325,8 +325,19 @@ bool Gpu::doCheck(int blockSize) {
   return equalNotZero(bufCheck, bufAux);
 }
 
-u32 Gpu::dataLoopAcc(u32 kBegin, u32 kEnd, const unordered_set<u32> &kset) {
+static u32 countOnBits(const vector<bool> &bits) {
+  u32 n = 0;
+  for (bool b : bits) { n += b; }
+  return n;
+}
+
+u32 Gpu::dataLoopAcc(u32 kBegin, u32 kEnd, const vector<bool> &kset) {
   assert(kEnd > kBegin);
+  vector<bool> accs(kset.begin() + kBegin, kset.begin() + kEnd);
+  dataLoopAcc(accs);
+  return countOnBits(accs);
+}
+/*
   vector<bool> accs;
   u32 nAcc = 0;
   for (u32 k = kBegin; k < kEnd; ++k) {
@@ -338,11 +349,7 @@ u32 Gpu::dataLoopAcc(u32 kBegin, u32 kEnd, const unordered_set<u32> &kset) {
   modSqLoopAcc(bufData, accs);
   return nAcc;
 }
-
-void Gpu::dataLoopMul(const vector<bool> &muls) { modSqLoopMul(bufData, muls); }
-
-u64 Gpu::dataResidue() { return bufResidue(bufData); }
-u64 Gpu::checkResidue() { return bufResidue(bufCheck); }
+*/
 
 void Gpu::logTimeKernels() {
   ::logTimeKernels({&carryFused, &carryFusedMul, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
@@ -481,11 +488,11 @@ u64 Gpu::bufResidue(Buffer &buf) {
   return residueFromRaw(E, N, readBuf);
 }
 
-static string makeLogStr(int E, int k, u64 res, const StatsInfo &info, u32 nIters = 0) {
-  int end = nIters ? nIters : (((E - 1) / 1000 + 1) * 1000);
-  float percent = 100 / float(end);
+static string makeLogStr(int E, int k, u64 res, const StatsInfo &info, u32 nIters) {
+  // int end = nIters ? nIters : (((E - 1) / 1000 + 1) * 1000);
+  float percent = 100 / float(nIters);
   
-  int etaMins = (end - k) * info.mean * (1 / 60000.f) + .5f;
+  int etaMins = (nIters - k) * info.mean * (1 / 60000.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
@@ -498,16 +505,16 @@ static string makeLogStr(int E, int k, u64 res, const StatsInfo &info, u32 nIter
   return buf;
 }
 
-static void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, Stats &stats) {
+static void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, Stats &stats, u32 nIters) {
   log("%s %s (check %.2fs)\n",
       checkOK ? "OK" : "EE",
-      makeLogStr(E, k, res, stats.getStats()).c_str(),
+      makeLogStr(E, k, res, stats.getStats(), nIters).c_str(),
       timeCheck * .001f);
   stats.reset();
 }
 
-static void doSmallLog(int E, int k, u64 res, Stats &stats) {
-  log("   %s\n", makeLogStr(E, k, res, stats.getStats()).c_str());
+static void doSmallLog(int E, int k, u64 res, Stats &stats, u32 nIters, u32 nAcc) {
+  log("   %s\n", makeLogStr(E, k, res, stats.getStats(), nIters).c_str());
   stats.reset();
 }
 
@@ -616,8 +623,8 @@ pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
   return make_pair(check, base);
 }
 
-static vector<u32> kselect(u32 E, u32 B1, u32 B2) {
-  if (!B1) { return vector<u32>(); }
+static vector<bool> kselect(u32 E, u32 B1, u32 B2) {
+  if (!B1) { return vector<bool>(E); }
 
   Primes primes(B2 + 1);
   vector<bool> covered(E);
@@ -636,13 +643,15 @@ static vector<u32> kselect(u32 E, u32 B1, u32 B2) {
       }
     }
   }
-
+  return on;
+  /*
   vector<u32> ret;
   for (u32 k = 0; k < E; ++k) { if (on[k]) { ret.push_back(k); } }
   return ret;
+  */
 }
 
-static auto asSet(const vector<u32> &v) { return unordered_set<u32>(v.begin(), v.end()); }
+// static auto asSet(const vector<u32> &v) { return unordered_set<u32>(v.begin(), v.end()); }
 
 PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   u32 N = this->getFFTSize();
@@ -650,7 +659,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   if (B1 != 0 && B2 == 0) { B2 = E; }
   log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u, B2 %u\n", E, N/1024, E / float(N), B1, B2);
 
-  future<vector<u32>> ksetFuture;
+  future<vector<bool>> ksetFuture;
   if (B1 != 0) { ksetFuture = async(launch::async, kselect, E, B1, B2); }
   
   if (!PRPState::exists(E)) {
@@ -679,14 +688,14 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   
   int startK = k;
 
-  unordered_set<u32> kset;
+  vector<bool> kset;
   if (ksetFuture.valid()) {
     log("Please wait for P-1 trial points selection..\n");
     ksetFuture.wait();
-    kset = asSet(ksetFuture.get());
+    kset = ksetFuture.get();
   }
   
-  log("Selected %u P-1 trial points\n", u32(kset.size()));
+  log("Selected %u P-1 trial points\n", countOnBits(kset));
   
   Signal signal;
   Stats stats;
@@ -699,10 +708,12 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
 
   int nGcdAcc = 0;
   u64 finalRes64 = 0;
+  u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
   while (true) {
     assert(k % blockSize == 0);
+    u32 nAcc = 0;
     if (k < kEnd && k + blockSize >= kEnd) {
-      nGcdAcc += this->dataLoopAcc(k, kEnd, kset);
+      nAcc = dataLoopAcc(k, kEnd, kset);
       auto words = this->roundtripData();
       finalRes64 = residue(words);
       isPrime = (words == base || words == bitNeg(base));
@@ -711,10 +722,11 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
       
       int itersLeft = blockSize - (kEnd - k);
       // assert(itersLeft > 0);
-      if (itersLeft > 0) { nGcdAcc += this->dataLoopAcc(kEnd, kEnd + itersLeft, kset); }
+      if (itersLeft > 0) { nAcc += dataLoopAcc(kEnd, kEnd + itersLeft, kset); }
     } else {
-      nGcdAcc += this->dataLoopAcc(k, k + blockSize, kset);
+      nAcc = dataLoopAcc(k, k + blockSize, kset);
     }
+    nGcdAcc += nAcc;
     k += blockSize;
 
     u64 res64 = this->dataResidue();
@@ -740,7 +752,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     if (!doCheck) {
       this->updateCheck();
       if (k % 10000 == 0) {
-        doSmallLog(E, k, res64, stats);
+        doSmallLog(E, k, res64, stats, nAcc, nTotalIters);
         if (args.timeKernels) { this->logTimeKernels(); }
       }
       continue;
@@ -752,7 +764,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     bool doSave = (k < kEnd || k >= kEnd + blockSize) && ok;
     if (doSave) { PRPState{k, B1, blockSize, res64, check, base}.save(E); }
     
-    doLog(E, k, timer.deltaMillis(), res64, ok, stats);
+    doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters);
     
     bool wantGCD = ok && (nGcdAcc > 10000 || doStop);
     if (wantGCD) {
