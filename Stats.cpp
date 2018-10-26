@@ -1,45 +1,48 @@
+// Copyright Mihai Preda
+
 #include "Stats.h"
 
 #include <cmath>
 #include <cassert>
+#include <numeric>
+
+using namespace std;
 
 void Stats::reset() {
-  v.clear();
-  min =   1e100;
-  max = - 1e100;
-  sum = 0;
+  times.clear();
+  nSquares.clear();
+  nMuls.clear();
 }
-  
-void Stats::add(double x) {
-  min = std::min(x, min);
-  max = std::max(x, max);
-  sum += x;
-  v.push_back(x);
+
+void Stats::add(double millis, u32 nSq, u32 nMul) {
+  times.push_back(millis);
+  nSquares.push_back(nSq);
+  nMuls.push_back(nMul);  
 }
+
+template<typename T1, typename T2> static auto dotProduct(const vector<T1> &v1, const vector<T2> &v2) {
+  return inner_product(v1.begin(), v1.end(), v2.begin(), 0);
+}
+
+template<typename T> static T sum(const vector<T> &v) { return accumulate(v.begin(), v.end(), 0); }
 
 StatsInfo Stats::getStats() {
-  int n = v.size();
-  double mean = n ? sum / n : 0;
+  u32 totalSq  = sum(nSquares);
+  u32 totalMul = sum(nMuls);
+  double totalTime = sum(times);
   
-  int n1 = 0, n2 = 0;
-  double s1 = 0, s2 = 0;
+  if (totalMul == 0) { return StatsInfo{totalSq, 0u, totalTime / totalSq, 0.0}; }
   
-  for (double x : v) {
-    double d = x - mean;
-    double dd = d * d;
-    if (d < 0) {
-      ++n1;
-      s1 += dd;
-    } else {
-      ++n2;
-      s2 += dd;
-    }
-  }
-  assert(n == n1 + n2);
+  double a = dotProduct(nSquares, nSquares);
+  double b = dotProduct(nSquares, nMuls);
+  double d = dotProduct(nMuls, nMuls);
+  double e = dotProduct(nSquares, times);
+  double f = dotProduct(nMuls, times);
+  
+  assert(a && d);
 
-  double a = n1 ? mean - sqrt(s1 / n1) : mean;
-  double b = n2 ? mean + sqrt(s2 / n2) : mean;
-  // (s2 * n2 / (n1 * n));
-  // (s2 * n1 / (n2 * n));
-  return StatsInfo{n, mean, min, max, a, b, sum};
+  double det = a * d - b * b;
+  double x = d * e - b * f;
+  double y = -b * e + a * f;
+  return {totalSq, totalMul, x / det, y / det};
 }

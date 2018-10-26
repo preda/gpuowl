@@ -52,7 +52,7 @@ public:
       Timer timer;
       ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
       finish(queue);
-      stats.add(timer.deltaMicros());
+      stats.add(timer.deltaMicros(), 1, 0);
     } else {
       ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
     }

@@ -137,25 +137,27 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   struct Info {
     std::string name;
-    StatsInfo stats;
+    double totalTime;
+    double avgTime;
+    u32 n;
   };
 
   double total = 0;
   vector<Info> infos;
   for (Kernel *k : kerns) {
-    Info info{k->getName(), k->resetStats()};
+    StatsInfo s = k->resetStats();
+    Info info{k->getName(), s.msPerSq * s.nSq, s.msPerSq, s.nSq};
     infos.push_back(info);
-    total += info.stats.sum;
+    total += info.totalTime;
   }
 
   // std::sort(infos.begin(), infos.end(), [](const Info &a, const Info &b) { return a.stats.sum >= b.stats.sum; });
 
   for (Info info : infos) {
-    StatsInfo stats = info.stats;
-    float percent = 100 / total * stats.sum;
+    float percent = 100 / total * info.totalTime;
     if (true || percent >= .1f) {
-      log("%4.1f%% %-14s : %6.0f [%5.0f, %6.0f] us/call   x %5d calls\n",
-          percent, info.name.c_str(), stats.mean, stats.low, stats.high, stats.n);
+      log("%4.1f%% %-14s : %6.0f us/call x %5d calls\n",
+          percent, info.name.c_str(), info.avgTime, info.n);
     }
   }
   log("\n");
@@ -488,33 +490,45 @@ u64 Gpu::bufResidue(Buffer &buf) {
   return residueFromRaw(E, N, readBuf);
 }
 
-static string makeLogStr(int E, int k, u64 res, const StatsInfo &info, u32 nIters) {
-  // int end = nIters ? nIters : (((E - 1) / 1000 + 1) * 1000);
-  float percent = 100 / float(nIters);
-  
-  int etaMins = (nIters - k) * info.mean * (1 / 60000.f) + .5f;
+static string makeLogStr(u32 E, string status, int k, u64 res, const StatsInfo &info, u32 nIters) {
+  int etaMins = (nIters - k) * info.msPerSq * (1 / 60000.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
 
   char buf[256];
   string ghzStr;
+
+  // u32 n = info.nSq + nAcc;
+  // float msIt = info.sum / n;
+
+  /*
+  snprintf(buf, sizeof(buf), "M(%d) %2s %8d [%5.2f%%], %.2f ms/it [%.2f, %.2f]%s; ETA %dd %02d:%02d; %016llx",
+           E, status.c_str(), k, k / float(nIters) * 100, msIt, info.low, info.high, ghzStr.c_str(), days, hours, mins, res);
+  */
+
+  string mulStr;
+  if (info.nMul) {
+    snprintf(buf, sizeof(buf), " + %u muls (%.2f ms/mul)", info.nMul, info.msPerMul);
+    mulStr = buf;
+  }
   
-  snprintf(buf, sizeof(buf), "%8d/%d [%5.2f%%], %.2f ms/it [%.2f, %.2f]%s; ETA %dd %02d:%02d; %016llx",
-           k, nIters ? nIters : E, k * percent, info.mean, info.low, info.high, ghzStr.c_str(), days, hours, mins, res);
+  snprintf(buf, sizeof(buf), "%2s %8d/%d [%5.2f%%], %.2f ms/it%s%s; ETA %dd %02d:%02d; %016llx",
+           status.c_str(), k, E, k / float(nIters) * 100,
+           info.msPerSq, mulStr.c_str(),
+           ghzStr.c_str(), days, hours, mins, res);
   return buf;
 }
 
 static void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, Stats &stats, u32 nIters) {
-  log("%s %s (check %.2fs)\n",
-      checkOK ? "OK" : "EE",
-      makeLogStr(E, k, res, stats.getStats(), nIters).c_str(),
+  log("%s (check %.2fs)\n",      
+      makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats.getStats(), nIters).c_str(),
       timeCheck * .001f);
   stats.reset();
 }
 
-static void doSmallLog(int E, int k, u64 res, Stats &stats, u32 nIters, u32 nAcc) {
-  log("   %s\n", makeLogStr(E, k, res, stats.getStats(), nIters).c_str());
+static void doSmallLog(int E, int k, u64 res, Stats &stats, u32 nIters) {
+  log("%s\n", makeLogStr(E, "", k, res, stats.getStats(), nIters).c_str());
   stats.reset();
 }
 
@@ -593,10 +607,10 @@ vector<u32> Gpu::computeBase(u32 E, u32 B1) {
     u32 nIts = min(u32(bits.size() - k), 1000u);
     this->dataLoopMul(vector<bool>(bits.begin() + k, bits.begin() + (k + nIts)));
     queue.finish();
-    stats.add(timer.deltaMillis() / float(nIts));
+    stats.add(timer.deltaMillis(), nIts, 0);
     k += nIts;
     if (k % 10000 == 0) {
-      log("   %s\n", makeLogStr(E, k, this->dataResidue(), stats.getStats(), bits.size()).c_str());
+      log("%s\n", makeLogStr(E, "", k, this->dataResidue(), stats.getStats(), bits.size()).c_str());
       stats.reset();        
     }
   }
@@ -739,8 +753,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
       }
     }
         
-    auto delta = timer.deltaMillis();
-    stats.add(delta * (1.0f / blockSize));
+    stats.add(timer.deltaMillis(), blockSize, nAcc);
     bool doStop = signal.stopRequested();
     if (doStop) {
       log("Stopping, please wait..\n");
@@ -752,7 +765,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     if (!doCheck) {
       this->updateCheck();
       if (k % 10000 == 0) {
-        doSmallLog(E, k, res64, stats, nAcc, nTotalIters);
+        doSmallLog(E, k, res64, stats, nTotalIters);
         if (args.timeKernels) { this->logTimeKernels(); }
       }
       continue;

@@ -1,19 +1,28 @@
+// Copyright Mihai Preda.
+
 #pragma once
+
+#include "common.h"
 
 #include <vector>
 
 struct StatsInfo {
-  int n;
-  double mean, min, max, low, high, sum;
+  u32 nSq;
+  u32 nMul;
+  double msPerSq;
+  double msPerMul;
 };
 
-class Stats {  
-  std::vector<double> v;
-  double min, max, sum;
+class Stats {
+  vector<double> times;
+  vector<u32> nSquares;
+  vector<u32> nMuls;
+
 
 public:  
   Stats() { reset(); }
+  
   void reset();
-  void add(double x);
+  void add(double millis, u32 nSq, u32 nMul);
   StatsInfo getStats();
 };
