@@ -131,6 +131,7 @@ void PRPState::loadInt(u32 E, u32 wantB1, u32 iniBlockSize) {
     assert(stage == 1);
     if (B1 == 0) {
       base = makeVect(nWords, 3);
+      gcdAcc = makeVect(nWords, 1);
     } else {
       bool ok = read(fi.get(), nWords, &base);
       assert(ok);
@@ -152,6 +153,7 @@ void PRPState::loadInt(u32 E, u32 wantB1, u32 iniBlockSize) {
       assert(stage == 1);
       if (B1 == 0) {
         base = makeVect(nWords, 3);
+        gcdAcc = makeVect(nWords, 1);
       } else {
         bool ok = read(fi.get(), nWords, &base) && read(fi.get(), nWords, &gcdAcc);
         assert(ok);
