@@ -15,7 +15,6 @@
 #include <cmath>
 #include <cassert>
 #include <algorithm>
-#include <gmp.h>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -281,16 +280,16 @@ vector<u32> Gpu::readCheck() { return compactBits(readOut(bufCheck), E); }
 vector<u32> Gpu::readAcc()   { return compactBits(readOut(bufAcc), E); }
 
 vector<u32> Gpu::writeData(const vector<u32> &v) {
-  writeIn(expandBits(v, N, E), bufData);
+  writeIn(v, bufData);
   return v;
 }
 
 vector<u32> Gpu::writeCheck(const vector<u32> &v) {
-  writeIn(expandBits(v, N, E), bufCheck);
+  writeIn(v, bufCheck);
   return v;
 }
 
-void Gpu::writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize) {
+void Gpu::writeState(const vector<u32> &check, const vector<u32> &base, const vector<u32> &acc, u32 blockSize) {
   assert(blockSize > 0);
     
   writeCheck(check);
@@ -315,6 +314,8 @@ void Gpu::writeState(const vector<u32> &check, const vector<u32> &base, u32 bloc
     
   writeBase(base);
   modMul(bufBase, bufData);
+
+  writeIn(acc, bufAcc);
 }
 
 void Gpu::updateCheck() { modMul(bufData, bufCheck); }
@@ -371,7 +372,7 @@ void Gpu::tH(Buffer &in, Buffer &out) {
 }
 
 vector<u32> Gpu::writeBase(const vector<u32> &v) {
-  writeIn(expandBits(v, N, E), bufBase);
+  writeIn(v, bufBase);
   fftP(bufBase, buf1);
   tW(buf1, bufBaseDown);
   fftH(bufBaseDown);
@@ -382,7 +383,9 @@ vector<int> Gpu::readOut(Buffer &buf) {
   transposeOut(buf, bufAux);
   return queue.read<int>(bufAux, N);
 }
-  
+
+void Gpu::writeIn(const vector<u32> &words, Buffer &buf) { writeIn(expandBits(words, N, E), buf); }
+
 void Gpu::writeIn(const vector<int> &words, Buffer &buf) {
   queue.write(bufAux, words);
   transposeIn(bufAux, buf);
@@ -499,9 +502,6 @@ static string makeLogStr(u32 E, string status, int k, u64 res, const StatsInfo &
   char buf[256];
   string ghzStr;
 
-  // u32 n = info.nSq + nAcc;
-  // float msIt = info.sum / n;
-
   /*
   snprintf(buf, sizeof(buf), "M(%d) %2s %8d [%5.2f%%], %.2f ms/it [%.2f, %.2f]%s; ETA %dd %02d:%02d; %016llx",
            E, status.c_str(), k, k / float(nIters) * 100, msIt, info.low, info.high, ghzStr.c_str(), days, hours, mins, res);
@@ -509,11 +509,11 @@ static string makeLogStr(u32 E, string status, int k, u64 res, const StatsInfo &
 
   string mulStr;
   if (info.nMul) {
-    snprintf(buf, sizeof(buf), " + %u muls (%.2f ms/mul)", info.nMul, info.msPerMul);
+    snprintf(buf, sizeof(buf), " %4u muls, %.2f ms/mul;", info.nMul, info.msPerMul);
     mulStr = buf;
   }
   
-  snprintf(buf, sizeof(buf), "%2s %8d/%d [%5.2f%%], %.2f ms/it%s%s; ETA %dd %02d:%02d; %016llx",
+  snprintf(buf, sizeof(buf), "%2s %8d/%d [%5.2f%%], %.2f ms/it;%s%s ETA %dd %02d:%02d; %016llx",
            status.c_str(), k, E, k / float(nIters) * 100,
            info.msPerSq, mulStr.c_str(),
            ghzStr.c_str(), days, hours, mins, res);
@@ -532,42 +532,6 @@ static void doSmallLog(int E, int k, u64 res, Stats &stats, u32 nIters) {
   stats.reset();
 }
 
-static void powerSmooth(mpz_t a, u32 exp, u32 B1, u32 B2 = 0) {
-  if (B2 == 0) { B2 = B1; }
-  assert(B2 >= sqrt(B1));
-
-  mpz_set_ui(a, exp);
-  mpz_mul_2exp(a, a, 20); // boost 2s.
-
-  mpz_t b; mpz_init(b);
-  
-  for (int k = log2(B1); k > 1; --k) {
-    u32 limit = pow(B1, 1.0 / k);
-    mpz_primorial_ui(b, limit);
-    mpz_mul(a, a, b);
-  }
-  
-  mpz_primorial_ui(b, B2);
-  mpz_mul(a, a, b);
-  mpz_clear(b);
-}
-
-// "Rev" means: most significant bit first.
-static vector<bool> powerSmoothBitsRev(u32 exp, u32 B1) {
-  mpz_t a;
-  mpz_init(a);
-  powerSmooth(a, exp, B1);
-  int nBits = mpz_sizeinbase(a, 2);
-  vector<bool> bits;
-  for (int i = nBits - 1; i >= 0; --i) { bits.push_back(mpz_tstbit(a, i)); }
-  assert(int(bits.size()) == nBits);
-  mpz_clear(a);
-  return bits;
-}
-
-// Residue from compacted words.
-static u64 residue(const std::vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
-
 static vector<u32> bitNeg(const vector<u32> &v) {
   vector<u32> ret;
   ret.reserve(v.size());
@@ -575,19 +539,7 @@ static vector<u32> bitNeg(const vector<u32> &v) {
   return ret;
 }
 
-static PRPState loadPRP(Gpu *gpu, u32 E, u32 iniB1, u32 iniBlockSize) {
-  auto loaded = PRPState::load(E, iniB1, iniBlockSize);    
-  gpu->writeState(loaded.check, loaded.base, loaded.blockSize);
-
-  u64 res64 = gpu->dataResidue();
-  bool ok = (res64 == loaded.res64);
-  gpu->updateCheck();
-  log("%s loaded: %d/%d, B1 %u, blockSize %d, %016llx (expected %016llx)\n",
-      ok ? "OK" : "EE",  loaded.k, E, loaded.B1, loaded.blockSize, res64, loaded.res64);
-  if (!ok) { throw "error on load"; }
-  return loaded;
-}
-
+/*
 vector<u32> Gpu::computeBase(u32 E, u32 B1) {
   u32 nWords = (E - 1) / 32 + 1;
   {
@@ -617,7 +569,9 @@ vector<u32> Gpu::computeBase(u32 E, u32 B1) {
   assert(k == bits.size());
   return this->readData();
 }
+*/
 
+/*
 pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
   u32 nWords = (E - 1) / 32 + 1;
   
@@ -636,9 +590,39 @@ pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
 
   return make_pair(check, base);
 }
+*/
+
+PRPState Gpu::loadPRP(u32 E, u32 iniB1, u32 iniBlockSize) {
+  auto loaded = PRPState::load(E, iniB1, iniBlockSize);
+  if (loaded.stage == 0) {
+    doStage0(loaded.k, loaded.B1, loaded.blockSize, move(loaded.base), move(loaded.basePower));
+    loaded = PRPState::load(E, iniB1, iniBlockSize);
+  }
+
+  assert(loaded.stage == 1);
+  
+  writeState(loaded.check, loaded.base, loaded.gcdAcc, loaded.blockSize);
+
+  u64 res64 = dataResidue();
+  bool ok = (res64 == loaded.res64);
+  updateCheck();
+  log("%s loaded: %d/%d, B1 %u, blockSize %d, %016llx (expected %016llx)\n",
+      ok ? "OK" : "EE",  loaded.k, E, loaded.B1, loaded.blockSize, res64, loaded.res64);
+  if (!ok) { throw "error on load"; }
+  
+  if (loaded.B1 != iniB1) {
+    log("B1 mismatch %u %u\n", iniB1, loaded.B1);
+    throw "B1 mismatch";
+  }
+
+  return loaded;
+}
 
 static vector<bool> kselect(u32 E, u32 B1, u32 B2) {
   if (!B1) { return vector<bool>(E); }
+  
+  log("Starting P-1 selection: exp %u, B1 %u, B2 %u\n", E, B1, B2);
+  Timer timer;
 
   Primes primes(B2 + 1);
   vector<bool> covered(E);
@@ -657,15 +641,38 @@ static vector<bool> kselect(u32 E, u32 B1, u32 B2) {
       }
     }
   }
+  log("Selected %u P-1 points in %.2fs\n", countOnBits(on), timer.deltaMillis() * (1.0 / 1000));
   return on;
-  /*
-  vector<u32> ret;
-  for (u32 k = 0; k < E; ++k) { if (on[k]) { ret.push_back(k); } }
-  return ret;
-  */
 }
 
-// static auto asSet(const vector<u32> &v) { return unordered_set<u32>(v.begin(), v.end()); }
+void Gpu::doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool> &&basePower) {
+  writeData(base);
+  u32 kEnd = basePower.size();
+  assert(k < kEnd);
+
+  Stats stats;
+  Timer timer;
+  Signal signal;
+  while (k < kEnd) {
+    u32 nIts = min(u32(kEnd - k), blockSize);
+    dataLoopMul(vector<bool>(basePower.begin() + k, basePower.begin() + (k + nIts)));
+    queue.finish();
+    stats.add(timer.deltaMillis(), nIts, 0);
+    k += nIts;
+    if (k % 10000 == 0) {
+      u64 res64 = this->dataResidue();
+      log("%s\n", makeLogStr(E, "", k, res64, stats.getStats(), basePower.size()).c_str());
+      stats.reset();
+      bool doStop = signal.stopRequested();
+      if (doStop) {
+        log("Stopping, please wait..\n");
+        signal.release();
+      }
+      if ((k % 100000 == 0) || doStop) { PRPState{k, B1, blockSize, res64, 0, basePower, readData()}.save(E); }
+    }
+  }
+  PRPState{}.initStage1(B1, blockSize, readData()).save(E);
+}
 
 PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   u32 N = this->getFFTSize();
@@ -673,43 +680,22 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   if (B1 != 0 && B2 == 0) { B2 = E; }
   log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u, B2 %u\n", E, N/1024, E / float(N), B1, B2);
 
-  future<vector<bool>> ksetFuture;
-  if (B1 != 0) { ksetFuture = async(launch::async, kselect, E, B1, B2); }
-  
-  if (!PRPState::exists(E)) {
-    auto[check, base] = seedPRP(E, B1);
-    PRPState{0, B1, args.blockSize, residue(base), check, base}.save(E);
-  }
+  PRPState loaded = loadPRP(E, B1, args.blockSize);
 
-  PRPState loaded = loadPRP(this, E, B1, args.blockSize);
   u32 k = loaded.k;
-  
-  if (loaded.B1 != B1) {
-    log("B1 mismatch %u %u\n", B1, loaded.B1);
-    throw "B1 mismatch";
-  }
-  
   u32 blockSize = loaded.blockSize;
-
+  vector<u32> base = loaded.base;
+  // const u64 baseRes64 = residue(base);
+  
+  vector<bool> kset = kselect(E, B1, B2);
+  
   const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
 
-  vector<u32> base = loaded.base;
-  
-  const u64 baseRes64 = residue(base);
   assert(blockSize > 0 && 10000 % blockSize == 0);
   const u32 checkStep = blockSize * blockSize;
   
   int startK = k;
-
-  vector<bool> kset;
-  if (ksetFuture.valid()) {
-    log("Please wait for P-1 trial points selection..\n");
-    ksetFuture.wait();
-    kset = ksetFuture.get();
-  }
-  
-  log("Selected %u P-1 trial points\n", countOnBits(kset));
   
   Signal signal;
   Stats stats;
@@ -720,7 +706,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   bool isPrime = false;
   Timer timer;
 
-  int nGcdAcc = 0;
+  int nGcdAcc = (B1 > 0);
   u64 finalRes64 = 0;
   u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
   while (true) {
@@ -732,7 +718,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
       finalRes64 = residue(words);
       isPrime = (words == base || words == bitNeg(base));
 
-      log("%s %8d / %d, %016llx (base %016llx)\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64, baseRes64);
+      log("%s %8d / %d, %016llx (base %016llx)\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64, residue(base));
       
       int itersLeft = blockSize - (kEnd - k);
       // assert(itersLeft > 0);
@@ -743,13 +729,14 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     nGcdAcc += nAcc;
     k += blockSize;
 
-    u64 res64 = this->dataResidue();
+    queue.finish();
+    // u64 res64 = this->dataResidue();
 
     if (gcd->isReady()) {
       string factor = gcd->get();
       if (!factor.empty()) {
         log("GCD: %s\n", factor.c_str());
-        return PRPResult{factor, false, 0, baseRes64};
+        return PRPResult{factor, false, 0, residue(base)};
       }
     }
         
@@ -761,11 +748,14 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     }
 
     bool doCheck = (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || doStop || (k - startK == 2 * blockSize);
+    // bool doSmallLog = !doCheck && (k % 10000 == 0);
 
+    // u64 res64 = (doCheck || (k % 10000 == 0)) ? dataResidue() : 0;
+    
     if (!doCheck) {
       this->updateCheck();
       if (k % 10000 == 0) {
-        doSmallLog(E, k, res64, stats, nTotalIters);
+        doSmallLog(E, k, dataResidue(), stats, nTotalIters);
         if (args.timeKernels) { this->logTimeKernels(); }
       }
       continue;
@@ -774,36 +764,22 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     vector<u32> check = this->roundtripCheck();
     bool ok = this->doCheck(blockSize);
 
+    u64 res64 = dataResidue();
+
     bool doSave = (k < kEnd || k >= kEnd + blockSize) && ok;
-    if (doSave) { PRPState{k, B1, blockSize, res64, check, base}.save(E); }
+    if (doSave) { PRPState{k, B1, blockSize, res64, 1, vector<bool>(), check, base, readAcc()}.save(E); }
     
     doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters);
     
-    bool wantGCD = ok && (nGcdAcc > 10000 || doStop);
+    bool wantGCD = ok && (nGcdAcc > 10000 || (nGcdAcc && k % 1'000'000 == 0)) && !gcd->isOngoing();
     if (wantGCD) {
-      if (gcd->isOngoing()) {
-        log("Waiting for GCD to finish..\n");
-        gcd->wait();
-      }
-
-      if (gcd->isReady()) {
-        string factor = gcd->get();
-        if (!factor.empty()) {
-          log("GCD: %s\n", factor.c_str());
-          return PRPResult{factor, false, 0, baseRes64};
-        }
-      }
-
-      assert(!gcd->isOngoing());
-      if (nGcdAcc) {
-        log("Starting GCD over %u points\n", nGcdAcc);
-        gcd->start(E, this->readAcc(), 0);
-        nGcdAcc = 0;
-      }
+      log("Starting GCD over %u points\n", nGcdAcc);
+      gcd->start(E, this->readAcc(), 0);
+      nGcdAcc = 0;
     }
 
     if (ok) {
-      if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, baseRes64}; }
+      if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, residue(base)}; }
       nSeqErrors = 0;
     } else {
       if (++nSeqErrors > 2) {
@@ -811,28 +787,14 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
         throw "too many errors";
       }
       
-      auto loaded = loadPRP(this, E, B1, blockSize);
+      auto loaded = loadPRP(E, B1, blockSize);
       k = loaded.k;
       assert(blockSize == loaded.blockSize);
       assert(base == loaded.base);
       assert(B1 == loaded.B1);
+      nGcdAcc = (B1 > 0);
     }
     if (args.timeKernels) { this->logTimeKernels(); }
-    if (doStop) {
-      if (gcd->isOngoing()) {
-        log("Waiting for GCD to finish..\n");
-        gcd->wait();
-      }
-      if (gcd->isReady()) {
-        string factor = gcd->get();
-        if (!factor.empty()) {
-          log("GCD: %s\n", factor.c_str());
-          return PRPResult{factor, false, 0, baseRes64};
-        }
-      }
-      assert(!gcd->isOngoing());
-      assert(nGcdAcc == 0 || !ok);
-      throw "stop requested";
-    }
+    if (doStop) { throw "stop requested"; }
   }
 }

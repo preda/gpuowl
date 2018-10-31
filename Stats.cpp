@@ -42,6 +42,11 @@ StatsInfo Stats::getStats() {
   assert(a && d);
 
   double det = a * d - b * b;
+  if (det == 0) {
+    double avg = totalTime / (totalSq + totalMul);
+    return {totalSq, totalMul, avg, avg};
+  }
+  
   double x = d * e - b * f;
   double y = -b * e + a * f;
   return {totalSq, totalMul, x / det, y / det};

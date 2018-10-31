@@ -13,6 +13,7 @@
 
 struct Args;
 struct PRPResult;
+struct PRPState;
 class GCD;
 
 class Gpu {
@@ -68,10 +69,10 @@ class Gpu {
   void tH(Buffer &in, Buffer &out);
   void exitKerns(Buffer &buf, Buffer &bufWords);
   
-protected:
   void copyFromTo(Buffer &from, Buffer &to);
   
   vector<int> readOut(Buffer &buf);
+  void writeIn(const vector<u32> &words, Buffer &buf);
   void writeIn(const vector<int> &words, Buffer &buf);
   
   void modSqLoopMul(Buffer &io, const vector<bool> &muls);
@@ -83,6 +84,9 @@ protected:
   
   vector<u32> writeBase(const vector<u32> &v);
 
+  PRPState loadPRP(u32 E, u32 iniB1, u32 iniBlockSize);
+  void doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool> &&basePower);
+  
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   
@@ -92,7 +96,7 @@ public:
 
   ~Gpu();
   
-  void writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize);
+  void writeState(const vector<u32> &check, const vector<u32> &base, const vector<u32> &gcdAcc, u32 blockSize);
   
   vector<u32> roundtripData()  { return writeData(readData()); }
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }
