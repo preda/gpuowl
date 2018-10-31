@@ -240,8 +240,8 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
   float bitsPerWord = E / float(N);
   string strMiddle = (MIDDLE == 1) ? "" : (string(", Middle ") + std::to_string(MIDDLE));
-  log("FFT %dK: Width %d (%dx%d), Height %d (%dx%d)%s; %.2f bits/word\n",
-      N / 1024, WIDTH, WIDTH / nW, nW, SMALL_HEIGHT, SMALL_HEIGHT / nH, nH, strMiddle.c_str(), bitsPerWord);
+  log("FFT %dK: Width %dx%d, Height %dx%d%s; %.2f bits/word\n",
+      N / 1024, WIDTH / nW, nW, SMALL_HEIGHT / nH, nH, strMiddle.c_str(), bitsPerWord);
 
   if (bitsPerWord > 20) {
     log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
