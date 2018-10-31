@@ -37,11 +37,12 @@ static string doGCD(u32 exp, const vector<u32> &bits, u32 sub = 0) {
 void GCD::start(u32 E, const vector<u32> &bits, u32 sub) {
   assert(!isOngoing());
   timer.deltaMillis();
+  this->E = E;
   gcdFuture = async(launch::async, doGCD, E, bits, sub);
 }
 
 string GCD::get() {
   string s = gcdFuture.get();
-  log("GCD: %s (%.2fs)\n", s.empty() ? "no factor" : s.c_str(), timer.deltaMillis() * 0.001);
+  log("%u GCD %s (%.2fs)\n", E, s.empty() ? "no factor" : s.c_str(), timer.deltaMillis() * 0.001);
   return s;
 }

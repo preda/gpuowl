@@ -11,6 +11,7 @@
 class GCD {
   future<string> gcdFuture;
   Timer timer;
+  u32 E;
   
 public:
   void start(u32 E, const vector<u32> &bits, u32 sub);

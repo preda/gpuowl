@@ -240,8 +240,8 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
   float bitsPerWord = E / float(N);
   string strMiddle = (MIDDLE == 1) ? "" : (string(", Middle ") + std::to_string(MIDDLE));
-  log("FFT %dK: Width %dx%d, Height %dx%d%s; %.2f bits/word\n",
-      N / 1024, WIDTH / nW, nW, SMALL_HEIGHT / nH, nH, strMiddle.c_str(), bitsPerWord);
+  log("%u FFT %dK: Width %dx%d, Height %dx%d%s; %.2f bits/word\n",
+      E, N / 1024, WIDTH / nW, nW, SMALL_HEIGHT / nH, nH, strMiddle.c_str(), bitsPerWord);
 
   if (bitsPerWord > 20) {
     log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
@@ -252,7 +252,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
     || (args.carry == Args::CARRY_LONG)
     || (args.carry == Args::CARRY_AUTO && WIDTH >= 2048);
   
-  log("Note: using %s carry kernels\n", useLongCarry ? "long" : "short");
+  log("using %s carry kernels\n", useLongCarry ? "long" : "short");
 
   string clArgs = args.clArgs;
   if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
@@ -539,59 +539,6 @@ static vector<u32> bitNeg(const vector<u32> &v) {
   return ret;
 }
 
-/*
-vector<u32> Gpu::computeBase(u32 E, u32 B1) {
-  u32 nWords = (E - 1) / 32 + 1;
-  {
-    auto base = vector<u32>(nWords);
-    base[0] = 1;    
-    this->writeData(base);
-  }
-
-  vector<bool> bits = powerSmoothBitsRev(E, B1);
-  assert(bits.front());
-
-  Stats stats;
-  Timer timer;
-    
-  u32 k = 0;
-  while (k < bits.size()) {
-    u32 nIts = min(u32(bits.size() - k), 1000u);
-    this->dataLoopMul(vector<bool>(bits.begin() + k, bits.begin() + (k + nIts)));
-    queue.finish();
-    stats.add(timer.deltaMillis(), nIts, 0);
-    k += nIts;
-    if (k % 10000 == 0) {
-      log("%s\n", makeLogStr(E, "", k, this->dataResidue(), stats.getStats(), bits.size()).c_str());
-      stats.reset();        
-    }
-  }
-  assert(k == bits.size());
-  return this->readData();
-}
-*/
-
-/*
-pair<vector<u32>, vector<u32>> Gpu::seedPRP(u32 E, u32 B1) {
-  u32 nWords = (E - 1) / 32 + 1;
-  
-  vector<u32> base;  
-  if (B1 == 0) {
-    base = vector<u32>(nWords);
-    base[0] = 3;
-  } else {
-    base  = computeBase(E, B1);
-    log("Starting P-1 first-stage GCD\n");
-    gcd->start(E, base, 1);
-  }
-
-  vector<u32> check(nWords);
-  check[0] = 1;
-
-  return make_pair(check, base);
-}
-*/
-
 PRPState Gpu::loadPRP(u32 E, u32 iniB1, u32 iniBlockSize) {
   auto loaded = PRPState::load(E, iniB1, iniBlockSize);
   if (loaded.stage == 0) {
@@ -606,10 +553,12 @@ PRPState Gpu::loadPRP(u32 E, u32 iniB1, u32 iniBlockSize) {
   u64 res64 = dataResidue();
   bool ok = (res64 == loaded.res64);
   updateCheck();
-  log("%s loaded: %d/%d, B1 %u, blockSize %d, %016llx (expected %016llx)\n",
-      ok ? "OK" : "EE",  loaded.k, E, loaded.B1, loaded.blockSize, res64, loaded.res64);
-  if (!ok) { throw "error on load"; }
-  
+  if (!ok) {
+    log("%u EE loaded: %d, B1 %u, blockSize %d, %016llx (expected %016llx)\n",
+        E, loaded.k, loaded.B1, loaded.blockSize, res64, loaded.res64);
+    throw "error on load";
+  }
+
   if (loaded.B1 != iniB1) {
     log("B1 mismatch %u %u\n", iniB1, loaded.B1);
     throw "B1 mismatch";
@@ -621,7 +570,7 @@ PRPState Gpu::loadPRP(u32 E, u32 iniB1, u32 iniBlockSize) {
 static vector<bool> kselect(u32 E, u32 B1, u32 B2) {
   if (!B1) { return vector<bool>(E); }
   
-  log("Starting P-1 selection: exp %u, B1 %u, B2 %u\n", E, B1, B2);
+  // log("Starting P-1 selection: exp %u, B1 %u, B2 %u\n", E, B1, B2);
   Timer timer;
 
   Primes primes(B2 + 1);
@@ -642,7 +591,7 @@ static vector<bool> kselect(u32 E, u32 B1, u32 B2) {
     }
   }
   on[1] = true; // this is special-case, to allow testing P-1 first-stage as: base^2 - 1 = (base - 1)*(base + 1)
-  log("Selected %u P-1 points in %.2fs\n", countOnBits(on), timer.deltaMillis() * (1.0 / 1000));
+  log("%u B1=%u B2=%u selected %u P-1 points in %.2fs\n", E, B1, B2, countOnBits(on), timer.deltaMillis() * (1.0 / 1000));
   return on;
 }
 
@@ -681,10 +630,10 @@ void Gpu::doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool
 }
 
 PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
-  u32 N = this->getFFTSize();
+  // u32 N = this->getFFTSize();
   assert(B2 == 0 || B2 >= B1);
   if (B1 != 0 && B2 == 0) { B2 = E; }
-  log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u, B2 %u\n", E, N/1024, E / float(N), B1, B2);
+  // log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u, B2 %u\n", E, N/1024, E / float(N), B1, B2);
 
   PRPState loaded = loadPRP(E, B1, args.blockSize);
 

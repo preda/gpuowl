@@ -96,7 +96,7 @@ void PRPState::loadInt(u32 E, u32 wantB1, u32 iniBlockSize) {
   string name = fileName(E, SUFFIX);  
   auto fi{openRead(name)};
   if (!fi) {
-    log("Note: '%s' not found, starting from the beginnig.\n", name.c_str());
+    log("%s not found, starting from the beginnig.\n", name.c_str());
     k = 0;
     B1 = wantB1;
     blockSize = iniBlockSize;
@@ -107,7 +107,7 @@ void PRPState::loadInt(u32 E, u32 wantB1, u32 iniBlockSize) {
       base = makeVect(nWords, 1);
       base[0] = 1;
       basePower = powerSmoothBitsRev(E, B1);
-      log("Note: powerSmooth(%u, %u) has %u bits\n", E, B1, u32(basePower.size()));
+      log("powerSmooth(%u, %u) has %u bits\n", E, B1, u32(basePower.size()));
     } else {
       initStage1(B1, blockSize, makeVect(nWords, 3));
     }
@@ -162,8 +162,8 @@ void PRPState::loadInt(u32 E, u32 wantB1, u32 iniBlockSize) {
     throw("invalid savefile");    
   }
 
-  log("Note: '%s' loaded: Exp %u, k %u, B1 %u, block %u, res64 %016llx, stage %u, baseBits %u\n",
-      name.c_str(), fileE, k, B1, blockSize, res64, stage, nBaseBits);
+  log("%s loaded: k %u, B1 %u, block %u, res64 %016llx, stage %u, baseBits %u\n",
+      name.c_str(), k, B1, blockSize, res64, stage, nBaseBits);
 }
 
 bool PRPState::saveImpl(u32 E, const string &name) {
