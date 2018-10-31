@@ -1,7 +1,7 @@
 #include "Signal.h"
 
 #include <signal.h>
-#include <cassert>
+// #include <cassert>
 
 static volatile int stop = 0;
 static void (*oldHandler)(int) = 0;
@@ -11,7 +11,7 @@ Signal::Signal() {
   if (!oldHandler) {
     oldHandler = signal(SIGINT, myHandler);
     isOwner = true;
-    assert(oldHandler);
+    // assert(oldHandler);
   }
 }
 
@@ -22,7 +22,7 @@ bool Signal::stopRequested() { return stop; }
 void Signal::release() {
   if (isOwner) {
     isOwner = false;
-    assert(oldHandler);
+    // assert(oldHandler);
     signal(SIGINT, oldHandler);
     oldHandler = 0;
   }
