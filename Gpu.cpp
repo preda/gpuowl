@@ -513,8 +513,8 @@ static string makeLogStr(u32 E, string status, int k, u64 res, const StatsInfo &
     mulStr = buf;
   }
   
-  snprintf(buf, sizeof(buf), "%2s %8d/%d [%5.2f%%], %.2f ms/it;%s%s ETA %dd %02d:%02d; %016llx",
-           status.c_str(), k, E, k / float(nIters) * 100,
+  snprintf(buf, sizeof(buf), "%u %2s %8d/%d [%5.2f%%], %.2f ms/it;%s%s ETA %dd %02d:%02d; %016llx",
+           E, status.c_str(), k, nIters, k / float(nIters) * 100,
            info.msPerSq, mulStr.c_str(),
            ghzStr.c_str(), days, hours, mins, res);
   return buf;
@@ -659,17 +659,22 @@ void Gpu::doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool
     queue.finish();
     stats.add(timer.deltaMillis(), nIts, 0);
     k += nIts;
-    if (k % 10000 == 0) {
-      u64 res64 = this->dataResidue();
+
+    bool doStop = signal.stopRequested();
+    if (doStop) {
+      log("Stopping, please wait..\n");
+      signal.release();
+    }
+
+    if (k % 10000 == 0 || doStop) {
+      auto data = readData();      
+      u64 res64 = residue(data);
       log("%s\n", makeLogStr(E, "", k, res64, stats.getStats(), basePower.size()).c_str());
       stats.reset();
-      bool doStop = signal.stopRequested();
-      if (doStop) {
-        log("Stopping, please wait..\n");
-        signal.release();
-      }
-      if ((k % 100000 == 0) || doStop) { PRPState{k, B1, blockSize, res64, 0, basePower, readData()}.save(E); }
+      PRPState{k, B1, blockSize, res64, 0, basePower, data}.save(E);
     }
+
+    if (doStop) { throw "stop requested"; }
   }
   PRPState{}.initStage1(B1, blockSize, readData()).save(E);
 }
@@ -684,9 +689,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
 
   u32 k = loaded.k;
   u32 blockSize = loaded.blockSize;
-  vector<u32> base = loaded.base;
-  // const u64 baseRes64 = residue(base);
-  
+  vector<u32> base = loaded.base;  
   vector<bool> kset = kselect(E, B1, B2);
   
   const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
@@ -695,7 +698,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   assert(blockSize > 0 && 10000 % blockSize == 0);
   const u32 checkStep = blockSize * blockSize;
   
-  int startK = k;
+  u32 startK = k;
   
   Signal signal;
   Stats stats;
@@ -721,7 +724,6 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
       log("%s %8d / %d, %016llx (base %016llx)\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64, residue(base));
       
       int itersLeft = blockSize - (kEnd - k);
-      // assert(itersLeft > 0);
       if (itersLeft > 0) { nAcc += dataLoopAcc(kEnd, kEnd + itersLeft, kset); }
     } else {
       nAcc = dataLoopAcc(k, k + blockSize, kset);
@@ -730,7 +732,6 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     k += blockSize;
 
     queue.finish();
-    // u64 res64 = this->dataResidue();
 
     if (gcd->isReady()) {
       string factor = gcd->get();
@@ -748,9 +749,6 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     }
 
     bool doCheck = (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || doStop || (k - startK == 2 * blockSize);
-    // bool doSmallLog = !doCheck && (k % 10000 == 0);
-
-    // u64 res64 = (doCheck || (k % 10000 == 0)) ? dataResidue() : 0;
     
     if (!doCheck) {
       this->updateCheck();
@@ -766,21 +764,18 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
 
     u64 res64 = dataResidue();
 
-    bool doSave = (k < kEnd || k >= kEnd + blockSize) && ok;
-    if (doSave) { PRPState{k, B1, blockSize, res64, 1, vector<bool>(), check, base, readAcc()}.save(E); }
-    
     doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters);
     
-    bool wantGCD = ok && (nGcdAcc > 10000 || (nGcdAcc && k % 1'000'000 == 0)) && !gcd->isOngoing();
-    if (wantGCD) {
-      log("Starting GCD over %u points\n", nGcdAcc);
-      gcd->start(E, this->readAcc(), 0);
-      nGcdAcc = 0;
-    }
-
     if (ok) {
+      vector<u32> acc = readAcc();
+      if (k < kEnd) { PRPState{k, B1, blockSize, res64, 1, vector<bool>(), check, base, acc}.save(E); }
+      if (k % 1'000'000 < checkStep && nGcdAcc && !gcd->isOngoing() && !doStop) {
+        log("Starting GCD over %u points\n", nGcdAcc);
+        gcd->start(E, acc, 0);
+        nGcdAcc = 0;
+      }
       if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, residue(base)}; }
-      nSeqErrors = 0;
+      nSeqErrors = 0;      
     } else {
       if (++nSeqErrors > 2) {
         log("%d sequential errors, will stop.\n", nSeqErrors);
