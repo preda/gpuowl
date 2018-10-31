@@ -567,19 +567,23 @@ PRPState Gpu::loadPRP(u32 E, u32 iniB1, u32 iniBlockSize) {
   return loaded;
 }
 
-static vector<bool> kselect(u32 E, u32 B1, u32 B2) {
-  if (!B1) { return vector<bool>(E); }
+static pair<vector<bool>, u32> kselect(u32 E, u32 blockSize, u32 B1, u32 B2) {
+  u32 lastIteration = ((E - 2) / blockSize + 1) * blockSize;
+  
+  if (!B1) { return make_pair(vector<bool>(lastIteration + 1), 0); }
   
   // log("Starting P-1 selection: exp %u, B1 %u, B2 %u\n", E, B1, B2);
   Timer timer;
 
   Primes primes(B2 + 1);
-  vector<bool> covered(E);
-  vector<bool> on(E);
+  vector<bool> covered(lastIteration + 1);
+  vector<bool> on(lastIteration + 1);
+
+  u32 reportB2 = 0;
   
   for (u32 p : primes.from(B1)) {
     u32 z = primes.zn2(p);
-    if (z < E) {
+    if (z <= lastIteration) {
       if (!covered[z]) {
         // assert(!on[z]);
         for (u32 d : primes.divisors(z)) {
@@ -588,11 +592,16 @@ static vector<bool> kselect(u32 E, u32 B1, u32 B2) {
         }
         on[z] = true;
       }
+    } else if (reportB2 == 0) {
+      reportB2 = p - 1;
     }
   }
-  on[1] = true; // this is special-case, to allow testing P-1 first-stage as: base^2 - 1 = (base - 1)*(base + 1)
-  log("%u B1=%u B2=%u selected %u P-1 points in %.2fs\n", E, B1, B2, countOnBits(on), timer.deltaMillis() * (1.0 / 1000));
-  return on;
+  if (reportB2 == 0) { reportB2 = B2; }
+  
+  on[1] = true; // special-case to allow testing P-1 first-stage early, as: base^2 - 1 = (base - 1) * (base + 1)
+  log("%u B1=%u B2=%u (effective B2=%u) selected %u P-1 points in %.2fs\n",
+      E, B1, B2, reportB2, countOnBits(on), timer.deltaMillis() * (1.0 / 1000));
+  return make_pair(on, reportB2);
 }
 
 void Gpu::doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool> &&basePower) {
@@ -632,20 +641,26 @@ void Gpu::doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool
 PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   // u32 N = this->getFFTSize();
   assert(B2 == 0 || B2 >= B1);
-  if (B1 != 0 && B2 == 0) { B2 = E; }
+  if (B1 != 0 && B2 == 0) {
+    B2 = E * 1.1; // by default test a some primes above E as well.
+  }
   // log("PRP M(%d), FFT %dK, %.2f bits/word, B1 %u, B2 %u\n", E, N/1024, E / float(N), B1, B2);
 
   PRPState loaded = loadPRP(E, B1, args.blockSize);
 
   u32 k = loaded.k;
   u32 blockSize = loaded.blockSize;
-  vector<u32> base = loaded.base;  
-  vector<bool> kset = kselect(E, B1, B2);
+  assert(blockSize > 0 && 10000 % blockSize == 0);
+  
+  vector<u32> base = loaded.base;
   
   const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
 
-  assert(blockSize > 0 && 10000 % blockSize == 0);
+  auto kselectRet = kselect(E, blockSize, B1, B2);
+  vector<bool> kset = kselectRet.first;
+  u32 effectiveB2 = kselectRet.second;
+  
   const u32 checkStep = blockSize * blockSize;
   
   u32 startK = k;
@@ -687,7 +702,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
       string factor = gcd->get();
       if (!factor.empty()) {
         // log("GCD: %s\n", factor.c_str());
-        return PRPResult{factor, false, 0, residue(base)};
+        return PRPResult{factor, false, 0, residue(base), effectiveB2};
       }
     }
         

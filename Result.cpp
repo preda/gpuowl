@@ -66,7 +66,7 @@ bool PRPResult::write(const Args &args, const Task &task, u32 fftSize) {
   // When B1!=0: B2==0 means "use default B2", which is ==Exponent.
   // If B2!=0, the reported B2 won't be larger then the Exponent in any case.
   u32 E = task.exponent;
-  u32 B2 = (task.B2==0) ? E : min(E, task.B2);
+  // u32 B2 = (task.B2==0) ? E : min(E, task.B2);
   
   snprintf(buf, sizeof(buf), "%s%s, \"b2\":\"%u\", \"base\":{\"b1\":\"%u\", \"bias\":{\"2\":19}%s}",
            factorStr(factor).c_str(), r1.c_str(),
