@@ -87,7 +87,7 @@ PRPState PRPState::initStage1(u32 iniB1, u32 iniBlockSize, const vector<u32> &in
   base = iniBase;
   res64  = residue(base);
   u32 nWords = iniBase.size(); // (E - 1) / 32 + 1;
-  check  = gcdAcc = makeVect(nWords, 1);
+  check = gcdAcc = makeVect(nWords, 1);
   return *this;
 }
 

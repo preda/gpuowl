@@ -641,6 +641,7 @@ static vector<bool> kselect(u32 E, u32 B1, u32 B2) {
       }
     }
   }
+  on[1] = true; // this is special-case, to allow testing P-1 first-stage as: base^2 - 1 = (base - 1)*(base + 1)
   log("Selected %u P-1 points in %.2fs\n", countOnBits(on), timer.deltaMillis() * (1.0 / 1000));
   return on;
 }
@@ -736,7 +737,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     if (gcd->isReady()) {
       string factor = gcd->get();
       if (!factor.empty()) {
-        log("GCD: %s\n", factor.c_str());
+        // log("GCD: %s\n", factor.c_str());
         return PRPResult{factor, false, 0, residue(base)};
       }
     }
@@ -770,7 +771,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
       vector<u32> acc = readAcc();
       if (k < kEnd) { PRPState{k, B1, blockSize, res64, 1, vector<bool>(), check, base, acc}.save(E); }
       if (k % 1'000'000 < checkStep && nGcdAcc && !gcd->isOngoing() && !doStop) {
-        log("Starting GCD over %u points\n", nGcdAcc);
+        // log("Starting GCD over %u points\n", nGcdAcc);
         gcd->start(E, acc, 0);
         nGcdAcc = 0;
       }
