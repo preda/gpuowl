@@ -96,7 +96,7 @@ void PRPState::loadInt(u32 E, u32 wantB1, u32 iniBlockSize) {
   string name = fileName(E, SUFFIX);  
   auto fi{openRead(name)};
   if (!fi) {
-    log("%s not found, starting from the beginnig.\n", name.c_str());
+    log("%s not found, starting from the beginning.\n", name.c_str());
     k = 0;
     B1 = wantB1;
     blockSize = iniBlockSize;

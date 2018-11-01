@@ -539,6 +539,17 @@ static vector<u32> bitNeg(const vector<u32> &v) {
   return ret;
 }
 
+// Checks whether a == bitNeg(b) ignoring the last word.
+// (this is because the last word is often only partially filled with bits of exponent E)
+// 'a' passed by value intentional.
+static bool equalNeg(vector<u32> a, const vector<u32> &b) {
+  assert(!a.empty() && !b.empty());
+  auto c = bitNeg(b);
+  a.pop_back();
+  c.pop_back();
+  return a == c;
+}
+
 PRPState Gpu::loadPRP(u32 E, u32 iniB1, u32 iniBlockSize) {
   auto loaded = PRPState::load(E, iniB1, iniBlockSize);
   if (loaded.stage == 0) {
@@ -640,6 +651,7 @@ void Gpu::doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool
 
 PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
   // u32 N = this->getFFTSize();
+
   assert(B2 == 0 || B2 >= B1);
   if (B1 != 0 && B2 == 0) {
     B2 = E * 1.1; // by default test a some primes above E as well.
@@ -684,7 +696,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
       nAcc = dataLoopAcc(k, kEnd, kset);
       auto words = this->roundtripData();
       finalRes64 = residue(words);
-      isPrime = (words == base || words == bitNeg(base));
+      isPrime = (words == base) || equalNeg(words, base); // words == bitNeg(base));
 
       log("%s %8d / %d, %016llx (base %016llx)\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64, residue(base));
       
