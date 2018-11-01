@@ -751,7 +751,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
         gcd->start(E, acc, 0);
         nGcdAcc = 0;
       }
-      if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, residue(base)}; }
+      if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, residue(base), effectiveB2}; }
       nSeqErrors = 0;      
     } else {
       if (++nSeqErrors > 2) {
