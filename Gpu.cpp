@@ -494,30 +494,17 @@ u64 Gpu::bufResidue(Buffer &buf) {
 }
 
 static string makeLogStr(u32 E, string status, int k, u64 res, const StatsInfo &info, u32 nIters) {
-  int etaMins = (nIters - k) * info.msPerSq * (1 / 60000.f) + .5f;
+  int etaMins = (nIters - k) * info.msPerIt * (1 / 60000.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
 
   char buf[256];
   string ghzStr;
-
-  /*
-  snprintf(buf, sizeof(buf), "M(%d) %2s %8d [%5.2f%%], %.2f ms/it [%.2f, %.2f]%s; ETA %dd %02d:%02d; %016llx",
-           E, status.c_str(), k, k / float(nIters) * 100, msIt, info.low, info.high, ghzStr.c_str(), days, hours, mins, res);
-  */
-
-  /*
-  string mulStr;
-  if (info.nMul) {
-    snprintf(buf, sizeof(buf), " %4u muls, %.2f ms/mul;", info.nMul, info.msPerMul);
-    mulStr = buf;
-  }
-  */
   
-  snprintf(buf, sizeof(buf), "%u %2s %8d/%d [%5.2f%%], %.2f ms/it (%.2f ms/SQ + %4u MULs);%s ETA %dd %02d:%02d; %016llx",
-           E, status.c_str(), k, nIters, k / float(nIters) * 100,
-           info.msPerIt, info.msPerSq, info.nMul,
+  snprintf(buf, sizeof(buf), "%u %2s %8d %5.2f%%; %.2f ms/sq, %4u MULs;%s ETA %dd %02d:%02d; %016llx",
+           E, status.c_str(), k, k / float(nIters) * 100,
+           info.msPerSq, info.nMul,
            ghzStr.c_str(), days, hours, mins, res);
   return buf;
 }
@@ -641,7 +628,7 @@ void Gpu::doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool
     if (k % 10000 == 0 || doStop) {
       auto data = readData();      
       u64 res64 = residue(data);
-      log("%s\n", makeLogStr(E, "", k, res64, stats.reset(), basePower.size()).c_str());
+      log("%s\n", makeLogStr(E, "P-1", k, res64, stats.reset(), basePower.size()).c_str());
       stats.reset();
       PRPState{k, B1, blockSize, res64, 0, basePower, data}.save(E);
     }
