@@ -10,19 +10,17 @@ struct StatsInfo {
   u32 nSq;
   u32 nMul;
   double msPerSq;
-  double msPerMul;
+  double msPerIt;
+  // double msPerMul;
 };
 
 class Stats {
-  vector<double> times;
-  vector<u32> nSquares;
-  vector<u32> nMuls;
+  double time;
+  u32 nSq;
+  u32 nMul;
 
-
-public:  
+public:
   Stats() { reset(); }
-  
-  void reset();
   void add(double millis, u32 nSq, u32 nMul);
-  StatsInfo getStats();
+  StatsInfo reset();
 };

@@ -289,6 +289,26 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
   return v;
 }
 
+// The modular multiplication io *= in.
+void Gpu::modMul(Buffer &in, Buffer &io) {
+  fftP(in, buf1);
+  tW(buf1, buf3);
+    
+  fftP(io, buf1);
+  tW(buf1, buf2);
+    
+  fftH(buf2);
+  fftH(buf3);
+  multiply(buf2, buf3);
+  fftH(buf2);
+
+  tH(buf2, buf1);    
+
+  fftW(buf1);
+  carryA(buf1, io, bufCarry);
+  carryB(io, bufCarry);
+};
+
 void Gpu::writeState(const vector<u32> &check, const vector<u32> &base, const vector<u32> &acc, u32 blockSize) {
   assert(blockSize > 0);
     
@@ -459,26 +479,6 @@ void Gpu::modSqLoopAcc(Buffer &io, const vector<bool> &accs) {
   }
 }
 
-// The modular multiplication io *= in.
-void Gpu::modMul(Buffer &in, Buffer &io) {
-  fftP(in, buf1);
-  tW(buf1, buf3);
-    
-  fftP(io, buf1);
-  tW(buf1, buf2);
-    
-  fftH(buf2);
-  fftH(buf3);
-  multiply(buf2, buf3);
-  fftH(buf2);
-
-  tH(buf2, buf1);    
-
-  fftW(buf1);
-  carryA(buf1, io, bufCarry);
-  carryB(io, bufCarry);
-};
-
 bool Gpu::equalNotZero(Buffer &buf1, Buffer &buf2) {
   queue.zero(bufSmallOut, sizeof(int));
   u32 sizeBytes = N * sizeof(int);
@@ -507,28 +507,30 @@ static string makeLogStr(u32 E, string status, int k, u64 res, const StatsInfo &
            E, status.c_str(), k, k / float(nIters) * 100, msIt, info.low, info.high, ghzStr.c_str(), days, hours, mins, res);
   */
 
+  /*
   string mulStr;
   if (info.nMul) {
     snprintf(buf, sizeof(buf), " %4u muls, %.2f ms/mul;", info.nMul, info.msPerMul);
     mulStr = buf;
   }
+  */
   
-  snprintf(buf, sizeof(buf), "%u %2s %8d/%d [%5.2f%%], %.2f ms/it;%s%s ETA %dd %02d:%02d; %016llx",
+  snprintf(buf, sizeof(buf), "%u %2s %8d/%d [%5.2f%%], %.2f ms/it (%.2f ms/SQ + %4u MULs);%s ETA %dd %02d:%02d; %016llx",
            E, status.c_str(), k, nIters, k / float(nIters) * 100,
-           info.msPerSq, mulStr.c_str(),
+           info.msPerIt, info.msPerSq, info.nMul,
            ghzStr.c_str(), days, hours, mins, res);
   return buf;
 }
 
-static void doLog(int E, int k, long timeCheck, u64 res, bool checkOK, Stats &stats, u32 nIters) {
+static void doLog(int E, int k, u32 timeCheck, u64 res, bool checkOK, Stats &stats, u32 nIters) {
   log("%s (check %.2fs)\n",      
-      makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats.getStats(), nIters).c_str(),
+      makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats.reset(), nIters).c_str(),
       timeCheck * .001f);
   stats.reset();
 }
 
 static void doSmallLog(int E, int k, u64 res, Stats &stats, u32 nIters) {
-  log("%s\n", makeLogStr(E, "", k, res, stats.getStats(), nIters).c_str());
+  log("%s\n", makeLogStr(E, "", k, res, stats.reset(), nIters).c_str());
   stats.reset();
 }
 
@@ -639,7 +641,7 @@ void Gpu::doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool
     if (k % 10000 == 0 || doStop) {
       auto data = readData();      
       u64 res64 = residue(data);
-      log("%s\n", makeLogStr(E, "", k, res64, stats.getStats(), basePower.size()).c_str());
+      log("%s\n", makeLogStr(E, "", k, res64, stats.reset(), basePower.size()).c_str());
       stats.reset();
       PRPState{k, B1, blockSize, res64, 0, basePower, data}.save(E);
     }
@@ -740,15 +742,15 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2) {
     bool ok = this->doCheck(blockSize);
 
     u64 res64 = dataResidue();
+    vector<u32> gcdAcc = B1 ? readAcc() : vector<u32>();
 
+    // the check time (above) is accounted separately, not added to iteration time.
     doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters);
     
     if (ok) {
-      vector<u32> acc = readAcc();
-      if (k < kEnd) { PRPState{k, B1, blockSize, res64, 1, vector<bool>(), check, base, acc}.save(E); }
+      if (k < kEnd) { PRPState{k, B1, blockSize, res64, 1, vector<bool>(), check, base, gcdAcc}.save(E); }
       if (k % 1'000'000 < checkStep && nGcdAcc && !gcd->isOngoing() && !doStop) {
-        // log("Starting GCD over %u points\n", nGcdAcc);
-        gcd->start(E, acc, 0);
+        gcd->start(E, gcdAcc, 0);
         nGcdAcc = 0;
       }
       if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, residue(base), effectiveB2}; }
