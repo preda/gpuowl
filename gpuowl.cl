@@ -24,7 +24,7 @@ typedef ulong u64;
 #define ND (WIDTH * BIG_HEIGHT)
 #define NWORDS (ND * 2u)
 
-#if WIDTH == 1024
+#if WIDTH == 1024 || WIDTH == 256
 #define NW 4
 #else
 #define NW 8
@@ -289,6 +289,15 @@ void shuflAndMul(uint WG, local T *lds, const T2 *trig, T2 *u, uint n, uint f) {
 #endif
 }
 
+// 64x4
+void fft256(local T *lds, T2 *u, const T2 *trig) {
+  for (int s = 4; s >= 0; s -= 2) {
+    fft4(u);
+    shuflAndMul(64, lds, trig, u, 4, 1 << s);
+  }
+  fft4(u);
+}
+
 // 64x8
 void fft512(local T *lds, T2 *u, const T2 *trig) {
   for (int s = 3; s >= 0; s -= 3) {
@@ -502,7 +511,9 @@ KERNEL(256) isNotZero(uint sizeBytes, global long *in, P(bool) outNotZero) {
 }
 
 void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
-#if   WIDTH ==  512
+#if   WIDTH ==  256
+  fft256(lds, u, trig);
+#elif WIDTH ==  512
   fft512(lds, u, trig);
 #elif WIDTH == 1024
   fft1K(lds, u, trig);
