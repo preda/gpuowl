@@ -2,6 +2,7 @@ openowl
 gpuowl.log
 *.owl
 *.bak
+*.o
 worktodo.txt
 results.txt
 results.old
