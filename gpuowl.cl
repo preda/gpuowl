@@ -30,7 +30,7 @@ typedef ulong u64;
 #define NW 8
 #endif
 
-#if SMALL_HEIGHT == 1024
+#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256
 #define NH 4
 #else
 #define NH 8
@@ -511,9 +511,9 @@ KERNEL(256) isNotZero(uint sizeBytes, global long *in, P(bool) outNotZero) {
 }
 
 void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
-#if   WIDTH ==  256
+#if   WIDTH == 256
   fft256(lds, u, trig);
-#elif WIDTH ==  512
+#elif WIDTH == 512
   fft512(lds, u, trig);
 #elif WIDTH == 1024
   fft1K(lds, u, trig);
@@ -527,7 +527,9 @@ void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
 }
 
 void fft_HEIGHT(local T *lds, T2 *u, Trig trig) {
-#if SMALL_HEIGHT == 512
+#if   SMALL_HEIGHT == 256
+  fft256(lds, u, trig);
+#elif SMALL_HEIGHT == 512
   fft512(lds, u, trig);
 #elif SMALL_HEIGHT == 1024
   fft1K(lds, u, trig);

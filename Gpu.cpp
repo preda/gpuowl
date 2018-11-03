@@ -175,7 +175,7 @@ struct FftConfig {
     // 17.88 + 0.36 * (24 - log2(n)); Update after feedback on 86700001, FFT 4608 (18.37b/w) being insufficient.
     maxExp(fftSize * (17.77 + 0.33 * (24 - log2(fftSize)))) {
     assert(width == 256 || width  == 512 || width == 1024 || width == 2048 || width == 4096);
-    assert(height == 512 || height == 1024 || height == 2048);
+    assert(height == 256 || height == 512 || height == 1024 || height == 2048);
     assert(middle == 1 || middle == 5 || middle == 9);
   }
 };
@@ -183,7 +183,7 @@ struct FftConfig {
 static vector<FftConfig> genConfigs() {
   vector<FftConfig> configs;
   for (u32 width : {256, 512, 1024, 2048, 4096}) {
-    for (u32 height : {512, 1024, 2048}) {
+    for (u32 height : {256, 512, 1024, 2048}) {
       for (u32 middle : {1, 5, 9}) {
         configs.push_back(FftConfig(width, height, middle));
       }
@@ -236,7 +236,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
   int nW = (WIDTH == 1024 || WIDTH == 256) ? 4 : 8;
-  int nH = (SMALL_HEIGHT == 1024) ? 4 : 8;
+  int nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
 
   float bitsPerWord = E / float(N);
   string strMiddle = (MIDDLE == 1) ? "" : (string(", Middle ") + std::to_string(MIDDLE));
