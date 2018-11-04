@@ -202,7 +202,6 @@ static vector<FftConfig> genConfigs() {
 static FftConfig getFftConfig(const vector<FftConfig> &configs, u32 E, int argsFftSize) {
   int i = 0;
   int n = int(configs.size());
-  // log("A %d %d %d\n", n, argsFftSize, E);
   if (argsFftSize < 10) { // fft delta or not specified.
     while (i < n - 1 && configs[i].maxExp < E) { ++i; }      
     i = max(0, min(i + argsFftSize, n - 1));
@@ -217,14 +216,25 @@ vector<int> Gpu::readSmall(Buffer &buf, u32 start) {
   return queue.read<int>(bufSmallOut, 128);                    
 }
 
+static string numberK(u32 n) { return (n % 1024 == 0) ? to_string(n / 1024) + "K" : to_string(n); }
+
+static string configName(u32 width, u32 height, u32 middle) {
+  return numberK(width) + ',' + numberK(height) + ((middle != 1) ? ","s + numberK(middle) : ""s);
+}
+
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   vector<FftConfig> configs = genConfigs();
   if (args.listFFT) {
-    log("   FFT  maxExp %4s %4s M\n", "W", "H");
+    // log("   FFT  maxExp %4s %4s M\n", "W", "H");
     for (auto c : configs) {
-      log("%5.1fM %6.1fM %4d %4d %d\n", c.fftSize / float(1024 * 1024), c.maxExp / float(1000 * 1000), c.width, c.height, c.middle);
+      // string fftName = to_string(c.width) + "-" + to_string(c.height) + ((c.middle != 1) ? "-"s + to_string(c.middle) : ""s);
+      string fftSize = (c.fftSize % (1024 * 1024) == 0) ?
+        to_string(c.fftSize / (1024 * 1024)) + "M" : to_string(c.fftSize / 1024) + "K";
+      log("FFT %5s [%6.2fM - %7.2fM] %s\n",
+          fftSize.c_str(), c.fftSize * 1.5 / 1'000'000, c.maxExp / 1'000'000.0, configName(c.width, c.height, c.middle).c_str());
+      // %5.1fM %6.1fM %4d %4d %d\n", c.fftSize / float(1024 * 1024), c.maxExp / float(1000 * 1000), c.width, c.height, c.middle);
     }
-    log("\n");
+    // log("\n");
   }
         
   FftConfig config = getFftConfig(configs, E, args.fftSize);
