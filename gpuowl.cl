@@ -165,6 +165,17 @@ void fft8(T2 *u) {
   SWAP(u[3], u[6]);
 }
 
+void fft3(T2 *u) {
+  const double SQRT3_2 = 0x1.bb67ae8584caap-1; // sin(tau/3), sqrt(3)/2, 0.86602540378443859659;
+  
+  X2(u[1], u[2]);
+  T2 u0 = u[0];
+  u[0] += u[1];
+  u[1] = u0 - u[1] / 2;
+  u[2] = mul_t4(u[2] * SQRT3_2);
+  X2(u[1], u[2]);
+}
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 void fft5(T2 *u) {
   const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
@@ -593,6 +604,18 @@ void middleMul(T2 *u, uint gx, uint me) {
   for (int i = 1; i < MIDDLE; ++i, t = mul(t, step)) { u[i] = mul(u[i], t); }
 }
 
+void fft_MIDDLE(T2 *u) {
+#if   MIDDLE == 3
+  fft3(u);
+#elif MIDDLE == 5
+  fft5(u);
+#elif MIDDLE == 9
+  fft9(u);
+#elif MIDDLE != 1
+#error
+#endif
+}
+
 KERNEL(256) fftMiddleIn(P(T2) io) {
   T2 u[MIDDLE];
   uint N = SMALL_HEIGHT / 256;
@@ -602,14 +625,8 @@ KERNEL(256) fftMiddleIn(P(T2) io) {
   uint me = get_local_id(0);
   io += BIG_HEIGHT * gy + 256 * gx;
   read(SMALL_HEIGHT, MIDDLE, u, io, 0);
-  
-#if MIDDLE == 5
-  fft5(u);
-#elif MIDDLE == 9
-  fft9(u);
-#elif MIDDLE != 1
-#error
-#endif
+
+  fft_MIDDLE(u);
     
   middleMul(u, gx, me);
   
@@ -628,13 +645,7 @@ KERNEL(256) fftMiddleOut(P(T2) io) {
   
   middleMul(u, gx, me);
 
-#if MIDDLE == 5
-  fft5(u);
-#elif MIDDLE == 9
-  fft9(u);
-#elif MIDDLE != 1
-#error
-#endif
+  fft_MIDDLE(u);
 
   write(SMALL_HEIGHT, MIDDLE, u, io, 0);
 }
