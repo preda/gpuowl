@@ -300,6 +300,13 @@ void shuflAndMul(uint WG, local T *lds, const T2 *trig, T2 *u, uint n, uint f) {
 #endif
 }
 
+// 8x8
+void fft64(local T *lds, T2 *u, const T2 *trig) {
+  fft8(u);
+  shuflAndMul(8, lds, trig, u, 8, 1);
+  fft8(u);
+}
+
 // 64x4
 void fft256(local T *lds, T2 *u, const T2 *trig) {
   for (int s = 4; s >= 0; s -= 2) {
@@ -522,7 +529,9 @@ KERNEL(256) isNotZero(uint sizeBytes, global long *in, P(bool) outNotZero) {
 }
 
 void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
-#if   WIDTH == 256
+#if   WIDTH == 64
+  fft64(lds, u, trig);
+#elif WIDTH == 256
   fft256(lds, u, trig);
 #elif WIDTH == 512
   fft512(lds, u, trig);
@@ -538,7 +547,9 @@ void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
 }
 
 void fft_HEIGHT(local T *lds, T2 *u, Trig trig) {
-#if   SMALL_HEIGHT == 256
+#if SMALL_HEIGHT == 64
+  fft64(lds, u, trig);
+#elif SMALL_HEIGHT == 256
   fft256(lds, u, trig);
 #elif SMALL_HEIGHT == 512
   fft512(lds, u, trig);

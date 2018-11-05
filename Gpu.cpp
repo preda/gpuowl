@@ -176,16 +176,16 @@ struct FftConfig {
     fftSize(width * height * middle * 2),
     // 17.88 + 0.36 * (24 - log2(n)); Update after feedback on 86700001, FFT 4608 (18.37b/w) being insufficient.
     maxExp(getMaxExp(fftSize)) {
-    assert(width == 256 || width  == 512 || width == 1024 || width == 2048 || width == 4096);
-    assert(height == 256 || height == 512 || height == 1024 || height == 2048);
+    assert(width == 64  || width == 256 || width  == 512 || width == 1024 || width == 2048 || width == 4096);
+    assert(height == 64 || height == 256 || height == 512 || height == 1024 || height == 2048);
     assert(middle == 1 || middle == 3 || middle == 5 || middle == 9);
   }
 };
 
 static vector<FftConfig> genConfigs() {
   vector<FftConfig> configs;
-  for (u32 width : {256, 512, 1024, 2048, 4096}) {
-    for (u32 height : {256, 512, 1024, 2048}) {
+  for (u32 width : {64, 256, 512, 1024, 2048, 4096}) {
+    for (u32 height : {64, 256, 512, 1024, 2048}) {
       for (u32 middle : {1, 3, 5, 9}) {
         configs.push_back(FftConfig(width, height, middle));
       }
@@ -271,6 +271,11 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   if (bitsPerWord > 20) {
     log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
     throw "FFT size too small";
+  }
+
+  if (bitsPerWord < 1.5) {
+    log("FFT size too large for exponent (%.2f bits/word).\n", bitsPerWord);
+    throw "FFT size too large";
   }
     
   bool useLongCarry = (bitsPerWord < 14.5f)
