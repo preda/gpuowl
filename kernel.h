@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stats.h"
+#include "Stats.h"
 #include "clwrap.h"
 #include "timeutil.h"
 #include "common.h"
@@ -13,7 +13,7 @@ class Kernel {
   Holder<cl_kernel> kernel;
   cl_queue queue;
   int workGroups;
-  std::string name;
+  string name;
   u64 timeSum;
   u64 nCalls;
   bool doTime;
@@ -52,7 +52,7 @@ public:
       Timer timer;
       ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
       finish(queue);
-      stats.add(timer.deltaMicros());
+      stats.add(timer.deltaMicros(), 1, 0);
     } else {
       ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
     }
@@ -60,9 +60,5 @@ public:
   
   string getName() { return name; }
 
-  StatsInfo resetStats() {
-    StatsInfo ret = stats.getStats();
-    stats.reset();
-    return ret;
-  }
+  StatsInfo resetStats() { return stats.reset(); }
 };

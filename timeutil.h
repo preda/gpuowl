@@ -3,6 +3,7 @@
 #pragma once
 
 #include <chrono>
+#include <string>
 
 using namespace std::chrono;
 
@@ -20,3 +21,6 @@ public:
   long deltaMicros() { return duration_cast<microseconds>(delta()).count(); }
   int deltaMillis() { return duration_cast<milliseconds>(delta()).count(); }
 };
+
+std::string timeStr();
+std::string timeStr(const char *format);

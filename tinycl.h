@@ -1,4 +1,6 @@
-// Copyright (C) 2017 Mihai Preda.
+// Copyright (C) 2017-2018 Mihai Preda.
+
+#pragma once
 
 #include "common.h"
 

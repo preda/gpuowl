@@ -3,13 +3,12 @@
 #pragma once
 
 #include "tinycl.h"
+#include "common.h"
 
 #include <string>
 #include <vector>
 #include <cassert>
-
-using std::string;
-using std::vector;
+#include <memory>
 
 typedef cl_command_queue cl_queue;
 
@@ -102,3 +101,5 @@ public:
 
   void zero(Buffer &buf, size_t sizeBytes);
 };
+
+cl_device_id getDevice(int argsDevId);

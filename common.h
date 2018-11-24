@@ -1,10 +1,6 @@
+// Copyright Mihai Preda.
+
 #pragma once
-
-#include <cstdio>
-#include <cstdint>
-
-#include <memory>
-#include <vector>
 
 typedef unsigned char byte;
 typedef long long i64;
@@ -14,12 +10,6 @@ typedef unsigned u32;
 
 static_assert(sizeof(u32) == 4,   "size u32");
 static_assert(sizeof(u64) == 8,   "size u64");
-
-namespace std {
-  template<> struct default_delete<FILE> {
-    void operator()(FILE *f) { if (f != nullptr) { fclose(f); } }
-  };
-}
 
 #ifdef __GNUC__
 void log(const char *fmt, ...) __attribute__ ((format(printf, 1, 2)));
@@ -31,8 +21,17 @@ void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
-#define BASE_VERSION "3.9"
+#define BASE_VERSION "5.0"
 // Reason for version change:
+// 5.0 : dropped TF; dropped old checkpoint load.
+// 4.7 : parsing B1 & B2 bounds for PRP-1 in worktodo.txt
+// 4.6 : merging LowGpu and OpenGpu back into Gpu.
+// 4.5 : yet another kset schedule.
+// 4.4 : new PRP,P-1 schedule.
+// 4.3 : drop P-1 as standalone task and savefile. Background GCD.
+// 4.2 : change PRP residue type to "type-4" (from "type-1").
+// 4.1 : introduce PRP-1
+// 4.0 : add P-1 first stage; require GMP.
 // 3.9 : use save/load path vs. commit/rollback
 // 3.8 : TF multi-bit in one pass. OWL TF savefile v2.
 // 3.7 : integrated TF
@@ -51,6 +50,4 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 #define VERSION BASE_VERSION
 #endif
 
-unique_ptr<FILE> open(const string &name, const char *mode, bool doLog = true);
-
-string timeStr();
+#define PROGRAM "gpuowl"

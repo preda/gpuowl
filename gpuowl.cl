@@ -24,13 +24,13 @@ typedef ulong u64;
 #define ND (WIDTH * BIG_HEIGHT)
 #define NWORDS (ND * 2u)
 
-#if WIDTH == 1024
+#if WIDTH == 1024 || WIDTH == 256
 #define NW 4
 #else
 #define NW 8
 #endif
 
-#if SMALL_HEIGHT == 1024
+#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256
 #define NH 4
 #else
 #define NH 8
@@ -165,6 +165,17 @@ void fft8(T2 *u) {
   SWAP(u[3], u[6]);
 }
 
+void fft3(T2 *u) {
+  const double SQRT3_2 = 0x1.bb67ae8584caap-1; // sin(tau/3), sqrt(3)/2, 0.86602540378443859659;
+  
+  X2(u[1], u[2]);
+  T2 u0 = u[0];
+  u[0] += u[1];
+  u[1] = u0 - u[1] / 2;
+  u[2] = mul_t4(u[2] * SQRT3_2);
+  X2(u[1], u[2]);
+}
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 void fft5(T2 *u) {
   const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
@@ -289,6 +300,15 @@ void shuflAndMul(uint WG, local T *lds, const T2 *trig, T2 *u, uint n, uint f) {
 #endif
 }
 
+// 64x4
+void fft256(local T *lds, T2 *u, const T2 *trig) {
+  for (int s = 4; s >= 0; s -= 2) {
+    fft4(u);
+    shuflAndMul(64, lds, trig, u, 4, 1 << s);
+  }
+  fft4(u);
+}
+
 // 64x8
 void fft512(local T *lds, T2 *u, const T2 *trig) {
   for (int s = 3; s >= 0; s -= 3) {
@@ -309,18 +329,12 @@ void fft1K(local T *lds, T2 *u, const T2 *trig) {
 
 // 512x8
 void fft4K(local T *lds, T2 *u, const T2 *trig) {
-  for (int s = 64; s >= 1; s /= 8) {
+  for (int s = 6; s >= 0; s -= 3) {
     fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, s);
+    shuflAndMul(512, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 }
-  /*
-  for (int s = 6; s >= 0; s -= 3) {
-    fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, s);
-  }
-  */
 
 // 256x8
 void fft2K(local T *lds, T2 *u, const T2 *trig) {
@@ -508,7 +522,9 @@ KERNEL(256) isNotZero(uint sizeBytes, global long *in, P(bool) outNotZero) {
 }
 
 void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
-#if   WIDTH ==  512
+#if   WIDTH == 256
+  fft256(lds, u, trig);
+#elif WIDTH == 512
   fft512(lds, u, trig);
 #elif WIDTH == 1024
   fft1K(lds, u, trig);
@@ -522,7 +538,9 @@ void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
 }
 
 void fft_HEIGHT(local T *lds, T2 *u, Trig trig) {
-#if SMALL_HEIGHT == 512
+#if   SMALL_HEIGHT == 256
+  fft256(lds, u, trig);
+#elif SMALL_HEIGHT == 512
   fft512(lds, u, trig);
 #elif SMALL_HEIGHT == 1024
   fft1K(lds, u, trig);
@@ -543,6 +561,18 @@ KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
   read(G_W, NW, u, io, 0);
   fft_WIDTH(lds, u, smallTrig);  
   write(G_W, NW, u, io, 0);
+}
+
+KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
+  local T lds[SMALL_HEIGHT];
+  T2 u[NH];
+
+  uint g = get_group_id(0);
+  io += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
+
+  read(G_H, NH, u, io, 0);
+  fft_HEIGHT(lds, u, smallTrig);
+  write(G_H, NH, u, io, 0);
 }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
@@ -574,6 +604,18 @@ void middleMul(T2 *u, uint gx, uint me) {
   for (int i = 1; i < MIDDLE; ++i, t = mul(t, step)) { u[i] = mul(u[i], t); }
 }
 
+void fft_MIDDLE(T2 *u) {
+#if   MIDDLE == 3
+  fft3(u);
+#elif MIDDLE == 5
+  fft5(u);
+#elif MIDDLE == 9
+  fft9(u);
+#elif MIDDLE != 1
+#error
+#endif
+}
+
 KERNEL(256) fftMiddleIn(P(T2) io) {
   T2 u[MIDDLE];
   uint N = SMALL_HEIGHT / 256;
@@ -583,14 +625,8 @@ KERNEL(256) fftMiddleIn(P(T2) io) {
   uint me = get_local_id(0);
   io += BIG_HEIGHT * gy + 256 * gx;
   read(SMALL_HEIGHT, MIDDLE, u, io, 0);
-  
-#if MIDDLE == 5
-  fft5(u);
-#elif MIDDLE == 9
-  fft9(u);
-#elif MIDDLE != 1
-#error
-#endif
+
+  fft_MIDDLE(u);
     
   middleMul(u, gx, me);
   
@@ -609,13 +645,7 @@ KERNEL(256) fftMiddleOut(P(T2) io) {
   
   middleMul(u, gx, me);
 
-#if MIDDLE == 5
-  fft5(u);
-#elif MIDDLE == 9
-  fft9(u);
-#elif MIDDLE != 1
-#error
-#endif
+  fft_MIDDLE(u);
 
   write(SMALL_HEIGHT, MIDDLE, u, io, 0);
 }
@@ -712,8 +742,65 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
-    Carry carry = 0;
-    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p]);
+    Carry carry = 0;    
+    wu[i] = unweightAndCarry(1,   conjugate(u[i]), &carry, iA[p]);
+    if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
+  }
+
+  release();
+  
+  // Signal that this group is done writing the carry.
+  if (gr < H && me == 0) {
+    atomic_store_explicit((atomic_uint *) &ready[gr], 1, memory_order_release, memory_scope_device); 
+  }
+
+  if (gr == 0) { return; }
+    
+  // Wait until the previous group is ready with the carry.
+  if (me == 0) {
+    while(!atomic_load_explicit((atomic_uint *) &ready[gr - 1], memory_order_acquire, memory_scope_device));
+    ready[gr - 1] = 0;
+  }
+
+  acquire();
+  
+  for (int i = 0; i < NW; ++i) {
+    uint p = i * G_W + me;
+    Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
+    u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
+  }
+
+  fft_WIDTH(lds, u, smallTrig);
+
+  write(G_W, NW, u, io, 0);
+}
+
+// copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
+KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
+                       CP(T2) A, CP(T2) iA, Trig smallTrig) {
+  local T lds[WIDTH];
+
+  uint gr = get_group_id(0);
+  uint me = get_local_id(0);
+  
+  uint H = BIG_HEIGHT;
+  uint line = gr % H;
+  uint step = WIDTH * line;
+  io += step;
+  A  += step;
+  iA += step;
+  
+  T2 u[NW];
+  Word2 wu[NW];
+  
+  read(G_W, NW, u, io, 0);
+
+  fft_WIDTH(lds, u, smallTrig);
+  
+  for (int i = 0; i < NW; ++i) {
+    uint p = i * G_W + me;
+    Carry carry = 0;    
+    wu[i] = unweightAndCarry(3,   conjugate(u[i]), &carry, iA[p]);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
@@ -766,6 +853,178 @@ KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
   local Word2 lds[4096];
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
+
+KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+
+  uint me = get_local_id(0);
+  uint line1 = get_group_id(0);
+  uint line2 = (H - line1) % H;
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
+
+  T2 base = slowTrig(me * H + line1, W * H);
+  T2 step = slowTrig(1, 8);
+  
+  for (uint i = 0; i < 4; ++i, base = mul(base, step)) {
+    if (i == 0 && line1 == 0 && me == 0) {
+      io[0]     = shl(foo(conjugate(io[0])), 2);
+      io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);    
+    } else {
+      uint k = g1 * W + i * (W / 8) + me;
+      uint v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
+      T2 a = io[k];
+      T2 b = conjugate(io[v]);
+      T2 t = swap(base);
+      X2(a, b);
+      b = mul(b, conjugate(t));
+      X2(a, b);
+      a = sq(a);
+      b = sq(b);
+      X2(a, b);
+      b = mul(b, t);
+      X2(a, b);
+      io[k] = conjugate(a);
+      io[v] = b;
+    }
+  }
+}
+
+KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+  
+  uint line1 = get_group_id(0);
+  uint me = get_local_id(0);
+
+  if (line1 == 0 && me == 0) {
+    io[0]     = shl(conjugate(foo2(io[0], in[0])), 2);
+    io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2])), 3);
+    return;
+  }
+
+  uint line2 = (H - line1) % H;
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
+  uint k = g1 * W + me;
+  uint v = g2 * W + (W - 1) - me + (line1 == 0);
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  T2 t = swap(slowTrig(me * H + line1, W * H));
+  X2(a, b);
+  b = mul(b, conjugate(t));
+  X2(a, b);
+
+  T2 c = in[k];
+  T2 d = conjugate(in[v]);
+  X2(c, d);
+  d = mul(d, conjugate(t));
+  X2(c, d);
+
+  a = mul(a, c);
+  b = mul(b, d);
+
+  X2(a, b);
+  b = mul(b, t);
+  X2(a, b);
+
+  io[k] = conjugate(a);
+  io[v] = b;
+}
+
+KERNEL(SMALL_HEIGHT / 2) multiplySub(P(T2) io, CP(T2) in, CP(T2) delta) {
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+  
+  uint line1 = get_group_id(0);
+  uint me = get_local_id(0);
+
+  if (line1 == 0 && me == 0) {
+    io[0]     = shl(conjugate(foo2(io[0], in[0] - delta[0])), 2);
+    io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2] - delta[W / 2])), 3);
+    return;
+  }
+
+  uint line2 = (H - line1) % H;
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
+  uint k = g1 * W + me;
+  uint v = g2 * W + (W - 1) - me + (line1 == 0);
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  T2 t = swap(slowTrig(me * H + line1, W * H));
+  X2(a, b);
+  b = mul(b, conjugate(t));
+  X2(a, b);
+
+  T2 c = in[k] - delta[k];
+  T2 d = conjugate(in[v] - delta[v]);
+  X2(c, d);
+  d = mul(d, conjugate(t));
+  X2(c, d);
+
+  a = mul(a, c);
+  b = mul(b, d);
+
+  X2(a, b);
+  b = mul(b, t);
+  X2(a, b);
+
+  io[k] = conjugate(a);
+  io[v] = b;
+}
+
+#if 0
+// Alternative form
+KERNEL(SMALL_HEIGHT / 2 / 4) multiply(P(T2) io, CP(T2) in) {
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+
+  uint me = get_local_id(0);
+  uint line1 = get_group_id(0);
+  uint line2 = (H - line1) % H;
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
+
+  T2 base = slowTrig(me * H + line1, W * H);
+  T2 step = slowTrig(1, 8);
+
+  for (uint i = 0; i < 4; ++i, base = mul(base, step)) {
+    if (i == 0 && line1 == 0 && me == 0) {
+      io[0]     = shl(foo2(conjugate(io[0]), conjugate(in[0])), 2);
+      io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2])), 3);
+    } else {
+      uint k = g1 * W + i * (W / 8) + me;
+      uint v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
+      T2 a = io[k];
+      T2 b = conjugate(io[v]);
+      T2 t = swap(base);
+      X2(a, b);
+      b = mul(b, conjugate(t));
+      X2(a, b);
+
+      T2 c = in[k];
+      T2 d = conjugate(in[v]);
+      X2(c, d);
+      d = mul(d, conjugate(t));
+      X2(c, d);
+
+      a = mul(a, c);
+      b = mul(b, d);
+
+      X2(a, b);
+      b = mul(b, t);
+      X2(a, b);
+
+      io[k] = conjugate(a);
+      io[v] = b;
+    }
+  }
+}
+#endif
+
+// tailFused below
 
 void reverse(uint WG, local T *rawLds, T2 *u, bool bump) {
   local T2 *lds = (local T2 *)rawLds;
@@ -826,89 +1085,6 @@ void pairSq(uint N, T2 *u, T2 *v, T2 base, bool special) {
     u[i] = conjugate(a);
     v[i] = b;
   }
-}
-
-void pairMul(uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
-  uint me = get_local_id(0);
-
-  T2 step = slowTrig(1, NH);
-  
-  for (int i = 0; i < N; ++i, base = mul(base, step)) {
-    T2 a = u[i];
-    T2 b = conjugate(v[i]);
-    T2 c = p[i];
-    T2 d = conjugate(q[i]);
-    T2 t = swap(base);
-    if (special && i == 0 && me == 0) {
-      a = shl(foo2(a, c), 2);
-      b = shl(mul(b, d), 3);
-    } else {
-      X2(a, b);
-      b = mul(b, conjugate(t));
-      X2(a, b);
-      X2(c, d);
-      d = mul(d, conjugate(t));
-      X2(c, d);
-      a = mul(a, c);
-      b = mul(b, d);
-      X2(a, b);
-      b = mul(b, t);
-      X2(a, b);
-    }
-    u[i] = conjugate(a);
-    v[i] = b;
-  }
-}
-
-KERNEL(G_H) mulFused(P(T2) io, CP(T2) in, Trig smallTrig) {
-  local T lds[SMALL_HEIGHT];
-  T2 u[NH], v[NH];
-  T2 p[NH], q[NH];
-
-  uint W = SMALL_HEIGHT;
-  uint H = ND / W;
-
-  uint line1 = get_group_id(0);
-  uint line2 = line1 ? H - line1 : (H / 2);
-  uint g1 = transPos(line1, MIDDLE, WIDTH);
-  uint g2 = transPos(line2, MIDDLE, WIDTH);
-  
-  read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
-  read(G_H, NH, p, in, g1 * SMALL_HEIGHT);
-  read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
-  read(G_H, NH, q, in, g2 * SMALL_HEIGHT);
-
-  fft_HEIGHT(lds, u, smallTrig);
-  fft_HEIGHT(lds, p, smallTrig);
-  fft_HEIGHT(lds, v, smallTrig);
-  fft_HEIGHT(lds, q, smallTrig);
-
-  uint me = get_local_id(0);
-  if (line1 == 0) {
-    reverse(G_H, lds, u + NH/2, true);
-    reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W), true);
-    reverse(G_H, lds, u + NH/2, true);
-    reverse(G_H, lds, p + NH/2, true);
-
-    reverse(G_H, lds, v + NH/2, false);
-    reverse(G_H, lds, q + NH/2, false);
-    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
-    reverse(G_H, lds, v + NH/2, false);
-    reverse(G_H, lds, q + NH/2, false);
-  } else {    
-    reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
-    reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
-  }
-
-  fft_HEIGHT(lds, v, smallTrig);
-  write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
-  
-  fft_HEIGHT(lds, u, smallTrig);
-  write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
 
 KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
