@@ -1,0 +1,13 @@
+Source: gpuowl
+Section: misc
+Priority: optional
+Maintainer: Valerio Bellizzomi <selroccs1@gmail.com>
+Build-Depends: debhelper (>= 10), libgmp-dev
+Standards-Version: 4.0.0
+Homepage: https://github.com/preda/gpuowl
+
+Package: gpuowl
+Architecture: all
+Depends: debhelper (>= 10), libgmp-dev
+Description: GPU Mersenne primality tester
+
