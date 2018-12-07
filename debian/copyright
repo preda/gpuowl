@@ -1,3 +1,8 @@
-Mihai Preda, 2018
-https://github.com/preda/gpuowl
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: gpuowl
+Upstream-Contact: Mihai Preda
+Source: https://github.com/preda/gpuowl
+Copyright:
+ Copyright 2018 Mihai Preda
+Files: \*
 

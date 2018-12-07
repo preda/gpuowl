@@ -1,5 +1,6 @@
-gpuowl (5.0) UNRELEASED; urgency=medium
+gpuowl (5.0) unstable; urgency=medium
 
+  [ Valerio Bellizzomi ]
   * Initial release.
 
- -- Valerio Bellizzomi <selroccs1@gmail.com>  Tue, 20 Nov 2018 12:31:15 +0100
+ -- Valerio Bellizzomi <selroccs1@gmail.com>  Thu, 06 Dec 2018 16:09:06 +0100
