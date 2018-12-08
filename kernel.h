@@ -14,8 +14,6 @@ class Kernel {
   cl_queue queue;
   int workGroups;
   string name;
-  u64 timeSum;
-  u64 nCalls;
   bool doTime;
   int groupSize;
   Stats stats;

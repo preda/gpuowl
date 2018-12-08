@@ -15,7 +15,7 @@ public:
     T end() { return e; }
   };
 
-  Primes(u32 limit);
+  explicit Primes(u32 limit);
 
   bool isPrime(u32 x) {
     return (x == 2) || ((x & 1) && (x <= limit) && primeMap[(x - 1) >> 1]);

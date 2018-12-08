@@ -75,7 +75,7 @@ class Queue {
   QueueHolder queue;
   
 public:
-  Queue(cl_queue queue) : queue(queue) {}
+  explicit Queue(cl_queue queue) : queue(queue) {}
 
   template<typename T> vector<T> read(Buffer &buf, size_t nItems) {
     vector<T> ret(nItems);

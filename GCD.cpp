@@ -35,7 +35,8 @@ static string doGCD(u32 exp, const vector<u32> &bits, u32 sub = 0) {
 }
 
 void GCD::start(u32 E, const vector<u32> &bits, u32 sub) {
-  assert(!isOngoing());
+  bool on = isOngoing();
+  assert(!on);
   timer.deltaMillis();
   this->E = E;
   gcdFuture = async(launch::async, doGCD, E, bits, sub);

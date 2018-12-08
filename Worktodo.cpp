@@ -23,7 +23,7 @@ Task Worktodo::getTask() {
         tail = line + pos;
       }
 
-      if (sscanf(tail, "%u,%d", &exp, &bitLo) == 2 ||
+      if (sscanf(tail, "%u,%u", &exp, &bitLo) == 2 ||
           sscanf(tail, "%u", &exp) == 1 ||
           sscanf(tail, "PRP=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
           sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
