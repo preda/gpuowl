@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Valerio Bellizzomi <selroccs1@gmail.com>
 Build-Depends: debhelper (>= 10), libgmp-dev
 Standards-Version: 4.2.1
-Homepage: https://github.com/preda/gpuowl
+Homepage: https://github.com/valeriob01/gpuowl
 
 Package: gpuowl
 Architecture: all
