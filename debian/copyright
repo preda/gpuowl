@@ -2,6 +2,7 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: gpuowl
 Upstream-Contact: Mihai Preda
 Source: https://github.com/preda/gpuowl
+
 Files: *
 Copyright: 2018 Mihai Preda
 License: GPL-3
