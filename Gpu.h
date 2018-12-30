@@ -47,14 +47,13 @@ class Gpu {
   Kernel isNotZero;
   Kernel isEqual;
   
-  Buffer bufData, bufCheck, bufAux, bufBase, bufAcc;
+  Buffer bufData, bufCheck, bufAux, bufBase;
   Buffer bufTrigW, bufTrigH;
   Buffer bufA, bufI;
   Buffer buf1, buf2, buf3;
   Buffer bufCarry;
   Buffer bufReady;
   Buffer bufSmallOut;
-  Buffer bufBaseDown;
 
   vector<u32> computeBase(u32 E, u32 B1);
   pair<vector<u32>, vector<u32>> seedPRP(u32 E, u32 B1);
@@ -115,7 +114,6 @@ public:
 
   vector<u32> readCheck();
   vector<u32> readData();
-  vector<u32> readAcc();
 
   PRPResult isPrimePRP(u32 E, const Args &args);
   u32 getFFTSize() { return N; }

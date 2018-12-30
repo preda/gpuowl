@@ -101,7 +101,6 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufCheck(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   bufAux(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   bufBase( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-  bufAcc(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   
   bufTrigW(genSmallTrig(context, W, nW)),
   bufTrigH(genSmallTrig(context, SMALL_H, nH)),
@@ -110,8 +109,7 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   buf3{makeBuf(    context, BUF_RW, bufSize)},
   bufCarry{makeBuf(context, BUF_RW, bufSize / 2)},
   bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
-  bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int))),
-  bufBaseDown(makeBuf(context, BUF_RW, bufSize))
+  bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
 {    
   setupWeights(context, bufA, bufI, W, BIG_H, E);
 
@@ -127,8 +125,6 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   tailFused.setFixedArgs(1, bufTrigH);
     
   queue.zero(bufReady, BIG_H * sizeof(int));
-  queue.zero(bufAcc,   N * sizeof(int));
-  queue.write(bufAcc, vector<u32>{1});
 }
 
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
@@ -305,7 +301,6 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
 vector<u32> Gpu::readData()  { return compactBits(readOut(bufData),  E); }
 vector<u32> Gpu::readCheck() { return compactBits(readOut(bufCheck), E); }
-vector<u32> Gpu::readAcc()   { return compactBits(readOut(bufAcc), E); }
 
 vector<u32> Gpu::writeData(const vector<u32> &v) {
   writeIn(v, bufData);
@@ -376,15 +371,6 @@ bool Gpu::doCheck(int blockSize) {
   return equalNotZero(bufCheck, bufAux);
 }
 
-/*
-u32 Gpu::dataLoopAcc(u32 kBegin, u32 kEnd, const vector<bool> &kset) {
-  assert(kEnd > kBegin);
-  vector<bool> accs(kset.begin() + kBegin, kset.begin() + kEnd);
-  dataLoopAcc(accs);
-  return countOnBits(accs);
-}
-*/
-
 void Gpu::logTimeKernels() {
   ::logTimeKernels({&carryFused, &carryFusedMul, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
         &carryA, &carryM, &carryB,
@@ -404,9 +390,6 @@ void Gpu::tH(Buffer &in, Buffer &out) {
 
 vector<u32> Gpu::writeBase(const vector<u32> &v) {
   writeIn(v, bufBase);
-  fftP(bufBase, buf1);
-  tW(buf1, bufBaseDown);
-  fftH(bufBaseDown);
   return v;
 }
   
