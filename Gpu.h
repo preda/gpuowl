@@ -40,7 +40,6 @@ class Gpu {
 
   Kernel square;
   Kernel multiply;
-  Kernel multiplySub;
   Kernel tailFused;
   Kernel readResidue;
   Kernel isNotZero;

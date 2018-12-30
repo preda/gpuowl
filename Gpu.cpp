@@ -89,7 +89,6 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
   LOAD(square,   hN / SMALL_H),
   LOAD(multiply, hN / SMALL_H),
-  LOAD(multiplySub, hN / SMALL_H),
   LOAD(tailFused, (hN / SMALL_H) / 2),
   LOAD(readResidue, 1),
   LOAD(isNotZero, 256),
@@ -354,8 +353,6 @@ void Gpu::writeState(const vector<u32> &check, const vector<u32> &base, u32 bloc
     
   writeBase(base);
   modMul(bufBase, bufData);
-
-  // writeIn(acc, bufAcc);
 }
 
 void Gpu::updateCheck() { modMul(bufData, bufCheck); }
@@ -372,7 +369,7 @@ void Gpu::logTimeKernels() {
   ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
         &carryA, &carryM, &carryB,
         &transposeW, &transposeH, &transposeIn, &transposeOut,
-        &square, &multiply, &multiplySub, &tailFused, &readResidue, &isNotZero, &isEqual});
+        &square, &multiply, &tailFused, &readResidue, &isNotZero, &isEqual});
 }
 
 void Gpu::tW(Buffer &in, Buffer &out) {
@@ -422,7 +419,6 @@ void Gpu::modSqLoop(Buffer &io, u32 reps) {
     if (dataIsOut) {
       // fftW(buf1);
       // *it ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
-      // carryA(buf1, io, bufCarry);
       // carryB(io, bufCarry);
       exitKerns(buf1, io);
     } else {
