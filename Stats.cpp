@@ -6,15 +6,14 @@
 #include <cassert>
 #include <numeric>
 
-void Stats::add(double millis, u32 sq, u32 mul) {
+void Stats::add(double millis, u32 sq) {
   time += millis;
   nSq  += sq;
-  nMul += mul;
 }
 
 StatsInfo Stats::reset() {
-  StatsInfo ret{nSq, nMul, time / (nSq + nMul * 1.19), time / nSq};
-  nSq = nMul = 0;
+  StatsInfo ret{nSq, time / nSq};
+  nSq = 0;
   time = 0;
   return ret;
 }

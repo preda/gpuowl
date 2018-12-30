@@ -13,7 +13,6 @@
 struct Args;
 struct PRPResult;
 struct PRPState;
-class GCD;
 
 class Gpu {
   u32 E;
@@ -23,8 +22,6 @@ class Gpu {
   bool useLongCarry;
   bool useMiddle;
 
-  unique_ptr<GCD> gcd;
-  
   Queue queue;
   
   Kernel carryFused;
@@ -74,8 +71,8 @@ class Gpu {
   void writeIn(const vector<u32> &words, Buffer &buf);
   void writeIn(const vector<int> &words, Buffer &buf);
   
-  void modSqLoopMul(Buffer &io, const vector<bool> &muls);
-  void modSqLoopAcc(Buffer &io, const vector<bool> &muls);
+  void modSqLoop(Buffer &io, u32 reps);
+  // void modSqLoopAcc(Buffer &io, const vector<bool> &muls);
   
   void modMul(Buffer &in, Buffer &io);
   bool equalNotZero(Buffer &bufCheck, Buffer &bufAux);
@@ -83,8 +80,7 @@ class Gpu {
   
   vector<u32> writeBase(const vector<u32> &v);
 
-  PRPState loadPRP(u32 E, u32 iniB1, u32 iniBlockSize);
-  void doStage0(u32 k, u32 B1, u32 blockSize, vector<u32> &&base, vector<bool> &&basePower);
+  PRPState loadPRP(u32 E, u32 iniBlockSize);
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
@@ -95,7 +91,7 @@ public:
 
   ~Gpu();
   
-  void writeState(const vector<u32> &check, const vector<u32> &base, const vector<u32> &gcdAcc, u32 blockSize);
+  void writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize);
   
   vector<u32> roundtripData()  { return writeData(readData()); }
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }
@@ -109,9 +105,9 @@ public:
   bool doCheck(int blockSize);
   void updateCheck();
 
-  void dataLoopMul(const vector<bool> &muls) { modSqLoopMul(bufData, muls); }
-  void dataLoopAcc(const vector<bool> &accs) { modSqLoopAcc(bufData, accs); }
-  u32 dataLoopAcc(u32 begin, u32 end, const vector<bool> &kset);
+  void dataLoop(u32 reps) { modSqLoop(bufData, reps); }
+  // void dataLoopAcc(const vector<bool> &accs) { modSqLoopAcc(bufData, accs); }
+  // u32 dataLoopAcc(u32 begin, u32 end, const vector<bool> &kset);
   
   void finish();
 
@@ -121,6 +117,6 @@ public:
   vector<u32> readData();
   vector<u32> readAcc();
 
-  PRPResult isPrimePRP(u32 E, const Args &args, u32 B1, u32 B2);
+  PRPResult isPrimePRP(u32 E, const Args &args);
   u32 getFFTSize() { return N; }
 };

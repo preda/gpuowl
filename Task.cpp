@@ -17,5 +17,5 @@ vector<string> getDevices() {
 bool Task::execute(const Args &args) {
   assert(kind == PRP);
   auto gpu = Gpu::make(exponent, args);
-  return gpu->isPrimePRP(exponent, args, B1, B2).write(args, *this, gpu->getFFTSize());
+  return gpu->isPrimePRP(exponent, args).write(args, *this, gpu->getFFTSize());
 }

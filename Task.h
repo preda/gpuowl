@@ -5,7 +5,6 @@
 
 #include "common.h"
 #include <string>
-#include <memory>
 
 class Args;
 class Result;
