@@ -75,7 +75,6 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
 
 #define LOAD(name, workGroups) name(program, queue.get(), device, workGroups, #name, timeKernels)
   LOAD(carryFused, BIG_H + 1),
-  LOAD(carryFusedMul, BIG_H + 1),
   LOAD(fftP, BIG_H),
   LOAD(fftW, BIG_H),
   LOAD(fftH, (hN / SMALL_H)),
@@ -114,8 +113,6 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   setupWeights(context, bufA, bufI, W, BIG_H, E);
 
   carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
-  carryFusedMul.setFixedArgs(3, bufA, bufI, bufTrigW);
-    
   fftP.setFixedArgs(2, bufA, bufTrigW);
   fftW.setFixedArgs(1, bufTrigW);
   fftH.setFixedArgs(1, bufTrigH);
@@ -372,7 +369,7 @@ bool Gpu::doCheck(int blockSize) {
 }
 
 void Gpu::logTimeKernels() {
-  ::logTimeKernels({&carryFused, &carryFusedMul, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
+  ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
         &carryA, &carryM, &carryB,
         &transposeW, &transposeH, &transposeIn, &transposeOut,
         &square, &multiply, &multiplySub, &tailFused, &readResidue, &isNotZero, &isEqual});
@@ -429,7 +426,6 @@ void Gpu::modSqLoop(Buffer &io, u32 reps) {
       // carryB(io, bufCarry);
       exitKerns(buf1, io);
     } else {
-      // *it ? carryFusedMul(buf1, bufCarry, bufReady) : carryFused(buf1, bufCarry, bufReady);
       carryFused(buf1, bufCarry, bufReady);
     }
   }

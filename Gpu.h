@@ -25,7 +25,6 @@ class Gpu {
   Queue queue;
   
   Kernel carryFused;
-  Kernel carryFusedMul;
   Kernel fftP;
   Kernel fftW;
   Kernel fftH;
@@ -105,8 +104,6 @@ public:
   void updateCheck();
 
   void dataLoop(u32 reps) { modSqLoop(bufData, reps); }
-  // void dataLoopAcc(const vector<bool> &accs) { modSqLoopAcc(bufData, accs); }
-  // u32 dataLoopAcc(u32 begin, u32 end, const vector<bool> &kset);
   
   void finish();
 
