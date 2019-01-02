@@ -8,12 +8,6 @@
 #include <cstdio>
 #include <cmath>
 
-vector<string> getDevices() {
-  vector<string> ret;
-  for (auto id : getDeviceIDs(false)) { ret.push_back(getLongInfo(id)); }
-  return ret;
-}
-
 bool Task::execute(const Args &args) {
   assert(kind == PRP);
   auto gpu = Gpu::make(exponent, args);

@@ -26,6 +26,7 @@ typedef unsigned cl_kernel_arg_info;
 typedef unsigned cl_kernel_work_group_info;
 
 typedef u64 cl_mem_flags;
+typedef u64 cl_svm_mem_flags;
 typedef u64 cl_device_type;
 typedef u64 cl_queue_properties;
 
@@ -71,6 +72,11 @@ int clWaitForEvents(unsigned numEvents, const cl_event *);
 int clGetKernelInfo(cl_kernel, cl_kernel_info, size_t, void *, size_t *);
 int clGetKernelArgInfo(cl_kernel, unsigned, cl_kernel_arg_info, size_t, void *, size_t *);
 int clGetKernelWorkGroupInfo(cl_kernel, cl_device_id, cl_kernel_work_group_info, size_t, void *, size_t *);
+
+void* clSVMAlloc(cl_context, cl_svm_mem_flags, size_t, unsigned alignment);
+void clSVMFree(cl_context, void*);
+
+int clSetKernelArgSVMPointer(cl_kernel, unsigned, const void *);
   
 }
 
@@ -101,6 +107,9 @@ int clGetKernelWorkGroupInfo(cl_kernel, cl_device_id, cl_kernel_work_group_info,
 #define CL_MEM_HOST_READ_ONLY   (1 << 8)
 #define CL_MEM_HOST_NO_ACCESS   (1 << 9)
 
+#define CL_MEM_SVM_FINE_GRAIN_BUFFER (1 << 10)
+#define CL_MEM_SVM_ATOMICS           (1 << 11)
+
 #define CL_INVALID_COMPILER_OPTIONS -66
 
 
@@ -111,8 +120,10 @@ int clGetKernelWorkGroupInfo(cl_kernel, cl_device_id, cl_kernel_work_group_info,
 #define CL_KERNEL_COMPILE_WORK_GROUP_SIZE 0x11B1
 
 // AMD
+#define CL_DEVICE_PCIE_ID_AMD     0x4034
 #define CL_DEVICE_TOPOLOGY_AMD    0x4037
 #define CL_DEVICE_BOARD_NAME_AMD  0x4038
+#define CL_DEVICE_GLOBAL_FREE_MEMORY_AMD 0x4039
 
 typedef union
 {

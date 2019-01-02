@@ -38,7 +38,6 @@ class Gpu {
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
 
-  Kernel square;
   Kernel multiply;
   Kernel tailFused;
   Kernel readResidue;
@@ -47,7 +46,8 @@ class Gpu {
   
   Buffer bufData, bufCheck, bufAux, bufBase;
   Buffer bufTrigW, bufTrigH;
-  Buffer bufA, bufI;
+  Buffer bufA;
+  Buffer bufI;
   Buffer buf1, buf2, buf3;
   Buffer bufCarry;
   Buffer bufReady;
@@ -83,7 +83,7 @@ public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   
   Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
-      cl_program program, cl_device_id device, cl_context context,
+      cl_program program, const std::vector<cl_device_id> &devices, cl_context context,
       bool timeKernels, bool useLongCarry);
 
   ~Gpu();

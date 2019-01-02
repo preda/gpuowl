@@ -30,30 +30,43 @@ using QueueHolder = Holder<cl_queue>;
 
 static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
 
+// using SVM
+
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 bool check(int err, const char *mes = nullptr);
 #define CHECK(what) assert(check(what));
 
-vector<cl_device_id> getDeviceIDs(bool onlyGPU);
+vector<cl_device_id> toDeviceIds(const vector<u32> &devices);
+
+vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
 string getHwName(cl_device_id id);
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
-cl_context createContext(cl_device_id device);
+cl_context createContext(const vector<u32> &devices);
 void release(cl_context context);
 void release(cl_program program);
 void release(cl_mem buf);
 void release(cl_queue queue);
 void release(cl_kernel k);
-cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
+cl_program compile(const std::vector<cl_device_id> &devices, cl_context context, const string &name, const string &extraArgs,
                    const vector<pair<string, unsigned>> &defines, bool usePrecompiled);
 cl_kernel makeKernel(cl_program program, const char *name);
 
 template<typename T>
 void setArg(cl_kernel k, int pos, const T &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
+
+// template<> void setArg<void*>(cl_kernel k, int pos, void* const &value) {CHECK(clSetKernelArgSVMPointer(k, pos, value));}
+
+template<>
+void setArg<int>(cl_kernel k, int pos, const int &value);
+
 // Special-case Buffer argument: pass the wrapped cl_mem.
 void setArg(cl_kernel k, int pos, const Buffer &buf);
+// SVM pointer.
+void setArg(cl_kernel k, int pos, void* const& svm);
+
 cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0);
 cl_mem makeBuf(Context &context, unsigned kind, size_t size, const void *ptr = 0);
 cl_queue makeQueue(cl_device_id d, cl_context c);

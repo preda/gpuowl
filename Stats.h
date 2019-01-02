@@ -9,8 +9,6 @@
 struct StatsInfo {
   u32 nSq;
   double msPerSq;
-  double msPerIt;
-  // double msPerMul;
 };
 
 class Stats {

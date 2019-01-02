@@ -37,7 +37,7 @@ public:
     // assert((workSize % groupSize == 0) || (log("%s\n", name.c_str()), false));
   }
 
-  template<typename... Args> void setFixedArgs(int pos, Args &...tail) { setArgs(pos, tail...); }
+  template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(pos, tail...); }
   
   template<typename... Args> void operator()(const Args &...args) {
     setArgs(0, args...);

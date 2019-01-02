@@ -3,7 +3,10 @@
 #pragma once
 
 #include "common.h"
+#include "clwrap.h"
+
 #include <string>
+#include <vector>
 
 class Args {
 private:
@@ -14,7 +17,7 @@ public:
   std::string clArgs;
   std::string user, cpu;
   std::string dump;
-  int device;
+  std::vector<u32> devices;
   bool timeKernels;
   bool listFFT;
   int carry;
@@ -25,7 +28,6 @@ public:
   bool usePrecompiled;
   
   Args() :
-    device(-1),
     timeKernels(false),
     listFFT(false),
     carry(CARRY_AUTO),

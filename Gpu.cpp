@@ -13,6 +13,7 @@
 
 #include <cmath>
 #include <cassert>
+#include <cstring>
 #include <algorithm>
 
 #ifndef M_PIl
@@ -54,6 +55,15 @@ static cl_mem genSmallTrig(cl_context context, int size, int radix) {
 static void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
   int N = 2 * W * H;
   auto weights = genWeights(E, W, H);
+
+  /*
+  void *ptr = clSVMAlloc(context,
+                         CL_MEM_READ_ONLY | CL_MEM_SVM_FINE_GRAIN_BUFFER,
+                         sizeof(double) * N, 16);
+  memcpy(ptr, weights.first.data(), sizeof(double) * N);
+  bufA = ptr;
+  */
+  
   bufA.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, weights.first.data()));
   bufI.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, weights.second.data()));
 }
@@ -61,7 +71,7 @@ static void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, 
 Gpu::~Gpu() {}
 
 Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
-         cl_program program, cl_device_id device, cl_context context,
+         cl_program program, const vector<cl_device_id> &devices, cl_context context,
          bool timeKernels, bool useLongCarry) :
   E(E),
   N(W * BIG_H * 2),
@@ -71,9 +81,9 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufSize(N * sizeof(double)),
   useLongCarry(useLongCarry),
   useMiddle(BIG_H != SMALL_H),
-  queue(makeQueue(device, context)),    
+  queue(makeQueue(devices.front(), context)),  
 
-#define LOAD(name, workGroups) name(program, queue.get(), device, workGroups, #name, timeKernels)
+#define LOAD(name, workGroups) name(program, queue.get(), devices.front(), workGroups, #name, timeKernels)
   LOAD(carryFused, BIG_H + 1),
   LOAD(fftP, BIG_H),
   LOAD(fftW, BIG_H),
@@ -87,7 +97,6 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   LOAD(transposeH,   (W/64) * (BIG_H/64)),
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
-  LOAD(square,   hN / SMALL_H),
   LOAD(multiply, hN / SMALL_H),
   LOAD(tailFused, (hN / SMALL_H) / 2),
   LOAD(readResidue, 1),
@@ -279,20 +288,21 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
   bool timeKernels = args.timeKernels;
     
-  cl_device_id device = getDevice(args.device);
-  if (!device) { throw "No OpenCL device"; }
+  // cl_device_id device = getDevice(args.devices[0]);
+  if (args.devices.empty()) { throw "No OpenCL device"; }
 
-  log("%s\n", getLongInfo(device).c_str());
+  // log("%s\n", getLongInfo(device).c_str());
   // if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
 
-  Context context(createContext(device));
-  Holder<cl_program> program(compile(device, context.get(), "gpuowl", clArgs,
+  Context context(createContext(args.devices));
+  auto devices = toDeviceIds(args.devices);
+  Holder<cl_program> program(compile(devices, context.get(), "gpuowl", clArgs,
                                      {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}},
                                      args.usePrecompiled));
   if (!program) { throw "OpenCL compilation"; }
 
   return make_unique<Gpu>(E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
-                          program.get(), device, context.get(), timeKernels, useLongCarry);
+                          program.get(), devices, context.get(), timeKernels, useLongCarry);
 }
 
 vector<u32> Gpu::readData()  { return compactBits(readOut(bufData),  E); }
@@ -369,7 +379,7 @@ void Gpu::logTimeKernels() {
   ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
         &carryA, &carryM, &carryB,
         &transposeW, &transposeH, &transposeIn, &transposeOut,
-        &square, &multiply, &tailFused, &readResidue, &isNotZero, &isEqual});
+        &multiply, &tailFused, &readResidue, &isNotZero, &isEqual});
 }
 
 void Gpu::tW(Buffer &in, Buffer &out) {
@@ -442,7 +452,7 @@ u64 Gpu::bufResidue(Buffer &buf) {
 }
 
 static string makeLogStr(u32 E, string status, int k, u64 res, const StatsInfo &info, u32 nIters) {
-  int etaMins = (nIters - k) * info.msPerIt * (1 / 60000.f) + .5f;
+  int etaMins = (nIters - k) * info.msPerSq * (1 / 60000.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;

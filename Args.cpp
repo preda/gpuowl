@@ -2,12 +2,11 @@
 
 #include "args.h"
 #include "file.h"
+#include "clwrap.h"
 
 #include <vector>
 #include <cstring>
 #include <cassert>
-
-vector<string> getDevices();
 
 bool Args::parse(int argc, char **argv) {
   for (int i = 1; i < argc; ++i) {
@@ -27,10 +26,9 @@ Command line options:
 -device <N>        : select a specific device:
 )");
 
-      vector<string> devices = getDevices();
-      for (int i = 0; i < int(devices.size()); ++i) {
-        printf(" %d : %s\n", i, devices[i].c_str());
-      }      
+      vector<cl_device_id> deviceIds = getDeviceIDs();
+      for (auto id : deviceIds) { printf("%s\n", getLongInfo(id).c_str()); }
+      
       return false;
     } else if (!strcmp(arg, "-list")) {
       if (i < argc - 1 && !strcmp(argv[++i], "fft")) {
@@ -112,14 +110,13 @@ Command line options:
       }
     } else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {
       if (i < argc - 1) {
-        device = atoi(argv[++i]);
-        /*
-        int nDevices = getNumberOfDevices();
-        if (device < 0 || device >= nDevices) {
-          log("invalid -device %d (must be between [0, %d]\n", device, nDevices - 1);
-          return false;
+        string s = argv[++i];
+        size_t p = 0;
+        while (true) {
+          devices.push_back(stoi(s, &p));
+          if (p >= s.size() || s[p] != ',') { break; }
+          s = s.substr(p);
         }
-        */
       } else {
         log("-device expects <N> argument\n");
         return false;

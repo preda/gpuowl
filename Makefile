@@ -6,4 +6,4 @@ SRCS = Worktodo.cpp Result.cpp common.cpp gpuowl.cpp Gpu.cpp clwrap.cpp Task.cpp
 LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L/c/Windows/System32 -L.
 
 openowl: ${HEADERS} ${SRCS}
-	g++-8 -std=c++17 -O2 -DREV=\"`git rev-parse --short HEAD``git diff-files --quiet || echo -mod`\" -Wall ${SRCS} -o openowl -lOpenCL -lgmp -pthread ${LIBPATH}
+	g++ -std=c++17 -O2 -DREV=\"`git rev-parse --short HEAD``git diff-files --quiet || echo -mod`\" -Wall ${SRCS} -o openowl -lOpenCL ${LIBPATH}

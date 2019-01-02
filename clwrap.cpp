@@ -7,6 +7,9 @@
 #include <cstdio>
 #include <cstdarg>
 #include <cassert>
+#include <string>
+
+using namespace std;
 
 bool check(int err, const char *mes) {
   bool ok = (err == CL_SUCCESS);
@@ -90,9 +93,34 @@ static string getFreq(cl_device_id device) {
 string getShortInfo(cl_device_id device) { return getHwName(device) + "-" + getFreq(device) + "-" + getTopology(device); }
 string getLongInfo(cl_device_id device) { return getShortInfo(device) + " " + getBoardName(device); }
 
-cl_context createContext(cl_device_id device) {
+cl_device_id getDevice(int argsDevId) {
+  cl_device_id device = nullptr;
+  if (argsDevId >= 0) {
+    auto devices = getDeviceIDs(false);    
+    assert(int(devices.size()) > argsDevId);
+    device = devices[argsDevId];
+  } else {
+    auto devices = getDeviceIDs(true);
+    if (devices.empty()) {
+      log("No GPU device found. See -h for how to select a specific device.\n");
+      return 0;
+    }
+    device = devices[0];
+  }
+  return device;
+}
+
+vector<cl_device_id> toDeviceIds(const vector<u32> &devices) {
+  vector<cl_device_id> ids;
+  for (u32 d : devices) { ids.push_back(getDevice(d)); }
+  return ids;
+}
+
+cl_context createContext(const vector<u32> &devices) {  
+  assert(devices.size() > 0);
+  auto ids = toDeviceIds(devices);
   int err;
-  cl_context context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
+  cl_context context = clCreateContext(NULL, ids.size(), ids.data(), NULL, NULL, &err);
   CHECK2(err, "clCreateContext");
   return context;
 }
@@ -159,13 +187,14 @@ static cl_program loadSource(cl_context context, const string &name) {
   return program;  
 }
 
-static bool build(cl_program program, cl_device_id device, const string &args) {
+static bool build(cl_program program, const vector<cl_device_id> &devices, const string &args) {
   Timer timer;
-  int err = clBuildProgram(program, 1, &device, args.c_str(), NULL, NULL);
+  int err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
   bool ok = (err == CL_SUCCESS);
   if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }
   
   size_t logSize;
+  for (cl_device_id device : devices) {
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
   if (logSize > 1) {
     std::unique_ptr<char> buf(new char[logSize + 1]);
@@ -173,11 +202,12 @@ static bool build(cl_program program, cl_device_id device, const string &args) {
     buf.get()[logSize] = 0;
     log("%s\n", buf.get());
   }
+  }
   if (ok) { log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str()); }
   return ok;
 }
 
-cl_program compile(cl_device_id device, cl_context context, const string &name, const string &extraArgs,
+cl_program compile(const vector<cl_device_id> &devices, cl_context context, const string &name, const string &extraArgs,
                    const vector<pair<string, unsigned>> &defines, bool usePrecompiled) {
   string strDefines;
   string config;
@@ -189,9 +219,9 @@ cl_program compile(cl_device_id device, cl_context context, const string &name, 
 
   cl_program program = 0;
 
-  string binFile = string("precompiled/") + getHwName(device) + "_" + name + config + ".so";
-  if (usePrecompiled && (program = loadBinary(device, context, binFile))) {
-    if (build(program, device, args)) {
+  string binFile = string("precompiled/") + getHwName(devices.front()) + "_" + name + config + ".so";
+  if (usePrecompiled && (program = loadBinary(devices.front(), context, binFile))) {
+    if (build(program, devices, args)) {
       return program;
     } else {
       release(program);
@@ -199,7 +229,7 @@ cl_program compile(cl_device_id device, cl_context context, const string &name, 
   }
 
   if ((program = loadSource(context, name))) {
-    if (build(program, device, args)) {
+    if (build(program, devices, args)) {
       if (usePrecompiled) { dumpBinary(program, binFile); }      
       return program;
     } else {
@@ -220,6 +250,8 @@ cl_kernel makeKernel(cl_program program, const char *name) {
   CHECK2(err, name);
   return k;
 }
+
+void setArg(cl_kernel k, int pos, void* const& svm) { CHECK(clSetKernelArgSVMPointer(k, pos, svm)); }
 
 void setArg(cl_kernel k, int pos, const Buffer &buf) { setArg(k, pos, buf.get()); }
 
@@ -292,21 +324,4 @@ void Queue::zero(Buffer &buf, size_t size) {
   int zero = 0;
   CHECK(clEnqueueFillBuffer(queue.get(), buf.get(), &zero, sizeof(zero), 0, size, 0, 0, 0));
   // finish();
-}
-
-cl_device_id getDevice(int argsDevId) {
-  cl_device_id device = nullptr;
-  if (argsDevId >= 0) {
-    auto devices = getDeviceIDs(false);    
-    assert(int(devices.size()) > argsDevId);
-    device = devices[argsDevId];
-  } else {
-    auto devices = getDeviceIDs(true);
-    if (devices.empty()) {
-      log("No GPU device found. See -h for how to select a specific device.\n");
-      return 0;
-    }
-    device = devices[0];
-  }
-  return device;
 }
