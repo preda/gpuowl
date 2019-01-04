@@ -38,7 +38,7 @@ def sendOne(line):
         print(res[begin:end], '\n')
         return False
     else:
-        print(res, '\n')
+        #print(res, '\n')
         return True
         
 def sendResults(results):
@@ -76,6 +76,8 @@ print("User: %s" % user)
 
 password = options.password
 if not password: password = input()
+
+login(user, password)
 
 PRP_FIRST_TIME = 150
 PRP_DC = 151
