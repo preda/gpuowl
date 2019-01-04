@@ -1,15 +1,11 @@
 #!/usr/bin/python3
 
-import sys
-import os.path
-import re
-from time import sleep
-import os
-from optparse import OptionParser
+# Copyright (c) Mihai Preda.
+# Inspired by mlucas-primenet.py , part of Mlucas by Ernst W. Mayer.
 
-#import http.cookiejar as cookiejar
+from time import sleep
+from optparse import OptionParser
 from http import cookiejar
-#from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import build_opener
 from urllib.request import HTTPCookieProcessor
@@ -33,22 +29,24 @@ def loadLines(fileName):
         return set()
             
 def sendOne(line):
-    print(line)
+    print("Sending result: ", line)
     data = urlencode({"data": line}).encode('utf-8')
     res = primenet.open(baseUrl + "manual_result/default.php", data).read().decode("utf-8")
     if "Error code" in res:
         begin = res.find("Error code")
-        end   = res.find("</div>", begin);
-        print(res[begin:end])
+        end   = res.find("</div>", begin)
+        print(res[begin:end], '\n')
+        return False
     else:
-        print(res);
-    print()
+        print(res, '\n')
+        return True
         
 def sendResults(results):
-    with open('sent.txt', 'a') as sent:
+    with open('sent.txt', 'a') as sent, open('retry.txt', 'a') as retry:
         for result in results:
-            sendOne(result)
-            print(result, file=sent, end='\n')
+            if not sendOne(result):
+                print(result, file=retry, end='\n')
+            print(result, file=sent, end='\n')            
             sentResults.add(result)
     
 def fetch(what):
@@ -66,11 +64,22 @@ def fetch(what):
     print(line)
     return line
 
+parser = OptionParser()
+parser.add_option('-u', '--username', dest='username', default='', help="Primenet user name")
+parser.add_option('-p', '--password', dest='password', help="Primenet password")
+parser.add_option('-t', '--timeout',  dest='timeout',  default='3600', help="Second to wait between updates")
+
+options = parser.parse_args()[0]
+timeout = int(options.timeout)
+user = options.username
+print("User: %s" % user)
+
+password = options.password
+if not password: password = input()
+
 PRP_FIRST_TIME = 150
 PRP_DC = 151
 
-user = "preda"
-password = input()
 sentResults = loadLines("sent.txt")
 
 while True:
@@ -85,4 +94,5 @@ while True:
     
     if len(tasks) < 2:
         with open("worktodo.txt", "a") as fo: print(fetch(PRP_FIRST_TIME), file=fo, end='\n')
-    sleep(5)
+    print("will sleep %d seconds" % timeout);
+    sleep(timeout)
