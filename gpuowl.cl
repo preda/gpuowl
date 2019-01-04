@@ -777,8 +777,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
-    Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
-    u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
+    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p]);
   }
 
   fft_WIDTH(lds, u, smallTrig);
