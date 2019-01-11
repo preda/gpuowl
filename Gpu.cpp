@@ -10,6 +10,7 @@
 #include "Primes.h"
 #include "Result.h"
 #include "Signal.h"
+#include "FFTConfig.h"
 
 #include <cmath>
 #include <cassert>
@@ -160,46 +161,7 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   log("\n");
 }
 
-struct FftConfig {
-  u32 width, height, middle;
-  u32 fftSize;
-  u32 maxExp;
-
-  static u32 getMaxExp(u32 fftSize) { return fftSize * (17.77 + 0.33 * (24 - log2(fftSize))); }
-  
-  FftConfig(u32 width, u32 height, u32 middle) :
-    width(width),
-    height(height),
-    middle(middle),
-    fftSize(width * height * middle * 2),
-    // 17.88 + 0.36 * (24 - log2(n)); Update after feedback on 86700001, FFT 4608 (18.37b/w) being insufficient.
-    maxExp(getMaxExp(fftSize)) {
-    assert(width == 64  || width == 256 || width  == 512 || width == 1024 || width == 2048 || width == 4096);
-    assert(height == 64 || height == 256 || height == 512 || height == 1024 || height == 2048);
-    assert(middle == 1 || middle == 3 || middle == 5 || middle == 9);
-  }
-};
-
-static vector<FftConfig> genConfigs() {
-  vector<FftConfig> configs;
-  for (u32 width : {64, 256, 512, 1024, 2048, 4096}) {
-    for (u32 height : {64, 256, 512, 1024, 2048}) {
-      for (u32 middle : {1, 3, 5, 9}) {
-        configs.push_back(FftConfig(width, height, middle));
-      }
-    }
-  }
-  std::sort(configs.begin(), configs.end(), [](const FftConfig &a, const FftConfig &b) {
-      if (a.fftSize != b.fftSize) { return (a.fftSize < b.fftSize); }
-      assert(a.width != b.width);
-      if (a.width == 1024) { return true; }
-      if (b.width == 1024) { return false; }
-      return (a.width < b.width);
-    });
-  return configs;
-}
-
-static FftConfig getFftConfig(const vector<FftConfig> &configs, u32 E, int argsFftSize) {
+static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsFftSize) {
   int i = 0;
   int n = int(configs.size());
   if (argsFftSize < 10) { // fft delta or not specified.
@@ -216,47 +178,14 @@ vector<int> Gpu::readSmall(Buffer &buf, u32 start) {
   return queue.read<int>(bufSmallOut, 128);                    
 }
 
-static string numberK(u32 n) {
-  return (n % (1024 * 1024) == 0) ? to_string(n / (1024 * 1024)) + "M" : (n % 1024 == 0) ? to_string(n / 1024) + "K" : to_string(n);
-}
-
-static string configName(u32 width, u32 height, u32 middle) {
-  return numberK(width) + '-' + numberK(height) + ((middle != 1) ? "-"s + numberK(middle) : ""s);
-}
-
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
-  vector<FftConfig> configs = genConfigs();
-  if (args.listFFT) {
-    string variants;
-    u32 activeSize = 0;
-    for (auto c : configs) {
-      if (c.fftSize != activeSize) {
-        if (!variants.empty()) {
-          log("FFT %5s [%6.2fM - %7.2fM] %s\n",
-              numberK(activeSize).c_str(),
-              activeSize * 1.5 / 1'000'000, FftConfig::getMaxExp(activeSize) / 1'000'000.0,
-              variants.c_str());
-          variants.clear();
-        }
-      }
-      activeSize = c.fftSize;
-      variants += " "s + configName(c.width, c.height, c.middle);
-    }
-    if (!variants.empty()) {
-      log("FFT %5s [%6.2fM - %7.2fM] %s\n",
-          numberK(activeSize).c_str(),
-          activeSize * 1.5 / 1'000'000, FftConfig::getMaxExp(activeSize) / 1'000'000.0,
-          variants.c_str());
-    }
-  }
+  vector<FFTConfig> configs = FFTConfig::genConfigs();
         
-  FftConfig config = getFftConfig(configs, E, args.fftSize);
+  FFTConfig config = getFFTConfig(configs, E, args.fftSize);
   int WIDTH        = config.width;
   int SMALL_HEIGHT = config.height;
   int MIDDLE       = config.middle;
   int N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
-
-  string configName = (N % (1024 * 1024)) ? std::to_string(N / 1024) + "K" : std::to_string(N / (1024 * 1024)) + "M";
 
   int nW = (WIDTH == 1024 || WIDTH == 256) ? 4 : 8;
   int nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
@@ -283,7 +212,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   log("using %s carry kernels\n", useLongCarry ? "long" : "short");
 
   string clArgs = args.clArgs;
-  if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + configName; }
+  if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + numberK(N); }
 
   bool timeKernels = args.timeKernels;
     

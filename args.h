@@ -19,7 +19,6 @@ public:
   std::string dump;
   std::vector<u32> devices;
   bool timeKernels;
-  bool listFFT;
   int carry;
   u32 blockSize;
   int fftSize;
@@ -29,7 +28,6 @@ public:
   
   Args() :
     timeKernels(false),
-    listFFT(false),
     carry(CARRY_AUTO),
     blockSize(400),
     fftSize(0),
@@ -40,4 +38,5 @@ public:
 
   // return false to stop.
   bool parse(int argc, char **argv);
+
 };

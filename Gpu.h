@@ -44,7 +44,7 @@ class Gpu {
   Kernel isNotZero;
   Kernel isEqual;
   
-  Buffer bufData, bufCheck, bufAux, bufBase;
+  Buffer bufData, bufCheck, bufAux;
   Buffer bufTrigW, bufTrigH;
   Buffer bufA;
   Buffer bufI;
