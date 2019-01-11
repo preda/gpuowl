@@ -107,7 +107,6 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufData( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   bufCheck(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   bufAux(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-  bufBase( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   
   bufTrigW(genSmallTrig(context, W, nW)),
   bufTrigH(genSmallTrig(context, SMALL_H, nH)),
@@ -319,7 +318,7 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
 }
 
 // The modular multiplication io *= in.
-void Gpu::modMul(Buffer &in, Buffer &io) {
+void Gpu::modMul(Buffer &in, Buffer &io, bool mul3) {
   fftP(in, buf1);
   tW(buf1, buf3);
     
@@ -334,43 +333,44 @@ void Gpu::modMul(Buffer &in, Buffer &io) {
   tH(buf2, buf1);    
 
   fftW(buf1);
-  carryA(buf1, io, bufCarry);
+  mul3 ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
   carryB(io, bufCarry);
 };
 
-void Gpu::writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize) {
+void Gpu::writeState(const vector<u32> &check, u32 blockSize) {
   assert(blockSize > 0);
     
   writeCheck(check);
   queue.copy<int>(bufCheck, bufData, N);
-  queue.copy<int>(bufCheck, bufBase, N);
+  queue.copy<int>(bufCheck, bufAux, N);
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     dataLoop(n);
-    modMul(bufBase, bufData);
-    queue.copy<int>(bufData, bufBase, N);
+    modMul(bufAux, bufData);
+    queue.copy<int>(bufData, bufAux, N);
   }
 
   assert((n & (n - 1)) == 0);
   assert(blockSize % n == 0);
     
   blockSize /= n;
-  for (u32 i = 0; i < blockSize - 1; ++i) {
+  assert(blockSize >= 2);
+  
+  for (u32 i = 0; i < blockSize - 2; ++i) {
     dataLoop(n);
-    modMul(bufBase, bufData);
+    modMul(bufAux, bufData);
   }
-    
-  writeBase(base);
-  modMul(bufBase, bufData);
+  
+  dataLoop(n);
+  modMul(bufAux, bufData, true);
 }
 
 void Gpu::updateCheck() { modMul(bufData, bufCheck); }
   
 bool Gpu::doCheck(int blockSize) {
   queue.copy<int>(bufCheck, bufAux, N);
-  modSqLoop(bufAux, blockSize);
-  modMul(bufBase, bufAux);
+  modSqLoop(bufAux, blockSize, true);
   updateCheck();
   return equalNotZero(bufCheck, bufAux);
 }
@@ -391,11 +391,6 @@ void Gpu::tH(Buffer &in, Buffer &out) {
   if (useMiddle) { fftMiddleOut(in); }
   transposeH(in, out);
 }
-
-vector<u32> Gpu::writeBase(const vector<u32> &v) {
-  writeIn(v, bufBase);
-  return v;
-}
   
 vector<int> Gpu::readOut(Buffer &buf) {
   transposeOut(buf, bufAux);
@@ -409,13 +404,7 @@ void Gpu::writeIn(const vector<int> &words, Buffer &buf) {
   transposeIn(bufAux, buf);
 }
 
-void Gpu::exitKerns(Buffer &buf, Buffer &bufWords) {
-  fftW(buf);
-  carryA(buf, bufWords, bufCarry);
-  carryB(bufWords, bufCarry);
-}
-
-void Gpu::modSqLoop(Buffer &io, u32 reps) {
+void Gpu::modSqLoop(Buffer &io, u32 reps, bool mul3) {
   assert(reps > 0);
   bool dataIsOut = true;
         
@@ -427,10 +416,9 @@ void Gpu::modSqLoop(Buffer &io, u32 reps) {
 
     dataIsOut = useLongCarry || (i == reps - 1);
     if (dataIsOut) {
-      // fftW(buf1);
-      // *it ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
-      // carryB(io, bufCarry);
-      exitKerns(buf1, io);
+      fftW(buf1);
+      mul3 && i == reps-1 ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
+      carryB(io, bufCarry);
     } else {
       carryFused(buf1, bufCarry, bufReady);
     }
@@ -479,28 +467,16 @@ static void doSmallLog(int E, int k, u64 res, Stats &stats, u32 nIters) {
   stats.reset();
 }
 
-static vector<u32> bitNeg(const vector<u32> &v) {
-  vector<u32> ret;
-  ret.reserve(v.size());
-  for (auto x : v) { ret.push_back(~x); }
-  return ret;
-}
-
-// Checks whether a == bitNeg(b) ignoring the last word.
-// (this is because the last word is often only partially filled with bits of exponent E)
-// 'a' passed by value intentional.
-static bool equalNeg(vector<u32> a, const vector<u32> &b) {
-  assert(!a.empty() && !b.empty());
-  auto c = bitNeg(b);
-  a.pop_back();
-  c.pop_back();
-  return a == c;
+static bool equalMinus3(const vector<u32> &a) {
+  if (a[0] != ~3u) { return false; }
+  for (auto it = next(a.begin()); it != a.end(); ++it) { if (*it) { return false; }}
+  return true;
 }
 
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize) {
   auto loaded = PRPState::load(E, iniBlockSize);
 
-  writeState(loaded.check, loaded.base, loaded.blockSize);
+  writeState(loaded.check, loaded.blockSize);
 
   u64 res64 = dataResidue();
   bool ok = (res64 == loaded.res64);
@@ -520,8 +496,6 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
   u32 k = loaded.k;
   u32 blockSize = loaded.blockSize;
   assert(blockSize > 0 && 10000 % blockSize == 0);
-  
-  vector<u32> base = loaded.base;
   
   const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
@@ -547,9 +521,9 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
       dataLoop(kEnd - k);
       auto words = this->roundtripData();
       finalRes64 = residue(words);
-      isPrime = (words == base) || equalNeg(words, base); // words == bitNeg(base));
+      isPrime = equalMinus3(words);
 
-      log("%s %8d / %d, %016llx (base %016llx)\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64, residue(base));
+      log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
       
       int itersLeft = blockSize - (kEnd - k);
       if (itersLeft > 0) { dataLoop(itersLeft); }
@@ -587,8 +561,8 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
     doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters);
     
     if (ok) {
-      if (k < kEnd) { PRPState{k, blockSize, res64, check, base}.save(E); }
-      if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, residue(base)}; }
+      if (k < kEnd) { PRPState{k, blockSize, res64, check}.save(E); }
+      if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, 3}; }
       nSeqErrors = 0;      
     } else {
       if (++nSeqErrors > 2) {
@@ -599,7 +573,6 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
       auto loaded = loadPRP(E, blockSize);
       k = loaded.k;
       assert(blockSize == loaded.blockSize);
-      assert(base == loaded.base);
     }
     if (args.timeKernels) { this->logTimeKernels(); }
     if (doStop) { throw "stop requested"; }

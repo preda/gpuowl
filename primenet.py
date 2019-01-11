@@ -114,5 +114,9 @@ def handle(folder, sent):
     
 
 while True:
-    for (folder, sent) in zip(dirs, sents): handle(folder, sent)
+    for (folder, sent) in zip(dirs, sents):
+        try:
+            handle(folder, sent)
+        except urllib.error.URLError as e:
+            print(e)
     time.sleep(timeout)

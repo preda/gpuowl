@@ -1,4 +1,4 @@
-// Copyright 2017 Mihai Preda.
+// Copyright Mihai Preda.
 
 #pragma once
 
@@ -60,7 +60,7 @@ class Gpu {
 
   void tW(Buffer &in, Buffer &out);
   void tH(Buffer &in, Buffer &out);
-  void exitKerns(Buffer &buf, Buffer &bufWords);
+  // void exitKerns(Buffer &buf, Buffer &bufWords);
   
   void copyFromTo(Buffer &from, Buffer &to);
   
@@ -68,10 +68,9 @@ class Gpu {
   void writeIn(const vector<u32> &words, Buffer &buf);
   void writeIn(const vector<int> &words, Buffer &buf);
   
-  void modSqLoop(Buffer &io, u32 reps);
-  // void modSqLoopAcc(Buffer &io, const vector<bool> &muls);
+  void modSqLoop(Buffer &io, u32 reps, bool mul3 = false);
   
-  void modMul(Buffer &in, Buffer &io);
+  void modMul(Buffer &in, Buffer &io, bool mul3 = false);
   bool equalNotZero(Buffer &bufCheck, Buffer &bufAux);
   u64 bufResidue(Buffer &buf);
   
@@ -88,7 +87,7 @@ public:
 
   ~Gpu();
   
-  void writeState(const vector<u32> &check, const vector<u32> &base, u32 blockSize);
+  void writeState(const vector<u32> &check, u32 blockSize);
   
   vector<u32> roundtripData()  { return writeData(readData()); }
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }

@@ -215,7 +215,7 @@ cl_program compile(const vector<cl_device_id> &devices, cl_context context, cons
     strDefines = strDefines + "-D" + d.first + "=" + to_string(d.second) + "u ";
     config = config + "_" + to_string(d.second);
   }
-  string args = strDefines + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-std=CL2.0 ";
+  string args = strDefines + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-std=CL2.0";
 
   cl_program program = 0;
 

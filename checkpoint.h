@@ -32,7 +32,6 @@ public:
   u64 res64;
 
   vector<u32> check;
-  vector<u32> base;
 
   static PRPState load(u32 E, u32 iniBlockSize) {
     PRPState prp;

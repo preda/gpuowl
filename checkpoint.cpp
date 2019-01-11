@@ -54,7 +54,6 @@ void PRPState::loadInt(u32 E, u32 iniBlockSize) {
     log("%s not found, starting from the beginning.\n", name.c_str());
     k = 0;
     blockSize = iniBlockSize;
-    base = makeVect(nWords, 3);
     res64  = 3;
     check = makeVect(nWords, 1);
     return;
@@ -79,7 +78,6 @@ void PRPState::loadInt(u32 E, u32 iniBlockSize) {
     }
     assert(E == fileE);
     if (!read(fi.get(), nWords, &check)) { throw("load: error read check"); }
-    base = makeVect(nWords, 3);
     log("%s loaded: k %u, block %u, res64 %016llx\n", name.c_str(), k, blockSize, res64);
   } else {
     log("Invalid savefile '%s'\n", name.c_str());
