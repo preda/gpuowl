@@ -58,5 +58,5 @@ public:
   
   string getName() { return name; }
 
-  StatsInfo resetStats() { return stats.reset(); }
+  Stats resetStats() { Stats ret = stats; stats.reset(); return ret; }
 };

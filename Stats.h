@@ -4,19 +4,10 @@
 
 #include "common.h"
 
-#include <vector>
+struct Stats {
+  double time = 0;
+  u32 nSq = 0;
 
-struct StatsInfo {
-  u32 nSq;
-  double msPerSq;
-};
-
-class Stats {
-  double time;
-  u32 nSq;
-
-public:
-  Stats() { reset(); }
-  void add(double millis, u32 nSq);
-  StatsInfo reset();
+  void add(double millis, u32 deltaN) { time += millis; nSq += deltaN; }
+  void reset() { time = 0; nSq = 0; }
 };

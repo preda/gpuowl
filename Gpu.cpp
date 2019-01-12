@@ -123,29 +123,23 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
 }
 
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
-  struct Info {
-    std::string name;
-    double totalTime;
-    double avgTime;
-    u32 n;
-  };
-
   double total = 0;
-  vector<Info> infos;
+  vector<pair<Stats, string>> infos;
   for (Kernel *k : kerns) {
-    StatsInfo s = k->resetStats();
-    Info info{k->getName(), s.msPerSq * s.nSq, s.msPerSq, s.nSq};
-    infos.push_back(info);
-    total += info.totalTime;
+    Stats s = k->resetStats();
+    if (s.time > 0 && s.nSq > 0) {
+      infos.push_back(make_pair(s, k->getName()));
+      total += s.time;
+    }
   }
 
-  // std::sort(infos.begin(), infos.end(), [](const Info &a, const Info &b) { return a.stats.sum >= b.stats.sum; });
+  std::sort(infos.begin(), infos.end(), [](const auto& a, const auto& b){ return a.first.time > b.first.time; });
 
-  for (Info info : infos) {
-    float percent = 100 / total * info.totalTime;
+  for (auto& [stats, name]: infos) {
+    float percent = 100 / total * stats.time;
     if (true || percent >= .1f) {
       log("%4.1f%% %-14s : %6.0f us/call x %5d calls\n",
-          percent, info.name.c_str(), info.avgTime, info.n);
+          percent, name.c_str(), stats.time / stats.nSq, stats.nSq);
     }
   }
   log("\n");
@@ -354,8 +348,9 @@ u64 Gpu::bufResidue(Buffer &buf) {
   return residueFromRaw(E, N, readBuf);
 }
 
-static string makeLogStr(u32 E, string status, int k, u64 res, const StatsInfo &info, u32 nIters) {
-  int etaMins = (nIters - k) * info.msPerSq * (1 / 60000.f) + .5f;
+static string makeLogStr(u32 E, string status, int k, u64 res, Stats info, u32 nIters) {
+  float msPerSq = info.time / info.nSq;
+  int etaMins = (nIters - k) * msPerSq * (1 / 60000.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
@@ -365,20 +360,20 @@ static string makeLogStr(u32 E, string status, int k, u64 res, const StatsInfo &
   
   snprintf(buf, sizeof(buf), "%u %2s %8d %5.2f%%; %.2f ms/sq;%s ETA %dd %02d:%02d; %016llx",
            E, status.c_str(), k, k / float(nIters) * 100,
-           info.msPerSq,
+           msPerSq,
            ghzStr.c_str(), days, hours, mins, res);
   return buf;
 }
 
 static void doLog(int E, int k, u32 timeCheck, u64 res, bool checkOK, Stats &stats, u32 nIters) {
   log("%s (check %.2fs)\n",      
-      makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats.reset(), nIters).c_str(),
+      makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats, nIters).c_str(),
       timeCheck * .001f);
   stats.reset();
 }
 
 static void doSmallLog(int E, int k, u64 res, Stats &stats, u32 nIters) {
-  log("%s\n", makeLogStr(E, "", k, res, stats.reset(), nIters).c_str());
+  log("%s\n", makeLogStr(E, "", k, res, stats, nIters).c_str());
   stats.reset();
 }
 
