@@ -22,7 +22,6 @@ Command line options:
 -fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
 -block <value>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
--tf <bit-offset>   : enable auto trial factoring before PRP. Pass 0 to bit-offset for default TF depth.
 -device <N>        : select a specific device:
 )");
 
@@ -56,14 +55,6 @@ Command line options:
         fftSize = atoi(s.c_str()) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1));
       } else {
         log("-fft expects <size>\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-tf")) {
-      if (i < argc - 1) {
-        tfDelta = atoi(argv[++i]);
-        enableTF = true;
-      } else {
-        log("-tf expects <bit-offset>\n");
         return false;
       }
     } else if (!strcmp(arg, "-dump")) {

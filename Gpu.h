@@ -85,8 +85,6 @@ public:
       cl_program program, const std::vector<cl_device_id> &devices, cl_context context,
       bool timeKernels, bool useLongCarry);
 
-  ~Gpu();
-  
   void writeState(const vector<u32> &check, u32 blockSize);
   
   vector<u32> roundtripData()  { return writeData(readData()); }

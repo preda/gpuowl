@@ -22,7 +22,6 @@ public:
   int carry;
   u32 blockSize;
   int fftSize;
-  int tfDelta;
   bool enableTF;
   bool usePrecompiled;
   
@@ -31,12 +30,10 @@ public:
     carry(CARRY_AUTO),
     blockSize(400),
     fftSize(0),
-    tfDelta(0),
     enableTF(false),
     usePrecompiled(false)
   { }
 
   // return false to stop.
   bool parse(int argc, char **argv);
-
 };

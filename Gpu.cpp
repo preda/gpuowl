@@ -55,21 +55,10 @@ static cl_mem genSmallTrig(cl_context context, int size, int radix) {
 
 static void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
   int N = 2 * W * H;
-  auto weights = genWeights(E, W, H);
-
-  /*
-  void *ptr = clSVMAlloc(context,
-                         CL_MEM_READ_ONLY | CL_MEM_SVM_FINE_GRAIN_BUFFER,
-                         sizeof(double) * N, 16);
-  memcpy(ptr, weights.first.data(), sizeof(double) * N);
-  bufA = ptr;
-  */
-  
+  auto weights = genWeights(E, W, H);  
   bufA.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, weights.first.data()));
   bufI.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, weights.second.data()));
 }
-
-Gpu::~Gpu() {}
 
 Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
          cl_program program, const vector<cl_device_id> &devices, cl_context context,
@@ -216,11 +205,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
   bool timeKernels = args.timeKernels;
     
-  // cl_device_id device = getDevice(args.devices[0]);
   if (args.devices.empty()) { throw "No OpenCL device"; }
-
-  // log("%s\n", getLongInfo(device).c_str());
-  // if (args.cpu.empty()) { args.cpu = getShortInfo(device); }
 
   Context context(createContext(args.devices));
   auto devices = toDeviceIds(args.devices);
