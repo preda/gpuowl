@@ -88,6 +88,7 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
   LOAD(multiply, hN / SMALL_H),
+  LOAD(multiplySub, hN / SMALL_H),
   LOAD(tailFused, (hN / SMALL_H) / 2),
   LOAD(readResidue, 1),
   LOAD(isNotZero, 256),
@@ -293,7 +294,7 @@ void Gpu::logTimeKernels() {
   ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
         &carryA, &carryM, &carryB,
         &transposeW, &transposeH, &transposeIn, &transposeOut,
-        &multiply, &tailFused, &readResidue, &isNotZero, &isEqual});
+        &multiply, &multiplySub, &tailFused, &readResidue, &isNotZero, &isEqual});
 }
 
 void Gpu::tW(Buffer &in, Buffer &out) {
