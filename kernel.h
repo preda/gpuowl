@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Stats.h"
 #include "clwrap.h"
 #include "timeutil.h"
 #include "common.h"
@@ -9,6 +8,14 @@
 #include <vector>
 #include <memory>
 
+struct TimeInfo {
+  double total = 0;
+  u32 n = 0;
+
+  void add(double deltaTime, u32 deltaN = 1) { total += deltaTime; n += deltaN; }
+  void reset() { total = 0; n = 0; }
+};
+
 class Kernel {
   Holder<cl_kernel> kernel;
   cl_queue queue;
@@ -16,7 +23,7 @@ class Kernel {
   string name;
   bool doTime;
   int groupSize;
-  Stats stats;
+  TimeInfo stats;
 
   template<typename T> void setArgs(int pos, const T &arg) { ::setArg(kernel.get(), pos, arg); }
   
@@ -50,7 +57,7 @@ public:
       Timer timer;
       ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
       finish(queue);
-      stats.add(timer.deltaMicros(), 1);
+      stats.add(timer.deltaMicros());
     } else {
       ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
     }
@@ -58,5 +65,5 @@ public:
   
   string getName() { return name; }
 
-  Stats resetStats() { Stats ret = stats; stats.reset(); return ret; }
+  TimeInfo resetStats() { auto ret = stats; stats.reset(); return ret; }
 };

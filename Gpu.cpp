@@ -3,7 +3,6 @@
 #include "Gpu.h"
 
 #include "checkpoint.h"
-#include "Stats.h"
 #include "state.h"
 #include "timeutil.h"
 #include "args.h"
@@ -124,22 +123,22 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
 
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
   double total = 0;
-  vector<pair<Stats, string>> infos;
+  vector<pair<TimeInfo, string>> infos;
   for (Kernel *k : kerns) {
-    Stats s = k->resetStats();
-    if (s.time > 0 && s.nSq > 0) {
+    auto s = k->resetStats();
+    if (s.total > 0 && s.n > 0) {
       infos.push_back(make_pair(s, k->getName()));
-      total += s.time;
+      total += s.total;
     }
   }
 
-  std::sort(infos.begin(), infos.end(), [](const auto& a, const auto& b){ return a.first.time > b.first.time; });
+  std::sort(infos.begin(), infos.end(), [](const auto& a, const auto& b){ return a.first.total > b.first.total; });
 
   for (auto& [stats, name]: infos) {
-    float percent = 100 / total * stats.time;
+    float percent = 100 / total * stats.total;
     if (true || percent >= .1f) {
       log("%4.1f%% %-14s : %6.0f us/call x %5d calls\n",
-          percent, name.c_str(), stats.time / stats.nSq, stats.nSq);
+          percent, name.c_str(), stats.total / stats.n, stats.n);
     }
   }
   log("\n");
@@ -348,8 +347,8 @@ u64 Gpu::bufResidue(Buffer &buf) {
   return residueFromRaw(E, N, readBuf);
 }
 
-static string makeLogStr(u32 E, string status, int k, u64 res, Stats info, u32 nIters) {
-  float msPerSq = info.time / info.nSq;
+static string makeLogStr(u32 E, string status, int k, u64 res, TimeInfo info, u32 nIters) {
+  float msPerSq = info.total / info.n;
   int etaMins = (nIters - k) * msPerSq * (1 / 60000.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
@@ -365,14 +364,14 @@ static string makeLogStr(u32 E, string status, int k, u64 res, Stats info, u32 n
   return buf;
 }
 
-static void doLog(int E, int k, u32 timeCheck, u64 res, bool checkOK, Stats &stats, u32 nIters) {
+static void doLog(int E, int k, u32 timeCheck, u64 res, bool checkOK, TimeInfo &stats, u32 nIters) {
   log("%s (check %.2fs)\n",      
       makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats, nIters).c_str(),
       timeCheck * .001f);
   stats.reset();
 }
 
-static void doSmallLog(int E, int k, u64 res, Stats &stats, u32 nIters) {
+static void doSmallLog(int E, int k, u64 res, TimeInfo &stats, u32 nIters) {
   log("%s\n", makeLogStr(E, "", k, res, stats, nIters).c_str());
   stats.reset();
 }
@@ -415,7 +414,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
   u32 startK = k;
   
   Signal signal;
-  Stats stats;
+  TimeInfo stats;
 
   // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
   int nSeqErrors = 0;
