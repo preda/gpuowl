@@ -5,6 +5,8 @@
 
 import argparse
 import time
+import urllib
+
 from http import cookiejar
 from urllib.parse import urlencode
 from urllib.request import build_opener

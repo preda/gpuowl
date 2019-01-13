@@ -59,9 +59,17 @@ static void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, 
   bufI.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, weights.second.data()));
 }
 
-Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
-         cl_program program, const vector<cl_device_id> &devices, cl_context context,
-         bool timeKernels, bool useLongCarry) :
+static cl_program compile(const Args& args, cl_context context, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE) {
+  string clArgs = args.clArgs;
+  if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + numberK(WIDTH * SMALL_HEIGHT * MIDDLE * 2); }
+  cl_program program = compile(toDeviceIds(args.devices), context, "gpuowl", clArgs,
+                 {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}});
+  if (!program) { throw "OpenCL compilation"; }
+  return program;
+}
+
+Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
+         cl_device_id device, bool timeKernels, bool useLongCarry) :
   E(E),
   N(W * BIG_H * 2),
   hN(N / 2),
@@ -70,9 +78,11 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufSize(N * sizeof(double)),
   useLongCarry(useLongCarry),
   useMiddle(BIG_H != SMALL_H),
-  queue(makeQueue(devices.front(), context)),  
+  context(createContext(args.devices)),
+  program(compile(args, context.get(), E, W, SMALL_H, BIG_H / SMALL_H)),
+  queue(makeQueue(device, context.get())),  
 
-#define LOAD(name, workGroups) name(program, queue.get(), devices.front(), workGroups, #name, timeKernels)
+#define LOAD(name, workGroups) name(program.get(), queue.get(), device, workGroups, #name, timeKernels)
   LOAD(carryFused, BIG_H + 1),
   LOAD(fftP, BIG_H),
   LOAD(fftW, BIG_H),
@@ -95,11 +105,10 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
 #undef LOAD
 
   bufData( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-  bufCheck(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   bufAux(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   
-  bufTrigW(genSmallTrig(context, W, nW)),
-  bufTrigH(genSmallTrig(context, SMALL_H, nH)),
+  bufTrigW(genSmallTrig(context.get(), W, nW)),
+  bufTrigH(genSmallTrig(context.get(), SMALL_H, nH)),
   buf1{makeBuf(    context, BUF_RW, bufSize)},
   buf2{makeBuf(    context, BUF_RW, bufSize)},
   buf3{makeBuf(    context, BUF_RW, bufSize)},
@@ -107,7 +116,7 @@ Gpu::Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
   bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
 {    
-  setupWeights(context, bufA, bufI, W, BIG_H, E);
+  setupWeights(context.get(), bufA, bufI, W, BIG_H, E);
 
   carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
   fftP.setFixedArgs(2, bufA, bufTrigW);
@@ -136,8 +145,8 @@ void logTimeKernels(std::initializer_list<Kernel *> kerns) {
 
   for (auto& [stats, name]: infos) {
     float percent = 100 / total * stats.total;
-    if (true || percent >= .1f) {
-      log("%4.1f%% %-14s : %6.0f us/call x %5d calls\n",
+    if (percent >= .01f) {
+      log("%5.2f%% %-14s : %6.0f us/call x %5d calls\n",
           percent, name.c_str(), stats.total / stats.n, stats.n);
     }
   }
@@ -194,22 +203,23 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   
   log("using %s carry kernels\n", useLongCarry ? "long" : "short");
 
-  string clArgs = args.clArgs;
-  if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + numberK(N); }
+  // string clArgs = args.clArgs;
+  // if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + numberK(N); }
 
   bool timeKernels = args.timeKernels;
     
   if (args.devices.empty()) { throw "No OpenCL device"; }
 
-  Context context(createContext(args.devices));
+  // Context context(createContext(args.devices));
   auto devices = toDeviceIds(args.devices);
+  // Holder<cl_program> program(compile(context.get(), args, E, WIDTH, SMALL_HEIGHT, MIDDLE));
+  /*
   Holder<cl_program> program(compile(devices, context.get(), "gpuowl", clArgs,
-                                     {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}},
-                                     args.usePrecompiled));
-  if (!program) { throw "OpenCL compilation"; }
+                                     {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}}));
+  */
 
-  return make_unique<Gpu>(E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
-                          program.get(), devices, context.get(), timeKernels, useLongCarry);
+  return make_unique<Gpu>(args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
+                          devices.front(), timeKernels, useLongCarry);
 }
 
 vector<u32> Gpu::readData()  { return compactBits(readOut(bufData),  E); }
@@ -284,10 +294,12 @@ bool Gpu::doCheck(int blockSize) {
 }
 
 void Gpu::logTimeKernels() {
-  ::logTimeKernels({&carryFused, &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
+  ::logTimeKernels({&carryFused,
+        &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
         &carryA, &carryM, &carryB,
         &transposeW, &transposeH, &transposeIn, &transposeOut,
-        &multiply, &multiplySub, &tailFused, &readResidue, &isNotZero, &isEqual});
+        &multiply, &multiplySub, &tailFused,
+        &readResidue, &isNotZero, &isEqual});
 }
 
 void Gpu::tW(Buffer &in, Buffer &out) {
@@ -400,6 +412,8 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize) {
 }
 
 PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
+  bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
+  
   PRPState loaded = loadPRP(E, args.blockSize);
 
   u32 k = loaded.k;

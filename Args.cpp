@@ -36,7 +36,7 @@ Command line options:
       for (auto c : configs) {
         if (c.fftSize != activeSize) {
           if (!variants.empty()) {
-            log("FFT %5s [%6.2fM - %7.2fM] %s\n",
+            printf("FFT %5s [%6.2fM - %7.2fM] %s\n",
                 numberK(activeSize).c_str(),
                 activeSize * 1.5 / 1'000'000, FFTConfig::getMaxExp(activeSize) / 1'000'000.0,
                 variants.c_str());

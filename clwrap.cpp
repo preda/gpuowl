@@ -208,7 +208,7 @@ static bool build(cl_program program, const vector<cl_device_id> &devices, const
 }
 
 cl_program compile(const vector<cl_device_id> &devices, cl_context context, const string &name, const string &extraArgs,
-                   const vector<pair<string, unsigned>> &defines, bool usePrecompiled) {
+                   const vector<pair<string, unsigned>> &defines) {
   string strDefines;
   string config;
   for (auto d : defines) {
@@ -220,6 +220,7 @@ cl_program compile(const vector<cl_device_id> &devices, cl_context context, cons
   cl_program program = 0;
 
   string binFile = string("precompiled/") + getHwName(devices.front()) + "_" + name + config + ".so";
+  const bool usePrecompiled = false;
   if (usePrecompiled && (program = loadBinary(devices.front(), context, binFile))) {
     if (build(program, devices, args)) {
       return program;

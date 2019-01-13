@@ -22,6 +22,8 @@ class Gpu {
   bool useLongCarry;
   bool useMiddle;
 
+  Context context;
+  Holder<cl_program> program;
   Queue queue;
   
   Kernel carryFused;
@@ -41,18 +43,23 @@ class Gpu {
   Kernel multiply;
   Kernel multiplySub;
   Kernel tailFused;
+  
   Kernel readResidue;
   Kernel isNotZero;
   Kernel isEqual;
-  
-  Buffer bufData, bufCheck, bufAux;
-  Buffer bufTrigW, bufTrigH;
-  Buffer bufA;
-  Buffer bufI;
+
+  Buffer bufData;   // Main int buffer with the words.
+  Buffer bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
+  Buffer bufTrigW;  // Small precomputed trig buffers.
+  Buffer bufTrigH; 
+  Buffer bufA;      // Direct weights.
+  Buffer bufI;      // Inverse weights.
   Buffer buf1, buf2, buf3;
-  Buffer bufCarry;
-  Buffer bufReady;
+  Buffer bufCarry;  // Carry shuttle.
+  Buffer bufReady;  // Per-group ready flag for starway carry propagation.
   Buffer bufSmallOut;
+
+  Buffer bufCheck;   // Buffers used with the error check.
 
   vector<u32> computeBase(u32 E, u32 B1);
   pair<vector<u32>, vector<u32>> seedPRP(u32 E, u32 B1);
@@ -82,9 +89,8 @@ class Gpu {
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   
-  Gpu(u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
-      cl_program program, const std::vector<cl_device_id> &devices, cl_context context,
-      bool timeKernels, bool useLongCarry);
+  Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
+      cl_device_id device, bool timeKernels, bool useLongCarry);
 
   void writeState(const vector<u32> &check, u32 blockSize);
   
