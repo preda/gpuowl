@@ -14,22 +14,29 @@ Task Worktodo::getTask() {
     while (fgets(line, sizeof(line), fi.get())) {
       u32 exp = 0;
       char outAID[64] = {0};
-      u32 B1 = 0, B2 = 0;
       u32 bitLo = 0;
       int pos = 0;
+
+      if (sscanf(line, "%u,%u", &exp, &bitLo) == 2 ||
+          sscanf(line, "%u", &exp) == 1 ||
+          sscanf(line, "PRP=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
+          sscanf(line, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
+          return Task{Task::PRP, exp, outAID, line};
+      }
+      outAID[0] = 0;
+      
+      u32 B1 = 0, B2 = 0;      
       char *tail = line;
+      
       if (sscanf(line, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||
           sscanf(line, "B1=%u;%n", &B1, &pos) == 1) {
         tail = line + pos;
       }
 
-      if (sscanf(tail, "%u,%u", &exp, &bitLo) == 2 ||
-          sscanf(tail, "%u", &exp) == 1 ||
-          sscanf(tail, "PRP=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
-          sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
-          sscanf(tail, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3 ||
+      if (sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
           sscanf(tail, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-        return Task{Task::PRP, exp, outAID, line, B1, B2};
+        if (B1 && B2 == 0) { B2 = 30 * B1; } // default B2 given B1.
+        return Task{Task::PM1, exp, outAID, line, B1, B2};
       }
       
       int n = strlen(line);

@@ -7,7 +7,6 @@
 #include "timeutil.h"
 #include "args.h"
 #include "Primes.h"
-#include "Result.h"
 #include "Signal.h"
 #include "FFTConfig.h"
 #include "GmpUtil.h"
@@ -434,7 +433,7 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize) {
   return loaded;
 }
 
-PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
+pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
   bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
   
   PRPState loaded = loadPRP(E, args.blockSize);
@@ -508,7 +507,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
     
     if (ok) {
       if (k < kEnd) { PRPState{k, blockSize, res64, check}.save(E); }
-      if (isPrime || k >= kEnd) { return PRPResult{isPrime, finalRes64}; }
+      if (isPrime || k >= kEnd) { return {isPrime, finalRes64}; }
       nSeqErrors = 0;      
     } else {
       if (++nSeqErrors > 2) {

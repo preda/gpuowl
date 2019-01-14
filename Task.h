@@ -18,10 +18,13 @@ struct Task {
   string line; // the verbatim worktodo line, used in deleteTask().
 
   // PM1
-  u32 B1;
-  u32 B2;
+  u32 B1 = 0;
+  u32 B2 = 0;
 
   operator bool() { return kind != NONE; }
 
   bool execute(const Args &args);
+
+  bool writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize);
+  bool writeResultPM1(const Args&, const std::string& factor, u32 fftSize);
 };

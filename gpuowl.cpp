@@ -2,7 +2,6 @@
 
 #include "args.h"
 #include "Task.h"
-#include "Result.h"
 #include "worktodo.h"
 #include "common.h"
 
