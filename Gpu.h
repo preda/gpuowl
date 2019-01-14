@@ -27,6 +27,7 @@ class Gpu {
   Queue queue;
   
   Kernel carryFused;
+  Kernel carryFusedMul;
   Kernel fftP;
   Kernel fftW;
   Kernel fftH;
@@ -68,7 +69,6 @@ class Gpu {
 
   void tW(Buffer &in, Buffer &out);
   void tH(Buffer &in, Buffer &out);
-  // void exitKerns(Buffer &buf, Buffer &bufWords);
   
   void copyFromTo(Buffer &from, Buffer &to);
   
@@ -85,6 +85,8 @@ class Gpu {
   vector<u32> writeBase(const vector<u32> &v);
 
   PRPState loadPRP(u32 E, u32 iniBlockSize);
+
+  void coreStep(Buffer &io, bool leadIn, bool leadOut, bool mul3);
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
@@ -116,5 +118,7 @@ public:
   vector<u32> readData();
 
   PRPResult isPrimePRP(u32 E, const Args &args);
+  string factorPM1(u32 E, const Args& args);
+  
   u32 getFFTSize() { return N; }
 };

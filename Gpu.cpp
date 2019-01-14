@@ -10,6 +10,7 @@
 #include "Result.h"
 #include "Signal.h"
 #include "FFTConfig.h"
+#include "GmpUtil.h"
 
 #include <cmath>
 #include <cassert>
@@ -84,6 +85,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
 
 #define LOAD(name, workGroups) name(program.get(), queue.get(), device, workGroups, #name, timeKernels)
   LOAD(carryFused, BIG_H + 1),
+  LOAD(carryFusedMul, BIG_H + 1),
   LOAD(fftP, BIG_H),
   LOAD(fftW, BIG_H),
   LOAD(fftH, (hN / SMALL_H)),
@@ -324,11 +326,31 @@ void Gpu::writeIn(const vector<int> &words, Buffer &buf) {
   transposeIn(bufAux, buf);
 }
 
+void Gpu::coreStep(Buffer &io, bool leadIn, bool leadOut, bool mul3) {
+  if (leadIn) { fftP(io, buf1); }
+  tW(buf1, buf2);
+  tailFused(buf2);
+  tH(buf2, buf1);
+
+  if (leadOut) {
+    fftW(buf1);
+    mul3 ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
+    carryB(io, bufCarry);
+  } else {
+    mul3 ? carryFusedMul(buf1, bufCarry, bufReady) : carryFused(buf1, bufCarry, bufReady);
+  }  
+}
+
 void Gpu::modSqLoop(Buffer &io, u32 reps, bool mul3) {
   assert(reps > 0);
-  bool dataIsOut = true;
+  bool leadIn = true;
         
   for (decltype(reps) i = 0; i < reps; ++i) {
+    bool leadOut = useLongCarry || (i == reps - 1);
+    coreStep(io, leadIn, leadOut, mul3 && (i == reps - 1));
+    leadIn = leadOut;
+  }
+  /* 
     if (dataIsOut) { fftP(io, buf1); }
     tW(buf1, buf2);
     tailFused(buf2);
@@ -343,6 +365,7 @@ void Gpu::modSqLoop(Buffer &io, u32 reps, bool mul3) {
       carryFused(buf1, bufCarry, bufReady);
     }
   }
+  */
 }
 
 bool Gpu::equalNotZero(Buffer &buf1, Buffer &buf2) {
@@ -485,7 +508,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
     
     if (ok) {
       if (k < kEnd) { PRPState{k, blockSize, res64, check}.save(E); }
-      if (isPrime || k >= kEnd) { return PRPResult{"", isPrime, finalRes64, 3}; }
+      if (isPrime || k >= kEnd) { return PRPResult{isPrime, finalRes64}; }
       nSeqErrors = 0;      
     } else {
       if (++nSeqErrors > 2) {
@@ -500,4 +523,40 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args) {
     if (args.timeKernels) { this->logTimeKernels(); }
     if (doStop) { throw "stop requested"; }
   }
+}
+
+string Gpu::factorPM1(u32 E, const Args& args) {
+  const u32 B1 =  1000000;
+  // const u32 B2 = 30000000;
+
+  vector<bool> bits = powerSmoothBitsRev(E, B1);
+
+  {
+    vector<u32> data((E - 1) / 32 + 1, 0);
+    data[0] = 1;  
+    writeData(data);
+  }
+
+  const u32 kEnd = bits.size();
+  bool leadIn = true;
+  TimeInfo timeInfo;
+  Timer timer;
+  for (u32 k = 0; k < kEnd; ++k) {
+    bool doLog = (k == kEnd - 1) || ((k + 1) % 10000 == 0);
+    
+    bool leadOut = useLongCarry || doLog;
+    coreStep(bufData, leadIn, leadOut, bits[k]);
+    leadIn = leadOut;
+
+    if ((k + 1) % 100 == 0 || doLog) {
+      queue.finish();
+      timeInfo.add(timer.deltaMillis(), (k + 1) - (k / 100) * 100);
+      if (doLog) { doSmallLog(E, k + 1, dataResidue(), timeInfo, kEnd); }
+    }
+  }
+
+  log("Starting GCD\n");
+  string gcd = GCD(E, readData(), 1);
+  log("GCD '%s' in %.0fs\n", gcd.c_str(), timer.deltaMillis() / 1000.0);
+  return gcd;
 }

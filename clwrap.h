@@ -13,7 +13,7 @@
 typedef cl_command_queue cl_queue;
 
 template<typename T>
-struct ReleaseDelete {
+struct Releaser {
   using pointer = T;
   
   void operator()(T t) {
@@ -22,15 +22,13 @@ struct ReleaseDelete {
   }
 };
 
-template<typename T> using Holder = std::unique_ptr<T, ReleaseDelete<T> >;
+template<typename T> using Holder = std::unique_ptr<T, Releaser<T> >;
 
 using Buffer  = Holder<cl_mem>;
 using Context = Holder<cl_context>;
 using QueueHolder = Holder<cl_queue>;
 
 static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
-
-// using SVM
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
