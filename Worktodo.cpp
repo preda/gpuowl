@@ -33,11 +33,15 @@ Task Worktodo::getTask() {
         tail = line + pos;
       }
 
+      if (B1 == 0) { B1 = 1000000; } // default B1
+      if (B2 == 0) { B2 = 30 * B1; } // default B2 given B1.
+      
       if (sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
           sscanf(tail, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-        if (B1 && B2 == 0) { B2 = 30 * B1; } // default B2 given B1.
         return Task{Task::PM1, exp, outAID, line, B1, B2};
       }
+      outAID[0] = 0;
+      if (sscanf(tail, "PFactor=%u", &exp) == 1) { return Task{Task::PM1, exp, "", line, B1, B2}; }
       
       int n = strlen(line);
       if (n >= 2 && line[n - 2] == '\n') { line[n - 2] = 0; }

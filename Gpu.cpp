@@ -120,6 +120,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   setupWeights(context.get(), bufA, bufI, W, BIG_H, E);
 
   carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
+  carryFusedMul.setFixedArgs(3, bufA, bufI, bufTrigW);
   fftP.setFixedArgs(2, bufA, bufTrigW);
   fftW.setFixedArgs(1, bufTrigW);
   fftH.setFixedArgs(1, bufTrigH);
@@ -524,12 +525,17 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
   }
 }
 
-string Gpu::factorPM1(u32 E, const Args& args) {
-  const u32 B1 =  1000000;
+string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
+  assert(B1 && B2);
+  // const u32 B1 =  1000000;
   // const u32 B2 = 30000000;
 
+  log("Starting P-1 with B1=%u B2=%u\n", B1, B2);
+  
+  Timer timer;
   vector<bool> bits = powerSmoothBitsRev(E, B1);
-
+  log("Powersmooth(%u): %u bits in %.1fs\n", B1, u32(bits.size()), timer.deltaMillis() / 1000.0);
+  
   {
     vector<u32> data((E - 1) / 32 + 1, 0);
     data[0] = 1;  
@@ -539,7 +545,7 @@ string Gpu::factorPM1(u32 E, const Args& args) {
   const u32 kEnd = bits.size();
   bool leadIn = true;
   TimeInfo timeInfo;
-  Timer timer;
+
   for (u32 k = 0; k < kEnd; ++k) {
     bool doLog = (k == kEnd - 1) || ((k + 1) % 10000 == 0);
     

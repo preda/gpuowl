@@ -118,7 +118,7 @@ public:
   vector<u32> readData();
 
   std::pair<bool, u64> isPrimePRP(u32 E, const Args &args);
-  string factorPM1(u32 E, const Args& args);
+  string factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
   
   u32 getFFTSize() { return N; }
 };
