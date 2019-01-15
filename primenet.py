@@ -72,12 +72,12 @@ parser.add_argument('-u', dest='username', default='', help="Primenet user name"
 parser.add_argument('-p', dest='password', help="Primenet password")
 parser.add_argument('-t', dest='timeout',  type=int, default=7200, help="Seconds to sleep between updates")
 parser.add_argument('--dirs', metavar='DIR', nargs='+', help="GpuOwl directories to scan", default=".")
-parser.add_argument('-w', dest='worktype', type=int, default=150, help="GIMPS work type: 150, 151, 152.")
+parser.add_argument('-w', dest='work', type=int, default=150, help="GIMPS work type: 150, 151, 152.")
 
 options = parser.parse_args()
 timeout = int(options.timeout)
 user = options.username
-worktype = options.worktype
+worktype = int(options.work)
 
 if not user:
     print("-u USER is required")
