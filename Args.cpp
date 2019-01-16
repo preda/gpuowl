@@ -26,7 +26,7 @@ Command line options:
 )");
 
       vector<cl_device_id> deviceIds = getDeviceIDs();
-      for (unsigned i = 0; i < deviceIds.size(); ++i) { printf("%2d : %s\n", i, getLongInfo(deviceIds[i]).c_str()); }
+      for (unsigned i = 0; i < deviceIds.size(); ++i) { printf("%2u : %s\n", i, getLongInfo(deviceIds[i]).c_str()); }
       printf("\nFFT Configurations:\n");
       
       vector<FFTConfig> configs = FFTConfig::genConfigs();

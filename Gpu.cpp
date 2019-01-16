@@ -78,6 +78,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufSize(N * sizeof(double)),
   useLongCarry(useLongCarry),
   useMiddle(BIG_H != SMALL_H),
+  device(device),
   context(createContext(args.devices)),
   program(compile(args, context.get(), E, W, SMALL_H, BIG_H / SMALL_H)),
   queue(makeQueue(device, context.get())),  
@@ -116,7 +117,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufCarry{makeBuf(context, BUF_RW, bufSize / 2)},
   bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
   bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
-{    
+{
+  program.reset();
   setupWeights(context.get(), bufA, bufI, W, BIG_H, E);
 
   carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
@@ -205,20 +207,11 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   
   log("using %s carry kernels\n", useLongCarry ? "long" : "short");
 
-  // string clArgs = args.clArgs;
-  // if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + numberK(N); }
-
   bool timeKernels = args.timeKernels;
     
   if (args.devices.empty()) { throw "No OpenCL device"; }
 
-  // Context context(createContext(args.devices));
   auto devices = toDeviceIds(args.devices);
-  // Holder<cl_program> program(compile(context.get(), args, E, WIDTH, SMALL_HEIGHT, MIDDLE));
-  /*
-  Holder<cl_program> program(compile(devices, context.get(), "gpuowl", clArgs,
-                                     {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}}));
-  */
 
   return make_unique<Gpu>(args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
                           devices.front(), timeKernels, useLongCarry);
@@ -345,27 +338,11 @@ void Gpu::modSqLoop(Buffer &io, u32 reps, bool mul3) {
   assert(reps > 0);
   bool leadIn = true;
         
-  for (decltype(reps) i = 0; i < reps; ++i) {
+  for (u32 i = 0; i < reps; ++i) {
     bool leadOut = useLongCarry || (i == reps - 1);
     coreStep(io, leadIn, leadOut, mul3 && (i == reps - 1));
     leadIn = leadOut;
   }
-  /* 
-    if (dataIsOut) { fftP(io, buf1); }
-    tW(buf1, buf2);
-    tailFused(buf2);
-    tH(buf2, buf1);
-
-    dataIsOut = useLongCarry || (i == reps - 1);
-    if (dataIsOut) {
-      fftW(buf1);
-      mul3 && i == reps-1 ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
-      carryB(io, bufCarry);
-    } else {
-      carryFused(buf1, bufCarry, bufReady);
-    }
-  }
-  */
 }
 
 bool Gpu::equalNotZero(Buffer &buf1, Buffer &buf2) {
@@ -527,8 +504,6 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
 
 string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2);
-  // const u32 B1 =  1000000;
-  // const u32 B2 = 30000000;
 
   log("Starting P-1 with B1=%u B2=%u\n", B1, B2);
   
@@ -560,8 +535,42 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
     }
   }
 
+  /*
   log("Starting GCD\n");
   string gcd = GCD(E, readData(), 1);
-  log("GCD '%s' in %.0fs\n", gcd.c_str(), timer.deltaMillis() / 1000.0);
-  return gcd;
+  log("GCD: %s in %.0fs\n", gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
+  if (!gcd.empty()) { return gcd; }
+  */
+
+  log("GPU free mem %.2f MB\n", getFreeMemory(device) / 1024.0);
+  
+  u32 bufSize = N * sizeof(double);
+  log("Buffers %u\n", getAllocableBlocks(device, bufSize));
+
+  /*
+  assert(bufSize % 1024 == 0);
+  u32 bufSizeKB = bufSize / 1024;
+
+  u32 freeKB = getFreeMemory(device);
+  
+  vector<Buffer> buffers;
+  while (true) {
+    try {
+      buffers.emplace_back(makeBuf(context, BUF_RW, bufSize));
+      queue.zero(buffers.back(), bufSize);
+      queue.finish();
+      log("GPU free mem %u KB\n", u32(getFreeMemory(device) / 1024));
+      // fprintf(stderr, ".");
+      if (buffers.size() >= 500) { break; }        
+    } catch (const bad_alloc&) {
+      break;
+    }
+  }
+  // fprintf(stderr, "\n");
+  log("GPU free mem %u KB\n", u32(getFreeMemory(device) / 1024));
+  log("GPU memory: could allocate %u buffers of %u Kb each\n", u32(buffers.size()), bufSize/1024);
+
+  log("GPU free mem %u KB\n", u32(getFreeMemory(device) / 1024));
+  */
+  return "";  
 }

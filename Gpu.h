@@ -22,6 +22,7 @@ class Gpu {
   bool useLongCarry;
   bool useMiddle;
 
+  cl_device_id device;
   Context context;
   Holder<cl_program> program;
   Queue queue;

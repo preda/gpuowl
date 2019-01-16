@@ -125,6 +125,10 @@ int clSetKernelArgSVMPointer(cl_kernel, unsigned, const void *);
 #define CL_DEVICE_BOARD_NAME_AMD  0x4038
 #define CL_DEVICE_GLOBAL_FREE_MEMORY_AMD 0x4039
 
+// Error codes
+#define CL_MEM_OBJECT_ALLOCATION_FAILURE -4
+#define CL_OUT_OF_RESOURCES -5
+
 typedef union
 {
     struct { u32 type; u32 data[5]; } raw;

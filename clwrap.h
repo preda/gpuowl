@@ -42,7 +42,11 @@ vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
 string getHwName(cl_device_id id);
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
-cl_context createContext(const vector<u32> &devices);
+u64 getFreeMemory(cl_device_id id);
+
+Context createContext(const vector<u32> &devices);
+Context createContext(cl_device_id id);
+
 void release(cl_context context);
 void release(cl_program program);
 void release(cl_mem buf);
@@ -114,3 +118,6 @@ public:
 };
 
 cl_device_id getDevice(int argsDevId);
+
+// How many blocks of given size can be allocated on the device.
+u32 getAllocableBlocks(cl_device_id device, u32 blockSizeBytes);
