@@ -2,6 +2,7 @@
 
 #include "Gpu.h"
 
+#include "Pm1Plan.h"
 #include "checkpoint.h"
 #include "state.h"
 #include "timeutil.h"
@@ -502,6 +503,35 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
   }
 }
 
+// Return the bits after the first bit set.
+// e.g. for 0b10100 returns {0, 1, 0, 0}
+static vector<bool> bits(u32 v) {
+  assert(v);
+  vector<bool> b;
+  while (v > 1) {
+    b.push_back(v & 1u);
+    v >>= 1;
+  }
+  reverse(b.begin(), b.end());
+  return b;
+}
+
+Buffer Gpu::makeJBuf(u32 j) {
+  Buffer buf(makeBuf(context, BUF_RW, N * sizeof(double)));
+  vector<int> init{3};
+  queue.write(bufAux, init);
+
+  // j**2 because E=2 in P-1 second stage.
+  bool leadIn = true;
+  const bool leadOut = false;
+  for (bool b : bits(j * j)) {
+    coreStep(bufAux, leadIn, leadOut, b);
+    leadIn = leadOut;
+  }
+  tW(buf1, buf);
+  return buf;
+}
+
 string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2);
 
@@ -542,35 +572,27 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   if (!gcd.empty()) { return gcd; }
   */
 
-  log("GPU free mem %.2f MB\n", getFreeMemory(device) / 1024.0);
-  
   u32 bufSize = N * sizeof(double);
-  log("Buffers %u\n", getAllocableBlocks(device, bufSize));
+  u32 maxBuffers = getAllocableBlocks(device, bufSize);
+  log("GPU memory of %u KB allows %u buffers of %u KB each\n", getFreeMemory(device), maxBuffers, bufSize/1024);
 
-  /*
-  assert(bufSize % 1024 == 0);
-  u32 bufSizeKB = bufSize / 1024;
-
-  u32 freeKB = getFreeMemory(device);
-  
-  vector<Buffer> buffers;
-  while (true) {
-    try {
-      buffers.emplace_back(makeBuf(context, BUF_RW, bufSize));
-      queue.zero(buffers.back(), bufSize);
-      queue.finish();
-      log("GPU free mem %u KB\n", u32(getFreeMemory(device) / 1024));
-      // fprintf(stderr, ".");
-      if (buffers.size() >= 500) { break; }        
-    } catch (const bad_alloc&) {
-      break;
-    }
+  if (maxBuffers < 24) {
+    log("Can't do P-1 second stage: not enough GPU memory for D = 210\n");
+    return "";
   }
-  // fprintf(stderr, "\n");
-  log("GPU free mem %u KB\n", u32(getFreeMemory(device) / 1024));
-  log("GPU memory: could allocate %u buffers of %u Kb each\n", u32(buffers.size()), bufSize/1024);
 
-  log("GPU free mem %u KB\n", u32(getFreeMemory(device) / 1024));
-  */
-  return "";  
+  maxBuffers = min(maxBuffers, 240u);
+  u32 D = (maxBuffers == 240) ? 2310 : maxBuffers / 24 * 210;
+  if (args.D) { D = min(args.D, D); }
+
+  Pm1Plan plan = makePm1Plan(D, B1, B2);
+
+  vector<u32> jset = plan.jset;
+
+  timer.deltaMillis();
+  vector<Buffer> jBufs;
+  for (u32 j : jset) { jBufs.push_back(makeJBuf(j)); }
+  log("Set up %u P-1 second stage buffers in %.2f s\n", u32(jBufs.size()), timer.deltaMillis() / 1000.0);  
+  
+  return "";
 }

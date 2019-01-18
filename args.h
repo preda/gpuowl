@@ -15,25 +15,18 @@ public:
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
   std::string clArgs;
-  std::string user, cpu;
+  std::string user;
+  std::string cpu;
   std::string dump;
-  std::vector<u32> devices;
-  bool timeKernels;
-  int carry;
-  u32 blockSize;
-  int fftSize;
-  bool enableTF;
-  bool usePrecompiled;
   
-  Args() :
-    timeKernels(false),
-    carry(CARRY_AUTO),
-    blockSize(400),
-    fftSize(0),
-    enableTF(false),
-    usePrecompiled(false)
-  { }
-
+  std::vector<u32> devices;
+  bool timeKernels = false;
+  int carry = CARRY_AUTO;
+  u32 blockSize = 400;
+  int fftSize = 0;
+  bool enableTF = false;
+  u32 D = 0; // P-1 D (number of blocks)
+  
   // return false to stop.
   bool parse(int argc, char **argv);
 };

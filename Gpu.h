@@ -88,6 +88,9 @@ class Gpu {
   PRPState loadPRP(u32 E, u32 iniBlockSize);
 
   void coreStep(Buffer &io, bool leadIn, bool leadOut, bool mul3);
+
+  // set up a pre-computed buffer for P-1 second stage.
+  Buffer makeJBuf(u32 j);
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);

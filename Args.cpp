@@ -22,6 +22,7 @@ Command line options:
 -fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
 -block <value>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
+-D <value>         : P-1 second-stage D block size; multiple of 24; default auto based on GPU available memory.
 -device <N>        : select a specific device:
 )");
 
@@ -47,12 +48,17 @@ Command line options:
         variants += " "s + FFTConfig::configName(c.width, c.height, c.middle);
       }
       return false;
-    } else if (!strcmp(arg, "-precompiled")) {
-      usePrecompiled = true;
+    } else if (!strcmp(arg, "-D")) {
+      if (i < argc - 1) {
+        D = atoi(argv[++i]);
+        assert(D >= 24 && D % 24 == 0);
+      } else {
+        log("-D expects <value>\n");
+      }
     } else if (!strcmp(arg, "-fft")) {
       if (i < argc - 1) {
         string s = argv[++i];
-        fftSize = atoi(s.c_str()) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1));
+        fftSize = stoi(s) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1));
       } else {
         log("-fft expects <size>\n");
         return false;

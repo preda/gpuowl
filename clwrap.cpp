@@ -62,7 +62,7 @@ bool getInfoMaybe(cl_device_id id, int what, size_t bufSize, void *buf) {
   return clGetDeviceInfo(id, what, bufSize, buf, NULL) == CL_SUCCESS;
 }
 
-u64 getFreeMemory(cl_device_id id) {
+u32 getFreeMemory(cl_device_id id) {
   u64 memSize = 0;
   getInfo(id, CL_DEVICE_GLOBAL_FREE_MEMORY_AMD, sizeof(memSize), &memSize);
   return memSize;

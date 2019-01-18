@@ -42,7 +42,7 @@ vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
 string getHwName(cl_device_id id);
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
-u64 getFreeMemory(cl_device_id id);
+u32 getFreeMemory(cl_device_id id);
 
 Context createContext(const vector<u32> &devices);
 Context createContext(cl_device_id id);
