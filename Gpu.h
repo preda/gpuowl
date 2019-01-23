@@ -51,18 +51,28 @@ class Gpu {
   Kernel isNotZero;
   Kernel isEqual;
 
+  // Trigonometry constant buffers, used in FFTs.
+  Buffer bufTrigW;
+  Buffer bufTrigH; 
+
+  // Weight constant buffers, with the direct and inverse weights. N x double.
+  Buffer bufWeightA;      // Direct weights.
+  Buffer bufWeightI;      // Inverse weights.
+
+  // "integer word" buffers. These are "small buffers": N x int.
   Buffer bufData;   // Main int buffer with the words.
   Buffer bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
-  Buffer bufTrigW;  // Small precomputed trig buffers.
-  Buffer bufTrigH; 
-  Buffer bufA;      // Direct weights.
-  Buffer bufI;      // Inverse weights.
+  Buffer bufCheck;  // Buffers used with the error check.
+  
+  // "work temporary buffers". These are "big buffers": N x double.
   Buffer buf1, buf2, buf3;
+
+  // Carry buffers, used in carry and fusedCarry.
   Buffer bufCarry;  // Carry shuttle.
   Buffer bufReady;  // Per-group ready flag for starway carry propagation.
-  Buffer bufSmallOut;
 
-  Buffer bufCheck;   // Buffers used with the error check.
+  // Small aux buffer used to read res64.
+  Buffer bufSmallOut;
 
   vector<u32> computeBase(u32 E, u32 B1);
   pair<vector<u32>, vector<u32>> seedPRP(u32 E, u32 B1);

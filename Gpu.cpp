@@ -108,29 +108,31 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   LOAD(isEqual, 256),
 #undef LOAD
 
+  bufTrigW(genSmallTrig(context.get(), W, nW)),
+  bufTrigH(genSmallTrig(context.get(), SMALL_H, nH)),
+  
   bufData( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   bufAux(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   
-  bufTrigW(genSmallTrig(context.get(), W, nW)),
-  bufTrigH(genSmallTrig(context.get(), SMALL_H, nH)),
-  buf1{makeBuf(    context, BUF_RW, bufSize)},
-  buf2{makeBuf(    context, BUF_RW, bufSize)},
-  buf3{makeBuf(    context, BUF_RW, bufSize)},
+  buf1{makeBuf(context, BUF_RW, bufSize)},
+  buf2{makeBuf(context, BUF_RW, bufSize)},
+  buf3{makeBuf(context, BUF_RW, bufSize)},
+  
   bufCarry{makeBuf(context, BUF_RW, bufSize / 2)},
   bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
   bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
 {
   program.reset();
-  setupWeights(context.get(), bufA, bufI, W, BIG_H, E);
+  setupWeights(context.get(), bufWeightA, bufWeightI, W, BIG_H, E);
 
-  carryFused.setFixedArgs(1, bufCarry, bufReady, bufA, bufI, bufTrigW);
-  carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufA, bufI, bufTrigW);
-  fftP.setFixedArgs(2, bufA, bufTrigW);
+  carryFused.setFixedArgs(   1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW);
+  carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW);
+  fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(1, bufTrigW);
   fftH.setFixedArgs(1, bufTrigH);
     
-  carryA.setFixedArgs(3, bufI);
-  carryM.setFixedArgs(3, bufI);
+  carryA.setFixedArgs(3, bufWeightI);
+  carryM.setFixedArgs(3, bufWeightI);
   tailFused.setFixedArgs(1, bufTrigH);
     
   queue.zero(bufReady, BIG_H * sizeof(int));

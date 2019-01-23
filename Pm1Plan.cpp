@@ -146,12 +146,12 @@ pair<u32, vector<vector<bool>>> makePm1Plan(u32 D, u32 B1, u32 B2) {
   u32 blockSize  = D / 4;
   
   u32 firstNotEmpty = firstBlock;
-  while (sum(getBlock(selected, blockSize, firstNotEmpty)) == 0) { ++firstNotEmpty; }
+  while (sum(getBlock(selected, blockSize, firstNotEmpty - firstBlock)) == 0) { ++firstNotEmpty; }
 
   log("P-1 initial %u blocks skipped (%u to %u)\n", firstNotEmpty - firstBlock, firstBlock, firstNotEmpty);
 
   vector<vector<bool>> blocks;
-  for (u32 i = firstNotEmpty; i <= lastBlock; ++i) { blocks.push_back(getBlock(selected, blockSize, i)); }
+  for (u32 i = firstNotEmpty; i <= lastBlock; ++i) { blocks.push_back(getBlock(selected, blockSize, i - firstBlock)); }
   
   return {firstNotEmpty, blocks};
 };
