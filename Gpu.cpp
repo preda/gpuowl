@@ -123,8 +123,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   program.reset();
   setupWeights(context.get(), bufA, bufI, W, BIG_H, E);
 
-  carryFused.setFixedArgs(3, bufA, bufI, bufTrigW);
-  carryFusedMul.setFixedArgs(3, bufA, bufI, bufTrigW);
+  carryFused.setFixedArgs(1, bufCarry, bufReady, bufA, bufI, bufTrigW);
+  carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufA, bufI, bufTrigW);
   fftP.setFixedArgs(2, bufA, bufTrigW);
   fftW.setFixedArgs(1, bufTrigW);
   fftH.setFixedArgs(1, bufTrigH);
@@ -375,7 +375,7 @@ void Gpu::exponentiate(Buffer &base, u64 exp, Buffer &out) {
     // square
     tailFused(out);
     tH(out, buf1);
-    carryFused(buf1, bufCarry, bufReady);
+    carryFused(buf1);
     tW(buf1, out);
   }
 
@@ -393,7 +393,7 @@ void Gpu::coreStep(Buffer &io, bool leadIn, bool leadOut, bool mul3) {
     mul3 ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
     carryB(io, bufCarry);
   } else {
-    mul3 ? carryFusedMul(buf1, bufCarry, bufReady) : carryFused(buf1, bufCarry, bufReady);
+    mul3 ? carryFusedMul(buf1) : carryFused(buf1);
   }  
 }
 
@@ -567,39 +567,6 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
   }
 }
 
-// Return the bits after the first bit set.
-// e.g. for 0b10100 returns {0, 1, 0, 0}
-/*
-static vector<bool> bits(u32 v) {
-  assert(v);
-  vector<bool> b;
-  while (v > 1) {
-    b.push_back(v & 1u);
-    v >>= 1;
-  }
-  reverse(b.begin(), b.end());
-  return b;
-}
-*/
-
-/*
-Buffer Gpu::makeJBuf(u32 j) {
-  Buffer buf(makeBuf(context, BUF_RW, N * sizeof(double)));
-  vector<int> init{3};
-  queue.write(bufAux, init);
-
-  // j**2 because E=2 in P-1 second stage.
-  bool leadIn = true;
-  const bool leadOut = false;
-  for (bool b : bits(j * j)) {
-    coreStep(bufAux, leadIn, leadOut, b);
-    leadIn = leadOut;
-  }
-  tW(buf1, buf);
-  return buf;
-}
-*/
-
 bool isRelPrime(u32 D, u32 j);
 
 string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
@@ -702,12 +669,12 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   exponentiate(bufLowD, u64(D) * D, bufAcc);
   exponentiate(bufAcc, 2, bufLowA);                    // A = base^(2 * D^2)
   exponentiate(bufAcc, 2 * u64(block) + 1, bufLowB);   // B = base^((2k + 1) * D^2)
-  exponentiate(bufAcc, u64(block) * block, bufLowD); // D = base^(k^2 * D^2)
+  exponentiate(bufAcc, u64(block) * block, bufLowD);   // D = base^(k^2 * D^2)
 
   for (const vector<bool>& selected : allSelected) {
     for (u32 i = 0; i < D / 4; ++i) {
       if (selected[i]) {
-        carryFused(bufAcc, bufCarry, bufReady);
+        carryFused(bufAcc);
         tW(bufAcc, buf2);
         fftH(buf2);        
         multiplySub(buf2, bufLowD, blockBufs[i]);
