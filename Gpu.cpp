@@ -101,6 +101,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
   LOAD(multiply, hN / SMALL_H),
   LOAD(multiplySub, hN / SMALL_H),
+  LOAD(square, hN/SMALL_H),
   LOAD(tailFused, (hN / SMALL_H) / 2),
   LOAD(readResidue, 1),
   LOAD(isNotZero, 256),
@@ -294,7 +295,7 @@ void Gpu::logTimeKernels() {
         &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
         &carryA, &carryM, &carryB,
         &transposeW, &transposeH, &transposeIn, &transposeOut,
-        &multiply, &multiplySub, &tailFused,
+        &multiply, &multiplySub, &square, &tailFused,
         &readResidue, &isNotZero, &isEqual});
 }
 
@@ -318,6 +319,67 @@ void Gpu::writeIn(const vector<u32> &words, Buffer &buf) { writeIn(expandBits(wo
 void Gpu::writeIn(const vector<int> &words, Buffer &buf) {
   queue.write(bufAux, words);
   transposeIn(bufAux, buf);
+}
+
+// prepare for multiply.
+/*
+void Gpu::upToLow(Buffer &up, Buffer &low) {
+  carryFused(bufUp, 
+  tW(buf1, low);
+  fftH(low); 
+}
+*/
+
+void Gpu::multiplyLow(Buffer& in, Buffer& io) {
+  multiply(io, in);
+  fftH(io);
+  tH(io, buf1);
+  carryFused(buf1, bufCarry, bufReady);
+  tW(buf1, io);
+  fftH(io);
+}
+
+// See "left-to-right binary exponentiation" on wikipedia
+// Computes out := base**exp
+// All buffers are in "low" position.
+void Gpu::exponentiate(Buffer &base, u64 exp, Buffer &out) {
+  assert(exp >= 1);  
+  queue.copy<double>(base, out, N);
+  if (exp == 1) { return; }
+
+  int p = 63;
+  while ((exp >> p) == 0) { --p; }
+  assert(p >= 1);
+
+  // square from "low" position.
+  square(out);
+  fftH(out);
+  tH(out, buf1);
+  carryFused(buf1, bufCarry, bufReady);
+  tW(buf1, out);
+  
+  while (true) {
+    --p;
+    if ((exp >> p) & 1) {
+      fftH(out); // to low
+      
+      // multiply from low
+      multiply(out, base);
+      fftH(out);
+      tH(out, buf1);
+      carryFused(buf1, bufCarry, bufReady);
+      tW(buf1, out);      
+    }
+    if (p <= 0) { break; }
+
+    // square
+    tailFused(out);
+    tH(out, buf1);
+    carryFused(buf1, bufCarry, bufReady);
+    tW(buf1, out);
+  }
+
+  fftH(out); // to low
 }
 
 void Gpu::coreStep(Buffer &io, bool leadIn, bool leadOut, bool mul3) {
@@ -413,6 +475,8 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize) {
 }
 
 pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
+  makePm1Plan(210, 1000000, 30000000);
+  
   bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
   
   PRPState loaded = loadPRP(E, args.blockSize);
@@ -505,6 +569,7 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
 
 // Return the bits after the first bit set.
 // e.g. for 0b10100 returns {0, 1, 0, 0}
+/*
 static vector<bool> bits(u32 v) {
   assert(v);
   vector<bool> b;
@@ -515,7 +580,9 @@ static vector<bool> bits(u32 v) {
   reverse(b.begin(), b.end());
   return b;
 }
+*/
 
+/*
 Buffer Gpu::makeJBuf(u32 j) {
   Buffer buf(makeBuf(context, BUF_RW, N * sizeof(double)));
   vector<int> init{3};
@@ -531,6 +598,9 @@ Buffer Gpu::makeJBuf(u32 j) {
   tW(buf1, buf);
   return buf;
 }
+*/
+
+bool isRelPrime(u32 D, u32 j);
 
 string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2);
@@ -565,6 +635,8 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
     }
   }
 
+  vector<u32> base = readData();
+
   /*
   log("Starting GCD\n");
   string gcd = GCD(E, readData(), 1);
@@ -572,27 +644,80 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   if (!gcd.empty()) { return gcd; }
   */
 
+  
+  // u32 upBufSize = N * sizeof(u32);
   u32 bufSize = N * sizeof(double);
+
+  Buffer bufAcc(makeBuf(context, BUF_RW, bufSize));
+
+  // copy "up" base to bufUpAcc.
+  // queue.copy<double>(buf1, bufUpAcc, N);
+
+  // allocate 3 more buffers to reserve the memory.
+  Buffer bufLowA(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufLowB(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufLowD(makeBuf(context, BUF_RW, bufSize));
+
   u32 maxBuffers = getAllocableBlocks(device, bufSize);
-  log("GPU memory of %u KB allows %u buffers of %u KB each\n", getFreeMemory(device), maxBuffers, bufSize/1024);
+  log("GPU memory: %u KB; accepts %u x %u KB\n", getFreeMemory(device), maxBuffers, bufSize/1024);
 
   if (maxBuffers < 24) {
-    log("Can't do P-1 second stage: not enough GPU memory for D = 210\n");
+    log("Not enouch GPU memory for P-1 second stage with D=210\n");
     return "";
   }
 
   maxBuffers = min(maxBuffers, 240u);
   u32 D = (maxBuffers == 240) ? 2310 : maxBuffers / 24 * 210;
   if (args.D) { D = min(args.D, D); }
+  assert(D % 210 == 0);
+  log("P-1 second stage: using D=%u (%u * 210)\n", D, D / 210);
 
-  Pm1Plan plan = makePm1Plan(D, B1, B2);
-
-  vector<u32> jset = plan.jset;
-
-  timer.deltaMillis();
-  vector<Buffer> jBufs;
-  for (u32 j : jset) { jBufs.push_back(makeJBuf(j)); }
-  log("Set up %u P-1 second stage buffers in %.2f s\n", u32(jBufs.size()), timer.deltaMillis() / 1000.0);  
+  // out-to-low
+  fftP(bufData, buf1);
+  tW(buf1, bufLowD);
+  fftH(bufLowD);
   
+  exponentiate(bufLowD, 8, bufLowA);    // a=b=x^8
+  queue.copy<double>(bufLowA, bufLowB, N);
+  
+  vector<Buffer> blockBufs(D / 4);
+  for (u32 i = 0; i < D / 4; ++i) {
+    u32 j = 2 * i + 1;
+    if (isRelPrime(D, j)) {
+      blockBufs[i].reset(makeBuf(context, BUF_RW, bufSize));
+      queue.copy<double>(bufLowD, blockBufs[i], N);
+    }
+    // advance bufLowD from j^2 to (j+2)^2.
+    multiplyLow(bufLowB, bufLowD);
+    multiplyLow(bufLowA, bufLowB);
+  }
+
+  auto [block, allSelected] = makePm1Plan(D, B1, B2);
+
+  // out-to-low
+  fftP(bufData, buf1);
+  tW(buf1, bufLowD);
+  fftH(bufLowD);
+  
+  exponentiate(bufLowD, u64(D) * D, bufAcc);
+  exponentiate(bufAcc, 2, bufLowA);                    // A = base^(2 * D^2)
+  exponentiate(bufAcc, 2 * u64(block) + 1, bufLowB);   // B = base^((2k + 1) * D^2)
+  exponentiate(bufAcc, u64(block) * block, bufLowD); // D = base^(k^2 * D^2)
+
+  for (const vector<bool>& selected : allSelected) {
+    for (u32 i = 0; i < D / 4; ++i) {
+      if (selected[i]) {
+        carryFused(bufAcc, bufCarry, bufReady);
+        tW(bufAcc, buf2);
+        fftH(buf2);        
+        multiplySub(buf2, bufLowD, blockBufs[i]);
+      }      
+    }
+    // advance bufLowD
+    multiplyLow(bufLowB, bufLowD);
+    multiplyLow(bufLowA, bufLowB);
+  }
+      
+  timer.deltaMillis();
   return "";
 }

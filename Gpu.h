@@ -44,6 +44,7 @@ class Gpu {
 
   Kernel multiply;
   Kernel multiplySub;
+  Kernel square;
   Kernel tailFused;
   
   Kernel readResidue;
@@ -89,8 +90,9 @@ class Gpu {
 
   void coreStep(Buffer &io, bool leadIn, bool leadOut, bool mul3);
 
-  // set up a pre-computed buffer for P-1 second stage.
-  Buffer makeJBuf(u32 j);
+  void multiplyLow(Buffer& in, Buffer& io);
+  void exponentiate(Buffer& base, u64 exp, Buffer& out);
+
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);

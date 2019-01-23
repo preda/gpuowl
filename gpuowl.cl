@@ -864,7 +864,6 @@ KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
-#if 0 //unused
 KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
   uint W = SMALL_HEIGHT;
   uint H = ND / W;
@@ -901,7 +900,6 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
     }
   }
 }
-#endif
 
 KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   uint W = SMALL_HEIGHT;
