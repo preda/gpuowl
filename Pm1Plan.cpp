@@ -121,7 +121,7 @@ static vector<bool> getBlock(const vector<bool> &all, u32 blockSize, u32 idx) {
   return vector<bool>(next(all.begin(), idx * blockSize), next(all.begin(), (idx + 1) * blockSize));
 }
   
-pair<u32, vector<vector<bool>>> makePm1Plan(u32 D, u32 B1, u32 B2) {
+tuple<u32, u32, vector<vector<bool>>> makePm1Plan(u32 D, u32 B1, u32 B2) {
   PrimeBits bits(D, B1, B2);
   u32 nPrimes = bits.size();
   bits.expand();
@@ -149,10 +149,10 @@ pair<u32, vector<vector<bool>>> makePm1Plan(u32 D, u32 B1, u32 B2) {
   u32 firstNotEmpty = firstBlock;
   while (sum(getBlock(selected, blockSize, firstNotEmpty - firstBlock)) == 0) { ++firstNotEmpty; }
 
-  log("P-1 initial %u blocks skipped (%u to %u)\n", firstNotEmpty - firstBlock, firstBlock, firstNotEmpty);
+  // log("P-1 initial %u blocks skipped (%u to %u)\n", firstNotEmpty - firstBlock, firstBlock, firstNotEmpty);
 
   vector<vector<bool>> blocks;
   for (u32 i = firstNotEmpty; i <= lastBlock; ++i) { blocks.push_back(getBlock(selected, blockSize, i - firstBlock)); }
   
-  return {firstNotEmpty, blocks};
+  return {firstNotEmpty, total, blocks};
 };

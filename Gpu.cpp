@@ -425,20 +425,25 @@ u64 Gpu::bufResidue(Buffer &buf) {
   return residueFromRaw(E, N, readBuf);
 }
 
-static string makeLogStr(u32 E, string status, int k, u64 res, TimeInfo info, u32 nIters) {
-  float msPerSq = info.total / info.n;
-  int etaMins = (nIters - k) * msPerSq * (1 / 60000.f) + .5f;
+static string getETA(u32 step, u32 total, float msPerStep) {
+  // assert(step <= total);
+  int etaMins = (total - step) * msPerStep * (1 / 60000.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
+  char buf[64];
+  snprintf(buf, sizeof(buf), "%dd %02d:%02d", days, hours, mins);
+  return string(buf);
+}
 
+static string makeLogStr(u32 E, string status, int k, u64 res, TimeInfo info, u32 nIters) {
+  float msPerSq = info.total / info.n;
   char buf[256];
   string ghzStr;
   
-  snprintf(buf, sizeof(buf), "%u %2s %8d %5.2f%%; %.2f ms/sq;%s ETA %dd %02d:%02d; %016llx",
+  snprintf(buf, sizeof(buf), "%u %2s %8d %5.2f%%; %.2f ms/sq;%s ETA %s; %016llx",
            E, status.c_str(), k, k / float(nIters) * 100,
-           msPerSq,
-           ghzStr.c_str(), days, hours, mins, res);
+           msPerSq, ghzStr.c_str(), getETA(k, nIters, msPerSq).c_str(), res);
   return buf;
 }
 
@@ -602,12 +607,13 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
       E, D, nBuffers, getFreeMemory(device) / (1024.0f * 1024), maxBuffers, bufSize/(1024.0f * 1024));
 
   // Build the stage2 plan early (before stage1) in order to display plan stats at start.
-  auto [block, allSelected] = makePm1Plan(D, B1, B2);
+  auto [block, nPrimes, allSelected] = makePm1Plan(D, B1, B2);
   u32 nBlocks = allSelected.size();
   log("%u P-1 stage2: %u blocks starting at block %u\n", E, nBlocks, block);
 
   
   // Start stage1 proper.
+  log("%u P-1 starting stage1\n", E);
   {
     vector<u32> data((E - 1) / 32 + 1, 0);
     data[0] = 1;  
@@ -669,6 +675,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
 
   u32 nSelected = 0;
   u32 nBlocksDone = 0;
+  u32 nDonePrimes = 0;
 
   timer.deltaSecs();
   for (const vector<bool>& selected : allSelected) {
@@ -695,10 +702,14 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
       queue.finish();
 
       if (nBlocksDone % 100 == 0 || nBlocksDone == nBlocks) {
-        float percent = nBlocksDone / float(nBlocks) * 100;
+
         u32 nDone = (nBlocksDone - 1) % 10 + 1;
-        log("%u P-1 stage2: %5.2f%% (%u of %u blocks); %u selected; %.2f ms/mul\n",
-            E, percent, nBlocksDone, nBlocks, nSelected, timer.deltaMillis() / float(nSelected + nDone));
+        nDonePrimes += nSelected;
+        float percent = (nDonePrimes + nBlocksDone) / float(nPrimes + nBlocks) * 100;
+        float ms = timer.deltaMillis() / float(nSelected + nDone);
+        log("%u P-1 stage2: %5.2f%%; block %u/%u; %u selected; %.2f ms/mul; ETA %s\n",
+            E, percent, nBlocksDone, nBlocks, nSelected, ms,
+            getETA(nDonePrimes + nBlocksDone, nPrimes + nBlocks, ms).c_str());
         nSelected = 0;
 
         if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
