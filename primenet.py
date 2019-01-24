@@ -67,17 +67,23 @@ def fetch(what):
     print("New assignment: ", line)
     return line
 
+workTypes = dict(PRP_FIRST=150, PRP_DC=151, PRP_WORLD_RECORD=152, PRP_100M=153, PF=4, PM1=4)
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-u', dest='username', default='', help="Primenet user name")
 parser.add_argument('-p', dest='password', help="Primenet password")
 parser.add_argument('-t', dest='timeout',  type=int, default=7200, help="Seconds to sleep between updates")
 parser.add_argument('--dirs', metavar='DIR', nargs='+', help="GpuOwl directories to scan", default=".")
-parser.add_argument('-w', dest='work', type=int, default=150, help="GIMPS work type: 150, 151, 152.")
+
+choices=list(workTypes.keys()) + list(map(str, set(workTypes.values())))
+parser.add_argument('-w', dest='work', choices=choices, help="GIMPS work type")
 
 options = parser.parse_args()
 timeout = int(options.timeout)
 user = options.username
-worktype = int(options.work)
+
+worktype = workTypes[options.work] if options.work in workTypes else int(options.work)
+print("Work type:", worktype)
 
 if not user:
     print("-u USER is required")
@@ -95,9 +101,6 @@ if not password:
 
 # Initial early login, to display any login errors early
 login(user, password)
-
-PRP_FIRST_TIME = 150
-PRP_DC = 151
 
 sents = [loadLines(d + "sent.txt") for d in dirs]
 

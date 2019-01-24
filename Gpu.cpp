@@ -579,7 +579,35 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
 
   vector<bool> bits = powerSmoothBitsRev(E, B1);
   log("%u P-1 B1=%u, B2=%u; powerSmooth(B1): %u bits\n", E, B1, B2, u32(bits.size()));
+
+  // Allocate all the buffers before measuring remaining available memory.
+  Buffer bufTmp(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufAcc(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufA(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufB(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufC(makeBuf(context, BUF_RW, bufSize));
+
+  u32 maxBuffers = getAllocableBlocks(device, bufSize);
+
+  if (maxBuffers < 24) {
+    log("%u P-1 stage2 not enough GPU RAM for D=210\n", E);
+    throw "P-1 not enough memory";
+  }
+
+  u32 D = (maxBuffers >= 240) ? 2310 : maxBuffers / 24 * 210;
+  if (args.D) { D = min(args.D, D); }
+  assert(D >= 210 && D % 210 == 0);
+  u32 nBuffers = D >= 2310 ? D / 2310 * 240 : D / 210 * 24;
+  log("%u P-1 stage2: using D=%u (%u buffers) (%.1f GB GPU RAM allows %u buffers x %.1f MB)\n",
+      E, D, nBuffers, getFreeMemory(device) / (1024.0f * 1024), maxBuffers, bufSize/(1024.0f * 1024));
+
+  // Build the stage2 plan early (before stage1) in order to display plan stats at start.
+  auto [block, allSelected] = makePm1Plan(D, B1, B2);
+  u32 nBlocks = allSelected.size();
+  log("%u P-1 stage2: %u blocks starting at block %u\n", E, nBlocks, block);
+
   
+  // Start stage1 proper.
   {
     vector<u32> data((E - 1) / 32 + 1, 0);
     data[0] = 1;  
@@ -590,9 +618,6 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   bool leadIn = true;
   TimeInfo timeInfo;
 
-  // Allocate auxilliary buffers.
-  Buffer bufTmp(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufAcc(makeBuf(context, BUF_RW, bufSize));
 
   Timer timer;
   for (u32 k = 0; k < kEnd; ++k) {
@@ -611,28 +636,10 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
 
   vector<u32> base = readData();
   future<string> gcdFuture = async(launch::async, GCD, E, base, 1);
+
+  // Prepare stage2. Init the precomputed buffers.
   
-  // Allocate all the buffers before measuring remaining available memory.
-  Buffer bufA(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufB(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufC(makeBuf(context, BUF_RW, bufSize));
-
-  u32 maxBuffers = getAllocableBlocks(device, bufSize);
-
-  if (maxBuffers < 24) {
-    log("%u P-1 stage2 not enough GPU RAM for D=210\n", E);
-    throw "P-1 not enough memory";
-  }
-
-  maxBuffers = min(maxBuffers, 240u);
-  u32 D = (maxBuffers == 240) ? 2310 : maxBuffers / 24 * 210;
-  if (args.D) { D = min(args.D, D); }
-  assert(D % 210 == 0);
-  u32 nBuffers = D >= 2310 ? D / 2310 * 240 : D / 210 * 24;
-  log("%u P-1 stage2: using D=%u (%u buffers) (%.1f GB GPU RAM allows %u buffers x %.1f MB)\n",
-      E, D, nBuffers, getFreeMemory(device) / (1024.0f * 1024), maxBuffers, bufSize/(1024.0f * 1024));
-
-  // out-to-low
+  // Move the output of stage1 data (AKA "base") to low position, as needed in stage2 fast mul.
   fftP(bufData, bufA);
   tW(bufA, bufC);
   fftH(bufC);                           // C = base 
@@ -653,11 +660,6 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
     multiplyLow(bufB, bufTmp, bufC);
     multiplyLow(bufA, bufTmp, bufB);
   }
-
-  auto [block, allSelected] = makePm1Plan(D, B1, B2);
-
-  u32 nBlocks = allSelected.size();
-  log("%u P-1 stage2: %u blocks starting at block %u\n", E, nBlocks, block);
   
   exponentiate(bufAcc, u64(D) * D, bufTmp, bufA);
   queue.copy<double>(bufA, bufAcc, N);                      // Acc = base^(D^2)
@@ -689,19 +691,22 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
     multiplyLow(bufB, bufTmp, bufC);
     multiplyLow(bufA, bufTmp, bufB);
 
-    if (++nBlocksDone % 10 == 0 || nBlocksDone == nBlocks) {
+    if (++nBlocksDone % 20 == 0 || nBlocksDone == nBlocks) {
       queue.finish();
-      float percent = nBlocksDone / float(nBlocks) * 100;
-      u32 nDone = (nBlocksDone - 1) % 10 + 1;
-      log("%u P-1 stage2: %5.2f%% (%u of %u blocks); %u selected; %.2f ms/mul\n",
-          E, percent, nBlocksDone, nBlocks, nSelected, timer.deltaMillis() / float(nSelected + 2 * nDone));
-      nSelected = 0;
 
-      if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-        string gcd = gcdFuture.get();
-        log("%u P-1 stage1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-        if (!gcd.empty()) { return gcd; }
-      }      
+      if (nBlocksDone % 100 == 0 || nBlocksDone == nBlocks) {
+        float percent = nBlocksDone / float(nBlocks) * 100;
+        u32 nDone = (nBlocksDone - 1) % 10 + 1;
+        log("%u P-1 stage2: %5.2f%% (%u of %u blocks); %u selected; %.2f ms/mul\n",
+            E, percent, nBlocksDone, nBlocks, nSelected, timer.deltaMillis() / float(nSelected + nDone));
+        nSelected = 0;
+
+        if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+          string gcd = gcdFuture.get();
+          log("%u P-1 stage1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+          if (!gcd.empty()) { return gcd; }
+        }
+      }
     }
   }
 
