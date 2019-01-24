@@ -16,6 +16,8 @@
 #include <cassert>
 #include <cstring>
 #include <algorithm>
+#include <future>
+#include <chrono>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -111,12 +113,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufTrigW(genSmallTrig(context.get(), W, nW)),
   bufTrigH(genSmallTrig(context.get(), SMALL_H, nH)),
   
-  bufData( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-  bufAux(  makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-  
-  buf1{makeBuf(context, BUF_RW, bufSize)},
-  buf2{makeBuf(context, BUF_RW, bufSize)},
-  buf3{makeBuf(context, BUF_RW, bufSize)},
+  bufData(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+  bufAux( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
   
   bufCarry{makeBuf(context, BUF_RW, bufSize / 2)},
   bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
@@ -131,8 +129,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   fftW.setFixedArgs(1, bufTrigW);
   fftH.setFixedArgs(1, bufTrigH);
     
-  carryA.setFixedArgs(3, bufWeightI);
-  carryM.setFixedArgs(3, bufWeightI);
+  carryA.setFixedArgs(2, bufCarry, bufWeightI);
+  carryM.setFixedArgs(2, bufCarry, bufWeightI);
+  carryB.setFixedArgs(1, bufCarry);
   tailFused.setFixedArgs(1, bufTrigH);
     
   queue.zero(bufReady, BIG_H * sizeof(int));
@@ -235,7 +234,7 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
 }
 
 // The modular multiplication io *= in.
-void Gpu::modMul(Buffer &in, Buffer &io, bool mul3) {
+void Gpu::modMul(Buffer& in, bool mul3, Buffer& buf1, Buffer& buf2, Buffer& buf3, Buffer& io) {
   fftP(in, buf1);
   tW(buf1, buf3);
     
@@ -250,11 +249,11 @@ void Gpu::modMul(Buffer &in, Buffer &io, bool mul3) {
   tH(buf2, buf1);    
 
   fftW(buf1);
-  mul3 ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
-  carryB(io, bufCarry);
+  mul3 ? carryM(buf1, io) : carryA(buf1, io);
+  carryB(io);
 };
 
-void Gpu::writeState(const vector<u32> &check, u32 blockSize) {
+void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer& buf1, Buffer& buf2, Buffer& buf3) {
   assert(blockSize > 0);
     
   writeCheck(check);
@@ -263,8 +262,8 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize) {
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
-    dataLoop(n);
-    modMul(bufAux, bufData);
+    modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
+    modMul(bufAux, false, buf1, buf2, buf3, bufData);
     queue.copy<int>(bufData, bufAux, N);
   }
 
@@ -275,20 +274,20 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize) {
   assert(blockSize >= 2);
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
-    dataLoop(n);
-    modMul(bufAux, bufData);
+    modSqLoop(n, false, buf1, buf2, bufData); // dataLoop(n);
+    modMul(bufAux, false, buf1, buf2, buf3, bufData);
   }
   
-  dataLoop(n);
-  modMul(bufAux, bufData, true);
+  modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
+  modMul(bufAux, true, buf1, buf2, buf3, bufData);
 }
 
-void Gpu::updateCheck() { modMul(bufData, bufCheck); }
+void Gpu::updateCheck(Buffer& buf1, Buffer& buf2, Buffer& buf3) { modMul(bufData, false, buf1, buf2, buf3, bufCheck); }
   
-bool Gpu::doCheck(int blockSize) {
+bool Gpu::doCheck(int blockSize, Buffer& buf1, Buffer& buf2, Buffer& buf3) {
   queue.copy<int>(bufCheck, bufAux, N);
-  modSqLoop(bufAux, blockSize, true);
-  updateCheck();
+  modSqLoop(blockSize, true, buf1, buf2, bufAux);
+  updateCheck(buf1, buf2, buf3);
   return equalNotZero(bufCheck, bufAux);
 }
 
@@ -332,19 +331,27 @@ void Gpu::upToLow(Buffer &up, Buffer &low) {
 }
 */
 
-void Gpu::multiplyLow(Buffer& in, Buffer& io) {
+// io *= in; with buffers in low position.
+void Gpu::multiplyLow(Buffer& in, Buffer& tmp, Buffer& io) {
   multiply(io, in);
   fftH(io);
-  tH(io, buf1);
-  carryFused(buf1, bufCarry, bufReady);
-  tW(buf1, io);
+  tH(io, tmp);
+  carryFused(tmp);
+  tW(tmp, io);
   fftH(io);
+}
+
+// Auxiliary performing the top half of the cycle (excluding the buttom tailFused).
+void Gpu::topHalf(Buffer& tmp, Buffer& io) {
+  tH(io, tmp);
+  carryFused(tmp);
+  tW(tmp, io);
 }
 
 // See "left-to-right binary exponentiation" on wikipedia
 // Computes out := base**exp
 // All buffers are in "low" position.
-void Gpu::exponentiate(Buffer &base, u64 exp, Buffer &out) {
+void Gpu::exponentiate(Buffer& base, u64 exp, Buffer& tmp, Buffer& out) {
   assert(exp >= 1);  
   queue.copy<double>(base, out, N);
   if (exp == 1) { return; }
@@ -356,9 +363,7 @@ void Gpu::exponentiate(Buffer &base, u64 exp, Buffer &out) {
   // square from "low" position.
   square(out);
   fftH(out);
-  tH(out, buf1);
-  carryFused(buf1, bufCarry, bufReady);
-  tW(buf1, out);
+  topHalf(tmp, out);
   
   while (true) {
     --p;
@@ -368,23 +373,19 @@ void Gpu::exponentiate(Buffer &base, u64 exp, Buffer &out) {
       // multiply from low
       multiply(out, base);
       fftH(out);
-      tH(out, buf1);
-      carryFused(buf1, bufCarry, bufReady);
-      tW(buf1, out);      
+      topHalf(tmp, out);
     }
     if (p <= 0) { break; }
 
     // square
     tailFused(out);
-    tH(out, buf1);
-    carryFused(buf1);
-    tW(buf1, out);
+    topHalf(tmp, out);
   }
 
   fftH(out); // to low
 }
 
-void Gpu::coreStep(Buffer &io, bool leadIn, bool leadOut, bool mul3) {
+void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer& buf1, Buffer& buf2, Buffer& io) {
   if (leadIn) { fftP(io, buf1); }
   tW(buf1, buf2);
   tailFused(buf2);
@@ -392,20 +393,20 @@ void Gpu::coreStep(Buffer &io, bool leadIn, bool leadOut, bool mul3) {
 
   if (leadOut) {
     fftW(buf1);
-    mul3 ? carryM(buf1, io, bufCarry) : carryA(buf1, io, bufCarry);
-    carryB(io, bufCarry);
+    mul3 ? carryM(buf1, io) : carryA(buf1, io);
+    carryB(io);
   } else {
     mul3 ? carryFusedMul(buf1) : carryFused(buf1);
   }  
 }
 
-void Gpu::modSqLoop(Buffer &io, u32 reps, bool mul3) {
+void Gpu::modSqLoop(u32 reps, bool mul3, Buffer& buf1, Buffer& buf2, Buffer& io) {
   assert(reps > 0);
   bool leadIn = true;
         
   for (u32 i = 0; i < reps; ++i) {
     bool leadOut = useLongCarry || (i == reps - 1);
-    coreStep(io, leadIn, leadOut, mul3 && (i == reps - 1));
+    coreStep(leadIn, leadOut, mul3 && (i == reps - 1), buf1, buf2, io);
     leadIn = leadOut;
   }
 }
@@ -459,14 +460,14 @@ static bool equalMinus3(const vector<u32> &a) {
   return true;
 }
 
-PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize) {
+PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer& buf1, Buffer& buf2, Buffer& buf3) {
   auto loaded = PRPState::load(E, iniBlockSize);
 
-  writeState(loaded.check, loaded.blockSize);
+  writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
 
   u64 res64 = dataResidue();
   bool ok = (res64 == loaded.res64);
-  updateCheck();
+  updateCheck(buf1, buf2, buf3);
   if (!ok) {
     log("%u EE loaded: %d, blockSize %d, %016llx (expected %016llx)\n",
         E, loaded.k, loaded.blockSize, res64, loaded.res64);
@@ -478,10 +479,14 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize) {
 
 pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
   makePm1Plan(210, 1000000, 30000000);
+
+  Buffer buf1(makeBuf(context, BUF_RW, bufSize));
+  Buffer buf2(makeBuf(context, BUF_RW, bufSize));
+  Buffer buf3(makeBuf(context, BUF_RW, bufSize));
   
   bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
   
-  PRPState loaded = loadPRP(E, args.blockSize);
+  PRPState loaded = loadPRP(E, args.blockSize, buf1, buf2, buf3);
 
   u32 k = loaded.k;
   u32 blockSize = loaded.blockSize;
@@ -508,7 +513,7 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
   while (true) {
     assert(k % blockSize == 0);
     if (k < kEnd && k + blockSize >= kEnd) {
-      dataLoop(kEnd - k);
+      modSqLoop(kEnd - k, false, buf1, buf2, bufData);
       auto words = this->roundtripData();
       finalRes64 = residue(words);
       isPrime = equalMinus3(words);
@@ -516,9 +521,9 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
       log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
       
       int itersLeft = blockSize - (kEnd - k);
-      if (itersLeft > 0) { dataLoop(itersLeft); }
+      if (itersLeft > 0) { modSqLoop(itersLeft, false, buf1, buf2, bufData); }
     } else {
-      dataLoop(blockSize);
+      modSqLoop(blockSize, false, buf1, buf2, bufData);
     }
     k += blockSize;
 
@@ -534,7 +539,7 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
     bool doCheck = (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || doStop || (k - startK == 2 * blockSize);
     
     if (!doCheck) {
-      this->updateCheck();
+      this->updateCheck(buf1, buf2, buf3);
       if (k % 10000 == 0) {
         doSmallLog(E, k, dataResidue(), stats, nTotalIters);
         if (args.timeKernels) { this->logTimeKernels(); }
@@ -543,7 +548,7 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
     }
 
     vector<u32> check = this->roundtripCheck();
-    bool ok = this->doCheck(blockSize);
+    bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
 
     u64 res64 = dataResidue();
 
@@ -560,7 +565,7 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
         throw "too many errors";
       }
       
-      auto loaded = loadPRP(E, blockSize);
+      auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
       k = loaded.k;
       assert(blockSize == loaded.blockSize);
     }
@@ -572,13 +577,13 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
 bool isRelPrime(u32 D, u32 j);
 
 string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
-  assert(B1 && B2);
+  assert(B1 && B2 && B2 > B1);
 
-  log("Starting P-1 with B1=%u B2=%u\n", B1, B2);
+  // log("P-1 (B1=%u, B2=%u) starting\n", B1, B2);
   
   Timer timer;
   vector<bool> bits = powerSmoothBitsRev(E, B1);
-  log("Powersmooth(%u): %u bits in %.1fs\n", B1, u32(bits.size()), timer.deltaMillis() / 1000.0);
+  log("P-1 (B1=%u, B2=%u); powersmooth(B1) %u bits\n", B1, B2, u32(bits.size()));
   
   {
     vector<u32> data((E - 1) / 32 + 1, 0);
@@ -590,11 +595,15 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   bool leadIn = true;
   TimeInfo timeInfo;
 
+  // Allocate auxilliary buffers.
+  Buffer bufTmp(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufAcc(makeBuf(context, BUF_RW, bufSize));
+  
   for (u32 k = 0; k < kEnd; ++k) {
     bool doLog = (k == kEnd - 1) || ((k + 1) % 10000 == 0);
     
     bool leadOut = useLongCarry || doLog;
-    coreStep(bufData, leadIn, leadOut, bits[k]);
+    coreStep(leadIn, leadOut, bits[k], bufAcc, bufTmp, bufData);
     leadIn = leadOut;
 
     if ((k + 1) % 100 == 0 || doLog) {
@@ -605,27 +614,12 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   }
 
   vector<u32> base = readData();
-
-  /*
-  log("Starting GCD\n");
-  string gcd = GCD(E, readData(), 1);
-  log("GCD: %s in %.0fs\n", gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
-  if (!gcd.empty()) { return gcd; }
-  */
-
+  future<string> gcdFuture = async(launch::async, GCD, E, base, 1);
   
-  // u32 upBufSize = N * sizeof(u32);
-  u32 bufSize = N * sizeof(double);
-
-  Buffer bufAcc(makeBuf(context, BUF_RW, bufSize));
-
-  // copy "up" base to bufUpAcc.
-  // queue.copy<double>(buf1, bufUpAcc, N);
-
-  // allocate 3 more buffers to reserve the memory.
-  Buffer bufLowA(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufLowB(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufLowD(makeBuf(context, BUF_RW, bufSize));
+  // Allocate all the buffers before measuring remaining available memory.
+  Buffer bufA(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufB(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufC(makeBuf(context, BUF_RW, bufSize));
 
   u32 maxBuffers = getAllocableBlocks(device, bufSize);
   log("GPU memory: %u KB; accepts %u x %u KB\n", getFreeMemory(device), maxBuffers, bufSize/1024);
@@ -642,51 +636,65 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   log("P-1 second stage: using D=%u (%u * 210)\n", D, D / 210);
 
   // out-to-low
-  fftP(bufData, buf1);
-  tW(buf1, bufLowD);
-  fftH(bufLowD);
+  fftP(bufData, bufA);
+  tW(bufA, bufC);
+  fftH(bufC); // c = x
+  queue.copy<double>(bufC, bufAcc, N);  // save "data" low to bufAcc.
   
-  exponentiate(bufLowD, 8, bufLowA);    // a=b=x^8
-  queue.copy<double>(bufLowA, bufLowB, N);
+  exponentiate(bufC, 8, bufB, bufA);    // a=b=x^8
+  queue.copy<double>(bufA, bufB, N);
   
-  vector<Buffer> blockBufs(D / 4);
+  vector<Buffer> blockBufs; // (D / 4);
   for (u32 i = 0; i < D / 4; ++i) {
     u32 j = 2 * i + 1;
     if (isRelPrime(D, j)) {
-      blockBufs[i].reset(makeBuf(context, BUF_RW, bufSize));
-      queue.copy<double>(bufLowD, blockBufs[i], N);
+      blockBufs.emplace_back(makeBuf(context, BUF_RW, bufSize));
+      queue.copy<double>(bufC, blockBufs.back(), N);
     }
-    // advance bufLowD from j^2 to (j+2)^2.
-    multiplyLow(bufLowB, bufLowD);
-    multiplyLow(bufLowA, bufLowB);
+    // advance bufC from j^2 to (j+2)^2.
+    multiplyLow(bufB, bufTmp, bufC);
+    multiplyLow(bufA, bufTmp, bufB);
   }
 
   auto [block, allSelected] = makePm1Plan(D, B1, B2);
 
   // out-to-low
-  fftP(bufData, buf1);
-  tW(buf1, bufLowD);
-  fftH(bufLowD);
+  // fftP(bufData, buf1);
+  // tW(buf1, bufLowD);
+  // fftH(bufLowD);
   
-  exponentiate(bufLowD, u64(D) * D, bufAcc);
-  exponentiate(bufAcc, 2, bufLowA);                    // A = base^(2 * D^2)
-  exponentiate(bufAcc, 2 * u64(block) + 1, bufLowB);   // B = base^((2k + 1) * D^2)
-  exponentiate(bufAcc, u64(block) * block, bufLowD);   // D = base^(k^2 * D^2)
+  exponentiate(bufAcc, u64(D) * D, bufTmp, bufA);
+  queue.copy<double>(bufA, bufAcc, N); //acc = base^(D^2)
+  exponentiate(bufAcc, 2, bufTmp, bufA);                    // A = base^(2 * D^2)
+  exponentiate(bufAcc, 2 * u64(block) + 1, bufTmp, bufB);   // B = base^((2k + 1) * D^2)
+  exponentiate(bufAcc, u64(block) * block, bufTmp, bufC);   // D = base^(k^2 * D^2)
 
   for (const vector<bool>& selected : allSelected) {
+    if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+      string gcd = gcdFuture.get();
+      log("P-1 first stage GCD: %s in %.0fs\n", gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
+      if (!gcd.empty()) { return gcd; }
+    }
+
+    
     for (u32 i = 0; i < D / 4; ++i) {
       if (selected[i]) {
         carryFused(bufAcc);
-        tW(bufAcc, buf2);
-        fftH(buf2);        
-        multiplySub(buf2, bufLowD, blockBufs[i]);
+        tW(bufAcc, bufTmp);
+        fftH(bufTmp);
+        multiplySub(bufTmp, bufC, blockBufs[i]);
+        fftH(bufTmp);
+        tH(bufTmp, bufAcc);
       }      
     }
-    // advance bufLowD
-    multiplyLow(bufLowB, bufLowD);
-    multiplyLow(bufLowA, bufLowB);
+    // advance bufC
+    multiplyLow(bufB, bufTmp, bufC);
+    multiplyLow(bufA, bufTmp, bufB);
   }
-      
-  timer.deltaMillis();
-  return "";
+
+  carryA(bufAcc, bufData);
+  carryB(bufData);
+  string gcd = GCD(E, readData(), 0);
+  log("P-1 second stage GCD: %s in %.0fs\n", gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
+  return gcd;
 }

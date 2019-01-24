@@ -65,7 +65,7 @@ class Gpu {
   Buffer bufCheck;  // Buffers used with the error check.
   
   // "work temporary buffers". These are "big buffers": N x double.
-  Buffer buf1, buf2, buf3;
+  // Buffer buf1, buf2, buf3;
 
   // Carry buffers, used in carry and fusedCarry.
   Buffer bufCarry;  // Carry shuttle.
@@ -88,21 +88,22 @@ class Gpu {
   void writeIn(const vector<u32> &words, Buffer &buf);
   void writeIn(const vector<int> &words, Buffer &buf);
   
-  void modSqLoop(Buffer &io, u32 reps, bool mul3 = false);
+  void modSqLoop(u32 reps, bool mul3, Buffer& buf1, Buffer& buf2, Buffer &io);
   
-  void modMul(Buffer &in, Buffer &io, bool mul3 = false);
+  void modMul(Buffer &in, bool mul3, Buffer& buf1, Buffer& buf2, Buffer& buf3, Buffer& io);
   bool equalNotZero(Buffer &bufCheck, Buffer &bufAux);
   u64 bufResidue(Buffer &buf);
   
   vector<u32> writeBase(const vector<u32> &v);
 
-  PRPState loadPRP(u32 E, u32 iniBlockSize);
+  PRPState loadPRP(u32 E, u32 iniBlockSize, Buffer&, Buffer&, Buffer&);
 
-  void coreStep(Buffer &io, bool leadIn, bool leadOut, bool mul3);
+  void coreStep(bool leadIn, bool leadOut, bool mul3, Buffer& buf1, Buffer& buf2, Buffer &io);
 
-  void multiplyLow(Buffer& in, Buffer& io);
-  void exponentiate(Buffer& base, u64 exp, Buffer& out);
-
+  void multiplyLow(Buffer& in, Buffer& tmp, Buffer& io);
+  void exponentiate(Buffer& base, u64 exp, Buffer& tmp, Buffer& out);
+  void topHalf(Buffer& tmp, Buffer& io);
+  void writeState(const vector<u32> &check, u32 blockSize, Buffer&, Buffer&, Buffer&);
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
@@ -110,7 +111,7 @@ public:
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
       cl_device_id device, bool timeKernels, bool useLongCarry);
 
-  void writeState(const vector<u32> &check, u32 blockSize);
+
   
   vector<u32> roundtripData()  { return writeData(readData()); }
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }
@@ -121,10 +122,10 @@ public:
   u64 dataResidue()  { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }
     
-  bool doCheck(int blockSize);
-  void updateCheck();
+  bool doCheck(int blockSize, Buffer&, Buffer&, Buffer&);
+  void updateCheck(Buffer& buf1, Buffer& buf2, Buffer& buf3);
 
-  void dataLoop(u32 reps) { modSqLoop(bufData, reps); }
+  // void dataLoop(u32 reps) { modSqLoop(bufData, reps); }
   
   void finish();
 

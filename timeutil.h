@@ -19,7 +19,8 @@ public:
   Timer() : prev(high_resolution_clock::now()) { }
   
   long deltaMicros() { return duration_cast<microseconds>(delta()).count(); }
-  int deltaMillis() { return duration_cast<milliseconds>(delta()).count(); }
+  int deltaMillis()  { return duration_cast<milliseconds>(delta()).count(); }
+  float deltaSecs()  { return deltaMillis() * 0.001f; }
 };
 
 std::string timeStr();
