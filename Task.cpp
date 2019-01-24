@@ -49,8 +49,6 @@ bool Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) {
   string status = factor.empty() ? "NF" : "F";
   string bounds = ", \"B1\":"s + to_string(B1) + ", \"B2\":"s + to_string(B2);
 
-  return true;
-  
   return writeResult(fftStr(fftSize) + bounds + factorStr(factor),
                      exponent, "PM1", status, AID, args.user, args.cpu);
 }
