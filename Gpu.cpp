@@ -677,6 +677,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   u32 nBlocksDone = 0;
   u32 nPrimesDone = 0;
 
+  float gcdPercent = 0;
   timer.deltaSecs();
   for (const vector<bool>& selected : allSelected) {
     for (u32 i = 0; i < D / 4; ++i) {
@@ -705,6 +706,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
 
         u32 nDone = (nBlocksDone - 1) % 10 + 1;
         nPrimesDone += nSelected;
+        
         float percent = (nPrimesDone + nBlocksDone) / float(nPrimes + nBlocks) * 100;
         float ms = timer.deltaMillis() / float(nSelected + nDone);
         log("%u P-1 stage2: %5.2f%%; block %u/%u; %u selected; %.2f ms/mul; ETA %s\n",
@@ -712,10 +714,20 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
             getETA(nPrimesDone + nBlocksDone, nPrimes + nBlocks, ms).c_str());
         nSelected = 0;
 
-        if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-          string gcd = gcdFuture.get();
-          log("%u P-1 stage1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-          if (!gcd.empty()) { return gcd; }
+        if (gcdFuture.valid()) {
+          if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+            string gcd = gcdFuture.get();
+            log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+            if (!gcd.empty()) { return gcd; }
+          }
+        } else if (percent - gcdPercent > 0.25f) {
+          queue.copy<double>(bufAcc, bufTmp, N);
+          fftW(bufTmp);
+          carryA(bufTmp, bufData);
+          carryB(bufData);
+          vector<u32> data = readData();
+          gcdFuture = async(launch::async, GCD, E, data, 0);
+          gcdPercent = percent;          
         }
       }
     }
@@ -726,13 +738,13 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   carryB(bufData);
   vector<u32> data = readData();
   string gcd = GCD(E, readData(), 0);
-  log("%u P-1 stage2 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+  log("%u P-1 stage2 final GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
   if (!gcd.empty()) { return gcd; }
   
   if (gcdFuture.valid()) {
     gcdFuture.wait();
     string gcd = gcdFuture.get();
-    log("%u P-1 stage1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+    log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
     if (!gcd.empty()) { return gcd; }    
   }
 
