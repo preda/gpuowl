@@ -693,8 +693,6 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
       }
     }
 
-    // log("%u P-1 stage2 block %u selected %u\n", E, block++, nSelected);
-    
     // advance C from base^((k * D)^2) to base^(((k+1) * D)^2)
     multiplyLow(bufB, bufTmp, bufC);
     multiplyLow(bufA, bufTmp, bufB);
@@ -704,7 +702,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
 
       if (nBlocksDone % 100 == 0 || nBlocksDone == nBlocks) {
 
-        u32 nDone = (nBlocksDone - 1) % 10 + 1;
+        u32 nDone = (nBlocksDone - 1) % 100 + 1;
         nPrimesDone += nSelected;
         
         float percent = (nPrimesDone + nBlocksDone) / float(nPrimes + nBlocks) * 100;
@@ -720,7 +718,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
             log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
             if (!gcd.empty()) { return gcd; }
           }
-        } else if (percent - gcdPercent > 0.25f) {
+        } else if (percent - gcdPercent > 25) {
           queue.copy<double>(bufAcc, bufTmp, N);
           fftW(bufTmp);
           carryA(bufTmp, bufData);
