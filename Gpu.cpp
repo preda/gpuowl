@@ -478,8 +478,6 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer& buf1, Buffer& buf2, Buffe
 }
 
 pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
-  makePm1Plan(210, 1000000, 30000000);
-
   Buffer buf1(makeBuf(context, BUF_RW, bufSize));
   Buffer buf2(makeBuf(context, BUF_RW, bufSize));
   Buffer buf3(makeBuf(context, BUF_RW, bufSize));
@@ -710,14 +708,15 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   fftW(bufAcc);
   carryA(bufAcc, bufData);
   carryB(bufData);
+  vector<u32> data = readData();
   string gcd = GCD(E, readData(), 0);
-  log("%u P-1 stage2 GCD: %s in %.0fs\n", E, gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
+  log("%u P-1 stage2 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
   if (!gcd.empty()) { return gcd; }
   
   if (gcdFuture.valid()) {
     gcdFuture.wait();
     string gcd = gcdFuture.get();
-    log("%u P-1 stage1 GCD: %s in %.0fs\n", E, gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
+    log("%u P-1 stage1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
     if (!gcd.empty()) { return gcd; }    
   }
 
