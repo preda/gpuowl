@@ -135,9 +135,10 @@ pair<u32, vector<vector<bool>>> makePm1Plan(u32 D, u32 B1, u32 B2) {
   u32 nSingles = sum(singles);
 
   vector<bool> selected = boolOr(doubles, singles);
-  
-  log("P-1 (B1=%u, B2=%u, D=%u): primes %u, expanded %u, doubles %u (left %u), singles %u, total %u\n",
-      B1, B2, D, nPrimes, nExpanded, nDoubles, leftAfterDoubles, nSingles, sum(selected));
+
+  u32 total = sum(selected);
+  log("P-1 (B1=%u, B2=%u, D=%u): primes %u, expanded %u, doubles %u (left %u), singles %u, total %u (%.0f%%)\n",
+      B1, B2, D, nPrimes, nExpanded, nDoubles, leftAfterDoubles, nSingles, total, total / float(nPrimes) * 100);
 
   assert(bits.size() == 0); // all primes covered.
   

@@ -348,7 +348,7 @@ u32 getAllocableBlocks(cl_device_id device, u32 blockSizeBytes) {
   assert(blockSizeBytes % 1024 == 0);
   vector<Buffer> buffers;
 
-  auto hostBuf = make_unique<u32[]>(blockSizeBytes);
+  // auto hostBuf = make_unique<u32[]>(blockSizeBytes);
 
   Context context = createContext(device);
   
@@ -356,7 +356,7 @@ u32 getAllocableBlocks(cl_device_id device, u32 blockSizeBytes) {
 
   while (true) {
     try {
-      buffers.emplace_back(makeBuf(context, BUF_CONST, blockSizeBytes, hostBuf.get()));
+      buffers.emplace_back(makeBuf(context, BUF_RW, blockSizeBytes/*, hostBuf.get()*/));
       u32 newFreeKB = getFreeMemory(device);
       if (newFreeKB == freeKB) { break; }
       freeKB = newFreeKB;

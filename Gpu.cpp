@@ -579,11 +579,8 @@ bool isRelPrime(u32 D, u32 j);
 string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 > B1);
 
-  // log("P-1 (B1=%u, B2=%u) starting\n", B1, B2);
-  
-  Timer timer;
   vector<bool> bits = powerSmoothBitsRev(E, B1);
-  log("P-1 (B1=%u, B2=%u); powersmooth(B1) %u bits\n", B1, B2, u32(bits.size()));
+  log("%u P-1 B1=%u, B2=%u; powerSmooth(B1): %u bits\n", E, B1, B2, u32(bits.size()));
   
   {
     vector<u32> data((E - 1) / 32 + 1, 0);
@@ -598,7 +595,8 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   // Allocate auxilliary buffers.
   Buffer bufTmp(makeBuf(context, BUF_RW, bufSize));
   Buffer bufAcc(makeBuf(context, BUF_RW, bufSize));
-  
+
+  Timer timer;
   for (u32 k = 0; k < kEnd; ++k) {
     bool doLog = (k == kEnd - 1) || ((k + 1) % 10000 == 0);
     
@@ -622,27 +620,27 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   Buffer bufC(makeBuf(context, BUF_RW, bufSize));
 
   u32 maxBuffers = getAllocableBlocks(device, bufSize);
-  log("GPU memory: %u KB; accepts %u x %u KB\n", getFreeMemory(device), maxBuffers, bufSize/1024);
 
   if (maxBuffers < 24) {
-    log("Not enouch GPU memory for P-1 second stage with D=210\n");
-    return "";
+    log("%u P-1 stage2 not enough GPU RAM for D=210\n", E);
+    throw "P-1 not enough memory";
   }
 
   maxBuffers = min(maxBuffers, 240u);
   u32 D = (maxBuffers == 240) ? 2310 : maxBuffers / 24 * 210;
   if (args.D) { D = min(args.D, D); }
   assert(D % 210 == 0);
-  log("P-1 second stage: using D=%u (%u * 210)\n", D, D / 210);
+  u32 nBuffers = D >= 2310 ? D / 2310 * 240 : D / 210 * 24;
+  log("%u P-1 stage2: using D=%u (%u buffers) (%.1f GB GPU RAM allows %u buffers x %.1f MB)\n",
+      E, D, nBuffers, getFreeMemory(device) / (1024.0f * 1024), maxBuffers, bufSize/(1024.0f * 1024));
 
   // out-to-low
   fftP(bufData, bufA);
   tW(bufA, bufC);
-  fftH(bufC); // c = x
-  queue.copy<double>(bufC, bufAcc, N);  // save "data" low to bufAcc.
-  
-  exponentiate(bufC, 8, bufB, bufA);    // a=b=x^8
-  queue.copy<double>(bufA, bufB, N);
+  fftH(bufC);                           // C = base 
+  queue.copy<double>(bufC, bufAcc, N);  // bufAcc = base
+  exponentiate(bufC, 8, bufB, bufA);    // A = base^8
+  queue.copy<double>(bufA, bufB, N);    // B = base^8
   
   vector<Buffer> blockBufs; // (D / 4);
   for (u32 i = 0; i < D / 4; ++i) {
@@ -650,51 +648,78 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
     if (isRelPrime(D, j)) {
       blockBufs.emplace_back(makeBuf(context, BUF_RW, bufSize));
       queue.copy<double>(bufC, blockBufs.back(), N);
+    } else {
+      blockBufs.push_back(Buffer{});
     }
-    // advance bufC from j^2 to (j+2)^2.
+    // advance C from base^(j^2) to base^((j+2)^2)
     multiplyLow(bufB, bufTmp, bufC);
     multiplyLow(bufA, bufTmp, bufB);
   }
 
   auto [block, allSelected] = makePm1Plan(D, B1, B2);
 
-  // out-to-low
-  // fftP(bufData, buf1);
-  // tW(buf1, bufLowD);
-  // fftH(bufLowD);
+  u32 nBlocks = allSelected.size();
+  log("%u P-1 stage2: %u blocks starting at block %u\n", E, nBlocks, block);
   
   exponentiate(bufAcc, u64(D) * D, bufTmp, bufA);
-  queue.copy<double>(bufA, bufAcc, N); //acc = base^(D^2)
-  exponentiate(bufAcc, 2, bufTmp, bufA);                    // A = base^(2 * D^2)
-  exponentiate(bufAcc, 2 * u64(block) + 1, bufTmp, bufB);   // B = base^((2k + 1) * D^2)
-  exponentiate(bufAcc, u64(block) * block, bufTmp, bufC);   // D = base^(k^2 * D^2)
+  queue.copy<double>(bufA, bufAcc, N);                      // Acc = base^(D^2)
+  exponentiate(bufAcc, 2, bufTmp, bufA);                    // A   = base^(2 * D^2)
+  exponentiate(bufAcc, 2 * u64(block) + 1, bufTmp, bufB);   // B   = base^((2k + 1) * D^2)
+  exponentiate(bufAcc, u64(block) * block, bufTmp, bufC);   // C   = base^(k^2 * D^2)
 
+  u32 nSelected = 0;
+  u32 nBlocksDone = 0;
+
+  timer.deltaSecs();
   for (const vector<bool>& selected : allSelected) {
-    if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-      string gcd = gcdFuture.get();
-      log("P-1 first stage GCD: %s in %.0fs\n", gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
-      if (!gcd.empty()) { return gcd; }
-    }
-
-    
     for (u32 i = 0; i < D / 4; ++i) {
       if (selected[i]) {
+        assert(isRelPrime(D, 2 * i + 1));
+        ++nSelected;
         carryFused(bufAcc);
         tW(bufAcc, bufTmp);
         fftH(bufTmp);
         multiplySub(bufTmp, bufC, blockBufs[i]);
         fftH(bufTmp);
         tH(bufTmp, bufAcc);
-      }      
+      }
     }
-    // advance bufC
+
+    // log("%u P-1 stage2 block %u selected %u\n", E, block++, nSelected);
+    
+    // advance C from base^((k * D)^2) to base^(((k+1) * D)^2)
     multiplyLow(bufB, bufTmp, bufC);
     multiplyLow(bufA, bufTmp, bufB);
+
+    if (++nBlocksDone % 10 == 0 || nBlocksDone == nBlocks) {
+      queue.finish();
+      float percent = nBlocksDone / float(nBlocks) * 100;
+      u32 nDone = (nBlocksDone - 1) % 10 + 1;
+      log("%u P-1 stage2: %5.2f%% (%u of %u blocks); %u selected; %.2f ms/mul\n",
+          E, percent, nBlocksDone, nBlocks, nSelected, timer.deltaMillis() / float(nSelected + 2 * nDone));
+      nSelected = 0;
+
+      if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+        string gcd = gcdFuture.get();
+        log("%u P-1 stage1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+        if (!gcd.empty()) { return gcd; }
+      }      
+    }
   }
 
+  fftW(bufAcc);
   carryA(bufAcc, bufData);
   carryB(bufData);
   string gcd = GCD(E, readData(), 0);
-  log("P-1 second stage GCD: %s in %.0fs\n", gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
-  return gcd;
+  log("%u P-1 stage2 GCD: %s in %.0fs\n", E, gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
+  if (!gcd.empty()) { return gcd; }
+  
+  if (gcdFuture.valid()) {
+    gcdFuture.wait();
+    string gcd = gcdFuture.get();
+    log("%u P-1 stage1 GCD: %s in %.0fs\n", E, gcd.empty() ? "no factor" : gcd.c_str(), timer.deltaMillis() / 1000.0);
+    if (!gcd.empty()) { return gcd; }    
+  }
+
+  return "";
 }

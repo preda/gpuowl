@@ -23,6 +23,7 @@ using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
 #define BASE_VERSION "6.0"
 // Reason for version change:
+// 6.1 : added P-1
 // 6.0 : dropped PRP-1; investigate multi-GPU support.
 // 5.0 : dropped TF; dropped old checkpoint load.
 // 4.7 : parsing B1 & B2 bounds for PRP-1 in worktodo.txt
