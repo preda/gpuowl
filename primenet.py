@@ -76,7 +76,7 @@ parser.add_argument('-t', dest='timeout',  type=int, default=7200, help="Seconds
 parser.add_argument('--dirs', metavar='DIR', nargs='+', help="GpuOwl directories to scan", default=".")
 
 choices=list(workTypes.keys()) + list(map(str, set(workTypes.values())))
-parser.add_argument('-w', dest='work', choices=choices, help="GIMPS work type")
+parser.add_argument('-w', dest='work', choices=choices, help="GIMPS work type", default="PM1")
 
 options = parser.parse_args()
 timeout = int(options.timeout)
