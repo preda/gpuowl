@@ -675,7 +675,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
 
   u32 nSelected = 0;
   u32 nBlocksDone = 0;
-  u32 nDonePrimes = 0;
+  u32 nPrimesDone = 0;
 
   timer.deltaSecs();
   for (const vector<bool>& selected : allSelected) {
@@ -704,12 +704,12 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
       if (nBlocksDone % 100 == 0 || nBlocksDone == nBlocks) {
 
         u32 nDone = (nBlocksDone - 1) % 10 + 1;
-        nDonePrimes += nSelected;
-        float percent = (nDonePrimes + nBlocksDone) / float(nPrimes + nBlocks) * 100;
+        nPrimesDone += nSelected;
+        float percent = (nPrimesDone + nBlocksDone) / float(nPrimes + nBlocks) * 100;
         float ms = timer.deltaMillis() / float(nSelected + nDone);
         log("%u P-1 stage2: %5.2f%%; block %u/%u; %u selected; %.2f ms/mul; ETA %s\n",
             E, percent, nBlocksDone, nBlocks, nSelected, ms,
-            getETA(nDonePrimes + nBlocksDone, nPrimes + nBlocks, ms).c_str());
+            getETA(nPrimesDone + nBlocksDone, nPrimes + nBlocks, ms).c_str());
         nSelected = 0;
 
         if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
