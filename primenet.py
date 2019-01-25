@@ -72,7 +72,7 @@ workTypes = dict(PRP_FIRST=150, PRP_DC=151, PRP_WORLD_RECORD=152, PRP_100M=153, 
 parser = argparse.ArgumentParser()
 parser.add_argument('-u', dest='username', default='', help="Primenet user name")
 parser.add_argument('-p', dest='password', help="Primenet password")
-parser.add_argument('-t', dest='timeout',  type=int, default=7200, help="Seconds to sleep between updates")
+parser.add_argument('-t', dest='timeout',  type=int, default=3600, help="Seconds to sleep between updates")
 parser.add_argument('--dirs', metavar='DIR', nargs='+', help="GpuOwl directories to scan", default=".")
 
 choices=list(workTypes.keys()) + list(map(str, set(workTypes.values())))

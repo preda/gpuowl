@@ -684,6 +684,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
       if (selected[i]) {
         assert(isRelPrime(D, 2 * i + 1));
         ++nSelected;
+        
         carryFused(bufAcc);
         tW(bufAcc, bufTmp);
         fftH(bufTmp);
@@ -697,36 +698,37 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
     multiplyLow(bufB, bufTmp, bufC);
     multiplyLow(bufA, bufTmp, bufB);
 
-    if (++nBlocksDone % 20 == 0 || nBlocksDone == nBlocks) {
+    ++nBlocksDone;
+
+    if (nSelected % 100 == 0) { queue.finish(); }
+    
+    if (nBlocksDone % 100 == 0 || nBlocksDone == nBlocks) {
       queue.finish();
+      u32 nDone = (nBlocksDone - 1) % 100 + 1;
+      nPrimesDone += nSelected;
 
-      if (nBlocksDone % 100 == 0 || nBlocksDone == nBlocks) {
-
-        u32 nDone = (nBlocksDone - 1) % 100 + 1;
-        nPrimesDone += nSelected;
-        
-        float percent = (nPrimesDone + nBlocksDone) / float(nPrimes + nBlocks) * 100;
-        float ms = timer.deltaMillis() / float(nSelected + nDone);
-        log("%u P-1 stage2: %5.2f%%; block %u/%u; %u selected; %.2f ms/mul; ETA %s\n",
-            E, percent, nBlocksDone, nBlocks, nSelected, ms,
-            getETA(nPrimesDone + nBlocksDone, nPrimes + nBlocks, ms).c_str());
-        nSelected = 0;
-
-        if (gcdFuture.valid()) {
-          if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-            string gcd = gcdFuture.get();
-            log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-            if (!gcd.empty()) { return gcd; }
-          }
-        } else if (percent - gcdPercent > 25) {
-          queue.copy<double>(bufAcc, bufTmp, N);
-          fftW(bufTmp);
-          carryA(bufTmp, bufData);
-          carryB(bufData);
-          vector<u32> data = readData();
-          gcdFuture = async(launch::async, GCD, E, data, 0);
-          gcdPercent = percent;          
+      u32 pos   = nPrimesDone + 2 * nBlocksDone;
+      u32 total = nPrimes + 2 * nBlocks;
+      float percent = pos / float(total) * 100;
+      float ms = timer.deltaMillis() / float(nSelected + 2 * nDone);
+      log("%u P-1 stage2: %5.2f%%; block %u/%u; %u selected; %.2f ms/mul; ETA %s\n",
+          E, percent, nBlocksDone, nBlocks, nSelected, ms,
+          getETA(pos, total, ms).c_str());
+      nSelected = 0;
+      
+      if (gcdFuture.valid()) {
+        if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+          string gcd = gcdFuture.get();
+          log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+          if (!gcd.empty()) { return gcd; }
         }
+      } else if (percent - gcdPercent > 25) {
+        queue.copy<double>(bufAcc, bufTmp, N);
+        fftW(bufTmp);
+        carryA(bufTmp, bufData);
+        carryB(bufData);
+        gcdFuture = async(launch::async, GCD, E, readData(), 0);
+        gcdPercent = percent;          
       }
     }
   }
