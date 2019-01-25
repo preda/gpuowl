@@ -87,7 +87,7 @@ public:
     vector<u32> jset = getJset(D);
     vector<bool> ret((lastBlock - firstBlock + 1) * (D / 4));
 
-    for (u32 i = lastBlock; i >= firstBlock; --i) {
+    for (u32 i = firstBlock; i <= lastBlock; ++i) {
       for (u32 j : jset) {
         assert(j >= 1 && j < D/2);
         u32 a = i * D + j;
