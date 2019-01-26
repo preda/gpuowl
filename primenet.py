@@ -85,6 +85,8 @@ user = options.username
 worktype = workTypes[options.work] if options.work in workTypes else int(options.work)
 print("Work type:", worktype)
 
+desiredTasks = 8 if worktype == 4 else 2
+
 if not user:
     print("-u USER is required")
     exit(1)
@@ -111,13 +113,14 @@ def handle(folder, sent):
     if newResults: print("found %d new result(s) in %s" % (len(newResults), resultsName))
     
     tasks = [line for line in loadLines(worktodoName) if line and line[0] != '#']
-    needFetch = len(tasks) < 2
-    if needFetch: print("found only %d task(s) in %s" % (len(tasks), worktodoName));
+    needFetch = len(tasks) < desiredTasks
+    if needFetch: print("found only %d task(s) in %s, want %d" % (len(tasks), worktodoName, desiredTasks));
     
     if newResults or needFetch:
         login(user, password)
         if newResults: sendResults(newResults, sent, sentName, retryName)
-        if needFetch: appendLine(worktodoName, fetch(worktype))
+        for _ in range(len(tasks), desiredTasks):
+            appendLine(worktodoName, fetch(worktype))
     
 
 while True:
