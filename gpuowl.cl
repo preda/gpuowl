@@ -386,6 +386,13 @@ void write(uint WG, uint N, T2 *u, global T2 *out, uint base) {
   for (int i = 0; i < N; ++i) { out[base + i * WG + (uint) get_local_id(0)] = u[i]; }
 }
 
+void readDelta(uint WG, uint N, T2 *u, const global T2 *a, const global T2 *b, uint base) {
+  for (uint i = 0; i < N; ++i) {
+    uint pos = base + i * WG + (uint) get_local_id(0); 
+    u[i] = a[pos] - b[pos];
+  }
+}
+
 // Returns e^(-i * pi * k/n);
 double2 slowTrig(int k, int n) {
   double c;
@@ -1097,6 +1104,38 @@ void pairSq(uint N, T2 *u, T2 *v, T2 base, bool special) {
   }
 }
 
+void pairMul(uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
+  uint me = get_local_id(0);
+
+  T2 step = slowTrig(1, NH);
+  
+  for (int i = 0; i < N; ++i, base = mul(base, step)) {
+    T2 a = u[i];
+    T2 b = conjugate(v[i]);
+    T2 c = p[i];
+    T2 d = conjugate(q[i]);
+    T2 t = swap(base);
+    if (special && i == 0 && me == 0) {
+      a = shl(foo2(a, c), 2);
+      b = shl(mul(b, d), 3);
+    } else {
+      X2(a, b);
+      b = mul(b, conjugate(t));
+      X2(a, b);
+      X2(c, d);
+      d = mul(d, conjugate(t));
+      X2(c, d);
+      a = mul(a, c);
+      b = mul(b, d);
+      X2(a, b);
+      b = mul(b, t);
+      X2(a, b);
+    }
+    u[i] = conjugate(a);
+    v[i] = b;
+  }
+}
+
 KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   local T lds[SMALL_HEIGHT];
   T2 u[NH], v[NH];
@@ -1129,6 +1168,56 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
     reverseLine(G_H, lds, v);
     pairSq(NH, u, v, slowTrig(line1 + me * H, ND), false);
     reverseLine(G_H, lds, v);
+  }
+
+  fft_HEIGHT(lds, v, smallTrig);
+  write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
+  
+  fft_HEIGHT(lds, u, smallTrig);
+  write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
+}
+
+KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
+  local T lds[SMALL_HEIGHT];
+  T2 u[NH], v[NH];
+  T2 p[NH], q[NH];
+
+  uint W = SMALL_HEIGHT;
+  uint H = ND / W;
+
+  uint line1 = get_group_id(0);
+  uint line2 = line1 ? H - line1 : (H / 2);
+  uint g1 = transPos(line1, MIDDLE, WIDTH);
+  uint g2 = transPos(line2, MIDDLE, WIDTH);
+  
+  read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
+  readDelta(G_H, NH, p, a, b, g1 * SMALL_HEIGHT);
+
+  read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
+  readDelta(G_H, NH, q, a, b, g2 * SMALL_HEIGHT);
+
+  fft_HEIGHT(lds, u, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig);
+
+  uint me = get_local_id(0);
+  if (line1 == 0) {
+    reverse(G_H, lds, u + NH/2, true);
+    reverse(G_H, lds, p + NH/2, true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W), true);
+    reverse(G_H, lds, u + NH/2, true);
+    reverse(G_H, lds, p + NH/2, true);
+
+    reverse(G_H, lds, v + NH/2, false);
+    reverse(G_H, lds, q + NH/2, false);
+    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
+    reverse(G_H, lds, v + NH/2, false);
+    reverse(G_H, lds, q + NH/2, false);
+  } else {    
+    reverseLine(G_H, lds, v);
+    reverseLine(G_H, lds, q);
+    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
+    reverseLine(G_H, lds, v);
+    reverseLine(G_H, lds, q);
   }
 
   fft_HEIGHT(lds, v, smallTrig);

@@ -105,6 +105,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   LOAD(multiplySub, hN / SMALL_H),
   LOAD(square, hN/SMALL_H),
   LOAD(tailFused, (hN / SMALL_H) / 2),
+  LOAD(tailFusedMulDelta, (hN / SMALL_H) / 2),
   LOAD(readResidue, 1),
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
@@ -133,6 +134,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   carryM.setFixedArgs(2, bufCarry, bufWeightI);
   carryB.setFixedArgs(1, bufCarry);
   tailFused.setFixedArgs(1, bufTrigH);
+  tailFusedMulDelta.setFixedArgs(3, bufTrigH);
     
   queue.zero(bufReady, BIG_H * sizeof(int));
 }
@@ -321,15 +323,6 @@ void Gpu::writeIn(const vector<int> &words, Buffer &buf) {
   queue.write(bufAux, words);
   transposeIn(bufAux, buf);
 }
-
-// prepare for multiply.
-/*
-void Gpu::upToLow(Buffer &up, Buffer &low) {
-  carryFused(bufUp, 
-  tW(buf1, low);
-  fftH(low); 
-}
-*/
 
 // io *= in; with buffers in low position.
 void Gpu::multiplyLow(Buffer& in, Buffer& tmp, Buffer& io) {
@@ -687,9 +680,13 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
         
         carryFused(bufAcc);
         tW(bufAcc, bufTmp);
+
+        tailFusedMulDelta(bufTmp, bufC, blockBufs[i]);
+        /*
         fftH(bufTmp);
         multiplySub(bufTmp, bufC, blockBufs[i]);
         fftH(bufTmp);
+        */
         tH(bufTmp, bufAcc);
       }
     }
