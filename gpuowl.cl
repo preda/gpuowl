@@ -205,6 +205,33 @@ void fft5(T2 *u) {
   X2(u[2], u[3]);
 }
 
+void fft10(T2 *u) {
+  const double COS1 =  0x1.9e3779b97f4a8p-1; // cos(tau/10), 0.80901699437494745126
+  const double SIN1 = -0x1.2cf2304755a5ep-1; // sin(tau/10), 0.58778525229247313710
+  const double COS2 =  0x1.3c6ef372fe95p-2;  // cos(tau/5),  0.30901699437494745126
+  const double SIN2 = -0x1.e6f0e134454ffp-1; // sin(tau/5),  0.95105651629515353118
+  
+  for (int i = 0; i < 5; ++i) { X2(u[i], u[i + 5]); }
+  u[6] = mul(u[6], U2( COS1, SIN1));
+  u[7] = mul(u[7], U2( COS2, SIN2));
+  u[8] = mul(u[8], U2(-COS2, SIN2));
+  u[9] = mul(u[9], U2(-COS1, SIN1));
+  
+  fft5(u);
+  fft5(u + 5);
+
+  // fix order [0, 2, 4, 6, 8, 1, 3, 5, 7, 9]
+  
+  SWAP(u[3], u[6]);
+  T2 tmp = u[1];
+  u[1] = u[5];
+  u[5] = u[7];
+  u[7] = u[8];
+  u[8] = u[4];
+  u[4] = u[2];
+  u[2] = tmp;
+}
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.7 "9-Point DFT".
 void fft9(T2 *u) {
   const double C0 = 0x1.8836fa2cf5039p-1; //   0.766044443118978013 (2*c(u) - c(2*u) - c(4*u))/3
@@ -629,6 +656,8 @@ void fft_MIDDLE(T2 *u) {
   fft5(u);
 #elif MIDDLE == 9
   fft9(u);
+#elif MIDDLE == 10
+  fft10(u);  
 #elif MIDDLE != 1
 #error
 #endif
