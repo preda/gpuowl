@@ -176,6 +176,25 @@ void fft3(T2 *u) {
   X2(u[1], u[2]);
 }
 
+void fft6(T2 *u) {
+  const double SQRT3_2 = 0x1.bb67ae8584caap-1; // sin(tau/3), sqrt(3)/2, 0.86602540378443859659;
+  
+  for (int i = 0; i < 3; ++i) { X2(u[i], u[i + 3]); }
+  
+  u[4] = mul(u[4], U2( 0.5, -SQRT3_2));
+  u[5] = mul(u[5], U2(-0.5, -SQRT3_2));
+  
+  fft3(u);
+  fft3(u + 3);
+  
+  // fix order [0, 2, 4, 1, 3, 5]
+  T2 tmp = u[1];
+  u[1] = u[3];
+  u[3] = u[4];
+  u[4] = u[2];
+  u[2] = tmp;
+}
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 void fft5(T2 *u) {
   const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
@@ -654,6 +673,8 @@ void fft_MIDDLE(T2 *u) {
   fft3(u);
 #elif MIDDLE == 5
   fft5(u);
+#elif MIDDLE == 6
+  fft6(u);
 #elif MIDDLE == 9
   fft9(u);
 #elif MIDDLE == 10
