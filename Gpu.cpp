@@ -633,8 +633,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
     }
   }
 
-  vector<u32> base = readData();
-  future<string> gcdFuture = async(launch::async, GCD, E, base, 1);
+  future<string> gcdFuture = async(launch::async, GCD, E, readData(), 1);
 
   // Prepare stage2. Init the precomputed buffers.
   
@@ -719,7 +718,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
           log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
           if (!gcd.empty()) { return gcd; }
         }
-      } else if (percent - gcdPercent > 25) {
+      } else if (percent - gcdPercent > 15) {
         queue.copy<double>(bufAcc, bufTmp, N);
         fftW(bufTmp);
         carryA(bufTmp, bufData);
