@@ -39,7 +39,7 @@ The Lucas-Lehmer test is very simple to describe: iterate the function f(x)=(x^2
 after p-1 iterations the result is 0, then M(p) is certainly prime, otherwise M(p) is certainly not prime.
 
 Lucas-Lehmer, while a very efficient primality test, still takes a rather long time for large Mersenne numbers
-(on the order of weeks of intense compute), thus it is only applied on the Mersenne candidates that survived the cheaper preliminary
+(on the order of weeks of intense compute), thus it is only applied to the Mersenne candidates that survived the cheaper preliminary
 filters TF and P-1.
 
 ### PRP ("the new LL")
@@ -50,8 +50,7 @@ prime is extremely small for large mersenne candidates.
 The PRP test is very similar computationally to LL: PRP iterates f(x) = x^2 modulo M(p) starting from 3, for p iterations. The cost
 of PRP is exacly the same as LL.
 
-In practice PRP is preferred over LL because PRP does have a very strong and useful error-checking technique, which protects
-very effectivelly against computation errors (which are sometimes common on GPUs).
+In practice PRP is preferred over LL because PRP does have a very strong and useful error-checking technique, which protects effectivelly against computation errors (which are sometimes common on GPUs).
 
 ## GpuOwl: OpenCL GPU Mersenne primality testing
 GpuOwl implements the PRP and P-1 tests. It also implemented, at various points in the past, LL and TF but these are not active now

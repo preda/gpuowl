@@ -1000,48 +1000,6 @@ KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   io[v] = b;
 }
 
-KERNEL(SMALL_HEIGHT / 2) multiplySub(P(T2) io, CP(T2) in, CP(T2) delta) {
-  uint W = SMALL_HEIGHT;
-  uint H = ND / W;
-  
-  uint line1 = get_group_id(0);
-  uint me = get_local_id(0);
-
-  if (line1 == 0 && me == 0) {
-    io[0]     = shl(conjugate(foo2(io[0], in[0] - delta[0])), 2);
-    io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2] - delta[W / 2])), 3);
-    return;
-  }
-
-  uint line2 = (H - line1) % H;
-  uint g1 = transPos(line1, MIDDLE, WIDTH);
-  uint g2 = transPos(line2, MIDDLE, WIDTH);
-  uint k = g1 * W + me;
-  uint v = g2 * W + (W - 1) - me + (line1 == 0);
-  T2 a = io[k];
-  T2 b = conjugate(io[v]);
-  T2 t = swap(slowTrig(me * H + line1, W * H));
-  X2(a, b);
-  b = mul(b, conjugate(t));
-  X2(a, b);
-
-  T2 c = in[k] - delta[k];
-  T2 d = conjugate(in[v] - delta[v]);
-  X2(c, d);
-  d = mul(d, conjugate(t));
-  X2(c, d);
-
-  a = mul(a, c);
-  b = mul(b, d);
-
-  X2(a, b);
-  b = mul(b, t);
-  X2(a, b);
-
-  io[k] = conjugate(a);
-  io[v] = b;
-}
-
 #if 0
 // Alternative form
 KERNEL(SMALL_HEIGHT / 2 / 4) multiply(P(T2) io, CP(T2) in) {
@@ -1186,6 +1144,7 @@ void pairMul(uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
   }
 }
 
+// equivalent to: fftH, multiply, fftH.
 KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   local T lds[SMALL_HEIGHT];
   T2 u[NH], v[NH];
@@ -1227,6 +1186,7 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
 
+// equivalent to: fftH(io), multiply(io, a - b), fftH(io)
 KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
   local T lds[SMALL_HEIGHT];
   T2 u[NH], v[NH];
@@ -1241,9 +1201,9 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
   uint g2 = transPos(line2, MIDDLE, WIDTH);
   
   read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
-  readDelta(G_H, NH, p, a, b, g1 * SMALL_HEIGHT);
-
   read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
+  
+  readDelta(G_H, NH, p, a, b, g1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, g2 * SMALL_HEIGHT);
 
   fft_HEIGHT(lds, u, smallTrig);

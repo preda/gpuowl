@@ -43,7 +43,6 @@ class Gpu {
   Kernel transposeIn, transposeOut;
 
   Kernel multiply;
-  Kernel multiplySub;
   Kernel square;
   Kernel tailFused;
   Kernel tailFusedMulDelta;
