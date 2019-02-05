@@ -62,10 +62,10 @@ bool getInfoMaybe(cl_device_id id, int what, size_t bufSize, void *buf) {
   return clGetDeviceInfo(id, what, bufSize, buf, NULL) == CL_SUCCESS;
 }
 
-u32 getFreeMemory(cl_device_id id) {
+u32 getFreeMem(cl_device_id id) {
   u64 memSize = 0;
   getInfo(id, CL_DEVICE_GLOBAL_FREE_MEMORY_AMD, sizeof(memSize), &memSize);
-  return memSize;
+  return memSize * 1024; // KB to Bytes.
 }
 
 static string getTopology(cl_device_id id) {
@@ -344,25 +344,17 @@ void Queue::zero(Buffer &buf, size_t size) {
   // finish();
 }
 
-u32 getAllocableBlocks(cl_device_id device, u32 blockSizeBytes) {
-  assert(blockSizeBytes % 1024 == 0);
+u32 getAllocableBlocks(cl_device_id device, u32 blockSize, u32 minFree) {
   vector<Buffer> buffers;
-
-  // auto hostBuf = make_unique<u32[]>(blockSizeBytes);
 
   Context context = createContext(device);
   
-  u32 freeKB = getFreeMemory(device);
-
-  while (true) {
+  while (getFreeMem(device) >= minFree) {
     try {
-      buffers.emplace_back(makeBuf(context, BUF_RW, blockSizeBytes/*, hostBuf.get()*/));
-      u32 newFreeKB = getFreeMemory(device);
-      if (newFreeKB == freeKB) { break; }
-      freeKB = newFreeKB;
+      buffers.emplace_back(makeBuf(context, BUF_RW, blockSize));
     } catch (const bad_alloc&) {
       break;
     }
   }
-  return buffers.size();
+  return buffers.empty() ? 0 : (buffers.size() - 1);
 }

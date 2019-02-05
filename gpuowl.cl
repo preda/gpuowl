@@ -1,5 +1,5 @@
 // gpuOwl, an OpenCL Mersenne primality test.
-// Copyright (C) 2017-2018 Mihai Preda.
+// Copyright (C) Mihai Preda.
 
 // The data is organized in pairs of words in a matrix WIDTH x HEIGHT.
 // The pair (a, b) is sometimes interpreted as the complex value a + i*b.

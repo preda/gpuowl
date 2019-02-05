@@ -596,7 +596,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(D >= 210 && D % 210 == 0);
   u32 nBuffers = D >= 2310 ? D / 2310 * 240 : D / 210 * 24;
   log("%u P-1 stage2: using D=%u (%u buffers) (%.1f GB GPU RAM allows %u buffers x %.1f MB)\n",
-      E, D, nBuffers, getFreeMemory(device) / (1024.0f * 1024), maxBuffers, bufSize/(1024.0f * 1024));
+      E, D, nBuffers, getFreeMem(device) / (1024.0f * 1024 * 1024), maxBuffers, bufSize/(1024.0f * 1024));
 
   // Build the stage2 plan early (before stage1) in order to display plan stats at start.
   auto [block, nPrimes, allSelected] = makePm1Plan(D, B1, B2);
@@ -680,11 +680,6 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
         tW(bufAcc, bufTmp);
 
         tailFusedMulDelta(bufTmp, bufC, blockBufs[i]);
-        /*
-        fftH(bufTmp);
-        multiplySub(bufTmp, bufC, blockBufs[i]);
-        fftH(bufTmp);
-        */
         tH(bufTmp, bufAcc);
       }
     }
