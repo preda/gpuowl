@@ -453,7 +453,7 @@ static void doSmallLog(int E, int k, u64 res, TimeInfo &stats, u32 nIters) {
 
 static bool equalMinus3(const vector<u32> &a) {
   if (a[0] != ~3u) { return false; }
-  for (auto it = next(a.begin()); it != a.end(); ++it) { if (*it) { return false; }}
+  for (auto it = next(a.begin()); it != prev(a.end()); ++it) { if (~*it) { return false; }}
   return true;
 }
 
@@ -514,6 +514,9 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
       isPrime = equalMinus3(words);
 
       log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
+
+      // Scream if ever [again] we get residue 0xfffffffffffffffc and !isprime, likely indicating a bug and a missed prime.
+      assert(finalRes64 != u64(-3) || isPrime);
       
       int itersLeft = blockSize - (kEnd - k);
       if (itersLeft > 0) { modSqLoop(itersLeft, false, buf1, buf2, bufData); }
