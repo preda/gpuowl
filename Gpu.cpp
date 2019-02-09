@@ -466,7 +466,11 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer& buf1, Buffer& buf2, Buffe
   bool ok = (res64 == loaded.res64);
   updateCheck(buf1, buf2, buf3);
   if (!ok) {
-    log("%u EE loaded: %d, blockSize %d, %016llx (expected %016llx)\n",
+    #ifdef __MINGW64__
+      log("%u EE loaded: %d, blockSize %d, %016I64x (expected %016I64x)\n",
+    #else
+      log("%u EE loaded: %d, blockSize %d, %016llx (expected %016llxx)\n",
+    #endif
         E, loaded.k, loaded.blockSize, res64, loaded.res64);
     throw "error on load";
   }
@@ -512,8 +516,11 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
       auto words = this->roundtripData();
       finalRes64 = residue(words);
       isPrime = equalMinus3(words);
-
-      log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
+      #ifdef __MINGW64__
+        log("%s %8d / %d, %016I64x\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
+      #else
+        log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
+      #endif
 
       // Scream if ever [again] we get residue 0xfffffffffffffffc and !isprime, likely indicating a bug and a missed prime.
       assert(finalRes64 != u64(-3) || isPrime);
