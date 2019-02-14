@@ -96,6 +96,7 @@ exponent and the assignment ID (AID) from PrimeNet.
 ## Build
 To build simply invoke "make" (or look inside the Makefile for a manual build).
 
+* the library libgmp-dev
 * a C++ compiler (e.g. gcc, clang)
 * an OpenCL implementation (which provides the **libOpenCL** library). Recommended: an AMD GPU with ROCm 1.7.
 
