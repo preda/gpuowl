@@ -106,7 +106,7 @@ To build simply invoke "make" (or look inside the Makefile for a manual build).
 Simply start GpuOwl with any valid exponent, and the built-in error checking kicks in, validating the computation. If you start seeing output lines with "OK", than it's working correctly. "EE" lines indicate computation errors.
 
 ## Command-line Arguments
--user <username>
--cpu <cpuname>
--device <gpu number>  (starting from zero)
+-user \<username\>
+-cpu \<cpuname\>
+-device \<gpu number\>  (starting from zero)
 
