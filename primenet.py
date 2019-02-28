@@ -11,6 +11,7 @@ from http import cookiejar
 from urllib.parse import urlencode
 from urllib.request import build_opener
 from urllib.request import HTTPCookieProcessor
+from datetime import datetime
 
 baseUrl = "https://www.mersenne.org/"
 primenet = build_opener(HTTPCookieProcessor(cookiejar.CookieJar()))
@@ -64,7 +65,7 @@ def fetch(what):
     end   = res.find("<!--END_ASSIGNMENTS_BLOCK-->", begin)
     if end == -1: raise(AssertionError("assignemnt no END mark"))
     line = res[begin:end].strip().strip('\n')
-    print("New assignment: ", line)
+    print(datetime.now(), " New assignment: ", line)
     return line
 
 workTypes = dict(PRP_FIRST=150, PRP_DC=151, PRP_WORLD_RECORD=152, PRP_100M=153, PF=4, PM1=4)
@@ -110,11 +111,11 @@ def handle(folder, sent):
     (resultsName, worktodoName, sentName, retryName) = (folder + name + ".txt" for name in "results worktodo sent retry".split())
     
     newResults = loadLines(resultsName) - sent
-    if newResults: print("found %d new result(s) in %s" % (len(newResults), resultsName))
+    if newResults: print(datetime.now(), " found %d new result(s) in %s" % (len(newResults), resultsName))
     
     tasks = [line for line in loadLines(worktodoName) if line and line[0] != '#']
     needFetch = len(tasks) < desiredTasks
-    if needFetch: print("found only %d task(s) in %s, want %d" % (len(tasks), worktodoName, desiredTasks));
+    if needFetch: print(datetime.now(), " found only %d task(s) in %s, want %d" % (len(tasks), worktodoName, desiredTasks));
     
     if newResults or needFetch:
         login(user, password)
