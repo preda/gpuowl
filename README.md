@@ -106,7 +106,16 @@ To build simply invoke "make" (or look inside the Makefile for a manual build).
 Simply start GpuOwl with any valid exponent, and the built-in error checking kicks in, validating the computation. If you start seeing output lines with "OK", than it's working correctly. "EE" lines indicate computation errors.
 
 ## Command-line Arguments
--user \<username\>
--cpu \<cpuname\>
--device \<gpu number\>  (starting from zero)
+-user \<name\>       : specify the user name.
+-cpu  \<name\>       : specify the hardware name.
+-time              : display kernel profiling information.
+-fft \<size\>        : specify FFT size, such as: 5000K, 4M, +2, -1.
+-block \<value\>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.
+-carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
+-D \<value\>         : P-1 second-stage D block size; multiple of 210; default auto based on GPU available memory.
+-device \<N\>        : select a specific device:
+  
+Device numbers start at zero.
+
+
 
