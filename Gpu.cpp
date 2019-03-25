@@ -5,19 +5,15 @@
 #include "Pm1Plan.h"
 #include "checkpoint.h"
 #include "state.h"
-#include "timeutil.h"
 #include "args.h"
-#include "Primes.h"
 #include "Signal.h"
 #include "FFTConfig.h"
 #include "GmpUtil.h"
 
 #include <cmath>
-#include <cassert>
 #include <cstring>
 #include <algorithm>
 #include <future>
-#include <chrono>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -344,34 +340,42 @@ void Gpu::topHalf(Buffer& tmp, Buffer& io) {
 // Computes out := base**exp
 // All buffers are in "low" position.
 void Gpu::exponentiate(Buffer& base, u64 exp, Buffer& tmp, Buffer& out) {
-  assert(exp >= 1);  
-  queue.copy<double>(base, out, N);
-  if (exp == 1) { return; }
+  if (exp == 0) {
+    queue.zero(out, N * sizeof(u32));
+    u32 data = 1;
+    fillBuf(queue.get(), out, &data, sizeof(data));
+    // write(queue.get(), false, out, sizeof(u32), &data);
+    fftP(out, tmp);
+    tW(tmp, out);    
+  } else {
+    queue.copy<double>(base, out, N);
+    if (exp == 1) { return; }
 
-  int p = 63;
-  while ((exp >> p) == 0) { --p; }
-  assert(p >= 1);
+    int p = 63;
+    while ((exp >> p) == 0) { --p; }
+    assert(p >= 1);
 
-  // square from "low" position.
-  square(out);
-  fftH(out);
-  topHalf(tmp, out);
+    // square from "low" position.
+    square(out);
+    fftH(out);
+    topHalf(tmp, out);
   
-  while (true) {
-    --p;
-    if ((exp >> p) & 1) {
-      fftH(out); // to low
+    while (true) {
+      --p;
+      if ((exp >> p) & 1) {
+        fftH(out); // to low
       
-      // multiply from low
-      multiply(out, base);
-      fftH(out);
+        // multiply from low
+        multiply(out, base);
+        fftH(out);
+        topHalf(tmp, out);
+      }
+      if (p <= 0) { break; }
+
+      // square
+      tailFused(out);
       topHalf(tmp, out);
     }
-    if (p <= 0) { break; }
-
-    // square
-    tailFused(out);
-    topHalf(tmp, out);
   }
 
   fftH(out); // to low
@@ -581,39 +585,54 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
 
 bool isRelPrime(u32 D, u32 j);
 
+static u32 getNBuffers(u32 maxBuffers) {
+  u32 nBufs = 0;
+  for (u32 i = maxBuffers; i >= 24; --i) {
+    if (2880u % i == 0) {
+      nBufs = i;
+      break;
+    }
+  }
+  return nBufs;
+}
+
 string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 > B1);
-
+  // u32 oldB1 = B1;
+  // u32 oldB2 = B2;
+  // B1 = adjustBound(B1);
+  // B2 = adjustBound(B2);
+  // log("P-1 bounds B1=%u, B2=%u\n", B1, B2);
+  
   vector<bool> bits = powerSmoothBitsRev(E, B1);
-  log("%u P-1 B1=%u, B2=%u; powerSmooth(B1): %u bits\n", E, B1, B2, u32(bits.size()));
+  log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
 
-  // Allocate all the buffers before measuring remaining available memory.
+  // Buffers used in both stages.
   Buffer bufTmp(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufAcc(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufA(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufB(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufC(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufAux(makeBuf(context, BUF_RW, bufSize));
 
-  u32 maxBuffers = getAllocableBlocks(device, bufSize);
-
-  if (maxBuffers < 24) {
-    log("%u P-1 stage2 not enough GPU RAM for D=210\n", E);
-    throw "P-1 not enough memory";
+  u32 nBufs = 0;
+  {
+    u32 nStage2Buffers = 5;
+    u32 maxBuffers = getAllocableBlocks(device, bufSize) - nStage2Buffers;
+    nBufs = getNBuffers(maxBuffers);
+    log("%u P-1 GPU RAM fits %u stage2 buffers @ %.1f MB each, using %u\n", E, maxBuffers, bufSize/(1024.0f * 1024), nBufs);
   }
-
-  u32 D = (maxBuffers >= 240) ? 2310 : maxBuffers / 24 * 210;
-  if (args.D) { D = min(args.D, D); }
-  assert(D >= 210 && D % 210 == 0);
-  u32 nBuffers = D >= 2310 ? D / 2310 * 240 : D / 210 * 24;
-  log("%u P-1 stage2: using D=%u (%u buffers) (%.1f GB GPU RAM allows %u buffers x %.1f MB)\n",
-      E, D, nBuffers, getFreeMem(device) / (1024.0f * 1024 * 1024), maxBuffers, bufSize/(1024.0f * 1024));
+  
+  if (nBufs == 0) {
+    log("%u P-1 stage2 not enough GPU RAM\n", E);
+    throw "P-1 not enough memory";
+  }    
 
   // Build the stage2 plan early (before stage1) in order to display plan stats at start.
-  auto [block, nPrimes, allSelected] = makePm1Plan(D, B1, B2);
-  u32 nBlocks = allSelected.size();
-  log("%u P-1 stage2: %u blocks starting at block %u\n", E, nBlocks, block);
-
+  u32 nRounds = 2880 / nBufs;
+  log("%u P-1 using %u stage2 buffers (%u rounds)\n", E, nBufs, nRounds);
   
+  auto [startBlock, nPrimes, allSelected] = makePm1Plan(B1, B2);
+  u32 nBlocks = allSelected.size();
+  log("%u P-1 stage2: %u blocks starting at block %u (%u selected)\n",
+          E, nBlocks, startBlock, nPrimes);
+
   // Start stage1 proper.
   log("%u P-1 starting stage1\n", E);
   {
@@ -626,13 +645,16 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   bool leadIn = true;
   TimeInfo timeInfo;
 
-
   Timer timer;
-  for (u32 k = 0; k < kEnd; ++k) {
+
+  assert(kEnd > 0);
+  assert(!bits[kEnd - 1]);
+  
+  for (u32 k = 0; k < kEnd - 1; ++k) {
     bool doLog = (k == kEnd - 1) || ((k + 1) % 10000 == 0);
     
     bool leadOut = useLongCarry || doLog;
-    coreStep(leadIn, leadOut, bits[k], bufAcc, bufTmp, bufData);
+    coreStep(leadIn, leadOut, bits[k], bufAux, bufTmp, bufData);
     leadIn = leadOut;
 
     if ((k + 1) % 100 == 0 || doLog) {
@@ -642,95 +664,110 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
     }
   }
 
-  future<string> gcdFuture = async(launch::async, GCD, E, readData(), 1);
+  // See coreStep().
+  if (leadIn) { fftP(bufData, bufAux); }
+  tW(bufAux, bufTmp);
+  tailFused(bufTmp);
+  tH(bufTmp, bufAux);
 
-  // Prepare stage2. Init the precomputed buffers.
+  Buffer bufAcc(makeBuf(context, BUF_RW, bufSize));
+  queue.copy<double>(bufAux, bufAcc, N);
   
-  // Move the output of stage1 data (AKA "base") to low position, as needed in stage2 fast mul.
+  fftW(bufAux);
+  carryA(bufAux, bufData);
+  carryB(bufData);
+
+  future<string> gcdFuture = async(launch::async, GCD, E, readData(), 1);
+  bufAux.reset();
+  
+  Buffer bufA(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufBase(makeBuf(context, BUF_RW, bufSize));
   fftP(bufData, bufA);
-  tW(bufA, bufC);
-  fftH(bufC);                           // C = base 
-  queue.copy<double>(bufC, bufAcc, N);  // bufAcc = base
-  exponentiate(bufC, 8, bufB, bufA);    // A = base^8
-  queue.copy<double>(bufA, bufB, N);    // B = base^8
+  tW(bufA, bufBase);
+  fftH(bufBase);
   
-  vector<Buffer> blockBufs; // (D / 4);
-  for (u32 i = 0; i < D / 4; ++i) {
-    u32 j = 2 * i + 1;
-    if (isRelPrime(D, j)) {
-      blockBufs.emplace_back(makeBuf(context, BUF_RW, bufSize));
-      queue.copy<double>(bufC, blockBufs.back(), N);
-    } else {
-      blockBufs.push_back(Buffer{});
-    }
-    // advance C from base^(j^2) to base^((j+2)^2)
-    multiplyLow(bufB, bufTmp, bufC);
-    multiplyLow(bufA, bufTmp, bufB);
+  Buffer bufB(makeBuf(context, BUF_RW, bufSize));
+  Buffer bufC(makeBuf(context, BUF_RW, bufSize));
+  // queue.copy<double>(bufBase, bufC, N);
+
+  if (getFreeMem(device) < u64(nBufs) * bufSize) {
+    log("P-1 stage2 too little memory %u MB for %u buffers of %u b\n", u32(getFreeMem(device) / (1024 * 1024)), nBufs, bufSize);
+    throw "P-1 not enough memory";
   }
   
-  exponentiate(bufAcc, u64(D) * D, bufTmp, bufA);
-  queue.copy<double>(bufA, bufAcc, N);                      // Acc = base^(D^2)
-  exponentiate(bufAcc, 2, bufTmp, bufA);                    // A   = base^(2 * D^2)
-  exponentiate(bufAcc, 2 * u64(block) + 1, bufTmp, bufB);   // B   = base^((2k + 1) * D^2)
-  exponentiate(bufAcc, u64(block) * block, bufTmp, bufC);   // C   = base^(k^2 * D^2)
+  vector<Buffer> blockBufs;
+  for (u32 i = 0; i < nBufs; ++i) { blockBufs.emplace_back(makeBuf(context, BUF_RW, bufSize)); }
 
-  u32 nSelected = 0;
-  u32 nBlocksDone = 0;
-  u32 nPrimesDone = 0;
+  vector<u32> jset = getJset();
 
-  float gcdPercent = 0;
-  timer.deltaSecs();
-  for (const vector<bool>& selected : allSelected) {
-    for (u32 i = 0; i < D / 4; ++i) {
-      if (selected[i]) {
-        assert(isRelPrime(D, 2 * i + 1));
-        ++nSelected;
-        
-        carryFused(bufAcc);
-        tW(bufAcc, bufTmp);
+  Buffer bufBaseD2(makeBuf(context, BUF_RW, bufSize));
+  exponentiate(bufBase, 30030*30030, bufTmp, bufBaseD2);
+  
+  for (u32 round = 0; round < nRounds; ++round) {
+    timer.deltaSecs();
 
-        tailFusedMulDelta(bufTmp, bufC, blockBufs[i]);
-        tH(bufTmp, bufAcc);
-      }
+#if SLOW
+    static_assert(false);
+    for (u32 i = 0; i < nBufs; ++i) {
+      u32 j = jset[round * nBufs + i];
+      exponentiate(bufBase, j * j, bufTmp, blockBufs[i]);
     }
 
-    // advance C from base^((k * D)^2) to base^(((k+1) * D)^2)
-    multiplyLow(bufB, bufTmp, bufC);
-    multiplyLow(bufA, bufTmp, bufB);
+#else
+    exponentiate(bufBase, 8, bufTmp, bufA);    
+    {
+      u32 j0 = jset[round * nBufs + 0];
+      assert(j0 & 1);
+      exponentiate(bufBase, (j0 + 1) * 4, bufTmp, bufB);
+      exponentiate(bufBase, j0 * j0, bufTmp, bufC);
+      queue.copy<double>(bufC, blockBufs[0], N);
+    }
 
-    ++nBlocksDone;
+    for (u32 i = 1; i < nBufs; ++i) {
+      for (int steps = (jset[round * nBufs + i] - jset[round * nBufs + i - 1])/2; steps > 0; --steps) {
+        multiplyLow(bufB, bufTmp, bufC);
+        multiplyLow(bufA, bufTmp, bufB);
+      }
+      queue.copy<double>(bufC, blockBufs[i], N);
+    }
+#endif
 
-    if (nSelected % 100 == 0) { queue.finish(); }
-    
-    if (nBlocksDone % 100 == 0 || nBlocksDone == nBlocks) {
-      queue.finish();
-      u32 nDone = (nBlocksDone - 1) % 100 + 1;
-      nPrimesDone += nSelected;
+    exponentiate(bufBaseD2, 2, bufTmp, bufA);                            // A := base^(2 * D^2)
+    exponentiate(bufBaseD2, 2 * startBlock + 1, bufTmp, bufB);           // B := base^((2k + 1) * D^2)
+    exponentiate(bufBaseD2, u64(startBlock) * startBlock, bufTmp, bufC); // C := base^(k^2 * D^2)
 
-      u32 pos   = nPrimesDone + 2 * nBlocksDone;
-      u32 total = nPrimes + 2 * nBlocks;
-      float percent = pos / float(total) * 100;
-      float ms = timer.deltaMillis() / float(nSelected + 2 * nDone);
-      log("%u P-1 stage2: %5.2f%%; block %u/%u; %u selected; %.2f ms/mul; ETA %s\n",
-          E, percent, nBlocksDone, nBlocks, nSelected, ms,
-          getETA(pos, total, ms).c_str());
-      nSelected = 0;
-      
-      if (gcdFuture.valid()) {
-        if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-          string gcd = gcdFuture.get();
-          log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-          if (!gcd.empty()) { return gcd; }
+    queue.finish();
+    float initSecs = timer.deltaSecs();
+    // log("Round %u/%u: inited (%u buffers) in %u ms\n", round, nRounds, nBufs, timer.deltaMillis());
+
+    u32 nSelected = 0;
+
+    for (const auto& selected : allSelected) {
+      for (u32 i = 0; i < nBufs; ++i) {
+        if (selected[i + round * nBufs]) {
+          ++nSelected;
+          carryFused(bufAcc);
+          tW(bufAcc, bufTmp);
+          tailFusedMulDelta(bufTmp, bufC, blockBufs[i]);
+          tH(bufTmp, bufAcc);
         }
-      } else if (percent - gcdPercent > 15) {
-        queue.copy<double>(bufAcc, bufTmp, N);
-        fftW(bufTmp);
-        carryA(bufTmp, bufData);
-        carryB(bufData);
-        gcdFuture = async(launch::async, GCD, E, readData(), 0);
-        gcdPercent = percent;          
       }
+      multiplyLow(bufB, bufTmp, bufC);
+      multiplyLow(bufA, bufTmp, bufB);
+      queue.finish();
     }
+
+    // queue.finish();
+    log("Round %u of %u: init %.2f s; %.2f ms/mul; %u muls\n",
+        round, nRounds, initSecs, (timer.deltaSecs() / nSelected) * 1000, nSelected);
+
+    if (gcdFuture.valid()) {
+      if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+        string gcd = gcdFuture.get();
+        log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+        if (!gcd.empty()) { return gcd; }
+      }
+    }      
   }
 
   fftW(bufAcc);

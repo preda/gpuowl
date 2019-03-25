@@ -21,8 +21,9 @@ void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
 
-#define BASE_VERSION "6.2"
+#define BASE_VERSION "6.3"
 // Reason for version change:
+// 6.3 : new P-1 implem with multi-rounds and tests.
 // 6.2 : added FFT-10 and FFT-6 middle step. Drop 3 & 5 middle steps.
 // 6.1 : added P-1
 // 6.0 : dropped PRP-1; investigate multi-GPU support.

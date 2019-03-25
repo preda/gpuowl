@@ -44,8 +44,8 @@ Task Worktodo::getTask() {
       if (sscanf(tail, "PFactor=%u", &exp) == 1) { return Task{Task::PM1, exp, "", line, B1, B2}; }
       
       int n = strlen(line);
-      if (n >= 2 && line[n - 2] == '\n') { line[n - 2] = 0; }
-      if (n >= 1 && line[n - 1] == '\n') { line[n - 1] = 0; }
+      if (n >= 2 && (line[n - 2] == '\n' || line[n - 2] == '\r')) { line[n - 2] = 0; }
+      if (n >= 1 && (line[n - 1] == '\n' || line[n - 1] == '\r')) { line[n - 1] = 0; }
       log("worktodo.txt: \"%s\" ignored\n", line);
     }
   }

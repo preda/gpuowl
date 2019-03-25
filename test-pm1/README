@@ -1,0 +1,12 @@
+This is a simple test-case generator for PM1. Use like this:
+
+python3 makeWork.py < pm1.txt > work.txt
+
+This generates a file 'work.txt' containing work lines for GPUowl. Rename this file to 'worktodo.txt' and run GPUowl
+(the run may take a very long time, but can be interrupted early).
+Look into results.txt, and every result should produce a factor. Look for no-factor results:
+
+grep NF results.txt
+
+If you find any no-factors, first double-check whether they should have been found given the B1/B2. If they should and haven't been
+found, please report a bug.
