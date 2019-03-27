@@ -4,9 +4,10 @@
 #pragma once
 
 class Task;
+class Args;
 
 class Worktodo {
 public:
-  static Task getTask();
+  static Task getTask(Args &args);
   static bool deleteTask(const Task &task);
 };

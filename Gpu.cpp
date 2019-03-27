@@ -5,7 +5,7 @@
 #include "Pm1Plan.h"
 #include "checkpoint.h"
 #include "state.h"
-#include "args.h"
+#include "Args.h"
 #include "Signal.h"
 #include "FFTConfig.h"
 #include "GmpUtil.h"
@@ -598,11 +598,6 @@ static u32 getNBuffers(u32 maxBuffers) {
 
 string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 > B1);
-  // u32 oldB1 = B1;
-  // u32 oldB2 = B2;
-  // B1 = adjustBound(B1);
-  // B2 = adjustBound(B2);
-  // log("P-1 bounds B1=%u, B2=%u\n", B1, B2);
   
   vector<bool> bits = powerSmoothBitsRev(E, B1);
   log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));

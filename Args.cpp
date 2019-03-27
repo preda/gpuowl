@@ -1,6 +1,6 @@
-// GpuOwL, a Mersenne primality tester. Copyright (C) 2017-2018 Mihai Preda.
+// GpuOwL, a Mersenne primality tester. Copyright (C) Mihai Preda.
 
-#include "args.h"
+#include "Args.h"
 #include "file.h"
 #include "clwrap.h"
 #include "FFTConfig.h"
@@ -22,7 +22,8 @@ Command line options:
 -fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
 -block <value>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
--D <value>         : P-1 second-stage D block size; multiple of 210; default auto based on GPU available memory.
+-B1                : P-1 B1, default 500000
+-rB2               : ratio of B2 to B1, default 30
 -device <N>        : select a specific device:
 )");
 
@@ -48,12 +49,17 @@ Command line options:
         variants += " "s + FFTConfig::configName(c.width, c.height, c.middle);
       }
       return false;
-    } else if (!strcmp(arg, "-D")) {
+    } else if (!strcmp(arg, "-B1")) {
       if (i < argc - 1) {
-        D = atoi(argv[++i]);
-        assert(D >= 210 && D % 210 == 0);
+        B1 = atoi(argv[++i]);
       } else {
-        log("-D expects <value>\n");
+        log("-B1 expects <value>\n");
+      }
+    } else if (!strcmp(arg, "-rB2")) {
+      if (i < argc - 1) {
+        B2_B1_ratio = atoi(argv[++i]);
+      } else {
+        log("-rB2 expects <value>\n");
       }
     } else if (!strcmp(arg, "-fft")) {
       if (i < argc - 1) {

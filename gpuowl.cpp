@@ -1,6 +1,6 @@
 // GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
 
-#include "args.h"
+#include "Args.h"
 #include "Task.h"
 #include "worktodo.h"
 #include "common.h"
@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
   }
     
   try {
-    while (Task task = Worktodo::getTask()) {
+    while (Task task = Worktodo::getTask(args)) {
       if (!task.execute(args)) { break; }
       Worktodo::deleteTask(task);
     }
