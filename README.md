@@ -112,7 +112,9 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 -fft \<size\>        : specify FFT size, such as: 5000K, 4M, +2, -1.\
 -block \<value\>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.\
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.\
--D \<value\>         : P-1 second-stage D block size; multiple of 210; default auto based on GPU available memory.\
+-B1                : P-1 B1, default 500000\
+-rB2               : ratio of B2 to B1, default 30\
 -device \<N\>        : select a specific device:\
   \
-Device numbers start at zero.\
+Device numbers start at zero.
+
