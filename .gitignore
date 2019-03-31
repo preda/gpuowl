@@ -3,9 +3,15 @@ gpuowl.log
 *.owl
 *.bak
 *.o
+*.so
 worktodo.txt
 results.txt
 results.old
+sent.txt
+sent.old
 tmp/
 tmp?/
 cuda/
+cmake-build-*/
+.idea
+.sconsign.dblite
