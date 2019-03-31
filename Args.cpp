@@ -124,13 +124,7 @@ Command line options:
       }
     } else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {
       if (i < argc - 1) {
-        string s = argv[++i];
-        size_t p = 0;
-        while (true) {
-          devices.push_back(stoi(s, &p));
-          if (p >= s.size() || s[p] != ',') { break; }
-          s = s.substr(p);
-        }
+        device = atoi(argv[++i]);
       } else {
         log("-device expects <N> argument\n");
         return false;

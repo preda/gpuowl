@@ -111,7 +111,7 @@ cl_device_id getDevice(int argsDevId) {
     auto devices = getDeviceIDs(true);
     if (devices.empty()) {
       log("No GPU device found. See -h for how to select a specific device.\n");
-      return 0;
+      throw("No device specified, and no GPU device found");
     }
     device = devices[0];
   }
@@ -124,13 +124,8 @@ vector<cl_device_id> toDeviceIds(const vector<u32> &devices) {
   return ids;
 }
 
-Context createContext(const vector<u32> &devices) {  
-  assert(devices.size() > 0);
-  auto ids = toDeviceIds(devices);
-  int err;
-  Context context(clCreateContext(NULL, ids.size(), ids.data(), NULL, NULL, &err));
-  CHECK2(err, "clCreateContext");
-  return move(context);
+Context createContext(int device) {  
+  return createContext(getDevice(device));
 }
 
 Context createContext(cl_device_id id) {  

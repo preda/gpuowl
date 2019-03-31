@@ -19,7 +19,7 @@ public:
   std::string cpu;
   std::string dump;
   
-  std::vector<u32> devices;
+  int device = -1;
   bool timeKernels = false;
   int carry = CARRY_AUTO;
   u32 blockSize = 400;

@@ -42,10 +42,11 @@ vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
 string getHwName(cl_device_id id);
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
-// GPU free memory in bytes.
+
+// Get GPU free memory in bytes.
 u64 getFreeMem(cl_device_id id);
 
-Context createContext(const vector<u32> &devices);
+Context createContext(int device);
 Context createContext(cl_device_id id);
 
 void release(cl_context context);

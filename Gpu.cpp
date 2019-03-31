@@ -61,7 +61,7 @@ static void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, 
 static cl_program compile(const Args& args, cl_context context, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE) {
   string clArgs = args.clArgs;
   if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + numberK(WIDTH * SMALL_HEIGHT * MIDDLE * 2); }
-  cl_program program = compile(toDeviceIds(args.devices), context, "gpuowl", clArgs,
+  cl_program program = compile({getDevice(args.device)}, context, "gpuowl", clArgs,
                  {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}});
   if (!program) { throw "OpenCL compilation"; }
   return program;
@@ -78,7 +78,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   useLongCarry(useLongCarry),
   useMiddle(BIG_H != SMALL_H),
   device(device),
-  context(createContext(args.devices)),
+  context(createContext(args.device)),
   program(compile(args, context.get(), E, W, SMALL_H, BIG_H / SMALL_H)),
   queue(makeQueue(device, context.get())),  
 
@@ -209,12 +209,8 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
   bool timeKernels = args.timeKernels;
     
-  if (args.devices.empty()) { throw "No OpenCL device"; }
-
-  auto devices = toDeviceIds(args.devices);
-
   return make_unique<Gpu>(args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
-                          devices.front(), timeKernels, useLongCarry);
+                          getDevice(args.device), timeKernels, useLongCarry);
 }
 
 vector<u32> Gpu::readData()  { return compactBits(readOut(bufData),  E); }
