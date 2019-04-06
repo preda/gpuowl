@@ -118,3 +118,11 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
   \
 Device numbers start at zero.
 
+## Primenet.py Arguments
+-h, --help            show this help message and exit\
+-u USERNAME           Primenet user name\
+-p PASSWORD           Primenet password\
+-t TIMEOUT            Seconds to sleep between updates\
+--dirs DIR \[DIR ...\]  GpuOwl directories to scan\
+--tasks NTASKS        Number of tasks to fetch ahead\
+-w \{PF,PRP_FIRST,PRP_100M,PRP_WORLD_RECORD,PRP_DC,PM1,PRP,150,151,152,153,4\}  GIMPS work type
