@@ -25,6 +25,6 @@ struct Task {
 
   bool execute(const Args &args);
 
-  bool writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize);
-  bool writeResultPM1(const Args&, const std::string& factor, u32 fftSize);
+  bool writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize) const;
+  bool writeResultPM1(const Args&, const std::string& factor, u32 fftSize) const;
 };

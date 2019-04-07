@@ -9,6 +9,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <variant>
 
 struct Args;
 struct PRPResult;
@@ -135,7 +136,9 @@ public:
   vector<u32> readData();
 
   std::pair<bool, u64> isPrimePRP(u32 E, const Args &args);
-  string factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
+
+  std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
+  // std::pair<string, vector<u32>> 
   
   u32 getFFTSize() { return N; }
 };

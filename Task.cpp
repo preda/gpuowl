@@ -3,9 +3,11 @@
 #include "Gpu.h"
 #include "Args.h"
 #include "file.h"
+#include "GmpUtil.h"
 
 #include <cstdio>
 #include <cmath>
+#include <thread>
 
 static bool writeResult(const string &part, u32 E, const char *workType, const string &status,
                         const std::string &AID, const std::string &user, const std::string &cpu) {
@@ -37,7 +39,7 @@ static string resStr(u64 res64) {
   return buf;
 }
 
-bool Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize) {
+bool Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
   assert(B1 == 0 && B2 == 0);
 
   string status = isPrime ? "P" : "C";
@@ -45,7 +47,7 @@ bool Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
                      exponent, "PRP-3", status, AID, args.user, args.cpu);
 }
 
-bool Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) {
+bool Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) const {
   string status = factor.empty() ? "NF" : "F";
   string bounds = ", \"B1\":"s + to_string(B1) + ", \"B2\":"s + to_string(B2);
 
@@ -62,8 +64,19 @@ bool Task::execute(const Args &args) {
     auto [isPrime, res64] = gpu->isPrimePRP(exponent, args);
     return writeResultPRP(args, isPrime, res64, fftSize);
   } else if (kind == PM1) {
-    string factor = gpu->factorPM1(exponent, args, B1, B2);
-    return writeResultPM1(args, factor, fftSize);
+    auto result = gpu->factorPM1(exponent, args, B1, B2);
+    if (holds_alternative<string>(result)) {
+      string factor = get<string>(result);
+      return writeResultPM1(args, factor, fftSize);
+    } else {
+      std::thread([&args, fftSize, task=*this, data=get<vector<u32>>(std::move(result))](){
+                    string gcd = GCD(task.exponent, data, 0);
+                    log("%u P-1 final GCD: %s\n", task.exponent, gcd.empty() ? "no factor" : gcd.c_str());
+                    task.writeResultPM1(args, gcd, fftSize);
+                  }
+        ).detach();
+      return true;
+    }
   }
   assert(false);
   return false;

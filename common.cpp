@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <vector>
 #include <memory>
+#include <mutex>
 
 vector<unique_ptr<FILE>> logFiles;
 string globalCpuName;
@@ -36,6 +37,8 @@ string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
 string shortTimeStr() { return timeStr("%Y-%m-%d %H:%M:%S"); }
 
 void log(const char *fmt, ...) {
+  static std::mutex logMutex;
+  
   char buf[2 * 1024];
 
   va_list va;
@@ -45,6 +48,7 @@ void log(const char *fmt, ...) {
   
   string prefix = shortTimeStr() + (globalCpuName.empty() ? "" : " ") + globalCpuName;
 
+  std::unique_lock lock(logMutex);
   for (auto &f : logFiles) {
     fprintf(f.get(), "%s %s", prefix.c_str(), buf);
 #if !(defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE))

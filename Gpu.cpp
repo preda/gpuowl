@@ -592,7 +592,7 @@ static u32 getNBuffers(u32 maxBuffers) {
   return nBufs;
 }
 
-string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
+std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 > B1);
   
   vector<bool> bits = powerSmoothBitsRev(E, B1);
@@ -755,7 +755,7 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
     if (gcdFuture.valid()) {
       if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
         string gcd = gcdFuture.get();
-        log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+        log("%u P-1 stage1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
         if (!gcd.empty()) { return gcd; }
       }
     }      
@@ -765,16 +765,20 @@ string Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   carryA(bufAcc, bufData);
   carryB(bufData);
   vector<u32> data = readData();
-  string gcd = GCD(E, readData(), 0);
-  log("%u P-1 stage2 final GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-  if (!gcd.empty()) { return gcd; }
-  
+
   if (gcdFuture.valid()) {
     gcdFuture.wait();
     string gcd = gcdFuture.get();
-    log("%u P-1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-    if (!gcd.empty()) { return gcd; }    
+    log("%u P-1 stage1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+    if (!gcd.empty()) { return gcd; }
   }
-
+  
+  return data;
+  
+  /*
+  string gcd = GCD(E, data, 0);
+  log("%u P-1 stage2 final GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+  if (!gcd.empty()) { return gcd; }
   return "";
+  */
 }
