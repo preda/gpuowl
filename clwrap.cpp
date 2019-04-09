@@ -13,6 +13,30 @@
 
 using namespace std;
 
+// starting at 0 to -19
+auto ERR_MES = std::array{
+"SUCCESS", "DEVICE_NOT_FOUND", "DEVICE_NOT_AVAILABLE", "COMPILER_NOT_AVAILABLE",
+"MEM_OBJECT_ALLOCATION_FAILURE", "OUT_OF_RESOURCES", "OUT_OF_HOST_MEMORY", "PROFILING_INFO_NOT_AVAILABLE",
+"MEM_COPY_OVERLAP", "IMAGE_FORMAT_MISMATCH", "IMAGE_FORMAT_NOT_SUPPORTED", "BUILD_PROGRAM_FAILURE",
+"MAP_FAILURE", "MISALIGNED_SUB_BUFFER_OFFSET", "EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST", "COMPILE_PROGRAM_FAILURE",
+"LINKER_NOT_AVAILABLE", "LINK_PROGRAM_FAILURE", "DEVICE_PARTITION_FAILED", "KERNEL_ARG_INFO_NOT_AVAILABLE",
+};
+
+// starting at -30 to -70
+auto ERR_MES_INVALID = std::array{
+"VALUE", "DEVICE_TYPE", "PLATFORM", "DEVICE",
+"CONTEXT", "QUEUE_PROPERTIES", "COMMAND_QUEUE", "HOST_PTR",
+"MEM_OBJECT", "IMAGE_FORMAT_DESCRIPTOR", "IMAGE_SIZE", "SAMPLER",
+"BINARY", "BUILD_OPTIONS", "PROGRAM", "PROGRAM_EXECUTABLE",
+"KERNEL_NAME", "KERNEL_DEFINITION", "KERNEL", "ARG_INDEX",
+"ARG_VALUE", "ARG_SIZE", "KERNEL_ARGS", "WORK_DIMENSION",
+"WORK_GROUP_SIZE", "WORK_ITEM_SIZE", "GLOBAL_OFFSET", "EVENT_WAIT_LIST",
+"EVENT", "OPERATION", "GL_OBJECT", "BUFFER_SIZE",
+"MIP_LEVEL", "GLOBAL_WORK_SIZE", "PROPERTY", "IMAGE_DESCRIPTOR",
+"COMPILER_OPTIONS", "LINKER_OPTIONS", "DEVICE_PARTITION_COUNT", "PIPE_SIZE",
+"DEVICE_QUEUE"
+};
+
 bool check(int err, const char *mes) {
   bool ok = (err == CL_SUCCESS);
   if (!ok) {
@@ -155,48 +179,20 @@ bool dumpBinary(cl_program program, const string &fileName) {
   return false;
 }
 
-static string readFile(const string &name) {
-  string ret;
-  if (auto fi = openRead(name)) {
-    char buf[1024];
-    while (true) {
-      size_t n = fread(buf, 1, sizeof(buf), fi.get());
-      ret.append(buf, n);
-      if (n < sizeof(buf)) { break; }
-    }
-  }
-  return ret;
-}
-
-static cl_program loadBinary(cl_device_id device, cl_context context, const string &binFile) {
-  string binary = readFile(binFile);
-  cl_program program = 0;
-  if (!binary.empty()) {  
-    cl_device_id devices[] = {device};
-    size_t sizes[] = {binary.size()};
-    const unsigned char *binaries[] = {(const unsigned char *) binary.c_str()};
-    int binStatus[] = {0};
-    int err = 0;
-    program = clCreateProgramWithBinary(context, 1, devices, sizes, binaries, binStatus, &err);
-    if (err != CL_SUCCESS) {
-      log("Error loading pre-compiled kernel from '%s' (error %d, %d)\n", binFile.c_str(), err, binStatus[0]);
-    } else {
-      log("Loaded pre-compiled kernel from '%s'\n", binFile.c_str());
-    }
-  }
-  return program;
-}
-
-static cl_program loadSource(cl_context context, const string &name) {
-  string stub = string("#include \"") + name + ".cl\"\n";
-  
-  const char *ptr = stub.c_str();
-  size_t size = stub.size();
+static cl_program loadSource(cl_context context, const string &source) {
+  const char *ptr = source.c_str();
+  size_t size = source.size();
   int err;
   cl_program program = clCreateProgramWithSource(context, 1, &ptr, &size, &err);
   CHECK2(err, "clCreateProgramWithSource");
-  return program;  
+  return program;
 }
+
+#if 0
+static cl_program loadStub(cl_context context, const string &name) {
+  return loadSource(context, string("#include \"") + name + ".cl\"\n");
+}
+#endif
 
 static bool build(cl_program program, const vector<cl_device_id> &devices, const string &args) {
   Timer timer;
@@ -218,7 +214,7 @@ static bool build(cl_program program, const vector<cl_device_id> &devices, const
   return ok;
 }
 
-cl_program compile(const vector<cl_device_id> &devices, cl_context context, const string &name, const string &extraArgs,
+cl_program compile(const vector<cl_device_id> &devices, cl_context context, const string &source, const string &extraArgs,
                    const vector<pair<string, unsigned>> &defines) {
   string strDefines;
   string config;
@@ -230,19 +226,8 @@ cl_program compile(const vector<cl_device_id> &devices, cl_context context, cons
 
   cl_program program = 0;
 
-  string binFile = string("precompiled/") + getHwName(devices.front()) + "_" + name + config + ".so";
-  const bool usePrecompiled = false;
-  if (usePrecompiled && (program = loadBinary(devices.front(), context, binFile))) {
+  if ((program = loadSource(context, source))) {
     if (build(program, devices, args)) {
-      return program;
-    } else {
-      release(program);
-    }
-  }
-
-  if ((program = loadSource(context, name))) {
-    if (build(program, devices, args)) {
-      if (usePrecompiled) { dumpBinary(program, binFile); }      
       return program;
     } else {
       release(program);
