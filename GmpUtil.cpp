@@ -44,7 +44,7 @@ std::string GCD(u32 exp, const std::vector<u32> &bits, u32 sub) {
 
 static void powerSmooth(mpz_t a, u32 exp, u32 B1) {
   mpz_set_ui(a, exp);
-  mpz_mul_2exp(a, a, 20); // boost 2s.
+  mpz_mul_2exp(a, a, 8); // boost 2s.
 
   mpz_t b;
   mpz_init(b);

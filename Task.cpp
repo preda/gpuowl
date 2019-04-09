@@ -4,6 +4,7 @@
 #include "Args.h"
 #include "file.h"
 #include "GmpUtil.h"
+#include "Background.h"
 
 #include <cstdio>
 #include <cmath>
@@ -55,7 +56,7 @@ bool Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) c
                      exponent, "PM1", status, AID, args.user, args.cpu);
 }
 
-bool Task::execute(const Args &args) {
+bool Task::execute(const Args& args, Background& background) {
   assert(kind == PRP || kind == PM1);
   auto gpu = Gpu::make(exponent, args);
   auto fftSize = gpu->getFFTSize();
@@ -69,12 +70,12 @@ bool Task::execute(const Args &args) {
       string factor = get<string>(result);
       return writeResultPM1(args, factor, fftSize);
     } else {
-      std::thread([&args, fftSize, task=*this, data=get<vector<u32>>(std::move(result))](){
+      background.run([&args, fftSize, task=*this, data=get<vector<u32>>(std::move(result))](){
                     string gcd = GCD(task.exponent, data, 0);
                     log("%u P-1 final GCD: %s\n", task.exponent, gcd.empty() ? "no factor" : gcd.c_str());
                     task.writeResultPM1(args, gcd, fftSize);
-                  }
-        ).detach();
+                     }
+        );
       return true;
     }
   }

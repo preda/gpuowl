@@ -8,6 +8,7 @@
 
 class Args;
 class Result;
+class Background;
 
 struct Task {
   enum Kind {NONE = 0, PRP, PM1};
@@ -23,7 +24,7 @@ struct Task {
 
   operator bool() { return kind != NONE; }
 
-  bool execute(const Args &args);
+  bool execute(const Args& args, Background& background);
 
   bool writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize) const;
   bool writeResultPM1(const Args&, const std::string& factor, u32 fftSize) const;
