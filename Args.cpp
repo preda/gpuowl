@@ -24,6 +24,8 @@ Command line options:
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -B1                : P-1 B1, default 500000
 -rB2               : ratio of B2 to B1, default 30
+-prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
+-pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -device <N>        : select a specific device:
 )");
 
@@ -49,17 +51,33 @@ Command line options:
         variants += " "s + FFTConfig::configName(c.width, c.height, c.middle);
       }
       return false;
+    } else if (!strcmp(arg, "-prp")) {
+      if (i < argc - 1 && argv[i+1][0] != '-') {
+        prpExp = atoi(argv[++i]);
+      } else {
+        log("-prp expects <exponent>\n");
+        return false;
+      }
+    } else if (!strcmp(arg, "-pm1")) {
+      if (i < argc - 1 && argv[i+1][0] != '-') {
+        pm1Exp = atoi(argv[++i]);
+      } else {
+        log("-pm1 expects <exponent>\n");
+        return false;
+      }
     } else if (!strcmp(arg, "-B1")) {
       if (i < argc - 1) {
         B1 = atoi(argv[++i]);
       } else {
         log("-B1 expects <value>\n");
+        return false;
       }
     } else if (!strcmp(arg, "-rB2")) {
       if (i < argc - 1) {
         B2_B1_ratio = atoi(argv[++i]);
       } else {
         log("-rB2 expects <value>\n");
+        return false;
       }
     } else if (!strcmp(arg, "-fft")) {
       if (i < argc - 1) {

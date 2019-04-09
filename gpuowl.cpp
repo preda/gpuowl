@@ -3,7 +3,7 @@
 #include "Args.h"
 #include "Task.h"
 #include "Background.h"
-#include "worktodo.h"
+#include "Worktodo.h"
 #include "common.h"
 
 extern string globalCpuName;
@@ -23,11 +23,19 @@ int main(int argc, char **argv) {
   }
 
   Background background;
+
+  int exitCode = 0;
   
   try {
-    while (Task task = Worktodo::getTask(args)) {
-      if (!task.execute(args, background)) { break; }
-      Worktodo::deleteTask(task);
+    if (args.prpExp) {
+      Worktodo::makePRP(args, args.prpExp).execute(args, background);      
+    } else if (args.pm1Exp) {
+      Worktodo::makePM1(args, args.pm1Exp).execute(args, background);
+    } else {
+      while (Task task = Worktodo::getTask(args)) {
+        if (!task.execute(args, background)) { break; }
+        Worktodo::deleteTask(task);
+      }
     }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
@@ -36,4 +44,5 @@ int main(int argc, char **argv) {
   background.wait();
   
   log("Bye\n");
+  return exitCode; // not used yet.
 }

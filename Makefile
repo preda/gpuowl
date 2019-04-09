@@ -1,4 +1,4 @@
-HEADERS = Background.h Pm1Plan.h GmpUtil.h Args.h checkpoint.h clwrap.h common.h kernel.h state.h timeutil.h tinycl.h worktodo.h Gpu.h Primes.h Signal.h FFTConfig.h
+HEADERS = Background.h Pm1Plan.h GmpUtil.h Args.h checkpoint.h clwrap.h common.h kernel.h state.h timeutil.h tinycl.h Worktodo.h Gpu.h Primes.h Signal.h FFTConfig.h
 SRCS = Pm1Plan.cpp GmpUtil.cpp Worktodo.cpp common.cpp gpuowl.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp Primes.cpp state.cpp Signal.cpp FFTConfig.cpp
 
 # Edit the path in -L below if needed, to the folder containing OpenCL.dll on Windows or libOpenCL.so on UNIX.

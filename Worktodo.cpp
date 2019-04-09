@@ -1,6 +1,6 @@
 // GpuOwL, a Mersenne primality tester. Copyright (C) Mihai Preda.
 
-#include "worktodo.h"
+#include "Worktodo.h"
 
 #include "Task.h"
 #include "file.h"
@@ -10,6 +10,20 @@
 #include <cassert>
 #include <string>
 #include <cstring>
+
+Task Worktodo::makePRP(Args& args, u32 exponent) {
+  return Task{Task::PRP, exponent};
+}
+
+static Task makePM1(Args& args, u32 exponent, const string& AID = "", const string& line = "", u32 B1 = 0, u32 B2 = 0) {
+  if (B1 == 0) { B1 = args.B1; }
+  if (B2 == 0) { B2 = B1 * args.B2_B1_ratio; }
+  return Task{Task::PM1, exponent, AID, line, B1, B2};
+}
+
+Task Worktodo::makePM1(Args& args, u32 exponent) {
+  return ::makePM1(args, exponent);
+}
 
 Task Worktodo::getTask(Args &args) {
   if (auto fi{openRead("worktodo.txt", true)}) {
@@ -35,16 +49,13 @@ Task Worktodo::getTask(Args &args) {
           sscanf(line, "B1=%u;%n", &B1, &pos) == 1) {
         tail = line + pos;
       }
-
-      if (B1 == 0) { B1 = args.B1; }
-      if (B2 == 0) { B2 = B1 * args.B2_B1_ratio; }
       
       if (sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
           sscanf(tail, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-        return Task{Task::PM1, exp, outAID, line, B1, B2};
+        return ::makePM1(args, exp, outAID, line, B1, B2);
       }
       outAID[0] = 0;
-      if (sscanf(tail, "PFactor=%u", &exp) == 1) { return Task{Task::PM1, exp, "", line, B1, B2}; }
+      if (sscanf(tail, "PFactor=%u", &exp) == 1) { return ::makePM1(args, exp, "", line, B1, B2); }
       
       int n = strlen(line);
       if (n >= 2 && (line[n - 2] == '\n' || line[n - 2] == '\r')) { line[n - 2] = 0; }
