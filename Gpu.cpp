@@ -63,8 +63,7 @@ static string CL_SOURCE =
 ;
 
 static cl_program compile(const Args& args, cl_context context, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE) {
-  string clArgs = args.clArgs;
-  if (!args.dump.empty()) { clArgs += " -save-temps=" + args.dump + "/" + numberK(WIDTH * SMALL_HEIGHT * MIDDLE * 2); }
+  string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(WIDTH * SMALL_HEIGHT * MIDDLE * 2));
   cl_program program = compile({getDevice(args.device)}, context, CL_SOURCE, clArgs,
                  {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}});
   if (!program) { throw "OpenCL compilation"; }

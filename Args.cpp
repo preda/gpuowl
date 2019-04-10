@@ -108,13 +108,6 @@ Command line options:
         log("-cpu expects name\n");
         return false;
       }
-    } else if (!strcmp(arg, "-cl")) {
-      if (i < argc - 1) {
-        clArgs = argv[++i];
-      } else {
-        log("-cl expects options string to pass to CL compiler\n");
-        return false;
-      }
     } else if(!strcmp(arg, "-time")) {
       timeKernels = true;
     } else if (!strcmp(arg, "-carry")) {

@@ -14,7 +14,6 @@ private:
 public:
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
-  std::string clArgs;
   std::string user;
   std::string cpu;
   std::string dump;
