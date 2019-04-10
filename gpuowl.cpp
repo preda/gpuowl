@@ -16,12 +16,6 @@ int main(int argc, char **argv) {
   if (!args.parse(argc, argv)) { return -1; }
   if (!args.cpu.empty()) { globalCpuName = args.cpu; }
 
-  {
-    string cmdLine;
-    for (int i = 1; i < argc; ++i) { cmdLine += string(argv[i]) + " "; }
-    log("%s\n", cmdLine.c_str());
-  }
-
   Background background;
 
   int exitCode = 0;

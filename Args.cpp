@@ -6,14 +6,33 @@
 #include "FFTConfig.h"
 
 #include <vector>
+#include <string>
+#include <regex>
 #include <cstring>
 #include <cassert>
 
-bool Args::parse(int argc, char **argv) {
+string mergeArgs(int argc, char **argv) {
+  string ret;
   for (int i = 1; i < argc; ++i) {
-    const char *arg = argv[i];
-    if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
-      printf(R"(
+    ret += argv[i];
+    ret += " ";
+  }
+  return ret;
+}
+
+vector<pair<string, string>> splitArgLine(const string& line) {
+  vector<pair<string, string>> ret;
+  std::regex rx("(-+\\w+)\\s+(\\w*)\\s*([^-]*)");
+  for (std::sregex_iterator it(line.begin(), line.end(), rx); it != std::sregex_iterator(); ++it) {
+    smatch m = *it;
+    if (!m[3].str().empty()) { log("Args: ignored '%s' in '%s'\n", m[3].str().c_str(), m[0].str().c_str()); }
+    ret.push_back(pair(m[1], m[2]));
+  }
+  return ret;
+}
+
+void printHelp() {
+  printf(R"(
 Command line options:
 
 -user <name>       : specify the user name.
@@ -29,122 +48,65 @@ Command line options:
 -device <N>        : select a specific device:
 )");
 
-      vector<cl_device_id> deviceIds = getDeviceIDs();
-      for (unsigned i = 0; i < deviceIds.size(); ++i) { printf("%2u : %s\n", i, getLongInfo(deviceIds[i]).c_str()); }
-      printf("\nFFT Configurations:\n");
-      
-      vector<FFTConfig> configs = FFTConfig::genConfigs();
-      configs.push_back(FFTConfig{}); // dummy guard for the loop below.
-      string variants;
-      u32 activeSize = 0;
-      for (auto c : configs) {
-        if (c.fftSize != activeSize) {
-          if (!variants.empty()) {
-            printf("FFT %5s [%6.2fM - %7.2fM] %s\n",
-                numberK(activeSize).c_str(),
-                activeSize * 1.5 / 1'000'000, FFTConfig::getMaxExp(activeSize) / 1'000'000.0,
-                variants.c_str());
-            variants.clear();
-          }
-        }
-        activeSize = c.fftSize;
-        variants += " "s + FFTConfig::configName(c.width, c.height, c.middle);
+  vector<cl_device_id> deviceIds = getDeviceIDs();
+  for (unsigned i = 0; i < deviceIds.size(); ++i) { printf("%2u : %s\n", i, getLongInfo(deviceIds[i]).c_str()); }
+  printf("\nFFT Configurations:\n");
+  
+  vector<FFTConfig> configs = FFTConfig::genConfigs();
+  configs.push_back(FFTConfig{}); // dummy guard for the loop below.
+  string variants;
+  u32 activeSize = 0;
+  for (auto c : configs) {
+    if (c.fftSize != activeSize) {
+      if (!variants.empty()) {
+        printf("FFT %5s [%6.2fM - %7.2fM] %s\n",
+               numberK(activeSize).c_str(),
+               activeSize * 1.5 / 1'000'000, FFTConfig::getMaxExp(activeSize) / 1'000'000.0,
+               variants.c_str());
+        variants.clear();
       }
-      return false;
-    } else if (!strcmp(arg, "-prp")) {
-      if (i < argc - 1 && argv[i+1][0] != '-') {
-        prpExp = atoi(argv[++i]);
+    }
+    activeSize = c.fftSize;
+    variants += " "s + FFTConfig::configName(c.width, c.height, c.middle);
+  }
+}
+
+bool Args::parse(int argc, char **argv) {
+  string line = mergeArgs(argc, argv);
+  log("Args: %s\n", line.c_str());
+  
+  auto args = splitArgLine(line);
+  for (const auto& [key, s] : args) {
+    // log("'%s' : '%s'\n", k.c_str(), v.c_str());
+
+    if (key == "-h" || key == "--help") { printHelp(); return false; }
+    else if (key == "-prp") { prpExp = stol(s); }
+    else if (key == "-pm1") { pm1Exp = stol(s); }
+    else if (key == "-B1") { B1 = stoi(s); }
+    else if (key == "-rB2") { B2_B1_ratio = stoi(s); }
+    else if (key == "-fft") { fftSize = stoi(s) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1)); }
+    else if (key == "-dump") { dump = s; }
+    else if (key == "-user") { user = s; }
+    else if (key == "-cpu") { cpu = s; }
+    else if (key == "-time") { timeKernels = true; }
+    else if (key == "-device" || key == "-d") { device = stoi(s); }
+    else if (key == "-carry") {
+      if (s == "short" || s == "long") {
+        carry = s == "short" ? CARRY_SHORT : CARRY_LONG;
       } else {
-        log("-prp expects <exponent>\n");
+        log("-carry expects short|long\n");
         return false;
       }
-    } else if (!strcmp(arg, "-pm1")) {
-      if (i < argc - 1 && argv[i+1][0] != '-') {
-        pm1Exp = atoi(argv[++i]);
-      } else {
-        log("-pm1 expects <exponent>\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-B1")) {
-      if (i < argc - 1) {
-        B1 = atoi(argv[++i]);
-      } else {
-        log("-B1 expects <value>\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-rB2")) {
-      if (i < argc - 1) {
-        B2_B1_ratio = atoi(argv[++i]);
-      } else {
-        log("-rB2 expects <value>\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-fft")) {
-      if (i < argc - 1) {
-        string s = argv[++i];
-        fftSize = stoi(s) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1));
-      } else {
-        log("-fft expects <size>\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-dump")) {
-      if (i < argc - 1 && argv[i + 1][0] != '-') {
-        dump = argv[++i];
-      } else {
-        log("-dump expects name");
-        return false;
-      }
-    } else if (!strcmp(arg, "-user")) {
-      if (i < argc - 1) {
-        user = argv[++i];
-      } else {
-        log("-user expects name\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-cpu")) {
-      if (i < argc - 1) {
-        cpu = argv[++i];
-      } else {
-        log("-cpu expects name\n");
-        return false;
-      }
-    } else if(!strcmp(arg, "-time")) {
-      timeKernels = true;
-    } else if (!strcmp(arg, "-carry")) {
-      if (i < argc - 1) {
-        std::string s = argv[++i];
-        if (s == "short" || s == "long") {
-          carry = s == "short" ? CARRY_SHORT : CARRY_LONG;
-          continue;
-        }
-      }
-      log("-carry expects short|long\n");
-      return false;
-    } else if (!strcmp(arg, "-block")) {
-      if (i < argc - 1) {
-        blockSize = atoi(argv[++i]);
-        assert(blockSize > 0);
-        if (10000 % blockSize) {
-          log("Invalid blockSize %u, must divide 10000\n", blockSize);
-          return false;
-        }
-        continue;
-      } else {
-        log("-block expects <value>\n");
-        return false;
-      }
-    } else if (!strcmp(arg, "-device") || !strcmp(arg, "-d")) {
-      if (i < argc - 1) {
-        device = atoi(argv[++i]);
-      } else {
-        log("-device expects <N> argument\n");
+    } else if (key == "-block") {
+      blockSize = stoi(s);
+      if (blockSize <= 0 || 10000 % blockSize) {
+        log("Invalid blockSize %u, must divide 10000\n", blockSize);
         return false;
       }
     } else {
-      log("Argument '%s' not understood\n", arg);
+      log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       return false;
     }
   }
-  
   return true;
 }
