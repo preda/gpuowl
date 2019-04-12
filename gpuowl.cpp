@@ -5,22 +5,43 @@
 #include "Background.h"
 #include "Worktodo.h"
 #include "common.h"
+#include "file.h"
+
+#include <cstdio>
+#include <filesystem>
 
 extern string globalCpuName;
 
-int main(int argc, char **argv) {  
-  initLog("gpuowl.log");
+using namespace std::filesystem;
+
+int main(int argc, char **argv) {
+  initLog();
   log("%s %s\n", PROGRAM, VERSION);
   
-  Args args;
-  if (!args.parse(argc, argv)) { return -1; }
-  if (!args.cpu.empty()) { globalCpuName = args.cpu; }
-
   Background background;
 
   int exitCode = 0;
   
   try {
+    Args args;
+    args.parse(argc, argv);
+    if (!args.dir.empty()) {
+      path p = absolute(args.dir);
+      log("%s\n", string(p).c_str());
+      // current_path(p);
+    }
+    initLog("gpuowl.log");
+    log("Working directory: '%s'\n", string(current_path()).c_str());
+    
+    if (auto file = openRead("config.txt")) {
+      char line[256];
+      while (fgets(line, sizeof(line), file.get())) { args.parse(line); }
+    } else {
+      log("Note: no config.txt file found\n");
+    }
+    if (!args.cpu.empty()) { globalCpuName = args.cpu; }
+    args.parse(argc, argv);
+    
     if (args.prpExp) {
       Worktodo::makePRP(args, args.prpExp).execute(args, background);      
     } else if (args.pm1Exp) {
@@ -35,8 +56,6 @@ int main(int argc, char **argv) {
     log("Exiting because \"%s\"\n", mes);
   }
 
-  background.wait();
-  
   log("Bye\n");
   return exitCode; // not used yet.
 }

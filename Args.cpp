@@ -22,11 +22,15 @@ string mergeArgs(int argc, char **argv) {
 
 vector<pair<string, string>> splitArgLine(const string& line) {
   vector<pair<string, string>> ret;
-  std::regex rx("(-+\\w+)\\s+(\\w*)\\s*([^-]*)");
+  std::regex rx("\\s*(-+\\w+)\\s+([^-]\\S*)\\s*([^-]*)");
   for (std::sregex_iterator it(line.begin(), line.end(), rx); it != std::sregex_iterator(); ++it) {
     smatch m = *it;
-    if (!m[3].str().empty()) { log("Args: ignored '%s' in '%s'\n", m[3].str().c_str(), m[0].str().c_str()); }
-    ret.push_back(pair(m[1], m[2]));
+    string prefix = m.prefix().str();
+    string suffix = m.str(3);
+    if (!prefix.empty()) { log("Args: unexpected '%s' before '%s'\n", prefix.c_str(), m.str(0).c_str()); }
+    if (!suffix.empty()) { log("Args: unexpected '%s' in '%s'\n", suffix.c_str(), m.str(0).c_str()); }
+    if (!prefix.empty() || !suffix.empty()) { throw "Wrong argument syntax"; }
+    ret.push_back(pair(m.str(1), m.str(2)));
   }
   return ret;
 }
@@ -35,6 +39,7 @@ void printHelp() {
   printf(R"(
 Command line options:
 
+-dir <folder>      : specify work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
 -user <name>       : specify the user name.
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
@@ -71,15 +76,14 @@ Command line options:
   }
 }
 
-bool Args::parse(int argc, char **argv) {
-  string line = mergeArgs(argc, argv);
-  log("Args: %s\n", line.c_str());
+void Args::parse(const string& line) {
+  log("config: %s\n", line.c_str());
   
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
     // log("'%s' : '%s'\n", k.c_str(), v.c_str());
 
-    if (key == "-h" || key == "--help") { printHelp(); return false; }
+    if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
     else if (key == "-prp") { prpExp = stol(s); }
     else if (key == "-pm1") { pm1Exp = stol(s); }
     else if (key == "-B1") { B1 = stoi(s); }
@@ -90,23 +94,25 @@ bool Args::parse(int argc, char **argv) {
     else if (key == "-cpu") { cpu = s; }
     else if (key == "-time") { timeKernels = true; }
     else if (key == "-device" || key == "-d") { device = stoi(s); }
+    else if (key == "-dir") { dir = s; }
     else if (key == "-carry") {
       if (s == "short" || s == "long") {
         carry = s == "short" ? CARRY_SHORT : CARRY_LONG;
       } else {
         log("-carry expects short|long\n");
-        return false;
+        throw "-carry expects short|long";
       }
     } else if (key == "-block") {
       blockSize = stoi(s);
       if (blockSize <= 0 || 10000 % blockSize) {
         log("Invalid blockSize %u, must divide 10000\n", blockSize);
-        return false;
+        throw "-block size";
       }
     } else {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
-      return false;
+      throw "args";
     }
   }
-  return true;
 }
+
+void Args::parse(int argc, char **argv) { parse(mergeArgs(argc, argv)); }

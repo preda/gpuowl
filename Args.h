@@ -9,14 +9,16 @@
 #include <vector>
 
 class Args {
-private:
-  
 public:
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
-  std::string user;
-  std::string cpu;
-  std::string dump;
+  void parse(const string& line);
+  void parse(int argc, char **argv);
+  
+  string user;
+  string cpu;
+  string dump;
+  string dir;
   
   int device = -1;
   bool timeKernels = false;
@@ -29,6 +31,4 @@ public:
 
   u32 prpExp = 0;
   u32 pm1Exp = 0;
-
-  bool parse(int argc, char **argv);
 };

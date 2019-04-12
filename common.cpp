@@ -23,8 +23,9 @@ unique_ptr<FILE> openRead(const string &name, bool doLog) { return open(name, "r
 unique_ptr<FILE> openWrite(const string &name) { return open(name, "wb", true); }
 unique_ptr<FILE> openAppend(const string &name) { return open(name, "ab", true); }
 
+void initLog() { logFiles.push_back(unique_ptr<FILE>(stdout)); }
+
 void initLog(const char *logName) {
-  logFiles.push_back(std::unique_ptr<FILE>(stdout));
   if (auto fo = openAppend(logName)) {
 #if defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
     setlinebuf(fo.get());

@@ -156,7 +156,7 @@ Context createContext(cl_device_id id) {
   int err;
   Context context(clCreateContext(NULL, 1, &id, NULL, NULL, &err));
   CHECK2(err, "clCreateContext");
-  return move(context);
+  return context;
 }
 
 

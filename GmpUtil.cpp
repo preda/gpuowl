@@ -36,7 +36,7 @@ std::string GCD(u32 exp, const std::vector<u32> &bits, u32 sub) {
   
   if (mpz_cmp_ui(m, 1)) {
     char *buf = mpz_get_str(nullptr, 10, m);
-    string ret = buf;
+    ret = buf;
     free(buf);
   }
   
