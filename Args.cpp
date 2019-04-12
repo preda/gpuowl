@@ -22,7 +22,7 @@ string mergeArgs(int argc, char **argv) {
 
 vector<pair<string, string>> splitArgLine(const string& line) {
   vector<pair<string, string>> ret;
-  std::regex rx("\\s*(-+\\w+)\\s+([^-]\\S*)\\s*([^-]*)");
+  std::regex rx("\\s*(-+\\w+)\\s*([^-]\\S*)\\s*([^-]*)");
   for (std::sregex_iterator it(line.begin(), line.end(), rx); it != std::sregex_iterator(); ++it) {
     smatch m = *it;
     string prefix = m.prefix().str();
