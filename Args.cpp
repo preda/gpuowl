@@ -76,7 +76,8 @@ Command line options:
   }
 }
 
-void Args::parse(const string& line) {
+void Args::parse(string line) {
+  while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) { line.pop_back(); }
   log("config: %s\n", line.c_str());
   
   auto args = splitArgLine(line);

@@ -12,7 +12,7 @@ class Args {
 public:
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
-  void parse(const string& line);
+  void parse(string line);
   void parse(int argc, char **argv);
   
   string user;
