@@ -32,12 +32,14 @@ std::string GCD(u32 exp, const std::vector<u32> &bits, u32 sub) {
     
   mpz_clear(b);
 
-  if (mpz_cmp_ui(m, 1) == 0) { return ""; }
-
-  char *buf = mpz_get_str(nullptr, 10, m);
-  string ret = buf;
-  free(buf);
-
+  string ret = "";
+  
+  if (mpz_cmp_ui(m, 1)) {
+    char *buf = mpz_get_str(nullptr, 10, m);
+    string ret = buf;
+    free(buf);
+  }
+  
   mpz_clear(m);
   return ret;
 }

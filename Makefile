@@ -5,5 +5,7 @@ SRCS = Pm1Plan.cpp GmpUtil.cpp Worktodo.cpp common.cpp gpuowl.cpp Gpu.cpp clwrap
 # The included lib paths are for ROCm, AMDGPU-pro/Linux or MSYS-2/Windows.
 LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L/c/Windows/System32 -L.
 
+#-fsanitize=leak
+
 openowl: ${HEADERS} ${SRCS}
 	g++ -std=c++17 -O2 -DREV=\"`git rev-parse --short HEAD``git diff-files --quiet || echo -mod`\" -Wall ${SRCS} -o openowl -lOpenCL -lgmp -pthread ${LIBPATH}
