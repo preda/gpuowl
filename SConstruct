@@ -1,9 +1,8 @@
-# GCC 8.3.0 on Ubuntu 19.04 crashes on filesystem::path
-DefaultEnvironment(CXX='g++-9')
+#DefaultEnvironment(CXX='g++-9')
 
 srcs = 'Pm1Plan.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.cpp gpuowl.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp'.split()
 
-AlwaysBuild(Command('version.inc', [], 'echo \\"`git describe --long --dirty`\\" > $TARGETS'))
+AlwaysBuild(Command('version.inc', [], 'echo \\"`git describe --long --dirty --always`\\" > $TARGETS'))
 
 LIBPATH=['/opt/rocm/opencl/lib/x86_64']
 

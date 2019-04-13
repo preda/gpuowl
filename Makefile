@@ -1,4 +1,5 @@
 HEADERS = Background.h Pm1Plan.h GmpUtil.h Args.h checkpoint.h clwrap.h common.h kernel.h state.h timeutil.h tinycl.h Worktodo.h Gpu.h Signal.h FFTConfig.h
+
 SRCS = Pm1Plan.cpp GmpUtil.cpp Worktodo.cpp common.cpp gpuowl.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp
 
 # Edit the path in -L below if needed, to the folder containing OpenCL.dll on Windows or libOpenCL.so on UNIX.
@@ -7,7 +8,17 @@ LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -
 
 #-fsanitize=leak
 
-openowl: ${HEADERS} ${SRCS}
-	echo \"`git describe --long --dirty`\" > version.inc
+BUILD = g++ -Wall -O2 -std=c++17 -Wall ${SRCS} -o $@ -lOpenCL -lgmp -lstdc++fs -pthread ${LIBPATH}
+
+gpuowl: ${HEADERS} ${SRCS} version.inc
+	${BUILD}
+
+gpuowl-win: ${HEADERS} ${SRCS} version.inc
+	${BUILD} -static
+	strip $@
+
+version.inc: FORCE
+	echo \"`git describe --long --dirty --always`\" > version.inc
 	echo Version: `cat version.inc`
-	g++ -Wall -O2 -std=c++17 -Wall ${SRCS} -o gpuowl -lOpenCL -lgmp -lstdc++fs -pthread ${LIBPATH}
+
+FORCE:
