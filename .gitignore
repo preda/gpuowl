@@ -1,4 +1,5 @@
-openowl
+gpuowl
+version.inc
 gpuowl.log
 *.owl
 *.bak

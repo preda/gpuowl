@@ -8,4 +8,6 @@ LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -
 #-fsanitize=leak
 
 openowl: ${HEADERS} ${SRCS}
-	g++ -Wall -O2 -std=c++17 -DREV=\"`git rev-parse --short HEAD``git diff-files --quiet || echo -mod`\" -Wall ${SRCS} -o openowl -lOpenCL -lgmp -pthread ${LIBPATH}
+	echo \"`git describe --long`\" > version.inc
+	echo Version: `cat version.inc`
+	g++ -Wall -O2 -std=c++17 -Wall ${SRCS} -o gpuowl -lOpenCL -lgmp -pthread ${LIBPATH}

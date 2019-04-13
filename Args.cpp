@@ -22,14 +22,15 @@ string mergeArgs(int argc, char **argv) {
 
 vector<pair<string, string>> splitArgLine(const string& line) {
   vector<pair<string, string>> ret;
-  std::regex rx("\\s*(-+\\w+)\\s*([^-]\\S*)\\s*([^-]*)");
+  std::regex rx("\\s*(-+\\w+)\\s+([^-]\\S*)?\\s*([^-]*)");
   for (std::sregex_iterator it(line.begin(), line.end(), rx); it != std::sregex_iterator(); ++it) {
     smatch m = *it;
+    // printf("'%s' '%s' '%s'\n", m.str(1).c_str(), m.str(2).c_str(), m.str(3).c_str());
     string prefix = m.prefix().str();
     string suffix = m.str(3);
     if (!prefix.empty()) { log("Args: unexpected '%s' before '%s'\n", prefix.c_str(), m.str(0).c_str()); }
     if (!suffix.empty()) { log("Args: unexpected '%s' in '%s'\n", suffix.c_str(), m.str(0).c_str()); }
-    if (!prefix.empty() || !suffix.empty()) { throw "Wrong argument syntax"; }
+    if (!prefix.empty() || !suffix.empty()) { throw "Argument syntax"; }
     ret.push_back(pair(m.str(1), m.str(2)));
   }
   return ret;
