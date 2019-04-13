@@ -1,12 +1,10 @@
-// GpuOwL, a Mersenne primality tester. Copyright (C) 2017-2018 Mihai Preda.
+// Copyright Mihai Preda.
 
 #pragma once
 
 #include "common.h"
-#include "clwrap.h"
 
 #include <string>
-#include <vector>
 
 class Args {
 public:

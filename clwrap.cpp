@@ -142,12 +142,6 @@ cl_device_id getDevice(int argsDevId) {
   return device;
 }
 
-vector<cl_device_id> toDeviceIds(const vector<u32> &devices) {
-  vector<cl_device_id> ids;
-  for (u32 d : devices) { ids.push_back(getDevice(d)); }
-  return ids;
-}
-
 Context createContext(int device) {  
   return createContext(getDevice(device));
 }

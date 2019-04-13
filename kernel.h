@@ -1,3 +1,5 @@
+// Copyright Mihai Preda.
+
 #pragma once
 
 #include "clwrap.h"
@@ -5,8 +7,6 @@
 #include "common.h"
 
 #include <string>
-#include <vector>
-#include <memory>
 
 struct TimeInfo {
   double total = 0;

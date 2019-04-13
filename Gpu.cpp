@@ -700,14 +700,6 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   for (u32 round = 0; round < nRounds; ++round) {
     timer.deltaSecs();
 
-#if SLOW
-    static_assert(false);
-    for (u32 i = 0; i < nBufs; ++i) {
-      u32 j = jset[round * nBufs + i];
-      exponentiate(bufBase, j * j, bufTmp, blockBufs[i]);
-    }
-
-#else
     exponentiate(bufBase, 8, bufTmp, bufA);    
     {
       u32 j0 = jset[round * nBufs + 0];
@@ -724,7 +716,6 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       }
       queue.copy<double>(bufC, blockBufs[i], N);
     }
-#endif
 
     exponentiate(bufBaseD2, 2, bufTmp, bufA);                            // A := base^(2 * D^2)
     exponentiate(bufBaseD2, 2 * startBlock + 1, bufTmp, bufB);           // B := base^((2k + 1) * D^2)
@@ -777,11 +768,4 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   }
   
   return data;
-  
-  /*
-  string gcd = GCD(E, data, 0);
-  log("%u P-1 stage2 final GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-  if (!gcd.empty()) { return gcd; }
-  return "";
-  */
 }

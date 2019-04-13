@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2018 Mihai Preda.
+// Copyright Mihai Preda.
 
 #pragma once
 
@@ -35,8 +35,6 @@ const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 bool check(int err, const char *mes = nullptr);
 #define CHECK(what) assert(check(what));
-
-vector<cl_device_id> toDeviceIds(const vector<u32> &devices);
 
 vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
 string getHwName(cl_device_id id);

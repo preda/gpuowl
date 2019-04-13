@@ -1,4 +1,4 @@
-// GpuOwL, a Mersenne primality tester. Copyright (C) Mihai Preda.
+// Copyright Mihai Preda.
 
 #include "Args.h"
 #include "file.h"

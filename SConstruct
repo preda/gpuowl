@@ -7,4 +7,4 @@ AlwaysBuild(Command('version.inc', [], 'echo \\"`git describe --long --dirty`\\"
 
 LIBPATH=['/opt/rocm/opencl/lib/x86_64']
 
-Program('gpuowl', srcs, LIBPATH=LIBPATH, LIBS=['amdocl64', 'gmp'], parse_flags='-std=c++17 -O2 -Wall -pthread')
+Program('gpuowl', srcs, LIBPATH=LIBPATH, LIBS=['amdocl64', 'gmp', 'stdc++fs'], parse_flags='-std=c++17 -O2 -Wall -pthread')

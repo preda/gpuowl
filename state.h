@@ -1,9 +1,9 @@
 // Copyright 2017 Mihai Preda.
 
+#pragma once
+
 #include "common.h"
 #include <vector>
-
-#pragma once
 
 vector<u32> compactBits(const vector<int> &dataVect, int E);
 vector<int> expandBits(const vector<u32> &compactBits, int N, int E);

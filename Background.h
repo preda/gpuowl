@@ -20,7 +20,7 @@ public:
 
   void wait() {
     if (thread.joinable()) {
-      log("waiting for background tasks..");
+      // log("waiting for background tasks..\n");
       thread.join();
     }
   }
