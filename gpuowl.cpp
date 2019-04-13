@@ -25,12 +25,9 @@ int main(int argc, char **argv) {
   try {
     Args args;
     args.parse(argc, argv);
-    if (!args.dir.empty()) {
-      path p = absolute(args.dir);
-      current_path(p);
-    }
+    if (!args.dir.empty()) { current_path(args.dir); }
     initLog("gpuowl.log");
-    log("Working directory: %s\n", string(current_path()).c_str());
+    // log("Working directory: %s\n", string(current_path()).c_str());
     
     if (auto file = openRead("config.txt")) {
       char line[256];
