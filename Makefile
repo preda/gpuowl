@@ -10,4 +10,4 @@ LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -
 openowl: ${HEADERS} ${SRCS}
 	echo \"`git describe --long`\" > version.inc
 	echo Version: `cat version.inc`
-	g++ -Wall -O2 -std=c++17 -Wall ${SRCS} -o gpuowl -lOpenCL -lgmp -pthread ${LIBPATH}
+	g++ -Wall -O2 -std=c++17 -Wall ${SRCS} -o gpuowl -lOpenCL -lgmp -lstdc++fs -pthread ${LIBPATH}
