@@ -17,7 +17,9 @@ Task Worktodo::makePRP(Args& args, u32 exponent) {
 
 static Task makePM1(Args& args, u32 exponent, const string& AID = "", const string& line = "", u32 B1 = 0, u32 B2 = 0) {
   if (B1 == 0) { B1 = args.B1; }
-  if (B2 == 0) { B2 = B1 * args.B2_B1_ratio; }
+  if (B2 == 0) {
+    B2 = args.B2 ? args.B2 : (B1 * args.B2_B1_ratio);
+  }
   return Task{Task::PM1, exponent, AID, line, B1, B2};
 }
 

@@ -47,8 +47,9 @@ Command line options:
 -fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
 -block <value>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
--B1                : P-1 B1, default 500000
--rB2               : ratio of B2 to B1, default 30
+-B1                : P-1 B1 bound, default 500000
+-B2                : P-1 B2 bound, default B1 * 30
+-rB2               : ratio of B2 to B1, default 30, used only if B2 is not explicitly set
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -device <N>        : select a specific device:
@@ -89,6 +90,7 @@ void Args::parse(string line) {
     else if (key == "-prp") { prpExp = stol(s); }
     else if (key == "-pm1") { pm1Exp = stol(s); }
     else if (key == "-B1") { B1 = stoi(s); }
+    else if (key == "-B2") { B2 = stoi(s); }
     else if (key == "-rB2") { B2_B1_ratio = stoi(s); }
     else if (key == "-fft") { fftSize = stoi(s) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1)); }
     else if (key == "-dump") { dump = s; }
