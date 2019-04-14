@@ -89,7 +89,7 @@ public:
         u32 a = block * D + j;
         u32 b = block * D - j;
         bool onA = a <= B2 && bits[a];
-        bool onB = b <= B2 && b > 0 && bits[b];
+        bool onB = b <= B2 && bits[b];
         if (cond(onA, onB)) {
           blockBits[pos] = true;
           if (onA) { set(a, false); }
@@ -119,6 +119,12 @@ static u32 countSum(const vector<bitset<2880>>& v) {
 }
 
 tuple<u32, u32, vector<bitset<2880>>> makePm1Plan(u32 B1, u32 B2) {
+  // poor man's cache
+  static u32 cacheB1 = 0, cacheB2 = 0;
+  static tuple<u32, u32, vector<bitset<2880>>> cachePlan;
+
+  if (B1 == cacheB1 && B2 == cacheB2) { return cachePlan; }
+  
   PrimeBits bits(B1, B2);
   u32 nPrimes = bits.size();
   bits.expand();
@@ -145,5 +151,8 @@ tuple<u32, u32, vector<bitset<2880>>> makePm1Plan(u32 B1, u32 B2) {
 
   u32 beginBlock = blockFor(B1);
 
-  return {beginBlock, total, selected};
+  cachePlan = {beginBlock, total, selected};
+  cacheB1 = B1;
+  cacheB2 = B2;
+  return cachePlan;
 };
