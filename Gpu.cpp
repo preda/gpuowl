@@ -692,7 +692,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   vector<Buffer> blockBufs;
   for (u32 i = 0; i < nBufs; ++i) { blockBufs.emplace_back(makeBuf(context, BUF_RW, bufSize)); }
 
-  vector<u32> jset = getJset();
+  auto jset = getJset();
 
   Buffer bufBaseD2(makeBuf(context, BUF_RW, bufSize));
   exponentiate(bufBase, 30030*30030, bufTmp, bufBaseD2);
