@@ -8,10 +8,11 @@
 
 class Args {
 public:
+  static std::string mergeArgs(int argc, char **argv);
+
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
   void parse(string line);
-  void parse(int argc, char **argv);
   
   string user;
   string cpu;

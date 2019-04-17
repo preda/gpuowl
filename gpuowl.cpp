@@ -24,19 +24,29 @@ int main(int argc, char **argv) {
   
   try {
     Args args;
-    args.parse(argc, argv);
+    string mainLine = Args::mergeArgs(argc, argv);
+    args.parse(mainLine);
     if (!args.dir.empty()) { current_path(args.dir); }
     initLog("gpuowl.log");
     // log("Working directory: %s\n", string(current_path()).c_str());
     
     if (auto file = openRead("config.txt")) {
-      char line[256];
-      while (fgets(line, sizeof(line), file.get())) { args.parse(line); }
+      char buf[256];
+      while (fgets(buf, sizeof(buf), file.get())) {
+        string line = buf;
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) { line.pop_back(); }
+        log("config: %s\n", line.c_str());
+        args.parse(line);
+      }
     } else {
       log("Note: no config.txt file found\n");
     }
     if (!args.cpu.empty()) { globalCpuName = args.cpu; }
-    args.parse(argc, argv);
+    if (!mainLine.empty()) {
+      log("config: %s\n", mainLine.c_str());
+      args.parse(mainLine);
+    }
+
     
     if (args.prpExp) {
       Worktodo::makePRP(args, args.prpExp).execute(args, background);      

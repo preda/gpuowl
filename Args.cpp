@@ -11,7 +11,7 @@
 #include <cstring>
 #include <cassert>
 
-string mergeArgs(int argc, char **argv) {
+string Args::mergeArgs(int argc, char **argv) {
   string ret;
   for (int i = 1; i < argc; ++i) {
     ret += argv[i];
@@ -78,10 +78,7 @@ Command line options:
   }
 }
 
-void Args::parse(string line) {
-  while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) { line.pop_back(); }
-  log("config: %s\n", line.c_str());
-  
+void Args::parse(string line) {  
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
     // log("'%s' : '%s'\n", k.c_str(), v.c_str());
@@ -118,5 +115,3 @@ void Args::parse(string line) {
     }
   }
 }
-
-void Args::parse(int argc, char **argv) { parse(mergeArgs(argc, argv)); }
