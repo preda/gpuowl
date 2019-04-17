@@ -84,6 +84,7 @@ void Args::parse(string line) {
     // log("'%s' : '%s'\n", k.c_str(), v.c_str());
 
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
+    else if (key == "-maxBufs") { maxBuffers = stoi(s); }
     else if (key == "-prp") { prpExp = stol(s); }
     else if (key == "-pm1") { pm1Exp = stol(s); }
     else if (key == "-B1") { B1 = stoi(s); }

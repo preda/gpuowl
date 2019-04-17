@@ -31,4 +31,6 @@ public:
 
   u32 prpExp = 0;
   u32 pm1Exp = 0;
+
+  u32 maxBuffers = 0;
 };

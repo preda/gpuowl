@@ -605,13 +605,15 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   Buffer bufTmp(makeBuf(context, BUF_RW, bufSize));
   Buffer bufAux(makeBuf(context, BUF_RW, bufSize));
 
-  u32 nBufs = 0;
-  {
+  u32 maxBuffers = args.maxBuffers;
+
+  if (!maxBuffers) {
     u32 nStage2Buffers = 5;
-    u32 maxBuffers = getAllocableBlocks(device, bufSize) - nStage2Buffers;
-    nBufs = getNBuffers(maxBuffers);
-    log("%u P-1 GPU RAM fits %u stage2 buffers @ %.1f MB each, using %u\n", E, maxBuffers, bufSize/(1024.0f * 1024), nBufs);
+    maxBuffers = getAllocableBlocks(device, bufSize) - nStage2Buffers;
+    log("%u P-1 GPU RAM fits %u stage2 buffers @ %.1f MB each\n", E, maxBuffers, bufSize/(1024.0f * 1024));
   }
+
+  u32 nBufs = getNBuffers(maxBuffers);
   
   if (nBufs == 0) {
     log("%u P-1 stage2 not enough GPU RAM\n", E);
