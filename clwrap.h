@@ -38,9 +38,6 @@ bool check(int err, const std::string& mes = ""s);
 #define CHECK(what) assert(check(what));
 #define CHECK2(what, mes) assert(check(what, mes));
 
-
-#define CHECK(what) assert(check(what));
-
 vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
 string getHwName(cl_device_id id);
 string getShortInfo(cl_device_id device);
