@@ -113,6 +113,7 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 -block \<value\>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.\
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.\
 -B1                : P-1 B1, default 500000\
+-B2                : P-1 B2 bound, default B1 * 30\
 -rB2               : ratio of B2 to B1, default 30\
 -device \<N\>        : select a specific device:\
   \
