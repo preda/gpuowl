@@ -172,12 +172,6 @@ static cl_program loadSource(cl_context context, const string &source) {
   return program;
 }
 
-#if 0
-static cl_program loadStub(cl_context context, const string &name) {
-  return loadSource(context, string("#include \"") + name + ".cl\"\n");
-}
-#endif
-
 static bool build(cl_program program, const vector<cl_device_id> &devices, const string &args) {
   Timer timer;
   int err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);

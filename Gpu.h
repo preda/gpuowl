@@ -65,9 +65,6 @@ class Gpu {
   Buffer bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
   Buffer bufCheck;  // Buffers used with the error check.
   
-  // "work temporary buffers". These are "big buffers": N x double.
-  // Buffer buf1, buf2, buf3;
-
   // Carry buffers, used in carry and fusedCarry.
   Buffer bufCarry;  // Carry shuttle.
   Buffer bufReady;  // Per-group ready flag for starway carry propagation.
