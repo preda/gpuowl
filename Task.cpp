@@ -11,10 +11,10 @@
 #include <thread>
 
 static bool writeResult(const string &part, u32 E, const char *workType, const string &status,
-                        const std::string &AID, const std::string &user, const std::string &cpu) {
+                        const std::string &AID, const Args &args) { // const std::string &user, const std::string &cpu) {
   std::string uid;
-  if (!user.empty()) { uid += ", \"user\":\"" + user + '"'; }
-  if (!cpu.empty())  { uid += ", \"computer\":\"" + cpu + '"'; }
+  if (!args.user.empty()) { uid += ", \"user\":\"" + args.user + '"'; }
+  if (!args.cpu.empty())  { uid += ", \"computer\":\"" + args.cpu + '"'; }
   std::string aidJson = AID.empty() ? "" : ", \"aid\":\"" + AID + '"';
   
   char buf[512];
@@ -23,7 +23,7 @@ static bool writeResult(const string &part, u32 E, const char *workType, const s
            E, workType, status.c_str(), PROGRAM, VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part.c_str());
   
   log("%s\n", buf);
-  auto fo = openAppend("results.txt");
+  auto fo = openAppend(args.resultsFile);
   if (!fo) { return false; }
 
   fprintf(fo.get(), "%s\n", buf);
@@ -45,7 +45,7 @@ bool Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
 
   string status = isPrime ? "P" : "C";
   return writeResult(fftStr(fftSize) + resStr(res64) + ", \"residue-type\":4",
-                     exponent, "PRP-3", status, AID, args.user, args.cpu);
+                     exponent, "PRP-3", status, AID, args);
 }
 
 bool Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) const {
@@ -53,7 +53,7 @@ bool Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) c
   string bounds = ", \"B1\":"s + to_string(B1) + ", \"B2\":"s + to_string(B2);
 
   return writeResult(fftStr(fftSize) + bounds + factorStr(factor),
-                     exponent, "PM1", status, AID, args.user, args.cpu);
+                     exponent, "PM1", status, AID, args);
 }
 
 bool Task::execute(const Args& args, Background& background) {

@@ -18,6 +18,7 @@ public:
   string cpu;
   string dump;
   string dir;
+  string resultsFile = "results.txt";
   
   int device = -1;
   bool timeKernels = false;

@@ -52,6 +52,7 @@ Command line options:
 -rB2               : ratio of B2 to B1, default 30, used only if B2 is not explicitly set
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
+-results <file>    : name of results file, default 'results.txt'
 -device <N>        : select a specific device:
 )");
 
@@ -84,6 +85,7 @@ void Args::parse(string line) {
     // log("'%s' : '%s'\n", k.c_str(), v.c_str());
 
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
+    else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxBufs") { maxBuffers = stoi(s); }
     else if (key == "-prp") { prpExp = stol(s); }
     else if (key == "-pm1") { pm1Exp = stol(s); }

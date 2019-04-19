@@ -62,6 +62,7 @@ int main(int argc, char **argv) {
     log("Exiting because \"%s\"\n", mes);
   }
 
+  background.wait();
   log("Bye\n");
   return exitCode; // not used yet.
 }
