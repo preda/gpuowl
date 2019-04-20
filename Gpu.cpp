@@ -599,7 +599,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   assert(B1 && B2 && B2 > B1);
   
   vector<bool> bits = powerSmoothBitsRev(E, B1);
-  log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
+  // log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
 
   // Buffers used in both stages.
   Buffer bufTmp(makeBuf(context, BUF_RW, bufSize));
