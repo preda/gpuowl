@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cmath>
 #include <thread>
+#include <cassert>
 
 static bool writeResult(const string &part, u32 E, const char *workType, const string &status,
                         const std::string &AID, const Args &args) { // const std::string &user, const std::string &cpu) {

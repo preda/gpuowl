@@ -469,12 +469,11 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer& buf1, Buffer& buf2, Buffe
   bool ok = (res64 == loaded.res64);
   updateCheck(buf1, buf2, buf3);
   if (!ok) {
-    #ifdef __MINGW64__
-      log("%u EE loaded: %d, blockSize %d, %016I64x (expected %016I64x)\n",
-    #else
-      log("%u EE loaded: %d, blockSize %d, %016llx (expected %016llxx)\n",
-    #endif
-        E, loaded.k, loaded.blockSize, res64, loaded.res64);
+#ifdef __MINGW64__
+    log("%u EE loaded: %d, blockSize %d, %016I64x (expected %016I64x)\n", E, loaded.k, loaded.blockSize, res64, loaded.res64);
+#else
+    log("%u EE loaded: %d, blockSize %d, %016llx (expected %016llxx)\n",  E, loaded.k, loaded.blockSize, res64, loaded.res64);
+#endif          
     throw "error on load";
   }
 
@@ -519,11 +518,11 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
       auto words = this->roundtripData();
       finalRes64 = residue(words);
       isPrime = equalMinus3(words);
-      #ifdef __MINGW64__
-        log("%s %8d / %d, %016I64x\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
-      #else
-        log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
-      #endif
+#ifdef __MINGW64__
+      log("%s %8d / %d, %016I64x\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
+#else
+      log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
+#endif
 
       // Scream if ever [again] we get residue 0xfffffffffffffffc and !isprime, likely indicating a bug and a missed prime.
       assert(finalRes64 != u64(-3) || isPrime);
@@ -594,6 +593,13 @@ static u32 getNBuffers(u32 maxBuffers) {
   }
   return nBufs;
 }
+
+
+/*
+Buffer allocBuf(cl_device_id device, size_t size) {
+  if (getFreeMem(device) < size) { throw gpu_bad_alloc(); }
+}
+*/
 
 std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 > B1);
@@ -684,7 +690,6 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   
   Buffer bufB(makeBuf(context, BUF_RW, bufSize));
   Buffer bufC(makeBuf(context, BUF_RW, bufSize));
-  // queue.copy<double>(bufBase, bufC, N);
 
   if (getFreeMem(device) < u64(nBufs) * bufSize) {
     log("P-1 stage2 too little memory %u MB for %u buffers of %u b\n", u32(getFreeMem(device) / (1024 * 1024)), nBufs, bufSize);

@@ -34,23 +34,48 @@ array<string, 71> ERR_MES = {
 "INVALID_DEVICE_QUEUE"
 };
 
-bool check(int err, const string& mes) {
-  if (err != CL_SUCCESS) {
-    string errStr = (err <= 0 && err >= -70) ? ERR_MES[-err] : ""s;
-    log("CL error %s (%d) %s\n", errStr.c_str(), err, mes.c_str());
+static string errMes(int err) {
+  return (err <= 0 && err >= -70) ? ERR_MES[-err] : ""s;
+}
+
+class gpu_error : public std::runtime_error {
+public:
+  const int err;
+  
+  gpu_error(int err, const string& mes) : runtime_error(errMes(err) + " " + mes), err(err) {}
+
+  gpu_error(int err, const char *file, int line, const char *func, const string& mes)
+    : gpu_error(err, mes + " at " + file + ":" + to_string(line) + " " + func) {
   }
-  return (err == CL_SUCCESS);
+};
+
+class gpu_bad_alloc : public std::bad_alloc {
+  string w;
+  
+public:
+  gpu_bad_alloc(const string& w) : w(w) {}
+  gpu_bad_alloc(size_t size) : gpu_bad_alloc("GPU size "s + to_string(size)) {}
+
+  const char *what() const noexcept override { return w.c_str(); }
+};
+
+void check(int err, const char *file, int line, const char *func, const string& mes) {  
+  if (err != CL_SUCCESS) {
+    // log("CL error %s (%d) %s\n", errMes(err).c_str(), err, mes.c_str());
+    throw gpu_error(err, file, line, func, mes);
+  }
 }
 
 vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
   cl_platform_id platforms[16];
   int nPlatforms = 0;
-  CHECK(clGetPlatformIDs(16, platforms, (unsigned *) &nPlatforms));
+  CHECK1(clGetPlatformIDs(16, platforms, (unsigned *) &nPlatforms));
   vector<cl_device_id> ret;
   cl_device_id devices[64];
   for (int i = 0; i < nPlatforms; ++i) {
     unsigned n = 0;
-    CHECK(clGetDeviceIDs(platforms[i], onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL, 64, devices, &n));
+    auto kind = onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL;
+    CHECK1(clGetDeviceIDs(platforms[i], kind, 64, devices, &n));
     for (unsigned k = 0; k < n; ++k) { ret.push_back(devices[k]); }
   }
   return ret;
@@ -59,18 +84,18 @@ vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
 int getNumberOfDevices() {
   cl_platform_id platforms[8];
   unsigned nPlatforms;
-  CHECK(clGetPlatformIDs(8, platforms, &nPlatforms));
+  CHECK1(clGetPlatformIDs(8, platforms, &nPlatforms));
   
   unsigned n = 0;
   for (int i = 0; i < (int) nPlatforms; ++i) {
     unsigned delta = 0;
-    CHECK(clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, 0, NULL, &delta));
+    CHECK1(clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, 0, NULL, &delta));
     n += delta;
   }
   return n;
 }
 
-void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) { CHECK(clGetDeviceInfo(id, what, bufSize, buf, NULL)); }
+void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) { CHECK1(clGetDeviceInfo(id, what, bufSize, buf, NULL)); }
 
 bool getInfoMaybe(cl_device_id id, int what, size_t bufSize, void *buf) {
   return clGetDeviceInfo(id, what, bufSize, buf, NULL) == CL_SUCCESS;
@@ -144,18 +169,18 @@ Context createContext(cl_device_id id) {
 }
 
 
-void release(cl_context context) { CHECK(clReleaseContext(context)); }
-void release(cl_program program) { CHECK(clReleaseProgram(program)); }
-void release(cl_mem buf)         { CHECK(clReleaseMemObject(buf)); }
-void release(cl_queue queue)     { CHECK(clReleaseCommandQueue(queue)); }
-void release(cl_kernel k)        { CHECK(clReleaseKernel(k)); }
+void release(cl_context context) { CHECK1(clReleaseContext(context)); }
+void release(cl_program program) { CHECK1(clReleaseProgram(program)); }
+void release(cl_mem buf)         { CHECK1(clReleaseMemObject(buf)); }
+void release(cl_queue queue)     { CHECK1(clReleaseCommandQueue(queue)); }
+void release(cl_kernel k)        { CHECK1(clReleaseKernel(k)); }
 
 bool dumpBinary(cl_program program, const string &fileName) {
   if (auto fo = openWrite(fileName)) {
     size_t size;
-    CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
+    CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
     char *buf = new char[size + 1];
-    CHECK(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &buf, NULL));
+    CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &buf, NULL));
     fwrite(buf, 1, size, fo.get());
     delete[] buf;
     return true; 
@@ -226,14 +251,18 @@ cl_kernel makeKernel(cl_program program, const char *name) {
   return k;
 }
 
-void setArg(cl_kernel k, int pos, void* const& svm) { CHECK(clSetKernelArgSVMPointer(k, pos, svm)); }
+void setArg(cl_kernel k, int pos, void* const& svm) { CHECK1(clSetKernelArgSVMPointer(k, pos, svm)); }
 
 void setArg(cl_kernel k, int pos, const Buffer &buf) { setArg(k, pos, buf.get()); }
 
+
 cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr) {
+  // if (getFreeMem(
+  
   int err;
   cl_mem buf = clCreateBuffer(context, kind, size, (void *) ptr, &err);
-  if (err == CL_OUT_OF_RESOURCES || err == CL_MEM_OBJECT_ALLOCATION_FAILURE) { throw bad_alloc{}; }  
+  if (err == CL_OUT_OF_RESOURCES || err == CL_MEM_OBJECT_ALLOCATION_FAILURE) { throw gpu_bad_alloc(size); }
+  
   CHECK2(err, "clCreateBuffer");
   return buf;
 }
@@ -247,36 +276,36 @@ cl_queue makeQueue(cl_device_id d, cl_context c) {
   return q;
 }
 
-void flush( cl_queue q) { CHECK(clFlush(q)); }
-void finish(cl_queue q) { CHECK(clFinish(q)); }
+void flush( cl_queue q) { CHECK1(clFlush(q)); }
+void finish(cl_queue q) { CHECK1(clFinish(q)); }
 
 void run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
   CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL), name.c_str());
 }
 
 void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start) {
-  CHECK(clEnqueueReadBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
+  CHECK1(clEnqueueReadBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
 
 void read(cl_queue queue, bool blocking, Buffer &buf, size_t size, void *data, size_t start) {
-  CHECK(clEnqueueReadBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
+  CHECK1(clEnqueueReadBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
 }
 
 void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *data, size_t start) {
-  CHECK(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
+  CHECK1(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
 
 void write(cl_queue queue, bool blocking, Buffer &buf, size_t size, const void *data, size_t start) {
-  CHECK(clEnqueueWriteBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
+  CHECK1(clEnqueueWriteBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
 }
 
 void copyBuf(cl_queue queue, Buffer &src, Buffer &dst, size_t size) {
-  CHECK(clEnqueueCopyBuffer(queue, src.get(), dst.get(), 0, 0, size, 0, NULL, NULL));
+  CHECK1(clEnqueueCopyBuffer(queue, src.get(), dst.get(), 0, 0, size, 0, NULL, NULL));
 }
 
 int getKernelNumArgs(cl_kernel k) {
   int nArgs = 0;
-  CHECK(clGetKernelInfo(k, CL_KERNEL_NUM_ARGS, sizeof(nArgs), &nArgs, NULL));
+  CHECK1(clGetKernelInfo(k, CL_KERNEL_NUM_ARGS, sizeof(nArgs), &nArgs, NULL));
   return nArgs;
 }
 
@@ -289,7 +318,7 @@ int getWorkGroupSize(cl_kernel k, cl_device_id device, const char *name) {
 std::string getKernelArgName(cl_kernel k, int pos) {
   char buf[128];
   size_t size = 0;
-  CHECK(clGetKernelArgInfo(k, pos, CL_KERNEL_ARG_NAME, sizeof(buf), buf, &size));
+  CHECK1(clGetKernelArgInfo(k, pos, CL_KERNEL_ARG_NAME, sizeof(buf), buf, &size));
   assert(size >= 0 && size < sizeof(buf));
   buf[size] = 0;
   return buf;
@@ -304,7 +333,7 @@ void Queue::zero(Buffer &buf, size_t size) {
 }
 
 void fillBuf(cl_queue q, Buffer &buf, void *pat, size_t patSize, size_t size, size_t start) {
-  CHECK(clEnqueueFillBuffer(q, buf.get(), pat, patSize, start, size ? size : patSize, 0, 0, 0));
+  CHECK1(clEnqueueFillBuffer(q, buf.get(), pat, patSize, start, size ? size : patSize, 0, 0, 0));
 }
 
 u32 getAllocableBlocks(cl_device_id device, u32 blockSize, u32 minFree) {

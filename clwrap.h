@@ -7,7 +7,6 @@
 
 #include <string>
 #include <vector>
-#include <cassert>
 #include <memory>
 
 typedef cl_command_queue cl_queue;
@@ -33,10 +32,10 @@ static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
-bool check(int err, const std::string& mes = ""s);
+void check(int err, const char *file, int line, const char *func, const std::string& mes);
 
-#define CHECK(what) assert(check(what));
-#define CHECK2(what, mes) assert(check(what, mes));
+#define CHECK1(err) check(err, __FILE__, __LINE__, __func__, #err)
+#define CHECK2(err, mes) check(err, __FILE__, __LINE__, __func__, mes)
 
 vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
 string getHwName(cl_device_id id);
@@ -59,7 +58,7 @@ cl_program compile(const std::vector<cl_device_id> &devices, cl_context context,
 cl_kernel makeKernel(cl_program program, const char *name);
 
 template<typename T>
-void setArg(cl_kernel k, int pos, const T &value) { CHECK(clSetKernelArg(k, pos, sizeof(value), &value)); }
+void setArg(cl_kernel k, int pos, const T &value) { CHECK1(clSetKernelArg(k, pos, sizeof(value), &value)); }
 
 // template<> void setArg<void*>(cl_kernel k, int pos, void* const &value) {CHECK(clSetKernelArgSVMPointer(k, pos, value));}
 
