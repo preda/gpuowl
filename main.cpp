@@ -6,17 +6,18 @@
 #include "Worktodo.h"
 #include "common.h"
 #include "file.h"
+#include "version.h"
 
 #include <cstdio>
 #include <filesystem>
 
 extern string globalCpuName;
 
-using namespace std::filesystem;
+namespace fs = std::filesystem;
 
 int main(int argc, char **argv) {
   initLog();
-  log("%s %s\n", PROGRAM, VERSION);
+  log("gpuowl %s\n", VERSION);
   
   Background background;
 
@@ -26,7 +27,7 @@ int main(int argc, char **argv) {
     Args args;
     string mainLine = Args::mergeArgs(argc, argv);
     args.parse(mainLine);
-    if (!args.dir.empty()) { current_path(args.dir); }
+    if (!args.dir.empty()) { fs::current_path(args.dir); }
     initLog("gpuowl.log");
     // log("Working directory: %s\n", string(current_path()).c_str());
     

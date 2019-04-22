@@ -21,8 +21,3 @@ void initLog();
 void initLog(const char *);
 
 using namespace std; // std::string, std::pair, std::vector, std::unique_ptr;
-
-const constexpr char PROGRAM[] = "gpuowl";
-const constexpr char VERSION[] =
-#include "version.inc"
-;

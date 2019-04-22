@@ -5,6 +5,7 @@
 #include "file.h"
 #include "GmpUtil.h"
 #include "Background.h"
+#include "version.h"
 
 #include <cstdio>
 #include <cmath>
@@ -20,8 +21,8 @@ static bool writeResult(const string &part, u32 E, const char *workType, const s
   
   char buf[512];
   snprintf(buf, sizeof(buf), "{\"exponent\":\"%u\", \"worktype\":\"%s\", \"status\":\"%s\", "
-           "\"program\":{\"name\":\"%s\", \"version\":\"%s\"}, \"timestamp\":\"%s\"%s%s%s}",
-           E, workType, status.c_str(), PROGRAM, VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part.c_str());
+           "\"program\":{\"name\":\"gpuowl\", \"version\":\"%s\"}, \"timestamp\":\"%s\"%s%s%s}",
+           E, workType, status.c_str(), VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part.c_str());
   
   log("%s\n", buf);
   auto fo = openAppend(args.resultsFile);

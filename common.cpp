@@ -10,8 +10,6 @@
 #include <memory>
 #include <mutex>
 
-static_assert(sizeof(VERSION) > 1, "VERSION not set");
-
 vector<unique_ptr<FILE>> logFiles;
 string globalCpuName;
 
