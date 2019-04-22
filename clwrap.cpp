@@ -197,7 +197,7 @@ static cl_program loadSource(cl_context context, const string &source) {
   return program;
 }
 
-static bool build(cl_program program, const vector<cl_device_id> &devices, const string &args) {
+static void build(cl_program program, const vector<cl_device_id> &devices, const string &args) {
   Timer timer;
   int err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
   bool ok = (err == CL_SUCCESS);
@@ -205,16 +205,20 @@ static bool build(cl_program program, const vector<cl_device_id> &devices, const
   
   size_t logSize;
   for (cl_device_id device : devices) {
-  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
-  if (logSize > 1) {
-    std::unique_ptr<char> buf(new char[logSize + 1]);
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
-    buf.get()[logSize] = 0;
-    log("%s\n", buf.get());
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
+    if (logSize > 1) {
+      std::unique_ptr<char> buf(new char[logSize + 1]);
+      clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
+      buf.get()[logSize] = 0;
+      log("%s\n", buf.get());
+    }
   }
+  if (ok) {
+    log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str());
+  } else {
+    release(program);
+    CHECK2(err, "clBuildProgram");
   }
-  if (ok) { log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str()); }
-  return ok;
 }
 
 cl_program compile(const vector<cl_device_id> &devices, cl_context context, const string &source, const string &extraArgs,
@@ -230,11 +234,8 @@ cl_program compile(const vector<cl_device_id> &devices, cl_context context, cons
   cl_program program = 0;
 
   if ((program = loadSource(context, source))) {
-    if (build(program, devices, args)) {
-      return program;
-    } else {
-      release(program);
-    }
+    build(program, devices, args);
+    return program;
   }
   
   return 0;

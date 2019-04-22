@@ -60,6 +60,8 @@ int main(int argc, char **argv) {
     }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
+  } catch (const std::exception& e) {
+    log("Exception %s: %s\n", typeid(e).name(), e.what());
   }
 
   background.wait();
