@@ -547,7 +547,7 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
     
     if (!doCheck) {
       this->updateCheck(buf1, buf2, buf3);
-      if (k % 10000 == 0) {
+      if (k % args.logStep == 0) {
         doSmallLog(E, k, dataResidue(), stats, nTotalIters);
         if (args.timeKernels) { this->logTimeKernels(); }
       }

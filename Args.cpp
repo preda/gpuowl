@@ -36,7 +36,7 @@ vector<pair<string, string>> splitArgLine(const string& line) {
   return ret;
 }
 
-void printHelp() {
+void Args::printHelp() {
   printf(R"(
 Command line options:
 
@@ -45,16 +45,17 @@ Command line options:
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
 -fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
--block <value>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.
+-block <value>     : PRP GEC block size. Default %u. Smaller block is slower but detects errors sooner.
+-log <step>        : log every <step> iterations, default %u. Multiple of 10000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
--B1                : P-1 B1 bound, default 500000
+-B1                : P-1 B1 bound, default %u
 -B2                : P-1 B2 bound, default B1 * 30
--rB2               : ratio of B2 to B1, default 30, used only if B2 is not explicitly set
+-rB2               : ratio of B2 to B1. Default %u, used only if B2 is not explicitly set
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -results <file>    : name of results file, default 'results.txt'
 -device <N>        : select a specific device:
-)");
+)", blockSize, logStep, B1, B2_B1_ratio);
 
   vector<cl_device_id> deviceIds = getDeviceIDs();
   for (unsigned i = 0; i < deviceIds.size(); ++i) { printf("%2u : %s\n", i, getLongInfo(deviceIds[i]).c_str()); }
@@ -87,6 +88,7 @@ void Args::parse(string line) {
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
     else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxBufs") { maxBuffers = stoi(s); }
+    else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
     else if (key == "-prp") { prpExp = stol(s); }
     else if (key == "-pm1") { pm1Exp = stol(s); }
     else if (key == "-B1") { B1 = stoi(s); }
