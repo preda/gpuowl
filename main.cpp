@@ -1,4 +1,4 @@
-// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+// GpuOwl Mersenne primality tester; Copyright Mihai Preda.
 
 #include "Args.h"
 #include "Task.h"

@@ -81,7 +81,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   useLongCarry(useLongCarry),
   useMiddle(BIG_H != SMALL_H),
   device(device),
-  context(createContext(args.device)),
+  context(createContext(device)),
   program(compile(args, context.get(), E, W, SMALL_H, BIG_H / SMALL_H)),
   queue(makeQueue(device, context.get())),  
 
@@ -119,6 +119,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
   bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
 {
+  // dumpBinary(program.get(), "isa.bin");
   program.reset();
   setupWeights(context.get(), bufWeightA, bufWeightI, W, BIG_H, E);
 

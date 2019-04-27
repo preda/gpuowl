@@ -1,4 +1,4 @@
-R"clsource( 
+R"clsource(
 // gpuOwl, an OpenCL Mersenne primality test.
 // Copyright (C) Mihai Preda.
 

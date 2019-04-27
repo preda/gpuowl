@@ -175,17 +175,18 @@ void release(cl_mem buf)         { CHECK1(clReleaseMemObject(buf)); }
 void release(cl_queue queue)     { CHECK1(clReleaseCommandQueue(queue)); }
 void release(cl_kernel k)        { CHECK1(clReleaseKernel(k)); }
 
-bool dumpBinary(cl_program program, const string &fileName) {
+void dumpBinary(cl_program program, const string &fileName) {
   if (auto fo = openWrite(fileName)) {
     size_t size;
     CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
     char *buf = new char[size + 1];
     CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &buf, NULL));
-    fwrite(buf, 1, size, fo.get());
+    auto nWrote = fwrite(buf, size, 1, fo.get());
+    assert(nWrote == 1);
     delete[] buf;
-    return true; 
+  } else {
+    throw "dump "s + fileName;
   }
-  return false;
 }
 
 static cl_program loadSource(cl_context context, const string &source) {

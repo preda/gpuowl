@@ -55,6 +55,9 @@ void release(cl_queue queue);
 void release(cl_kernel k);
 cl_program compile(const std::vector<cl_device_id> &devices, cl_context context, const string &name, const string &extraArgs,
                    const vector<pair<string, unsigned>> &defines);
+
+void dumpBinary(cl_program program, const string& fileName);
+
 cl_kernel makeKernel(cl_program program, const char *name);
 
 template<typename T>
