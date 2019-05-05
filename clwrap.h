@@ -9,23 +9,31 @@
 #include <vector>
 #include <memory>
 
-typedef cl_command_queue cl_queue;
+using cl_queue = cl_command_queue;
+
+void release(cl_context context);
+void release(cl_program program);
+void release(cl_mem buf);
+void release(cl_queue queue);
+void release(cl_kernel k);
 
 template<typename T>
-struct Releaser {
+struct Deleter {
   using pointer = T;
-  
-  void operator()(T t) {
-    // fprintf(stderr, "Release %s %llx\n", typeid(T).name(), u64(t));
-    release(t);
-  }
+  void operator()(T t) const { release(t); }
 };
 
-template<typename T> using Holder = std::unique_ptr<T, Releaser<T> >;
+namespace std {
+template<> struct default_delete<cl_mem> : public Deleter<cl_mem> {};
+template<> struct default_delete<cl_context> : public Deleter<cl_context> {};
+template<> struct default_delete<cl_queue> : public Deleter<cl_queue> {};
+}
 
-using Buffer  = Holder<cl_mem>;
-using Context = Holder<cl_context>;
-using QueueHolder = Holder<cl_queue>;
+template<typename T> using Holder = std::unique_ptr<T, Deleter<T> >;
+
+using Buffer  = std::unique_ptr<cl_mem>;
+using Context = std::unique_ptr<cl_context>;
+using QueueHolder = std::unique_ptr<cl_queue>;
 
 static_assert(sizeof(Buffer) == sizeof(cl_mem), "size Buffer");
 
@@ -45,15 +53,9 @@ string getLongInfo(cl_device_id device);
 // Get GPU free memory in bytes.
 u64 getFreeMem(cl_device_id id);
 
-Context createContext(int device);
 Context createContext(cl_device_id id);
 
-void release(cl_context context);
-void release(cl_program program);
-void release(cl_mem buf);
-void release(cl_queue queue);
-void release(cl_kernel k);
-cl_program compile(const std::vector<cl_device_id> &devices, cl_context context, const string &name, const string &extraArgs,
+cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
                    const vector<pair<string, unsigned>> &defines);
 
 void dumpBinary(cl_program program, const string& fileName);
