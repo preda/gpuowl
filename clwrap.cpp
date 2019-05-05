@@ -247,12 +247,7 @@ cl_kernel makeKernel(cl_program program, const char *name) {
   return k;
 }
 
-void setArg(cl_kernel k, int pos, void* const& svm) { CHECK1(clSetKernelArgSVMPointer(k, pos, svm)); }
-
-void setArg(cl_kernel k, int pos, const Buffer &buf) { setArg(k, pos, buf.get()); }
-
-
-cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr) {
+cl_mem _makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr) {
   // if (getFreeMem(
   
   int err;
@@ -262,8 +257,6 @@ cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr) 
   CHECK2(err, "clCreateBuffer");
   return buf;
 }
-
-cl_mem makeBuf(Context &context, unsigned kind, size_t size, const void *ptr) { return makeBuf(context.get(), kind, size, ptr); }
 
 cl_queue makeQueue(cl_device_id d, cl_context c) {
   int err;
@@ -283,20 +276,22 @@ void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, si
   CHECK1(clEnqueueReadBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
 
-void read(cl_queue queue, bool blocking, Buffer &buf, size_t size, void *data, size_t start) {
-  CHECK1(clEnqueueReadBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
-}
-
 void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *data, size_t start) {
   CHECK1(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
+}
+
+/*
+void read(cl_queue queue, bool blocking, Buffer &buf, size_t size, void *data, size_t start) {
+  CHECK1(clEnqueueReadBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
 }
 
 void write(cl_queue queue, bool blocking, Buffer &buf, size_t size, const void *data, size_t start) {
   CHECK1(clEnqueueWriteBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
 }
+*/
 
-void copyBuf(cl_queue queue, Buffer &src, Buffer &dst, size_t size) {
-  CHECK1(clEnqueueCopyBuffer(queue, src.get(), dst.get(), 0, 0, size, 0, NULL, NULL));
+void copyBuf(cl_queue queue, const cl_mem src, cl_mem dst, size_t size) {
+  CHECK1(clEnqueueCopyBuffer(queue, src, dst, 0, 0, size, 0, NULL, NULL));
 }
 
 int getKernelNumArgs(cl_kernel k) {
@@ -320,6 +315,7 @@ std::string getKernelArgName(cl_kernel k, int pos) {
   return buf;
 }
 
+/*
 void Queue::zero(Buffer &buf, size_t size) {
   assert(size % sizeof(int) == 0);
   int zero = 0;
@@ -327,19 +323,20 @@ void Queue::zero(Buffer &buf, size_t size) {
   // CHECK(clEnqueueFillBuffer(queue.get(), buf.get(), &zero, sizeof(zero), 0, size, 0, 0, 0));
   // finish();
 }
+*/
 
-void fillBuf(cl_queue q, Buffer &buf, void *pat, size_t patSize, size_t size, size_t start) {
-  CHECK1(clEnqueueFillBuffer(q, buf.get(), pat, patSize, start, size ? size : patSize, 0, 0, 0));
+void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size, size_t start) {
+  CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, start, size ? size : patSize, 0, 0, 0));
 }
 
 u32 getAllocableBlocks(cl_device_id device, u32 blockSize, u32 minFree) {
-  vector<Buffer> buffers;
+  vector<Buffer<std::byte>> buffers;
 
   Context context = createContext(device);
   
   while (getFreeMem(device) >= minFree) {
     try {
-      buffers.emplace_back(makeBuf(context, BUF_RW, blockSize));
+      buffers.emplace_back(context, BUF_RW, blockSize);
     } catch (const bad_alloc&) {
       break;
     }

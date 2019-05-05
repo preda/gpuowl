@@ -21,8 +21,6 @@
 
 #define TAU (2 * M_PIl)
 
-using double2 = pair<double, double>;
-
 static_assert(sizeof(double2) == 16, "size double2");
 
 // Returns the primitive root of unity of order N, to the power k.
@@ -40,22 +38,19 @@ static double2 *smallTrigBlock(int W, int H, double2 *p) {
   return p;
 }
 
-static cl_mem genSmallTrig(cl_context context, int size, int radix) {
-  auto *tab = new double2[size]();
-  auto *p = tab + radix;
+static Buffer<double2> genSmallTrig(cl_context context, int size, int radix) {
+  vector<double2> tab(size);
+  auto *p = tab.data() + radix;
   int w = 0;
   for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
-  assert(p - tab == size);
-  cl_mem buf = makeBuf(context, BUF_CONST, sizeof(double2) * size, tab);
-  delete[] tab;
-  return buf;
+  assert(p - tab.data() == size);
+  return Buffer<double2>(context, BUF_CONST, tab);
 }
 
-static void setupWeights(cl_context context, Buffer &bufA, Buffer &bufI, int W, int H, int E) {
-  int N = 2 * W * H;
+static void setupWeights(cl_context context, Buffer<double>& bufA, Buffer<double>& bufI, int W, int H, int E) {
   auto weights = genWeights(E, W, H);  
-  bufA.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, weights.first.data()));
-  bufI.reset(makeBuf(context, BUF_CONST, sizeof(double) * N, weights.second.data()));
+  bufA = Buffer(context, BUF_CONST, weights.first);
+  bufI = Buffer(context, BUF_CONST, weights.second);
 }
 
 static string CL_SOURCE =
@@ -109,15 +104,15 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   LOAD(isEqual, 256),
 #undef LOAD
 
-  bufTrigW(genSmallTrig(context.get(), W, nW)),
-  bufTrigH(genSmallTrig(context.get(), SMALL_H, nH)),
+  bufTrigW{genSmallTrig(context.get(), W, nW)},
+  bufTrigH{genSmallTrig(context.get(), SMALL_H, nH)},
   
-  bufData(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
-  bufAux( makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int))),
+  bufData{context, CL_MEM_READ_WRITE, N},
+  bufAux{context, CL_MEM_READ_WRITE, N},
   
-  bufCarry{makeBuf(context, BUF_RW, bufSize / 2)},
-  bufReady{makeBuf(context, BUF_RW, BIG_H * sizeof(int))},
-  bufSmallOut(makeBuf(context, CL_MEM_READ_WRITE, 256 * sizeof(int)))
+  bufCarry{context, BUF_RW, N / 2},
+  bufReady{context, BUF_RW, BIG_H},
+  bufSmallOut{context, CL_MEM_READ_WRITE, 256}
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
@@ -135,7 +130,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   tailFused.setFixedArgs(1, bufTrigH);
   tailFusedMulDelta.setFixedArgs(3, bufTrigH);
     
-  queue.zero(bufReady, BIG_H * sizeof(int));
+  queue.zero(bufReady, BIG_H);
 }
 
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
@@ -173,7 +168,7 @@ static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsF
   return configs[i];
 }
 
-vector<int> Gpu::readSmall(Buffer &buf, u32 start) {
+vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   readResidue(buf, bufSmallOut, start);
   return queue.read<int>(bufSmallOut, 128);                    
 }
@@ -231,7 +226,7 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
 }
 
 // The modular multiplication io *= in.
-void Gpu::modMul(Buffer& in, bool mul3, Buffer& buf1, Buffer& buf2, Buffer& buf3, Buffer& io) {
+void Gpu::modMul(Buffer<int>& in, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io) {
   fftP(in, buf1);
   tW(buf1, buf3);
     
@@ -250,18 +245,18 @@ void Gpu::modMul(Buffer& in, bool mul3, Buffer& buf1, Buffer& buf2, Buffer& buf3
   carryB(io);
 };
 
-void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer& buf1, Buffer& buf2, Buffer& buf3) {
+void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   assert(blockSize > 0);
     
   writeCheck(check);
-  queue.copy<int>(bufCheck, bufData, N);
-  queue.copy<int>(bufCheck, bufAux, N);
+  queue.copyFromTo(bufCheck, bufData);
+  queue.copyFromTo(bufCheck, bufAux);
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
     modMul(bufAux, false, buf1, buf2, buf3, bufData);
-    queue.copy<int>(bufData, bufAux, N);
+    queue.copyFromTo(bufData, bufAux);
   }
 
   assert((n & (n - 1)) == 0);
@@ -279,10 +274,12 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer& buf1, Buff
   modMul(bufAux, true, buf1, buf2, buf3, bufData);
 }
 
-void Gpu::updateCheck(Buffer& buf1, Buffer& buf2, Buffer& buf3) { modMul(bufData, false, buf1, buf2, buf3, bufCheck); }
+void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+  modMul(bufData, false, buf1, buf2, buf3, bufCheck);
+}
   
-bool Gpu::doCheck(int blockSize, Buffer& buf1, Buffer& buf2, Buffer& buf3) {
-  queue.copy<int>(bufCheck, bufAux, N);
+bool Gpu::doCheck(int blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+  queue.copyFromTo(bufCheck, bufAux);
   modSqLoop(blockSize, true, buf1, buf2, bufAux);
   updateCheck(buf1, buf2, buf3);
   return equalNotZero(bufCheck, bufAux);
@@ -297,30 +294,30 @@ void Gpu::logTimeKernels() {
         &readResidue, &isNotZero, &isEqual});
 }
 
-void Gpu::tW(Buffer &in, Buffer &out) {
+void Gpu::tW(Buffer<double>& in, Buffer<double>& out) {
   transposeW(in, out);
   if (useMiddle) { fftMiddleIn(out); }
 }
 
-void Gpu::tH(Buffer &in, Buffer &out) {
+void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
   if (useMiddle) { fftMiddleOut(in); }
   transposeH(in, out);
 }
   
-vector<int> Gpu::readOut(Buffer &buf) {
+vector<int> Gpu::readOut(Buffer<int> &buf) {
   transposeOut(buf, bufAux);
-  return queue.read<int>(bufAux, N);
+  return queue.read(bufAux);
 }
 
-void Gpu::writeIn(const vector<u32> &words, Buffer &buf) { writeIn(expandBits(words, N, E), buf); }
+void Gpu::writeIn(const vector<u32>& words, Buffer<int>& buf) { writeIn(expandBits(words, N, E), buf); }
 
-void Gpu::writeIn(const vector<int> &words, Buffer &buf) {
+void Gpu::writeIn(const vector<int>& words, Buffer<int>& buf) {
   queue.write(bufAux, words);
   transposeIn(bufAux, buf);
 }
 
 // io *= in; with buffers in low position.
-void Gpu::multiplyLow(Buffer& in, Buffer& tmp, Buffer& io) {
+void Gpu::multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& io) {
   multiply(io, in);
   fftH(io);
   tH(io, tmp);
@@ -330,7 +327,7 @@ void Gpu::multiplyLow(Buffer& in, Buffer& tmp, Buffer& io) {
 }
 
 // Auxiliary performing the top half of the cycle (excluding the buttom tailFused).
-void Gpu::topHalf(Buffer& tmp, Buffer& io) {
+void Gpu::topHalf(Buffer<double>& tmp, Buffer<double>& io) {
   tH(io, tmp);
   carryFused(tmp);
   tW(tmp, io);
@@ -339,16 +336,17 @@ void Gpu::topHalf(Buffer& tmp, Buffer& io) {
 // See "left-to-right binary exponentiation" on wikipedia
 // Computes out := base**exp
 // All buffers are in "low" position.
-void Gpu::exponentiate(Buffer& base, u64 exp, Buffer& tmp, Buffer& out) {
+void Gpu::exponentiate(Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out) {
   if (exp == 0) {
     queue.zero(out, N * sizeof(u32));
     u32 data = 1;
-    fillBuf(queue.get(), out, &data, sizeof(data));
+    fillBuf(queue.get(), out.get(), &data, sizeof(data));
     // write(queue.get(), false, out, sizeof(u32), &data);
+    // queue.writeAsync(out, vector<>{1});    
     fftP(out, tmp);
     tW(tmp, out);    
   } else {
-    queue.copy<double>(base, out, N);
+    queue.copyFromTo(base, out);
     if (exp == 1) { return; }
 
     int p = 63;
@@ -381,7 +379,7 @@ void Gpu::exponentiate(Buffer& base, u64 exp, Buffer& tmp, Buffer& out) {
   fftH(out); // to low
 }
 
-void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer& buf1, Buffer& buf2, Buffer& io) {
+void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
   if (leadIn) { fftP(io, buf1); }
   tW(buf1, buf2);
   tailFused(buf2);
@@ -396,7 +394,7 @@ void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer& buf1, Buffer& b
   }  
 }
 
-void Gpu::modSqLoop(u32 reps, bool mul3, Buffer& buf1, Buffer& buf2, Buffer& io) {
+void Gpu::modSqLoop(u32 reps, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
   assert(reps > 0);
   bool leadIn = true;
         
@@ -407,15 +405,15 @@ void Gpu::modSqLoop(u32 reps, bool mul3, Buffer& buf1, Buffer& buf2, Buffer& io)
   }
 }
 
-bool Gpu::equalNotZero(Buffer &buf1, Buffer &buf2) {
-  queue.zero(bufSmallOut, sizeof(int));
+bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
+  queue.zero(bufSmallOut, 1);
   u32 sizeBytes = N * sizeof(int);
   isNotZero(sizeBytes, buf1, bufSmallOut);
   isEqual(sizeBytes, buf1, buf2, bufSmallOut);
-  return queue.read<int>(bufSmallOut, 1)[0];
+  return queue.read(bufSmallOut, 1)[0];
 }
   
-u64 Gpu::bufResidue(Buffer &buf) {
+u64 Gpu::bufResidue(Buffer<int> &buf) {
   u32 earlyStart = N/2 - 32;
   vector<int> readBuf = readSmall(buf, earlyStart);
   return residueFromRaw(E, N, readBuf);
@@ -461,7 +459,7 @@ static bool equalMinus3(const vector<u32> &a) {
   return true;
 }
 
-PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer& buf1, Buffer& buf2, Buffer& buf3) {
+PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   auto loaded = PRPState::load(E, iniBlockSize);
 
   writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
@@ -482,11 +480,11 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer& buf1, Buffer& buf2, Buffe
 }
 
 pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
-  Buffer buf1(makeBuf(context, BUF_RW, bufSize));
-  Buffer buf2(makeBuf(context, BUF_RW, bufSize));
-  Buffer buf3(makeBuf(context, BUF_RW, bufSize));
+  Buffer<double> buf1{context, BUF_RW, N};
+  Buffer<double> buf2{context, BUF_RW, N};
+  Buffer<double> buf3{context, BUF_RW, N};
   
-  bufCheck.reset(makeBuf(context, CL_MEM_READ_WRITE, N * sizeof(int)));
+  bufCheck = {context, CL_MEM_READ_WRITE, N};
   
   PRPState loaded = loadPRP(E, args.blockSize, buf1, buf2, buf3);
 
@@ -595,13 +593,6 @@ static u32 getNBuffers(u32 maxBuffers) {
   return nBufs;
 }
 
-
-/*
-Buffer allocBuf(cl_device_id device, size_t size) {
-  if (getFreeMem(device) < size) { throw gpu_bad_alloc(); }
-}
-*/
-
 std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 > B1);
   
@@ -609,8 +600,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   // log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
 
   // Buffers used in both stages.
-  Buffer bufTmp(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufAux(makeBuf(context, BUF_RW, bufSize));
+  Buffer<double> bufTmp{context, BUF_RW, N};
+  Buffer<double> bufAux{context, BUF_RW, N};
 
   u32 maxBuffers = args.maxBuffers;
 
@@ -673,8 +664,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   tailFused(bufTmp);
   tH(bufTmp, bufAux);
 
-  Buffer bufAcc(makeBuf(context, BUF_RW, bufSize));
-  queue.copy<double>(bufAux, bufAcc, N);
+  Buffer<double> bufAcc{context, BUF_RW, N};
+  queue.copyFromTo(bufAux, bufAcc);
   
   fftW(bufAux);
   carryA(bufAux, bufData);
@@ -683,26 +674,26 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   future<string> gcdFuture = async(launch::async, GCD, E, readData(), 1);
   bufAux.reset();
   
-  Buffer bufA(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufBase(makeBuf(context, BUF_RW, bufSize));
+  Buffer<double> bufA{context, BUF_RW, N};
+  Buffer<double> bufBase{context, BUF_RW, N};
   fftP(bufData, bufA);
   tW(bufA, bufBase);
   fftH(bufBase);
   
-  Buffer bufB(makeBuf(context, BUF_RW, bufSize));
-  Buffer bufC(makeBuf(context, BUF_RW, bufSize));
+  Buffer<double> bufB{context, BUF_RW, N};
+  Buffer<double> bufC{context, BUF_RW, N};
 
   if (getFreeMem(device) < u64(nBufs) * bufSize) {
     log("P-1 stage2 too little memory %u MB for %u buffers of %u b\n", u32(getFreeMem(device) / (1024 * 1024)), nBufs, bufSize);
     throw "P-1 not enough memory";
   }
   
-  vector<Buffer> blockBufs;
-  for (u32 i = 0; i < nBufs; ++i) { blockBufs.emplace_back(makeBuf(context, BUF_RW, bufSize)); }
+  vector<Buffer<double>> blockBufs;
+  for (u32 i = 0; i < nBufs; ++i) { blockBufs.emplace_back(context, BUF_RW, N); }
 
   auto jset = getJset();
 
-  Buffer bufBaseD2(makeBuf(context, BUF_RW, bufSize));
+  Buffer<double> bufBaseD2{context, BUF_RW, N};
   exponentiate(bufBase, 30030*30030, bufTmp, bufBaseD2);
   
   for (u32 round = 0; round < nRounds; ++round) {
@@ -714,7 +705,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       assert(j0 & 1);
       exponentiate(bufBase, (j0 + 1) * 4, bufTmp, bufB);
       exponentiate(bufBase, j0 * j0, bufTmp, bufC);
-      queue.copy<double>(bufC, blockBufs[0], N);
+      queue.copyFromTo(bufC, blockBufs[0]);
     }
 
     for (u32 i = 1; i < nBufs; ++i) {
@@ -722,7 +713,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         multiplyLow(bufB, bufTmp, bufC);
         multiplyLow(bufA, bufTmp, bufB);
       }
-      queue.copy<double>(bufC, blockBufs[i], N);
+      queue.copyFromTo(bufC, blockBufs[i]);
     }
 
     exponentiate(bufBaseD2, 2, bufTmp, bufA);                            // A := base^(2 * D^2)
