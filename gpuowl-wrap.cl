@@ -1149,7 +1149,8 @@ void pairMul(uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 
 // equivalent to: fftH, multiply, fftH.
 KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
-  local T lds[SMALL_HEIGHT];
+  local T2 rawLds[(SMALL_HEIGHT+1)/2];
+  local T *lds = (local T *)rawLds;
   T2 u[NH], v[NH];
 
   uint W = SMALL_HEIGHT;
@@ -1191,7 +1192,8 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
 
 // equivalent to: fftH(io), multiply(io, a - b), fftH(io)
 KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
-  local T lds[SMALL_HEIGHT];
+  local T2 rawLds[(SMALL_HEIGHT+1)/2];
+  local T *lds = (local T *)rawLds;
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];
 
