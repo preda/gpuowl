@@ -17,53 +17,52 @@ struct TimeInfo {
 };
 
 class Kernel {
-  Holder<cl_kernel> kernel;
-  cl_queue queue;
-  int workGroups;
+  KernelHolder kernel;
+  Queue queue;
+  int nWorkGroups;
   string name;
   bool doTime;
   int groupSize;
   TimeInfo stats;
+  
+public:
+  Kernel(cl_program program, Queue queue, cl_device_id device, int nWorkGroups, const std::string &name, bool doTime) :
+    kernel(makeKernel(program, name.c_str())),
+    queue(queue),
+    nWorkGroups(nWorkGroups),
+    name(name),
+    doTime(doTime),
+    groupSize(getWorkGroupSize(kernel.get(), device, name.c_str()))
+  {}
 
+  template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(pos, tail...); }
+  
+  template<typename... Args> void operator()(const Args &...args) {
+    setArgs(0, args...);
+    run();
+  }
+
+  string getName() { return name; }
+
+  TimeInfo resetStats() { auto ret = stats; stats.reset(); return ret; }
+
+private:
   template<typename T> void setArgs(int pos, const T &arg) { ::setArg(kernel.get(), pos, arg); }
   
   template<typename T, typename... Args> void setArgs(int pos, const T &arg, const Args &...tail) {
     setArgs(pos, arg);
     setArgs(pos + 1, tail...);
   }
-
-public:
-  Kernel(cl_program program, cl_queue q, cl_device_id device, int workGroups, const std::string &name, bool doTime) :
-    kernel(makeKernel(program, name.c_str())),
-    queue(q),
-    workGroups(workGroups),
-    name(name),
-    doTime(doTime),
-    groupSize(getWorkGroupSize(kernel.get(), device, name.c_str()))
-  {
-    // assert((workSize % groupSize == 0) || (log("%s\n", name.c_str()), false));
-  }
-
-  template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(pos, tail...); }
   
-  template<typename... Args> void operator()(const Args &...args) {
-    setArgs(0, args...);
-    run(workGroups);
-  }
-
-  void run(u32 nWorkGroups) {
+  void run() {
     if (doTime) {
-      finish(queue);
+      // queue.finish();
       Timer timer;
-      ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
-      finish(queue);
+      queue.run(kernel.get(), groupSize, nWorkGroups * groupSize, name);
+      queue.finish();
       stats.add(timer.deltaMicros());
     } else {
-      ::run(queue, kernel.get(), groupSize, nWorkGroups * groupSize, name);
+      queue.run(kernel.get(), groupSize, nWorkGroups * groupSize, name);
     }
   }
-  
-  string getName() { return name; }
-
-  TimeInfo resetStats() { auto ret = stats; stats.reset(); return ret; }
 };

@@ -80,7 +80,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   program(compile(args, context.get(), E, W, SMALL_H, BIG_H / SMALL_H)),
   queue(makeQueue(device, context.get())),  
 
-#define LOAD(name, workGroups) name(program.get(), queue.get(), device, workGroups, #name, timeKernels)
+#define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name, timeKernels)
   LOAD(carryFused, BIG_H + 1),
   LOAD(carryFusedMul, BIG_H + 1),
   LOAD(fftP, BIG_H),

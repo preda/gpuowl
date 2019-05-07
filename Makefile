@@ -1,14 +1,14 @@
-SRCS = Pm1Plan.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp clpp.cpp
+CXX = g++-9
 
 CXXFLAGS = -Wall -O2 -std=c++17
 
 LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L/c/Windows/System32 -L.
 
-LDFLAGS = -lOpenCL -lgmp -lstdc++fs -pthread ${LIBPATH}
+LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
 
 LINK = $(CXX) -o $@ ${OBJS} ${LDFLAGS}
 
-
+SRCS = Pm1Plan.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp clpp.cpp
 OBJS = $(SRCS:%.cpp=%.o)
 DEPDIR := .d
 $(shell mkdir -p $(DEPDIR) >/dev/null)
@@ -23,6 +23,9 @@ gpuowl: ${OBJS}
 gpuowl-win: ${OBJS}
 	{LINK} -static
 	strip $@
+
+clean:
+	rm -f ${OBJS} gpuowl gpuowl-win
 
 %.o : %.cpp
 %.o : %.cpp $(DEPDIR)/%.d

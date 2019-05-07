@@ -27,9 +27,9 @@ struct Deleter {
 
 namespace std {
 template<> struct default_delete<cl_context> : public Deleter<cl_context> {};
-template<> struct default_delete<cl_kernel> : public Deleter<cl_queue> {};
+template<> struct default_delete<cl_kernel> : public Deleter<cl_kernel> {};
 template<> struct default_delete<cl_mem> : public Deleter<cl_mem> {};
-template<> struct default_delete<cl_program> : public Deleter<cl_queue> {};
+template<> struct default_delete<cl_program> : public Deleter<cl_program> {};
 template<> struct default_delete<cl_queue> : public Deleter<cl_queue> {};
 }
 
@@ -37,6 +37,7 @@ template<typename T> using Holder = std::unique_ptr<T, Deleter<T> >;
 
 using Context = std::unique_ptr<cl_context>;
 using QueueHolder = std::unique_ptr<cl_queue>;
+using KernelHolder = std::unique_ptr<cl_kernel>;
 
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
