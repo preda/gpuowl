@@ -2,7 +2,7 @@
 
 #include "Args.h"
 #include "file.h"
-#include "clwrap.h"
+#include "clpp.h"
 #include "FFTConfig.h"
 
 #include <vector>

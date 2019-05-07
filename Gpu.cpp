@@ -435,7 +435,7 @@ static string makeLogStr(u32 E, string status, int k, u64 res, TimeInfo info, u3
   char buf[256];
   string ghzStr;
   
-  snprintf(buf, sizeof(buf), "%u %2s %8d %5.2f%%; %.2f ms/sq;%s ETA %s; %016llx",
+  snprintf(buf, sizeof(buf), "%u %2s %8d %5.2f%%; %.3f ms/sq;%s ETA %s; %016llx",
            E, status.c_str(), k, k / float(nIters) * 100,
            msPerSq, ghzStr.c_str(), getETA(k, nIters, msPerSq).c_str(), res);
   return buf;

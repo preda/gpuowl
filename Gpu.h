@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "clwrap.h"
+#include "clpp.h"
 #include "common.h"
 #include "kernel.h"
 
