@@ -1,4 +1,3 @@
-R"clsource(
 // gpuOwl, an OpenCL Mersenne primality test.
 // Copyright (C) Mihai Preda.
 
@@ -1241,4 +1240,3 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
   fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
-)clsource";

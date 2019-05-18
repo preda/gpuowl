@@ -40,6 +40,9 @@ version.inc: FORCE
 	diff -q -N version.new version.inc >/dev/null || mv version.new version.inc
 	echo Version: `cat version.inc`
 
+gpuowl-wrap.cl: gpuowl.cl head.txt tail.txt
+	cat head.txt gpuowl.cl tail.txt > gpuowl-wrap.cl
+
 FORCE:
 
 include $(wildcard $(patsubst %,$(DEPDIR)/%.d,$(basename $(SRCS))))
