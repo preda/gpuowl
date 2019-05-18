@@ -17,6 +17,9 @@ gpuowl-win: ${HEADERS} ${SRCS}
 	${BUILD} -static
 	strip $@
 
+gpuowl-wrap.cl: gpuowl.cl head.txt tail.txt
+	cat head.txt gpuowl.cl tail.txt > gpuowl-wrap.cl
+
 version.inc: FORCE
 	echo \"`git describe --long --dirty --always`\" > version.inc
 	echo Version: `cat version.inc`
