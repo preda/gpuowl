@@ -209,23 +209,36 @@ static void build(cl_program program, cl_device_id device, const string &args) {
     log("%s\n", buf.get());
   }
   if (ok) {
-    log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str());
+    log("OpenCL compilation in %d ms\n", timer.deltaMillis());
   } else {
     release(program);
     CHECK2(err, "clBuildProgram");
   }
 }
 
+std::string toLiteral(const std::any& v) {
+  if (auto *p = std::any_cast<u32>(&v)) {
+    return to_string(*p) + "u";
+  } else if (auto *p = std::any_cast<u64>(&v)) {
+    return to_string(*p) + "ul";
+  } else if (auto *p = std::any_cast<double>(&v)) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%a", *p);
+    return buf;
+  }
+  assert(false);
+  return "";
+}
+
 cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
-                   const vector<pair<string, unsigned>> &defines) {
+                   const vector<pair<string, std::any>> &defines) {
   string strDefines;
-  string config;
   for (auto d : defines) {
-    strDefines = strDefines + "-D" + d.first + "=" + to_string(d.second) + "u ";
-    config = config + "_" + to_string(d.second);
+    strDefines = strDefines + "-D" + d.first + "=" + toLiteral(d.second) + ' ';
   }
   string args = strDefines + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-std=CL2.0";
-
+  log("OpenCL args \"%s\"\n", args.c_str());
+  
   cl_program program = 0;
 
   if ((program = loadSource(context, source))) {

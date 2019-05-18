@@ -9,6 +9,7 @@
 #include <vector>
 #include <cassert>
 #include <memory>
+#include <any>
 
 using cl_queue = cl_command_queue;
 
@@ -59,7 +60,7 @@ u64 getFreeMem(cl_device_id id);
 Context createContext(cl_device_id id);
 
 cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
-                   const vector<pair<string, unsigned>> &defines);
+                   const vector<pair<string, std::any>> &defines);
 
 void dumpBinary(cl_program program, const string& fileName);
 

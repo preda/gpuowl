@@ -22,6 +22,7 @@
 #define TAU (2 * M_PIl)
 
 static_assert(sizeof(double2) == 16, "size double2");
+static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
 
 // Returns the primitive root of unity of order N, to the power k.
 static double2 root1(u32 N, u32 k) {
@@ -57,10 +58,15 @@ static string CL_SOURCE =
 #include "gpuowl-wrap.cl"
 ;
 
-static cl_program compile(const Args& args, cl_context context, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE) {
+static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(WIDTH * SMALL_HEIGHT * MIDDLE * 2));
   cl_program program = compile({getDevice(args.device)}, context, CL_SOURCE, clArgs,
-                 {{"EXP", E}, {"WIDTH", WIDTH}, {"SMALL_HEIGHT", SMALL_HEIGHT}, {"MIDDLE", MIDDLE}});
+                               {{"EXP", E},
+                                {"WIDTH", WIDTH},
+                                {"SMALL_HEIGHT", SMALL_HEIGHT},
+                                {"MIDDLE", MIDDLE},
+                                {"FRAC", FRAC(N, E)},
+                               });
   if (!program) { throw "OpenCL compilation"; }
   return program;
 }
@@ -77,7 +83,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   useMiddle(BIG_H != SMALL_H),
   device(device),
   context(createContext(device)),
-  program(compile(args, context.get(), E, W, SMALL_H, BIG_H / SMALL_H)),
+  program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H)),
   queue(makeQueue(device, context.get())),  
 
 #define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name, timeKernels)
@@ -416,7 +422,7 @@ bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
 u64 Gpu::bufResidue(Buffer<int> &buf) {
   u32 earlyStart = N/2 - 32;
   vector<int> readBuf = readSmall(buf, earlyStart);
-  return residueFromRaw(E, N, readBuf);
+  return residueFromRaw(N, E, readBuf);
 }
 
 static string getETA(u32 step, u32 total, float msPerStep) {
@@ -471,7 +477,7 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<doub
 #ifdef __MINGW64__
     log("%u EE loaded: %d, blockSize %d, %016I64x (expected %016I64x)\n", E, loaded.k, loaded.blockSize, res64, loaded.res64);
 #else
-    log("%u EE loaded: %d, blockSize %d, %016llx (expected %016llxx)\n",  E, loaded.k, loaded.blockSize, res64, loaded.res64);
+    log("%u EE loaded: %d, blockSize %d, %016llx (expected %016llx)\n",  E, loaded.k, loaded.blockSize, res64, loaded.res64);
 #endif          
     throw "error on load";
   }

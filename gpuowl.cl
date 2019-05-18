@@ -41,21 +41,6 @@ u32 wordToBitpos(u32 E, u32 N, u32 word) { return (word * ((u64) E) + (N - 1)) /
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
 
-// Used in bitlen() and weighting.
-#define STEP (NWORDS - (EXP % NWORDS))
-
-uint extra(uint k) { return ((ulong) STEP) * k % NWORDS; }
-
-// Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
-bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
-// { return extra(k) < extra(k + 1); }
-
-// Number of bits for the word at pos.
-uint bitlen(uint k) { return EXP / NWORDS + isBigWord(k); }
-
-// Propagate carry this many pairs of words.
-#define CARRY_LEN 16
-
 typedef double T;
 typedef double2 T2;
 typedef int Word;
@@ -63,6 +48,27 @@ typedef int2 Word2;
 typedef long Carry;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
+
+// double fractional(double x) { double dummy; return fract(x, &dummy); }
+// T _weight(u32 k) { return exp2(fractional(R * k)); }
+// T2 _weight2(u32 hk) { return U2(_weight(2 * hk), _weight(2 * hk + 1)); }
+
+#if (NWORDS & (NWORDS - 1))
+// NWORDS is not a power of 2, avoid modulo NWORDS
+// Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
+bool isBigWord(uint k) { u64 a = FRAC * k - 1; return a > a + FRAC; }
+#else
+// NWORDS is a power of two, modulo is cheap
+#define STEP (NWORDS - (EXP % NWORDS))
+uint extra(uint k) { return ((ulong) STEP) * k % NWORDS; }
+bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
+#endif
+
+// Number of bits for the word at pos.
+uint bitlen(uint k) { return EXP / NWORDS + isBigWord(k); }
+
+// Propagate carry this many pairs of words.
+#define CARRY_LEN 16
 
 // complex mul
 T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
@@ -91,28 +97,21 @@ Word carryStep(Carry x, Carry *carry, int bits) {
   return w;
 }
 
-// Simpler version of signbit(a).
-uint signBit(double a) { return ((uint *)&a)[1] >> 31; }
+Carry unweight(T x, T weight) { return rint(x * weight); }
 
-uint oldBitlen(double a) { return EXP / NWORDS + signBit(a); }
-
-Carry unweight(T x, T weight) { return rint(x * fabs(weight)); }  
-
-Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight) {
-  Word a = carryStep(mul * unweight(u.x, weight.x), carry, oldBitlen(weight.x));
-  Word b = carryStep(mul * unweight(u.y, weight.y), carry, oldBitlen(weight.y));
+Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight, uint k) {
+  Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(2 * k + 0));
+  Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(2 * k + 1));
   return (Word2) (a, b);
 }
 
-T2 weightAux(Word x, Word y, T2 weight) { return U2(x, y) * fabs(weight); }
-
-T2 weight(Word2 a, T2 w) { return weightAux(a.x, a.y, w); }
+T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
 // No carry out. The final carry is "absorbed" in the last word.
-T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w) {
-  Word x = carryStep(u.x, &carry, oldBitlen(w.x));
+T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w, uint hk) {
+  Word x = carryStep(u.x, &carry, bitlen(2 * hk));
   Word y = u.y + carry;
-  return weightAux(x, y, w);
+  return weight((Word2) (x, y), w);
 }
 
 // Carry propagation from word and carry.
@@ -665,6 +664,7 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
 
   for (int i = 0; i < NW; ++i) {
     uint p = G_W * i + me;
+    // u32 hk = g + BIG_HEIGHT * p;
     u[i] = weight(in[p], A[p]);
   }
 
@@ -741,7 +741,8 @@ void carryACore(uint mul, const global T2 *in, const global T2 *A, global Word2 
 
   for (int i = 0; i < CARRY_LEN; ++i) {
     uint p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p]);
+    uint k = kAt(gx, gy, i);
+    out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p], k);
   }
   carryOut[G_W * g + me] = carry;
 }
@@ -821,8 +822,9 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
-    Carry carry = 0;    
-    wu[i] = unweightAndCarry(1,   conjugate(u[i]), &carry, iA[p]);
+    Carry carry = 0;
+    uint k = line + BIG_HEIGHT * p;
+    wu[i] = unweightAndCarry(1,   conjugate(u[i]), &carry, iA[p], k);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
@@ -845,7 +847,8 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
-    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p]);
+    uint k = line + BIG_HEIGHT * p;
+    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p], k);
   }
 
   fft_WIDTH(lds, u, smallTrig);
@@ -877,8 +880,9 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
-    Carry carry = 0;    
-    wu[i] = unweightAndCarry(3,   conjugate(u[i]), &carry, iA[p]);
+    Carry carry = 0;
+    uint k = line + BIG_HEIGHT * p;
+    wu[i] = unweightAndCarry(3,   conjugate(u[i]), &carry, iA[p], k);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
@@ -902,7 +906,8 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
     Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
-    u[i] = carryAndWeightFinal(wu[i], carry, A[p]);
+    uint k = line + BIG_HEIGHT * p;
+    u[i] = carryAndWeightFinal(wu[i], carry, A[p], k);
   }
 
   fft_WIDTH(lds, u, smallTrig);
