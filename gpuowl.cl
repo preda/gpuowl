@@ -136,10 +136,18 @@ T2 foo(T2 a) { return foo2(a, a); }
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
+// Same as X2(a, b), b = mul_t4(b)
+// Saves one negation
+#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
+
+// Same as X2(a, b), b = mul_3t8(b)
+// Saves one negation
+#define X2_mul_3t8(a, b) { T2 t = a; a = t + b; b = b - t; b = mul_t8 (b); }
+
+
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
-  X2(u[1], u[3]);
-  u[3] = mul_t4(u[3]);
+  X2_mul_t4(u[1], u[3]);
   X2(u[0], u[1]);
   X2(u[2], u[3]);
 }
@@ -151,11 +159,12 @@ void fft4(T2 *u) {
 }
 
 void fft8Core(T2 *u) {
-  for (int i = 0; i < 4; ++i) { X2(u[i], u[i + 4]); }
+  X2(u[0], u[4]);
+  X2(u[1], u[5]);
+  X2_mul_t4(u[2], u[6]);
+  X2_mul_3t8(u[3], u[7]);
   u[5] = mul_t8(u[5]);
-  u[6] = mul_t4(u[6]);
-  u[7] = mul_3t8(u[7]);
-  
+
   fft4Core(u);
   fft4Core(u + 4);
 }
