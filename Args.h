@@ -36,5 +36,7 @@ public:
 
   u32 maxBuffers = 0;
 
+  u32 iters = 0;
+
   void printHelp();
 };

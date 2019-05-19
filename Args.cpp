@@ -54,6 +54,7 @@ Command line options:
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -results <file>    : name of results file, default 'results.txt'
+-iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -device <N>        : select a specific device:
 )", blockSize, logStep, B1, B2_B1_ratio);
 
@@ -89,6 +90,7 @@ void Args::parse(string line) {
     else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxBufs") { maxBuffers = stoi(s); }
     else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
+    else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp") { prpExp = stol(s); }
     else if (key == "-pm1") { pm1Exp = stol(s); }
     else if (key == "-B1") { B1 = stoi(s); }

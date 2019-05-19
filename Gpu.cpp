@@ -543,6 +543,8 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
       signal.release();
     }
 
+    if (args.iters && k - startK == args.iters) { doStop = true; }
+
     bool doCheck = (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || doStop || (k - startK == 2 * blockSize);
     
     if (!doCheck) {
