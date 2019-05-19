@@ -157,6 +157,8 @@ void fft4(T2 *u) {
   SWAP(u[1], u[2]);
 }
 
+#ifdef OLD_FFT8
+
 void fft8Core(T2 *u) {
   X2(u[0], u[4]);
   X2(u[1], u[5]);
@@ -167,6 +169,37 @@ void fft8Core(T2 *u) {
   fft4Core(u);
   fft4Core(u + 4);
 }
+
+#else
+
+// Attempt to get more FMA by delaying mul by SQRTHALF
+
+//#define X2_delayed_mul_t4(a, b) { T2 t = a * M_SQRT1_2; a = t + b * M_SQRT1_2; t.x = b.x * M_SQRT1_2 - t.x; b.x = t.y - b.y * M_SQRT1_2; b.y = t.x; }
+#define X2_delayed_mul_t4(a, b) { T2 t = a * M_SQRT1_2; a.x = t.x + b.x * M_SQRT1_2; a.y = t.y + b.y * M_SQRT1_2; t.x = b.x * M_SQRT1_2 - t.x; b.x = t.y - b.y * M_SQRT1_2; b.y = t.x; }
+
+T2 mul_t8_delayed(T2 a)  { return U2(a.y + a.x, a.y - a.x); }
+#define X2_mul_3t8_delayed(a, b) { T2 t = a; a = t + b; b = b - t; b = mul_t8_delayed (b); }
+
+void fft4Core_delayed(T2 *u) {		// Same as fft4Core except u[1] and u[3] need to be multiplied by SQRTHALF
+  X2(u[0], u[2]);
+  X2_delayed_mul_t4(u[1], u[3]);
+  X2(u[0], u[1]);
+  X2(u[2], u[3]);
+}
+
+void fft8Core(T2 *u) {
+  X2(u[0], u[4]);
+  X2(u[1], u[5]);
+  X2_mul_t4(u[2], u[6]);
+  X2_mul_3t8_delayed(u[3], u[7]);
+  u[5] = mul_t8_delayed(u[5]);
+
+  fft4Core(u);
+  fft4Core_delayed(u + 4);
+}
+
+#endif
+
 
 void fft8(T2 *u) {
   fft8Core(u);
@@ -206,6 +239,7 @@ void fft6(T2 *u) {
 }
 
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
+#ifdef OLD_FFT5
 void fft5(T2 *u) {
   const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
   const double SIN2 = 0x1.89f188bdcd7afp+0; // sin(tau/5) + sin(2*tau/5), 1.53884176858762677931
@@ -234,6 +268,49 @@ void fft5(T2 *u) {
   X2(u[2], u[3]);
 }
 
+#else
+
+// Above is 34 adds. prime95 does this with 32 adds
+// See prime95's gwnum/zr5.mac file for more detailed explanation of the formulas below
+// R1= r1     +(r2+r5)     +(r3+r4)
+// R2= r1 +.309(r2+r5) -.809(r3+r4)    +.951(i2-i5) +.588(i3-i4)
+// R5= r1 +.309(r2+r5) -.809(r3+r4)    -.951(i2-i5) -.588(i3-i4)
+// R3= r1 -.809(r2+r5) +.309(r3+r4)    +.588(i2-i5) -.951(i3-i4)
+// R4= r1 -.809(r2+r5) +.309(r3+r4)    -.588(i2-i5) +.951(i3-i4)
+// I1= i1     +(i2+i5)     +(i3+i4)
+// I2= i1 +.309(i2+i5) -.809(i3+i4)    -.951(r2-r5) -.588(r3-r4)
+// I5= i1 +.309(i2+i5) -.809(i3+i4)    +.951(r2-r5) +.588(r3-r4)
+// I3= i1 -.809(i2+i5) +.309(i3+i4)    -.588(r2-r5) +.951(r3-r4)
+// I4= i1 -.809(i2+i5) +.309(i3+i4)    +.588(r2-r5) -.951(r3-r4)
+
+void fft5(T2 *u) {
+  const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
+  const double SIN2_SIN1 = 0.618033988749894848;    // sin(2*tau/5) / sin(tau/5) = .588/.951, 0.618033988749894848
+  const double COS1 = 0.309016994374947424;    // cos(tau/5), 0.309016994374947424
+  const double COS2 = 0.809016994374947424;    // -cos(2*tau/5), 0.809016994374947424
+
+  X2_mul_t4(u[1], u[4]);			// (r25+ i25+),  (i25- -r25-)
+  X2_mul_t4(u[2], u[3]);			// (r34+ i34+),  (i34- -r34-)
+
+  T2 tmp25a = u[0] + COS1 * u[1];
+  T2 tmp34a = u[0] - COS2 * u[1];
+  u[0] = u[0] + u[1];
+
+  T2 tmp25b = u[4] + SIN2_SIN1 * u[3];		// (i25- +.588/.951*i34-, -r25- -.588/.951*r34-)
+  T2 tmp34b = SIN2_SIN1 * u[4] - u[3];		// (.588/.951*i25- -i34-, -.588/.951*r25- +r34-)
+
+  tmp25a = tmp25a - COS2 * u[2];
+  tmp34a = tmp34a + COS1 * u[2];
+  u[0] = u[0] + u[2];
+
+  u[1] = tmp25a + SIN1 * tmp25b;
+  u[4] = tmp25a - SIN1 * tmp25b;
+  u[2] = tmp34a + SIN1 * tmp34b;
+  u[3] = tmp34a - SIN1 * tmp34b;
+}
+#endif
+
+#ifdef OLD_FFT10
 void fft10(T2 *u) {
   const double COS1 =  0x1.9e3779b97f4a8p-1; // cos(tau/10), 0.80901699437494745126
   const double SIN1 = -0x1.2cf2304755a5ep-1; // sin(tau/10), 0.58778525229247313710
@@ -260,6 +337,78 @@ void fft10(T2 *u) {
   u[4] = u[2];
   u[2] = tmp;
 }
+
+#else
+
+// See prime95's gwnum/zr10.mac file for more detailed explanation of the formulas below
+//R1 = (r1+r6)     +((r2+r7)+(r5+r10))     +((r3+r8)+(r4+r9))
+//R3 = (r1+r6) +.309((r2+r7)+(r5+r10)) -.809((r3+r8)+(r4+r9)) +.951((i2+i7)-(i5+i10)) +.588((i3+i8)-(i4+i9))
+//R9 = (r1+r6) +.309((r2+r7)+(r5+r10)) -.809((r3+r8)+(r4+r9)) -.951((i2+i7)-(i5+i10)) -.588((i3+i8)-(i4+i9))
+//R5 = (r1+r6) -.809((r2+r7)+(r5+r10)) +.309((r3+r8)+(r4+r9)) +.588((i2+i7)-(i5+i10)) -.951((i3+i8)-(i4+i9))
+//R7 = (r1+r6) -.809((r2+r7)+(r5+r10)) +.309((r3+r8)+(r4+r9)) -.588((i2+i7)-(i5+i10)) +.951((i3+i8)-(i4+i9))
+//R6 = (r1-r6)     -((r2-r7)-(r5-r10))     +((r3-r8)-(r4-r9))
+//R2 = (r1-r6) +.809((r2-r7)-(r5-r10)) +.309((r3-r8)-(r4-r9)) +.588((i2-i7)+(i5-i10)) +.951((i3-i8)+(i4-i9))
+//R10= (r1-r6) +.809((r2-r7)-(r5-r10)) +.309((r3-r8)-(r4-r9)) -.588((i2-i7)+(i5-i10)) -.951((i3-i8)+(i4-i9))
+//R4 = (r1-r6) -.309((r2-r7)-(r5-r10)) -.809((r3-r8)-(r4-r9)) +.951((i2-i7)+(i5-i10)) -.588((i3-i8)+(i4-i9))
+//R8 = (r1-r6) -.309((r2-r7)-(r5-r10)) -.809((r3-r8)-(r4-r9)) -.951((i2-i7)+(i5-i10)) +.588((i3-i8)+(i4-i9))
+
+//I1 = (i1+i6)     +((i2+i7)+(i5+i10))     +((i3+i8)+(i4+i9))
+//I3 = (i1+i6) +.309((i2+i7)+(i5+i10)) -.809((i3+i8)+(i4+i9)) -.951((r2+r7)-(r5+r10)) -.588((r3+r8)-(r4+r9))
+//I9 = (i1+i6) +.309((i2+i7)+(i5+i10)) -.809((i3+i8)+(i4+i9)) +.951((r2+r7)-(r5+r10)) +.588((r3+r8)-(r4+r9))
+//I5 = (i1+i6) -.809((i2+i7)+(i5+i10)) +.309((i3+i8)+(i4+i9)) -.588((r2+r7)-(r5+r10)) +.951((r3+r8)-(r4+r9))
+//I7 = (i1+i6) -.809((i2+i7)+(i5+i10)) +.309((i3+i8)+(i4+i9)) +.588((r2+r7)-(r5+r10)) -.951((r3+r8)-(r4+r9))
+//I6 = (i1-i6)     -((i2-i7)-(i5-i10))     +((i3-i8)-(i4-i9))
+//I2 = (i1-i6) +.809((i2-i7)-(i5-i10)) +.309((i3-i8)-(i4-i9)) -.588((r2-r7)+(r5-r10)) -.951((r3-r8)+(r4-r9))
+//I10= (i1-i6) +.809((i2-i7)-(i5-i10)) +.309((i3-i8)-(i4-i9)) +.588((r2-r7)+(r5-r10)) +.951((r3-r8)+(r4-r9))
+//I4 = (i1-i6) -.309((i2-i7)-(i5-i10)) -.809((i3-i8)-(i4-i9)) -.951((r2-r7)+(r5-r10)) +.588((r3-r8)+(r4-r9))
+//I8 = (i1-i6) -.309((i2-i7)-(i5-i10)) -.809((i3-i8)-(i4-i9)) +.951((r2-r7)+(r5-r10)) -.588((r3-r8)+(r4-r9))
+
+void fft10(T2 *u) {
+  const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
+  const double SIN2_SIN1 = 0.618033988749894848;    // sin(2*tau/5) / sin(tau/5) = .588/.951, 0.618033988749894848
+  const double COS1 = 0.309016994374947424;    // cos(tau/5), 0.309016994374947424
+  const double COS2 = 0.809016994374947424;    // -cos(2*tau/5), 0.809016994374947424
+
+  X2(u[0], u[5]);				// (r16+ i16+),  (r16- i16-)
+  X2_mul_t4(u[1], u[6]);			// (r27+ i27+),  (i27- -r27-)
+  X2_mul_t4(u[4], u[9]);			// (r510+ i510+),  (i510- -r510-)
+  X2_mul_t4(u[2], u[7]);			// (r38+ i38+),  (i38-  -r38-)
+  X2_mul_t4(u[3], u[8]);			// (r49+ i49+),  (i49- -r49-)
+
+  X2_mul_t4(u[1], u[4]);			// (r27++ i27++),  (i27+- -r27+-)
+  X2_mul_t4(u[6], u[9]);			// (i27-+ -r27-+), (-r27-- -i27--)
+  X2_mul_t4(u[2], u[3]);			// (r38++ i38++),  (i38+- -r38+-)
+  X2_mul_t4(u[7], u[8]);			// (i38-+ -r38-+), (-r38-- -i38--)
+
+  T2 tmp39a = u[0] + COS1 * u[1];
+  T2 tmp57a = u[0] - COS2 * u[1];
+  u[0] = u[0] + u[1];
+  T2 tmp210a = u[5] - COS2 * u[9];
+  T2 tmp48a = u[5] + COS1 * u[9];
+  u[5] = u[5] + u[9];
+
+  T2 tmp39b = u[4] + SIN2_SIN1 * u[3];		// (i27+- +.588/.951*i38+-, -r27+- -.588/.951*r38+-)
+  T2 tmp57b = SIN2_SIN1 * u[4] - u[3];		// (.588/.951*i27+- -i38+-, -.588/.951*r27+- +r38+-)
+  T2 tmp210b = SIN2_SIN1 * u[6] + u[7];		// (.588/.951*i27-+ +i38-+, -.588/.951*r27-+ -r38-+)
+  T2 tmp48b = u[6] - SIN2_SIN1 * u[7];		// (i27-+ -.588/.951*i38-+, -r27-+ +.588/.951*r38-+)
+
+  tmp39a = tmp39a - COS2 * u[2];
+  tmp57a = tmp57a + COS1 * u[2];
+  u[0] = u[0] + u[2];
+  tmp210a = tmp210a - COS1 * u[8];
+  tmp48a = tmp48a + COS2 * u[8];
+  u[5] = u[5] - u[8];
+
+  u[2] = tmp39a + SIN1 * tmp39b;
+  u[8] = tmp39a - SIN1 * tmp39b;
+  u[4] = tmp57a + SIN1 * tmp57b;
+  u[6] = tmp57a - SIN1 * tmp57b;
+  u[1] = tmp210a + SIN1 * tmp210b;
+  u[9] = tmp210a - SIN1 * tmp210b;
+  u[3] = tmp48a + SIN1 * tmp48b;
+  u[7] = tmp48a - SIN1 * tmp48b;
+}
+#endif
 
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.7 "9-Point DFT".
 void fft9(T2 *u) {
