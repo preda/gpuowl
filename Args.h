@@ -5,6 +5,7 @@
 #include "common.h"
 
 #include <string>
+#include <vector>
 
 class Args {
 public:
@@ -19,6 +20,7 @@ public:
   string dump;
   string dir;
   string resultsFile = "results.txt";
+  std::vector<std::string> flags;
   
   int device = -1;
   bool timeKernels = false;

@@ -219,12 +219,16 @@ static void build(cl_program program, cl_device_id device, const string &args) {
 std::string toLiteral(const std::any& v) {
   if (auto *p = std::any_cast<u32>(&v)) {
     return to_string(*p) + "u";
+  } else if (auto *p = std::any_cast<i32>(&v)) {
+    return to_string(*p);
   } else if (auto *p = std::any_cast<u64>(&v)) {
     return to_string(*p) + "ul";
   } else if (auto *p = std::any_cast<double>(&v)) {
     char buf[32];
     snprintf(buf, sizeof(buf), "%a", *p);
     return buf;
+  } else {
+    log("No literal formatting defined for type %s\n", v.type().name());
   }
   assert(false);
   return "";

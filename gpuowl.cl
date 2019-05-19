@@ -157,8 +157,11 @@ void fft4(T2 *u) {
   SWAP(u[1], u[2]);
 }
 
-#ifdef OLD_FFT8
+#ifndef NEW_FFT8
+#define OLD_FFT8 1
+#endif
 
+#ifdef OLD_FFT8
 void fft8Core(T2 *u) {
   X2(u[0], u[4]);
   X2(u[1], u[5]);
@@ -308,6 +311,11 @@ void fft5(T2 *u) {
   u[2] = tmp34a + SIN1 * tmp34b;
   u[3] = tmp34a - SIN1 * tmp34b;
 }
+#endif
+
+#ifndef NEW_FFT10
+// default to old fft10
+#define OLD_FFT10 1
 #endif
 
 #ifdef OLD_FFT10
