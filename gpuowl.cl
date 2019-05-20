@@ -1412,3 +1412,16 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
   fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
+
+//#define TEST_KERNEL	// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
+#ifdef TEST_KERNEL
+// Small test kernel so we can easily find code snipets to compare different implementations of macros
+KERNEL(256) testKernel(P(T2) io) {
+    fft4(io);
+//    fft8(io);
+//    fft10(io);
+//    pairSq(NH, io, io+100, slowTrig(14, ND), false);
+//    pairMul(NH, io, io+100, io+200, io+300, slowTrig(14, ND), false);
+}
+#endif
+
