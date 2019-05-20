@@ -130,7 +130,6 @@ T2 foo(T2 a) { return foo2(a, a); }
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
 // Same as X2(a, b), b = mul_t4(b)
-// Saves one negation
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
 
 // Same as X2(a, b), b = mul_3t8(b)
@@ -197,13 +196,9 @@ void fft8Core(T2 *u) {
 
 void fft8Core(T2 *u) {
   X2(u[0], u[4]);
-  X2(u[1], u[5]);
-  X2(u[2], u[6]);
-  X2(u[3], u[7]);  
-  u[5] = mul_t8(u[5]);
-  u[6] = mul_t4(u[6]);
-  u[7] = mul_3t8(u[7]);
-
+  X2(u[1], u[5]);   u[5] = mul_t8(u[5]);
+  X2(u[2], u[6]);   u[6] = mul_t4(u[6]);
+  X2(u[3], u[7]);   u[7] = mul_3t8(u[7]);
   fft4Core(u);
   fft4Core(u + 4);
 }
