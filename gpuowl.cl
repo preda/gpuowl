@@ -49,19 +49,13 @@ typedef long Carry;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
-// double fractional(double x) { double dummy; return fract(x, &dummy); }
-// T _weight(u32 k) { return exp2(fractional(R * k)); }
-// T2 _weight2(u32 hk) { return U2(_weight(2 * hk), _weight(2 * hk + 1)); }
 
-#if (NWORDS & (NWORDS - 1))
-// NWORDS is not a power of 2, avoid modulo NWORDS
-// Is the word at pos a big word (BASE_BITLEN+1 bits)? (vs. a small, BASE_BITLEN bits word).
-bool isBigWord(uint k) { u64 a = FRAC * k - 1; return a > a + FRAC; }
-#else
-// NWORDS is a power of two, modulo is cheap
+#if OLD_ISBIG || !(NWORDS & (NWORDS - 1))
 #define STEP (NWORDS - (EXP % NWORDS))
 uint extra(uint k) { return ((ulong) STEP) * k % NWORDS; }
 bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
+#else
+bool isBigWord(uint k) { u64 a = FRAC * k - 1; return a > a + FRAC; }
 #endif
 
 // Number of bits for the word at pos.
@@ -157,24 +151,11 @@ void fft4(T2 *u) {
   SWAP(u[1], u[2]);
 }
 
-#ifndef NEW_FFT8
+#if !defined(NEWEST_FFT8) && !defined(NEW_FFT8)
 #define OLD_FFT8 1
 #endif
 
-#ifdef OLD_FFT8
-void fft8Core(T2 *u) {
-  X2(u[0], u[4]);
-  X2(u[1], u[5]);
-  X2_mul_t4(u[2], u[6]);
-  X2_mul_3t8(u[3], u[7]);
-  u[5] = mul_t8(u[5]);
-
-  fft4Core(u);
-  fft4Core(u + 4);
-}
-
-#else
-
+#if NEWEST_FFT8
 // Attempt to get more FMA by delaying mul by SQRTHALF
 
 //#define X2_delayed_mul_t4(a, b) { T2 t = a * M_SQRT1_2; a = t + b * M_SQRT1_2; t.x = b.x * M_SQRT1_2 - t.x; b.x = t.y - b.y * M_SQRT1_2; b.y = t.x; }
@@ -201,8 +182,35 @@ void fft8Core(T2 *u) {
   fft4Core_delayed(u + 4);
 }
 
-#endif
+#elif NEW_FFT8
 
+void fft8Core(T2 *u) {
+  X2(u[0], u[4]);
+  X2(u[1], u[5]);
+  X2_mul_t4(u[2], u[6]);
+  X2_mul_3t8(u[3], u[7]);
+  u[5] = mul_t8(u[5]);
+
+  fft4Core(u);
+  fft4Core(u + 4);
+}
+
+#elif OLD_FFT8
+
+void fft8Core(T2 *u) {
+  X2(u[0], u[4]);
+  X2(u[1], u[5]);
+  X2(u[2], u[6]);
+  X2(u[3], u[7]);  
+  u[5] = mul_t8(u[5]);
+  u[6] = mul_t4(u[6]);
+  u[7] = mul_3t8(u[7]);
+
+  fft4Core(u);
+  fft4Core(u + 4);
+}
+
+#endif
 
 void fft8(T2 *u) {
   fft8Core(u);

@@ -1,4 +1,4 @@
-HEADERS = Background.h Pm1Plan.h GmpUtil.h Args.h checkpoint.h clwrap.h common.h kernel.h state.h timeutil.h tinycl.h Worktodo.h Gpu.h Signal.h FFTConfig.h version.h version.inc clpp.h
+HEADERS = Background.h Pm1Plan.h GmpUtil.h Args.h checkpoint.h clwrap.h common.h kernel.h state.h timeutil.h tinycl.h Worktodo.h Gpu.h Signal.h FFTConfig.h version.h version.inc clpp.h gpuowl-wrap.cl
 
 SRCS = Pm1Plan.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp clpp.cpp
 
