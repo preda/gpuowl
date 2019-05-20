@@ -134,9 +134,7 @@ T2 foo(T2 a) { return foo2(a, a); }
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
 
 // Same as X2(a, b), b = mul_3t8(b)
-// Saves one negation
-#define X2_mul_3t8(a, b) { T2 t = a; a = t + b; b = b - t; b = mul_t8 (b); }
-
+#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; t.y *= M_SQRT1_2; b.x = t.x * M_SQRT1_2 - t.y; b.y = t.x * M_SQRT1_2 + t.y; }
 
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
@@ -162,7 +160,7 @@ void fft4(T2 *u) {
 #define X2_delayed_mul_t4(a, b) { T2 t = a * M_SQRT1_2; a.x = t.x + b.x * M_SQRT1_2; a.y = t.y + b.y * M_SQRT1_2; t.x = b.x * M_SQRT1_2 - t.x; b.x = t.y - b.y * M_SQRT1_2; b.y = t.x; }
 
 T2 mul_t8_delayed(T2 a)  { return U2(a.y + a.x, a.y - a.x); }
-#define X2_mul_3t8_delayed(a, b) { T2 t = a; a = t + b; b = b - t; b = mul_t8_delayed (b); }
+#define X2_mul_3t8_delayed(a, b) { T2 t = a; a = t + b; t = b - t; b.x = t.x - t.y; b.y = t.x + t.y; }
 
 void fft4Core_delayed(T2 *u) {		// Same as fft4Core except u[1] and u[3] need to be multiplied by SQRTHALF
   X2(u[0], u[2]);
