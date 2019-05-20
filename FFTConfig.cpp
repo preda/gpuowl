@@ -28,7 +28,9 @@ vector<FFTConfig> FFTConfig::genConfigs() {
   for (u32 width : {64, 256, 512, 1024, 2048, 4096}) {
     for (u32 height : {64, 256, 512, 1024, 2048}) {
       for (u32 middle : {1, /*3, 5,*/ 6, 9, 10}) {
-        configs.push_back(FFTConfig(width, height, middle));
+        if (middle == 1 || height >= 256) {
+          configs.push_back(FFTConfig(width, height, middle));
+        }
       }
     }
   }
