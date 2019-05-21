@@ -2,7 +2,7 @@
 
 #include "Args.h"
 #include "file.h"
-#include "clwrap.h"
+#include "clpp.h"
 #include "FFTConfig.h"
 
 #include <vector>
@@ -10,6 +10,9 @@
 #include <regex>
 #include <cstring>
 #include <cassert>
+#include <iterator>
+#include <sstream>
+#include <algorithm>
 
 string Args::mergeArgs(int argc, char **argv) {
   string ret;
@@ -55,6 +58,7 @@ Command line options:
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
+-use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning).
 -device <N>        : select a specific device:
 )", blockSize, logStep, B1, B2_B1_ratio);
 
@@ -116,6 +120,11 @@ void Args::parse(string line) {
         log("Invalid blockSize %u, must divide 10000\n", blockSize);
         throw "-block size";
       }
+    } else if (key == "-use") {
+      string ss = s;
+      std::replace(ss.begin(), ss.end(), ',', ' ');
+      std::istringstream iss{ss};
+      flags = {std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
     } else {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";

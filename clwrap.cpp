@@ -1,6 +1,6 @@
 // Copyright (C) 2017-2018 Mihai Preda.
 
-#include "clwrap.h"
+#include "clpp.h"
 #include "timeutil.h"
 #include "file.h"
 
@@ -157,10 +157,6 @@ cl_device_id getDevice(int argsDevId) {
   return device;
 }
 
-Context createContext(int device) {  
-  return createContext(getDevice(device));
-}
-
 Context createContext(cl_device_id id) {  
   int err;
   Context context(clCreateContext(NULL, 1, &id, NULL, NULL, &err));
@@ -175,17 +171,18 @@ void release(cl_mem buf)         { CHECK1(clReleaseMemObject(buf)); }
 void release(cl_queue queue)     { CHECK1(clReleaseCommandQueue(queue)); }
 void release(cl_kernel k)        { CHECK1(clReleaseKernel(k)); }
 
-bool dumpBinary(cl_program program, const string &fileName) {
+void dumpBinary(cl_program program, const string &fileName) {
   if (auto fo = openWrite(fileName)) {
     size_t size;
     CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
     char *buf = new char[size + 1];
     CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &buf, NULL));
-    fwrite(buf, 1, size, fo.get());
+    auto nWrote = fwrite(buf, size, 1, fo.get());
+    assert(nWrote == 1);
     delete[] buf;
-    return true; 
+  } else {
+    throw "dump "s + fileName;
   }
-  return false;
 }
 
 static cl_program loadSource(cl_context context, const string &source) {
@@ -197,44 +194,59 @@ static cl_program loadSource(cl_context context, const string &source) {
   return program;
 }
 
-static void build(cl_program program, const vector<cl_device_id> &devices, const string &args) {
+static void build(cl_program program, cl_device_id device, const string &args) {
   Timer timer;
   int err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
   bool ok = (err == CL_SUCCESS);
   if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }
   
   size_t logSize;
-  for (cl_device_id device : devices) {
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
-    if (logSize > 1) {
-      std::unique_ptr<char> buf(new char[logSize + 1]);
-      clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
-      buf.get()[logSize] = 0;
-      log("%s\n", buf.get());
-    }
+  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
+  if (logSize > 1) {
+    std::unique_ptr<char> buf(new char[logSize + 1]);
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
+    buf.get()[logSize] = 0;
+    log("%s\n", buf.get());
   }
   if (ok) {
-    log("OpenCL compilation in %d ms, with \"%s\"\n", timer.deltaMillis(), args.c_str());
+    log("OpenCL compilation in %d ms\n", timer.deltaMillis());
   } else {
     release(program);
     CHECK2(err, "clBuildProgram");
   }
 }
 
-cl_program compile(const vector<cl_device_id> &devices, cl_context context, const string &source, const string &extraArgs,
-                   const vector<pair<string, unsigned>> &defines) {
+std::string toLiteral(const std::any& v) {
+  if (auto *p = std::any_cast<u32>(&v)) {
+    return to_string(*p) + "u";
+  } else if (auto *p = std::any_cast<i32>(&v)) {
+    return to_string(*p);
+  } else if (auto *p = std::any_cast<u64>(&v)) {
+    return to_string(*p) + "ul";
+  } else if (auto *p = std::any_cast<double>(&v)) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%a", *p);
+    return buf;
+  } else {
+    log("No literal formatting defined for type %s\n", v.type().name());
+  }
+  assert(false);
+  return "";
+}
+
+cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
+                   const vector<pair<string, std::any>> &defines) {
   string strDefines;
-  string config;
   for (auto d : defines) {
-    strDefines = strDefines + "-D" + d.first + "=" + to_string(d.second) + "u ";
-    config = config + "_" + to_string(d.second);
+    strDefines = strDefines + "-D" + d.first + "=" + toLiteral(d.second) + ' ';
   }
   string args = strDefines + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-std=CL2.0";
-
+  log("OpenCL args \"%s\"\n", args.c_str());
+  
   cl_program program = 0;
 
   if ((program = loadSource(context, source))) {
-    build(program, devices, args);
+    build(program, device, args);
     return program;
   }
   
@@ -252,12 +264,7 @@ cl_kernel makeKernel(cl_program program, const char *name) {
   return k;
 }
 
-void setArg(cl_kernel k, int pos, void* const& svm) { CHECK1(clSetKernelArgSVMPointer(k, pos, svm)); }
-
-void setArg(cl_kernel k, int pos, const Buffer &buf) { setArg(k, pos, buf.get()); }
-
-
-cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr) {
+cl_mem _makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr) {
   // if (getFreeMem(
   
   int err;
@@ -267,8 +274,6 @@ cl_mem makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr) 
   CHECK2(err, "clCreateBuffer");
   return buf;
 }
-
-cl_mem makeBuf(Context &context, unsigned kind, size_t size, const void *ptr) { return makeBuf(context.get(), kind, size, ptr); }
 
 cl_queue makeQueue(cl_device_id d, cl_context c) {
   int err;
@@ -288,20 +293,22 @@ void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, si
   CHECK1(clEnqueueReadBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
 
-void read(cl_queue queue, bool blocking, Buffer &buf, size_t size, void *data, size_t start) {
-  CHECK1(clEnqueueReadBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
-}
-
 void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *data, size_t start) {
   CHECK1(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
+}
+
+/*
+void read(cl_queue queue, bool blocking, Buffer &buf, size_t size, void *data, size_t start) {
+  CHECK1(clEnqueueReadBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
 }
 
 void write(cl_queue queue, bool blocking, Buffer &buf, size_t size, const void *data, size_t start) {
   CHECK1(clEnqueueWriteBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
 }
+*/
 
-void copyBuf(cl_queue queue, Buffer &src, Buffer &dst, size_t size) {
-  CHECK1(clEnqueueCopyBuffer(queue, src.get(), dst.get(), 0, 0, size, 0, NULL, NULL));
+void copyBuf(cl_queue queue, const cl_mem src, cl_mem dst, size_t size) {
+  CHECK1(clEnqueueCopyBuffer(queue, src, dst, 0, 0, size, 0, NULL, NULL));
 }
 
 int getKernelNumArgs(cl_kernel k) {
@@ -325,6 +332,7 @@ std::string getKernelArgName(cl_kernel k, int pos) {
   return buf;
 }
 
+/*
 void Queue::zero(Buffer &buf, size_t size) {
   assert(size % sizeof(int) == 0);
   int zero = 0;
@@ -332,19 +340,20 @@ void Queue::zero(Buffer &buf, size_t size) {
   // CHECK(clEnqueueFillBuffer(queue.get(), buf.get(), &zero, sizeof(zero), 0, size, 0, 0, 0));
   // finish();
 }
+*/
 
-void fillBuf(cl_queue q, Buffer &buf, void *pat, size_t patSize, size_t size, size_t start) {
-  CHECK1(clEnqueueFillBuffer(q, buf.get(), pat, patSize, start, size ? size : patSize, 0, 0, 0));
+void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size, size_t start) {
+  CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, start, size ? size : patSize, 0, 0, 0));
 }
 
 u32 getAllocableBlocks(cl_device_id device, u32 blockSize, u32 minFree) {
-  vector<Buffer> buffers;
+  vector<Buffer<std::byte>> buffers;
 
   Context context = createContext(device);
   
   while (getFreeMem(device) >= minFree) {
     try {
-      buffers.emplace_back(makeBuf(context, BUF_RW, blockSize));
+      buffers.emplace_back(context, BUF_RW, blockSize);
     } catch (const bad_alloc&) {
       break;
     }
