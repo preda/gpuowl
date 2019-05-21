@@ -126,7 +126,15 @@ T2 foo2(T2 a, T2 b) {
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 T2 foo(T2 a) { return foo2(a, a); }
 
+#ifdef ORIG_X2
+// Rocm 2.4 is not generating good code with this simple original X2.  Should rocm ever be fixed, we should use this X2
+// definition rather than the alternate definition.
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
+#else
+// Much worse latency, less parallellism, but seems to work around rocm bug where fft4 generates 18 float ops instead of 16
+#define X2(a, b) { a = a + b; b.x = fma (b.x, -2.0, a.x); b.y = fma (b.y, -2.0, a.y); }
+#endif
+
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
 // Same as X2(a, b), b = mul_t4(b)
@@ -1417,8 +1425,8 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
 #ifdef TEST_KERNEL
 // Small test kernel so we can easily find code snipets to compare different implementations of macros
 KERNEL(256) testKernel(P(T2) io) {
-    fft4(io);
-//    fft8(io);
+//    fft4(io);
+    fft8(io);
 //    fft10(io);
 //    pairSq(NH, io, io+100, slowTrig(14, ND), false);
 //    pairMul(NH, io, io+100, io+200, io+300, slowTrig(14, ND), false);
