@@ -28,7 +28,7 @@ clean:
 	rm -f ${OBJS} gpuowl gpuowl-win
 
 %.o : %.cpp
-%.o : %.cpp $(DEPDIR)/%.d
+%.o : %.cpp $(DEPDIR)/%.d gpuowl-wrap.cl version.inc
 	$(COMPILE.cc) $(OUTPUT_OPTION) $<
 	$(POSTCOMPILE)
 
