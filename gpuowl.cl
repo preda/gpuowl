@@ -153,6 +153,10 @@ T2 fmaT2(T a, T2 b, T2 c) { return (U2 (fma (a, b.x, c.x), fma (a, b.y, c.y))); 
 #define X2_mul_t4(a, b) { double ax = a.x; a = a + b; b.x = fma (b.y, -2.0, a.y); b.y = fma (ax, -2.0, a.x); }
 #endif
 
+// a * conjugate(b)
+// saves one negation
+T2 mul_by_conjugate(T2 a, T2 b) { return U2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y ); }
+
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
   X2_mul_t4(u[1], u[3]);
@@ -1376,6 +1380,8 @@ void reverseLine(uint WG, local T *lds, T2 *u) {
   }
 }
 
+#ifdef ORIG_PAIRSQ
+
 void pairSq(uint N, T2 *u, T2 *v, T2 base, bool special) {
   uint me = get_local_id(0);
 
@@ -1402,6 +1408,78 @@ void pairSq(uint N, T2 *u, T2 *v, T2 base, bool special) {
     v[i] = b;
   }
 }
+
+#else
+
+// Better pairSq.  Reduces complex muls in base calculations and improves roundoff error
+
+// This can be done with 31 float ops
+#define onePairSq(a, b, t) { \
+      b = conjugate(b); \
+      X2(a, b); \
+      b = mul_by_conjugate(b, t); \
+      X2(a, b); \
+      a = sq(a); \
+      b = sq(b); \
+      X2(a, b); \
+      b = mul(b, t); \
+      X2(a, b); \
+      a = conjugate(a); \
+}
+
+void pairSq(uint N, T2 *u, T2 *v, T2 base, bool special) {
+  uint me = get_local_id(0);
+
+// Should assert N == NH/2 or N == NH
+
+  T2 step = slowTrig(1, NH);
+
+  for (int i = 0; i < NH / 4; ++i, base = mul(base, step)) {
+    T2 a = u[i];
+    T2 b = v[i];
+    T2 t = swap(base);    
+    if (special && i == 0 && me == 0) {
+      b = conjugate(b);
+      a = shl(foo(a), 2);
+      b = shl(sq(b), 3);
+      a = conjugate(a);
+    } else {
+      onePairSq(a, b, t);
+    }
+    u[i] = a;
+    v[i] = b;
+
+    if (N == NH) {
+	a = u[i+NH/2];
+	b = v[i+NH/2];
+	t = swap(mul (base, U2(0, -1)));    
+	onePairSq(a, b, t);
+	u[i+NH/2] = a;
+	v[i+NH/2] = b;
+    }
+
+    a = u[i+NH/4];
+    b = v[i+NH/4];
+    T2 new_base = mul_t8 (base);
+    t = swap (new_base);
+    onePairSq(a, b, t);
+    u[i+NH/4] = a;
+    v[i+NH/4] = b;
+
+    if (N == NH) {
+	a = u[i+3*NH/4];
+	b = v[i+3*NH/4];
+	t = swap(mul (new_base, U2(0, -1)));
+	onePairSq(a, b, t);
+	u[i+3*NH/4] = a;
+	v[i+3*NH/4] = b;
+    }
+  }
+}
+
+#endif
+
+#ifdef ORIG_PAIRMUL
 
 void pairMul(uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
   uint me = get_local_id(0);
@@ -1434,6 +1512,86 @@ void pairMul(uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
     v[i] = b;
   }
 }
+
+#else
+
+// Better pairMul.  Reduces complex muls in base calculations and improves roundoff error
+
+#define onePairMul(a, b, c, d, t) { \
+      b = conjugate(b); \
+      X2(a, b); \
+      b = mul_by_conjugate(b, t); \
+      X2(a, b); \
+      d = conjugate(d); \
+      X2(c, d); \
+      d = mul_by_conjugate(d, t); \
+      X2(c, d); \
+      a = mul(a, c); \
+      b = mul(b, d); \
+      X2(a, b); \
+      b = mul(b, t); \
+      X2(a, b); \
+      a = conjugate(a); \
+}
+
+void pairMul(uint N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
+  uint me = get_local_id(0);
+
+  T2 step = slowTrig(1, NH);
+  
+  for (int i = 0; i < N/4; ++i, base = mul(base, step)) {
+    T2 a = u[i];
+    T2 b = v[i];
+    T2 c = p[i];
+    T2 d = q[i];
+    T2 t = swap(base);
+    if (special && i == 0 && me == 0) {
+      b = conjugate(b);
+      d = conjugate(d);
+      a = shl(foo2(a, c), 2);
+      b = shl(mul(b, d), 3);
+      a = conjugate(a);
+    } else {
+      onePairMul(a, b, c, d, t);
+    }
+    u[i] = a;
+    v[i] = b;
+
+    if (N == NH) {
+	a = u[i+NH/2];
+	b = v[i+NH/2];
+	c = p[i+NH/2];
+	d = q[i+NH/2];
+	t = swap(mul (base, U2(0, -1)));    
+	onePairMul(a, b, c, d, t);
+	u[i+NH/2] = a;
+	v[i+NH/2] = b;
+    }
+
+    a = u[i+NH/4];
+    b = v[i+NH/4];
+    c = p[i+NH/4];
+    d = q[i+NH/4];
+    T2 new_base = mul_t8 (base);
+    t = swap (new_base);
+    onePairMul(a, b, c, d, t);
+    u[i+NH/4] = a;
+    v[i+NH/4] = b;
+
+    if (N == NH) {
+	a = u[i+3*NH/4];
+	b = v[i+3*NH/4];
+	c = p[i+3*NH/4];
+	d = q[i+3*NH/4];
+	t = swap(mul (new_base, U2(0, -1)));
+	onePairMul(a, b, c, d, t);
+	u[i+3*NH/4] = a;
+	v[i+3*NH/4] = b;
+    }
+  }
+}
+
+#endif
 
 // equivalent to: fftH, multiply, fftH.
 KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
@@ -1536,7 +1694,7 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
 KERNEL(256) testKernel(P(T2) io) {
 //    fft4(io);
 //    fft8(io);
-      fft10(io);
+//      fft10(io);
 //    pairSq(NH, io, io+100, slowTrig(14, ND), false);
 //    pairMul(NH, io, io+100, io+200, io+300, slowTrig(14, ND), false);
 }
