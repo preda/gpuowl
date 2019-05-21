@@ -141,8 +141,17 @@ T2 foo(T2 a) { return foo2(a, a); }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
+T2 fmaT2(T a, T2 b, T2 c) { return (U2 (fma (a, b.x, c.x), fma (a, b.y, c.y))); }
+
 // Same as X2(a, b), b = mul_t4(b)
+#ifdef ORIG_X2_MUL_T4
+// Rocm 2.4 is not generating good code with simple X2 implementations.  Should rocm ever be fixed, we should use this
+// definition rather than the alternate definition.
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
+#else
+// Much worse latency, less parallellism, but seems to generate fewer f64 ops.
+#define X2_mul_t4(a, b) { double ax = a.x; a = a + b; b.x = fma (b.y, -2.0, a.y); b.y = fma (ax, -2.0, a.x); }
+#endif
 
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
@@ -261,8 +270,15 @@ void fft6(T2 *u) {
   u[2] = tmp;
 }
 
+#if !defined(NEWEST_FFT5) && !defined(NEW_FFT5) && !defined(OLD_FFT5)
+// default to new fft5
+#define NEW_FFT5 1
+#endif
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
-#ifdef OLD_FFT5
+
+// Using rocm 2.2, testKernel shows this macro generates 34 f64 ops, 30 vgprs.
+#if OLD_FFT5
 void fft5(T2 *u) {
   const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
   const double SIN2 = 0x1.89f188bdcd7afp+0; // sin(tau/5) + sin(2*tau/5), 1.53884176858762677931
@@ -291,7 +307,8 @@ void fft5(T2 *u) {
   X2(u[2], u[3]);
 }
 
-#else
+// Using rocm 2.2, testKernel shows this macro generates 32 f64 ops, 28 vgprs.
+#elif NEW_FFT5
 
 // Above is 34 adds. prime95 does this with 32 adds
 // See prime95's gwnum/zr5.mac file for more detailed explanation of the formulas below
@@ -331,14 +348,45 @@ void fft5(T2 *u) {
   u[2] = tmp34a + SIN1 * tmp34b;
   u[3] = tmp34a - SIN1 * tmp34b;
 }
+
+// Using rocm 2.2, testKernel shows this macro generates 32 f64 ops, 32 vgprs.
+#else			// NEWEST_FFT5
+
+void fft5(T2 *u) {
+  const double SIN1 = 0x1.e6f0e134454ffp-1;		// sin(tau/5), 0.95105651629515353118
+  const double SIN2_SIN1 = 0.618033988749894848;	// sin(2*tau/5) / sin(tau/5) = .588/.951, 0.618033988749894848
+  const double COS1 = 0.309016994374947424;		// cos(tau/5), 0.309016994374947424
+  const double COS2 = 0.809016994374947424;		// -cos(2*tau/5), 0.809016994374947424
+
+  X2_mul_t4(u[1], u[4]);			// (r2+ i2+),  (i2- -r2-)
+  X2_mul_t4(u[2], u[3]);			// (r3+ i3+),  (i3- -r3-)
+
+  T2 tmp25a = fmaT2 (COS1, u[1], u[0]);
+  T2 tmp34a = fmaT2 (-COS2, u[1], u[0]);
+  u[0] = u[0] + u[1];
+
+  T2 tmp25b = fmaT2 (SIN2_SIN1, u[3], u[4]);		// (i2- +.588/.951*i3-, -r2- -.588/.951*r3-)
+  T2 tmp34b = fmaT2 (SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2- -i3-, -.588/.951*r2- +r3-)
+
+  tmp25a = fmaT2 (-COS2, u[2], tmp25a);
+  tmp34a = fmaT2 (COS1, u[2], tmp34a);
+  u[0] = u[0] + u[2];
+
+  u[1] = fmaT2 (SIN1, tmp25b, tmp25a);
+  u[4] = fmaT2 (-SIN1, tmp25b, tmp25a);
+  u[2] = fmaT2 (SIN1, tmp34b, tmp34a);
+  u[3] = fmaT2 (-SIN1, tmp34b, tmp34a);
+}
 #endif
 
-#ifndef NEW_FFT10
+
+#if !defined(NEWEST_FFT10) && !defined(NEW_FFT10) && !defined(OLD_FFT10)
 // default to old fft10
 #define OLD_FFT10 1
 #endif
 
-#ifdef OLD_FFT10
+// Using rocm 2.2, testKernel shows this macro generates 100 f64 ops, 66 vgprs (using NEW_FFT5).
+#if OLD_FFT10
 void fft10(T2 *u) {
   const double COS1 =  0x1.9e3779b97f4a8p-1; // cos(tau/10), 0.80901699437494745126
   const double SIN1 = -0x1.2cf2304755a5ep-1; // sin(tau/10), 0.58778525229247313710
@@ -366,7 +414,8 @@ void fft10(T2 *u) {
   u[2] = tmp;
 }
 
-#else
+// Using rocm 2.2, testKernel shows this macro generates 92 f64 ops, 72 vgprs.
+#elif NEW_FFT10
 
 // See prime95's gwnum/zr10.mac file for more detailed explanation of the formulas below
 //R1 = (r1+r6)     +((r2+r7)+(r5+r10))     +((r3+r8)+(r4+r9))
@@ -435,6 +484,55 @@ void fft10(T2 *u) {
   u[9] = tmp210a - SIN1 * tmp210b;
   u[3] = tmp48a + SIN1 * tmp48b;
   u[7] = tmp48a - SIN1 * tmp48b;
+}
+
+// Using rocm 2.2, testKernel shows this macro generates 92 f64 ops, 64 vgprs.
+#else			// NEWEST_FFT10
+
+void fft10(T2 *u) {
+  const double SIN1 = 0x1.e6f0e134454ffp-1;		// sin(tau/5), 0.95105651629515353118
+  const double SIN2_SIN1 = 0.618033988749894848;	// sin(2*tau/5) / sin(tau/5) = .588/.951, 0.618033988749894848
+  const double COS1 = 0.309016994374947424;		// cos(tau/5), 0.309016994374947424
+  const double COS2 = 0.809016994374947424;		// -cos(2*tau/5), 0.809016994374947424
+
+  X2(u[0], u[5]);				// (r1+ i1+),  (r1-  i1-)
+  X2_mul_t4(u[1], u[6]);			// (r2+ i2+),  (i2- -r2-)
+  X2_mul_t4(u[4], u[9]);			// (r5+ i5+),  (i5- -r5-)
+  X2_mul_t4(u[2], u[7]);			// (r3+ i3+),  (i3- -r3-)
+  X2_mul_t4(u[3], u[8]);			// (r4+ i4+),  (i4- -r4-)
+
+  X2_mul_t4(u[1], u[4]);			// (r2++  i2++),  (i2+- -r2+-)
+  X2_mul_t4(u[6], u[9]);			// (i2-+ -r2-+), (-r2-- -i2--)
+  X2_mul_t4(u[2], u[3]);			// (r3++  i3++),  (i3+- -r3+-)
+  X2_mul_t4(u[7], u[8]);			// (i3-+ -r3-+), (-r3-- -i3--)
+
+  T2 tmp39a = fmaT2 (COS1, u[1], u[0]);
+  T2 tmp57a = fmaT2 (-COS2, u[1], u[0]);
+  u[0] = u[0] + u[1];
+  T2 tmp210a = fmaT2 (-COS2, u[9], u[5]);
+  T2 tmp48a = fmaT2 (COS1, u[9], u[5]);
+  u[5] = u[5] + u[9];
+
+  T2 tmp39b = fmaT2 (SIN2_SIN1, u[3], u[4]);		// (i2+- +.588/.951*i3+-, -r2+- -.588/.951*r3+-)
+  T2 tmp57b = fmaT2 (SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2+- -i3+-, -.588/.951*r2+- +r3+-)
+  T2 tmp210b = fmaT2 (SIN2_SIN1, u[6], u[7]);		// (.588/.951*i2-+ +i3-+, -.588/.951*r2-+ -r3-+)
+  T2 tmp48b = fmaT2 (-SIN2_SIN1, u[7], u[6]);		// (i2-+ -.588/.951*i3-+, -r2-+ +.588/.951*r3-+)
+
+  tmp39a = fmaT2 (-COS2, u[2], tmp39a);
+  tmp57a = fmaT2 (COS1, u[2], tmp57a);
+  u[0] = u[0] + u[2];
+  tmp210a = fmaT2 (-COS1, u[8], tmp210a);
+  tmp48a = fmaT2 (COS2, u[8], tmp48a);
+  u[5] = u[5] - u[8];
+
+  u[2] = fmaT2 (SIN1, tmp39b, tmp39a);
+  u[8] = fmaT2 (-SIN1, tmp39b, tmp39a);
+  u[4] = fmaT2 (SIN1, tmp57b, tmp57a);
+  u[6] = fmaT2 (-SIN1, tmp57b, tmp57a);
+  u[1] = fmaT2 (SIN1, tmp210b, tmp210a);
+  u[9] = fmaT2 (-SIN1, tmp210b, tmp210a);
+  u[3] = fmaT2 (SIN1, tmp48b, tmp48a);
+  u[7] = fmaT2 (-SIN1, tmp48b, tmp48a);
 }
 #endif
 
@@ -1437,8 +1535,8 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
 // Small test kernel so we can easily find code snipets to compare different implementations of macros
 KERNEL(256) testKernel(P(T2) io) {
 //    fft4(io);
-    fft8(io);
-//    fft10(io);
+//    fft8(io);
+      fft10(io);
 //    pairSq(NH, io, io+100, slowTrig(14, ND), false);
 //    pairMul(NH, io, io+100, io+200, io+300, slowTrig(14, ND), false);
 }
