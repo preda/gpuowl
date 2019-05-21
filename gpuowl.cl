@@ -140,9 +140,6 @@ T2 foo(T2 a) { return foo2(a, a); }
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
 
-// Same as X2(a, b), b = mul_3t8(b)
-#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; t.y *= M_SQRT1_2; b.x = t.x * M_SQRT1_2 - t.y; b.y = t.x * M_SQRT1_2 + t.y; }
-
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
   X2_mul_t4(u[1], u[3]);
@@ -160,34 +157,43 @@ void fft4(T2 *u) {
 #define OLD_FFT8 1
 #endif
 
+// In rocm 2.2 this is 53 f64 ops in testKernel -- one over optimal.  However, for me it is slower
+// than OLD_FFT8 when it used in "real" kernels.
 #if NEWEST_FFT8
-// Attempt to get more FMA by delaying mul by SQRTHALF
 
-//#define X2_delayed_mul_t4(a, b) { T2 t = a * M_SQRT1_2; a = t + b * M_SQRT1_2; t.x = b.x * M_SQRT1_2 - t.x; b.x = t.y - b.y * M_SQRT1_2; b.y = t.x; }
-#define X2_delayed_mul_t4(a, b) { T2 t = a * M_SQRT1_2; a.x = t.x + b.x * M_SQRT1_2; a.y = t.y + b.y * M_SQRT1_2; t.x = b.x * M_SQRT1_2 - t.x; b.x = t.y - b.y * M_SQRT1_2; b.y = t.x; }
-
+// Attempt to get more FMA by delaying mul by SQRT1_2
 T2 mul_t8_delayed(T2 a)  { return U2(a.y + a.x, a.y - a.x); }
 #define X2_mul_3t8_delayed(a, b) { T2 t = a; a = t + b; t = b - t; b.x = t.x - t.y; b.y = t.x + t.y; }
 
-void fft4Core_delayed(T2 *u) {		// Same as fft4Core except u[1] and u[3] need to be multiplied by SQRTHALF
+// Like X2 but second arg needs a multiplication by SQRT1_2
+#define X2_apply_SQRT1_2(a, b) { T2 t = a; \
+				 a.x = fma (b.x, M_SQRT1_2, t.x); a.y = fma (b.y, M_SQRT1_2, t.y); \
+				 b.x = fma (b.x, -M_SQRT1_2, t.x); b.y = fma (b.y, -M_SQRT1_2, t.y); }
+
+void fft4Core_delayed(T2 *u) {		// Same as fft4Core except u[1] and u[3] need to be multiplied by SQRT1_2
   X2(u[0], u[2]);
-  X2_delayed_mul_t4(u[1], u[3]);
-  X2(u[0], u[1]);
-  X2(u[2], u[3]);
+  X2_mul_t4(u[1], u[3]);		// Still need to apply SQRT1_2
+  X2_apply_SQRT1_2(u[0], u[1]);
+  X2_apply_SQRT1_2(u[2], u[3]);
 }
 
 void fft8Core(T2 *u) {
   X2(u[0], u[4]);
   X2(u[1], u[5]);
   X2_mul_t4(u[2], u[6]);
-  X2_mul_3t8_delayed(u[3], u[7]);
-  u[5] = mul_t8_delayed(u[5]);
+  X2_mul_3t8_delayed(u[3], u[7]);	// u[7] needs mul by SQRT1_2
+  u[5] = mul_t8_delayed(u[5]);		// u[5] needs mul by SQRT1_2
 
   fft4Core(u);
   fft4Core_delayed(u + 4);
 }
 
+// In rocm 2.2 this is 57 f64 ops in testKernel -- an ugly five over optimal.
 #elif NEW_FFT8
+
+// Same as X2(a, b), b = mul_3t8(b)
+//#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; t.y *= M_SQRT1_2; b.x = t.x * M_SQRT1_2 - t.y; b.y = t.x * M_SQRT1_2 + t.y; }
+#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; b.x = (t.x - t.y) * M_SQRT1_2; b.y = (t.x + t.y) * M_SQRT1_2; }
 
 void fft8Core(T2 *u) {
   X2(u[0], u[4]);
@@ -200,6 +206,7 @@ void fft8Core(T2 *u) {
   fft4Core(u + 4);
 }
 
+// In rocm 2.2 this is 54 f64 ops in testKernel -- two over optimal.
 #elif OLD_FFT8
 
 void fft8Core(T2 *u) {
@@ -1421,7 +1428,7 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
 
-//#define TEST_KERNEL	// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
+#define TEST_KERNEL	// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
 // Small test kernel so we can easily find code snipets to compare different implementations of macros
 KERNEL(256) testKernel(P(T2) io) {
