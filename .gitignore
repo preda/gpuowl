@@ -1,5 +1,6 @@
 gpuowl
 version.inc
+gpuowl-wrap.cl
 config.txt
 gpuowl.log
 worktodo.txt
