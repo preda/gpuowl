@@ -1,5 +1,3 @@
-CXX = g++-9
-
 CXXFLAGS = -Wall -O2 -std=c++17
 
 LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L/c/Windows/System32 -L.
