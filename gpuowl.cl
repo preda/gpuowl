@@ -626,16 +626,16 @@ void fft9(T2 *u) {
 // I7 = i1 -.959(i2+i11) +.841(i3+i10) -.655(i4+i9) +.415(i5+i8) -.142(i6+i7)  +(.282(r2-r11) -.541(r3-r10) +.756(r4-r9) -.910(r5-r8) +.990(r6-r7))
 
 void fft11(T2 *u) {
-  const double COS1 = 0.841253532831181;		// cos(tau/11)
-  const double COS2 = 0.415415013001886;		// cos(2*tau/11)
-  const double COS3 = -0.142314838273285;		// cos(3*tau/11)
-  const double COS4 = -0.654860733945285;		// cos(4*tau/11)
-  const double COS5 = -0.959492973614497;		// cos(5*tau/11)
-  const double SIN1 = 0.540640817455598;		// sin(tau/11)
-  const double SIN2_SIN1 = 1.682507065662362;		// sin(2*tau/11) / sin(tau/11) = .910/.541
-  const double SIN3_SIN1 = 1.830830026003773;		// sin(3*tau/11) / sin(tau/11) = .990/.541
-  const double SIN4_SIN1 = 1.397877389115792;		// sin(4*tau/11) / sin(tau/11) = .756/.541
-  const double SIN5_SIN1 = 0.521108558113203;		// sin(5*tau/11) / sin(tau/11) = .282/.541
+  const double COS1 = 0.8412535328311811688;		// cos(tau/11)
+  const double COS2 = 0.4154150130018864255;		// cos(2*tau/11)
+  const double COS3 = -0.1423148382732851404;		// cos(3*tau/11)
+  const double COS4 = -0.6548607339452850640;		// cos(4*tau/11)
+  const double COS5 = -0.9594929736144973898;		// cos(5*tau/11)
+  const double SIN1 = 0.5406408174555975821;		// sin(tau/11)
+  const double SIN2_SIN1 = 1.682507065662362337;	// sin(2*tau/11) / sin(tau/11) = .910/.541
+  const double SIN3_SIN1 = 1.830830026003772851;	// sin(3*tau/11) / sin(tau/11) = .990/.541
+  const double SIN4_SIN1 = 1.397877389115792056;	// sin(4*tau/11) / sin(tau/11) = .756/.541
+  const double SIN5_SIN1 = 0.521108558113202723;	// sin(5*tau/11) / sin(tau/11) = .282/.541
 
   X2_mul_t4(u[1], u[10]);			// (r2+ i2+),  (i2- -r2-)
   X2_mul_t4(u[2], u[9]);			// (r3+ i3+),  (i3- -r3-)
