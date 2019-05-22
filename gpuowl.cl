@@ -130,13 +130,25 @@ T2 foo2(T2 a, T2 b) {
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 T2 foo(T2 a) { return foo2(a, a); }
 
-#ifdef ORIG_X2
+#if !defined(ORIG_X2) && !defined(INLINE_X2) && !defined(FMA_X2)
+// default to inline X2
+#define INLINE_X2 1
+#endif
+
+#if ORIG_X2
 // Rocm 2.4 is not generating good code with this simple original X2.  Should rocm ever be fixed, we should use this X2
 // definition rather than the alternate definition.
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
-#else
+#elif FMA_X2
 // Much worse latency, less parallellism, but seems to work around rocm bug where fft4 generates 18 float ops instead of 16
 #define X2(a, b) { a = a + b; b.x = fma (b.x, -2.0, a.x); b.y = fma (b.y, -2.0, a.y); }
+#elif INLINE_X2
+// Here's hoping the inline asm tricks rocm into not generating extra f64 ops.
+#define X2(a, b) { \
+	T2 t = a; a = t + b; \
+	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
+	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
+	}
 #endif
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
@@ -144,13 +156,22 @@ T2 foo(T2 a) { return foo2(a, a); }
 T2 fmaT2(T a, T2 b, T2 c) { return (U2 (fma (a, b.x, c.x), fma (a, b.y, c.y))); }
 
 // Same as X2(a, b), b = mul_t4(b)
-#ifdef ORIG_X2_MUL_T4
+// Saves one negation
+#if ORIG_X2
 // Rocm 2.4 is not generating good code with simple X2 implementations.  Should rocm ever be fixed, we should use this
 // definition rather than the alternate definition.
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
-#else
+#elif FMA_X2
 // Much worse latency, less parallellism, but seems to generate fewer f64 ops.
 #define X2_mul_t4(a, b) { double ax = a.x; a = a + b; b.x = fma (b.y, -2.0, a.y); b.y = fma (ax, -2.0, a.x); }
+#else
+// Here's hoping the inline asm tricks rocm into not generating extra f64 ops.
+#define X2_mul_t4(a, b) { \
+	T2 t = a; a = t + b; \
+	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (t.x) : "v" (b.x), "v" (t.x)); \
+	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.x) : "v" (t.y), "v" (b.y)); \
+	b.y = t.x; \
+	}
 #endif
 
 // a * conjugate(b)
@@ -1892,9 +1913,9 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
 #ifdef TEST_KERNEL
 // Small test kernel so we can easily find code snipets to compare different implementations of macros
 KERNEL(256) testKernel(P(T2) io) {
-//    fft4(io);
+      fft4(io);
 //    fft8(io);
-//      fft10(io);
+//    fft10(io);
 //    pairSq(NH, io, io+100, slowTrig(14, ND), false);
 //    pairMul(NH, io, io+100, io+200, io+300, slowTrig(14, ND), false);
 }
