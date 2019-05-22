@@ -19,7 +19,7 @@ gpuowl: ${OBJS}
 	${LINK}
 
 gpuowl-win: ${OBJS}
-	{LINK} -static
+	${LINK} -static
 	strip $@
 
 clean:
