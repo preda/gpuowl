@@ -67,7 +67,6 @@ class Gpu {
   Buffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
   Buffer<int> bufCheck;  // Buffers used with the error check.
   
-  static_assert(sizeof(long) == 8, "long is 64 bits");
   // Carry buffers, used in carry and fusedCarry.
   Buffer<i64> bufCarry;  // Carry shuttle.
   
