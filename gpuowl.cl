@@ -103,6 +103,51 @@ Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight, uint k) {
   return (Word2) (a, b);
 }
 
+// double rounding trick: round(x) = (x + ROUNDER) - ROUNDER
+#define ROUNDER 0x1.8p+52 // 3*2^51
+
+T doubleCarryStep(T x, T *carry, bool isBig) {
+  x += *carry;
+  double tmp = isBig ? BIG_ROUNDER : SMALL_ROUNDER;
+  // ROUNDER * (1 << bits) - ROUNDER;
+  
+#if 0
+  double y = x + tmp;
+  double z = y - tmp;
+#else
+  // The asm below works around shortcuts in floating point evaluation that are enabled by
+  // -cl-unsafe-math-optimizations or -cl-fast-relaxed-math
+  double y;
+  __asm("v_add_f64 %0, %1, %2": "=v"(y): "v"(x), "v"(tmp));
+  double z;
+  __asm("v_add_f64 %0, %1, -%2": "=v"(z): "v"(y), "v"(tmp));
+#endif
+
+  uint bits = EXP / NWORDS + isBig;
+  
+  // *carry = y * (isBig ? BIG_INV : SMALL_INV);
+  *carry = ldexp(y, -bits);
+  return x - z;
+}
+
+T2 doubleUnweightAndCarry(T2 u, T *carry, T2 weight, uint k) {
+  u = u * weight;
+  u.x = doubleCarryStep(u.x, carry, isBigWord(2 * k + 0));
+  
+  // bitlen(2 * k + 0));
+  u.y = doubleCarryStep(u.y, carry, isBigWord(2 * k + 1));
+  // bitlen(2 * k + 1));
+  return u;
+}
+
+T2 doubleCarryAndWeightFinal(T2 u, T carry, T2 weight, uint hk) {
+  u.x = doubleCarryStep(u.x, &carry, isBigWord(2 * hk));
+  // bitlen(2 * hk));
+  carry -= ROUNDER;
+  u.y = u.y + carry;
+  return u * weight;
+}
+
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
 // No carry out. The final carry is "absorbed" in the last word.
@@ -1361,7 +1406,7 @@ void acquire() {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
+KERNEL(G_W) carryFused(P(T2) io, P(T) carryShuttle, P(uint) ready,
                        CP(T2) A, CP(T2) iA, Trig smallTrig) {
   local T lds[WIDTH];
 
@@ -1376,7 +1421,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   iA += step;
   
   T2 u[NW];
-  Word2 wu[NW];
+  // Word2 wu[NW];
   
   read(G_W, NW, u, io, 0);
 
@@ -1384,9 +1429,9 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
-    Carry carry = 0;
+    T carry = ROUNDER;
     uint k = line + BIG_HEIGHT * p;
-    wu[i] = unweightAndCarry(1,   conjugate(u[i]), &carry, iA[p], k);
+    u[i] = doubleUnweightAndCarry(conjugate(u[i]), &carry, iA[p], k);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
@@ -1410,7 +1455,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
     uint k = line + BIG_HEIGHT * p;
-    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p], k);
+    u[i] = doubleCarryAndWeightFinal(u[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p], k);
   }
 
   fft_WIDTH(lds, u, smallTrig);

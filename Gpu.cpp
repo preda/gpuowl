@@ -60,12 +60,21 @@ static string CL_SOURCE =
 
 static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(WIDTH * SMALL_HEIGHT * MIDDLE * 2));
+
+  int smallBits = E / N;
+  int bigBits = smallBits + 1;
+  double ROUNDER = 0x1.8p+52;
+  
   vector<pair<string, std::any>> defines =
     {{"EXP", E},
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
      {"MIDDLE", MIDDLE},
      {"FRAC", FRAC(N, E)},
+     {"BIG_ROUNDER", ROUNDER * (1 << bigBits) - ROUNDER},
+     {"SMALL_ROUNDER", ROUNDER * (1 << smallBits) - ROUNDER},
+     {"BIG_INV", 1.0 / (1 << bigBits)},
+     {"SMALL_INV", 1.0 / (1 << smallBits)},
     };
   
   for (const string& flag : args.flags) { defines.push_back(pair{flag, 1}); }

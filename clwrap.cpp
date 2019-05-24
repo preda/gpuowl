@@ -240,7 +240,9 @@ cl_program compile(cl_device_id device, cl_context context, const string &source
   for (auto d : defines) {
     strDefines = strDefines + "-D" + d.first + "=" + toLiteral(d.second) + ' ';
   }
-  string args = strDefines + extraArgs + " " + "-I. -cl-fast-relaxed-math -cl-std=CL2.0";
+
+  string args = strDefines + extraArgs + " -I. -cl-denorms-are-zero -cl-no-signed-zeros -cl-finite-math-only -cl-unsafe-math-optimizations -cl-fast-relaxed-math -Werror -cl-std=CL2.0";
+
   log("OpenCL args \"%s\"\n", args.c_str());
   
   cl_program program = 0;
