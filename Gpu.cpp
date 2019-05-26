@@ -48,24 +48,83 @@ static Buffer<double2> genSmallTrig(cl_context context, int size, int radix) {
   return Buffer<double2>(context, BUF_CONST, tab);
 }
 
-static void setupWeights(cl_context context, Buffer<double>& bufA, Buffer<double>& bufI, int W, int H, int E) {
-  auto weights = genWeights(E, W, H);  
+struct Weights {
+  vector<double> aTab;
+  vector<double> iTab;
+  vector<double> groupWeights;
+  vector<double> threadWeights;
+  // double weightStep;
+  // double weightBigStep;
+};
+
+static long double weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  long double iN = 1 / (long double) N;
+  u32 k = (line + col * H) * 2 + rep;
+  return exp2l(extra(N, E, k) * iN);
+}
+
+static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
+  int N = 2 * W * H;
+
+  vector<double> aTab, iTab;
+  aTab.reserve(N);
+  iTab.reserve(N);
+
+  // auto iN = 1 / (long double) N;
+
+  for (u32 line = 0; line < H; ++line) {
+    for (u32 col = 0; col < W; ++col) {
+      for (u32 rep = 0; rep < 2; ++rep) {
+        auto a = weight(N, E, H, line, col, rep);
+        // u32 k = (line + col * H) * 2 + rep;
+        // auto a = exp2l(extra(N, E, k) * iN);
+        auto ia = 1 / (4 * N * a);
+        aTab.push_back(a);
+        iTab.push_back(ia);
+      }
+    }
+  }
+  assert(int(aTab.size()) == N && int(iTab.size()) == N);
+
+  vector<double> groupWeights;
+  for (u32 group = 0; group < H; ++group) {
+    groupWeights.push_back(weight(N, E, H, group, 0, 0));
+  }
+
+  vector<double> threadWeights;
+  for (u32 thread = 0; thread < W / nW; ++thread) {
+    threadWeights.push_back(weight(N, E, H, 0, thread, 0));
+  }
+
+  // double weightStep = weight(N, E, H, 0, 1, 0);
+  // double weightBigStep = weight(N, E, H, 0, W / nW, 0);
+  
+  return Weights{aTab, iTab, groupWeights, threadWeights};
+}
+
+/*
+static void setupWeights(cl_context context, Buffer<double>& bufA, Buffer<double>& bufI, u32 E, u32 W, u32 H, u32 nW) {
+  auto weights = genWeights(E, W, H, nW);  
   bufA = Buffer(context, BUF_CONST, weights.first);
   bufI = Buffer(context, BUF_CONST, weights.second);
 }
+*/
 
 static string CL_SOURCE =
 #include "gpuowl-wrap.cl"
 ;
 
-static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE) {
-  string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(WIDTH * SMALL_HEIGHT * MIDDLE * 2));
+static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
+  string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
   vector<pair<string, std::any>> defines =
     {{"EXP", E},
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
      {"MIDDLE", MIDDLE},
      {"FRAC", FRAC(N, E)},
+     {"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1))},
+     {"WEIGHT_BIGSTEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, WIDTH / nW, 0))},
+     
     };
   
   for (const string& flag : args.flags) { defines.push_back(pair{flag, 1}); }
@@ -87,7 +146,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   useMiddle(BIG_H != SMALL_H),
   device(device),
   context(createContext(device)),
-  program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H)),
+  program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW)),
   queue(makeQueue(device, context.get())),  
 
 #define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name, timeKernels)
@@ -126,9 +185,17 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
-  setupWeights(context.get(), bufWeightA, bufWeightI, W, BIG_H, E);
 
-  carryFused.setFixedArgs(   1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW);
+  Weights weights = genWeights(E, W, BIG_H, nW);  
+  bufWeightA = Buffer(context.get(), BUF_CONST, weights.aTab);
+  bufWeightI = Buffer(context.get(), BUF_CONST, weights.iTab);
+
+  bufGroupWeights = Buffer(context.get(), BUF_CONST, weights.groupWeights);
+  bufThreadWeights = Buffer(context.get(), BUF_CONST, weights.threadWeights);
+  
+  // setupWeights(context.get(), bufWeightA, bufWeightI, E, W, BIG_H, nW);
+
+  carryFused.setFixedArgs(   1, bufCarry, bufReady, bufWeightI, bufTrigW, bufGroupWeights, bufThreadWeights);
   carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(1, bufTrigW);

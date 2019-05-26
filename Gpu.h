@@ -62,6 +62,9 @@ class Gpu {
   Buffer<double> bufWeightA;      // Direct weights.
   Buffer<double> bufWeightI;      // Inverse weights.
 
+  Buffer<double> bufGroupWeights;
+  Buffer<double> bufThreadWeights;
+  
   // "integer word" buffers. These are "small buffers": N x int.
   Buffer<int> bufData;   // Main int buffer with the words.
   Buffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.

@@ -1362,7 +1362,7 @@ void acquire() {
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
-                       CP(T2) A, CP(T2) iA, Trig smallTrig) {
+                       CP(T2) iA, Trig smallTrig, CP(T) groupWeights, CP(T) threadWeights) {
   local T lds[WIDTH];
 
   uint gr = get_group_id(0);
@@ -1372,7 +1372,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   uint line = gr % H;
   uint step = WIDTH * line;
   io += step;
-  A  += step;
+  // A  += step;
   iA += step;
   
   T2 u[NW];
@@ -1386,7 +1386,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
     uint p = i * G_W + me;
     Carry carry = 0;
     uint k = line + BIG_HEIGHT * p;
-    wu[i] = unweightAndCarry(1,   conjugate(u[i]), &carry, iA[p], k);
+    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p], k);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
   }
 
@@ -1398,7 +1398,9 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   }
 
   if (gr == 0) { return; }
-    
+
+  T weight = groupWeights[line] * threadWeights[me];
+  
   // Wait until the previous group is ready with the carry.
   if (me == 0) {
     while(!atomic_load_explicit((atomic_uint *) &ready[gr - 1], memory_order_acquire, memory_scope_device));
@@ -1406,11 +1408,16 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   }
 
   acquire();
-  
+
   for (int i = 0; i < NW; ++i) {
+    if (weight >= 2) { weight *= 0.5; }
+    T weight2 = weight * WEIGHT_STEP;
+    if (weight2 >= 2) { weight2 *= 0.5; }
+    
     uint p = i * G_W + me;
     uint k = line + BIG_HEIGHT * p;
-    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p], k);
+    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), k);
+    weight *= WEIGHT_BIGSTEP;
   }
 
   fft_WIDTH(lds, u, smallTrig);

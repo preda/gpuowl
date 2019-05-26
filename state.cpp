@@ -7,8 +7,6 @@
 #include <memory>
 #include <cmath>
 
-static u32 extra(u32 N, u32 E, u32 k) { return u64(step(N, E)) * k % N; }
-
 static bool exactIsBigWord(u32 N, u32 E, u32 k) { return extra(N, E, k) + step(N, E) < N; }
 
 // This variant of isBigWord avoids the % N of extra(), and is so faster when N is not a power of 2,
@@ -149,29 +147,3 @@ double drift(u64 R, u32 k) {
 }
 */
 
-pair<vector<double>, vector<double>> genWeights(int E, int W, int H) {
-  int N = 2 * W * H;
-
-  vector<double> aTab, iTab;
-  aTab.reserve(N);
-  iTab.reserve(N);
-
-  auto iN = 1 / (long double) N;
-
-  // u64 R = ldexpl(step(N, E) / (long double) N, 64);
-
-  for (int line = 0; line < H; ++line) {
-    for (int col = 0; col < W; ++col) {
-      for (int rep = 0; rep < 2; ++rep) {
-        int k = (line + col * H) * 2 + rep;
-        auto a = exp2l(extra(N, E, k) * iN);
-        auto ia = 1 / (4 * N * a);
-        aTab.push_back(a);
-        iTab.push_back(ia);
-      }
-    }
-  }
-
-  assert(int(aTab.size()) == N && int(iTab.size()) == N);
-  return make_pair(aTab, iTab);
-}

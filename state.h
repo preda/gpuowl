@@ -13,6 +13,7 @@ vector<int> expandBits(const vector<u32> &compactBits, int N, int E);
 u64 residueFromRaw(u32 N, u32 E, const vector<int> &words);
 
 constexpr u32 step(u32 N, u32 E) { return N - (E % N); }
+constexpr u32 extra(u32 N, u32 E, u32 k) { return u64(step(N, E)) * k % N; }
 
 inline u64 FRAC(u32 N, u32 E) {
   // #pragma STDC FENV_ACCESS ON
@@ -21,6 +22,3 @@ inline u64 FRAC(u32 N, u32 E) {
   std::fesetround(FE_TONEAREST);
   return x;
 }
-
-// Sets the weighting vectors direct A and inverse iA (as per IBDWT).
-pair<vector<double>, vector<double>> genWeights(int E, int W, int H);
