@@ -1362,7 +1362,7 @@ void acquire() {
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
-                       CP(T2) iA, Trig smallTrig, CP(T) groupWeights, CP(T) threadWeights) {
+                       Trig smallTrig, CP(T) invGroupWeights, CP(T) invThreadWeights, CP(T) groupWeights, CP(T) threadWeights) {
   local T lds[WIDTH];
 
   uint gr = get_group_id(0);
@@ -1373,21 +1373,28 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   uint step = WIDTH * line;
   io += step;
   // A  += step;
-  iA += step;
+  // iA += step;
   
   T2 u[NW];
   Word2 wu[NW];
   
   read(G_W, NW, u, io, 0);
 
+  T invWeight = invGroupWeights[line] * invThreadWeights[me];
+  
   fft_WIDTH(lds, u, smallTrig);
   
   for (int i = 0; i < NW; ++i) {
+    if (invWeight <= INVWEIGHT_LIMIT) { invWeight *= 2; }
+    T invWeight2 = invWeight * IWEIGHT_STEP;
+    if (invWeight2 <= INVWEIGHT_LIMIT) { invWeight2 *= 2; }
+    
     uint p = i * G_W + me;
     Carry carry = 0;
     uint k = line + BIG_HEIGHT * p;
-    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, iA[p], k);
+    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, U2(invWeight, invWeight2), k);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
+    invWeight *= IWEIGHT_BIGSTEP;
   }
 
   release();

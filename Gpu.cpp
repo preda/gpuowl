@@ -51,16 +51,25 @@ static Buffer<double2> genSmallTrig(cl_context context, int size, int radix) {
 struct Weights {
   vector<double> aTab;
   vector<double> iTab;
+  vector<double> invGroupWeights;
+  vector<double> invThreadWeights;
   vector<double> groupWeights;
   vector<double> threadWeights;
-  // double weightStep;
-  // double weightBigStep;
 };
+
+static u32 kAt(u32 H, u32 line, u32 col, u32 rep) {
+  return (line + col * H) * 2 + rep;
+}
 
 static long double weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   long double iN = 1 / (long double) N;
-  u32 k = (line + col * H) * 2 + rep;
-  return exp2l(extra(N, E, k) * iN);
+  // u32 k = (line + col * H) * 2 + rep;
+  return exp2l(extra(N, E, kAt(H, line, col, rep)) * iN);
+}
+
+static long double invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  long double iN = 1 / (long double) N;
+  return exp2l(- (extra(N, E, kAt(H, line, col, rep)) * iN));
 }
 
 static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
@@ -70,14 +79,10 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   aTab.reserve(N);
   iTab.reserve(N);
 
-  // auto iN = 1 / (long double) N;
-
   for (u32 line = 0; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
       for (u32 rep = 0; rep < 2; ++rep) {
         auto a = weight(N, E, H, line, col, rep);
-        // u32 k = (line + col * H) * 2 + rep;
-        // auto a = exp2l(extra(N, E, k) * iN);
         auto ia = 1 / (4 * N * a);
         aTab.push_back(a);
         iTab.push_back(ia);
@@ -86,29 +91,30 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(int(aTab.size()) == N && int(iTab.size()) == N);
 
+  u32 groupWidth = W / nW;
+
+  vector<double> invGroupWeights;
+  for (u32 group = 0; group < H; ++group) {
+    invGroupWeights.push_back(invWeight(N, E, H, group, 0, 0) / (4 * N));
+  }
+
+  vector<double> invThreadWeights;
+  for (u32 thread = 0; thread < groupWidth; ++thread) {
+    invThreadWeights.push_back(invWeight(N, E, H, 0, thread, 0));
+   }
+
   vector<double> groupWeights;
   for (u32 group = 0; group < H; ++group) {
     groupWeights.push_back(weight(N, E, H, group, 0, 0));
   }
 
   vector<double> threadWeights;
-  for (u32 thread = 0; thread < W / nW; ++thread) {
+  for (u32 thread = 0; thread < groupWidth; ++thread) {
     threadWeights.push_back(weight(N, E, H, 0, thread, 0));
   }
 
-  // double weightStep = weight(N, E, H, 0, 1, 0);
-  // double weightBigStep = weight(N, E, H, 0, W / nW, 0);
-  
-  return Weights{aTab, iTab, groupWeights, threadWeights};
+  return Weights{aTab, iTab, invGroupWeights, invThreadWeights, groupWeights, threadWeights};
 }
-
-/*
-static void setupWeights(cl_context context, Buffer<double>& bufA, Buffer<double>& bufI, u32 E, u32 W, u32 H, u32 nW) {
-  auto weights = genWeights(E, W, H, nW);  
-  bufA = Buffer(context, BUF_CONST, weights.first);
-  bufI = Buffer(context, BUF_CONST, weights.second);
-}
-*/
 
 static string CL_SOURCE =
 #include "gpuowl-wrap.cl"
@@ -123,8 +129,10 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
      {"MIDDLE", MIDDLE},
      {"FRAC", FRAC(N, E)},
      {"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1))},
+     {"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1))},
      {"WEIGHT_BIGSTEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, WIDTH / nW, 0))},
-     
+     {"IWEIGHT_BIGSTEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, WIDTH / nW, 0))},
+     {"INVWEIGHT_LIMIT", double(1 / (8 * (long double) N))},     
     };
   
   for (const string& flag : args.flags) { defines.push_back(pair{flag, 1}); }
@@ -190,12 +198,14 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufWeightA = Buffer(context.get(), BUF_CONST, weights.aTab);
   bufWeightI = Buffer(context.get(), BUF_CONST, weights.iTab);
 
+  bufInvGroupWeights = Buffer(context.get(), BUF_CONST, weights.invGroupWeights);
+  bufInvThreadWeights = Buffer(context.get(), BUF_CONST, weights.invThreadWeights);
   bufGroupWeights = Buffer(context.get(), BUF_CONST, weights.groupWeights);
   bufThreadWeights = Buffer(context.get(), BUF_CONST, weights.threadWeights);
   
   // setupWeights(context.get(), bufWeightA, bufWeightI, E, W, BIG_H, nW);
 
-  carryFused.setFixedArgs(   1, bufCarry, bufReady, bufWeightI, bufTrigW, bufGroupWeights, bufThreadWeights);
+  carryFused.setFixedArgs(   1, bufCarry, bufReady, bufTrigW, bufInvGroupWeights, bufInvThreadWeights, bufGroupWeights, bufThreadWeights);
   carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(1, bufTrigW);

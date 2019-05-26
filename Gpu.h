@@ -62,6 +62,8 @@ class Gpu {
   Buffer<double> bufWeightA;      // Direct weights.
   Buffer<double> bufWeightI;      // Inverse weights.
 
+  Buffer<double> bufInvGroupWeights;
+  Buffer<double> bufInvThreadWeights;
   Buffer<double> bufGroupWeights;
   Buffer<double> bufThreadWeights;
   
