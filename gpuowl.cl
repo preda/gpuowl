@@ -11,13 +11,16 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
-// Common type names C++ - OpenCL.
+#if !NO_ASM
+#define HAS_ASM 1
+#endif
+
+#if HAS_ASM
+#warning ASM is enabled (pass '-use NO_ASM' to disable it)
+#endif
+
 typedef uint u32;
 typedef ulong u64;
-
-// #include "shared.h"
-u32 bitposToWord(u32 E, u32 N, u32 offset) { return offset * ((u64) N) / E; }
-u32 wordToBitpos(u32 E, u32 N, u32 word) { return (word * ((u64) E) + (N - 1)) / N; }
 
 // Expected defines: EXP the exponent.
 // WIDTH, SMALL_HEIGHT, MIDDLE.
@@ -49,7 +52,6 @@ typedef long Carry;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
-
 #if OLD_ISBIG || !(NWORDS & (NWORDS - 1))
 #define STEP (NWORDS - (EXP % NWORDS))
 uint extra(uint k) { return ((ulong) STEP) * k % NWORDS; }
@@ -71,7 +73,7 @@ T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
 #ifdef ORIG_SQ
 T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }		// 2 adds, 3 muls, two muls may be FMA-able later
 #else
-T2 sq(T2 a) { return U2(fma (a.x, a.x, -a.y*a.y), 2 * a.x * a.y); }		// 3 muls, 1 fma, one mul may be FMA-able later
+T2 sq(T2 a) { return U2(fma(a.x, a.x, -a.y*a.y), 2 * a.x * a.y); }		// 3 muls, 1 fma, one mul may be FMA-able later
 #endif
 
 T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
@@ -131,17 +133,27 @@ T2 foo2(T2 a, T2 b) {
 T2 foo(T2 a) { return foo2(a, a); }
 
 #if !defined(ORIG_X2) && !defined(INLINE_X2) && !defined(FMA_X2)
-// default to inline X2
+#if HAS_ASM
 #define INLINE_X2 1
+#else
+#define ORIG_X2 1
+#endif
 #endif
 
 #if ORIG_X2
 // Rocm 2.4 is not generating good code with this simple original X2.  Should rocm ever be fixed, we should use this X2
 // definition rather than the alternate definition.
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
+
+// Same as X2(a, b), b = mul_t4(b)
+#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
+
 #elif FMA_X2
+
 // Much worse latency, less parallellism, but seems to work around rocm bug where fft4 generates 18 float ops instead of 16
-#define X2(a, b) { a = a + b; b.x = fma (b.x, -2.0, a.x); b.y = fma (b.y, -2.0, a.y); }
+#define X2(a, b) { a = a + b; b.x = fma(b.x, -2, a.x); b.y = fma(b.y, -2, a.y); }
+#define X2_mul_t4(a, b) { double ax = a.x; a = a + b; b.x = fma(b.y, -2, a.y); b.y = fma(ax, -2, a.x); }
+
 #elif INLINE_X2
 // Here's hoping the inline asm tricks rocm into not generating extra f64 ops.
 #define X2(a, b) { \
@@ -149,30 +161,20 @@ T2 foo(T2 a) { return foo2(a, a); }
 	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
 	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
 	}
-#endif
 
-#define SWAP(a, b) { T2 t = a; a = b; b = t; }
-
-T2 fmaT2(T a, T2 b, T2 c) { return (U2 (fma (a, b.x, c.x), fma (a, b.y, c.y))); }
-
-// Same as X2(a, b), b = mul_t4(b)
-// Saves one negation
-#if ORIG_X2
-// Rocm 2.4 is not generating good code with simple X2 implementations.  Should rocm ever be fixed, we should use this
-// definition rather than the alternate definition.
-#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
-#elif FMA_X2
-// Much worse latency, less parallellism, but seems to generate fewer f64 ops.
-#define X2_mul_t4(a, b) { double ax = a.x; a = a + b; b.x = fma (b.y, -2.0, a.y); b.y = fma (ax, -2.0, a.x); }
-#else
-// Here's hoping the inline asm tricks rocm into not generating extra f64 ops.
 #define X2_mul_t4(a, b) { \
 	T2 t = a; a = t + b; \
 	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (t.x) : "v" (b.x), "v" (t.x)); \
 	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.x) : "v" (t.y), "v" (b.y)); \
 	b.y = t.x; \
 	}
+#else
+#error None of ORIG_X2, FMA_X2, INLINE_X2 defined
 #endif
+
+#define SWAP(a, b) { T2 t = a; a = b; b = t; }
+
+T2 fmaT2(T a, T2 b, T2 c) { return (U2 (fma(a, b.x, c.x), fma(a, b.y, c.y))); }
 
 // a * conjugate(b)
 // saves one negation
@@ -205,8 +207,8 @@ T2 mul_t8_delayed(T2 a)  { return U2(a.y + a.x, a.y - a.x); }
 
 // Like X2 but second arg needs a multiplication by SQRT1_2
 #define X2_apply_SQRT1_2(a, b) { T2 t = a; \
-				 a.x = fma (b.x, M_SQRT1_2, t.x); a.y = fma (b.y, M_SQRT1_2, t.y); \
-				 b.x = fma (b.x, -M_SQRT1_2, t.x); b.y = fma (b.y, -M_SQRT1_2, t.y); }
+				 a.x = fma(b.x, M_SQRT1_2, t.x); a.y = fma(b.y, M_SQRT1_2, t.y); \
+				 b.x = fma(b.x, -M_SQRT1_2, t.x); b.y = fma(b.y, -M_SQRT1_2, t.y); }
 
 void fft4Core_delayed(T2 *u) {		// Same as fft4Core except u[1] and u[3] need to be multiplied by SQRT1_2
   X2(u[0], u[2]);
@@ -1119,8 +1121,6 @@ KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, uint startDword) {
   out[me] = in[WIDTH * y + x];
 }
 
-uint dwordToBitpos(uint dword)  { return wordToBitpos(EXP, ND, dword); }
-uint bitposToDword(uint bitpos) { return bitposToWord(EXP, ND, bitpos); }
 uint transPos(uint k, uint width, uint height) { return k / height + k % height * width; }
 
 uint kAt(uint gx, uint gy, uint i) {
@@ -1386,8 +1386,6 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   uint line = gr % H;
   uint step = WIDTH * line;
   io += step;
-  // A  += step;
-  // iA += step;
   
   T2 u[NW];
   Word2 wu[NW];
