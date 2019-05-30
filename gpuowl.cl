@@ -16,7 +16,7 @@
 #endif
 
 #if HAS_ASM
-#warning ASM is enabled (pass '-use NO_ASM' to disable it)
+// #warning ASM is enabled (pass '-use NO_ASM' to disable it)
 #endif
 
 typedef uint u32;
@@ -1997,7 +1997,7 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
   write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
 }
 
-#define TEST_KERNEL	// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
+// #define TEST_KERNEL	// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
 // Small test kernel so we can easily find code snipets to compare different implementations of macros
 KERNEL(256) testKernel(P(T2) io) {

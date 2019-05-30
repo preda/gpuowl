@@ -116,9 +116,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   return Weights{aTab, iTab, invGroupWeights, invThreadWeights, groupWeights, threadWeights};
 }
 
-static string CL_SOURCE =
-#include "gpuowl-wrap.cl"
-;
+extern const char *CL_SOURCE;
 
 static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));

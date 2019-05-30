@@ -6,7 +6,7 @@ LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
 
 LINK = $(CXX) -o $@ ${OBJS} ${LDFLAGS}
 
-SRCS = Pm1Plan.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp clpp.cpp
+SRCS = Pm1Plan.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp clpp.cpp gpuowl-wrap.cpp
 OBJS = $(SRCS:%.cpp=%.o)
 DEPDIR := .d
 $(shell mkdir -p $(DEPDIR) >/dev/null)
@@ -18,7 +18,7 @@ POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 gpuowl: ${OBJS}
 	${LINK}
 
-gpuowl-win: ${OBJS}
+gpuowl-win.exe: ${OBJS}
 	${LINK} -static
 	strip $@
 
@@ -26,7 +26,7 @@ clean:
 	rm -f ${OBJS} gpuowl gpuowl-win
 
 %.o : %.cpp
-%.o : %.cpp $(DEPDIR)/%.d gpuowl-wrap.cl version.inc
+%.o : %.cpp $(DEPDIR)/%.d gpuowl-wrap.cpp version.inc
 	$(COMPILE.cc) $(OUTPUT_OPTION) $<
 	$(POSTCOMPILE)
 
@@ -38,8 +38,8 @@ version.inc: FORCE
 	diff -q -N version.new version.inc >/dev/null || mv version.new version.inc
 	echo Version: `cat version.inc`
 
-gpuowl-wrap.cl: gpuowl.cl head.txt tail.txt
-	cat head.txt gpuowl.cl tail.txt > gpuowl-wrap.cl
+gpuowl-wrap.cpp: gpuowl.cl head.txt tail.txt
+	cat head.txt gpuowl.cl tail.txt > gpuowl-wrap.cpp
 
 FORCE:
 
