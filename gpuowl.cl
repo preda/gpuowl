@@ -52,6 +52,9 @@ typedef long Carry;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
+// #define TEST(bits, pos)
+bool test(uint bits, uint pos) { return bits & (1u << pos); }
+
 #define STEP (NWORDS - (EXP % NWORDS))
 uint extraAtWord(uint k) { return ((ulong) STEP) * k % NWORDS; }
 bool isBigWordExtra(uint extra) { return extra < NWORDS - STEP; }
@@ -1392,8 +1395,9 @@ void acquire() {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
-                       Trig smallTrig, CP(uint) extras, CP(T) invGroupWeights, CP(T) invThreadWeights, CP(T) groupWeights, CP(T) threadWeights) {
+KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready, Trig smallTrig,
+                       CP(uint) bits, CP(uint) extras,
+                       CP(T) invGroupWeights, CP(T) invThreadWeights, CP(T) groupWeights, CP(T) threadWeights) {
   local T lds[WIDTH];
 
   uint gr = get_group_id(0);
@@ -1412,18 +1416,18 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
 
   T invWeight = invGroupWeights[line] * invThreadWeights[me];
   uint extra0 = extras[G_W * line + me];
+  uint b = bits[G_W * line + me];
   
   fft_WIDTH(lds, u, smallTrig);
 
   uint extra = extra0;
   for (int i = 0; i < NW; ++i) {
-    if (invWeight <= INVWEIGHT_LIMIT) { invWeight *= 2; }
+    if (test(b, 2*i)) { invWeight *= 2; }
     T invWeight2 = invWeight * IWEIGHT_STEP;
-    if (invWeight2 <= INVWEIGHT_LIMIT) { invWeight2 *= 2; }
+    if (test(b, 2*i + 1)) { invWeight2 *= 2; }
     
     uint p = i * G_W + me;
     Carry carry = 0;
-    // uint k = line + BIG_HEIGHT * p;
 
     wu[i] = unweightAndCarryExtra(conjugate(u[i]), &carry, U2(invWeight, invWeight2), extra);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
@@ -1452,12 +1456,11 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   acquire();
 
   for (int i = 0; i < NW; ++i) {
-    if (weight >= 2) { weight *= 0.5; }
+    if (test(b, 2*i)) { weight *= 0.5; }
     T weight2 = weight * WEIGHT_STEP;
-    if (weight2 >= 2) { weight2 *= 0.5; }
+    if (test(b, 2*i + 1)) { weight2 *= 0.5; }
     
     uint p = i * G_W + me;
-    // uint k = line + BIG_HEIGHT * p;
     u[i] = carryAndWeightFinalExtra(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), extra);
     extra = reduceExtra(extra + (uint) (2u * H * G_W * (ulong) STEP % NWORDS));
     weight *= WEIGHT_BIGSTEP;
