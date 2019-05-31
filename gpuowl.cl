@@ -52,10 +52,14 @@ typedef long Carry;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
-#if OLD_ISBIG || !(NWORDS & (NWORDS - 1))
 #define STEP (NWORDS - (EXP % NWORDS))
-uint extra(uint k) { return ((ulong) STEP) * k % NWORDS; }
-bool isBigWord(uint k) { return extra(k) + STEP < NWORDS; }
+uint extraAtWord(uint k) { return ((ulong) STEP) * k % NWORDS; }
+bool isBigWordExtra(uint extra) { return extra < NWORDS - STEP; }
+uint bitlenExtra(uint extra) { return EXP / NWORDS + isBigWordExtra(extra); }
+uint reduceExtra(uint extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
+uint stepExtra(uint extra) { return reduceExtra(extra + STEP); }
+#if OLD_ISBIG || !(NWORDS & (NWORDS - 1))
+bool isBigWord(uint k) { return extraAtWord(k) + STEP < NWORDS; }
 #else
 bool isBigWord(uint k) { u64 a = FRAC * k - 1; return a > a + FRAC; }
 #endif
@@ -99,6 +103,12 @@ Word carryStep(Carry x, Carry *carry, int bits) {
 
 Carry unweight(T x, T weight) { return rint(x * weight); }
 
+Word2 unweightAndCarryExtra(T2 u, Carry *carry, T2 weight, uint extra) {
+  Word a = carryStep(unweight(u.x, weight.x), carry, bitlenExtra(extra));
+  Word b = carryStep(unweight(u.y, weight.y), carry, bitlenExtra(reduceExtra(extra + STEP)));
+  return (Word2) (a, b);
+}
+
 Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight, uint k) {
   Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(2 * k + 0));
   Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(2 * k + 1));
@@ -106,6 +116,13 @@ Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight, uint k) {
 }
 
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
+
+// No carry out. The final carry is "absorbed" in the last word.
+T2 carryAndWeightFinalExtra(Word2 u, Carry carry, T2 w, uint extra) {
+  Word x = carryStep(u.x, &carry, bitlenExtra(extra));
+  Word y = u.y + carry;
+  return weight((Word2) (x, y), w);
+}
 
 // No carry out. The final carry is "absorbed" in the last word.
 T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w, uint hk) {
@@ -1376,7 +1393,7 @@ void acquire() {
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
-                       Trig smallTrig, CP(T) invGroupWeights, CP(T) invThreadWeights, CP(T) groupWeights, CP(T) threadWeights) {
+                       Trig smallTrig, CP(uint) extras, CP(T) invGroupWeights, CP(T) invThreadWeights, CP(T) groupWeights, CP(T) threadWeights) {
   local T lds[WIDTH];
 
   uint gr = get_group_id(0);
@@ -1386,6 +1403,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   uint line = gr % H;
   uint step = WIDTH * line;
   io += step;
+  // extras += G_W * line;
   
   T2 u[NW];
   Word2 wu[NW];
@@ -1393,9 +1411,11 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   read(G_W, NW, u, io, 0);
 
   T invWeight = invGroupWeights[line] * invThreadWeights[me];
+  uint extra0 = extras[G_W * line + me];
   
   fft_WIDTH(lds, u, smallTrig);
-  
+
+  uint extra = extra0;
   for (int i = 0; i < NW; ++i) {
     if (invWeight <= INVWEIGHT_LIMIT) { invWeight *= 2; }
     T invWeight2 = invWeight * IWEIGHT_STEP;
@@ -1403,9 +1423,11 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
     
     uint p = i * G_W + me;
     Carry carry = 0;
-    uint k = line + BIG_HEIGHT * p;
-    wu[i] = unweightAndCarry(1, conjugate(u[i]), &carry, U2(invWeight, invWeight2), k);
+    // uint k = line + BIG_HEIGHT * p;
+
+    wu[i] = unweightAndCarryExtra(conjugate(u[i]), &carry, U2(invWeight, invWeight2), extra);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
+    extra = reduceExtra(extra + (uint) (2u * H * G_W * (ulong) STEP % NWORDS));
     invWeight *= IWEIGHT_BIGSTEP;
   }
 
@@ -1417,7 +1439,8 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   }
 
   if (gr == 0) { return; }
-
+  
+  extra = extra0;
   T weight = groupWeights[line] * threadWeights[me];
   
   // Wait until the previous group is ready with the carry.
@@ -1434,8 +1457,9 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
     if (weight2 >= 2) { weight2 *= 0.5; }
     
     uint p = i * G_W + me;
-    uint k = line + BIG_HEIGHT * p;
-    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), k);
+    // uint k = line + BIG_HEIGHT * p;
+    u[i] = carryAndWeightFinalExtra(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), extra);
+    extra = reduceExtra(extra + (uint) (2u * H * G_W * (ulong) STEP % NWORDS));
     weight *= WEIGHT_BIGSTEP;
   }
 
