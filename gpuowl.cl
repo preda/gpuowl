@@ -1405,21 +1405,18 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready, Trig smal
   
   uint H = BIG_HEIGHT;
   uint line = gr % H;
-  uint step = WIDTH * line;
-  io += step;
-  // extras += G_W * line;
   
   T2 u[NW];
   Word2 wu[NW];
   
-  read(G_W, NW, u, io, 0);
+  read(G_W, NW, u, io, WIDTH * line);
 
+  fft_WIDTH(lds, u, smallTrig);
+  
   T invWeight = invGroupWeights[line] * invThreadWeights[me];
   uint extra0 = extras[G_W * line + me];
   uint b = bits[G_W * line + me];
   
-  fft_WIDTH(lds, u, smallTrig);
-
   uint extra = extra0;
   for (int i = 0; i < NW; ++i) {
     if (test(b, 2*i)) { invWeight *= 2; }
@@ -1468,7 +1465,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready, Trig smal
 
   fft_WIDTH(lds, u, smallTrig);
 
-  write(G_W, NW, u, io, 0);
+  write(G_W, NW, u, io, WIDTH * line);
 }
 
 // copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
