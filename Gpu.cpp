@@ -235,7 +235,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
   bufBits = Buffer(context.get(), BUF_CONST, weights.bits);
   
   carryFused.setFixedArgs(   1, bufCarry, bufReady, bufTrigW, bufBits, bufExtras, bufInvGroupWeights, bufInvThreadWeights, bufGroupWeights, bufThreadWeights);
-  carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW);
+  carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW, bufExtras);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(1, bufTrigW);
   fftH.setFixedArgs(1, bufTrigH);

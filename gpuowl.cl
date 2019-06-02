@@ -112,6 +112,12 @@ Word2 unweightAndCarryExtra(T2 u, Carry *carry, T2 weight, uint extra) {
   return (Word2) (a, b);
 }
 
+Word2 unweightAndCarryMul3(T2 u, Carry *carry, T2 weight, uint extra) {
+  Word a = carryStep(3 * unweight(u.x, weight.x), carry, bitlenExtra(extra));
+  Word b = carryStep(3 * unweight(u.y, weight.y), carry, bitlenExtra(reduceExtra(extra + STEP)));
+  return (Word2) (a, b);
+}
+
 Word2 unweightAndCarry(uint mul, T2 u, Carry *carry, T2 weight, uint k) {
   Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(2 * k + 0));
   Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(2 * k + 1));
@@ -1470,7 +1476,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(uint) ready, Trig smal
 
 // copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
 KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
-                       CP(T2) A, CP(T2) iA, Trig smallTrig) {
+                          CP(T2) A, CP(T2) iA, Trig smallTrig, CP(uint) extras) {
   local T lds[WIDTH];
 
   uint gr = get_group_id(0);
@@ -1489,13 +1495,17 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   read(G_W, NW, u, io, 0);
 
   fft_WIDTH(lds, u, smallTrig);
-  
+
+  uint extra0 = extras[G_W * line + me];
+  uint extra = extra0;
+
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
     Carry carry = 0;
-    uint k = line + BIG_HEIGHT * p;
-    wu[i] = unweightAndCarry(3,   conjugate(u[i]), &carry, iA[p], k);
+    // uint k = line + BIG_HEIGHT * p;
+    wu[i] = unweightAndCarryMul3(conjugate(u[i]), &carry, iA[p], extra);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
+    extra = reduceExtra(extra + (uint) (2u * H * G_W * (ulong) STEP % NWORDS));
   }
 
   release();
@@ -1506,7 +1516,8 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   }
 
   if (gr == 0) { return; }
-    
+  
+  extra = extra0;  
   // Wait until the previous group is ready with the carry.
   if (me == 0) {
     while(!atomic_load_explicit((atomic_uint *) &ready[gr - 1], memory_order_acquire, memory_scope_device));
@@ -1517,9 +1528,9 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(uint) ready,
   
   for (int i = 0; i < NW; ++i) {
     uint p = i * G_W + me;
-    Carry carry = carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)];
-    uint k = line + BIG_HEIGHT * p;
-    u[i] = carryAndWeightFinal(wu[i], carry, A[p], k);
+    // uint k = line + BIG_HEIGHT * p;
+    u[i] = carryAndWeightFinalExtra(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p], extra);
+    extra = reduceExtra(extra + (uint) (2u * H * G_W * (ulong) STEP % NWORDS));
   }
 
   fft_WIDTH(lds, u, smallTrig);
