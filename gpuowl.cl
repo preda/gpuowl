@@ -126,12 +126,6 @@ Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
   return (Word2) (a, b);
 }
 
-Word2 unweightAndCarry(u32 mul, T2 u, Carry *carry, T2 weight, u32 k) {
-  Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(2 * k + 0));
-  Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(2 * k + 1));
-  return (Word2) (a, b);
-}
-
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
 // No carry out. The final carry is "absorbed" in the last word.
@@ -141,17 +135,10 @@ T2 carryAndWeightFinalExtra(Word2 u, Carry carry, T2 w, u32 extra) {
   return weight((Word2) (x, y), w);
 }
 
-// No carry out. The final carry is "absorbed" in the last word.
-T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w, u32 hk) {
-  Word x = carryStep(u.x, &carry, bitlen(2 * hk));
-  Word y = u.y + carry;
-  return weight((Word2) (x, y), w);
-}
-
 // Carry propagation from word and carry.
-Word2 carryWord(Word2 a, Carry *carry, u32 pos) {
-  a.x = carryStep(a.x, carry, bitlen(2 * pos + 0));
-  a.y = carryStep(a.y, carry, bitlen(2 * pos + 1));
+Word2 carryWord(Word2 a, Carry *carry, u32 extra) {
+  a.x = carryStep(a.x, carry, bitlenExtra(extra));
+  a.y = carryStep(a.y, carry, bitlenExtra(reduceExtra(extra + STEP)));
   return a;
 }
 
@@ -1364,10 +1351,8 @@ void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *
   Carry carry = 0;
 
   u32 extra = reduceExtra(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
-  // extraAtWord(2 * kAt(gx, gy, 0));
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    // u32 k = kAt(gx, gy, i);
     out[p] = unweightAndCarryMul(mul, conjugate(in[p]), &carry, A[p], extra);
     extra = reduceExtra(extra + (u32) (2u * STEP % NWORDS));
   }
@@ -1382,11 +1367,13 @@ KERNEL(G_W) carryM(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A, CP(u32)
   carryACore(3, in, A, out, carryOut, extras);
 }
 
-KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
+KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) extras) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);  
   u32 gx = g % NW;
   u32 gy = g / NW;
+
+  u32 extra = reduceExtra(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
   
   u32 step = G_W * gx + WIDTH * CARRY_LEN * gy;
   io += step;
@@ -1399,10 +1386,10 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
   Carry carry = carryIn[WIDTH * prevLine + prevCol];
   
   for (i32 i = 0; i < CARRY_LEN; ++i) {
-    u32 k = kAt(gx, gy, i);
     u32 p = i * WIDTH + me;
-    io[p] = carryWord(io[p], &carry, k);
+    io[p] = carryWord(io[p], &carry, extra);
     if (!carry) { return; }
+    extra = reduceExtra(extra + (u32) (2u * STEP % NWORDS));
   }
 }
 
