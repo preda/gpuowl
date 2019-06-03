@@ -1257,20 +1257,34 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
 
 void middleMul(T2 *u, uint gx, uint me) {
   T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);
-#ifdef MIDDLE_MUL_LOOP
-  T2 t = step;
-  for (int i = 1; i < MIDDLE; ++i, t = mul(t, step)) { u[i] = mul(u[i], t); }
-#else
-// This implementation improves roundoff accuracy by shortening the chain of complex multiplies.
-// There is also some chance that replacing mul with sq could result in a small reduction in f64 ops.
-// One might think this increases VGPR usage due to extra temporaries, however as of rocm 2.2
-// all the various t value are precomputed anyway (to give the global loads more time to complete).
+  // This implementation improves roundoff accuracy by shortening the chain of complex multiplies.
+  // There is also some chance that replacing mul with sq could result in a small reduction in f64 ops.
+  // One might think this increases VGPR usage due to extra temporaries, however as of rocm 2.2
+  // all the various t value are precomputed anyway (to give the global loads more time to complete).
+  // The two variats below are quite similar, with maybe a tiny difference in numerical errors (to be confirmed).
+#if MIDDLE_MUL_ALT
   T2 steps[MIDDLE];
   for (int i = 1; i < MIDDLE; i++) {
-	if (i == 1) steps[i] = step;
-	else if (i & 1) steps[i] = mul (steps[i-1], steps[1]);
-	else steps[i] = sq (steps[i/2]);
-	u[i] = mul(u[i], steps[i]);
+    if (i == 1) {
+      steps[i] = step;
+    } else if (i & 1) {
+      steps[i] = mul(steps[i/2], steps[i/2 + 1]);
+    } else {
+      steps[i] = sq(steps[i/2]);
+    }
+    u[i] = mul(u[i], steps[i]);
+  }
+#else
+  T2 steps[MIDDLE];
+  for (int i = 1; i < MIDDLE; i++) {
+    if (i == 1) {
+      steps[i] = step;
+    } else if (i & 1) {
+      steps[i] = mul(steps[i-1], steps[1]);
+    } else {
+      steps[i] = sq(steps[i/2]);
+    }
+    u[i] = mul(u[i], steps[i]);
   }
 #endif
 }
