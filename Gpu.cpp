@@ -240,8 +240,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftW.setFixedArgs(1, bufTrigW);
   fftH.setFixedArgs(1, bufTrigH);
     
-  carryA.setFixedArgs(2, bufCarry, bufWeightI);
-  carryM.setFixedArgs(2, bufCarry, bufWeightI);
+  carryA.setFixedArgs(2, bufCarry, bufWeightI, bufExtras);
+  carryM.setFixedArgs(2, bufCarry, bufWeightI, bufExtras);
   carryB.setFixedArgs(1, bufCarry);
   tailFused.setFixedArgs(1, bufTrigH);
   tailFusedMulDelta.setFixedArgs(3, bufTrigH);

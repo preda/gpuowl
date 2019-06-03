@@ -120,6 +120,12 @@ Word2 unweightAndCarryMul3(T2 u, Carry *carry, T2 weight, u32 extra) {
   return (Word2) (a, b);
 }
 
+Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
+  Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlenExtra(extra));
+  Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlenExtra(reduceExtra(extra + STEP)));
+  return (Word2) (a, b);
+}
+
 Word2 unweightAndCarry(u32 mul, T2 u, Carry *carry, T2 weight, u32 k) {
   Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(2 * k + 0));
   Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(2 * k + 1));
@@ -1349,7 +1355,7 @@ KERNEL(256) fftMiddleOut(P(T2) io) {
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
-void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *out, global Carry *carryOut) {
+void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *out, global Carry *carryOut, const global u32 *extras) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
@@ -1357,20 +1363,23 @@ void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *
 
   Carry carry = 0;
 
+  u32 extra = reduceExtra(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
+  // extraAtWord(2 * kAt(gx, gy, 0));
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    u32 k = kAt(gx, gy, i);
-    out[p] = unweightAndCarry(mul, conjugate(in[p]), &carry, A[p], k);
+    // u32 k = kAt(gx, gy, i);
+    out[p] = unweightAndCarryMul(mul, conjugate(in[p]), &carry, A[p], extra);
+    extra = reduceExtra(extra + (u32) (2u * STEP % NWORDS));
   }
   carryOut[G_W * g + me] = carry;
 }
 
-KERNEL(G_W) carryA(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A) {
-  carryACore(1, in, A, out, carryOut);
+KERNEL(G_W) carryA(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
+  carryACore(1, in, A, out, carryOut, extras);
 }
 
-KERNEL(G_W) carryM(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A) {
-  carryACore(3, in, A, out, carryOut);
+KERNEL(G_W) carryM(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
+  carryACore(3, in, A, out, carryOut, extras);
 }
 
 KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn) {
