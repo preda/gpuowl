@@ -30,19 +30,19 @@ static double2 root1(u32 N, u32 k) {
   return double2{double(cosl(angle)), double(sinl(angle))};
 }
 
-static double2 *smallTrigBlock(int W, int H, double2 *p) {
-  for (int line = 1; line < H; ++line) {
-    for (int col = 0; col < W; ++col) {
+static double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
+  for (u32 line = 1; line < H; ++line) {
+    for (u32 col = 0; col < W; ++col) {
       *p++ = root1(W * H, line * col);
     }
   }
   return p;
 }
 
-static Buffer<double2> genSmallTrig(cl_context context, int size, int radix) {
+static Buffer<double2> genSmallTrig(cl_context context, u32 size, u32 radix) {
   vector<double2> tab(size);
   auto *p = tab.data() + radix;
-  int w = 0;
+  u32 w = 0;
   for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
   assert(p - tab.data() == size);
   return Buffer<double2>(context, BUF_CONST, tab);
@@ -171,7 +171,7 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
   return program;
 }
 
-Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
+Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          cl_device_id device, bool timeKernels, bool useLongCarry) :
   E(E),
   N(W * BIG_H * 2),
@@ -293,13 +293,13 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   vector<FFTConfig> configs = FFTConfig::genConfigs();
         
   FFTConfig config = getFFTConfig(configs, E, args.fftSize);
-  int WIDTH        = config.width;
-  int SMALL_HEIGHT = config.height;
-  int MIDDLE       = config.middle;
-  int N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
+  u32 WIDTH        = config.width;
+  u32 SMALL_HEIGHT = config.height;
+  u32 MIDDLE       = config.middle;
+  u32 N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
 
-  int nW = (WIDTH == 1024 || WIDTH == 256) ? 4 : 8;
-  int nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
+  u32 nW = (WIDTH == 1024 || WIDTH == 256) ? 4 : 8;
+  u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
 
   float bitsPerWord = E / float(N);
   string strMiddle = (MIDDLE == 1) ? "" : (string(", Middle ") + std::to_string(MIDDLE));
@@ -394,7 +394,7 @@ void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>
   modMul(bufData, false, buf1, buf2, buf3, bufCheck);
 }
   
-bool Gpu::doCheck(int blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   queue.copyFromTo(bufCheck, bufAux);
   modSqLoop(blockSize, true, buf1, buf2, bufAux);
   updateCheck(buf1, buf2, buf3);
@@ -546,7 +546,7 @@ static string getETA(u32 step, u32 total, float msPerStep) {
   return string(buf);
 }
 
-static string makeLogStr(u32 E, string status, int k, u64 res, TimeInfo info, u32 nIters) {
+static string makeLogStr(u32 E, string status, u32 k, u64 res, TimeInfo info, u32 nIters) {
   float msPerSq = info.total / info.n;
   char buf[256];
   string ghzStr;
@@ -557,14 +557,14 @@ static string makeLogStr(u32 E, string status, int k, u64 res, TimeInfo info, u3
   return buf;
 }
 
-static void doLog(int E, int k, u32 timeCheck, u64 res, bool checkOK, TimeInfo &stats, u32 nIters) {
+static void doLog(u32 E, u32 k, u32 timeCheck, u64 res, bool checkOK, TimeInfo &stats, u32 nIters) {
   log("%s (check %.2fs)\n",      
       makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats, nIters).c_str(),
       timeCheck * .001f);
   stats.reset();
 }
 
-static void doSmallLog(int E, int k, u64 res, TimeInfo &stats, u32 nIters) {
+static void doSmallLog(u32 E, u32 k, u64 res, TimeInfo &stats, u32 nIters) {
   log("%s\n", makeLogStr(E, "", k, res, stats, nIters).c_str());
   stats.reset();
 }

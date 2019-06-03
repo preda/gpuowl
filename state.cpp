@@ -37,18 +37,18 @@ static u32 unbalance(int w, int nBits, int *carry) {
   return w;
 }
 
-std::vector<u32> compactBits(const vector<int> &dataVect, int E) {
+std::vector<u32> compactBits(const vector<int> &dataVect, u32 E) {
   std::vector<u32> out;
   out.reserve((E - 1) / 32 + 1);
 
-  int N = dataVect.size();
+  u32 N = dataVect.size();
   const int *data = dataVect.data();
 
   int carry = 0;
   u32 outWord = 0;
   int haveBits = 0;
 
-  for (int p = 0; p < N; ++p) {
+  for (u32 p = 0; p < N; ++p) {
     int nBits = bitlen(N, E, p);
     u32 w = unbalance(data[p], nBits, &carry);
 
@@ -76,13 +76,13 @@ std::vector<u32> compactBits(const vector<int> &dataVect, int E) {
     carry = v >> 32;
   }
 
-  assert(int(out.size()) == (E - 1) / 32 + 1);
+  assert(out.size() == (E - 1) / 32 + 1);
   return out;
 }
 
 struct BitBucket {
   u64 bits;
-  int size;
+  u32 size;
 
   BitBucket() : bits(0), size(0) {}
 
@@ -92,7 +92,7 @@ struct BitBucket {
     size += 32;
   }
   
-  int popSigned(int n) {
+  int popSigned(u32 n) {
     assert(size >= n);
     int b = lowBits(bits, n);
     size -= n;
@@ -102,7 +102,7 @@ struct BitBucket {
   }
 };
 
-vector<int> expandBits(const vector<u32> &compactBits, int N, int E) {
+vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E) {
   assert(E % 32 != 0);
 
   std::vector<int> out(N);
@@ -110,8 +110,8 @@ vector<int> expandBits(const vector<u32> &compactBits, int N, int E) {
   BitBucket bucket;
   
   auto it = compactBits.cbegin(), itEnd = compactBits.cend();
-  for (int p = 0; p < N; ++p) {
-    int len = bitlen(N, E, p);    
+  for (u32 p = 0; p < N; ++p) {
+    u32 len = bitlen(N, E, p);    
     if (bucket.size < len) { assert(it != itEnd); bucket.put32(*it++); }
     data[p] = bucket.popSigned(len);
   }
@@ -140,10 +140,4 @@ u64 residueFromRaw(u32 N, u32 E, const vector<int> &words) {
   }
   return res;
 }
-
-/*
-double drift(u64 R, u32 k) {
-  return ldexpl(R * k, -64);
-}
-*/
 

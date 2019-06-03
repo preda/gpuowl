@@ -8,8 +8,8 @@
 #include <cassert>
 #include <cfenv>
 
-vector<u32> compactBits(const vector<int> &dataVect, int E);
-vector<int> expandBits(const vector<u32> &compactBits, int N, int E);
+vector<u32> compactBits(const vector<int> &dataVect, u32 E);
+vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E);
 u64 residueFromRaw(u32 N, u32 E, const vector<int> &words);
 
 constexpr u32 step(u32 N, u32 E) { return N - (E % N); }

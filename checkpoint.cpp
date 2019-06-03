@@ -10,7 +10,7 @@
 // Residue from compacted words.
 u64 residue(const vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
 
-static std::string fileName(int E, const string &suffix) { return std::to_string(E) + suffix + ".owl"; }
+static std::string fileName(u32 E, const string &suffix) { return std::to_string(E) + suffix + ".owl"; }
 
 void PRPState::save(u32 E) {
   string tempFile = fileName(E, "-temp"s + SUFFIX);

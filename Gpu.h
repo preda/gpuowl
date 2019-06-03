@@ -21,7 +21,7 @@ class Gpu {
   u32 E;
   u32 N;
 
-  int hN, nW, nH, bufSize;
+  u32 hN, nW, nH, bufSize;
   bool useLongCarry;
   bool useMiddle;
 
@@ -114,7 +114,7 @@ class Gpu {
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   
-  Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, int nW, int nH,
+  Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry);
 
 
@@ -128,7 +128,7 @@ public:
   u64 dataResidue()  { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }
     
-  bool doCheck(int blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
+  bool doCheck(u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   void updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3);
 
   void finish();
