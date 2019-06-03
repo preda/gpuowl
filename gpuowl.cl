@@ -54,7 +54,6 @@ typedef i64 Carry;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
-// #define TEST(bits, pos)
 bool test(u32 bits, u32 pos) { return bits & (1u << pos); }
 
 #define STEP (NWORDS - (EXP % NWORDS))
@@ -99,18 +98,6 @@ Word carryStep(Carry x, Carry *carry, i32 bits) {
 
 Carry unweight(T x, T weight) { return rint(x * weight); }
 
-Word2 unweightAndCarryExtra(T2 u, Carry *carry, T2 weight, u32 extra) {
-  Word a = carryStep(unweight(u.x, weight.x), carry, bitlen(extra));
-  Word b = carryStep(unweight(u.y, weight.y), carry, bitlen(reduce(extra + STEP)));
-  return (Word2) (a, b);
-}
-
-Word2 unweightAndCarryMul3(T2 u, Carry *carry, T2 weight, u32 extra) {
-  Word a = carryStep(3 * unweight(u.x, weight.x), carry, bitlen(extra));
-  Word b = carryStep(3 * unweight(u.y, weight.y), carry, bitlen(reduce(extra + STEP)));
-  return (Word2) (a, b);
-}
-
 Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
   Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(extra));
   Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(reduce(extra + STEP)));
@@ -120,7 +107,7 @@ Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
 // No carry out. The final carry is "absorbed" in the last word.
-T2 carryAndWeightFinalExtra(Word2 u, Carry carry, T2 w, u32 extra) {
+T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w, u32 extra) {
   Word x = carryStep(u.x, &carry, bitlen(extra));
   Word y = u.y + carry;
   return weight((Word2) (x, y), w);
@@ -1435,7 +1422,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
     u32 p = i * G_W + me;
     Carry carry = 0;
 
-    wu[i] = unweightAndCarryExtra(conjugate(u[i]), &carry, U2(invWeight, invWeight2), extra);
+    wu[i] = unweightAndCarryMul(1, conjugate(u[i]), &carry, U2(invWeight, invWeight2), extra);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
     extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
     invWeight *= IWEIGHT_BIGSTEP;
@@ -1467,7 +1454,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
     if (test(b, 2*i + 1)) { weight2 *= 0.5; }
     
     u32 p = i * G_W + me;
-    u[i] = carryAndWeightFinalExtra(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), extra);
+    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), extra);
     extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
     weight *= WEIGHT_BIGSTEP;
   }
@@ -1506,7 +1493,7 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
     u32 p = i * G_W + me;
     Carry carry = 0;
     // u32 k = line + BIG_HEIGHT * p;
-    wu[i] = unweightAndCarryMul3(conjugate(u[i]), &carry, iA[p], extra);
+    wu[i] = unweightAndCarryMul(3, conjugate(u[i]), &carry, iA[p], extra);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
     extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
   }
@@ -1532,7 +1519,7 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
   for (i32 i = 0; i < NW; ++i) {
     u32 p = i * G_W + me;
     // u32 k = line + BIG_HEIGHT * p;
-    u[i] = carryAndWeightFinalExtra(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p], extra);
+    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p], extra);
     extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
   }
 
