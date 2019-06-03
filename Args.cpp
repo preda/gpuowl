@@ -95,8 +95,8 @@ void Args::parse(string line) {
     else if (key == "-maxBufs") { maxBuffers = stoi(s); }
     else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
-    else if (key == "-prp") { prpExp = stol(s); }
-    else if (key == "-pm1") { pm1Exp = stol(s); }
+    else if (key == "-prp") { prpExp = stoll(s); }
+    else if (key == "-pm1") { pm1Exp = stoll(s); }
     else if (key == "-B1") { B1 = stoi(s); }
     else if (key == "-B2") { B2 = stoi(s); }
     else if (key == "-rB2") { B2_B1_ratio = stoi(s); }
