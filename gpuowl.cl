@@ -58,19 +58,10 @@ T2 U2(T a, T b) { return (T2)(a, b); }
 bool test(u32 bits, u32 pos) { return bits & (1u << pos); }
 
 #define STEP (NWORDS - (EXP % NWORDS))
-u32 extraAtWord(u32 k) { return ((u64) STEP) * k % NWORDS; }
-bool isBigWordExtra(u32 extra) { return extra < NWORDS - STEP; }
-u32 bitlenExtra(u32 extra) { return EXP / NWORDS + isBigWordExtra(extra); }
-u32 reduceExtra(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
-u32 stepExtra(u32 extra) { return reduceExtra(extra + STEP); }
-#if OLD_ISBIG || !(NWORDS & (NWORDS - 1))
-bool isBigWord(u32 k) { return extraAtWord(k) + STEP < NWORDS; }
-#else
-bool isBigWord(u32 k) { u64 a = FRAC * k - 1; return a > a + FRAC; }
-#endif
-
-// Number of bits for the word at pos.
-u32 bitlen(u32 k) { return EXP / NWORDS + isBigWord(k); }
+// u32 extraAtWord(u32 k) { return ((u64) STEP) * k % NWORDS; }
+bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
+u32 bitlen(u32 extra) { return EXP / NWORDS + isBigWord(extra); }
+u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 
 // Propagate carry this many pairs of words.
 #define CARRY_LEN 16
@@ -109,20 +100,20 @@ Word carryStep(Carry x, Carry *carry, i32 bits) {
 Carry unweight(T x, T weight) { return rint(x * weight); }
 
 Word2 unweightAndCarryExtra(T2 u, Carry *carry, T2 weight, u32 extra) {
-  Word a = carryStep(unweight(u.x, weight.x), carry, bitlenExtra(extra));
-  Word b = carryStep(unweight(u.y, weight.y), carry, bitlenExtra(reduceExtra(extra + STEP)));
+  Word a = carryStep(unweight(u.x, weight.x), carry, bitlen(extra));
+  Word b = carryStep(unweight(u.y, weight.y), carry, bitlen(reduce(extra + STEP)));
   return (Word2) (a, b);
 }
 
 Word2 unweightAndCarryMul3(T2 u, Carry *carry, T2 weight, u32 extra) {
-  Word a = carryStep(3 * unweight(u.x, weight.x), carry, bitlenExtra(extra));
-  Word b = carryStep(3 * unweight(u.y, weight.y), carry, bitlenExtra(reduceExtra(extra + STEP)));
+  Word a = carryStep(3 * unweight(u.x, weight.x), carry, bitlen(extra));
+  Word b = carryStep(3 * unweight(u.y, weight.y), carry, bitlen(reduce(extra + STEP)));
   return (Word2) (a, b);
 }
 
 Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
-  Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlenExtra(extra));
-  Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlenExtra(reduceExtra(extra + STEP)));
+  Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(extra));
+  Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(reduce(extra + STEP)));
   return (Word2) (a, b);
 }
 
@@ -130,15 +121,15 @@ T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
 // No carry out. The final carry is "absorbed" in the last word.
 T2 carryAndWeightFinalExtra(Word2 u, Carry carry, T2 w, u32 extra) {
-  Word x = carryStep(u.x, &carry, bitlenExtra(extra));
+  Word x = carryStep(u.x, &carry, bitlen(extra));
   Word y = u.y + carry;
   return weight((Word2) (x, y), w);
 }
 
 // Carry propagation from word and carry.
 Word2 carryWord(Word2 a, Carry *carry, u32 extra) {
-  a.x = carryStep(a.x, carry, bitlenExtra(extra));
-  a.y = carryStep(a.y, carry, bitlenExtra(reduceExtra(extra + STEP)));
+  a.x = carryStep(a.x, carry, bitlen(extra));
+  a.y = carryStep(a.y, carry, bitlen(reduce(extra + STEP)));
   return a;
 }
 
@@ -1350,11 +1341,11 @@ void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *
 
   Carry carry = 0;
 
-  u32 extra = reduceExtra(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
+  u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
     out[p] = unweightAndCarryMul(mul, conjugate(in[p]), &carry, A[p], extra);
-    extra = reduceExtra(extra + (u32) (2u * STEP % NWORDS));
+    extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
   carryOut[G_W * g + me] = carry;
 }
@@ -1373,7 +1364,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) extras) {
   u32 gx = g % NW;
   u32 gy = g / NW;
 
-  u32 extra = reduceExtra(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
+  u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
   
   u32 step = G_W * gx + WIDTH * CARRY_LEN * gy;
   io += step;
@@ -1389,7 +1380,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) extras) {
     u32 p = i * WIDTH + me;
     io[p] = carryWord(io[p], &carry, extra);
     if (!carry) { return; }
-    extra = reduceExtra(extra + (u32) (2u * STEP % NWORDS));
+    extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
 }
 
@@ -1446,7 +1437,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
 
     wu[i] = unweightAndCarryExtra(conjugate(u[i]), &carry, U2(invWeight, invWeight2), extra);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
-    extra = reduceExtra(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
+    extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
     invWeight *= IWEIGHT_BIGSTEP;
   }
 
@@ -1477,7 +1468,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
     
     u32 p = i * G_W + me;
     u[i] = carryAndWeightFinalExtra(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), extra);
-    extra = reduceExtra(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
+    extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
     weight *= WEIGHT_BIGSTEP;
   }
 
@@ -1517,7 +1508,7 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
     // u32 k = line + BIG_HEIGHT * p;
     wu[i] = unweightAndCarryMul3(conjugate(u[i]), &carry, iA[p], extra);
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
-    extra = reduceExtra(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
+    extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
   }
 
   release();
@@ -1542,7 +1533,7 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
     u32 p = i * G_W + me;
     // u32 k = line + BIG_HEIGHT * p;
     u[i] = carryAndWeightFinalExtra(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p], extra);
-    extra = reduceExtra(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
+    extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
   }
 
   fft_WIDTH(lds, u, smallTrig);

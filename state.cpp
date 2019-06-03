@@ -7,19 +7,7 @@
 #include <memory>
 #include <cmath>
 
-static bool exactIsBigWord(u32 N, u32 E, u32 k) { return extra(N, E, k) + step(N, E) < N; }
-
-// This variant of isBigWord avoids the % N of extra(), and is so faster when N is not a power of 2,
-// and thus a butter candidate for GPU-side.
-static bool isBigWord(u32 N, u32 E, u32 k) {
-  u64 frac = FRAC(N, E);
-  u64 a = frac * k - 1;
-  bool ret = a > (a + frac);
-  
-  // We want the result to match precisely the exactIsBigWord().
-  assert(ret == exactIsBigWord(N, E, k));
-  return ret;
-}
+static bool isBigWord(u32 N, u32 E, u32 k) { return extra(N, E, k) + step(N, E) < N; }
 
 static u32 bitlen(u32 N, u32 E, u32 k) { return E / N + isBigWord(N, E, k); }
 
