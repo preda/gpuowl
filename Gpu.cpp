@@ -107,18 +107,12 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   vector<double> groupWeights;
   for (u32 group = 0; group < H; ++group) {
     groupWeights.push_back(invWeight(N, E, H, group, 0, 0) / (4 * N));
-  }
-
-  for (u32 group = 0; group < H; ++group) {
     groupWeights.push_back(weight(N, E, H, group, 0, 0));
   }
   
   vector<double> threadWeights;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
     threadWeights.push_back(invWeight(N, E, H, 0, thread, 0));
-  }
-
-  for (u32 thread = 0; thread < groupWidth; ++thread) {
     threadWeights.push_back(weight(N, E, H, 0, thread, 0));
   }
 
@@ -129,7 +123,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   for (u32 line = 0; line < H; ++line) {
     for (u32 thread = 0; thread < groupWidth; ++thread) {
       std::bitset<32> b;
-      double w = groupWeights[H + line] * threadWeights[groupWidth + thread];
+      double w = groupWeights[2*line+1] * threadWeights[2*thread+1];
       for (u32 block = 0; block < nW; ++block, w *= WEIGHT_BIGSTEP) {
         double w2 = w;
         if (w >= 2) { w *= 0.5; }
