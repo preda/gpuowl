@@ -54,12 +54,13 @@ typedef i64 Carry;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
-bool test(u32 bits, u32 pos) { return bits & (1u << pos); }
+bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 #define STEP (NWORDS - (EXP % NWORDS))
 // u32 extraAtWord(u32 k) { return ((u64) STEP) * k % NWORDS; }
 bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
 u32 bitlen(u32 extra) { return EXP / NWORDS + isBigWord(extra); }
+u32 bitlenx(bool b) { return EXP / NWORDS + b; }
 u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 
 // Propagate carry this many pairs of words.
@@ -98,6 +99,12 @@ Word carryStep(Carry x, Carry *carry, i32 bits) {
 
 Carry unweight(T x, T weight) { return rint(x * weight); }
 
+Word2 unweightAndCarryMulx(u32 mul, T2 u, Carry *carry, T2 weight, bool b1, bool b2) {
+  Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlenx(b1));
+  Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlenx(b2));
+  return (Word2) (a, b);
+}
+
 Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
   Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(extra));
   Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(reduce(extra + STEP)));
@@ -105,6 +112,12 @@ Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
 }
 
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
+
+T2 carryAndWeightFinalx(Word2 u, Carry carry, T2 w, bool b1) {
+  Word x = carryStep(u.x, &carry, bitlenx(b1));
+  Word y = u.y + carry;
+  return weight((Word2) (x, y), w);
+}
 
 // No carry out. The final carry is "absorbed" in the last word.
 T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w, u32 extra) {
@@ -1392,7 +1405,7 @@ void acquire() {
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
-                       CP(u32) bits, CP(u32) extras,
+                       CP(u32) bits,
                        CP(T) invGroupWeights, CP(T) invThreadWeights, CP(T) groupWeights, CP(T) threadWeights) {
   local T lds[WIDTH];
 
@@ -1410,10 +1423,8 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
   fft_WIDTH(lds, u, smallTrig);
   
   T invWeight = invGroupWeights[line] * invThreadWeights[me];
-  u32 extra0 = extras[G_W * line + me];
   u32 b = bits[G_W * line + me];
   
-  u32 extra = extra0;
   for (i32 i = 0; i < NW; ++i) {
     if (test(b, 2*i)) { invWeight *= 2; }
     T invWeight2 = invWeight * IWEIGHT_STEP;
@@ -1422,9 +1433,8 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
     u32 p = i * G_W + me;
     Carry carry = 0;
 
-    wu[i] = unweightAndCarryMul(1, conjugate(u[i]), &carry, U2(invWeight, invWeight2), extra);
+    wu[i] = unweightAndCarryMulx(1, conjugate(u[i]), &carry, U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
-    extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
     invWeight *= IWEIGHT_BIGSTEP;
   }
 
@@ -1437,7 +1447,6 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
 
   if (gr == 0) { return; }
   
-  extra = extra0;
   T weight = groupWeights[line] * threadWeights[me];
   
   // Wait until the previous group is ready with the carry.
@@ -1454,8 +1463,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
     if (test(b, 2*i + 1)) { weight2 *= 0.5; }
     
     u32 p = i * G_W + me;
-    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), extra);
-    extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
+    u[i] = carryAndWeightFinalx(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), test(b, 2*(NW+i)));
     weight *= WEIGHT_BIGSTEP;
   }
 

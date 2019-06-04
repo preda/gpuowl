@@ -139,6 +139,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
         if (w >= 2) { w *= 0.5; }
         for (u32 rep = 0; rep < 2; ++rep, w2 *= WEIGHT_STEP) {
           if (w2 >= 2) { b.set(block * 2 + rep); w2 *= 0.5; }
+          if (isBigWord(N, E, kAt(H, line, block * groupWidth + thread, rep))) { b.set((nW + block) * 2 + rep); }
         }        
       }
       bits.push_back(b.to_ulong());
@@ -233,7 +234,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufThreadWeights = Buffer(context.get(), BUF_CONST, weights.threadWeights);
   bufBits = Buffer(context.get(), BUF_CONST, weights.bits);
   
-  carryFused.setFixedArgs(   1, bufCarry, bufReady, bufTrigW, bufBits, bufExtras, bufInvGroupWeights, bufInvThreadWeights, bufGroupWeights, bufThreadWeights);
+  carryFused.setFixedArgs(   1, bufCarry, bufReady, bufTrigW, bufBits, bufInvGroupWeights, bufInvThreadWeights, bufGroupWeights, bufThreadWeights);
   carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW, bufExtras);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(1, bufTrigW);

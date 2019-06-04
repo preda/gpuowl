@@ -7,8 +7,6 @@
 #include <memory>
 #include <cmath>
 
-static bool isBigWord(u32 N, u32 E, u32 k) { return extra(N, E, k) + step(N, E) < N; }
-
 static u32 bitlen(u32 N, u32 E, u32 k) { return E / N + isBigWord(N, E, k); }
 
 static int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
