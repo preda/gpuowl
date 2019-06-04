@@ -1405,8 +1405,7 @@ void acquire() {
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
-                       CP(u32) bits,
-                       CP(T) invGroupWeights, CP(T) invThreadWeights, CP(T) groupWeights, CP(T) threadWeights) {
+                       CP(u32) bits, CP(T) groupWeights, CP(T) threadWeights) {
   local T lds[WIDTH];
 
   u32 gr = get_group_id(0);
@@ -1422,7 +1421,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
 
   fft_WIDTH(lds, u, smallTrig);
   
-  T invWeight = invGroupWeights[line] * invThreadWeights[me];
+  T invWeight = groupWeights[line] * threadWeights[me];
   u32 b = bits[G_W * line + me];
   
   for (i32 i = 0; i < NW; ++i) {
@@ -1447,7 +1446,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
 
   if (gr == 0) { return; }
   
-  T weight = groupWeights[line] * threadWeights[me];
+  T weight = groupWeights[H + line] * threadWeights[G_W + me];
   
   // Wait until the previous group is ready with the carry.
   if (me == 0) {

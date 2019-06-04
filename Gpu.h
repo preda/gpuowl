@@ -64,8 +64,6 @@ class Gpu {
 
   Buffer<u32> bufBits;
   Buffer<u32> bufExtras;
-  Buffer<double> bufInvGroupWeights;
-  Buffer<double> bufInvThreadWeights;
   Buffer<double> bufGroupWeights;
   Buffer<double> bufThreadWeights;
   

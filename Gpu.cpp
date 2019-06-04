@@ -67,8 +67,6 @@ static Buffer<u32> genExtras(cl_context context, u32 E, u32 W, u32 H, u32 nW) {
 struct Weights {
   vector<double> aTab;
   vector<double> iTab;
-  vector<double> invGroupWeights;
-  vector<double> invThreadWeights;
   vector<double> groupWeights;
   vector<double> threadWeights;
   vector<u32> bits;
@@ -106,22 +104,20 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
   u32 groupWidth = W / nW;
 
-  vector<double> invGroupWeights;
+  vector<double> groupWeights;
   for (u32 group = 0; group < H; ++group) {
-    invGroupWeights.push_back(invWeight(N, E, H, group, 0, 0) / (4 * N));
+    groupWeights.push_back(invWeight(N, E, H, group, 0, 0) / (4 * N));
   }
 
-  vector<double> invThreadWeights;
-  for (u32 thread = 0; thread < groupWidth; ++thread) {
-    invThreadWeights.push_back(invWeight(N, E, H, 0, thread, 0));
-   }
-
-  vector<double> groupWeights;
   for (u32 group = 0; group < H; ++group) {
     groupWeights.push_back(weight(N, E, H, group, 0, 0));
   }
-
+  
   vector<double> threadWeights;
+  for (u32 thread = 0; thread < groupWidth; ++thread) {
+    threadWeights.push_back(invWeight(N, E, H, 0, thread, 0));
+  }
+
   for (u32 thread = 0; thread < groupWidth; ++thread) {
     threadWeights.push_back(weight(N, E, H, 0, thread, 0));
   }
@@ -133,7 +129,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   for (u32 line = 0; line < H; ++line) {
     for (u32 thread = 0; thread < groupWidth; ++thread) {
       std::bitset<32> b;
-      double w = groupWeights[line] * threadWeights[thread];
+      double w = groupWeights[H + line] * threadWeights[groupWidth + thread];
       for (u32 block = 0; block < nW; ++block, w *= WEIGHT_BIGSTEP) {
         double w2 = w;
         if (w >= 2) { w *= 0.5; }
@@ -146,7 +142,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
     }
   }
 
-  return Weights{aTab, iTab, invGroupWeights, invThreadWeights, groupWeights, threadWeights, bits};
+  return Weights{aTab, iTab, groupWeights, threadWeights, bits};
 }
 
 extern const char *CL_SOURCE;
@@ -228,13 +224,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufWeightA = Buffer(context.get(), BUF_CONST, weights.aTab);
   bufWeightI = Buffer(context.get(), BUF_CONST, weights.iTab);
 
-  bufInvGroupWeights = Buffer(context.get(), BUF_CONST, weights.invGroupWeights);
-  bufInvThreadWeights = Buffer(context.get(), BUF_CONST, weights.invThreadWeights);
   bufGroupWeights = Buffer(context.get(), BUF_CONST, weights.groupWeights);
   bufThreadWeights = Buffer(context.get(), BUF_CONST, weights.threadWeights);
   bufBits = Buffer(context.get(), BUF_CONST, weights.bits);
   
-  carryFused.setFixedArgs(   1, bufCarry, bufReady, bufTrigW, bufBits, bufInvGroupWeights, bufInvThreadWeights, bufGroupWeights, bufThreadWeights);
+  carryFused.setFixedArgs(   1, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
   carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW, bufExtras);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(1, bufTrigW);
