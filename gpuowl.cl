@@ -1053,13 +1053,10 @@ void transpose(u32 W, u32 H, local T *lds, const T2 *in, T2 *out) {
   u32 gx = g / GPH;
   gx = (gy + gx) % GPW;
 
-  in   += gy * 64 * W + gx * 64;
-  out  += gy * 64     + gx * 64 * H;
-  
   u32 me = get_local_id(0), mx = me % 64, my = me / 64;
   T2 u[16];
 
-  for (i32 i = 0; i < 16; ++i) { u[i] = in[(4 * i + my) * W + mx]; }
+  for (i32 i = 0; i < 16; ++i) { u[i] = in[64 * W * gy + 64 * gx + 4 * i * W + W * my + mx]; }
 
   transposeLDS(lds, u);
 
@@ -1068,7 +1065,7 @@ void transpose(u32 W, u32 H, local T *lds, const T2 *in, T2 *out) {
   T2 step = slowTrig(col, W * H / 8);
                      
   for (i32 i = 0; i < 16; ++i) {
-    out[(4 * i + my) * H + mx] = mul(u[i], base);
+    out[64 * gy + 64 * H * gx + 4 * i * H + H * my + mx] = mul(u[i], base);
     base = mul(base, step);
   }
 }
@@ -1536,6 +1533,7 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
   write(G_W, NW, u, io, 0);
 }
 
+// __attribute__((amdgpu_num_vgpr(128)))
 KERNEL(256) transposeW(CP(T2) in, P(T2) out) {
   local T lds[4096];
   transpose(WIDTH, BIG_HEIGHT, lds, in, out);
