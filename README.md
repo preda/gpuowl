@@ -116,8 +116,13 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 -B1                : P-1 B1, default 500000\
 -B2                : P-1 B2 bound, default B1 * 30\
 -rB2               : ratio of B2 to B1, default 30\
+-prp \<exponent\>    : run a single PRP test and exit, ignoring worktodo.txt\
+-pm1 \<exponent\>    : run a single P-1 test and exit, ignoring worktodo.txt\
+-results \<file\>    : name of results file, default 'results.txt'\
+-iters \<N\>         : run next PRP test for \<N\> iterations and exit. Multiple of 10000.\
+-use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning).\
 -device \<N\>        : select a specific device:\
-  \
+ \
 Device numbers start at zero.
 
 ## Primenet.py Arguments
