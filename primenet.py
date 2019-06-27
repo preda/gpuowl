@@ -88,7 +88,7 @@ worktype = workTypes[options.work] if options.work in workTypes else int(options
 print("Work type:", worktype)
 
 desiredTasks = options.nTasks if options.nTasks is not None else (12 if worktype == 4 else 2)
-print("Will fetch ahead %d tasks" % desiredTasks)
+print("Will fetch ahead %d tasks. Check every %d sec." % (desiredTasks, timeout))
 
 if not user:
     print("-u USER is required")
