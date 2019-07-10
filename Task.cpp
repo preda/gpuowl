@@ -46,7 +46,7 @@ bool Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
   assert(B1 == 0 && B2 == 0);
 
   string status = isPrime ? "P" : "C";
-  return writeResult(fftStr(fftSize) + resStr(res64) + ", \"residue-type\":4",
+  return writeResult(fftStr(fftSize) + resStr(res64) + ", \"residue-type\":1",
                      exponent, "PRP-3", status, AID, args);
 }
 

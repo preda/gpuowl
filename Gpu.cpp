@@ -557,9 +557,9 @@ static void doSmallLog(u32 E, u32 k, u64 res, TimeInfo &stats, u32 nIters) {
   stats.reset();
 }
 
-static bool equalMinus3(const vector<u32> &a) {
-  if (a[0] != ~3u) { return false; }
-  for (auto it = next(a.begin()); it != prev(a.end()); ++it) { if (~*it) { return false; }}
+static bool equals9(const vector<u32> &a) {
+  if (a[0] != 9) { return false; }
+  for (auto it = next(a.begin()); it != a.end(); ++it) { if (*it) { return false; }}
   return true;
 }
 
@@ -583,6 +583,35 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<doub
   return loaded;
 }
 
+static u32 mod3(const std::vector<u32> &words) {
+  u32 r = 0;
+  // uses the fact that 2**32 % 3 == 1.
+  for (u32 w : words) { r += w % 3; }
+  return r % 3;
+}
+
+static void doDiv3(int E, std::vector<u32> &words) {
+  u32 r = (3 - mod3(words)) % 3;
+  assert(0 <= r && r < 3);
+  int topBits = E % 32;
+  assert(topBits > 0 && topBits < 32);
+  {
+    u64 w = (u64(r) << topBits) + words.back();
+    words.back() = w / 3;
+    r = w % 3;
+  }
+  for (auto it = words.rbegin() + 1, end = words.rend(); it != end; ++it) {
+    u64 w = (u64(r) << 32) + *it;
+    *it = w / 3;
+    r = w % 3;
+  }
+}
+
+void doDiv9(int E, std::vector<u32> &words) {
+  doDiv3(E, words);
+  doDiv3(E, words);
+}
+
 pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
   Buffer<double> buf1{context, BUF_RW, N};
   Buffer<double> buf2{context, BUF_RW, N};
@@ -596,7 +625,7 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
   u32 blockSize = loaded.blockSize;
   assert(blockSize > 0 && 10000 % blockSize == 0);
   
-  const u32 kEnd = E - 1; // Type-4 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
+  const u32 kEnd = E; // Type-1 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
 
   const u32 checkStep = blockSize * blockSize;
@@ -619,17 +648,16 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
     if (k < kEnd && k + blockSize >= kEnd) {
       modSqLoop(kEnd - k, false, buf1, buf2, bufData);
       auto words = this->roundtripData();
+      isPrime = equals9(words);
+      doDiv9(E, words);
       finalRes64 = residue(words);
-      isPrime = equalMinus3(words);
+
 #ifdef __MINGW64__
       log("%s %8d / %d, %016I64x\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
 #else
       log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
 #endif
 
-      // Scream if ever [again] we get residue 0xfffffffffffffffc and !isprime, likely indicating a bug and a missed prime.
-      assert(finalRes64 != u64(-3) || isPrime);
-      
       int itersLeft = blockSize - (kEnd - k);
       if (itersLeft > 0) { modSqLoop(itersLeft, false, buf1, buf2, bufData); }
     } else {
