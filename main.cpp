@@ -24,19 +24,21 @@ int main(int argc, char **argv) {
   int exitCode = 0;
   
   try {
-    Args args;
     string mainLine = Args::mergeArgs(argc, argv);
-    args.parse(mainLine);
-    if (!args.dir.empty()) { fs::current_path(args.dir); }
-    initLog("gpuowl.log");
-    // log("Working directory: %s\n", string(current_path()).c_str());
-    
+    {
+      Args args;
+      args.parse(mainLine);
+      if (!args.dir.empty()) { fs::current_path(args.dir); }
+      initLog("gpuowl.log");
+    }
+
+    Args args;
     if (auto file = openRead("config.txt")) {
       char buf[256];
       while (fgets(buf, sizeof(buf), file.get())) {
         string line = buf;
         while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) { line.pop_back(); }
-        log("config: %s\n", line.c_str());
+        log("config.txt: %s\n", line.c_str());
         args.parse(line);
       }
     } else {
@@ -45,9 +47,8 @@ int main(int argc, char **argv) {
     if (!args.cpu.empty()) { globalCpuName = args.cpu; }
     if (!mainLine.empty()) {
       log("config: %s\n", mainLine.c_str());
-      args.parse(mainLine);
     }
-
+    args.parse(mainLine);
     
     if (args.prpExp) {
       Worktodo::makePRP(args, args.prpExp).execute(args, background);      

@@ -88,8 +88,6 @@ Command line options:
 void Args::parse(string line) {  
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
-    // log("'%s' : '%s'\n", k.c_str(), v.c_str());
-
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
     else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxBufs") { maxBuffers = stoi(s); }
