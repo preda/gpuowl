@@ -21,7 +21,8 @@ FFTConfig::FFTConfig(u32 width, u32 height, u32 middle) :
   assert(middle == 1 || middle == 3 || middle == 5 || middle == 6 || middle == 7 || middle == 9 || middle == 10 || middle == 11 || middle == 12);
 }
 
-u32 FFTConfig::getMaxExp(u32 fftSize) { return fftSize * (17.77 + 0.33 * (24 - log2(fftSize))); }
+u32 FFTConfig::getMaxExp(u32 fftSize) { return fftSize * (18.257 - 0.33 * log2(fftSize * (1.0 / (9 * 512 * 1024)))); }
+// { return fftSize * (17.77 + 0.33 * (24 - log2(fftSize))); }
 
 vector<FFTConfig> FFTConfig::genConfigs() {
   vector<FFTConfig> configs;
