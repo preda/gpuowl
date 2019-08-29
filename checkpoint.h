@@ -10,12 +10,6 @@
 u64 residue(const vector<u32> &words);
 
 class PRPState {
-  // Exponent, iteration, B1, block-size, res64.
-  static constexpr const char *HEADER_v7 = "OWL PRP 7 %u %u %u %u %016llx\n";
-
-  // Exponent, iteration, B1, block-size, res64, stage, nBitsBase
-  static constexpr const char *HEADER_v8 = "OWL PRP 8 %u %u %u %u %016llx %u %u\n";
-
   // Exponent, iteration, block-size, res64
   static constexpr const char *HEADER_v9 = "OWL PRP 9 %u %u %u %016llx\n";
 

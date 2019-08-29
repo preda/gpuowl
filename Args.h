@@ -25,8 +25,8 @@ public:
   int device = -1;
   bool timeKernels = false;
   int carry = CARRY_AUTO;
-  u32 blockSize = 1000;
-  u32 logStep = 20000;
+  u32 blockSize = 500;
+  u32 logStep = 50000;
   int fftSize = 0;
   bool enableTF = false;
   u32 B1 = 500000;

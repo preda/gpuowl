@@ -66,16 +66,7 @@ void PRPState::loadInt(u32 E, u32 iniBlockSize) {
   }
   
   u32 fileE = 0;
-  u32 fileB1 = 0;
-  u32 fileStage = 0;
-  u32 fileBaseBits = 0;
-  if (   sscanf(line, HEADER_v7, &fileE, &k, &fileB1, &blockSize, &res64) == 5
-      || sscanf(line, HEADER_v8, &fileE, &k, &fileB1, &blockSize, &res64, &fileStage, &fileBaseBits) == 7
-      || sscanf(line, HEADER_v9, &fileE, &k, &blockSize, &res64) == 4) {
-    if (fileB1 != 0) {
-      log("Can't load '%s' with non-zero B1=%u\n", name.c_str(), fileB1);
-      throw("savefile: B1!=0");
-    }
+  if (sscanf(line, HEADER_v9, &fileE, &k, &blockSize, &res64) == 4) {
     assert(E == fileE);
     if (!read(fi.get(), nWords, &check)) { throw("load: error read check"); }
     #ifdef __MINGW64__

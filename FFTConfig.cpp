@@ -14,7 +14,7 @@ FFTConfig::FFTConfig(u32 width, u32 height, u32 middle) :
   height(height),
   middle(middle),
   fftSize(width * height * middle * 2),
-  // 17.88 + 0.36 * (24 - log2(n)); Update after feedback on 86700001, FFT 4608 (18.37b/w) being insufficient.
+
   maxExp(getMaxExp(fftSize)) {
   assert(width == 64  || width == 256 || width  == 512 || width == 1024 || width == 2048 || width == 4096);
   assert(height == 64 || height == 256 || height == 512 || height == 1024 || height == 2048);
@@ -23,6 +23,7 @@ FFTConfig::FFTConfig(u32 width, u32 height, u32 middle) :
 
 u32 FFTConfig::getMaxExp(u32 fftSize) { return fftSize * (18.257 - 0.33 * log2(fftSize * (1.0 / (9 * 512 * 1024)))); }
 // { return fftSize * (17.77 + 0.33 * (24 - log2(fftSize))); }
+// 17.88 + 0.36 * (24 - log2(n)); Update after feedback on 86700001, FFT 4608 (18.37b/w) being insufficient.
 
 vector<FFTConfig> FFTConfig::genConfigs() {
   vector<FFTConfig> configs;
