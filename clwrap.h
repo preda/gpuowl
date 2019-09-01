@@ -40,9 +40,6 @@ using KernelHolder = std::unique_ptr<cl_kernel>;
 
 class Context;
 
-const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
-
 void check(int err, const char *file, int line, const char *func, const std::string& mes);
 
 #define CHECK1(err) check(err, __FILE__, __LINE__, __func__, #err)

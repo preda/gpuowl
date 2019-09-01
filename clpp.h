@@ -13,11 +13,15 @@
 template<typename T> class Buffer;
 
 class Context : public std::unique_ptr<cl_context> {
+  static constexpr unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
+  static constexpr unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
+
 public:
   using std::unique_ptr<cl_context>::unique_ptr;
   
-  template<typename T>
-  auto constBuf(const std::vector<T>& vect) const { return Buffer{*this, BUF_CONST, vect}; }
+  template<typename T> auto constBuf(const std::vector<T>& vect) const { return Buffer{*this, BUF_CONST, vect}; }
+  template<typename T> auto hostAccessBuf(size_t size) const { return Buffer<T>{*this, CL_MEM_READ_WRITE, size}; }
+  template<typename T> auto buffer(size_t size) const { return Buffer<T>{*this, BUF_RW, size}; }
 };
 
 template<typename T>
@@ -29,8 +33,10 @@ class Buffer : public std::unique_ptr<cl_mem> {
     : std::unique_ptr<cl_mem>{_makeBuf(context, kind, size * sizeof(T), ptr)}
     , _size(size)
   {}
-  
+    
 public:
+  using type = T;
+  
   Buffer() = default;
 
   Buffer(const Context& context, unsigned kind, size_t size, const T* ptr = nullptr)
@@ -38,9 +44,12 @@ public:
   {}
   
   Buffer(const Context& context, unsigned kind, const std::vector<T>& vect)
-    : Buffer(context, kind, vect.size(), vect.data())
+    : Buffer(context.get(), kind, vect.size(), vect.data())
   {}
 
+  Buffer(Buffer&& rhs) = default;
+  Buffer& operator=(Buffer&& rhs) = default;
+  
   size_t size() const { return _size; }
 };
 

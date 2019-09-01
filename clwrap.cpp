@@ -353,7 +353,7 @@ u32 getAllocableBlocks(cl_device_id device, u32 blockSize, u32 minFree) {
   
   while (getFreeMem(device) >= minFree) {
     try {
-      buffers.emplace_back(context, BUF_RW, blockSize);
+      buffers.push_back(context.buffer<std::byte>(blockSize));
     } catch (const bad_alloc&) {
       break;
     }

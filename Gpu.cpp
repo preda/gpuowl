@@ -204,12 +204,12 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufTrigH{genSmallTrig(context, SMALL_H, nH)},
   bufExtras{genExtras(context, E, W, BIG_H, nW)},
   
-  bufData{context, CL_MEM_READ_WRITE, N},
-  bufAux{context, CL_MEM_READ_WRITE, N},
+  bufData{context.hostAccessBuf<decltype(bufData)::type>(N)},
+  bufAux{context.hostAccessBuf<decltype(bufAux)::type>(N)},
   
-  bufCarry{context, BUF_RW, N / 2},
-  bufReady{context, BUF_RW, BIG_H},
-  bufSmallOut{context, CL_MEM_READ_WRITE, 256}
+  bufCarry{context.buffer<decltype(bufCarry)::type>(N / 2)},
+  bufReady{context.buffer<decltype(bufReady)::type>(BIG_H)},
+  bufSmallOut(context.hostAccessBuf<decltype(bufSmallOut)::type>(256))
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
@@ -613,11 +613,11 @@ void doDiv9(int E, std::vector<u32> &words) {
 }
 
 pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
-  Buffer<double> buf1{context, BUF_RW, N};
-  Buffer<double> buf2{context, BUF_RW, N};
-  Buffer<double> buf3{context, BUF_RW, N};
+  auto buf1{context.buffer<double>(N)};
+  auto buf2{context.buffer<double>(N)};
+  auto buf3{context.buffer<double>(N)};
   
-  bufCheck = {context, CL_MEM_READ_WRITE, N};
+  bufCheck = context.hostAccessBuf<decltype(bufCheck)::type>(N);
   
   PRPState loaded = loadPRP(E, args.blockSize, buf1, buf2, buf3);
 
@@ -734,8 +734,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   // log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
 
   // Buffers used in both stages.
-  Buffer<double> bufTmp{context, BUF_RW, N};
-  Buffer<double> bufAux{context, BUF_RW, N};
+  auto bufTmp{context.buffer<double>(N)};
+  auto bufAux{context.buffer<double>(N)};
 
   u32 maxBuffers = args.maxBuffers;
 
@@ -798,7 +798,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   tailFused(bufTmp);
   tH(bufTmp, bufAux);
 
-  Buffer<double> bufAcc{context, BUF_RW, N};
+  auto bufAcc{context.buffer<double>(N)};
   queue.copyFromTo(bufAux, bufAcc);
   
   fftW(bufAux);
@@ -808,14 +808,14 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   future<string> gcdFuture = async(launch::async, GCD, E, readData(), 1);
   bufAux.reset();
   
-  Buffer<double> bufA{context, BUF_RW, N};
-  Buffer<double> bufBase{context, BUF_RW, N};
+  auto bufA{context.buffer<double>(N)};
+  auto bufBase{context.buffer<double>(N)};
   fftP(bufData, bufA);
   tW(bufA, bufBase);
   fftH(bufBase);
   
-  Buffer<double> bufB{context, BUF_RW, N};
-  Buffer<double> bufC{context, BUF_RW, N};
+  auto bufB{context.buffer<double>(N)};
+  auto bufC{context.buffer<double>(N)};
 
   if (getFreeMem(device) < u64(nBufs) * bufSize) {
     log("P-1 stage2 too little memory %u MB for %u buffers of %u b\n", u32(getFreeMem(device) / (1024 * 1024)), nBufs, bufSize);
@@ -823,11 +823,11 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   }
   
   vector<Buffer<double>> blockBufs;
-  for (u32 i = 0; i < nBufs; ++i) { blockBufs.emplace_back(context, BUF_RW, N); }
+  for (u32 i = 0; i < nBufs; ++i) { blockBufs.push_back(context.buffer<double>(N)); }
 
   auto jset = getJset();
 
-  Buffer<double> bufBaseD2{context, BUF_RW, N};
+  auto bufBaseD2{context.buffer<double>(N)};
   exponentiate(bufBase, 30030*30030, bufTmp, bufBaseD2);
   
   for (u32 round = 0; round < nRounds; ++round) {
