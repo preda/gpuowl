@@ -39,20 +39,20 @@ static double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   return p;
 }
 
-static Buffer<double2> genSmallTrig(cl_context context, u32 size, u32 radix) {
+static Buffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
   vector<double2> tab(size);
   auto *p = tab.data() + radix;
   u32 w = 0;
   for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
   assert(p - tab.data() == size);
-  return Buffer<double2>(context, BUF_CONST, tab);
+  return context.constBuf(tab);
 }
 
 static u32 kAt(u32 H, u32 line, u32 col, u32 rep) {
   return (line + col * H) * 2 + rep;
 }
 
-static Buffer<u32> genExtras(cl_context context, u32 E, u32 W, u32 H, u32 nW) {
+static Buffer<u32> genExtras(const Context& context, u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
   vector<u32> extras;
   u32 groupWidth = W / nW;
@@ -61,7 +61,7 @@ static Buffer<u32> genExtras(cl_context context, u32 E, u32 W, u32 H, u32 nW) {
       extras.push_back(extra(N, E, kAt(H, line, thread, 0)));
     }
   }
-  return Buffer{context, BUF_CONST, extras};
+  return context.constBuf(extras);
 }
 
 struct Weights {
@@ -200,9 +200,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(isEqual, 256),
 #undef LOAD
 
-  bufTrigW{genSmallTrig(context.get(), W, nW)},
-  bufTrigH{genSmallTrig(context.get(), SMALL_H, nH)},
-  bufExtras{genExtras(context.get(), E, W, BIG_H, nW)},
+  bufTrigW{genSmallTrig(context, W, nW)},
+  bufTrigH{genSmallTrig(context, SMALL_H, nH)},
+  bufExtras{genExtras(context, E, W, BIG_H, nW)},
   
   bufData{context, CL_MEM_READ_WRITE, N},
   bufAux{context, CL_MEM_READ_WRITE, N},
@@ -215,12 +215,12 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   program.reset();
 
   Weights weights = genWeights(E, W, BIG_H, nW);  
-  bufWeightA = Buffer(context.get(), BUF_CONST, weights.aTab);
-  bufWeightI = Buffer(context.get(), BUF_CONST, weights.iTab);
+  bufWeightA = context.constBuf(weights.aTab);
+  bufWeightI = context.constBuf(weights.iTab);
 
-  bufGroupWeights = Buffer(context.get(), BUF_CONST, weights.groupWeights);
-  bufThreadWeights = Buffer(context.get(), BUF_CONST, weights.threadWeights);
-  bufBits = Buffer(context.get(), BUF_CONST, weights.bits);
+  bufGroupWeights = context.constBuf(weights.groupWeights);
+  bufThreadWeights = context.constBuf(weights.threadWeights);
+  bufBits = context.constBuf(weights.bits);
   
   carryFused.setFixedArgs(   1, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
   carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW, bufExtras);

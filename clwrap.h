@@ -3,7 +3,6 @@
 #pragma once
 
 #include "tinycl.h"
-// #include "common.h"
 
 #include <string>
 #include <vector>
@@ -36,10 +35,10 @@ template<> struct default_delete<cl_queue> : public Deleter<cl_queue> {};
 
 template<typename T> using Holder = std::unique_ptr<T, Deleter<T> >;
 
-using Context = std::unique_ptr<cl_context>;
 using QueueHolder = std::unique_ptr<cl_queue>;
 using KernelHolder = std::unique_ptr<cl_kernel>;
 
+class Context;
 
 const unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 const unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;

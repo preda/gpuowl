@@ -75,7 +75,7 @@ class Gpu {
   // Carry buffers, used in carry and fusedCarry.
   Buffer<i64> bufCarry;  // Carry shuttle.
   
-  Buffer<int> bufReady;  // Per-group ready flag for starway carry propagation.
+  Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
 
   // Small aux buffer used to read res64.
   Buffer<int> bufSmallOut;
@@ -115,8 +115,6 @@ public:
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry);
 
-
-  
   vector<u32> roundtripData()  { return writeData(readData()); }
   vector<u32> roundtripCheck() { return writeCheck(readCheck()); }
 

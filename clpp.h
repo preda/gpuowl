@@ -8,24 +8,36 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <memory>
+
+template<typename T> class Buffer;
+
+class Context : public std::unique_ptr<cl_context> {
+public:
+  using std::unique_ptr<cl_context>::unique_ptr;
+  
+  template<typename T>
+  auto constBuf(const std::vector<T>& vect) const { return Buffer{*this, BUF_CONST, vect}; }
+};
 
 template<typename T>
 class Buffer : public std::unique_ptr<cl_mem> {
   size_t _size{};
-  
-public:
-  Buffer() = default;
-  
+  std::string name;
+
   Buffer(cl_context context, unsigned kind, size_t size, const T* ptr = nullptr)
     : std::unique_ptr<cl_mem>{_makeBuf(context, kind, size * sizeof(T), ptr)}
     , _size(size)
   {}
+  
+public:
+  Buffer() = default;
 
   Buffer(const Context& context, unsigned kind, size_t size, const T* ptr = nullptr)
     : Buffer(context.get(), kind, size, ptr)
   {}
   
-  Buffer(cl_context context, unsigned kind, const std::vector<T>& vect)
+  Buffer(const Context& context, unsigned kind, const std::vector<T>& vect)
     : Buffer(context, kind, vect.size(), vect.data())
   {}
 
