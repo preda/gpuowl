@@ -45,7 +45,7 @@ static Buffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix)
   u32 w = 0;
   for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
   assert(p - tab.data() == size);
-  return context.constBuf(tab);
+  return context.constBuf(tab, "smallTrig");
 }
 
 static u32 kAt(u32 H, u32 line, u32 col, u32 rep) {
@@ -61,7 +61,7 @@ static Buffer<u32> genExtras(const Context& context, u32 E, u32 W, u32 H, u32 nW
       extras.push_back(extra(N, E, kAt(H, line, thread, 0)));
     }
   }
-  return context.constBuf(extras);
+  return context.constBuf(extras, "extras");
 }
 
 struct Weights {
@@ -204,23 +204,23 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufTrigH{genSmallTrig(context, SMALL_H, nH)},
   bufExtras{genExtras(context, E, W, BIG_H, nW)},
   
-  bufData{context.hostAccessBuf<decltype(bufData)::type>(N)},
-  bufAux{context.hostAccessBuf<decltype(bufAux)::type>(N)},
+  bufData{context.hostAccessBuf<decltype(bufData)::type>(N, "data")},
+  bufAux{context.hostAccessBuf<decltype(bufAux)::type>(N, "aux")},
   
-  bufCarry{context.buffer<decltype(bufCarry)::type>(N / 2)},
-  bufReady{context.buffer<decltype(bufReady)::type>(BIG_H)},
-  bufSmallOut(context.hostAccessBuf<decltype(bufSmallOut)::type>(256))
+  bufCarry{context.buffer<decltype(bufCarry)::type>(N / 2, "carry")},
+  bufReady{context.buffer<decltype(bufReady)::type>(BIG_H, "ready")},
+  bufSmallOut(context.hostAccessBuf<decltype(bufSmallOut)::type>(256, "smallOut"))
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
 
   Weights weights = genWeights(E, W, BIG_H, nW);  
-  bufWeightA = context.constBuf(weights.aTab);
-  bufWeightI = context.constBuf(weights.iTab);
+  bufWeightA = context.constBuf(weights.aTab, "weightA");
+  bufWeightI = context.constBuf(weights.iTab, "weightI");
 
-  bufGroupWeights = context.constBuf(weights.groupWeights);
-  bufThreadWeights = context.constBuf(weights.threadWeights);
-  bufBits = context.constBuf(weights.bits);
+  bufGroupWeights = context.constBuf(weights.groupWeights, "groupWeights");
+  bufThreadWeights = context.constBuf(weights.threadWeights, "threadWeights");
+  bufBits = context.constBuf(weights.bits, "bits");
   
   carryFused.setFixedArgs(   1, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
   carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW, bufExtras);
@@ -613,11 +613,11 @@ void doDiv9(int E, std::vector<u32> &words) {
 }
 
 pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
-  auto buf1{context.buffer<double>(N)};
-  auto buf2{context.buffer<double>(N)};
-  auto buf3{context.buffer<double>(N)};
+  auto buf1{context.buffer<double>(N, "buf1")};
+  auto buf2{context.buffer<double>(N, "buf2")};
+  auto buf3{context.buffer<double>(N, "buf3")};
   
-  bufCheck = context.hostAccessBuf<decltype(bufCheck)::type>(N);
+  bufCheck = context.hostAccessBuf<decltype(bufCheck)::type>(N, "check");
   
   PRPState loaded = loadPRP(E, args.blockSize, buf1, buf2, buf3);
 
@@ -734,8 +734,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   // log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
 
   // Buffers used in both stages.
-  auto bufTmp{context.buffer<double>(N)};
-  auto bufAux{context.buffer<double>(N)};
+  auto bufTmp{context.buffer<double>(N, "tmp")};
+  auto bufAux{context.buffer<double>(N, "aux")};
 
   u32 maxBuffers = args.maxBuffers;
 
@@ -798,7 +798,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   tailFused(bufTmp);
   tH(bufTmp, bufAux);
 
-  auto bufAcc{context.buffer<double>(N)};
+  auto bufAcc{context.buffer<double>(N, "acc")};
   queue.copyFromTo(bufAux, bufAcc);
   
   fftW(bufAux);
@@ -808,14 +808,14 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   future<string> gcdFuture = async(launch::async, GCD, E, readData(), 1);
   bufAux.reset();
   
-  auto bufA{context.buffer<double>(N)};
-  auto bufBase{context.buffer<double>(N)};
+  auto bufA{context.buffer<double>(N, "A")};
+  auto bufBase{context.buffer<double>(N, "base")};
   fftP(bufData, bufA);
   tW(bufA, bufBase);
   fftH(bufBase);
   
-  auto bufB{context.buffer<double>(N)};
-  auto bufC{context.buffer<double>(N)};
+  auto bufB{context.buffer<double>(N, "B")};
+  auto bufC{context.buffer<double>(N, "C")};
 
   if (getFreeMem(device) < u64(nBufs) * bufSize) {
     log("P-1 stage2 too little memory %u MB for %u buffers of %u b\n", u32(getFreeMem(device) / (1024 * 1024)), nBufs, bufSize);
@@ -823,11 +823,11 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   }
   
   vector<Buffer<double>> blockBufs;
-  for (u32 i = 0; i < nBufs; ++i) { blockBufs.push_back(context.buffer<double>(N)); }
+  for (u32 i = 0; i < nBufs; ++i) { blockBufs.push_back(context.buffer<double>(N, "blockBufs")); }
 
   auto jset = getJset();
 
-  auto bufBaseD2{context.buffer<double>(N)};
+  auto bufBaseD2{context.buffer<double>(N, "baseD2")};
   exponentiate(bufBase, 30030*30030, bufTmp, bufBaseD2);
   
   for (u32 round = 0; round < nRounds; ++round) {

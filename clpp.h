@@ -14,24 +14,35 @@ template<typename T> class Buffer;
 
 class Context : public std::unique_ptr<cl_context> {
   static constexpr unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
-  static constexpr unsigned BUF_RW    = CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS;
 
 public:
   using std::unique_ptr<cl_context>::unique_ptr;
   
-  template<typename T> auto constBuf(const std::vector<T>& vect) const { return Buffer{*this, BUF_CONST, vect}; }
-  template<typename T> auto hostAccessBuf(size_t size) const { return Buffer<T>{*this, CL_MEM_READ_WRITE, size}; }
-  template<typename T> auto buffer(size_t size) const { return Buffer<T>{*this, BUF_RW, size}; }
+  template<typename T>
+  auto constBuf(const std::vector<T>& vect, std::string_view name) const {
+    return Buffer{*this, name, BUF_CONST, vect.size(), vect.data()};
+  }
+  
+  template<typename T>
+  auto hostAccessBuf(size_t size, std::string_view name) const {
+    return Buffer<T>{*this, name, CL_MEM_READ_WRITE, size};
+  }
+  
+  template<typename T>
+  auto buffer(size_t size, std::string_view name) const {
+    return Buffer<T>{*this, name, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS, size};
+  }
 };
 
 template<typename T>
 class Buffer : public std::unique_ptr<cl_mem> {
-  size_t _size{};
-  std::string name;
+  size_t size_{};
+  std::string name_;
 
-  Buffer(cl_context context, unsigned kind, size_t size, const T* ptr = nullptr)
+  Buffer(cl_context context, std::string_view name, unsigned kind, size_t size, const T* ptr = nullptr)
     : std::unique_ptr<cl_mem>{_makeBuf(context, kind, size * sizeof(T), ptr)}
-    , _size(size)
+    , size_(size)
+    , name_(name)
   {}
     
 public:
@@ -39,18 +50,12 @@ public:
   
   Buffer() = default;
 
-  Buffer(const Context& context, unsigned kind, size_t size, const T* ptr = nullptr)
-    : Buffer(context.get(), kind, size, ptr)
+  Buffer(const Context& context, std::string_view name, unsigned kind, size_t size, const T* ptr = nullptr)
+    : Buffer(context.get(), name, kind, size, ptr)
   {}
   
-  Buffer(const Context& context, unsigned kind, const std::vector<T>& vect)
-    : Buffer(context.get(), kind, vect.size(), vect.data())
-  {}
-
-  Buffer(Buffer&& rhs) = default;
-  Buffer& operator=(Buffer&& rhs) = default;
-  
-  size_t size() const { return _size; }
+  size_t size() const { return size_; }
+  const std::string& name() const { return name_; }
 };
 
 // Special-case Buffer argument: pass the wrapped cl_mem.
