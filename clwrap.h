@@ -91,8 +91,4 @@ int getKernelNumArgs(cl_kernel k);
 int getWorkGroupSize(cl_kernel k, cl_device_id device, const char *name);
 std::string getKernelArgName(cl_kernel k, int pos);
 
-
 cl_device_id getDevice(int argsDevId);
-
-// How many blocks of given size can be allocated on the device.
-u32 getAllocableBlocks(cl_device_id device, u32 blockSize, u32 minFree = 400 * 1024 * 1024);

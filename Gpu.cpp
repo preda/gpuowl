@@ -716,17 +716,6 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
 
 bool isRelPrime(u32 D, u32 j);
 
-static u32 getNBuffers(u32 maxBuffers) {
-  u32 nBufs = 0;
-  for (u32 i = maxBuffers; i >= 24; --i) {
-    if (2880u % i == 0) {
-      nBufs = i;
-      break;
-    }
-  }
-  return nBufs;
-}
-
 std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 > B1);
   
@@ -736,30 +725,6 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   // Buffers used in both stages.
   auto bufTmp{context.buffer<double>(N, "tmp")};
   auto bufAux{context.buffer<double>(N, "aux")};
-
-  u32 maxBuffers = args.maxBuffers;
-
-  if (!maxBuffers) {
-    u32 nStage2Buffers = 5;
-    maxBuffers = getAllocableBlocks(device, bufSize) - nStage2Buffers;
-    log("%u P-1 GPU RAM fits %u stage2 buffers @ %.1f MB each\n", E, maxBuffers, bufSize/(1024.0f * 1024));
-  }
-
-  u32 nBufs = getNBuffers(maxBuffers);
-  
-  if (nBufs == 0) {
-    log("%u P-1 stage2 not enough GPU RAM\n", E);
-    throw "P-1 not enough memory";
-  }    
-
-  // Build the stage2 plan early (before stage1) in order to display plan stats at start.
-  u32 nRounds = 2880 / nBufs;
-  log("%u P-1 using %u stage2 buffers (%u rounds)\n", E, nBufs, nRounds);
-  
-  auto [startBlock, nPrimes, allSelected] = makePm1Plan(B1, B2);
-  u32 nBlocks = allSelected.size();
-  log("%u P-1 stage2: %u blocks starting at block %u (%u selected)\n",
-          E, nBlocks, startBlock, nPrimes);
 
   // Start stage1 proper.
   log("%u P-1 starting stage1\n", E);
@@ -807,6 +772,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
   future<string> gcdFuture = async(launch::async, GCD, E, readData(), 1);
   bufAux.reset();
+
+  // --- Stage 2 ---
   
   auto bufA{context.buffer<double>(N, "A")};
   auto bufBase{context.buffer<double>(N, "base")};
@@ -817,19 +784,31 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   auto bufB{context.buffer<double>(N, "B")};
   auto bufC{context.buffer<double>(N, "C")};
 
-  if (getFreeMem(device) < u64(nBufs) * bufSize) {
-    log("P-1 stage2 too little memory %u MB for %u buffers of %u b\n", u32(getFreeMem(device) / (1024 * 1024)), nBufs, bufSize);
-    throw "P-1 not enough memory";
+  auto bufBaseD2{context.buffer<double>(N, "baseD2")};
+  exponentiate(bufBase, 30030*30030, bufTmp, bufBaseD2);
+    
+  vector<Buffer<double>> blockBufs;
+  while (getFreeMem(device) >= 256 * 1024 * 1024 && (!args.maxBuffers || blockBufs.size() < args.maxBuffers)) {
+    blockBufs.push_back(context.buffer<double>(N, "pm1BlockBuf"));
   }
   
-  vector<Buffer<double>> blockBufs;
-  for (u32 i = 0; i < nBufs; ++i) { blockBufs.push_back(context.buffer<double>(N, "blockBufs")); }
+  if (blockBufs.empty()) { throw "P-1 stage2 can't allocate\n"; }
+  
+  while (2880 % blockBufs.size()) { blockBufs.pop_back(); }
+
+  u32 nBufs = blockBufs.size();
+  log("P-1 stage2 using %u buffers of %.1f MB each\n", nBufs, N / (1024.0f * 1024) * sizeof(double));
 
   auto jset = getJset();
 
-  auto bufBaseD2{context.buffer<double>(N, "baseD2")};
-  exponentiate(bufBase, 30030*30030, bufTmp, bufBaseD2);
+  // Build the stage2 plan early (before stage1) in order to display plan stats at start.
+  u32 nRounds = 2880 / nBufs;
+  // log("%u P-1 using %u stage2 buffers (%u rounds)\n", E, nBufs, nRounds);
   
+  auto [startBlock, nPrimes, allSelected] = makePm1Plan(B1, B2);
+  u32 nBlocks = allSelected.size();
+  log("%u P-1 stage2: %u blocks starting at block %u (%u selected)\n", E, nBlocks, startBlock, nPrimes);
+
   for (u32 round = 0; round < nRounds; ++round) {
     timer.deltaSecs();
 
@@ -877,7 +856,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
     // queue.finish();
     log("Round %u of %u: init %.2f s; %.2f ms/mul; %u muls\n",
-        round, nRounds, initSecs, (timer.deltaSecs() / nSelected) * 1000, nSelected);
+        (round + 1), nRounds, initSecs, (timer.deltaSecs() / nSelected) * 1000, nSelected);
 
     if (gcdFuture.valid()) {
       if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {

@@ -1804,6 +1804,9 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
 
 #endif
 
+// The advanced pairMul() seems broken in P-1, so fall back to the original pairMul() pending investigation/fix.
+#define ORIG_PAIRMUL 1
+
 #ifdef ORIG_PAIRMUL
 
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {

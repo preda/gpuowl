@@ -345,18 +345,3 @@ void Queue::zero(Buffer &buf, size_t size) {
 void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size, size_t start) {
   CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, start, size ? size : patSize, 0, 0, 0));
 }
-
-u32 getAllocableBlocks(cl_device_id device, u32 blockSize, u32 minFree) {
-  vector<Buffer<std::byte>> buffers;
-
-  Context context = createContext(device);
-  
-  while (getFreeMem(device) >= minFree) {
-    try {
-      buffers.push_back(context.buffer<std::byte>(blockSize, "allocableBlocks"));
-    } catch (const bad_alloc&) {
-      break;
-    }
-  }
-  return buffers.empty() ? 0 : (buffers.size() - 1);
-}
