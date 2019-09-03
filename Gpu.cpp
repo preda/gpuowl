@@ -442,7 +442,7 @@ void Gpu::topHalf(Buffer<double>& tmp, Buffer<double>& io) {
 // All buffers are in "low" position.
 void Gpu::exponentiate(Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out) {
   if (exp == 0) {
-    queue.zero(out, N * sizeof(u32));
+    queue.zero(out, N / 2);
     u32 data = 1;
     fillBuf(queue.get(), out.get(), &data, sizeof(data));
     // write(queue.get(), false, out, sizeof(u32), &data);
