@@ -42,10 +42,10 @@ class gpu_error : public std::runtime_error {
 public:
   const int err;
   
-  gpu_error(int err, const string& mes) : runtime_error(errMes(err) + " " + mes), err(err) {}
+  gpu_error(int err, string_view mes) : runtime_error(errMes(err) + " " + string(mes)), err(err) {}
 
-  gpu_error(int err, const char *file, int line, const char *func, const string& mes)
-    : gpu_error(err, mes + " at " + file + ":" + to_string(line) + " " + func) {
+  gpu_error(int err, const char *file, int line, const char *func, string_view mes)
+    : gpu_error(err, string(mes) + " at " + file + ":" + to_string(line) + " " + func) {
   }
 };
 
@@ -59,7 +59,7 @@ public:
   const char *what() const noexcept override { return w.c_str(); }
 };
 
-void check(int err, const char *file, int line, const char *func, const string& mes) {  
+void check(int err, const char *file, int line, const char *func, string_view mes) {  
   if (err != CL_SUCCESS) {
     // log("CL error %s (%d) %s\n", errMes(err).c_str(), err, mes.c_str());
     throw gpu_error(err, file, line, func, mes);
@@ -95,45 +95,55 @@ int getNumberOfDevices() {
   return n;
 }
 
-void getInfo(cl_device_id id, int what, size_t bufSize, void *buf) { CHECK1(clGetDeviceInfo(id, what, bufSize, buf, NULL)); }
-
-bool getInfoMaybe(cl_device_id id, int what, size_t bufSize, void *buf) {
-  return clGetDeviceInfo(id, what, bufSize, buf, NULL) == CL_SUCCESS;
+static void getInfo_(cl_device_id id, int what, size_t bufSize, void *buf, string_view whatStr) {
+  CHECK2(clGetDeviceInfo(id, what, bufSize, buf, NULL), whatStr);
 }
+
+#define GET_INFO(id, what, where) getInfo_(id, what, sizeof(where), &where, #what)
 
 u64 getFreeMem(cl_device_id id) {
   u64 memSize = 0;
-  getInfo(id, CL_DEVICE_GLOBAL_FREE_MEMORY_AMD, sizeof(memSize), &memSize);
+  try {
+    GET_INFO(id, CL_DEVICE_GLOBAL_FREE_MEMORY_AMD, memSize);
+  } catch (const gpu_error& err) {
+  }
   return memSize * 1024; // KB to Bytes.
 }
 
 static string getTopology(cl_device_id id) {
-  char topology[64];
+  char topology[64] = {0};
   cl_device_topology_amd top;
-  if (!getInfoMaybe(id, CL_DEVICE_TOPOLOGY_AMD, sizeof(top), &top)) { return ""; }
-  snprintf(topology, sizeof(topology), "@%x:%u.%u",
-           (unsigned) (unsigned char) top.pcie.bus, (unsigned) top.pcie.device, (unsigned) top.pcie.function);
+  try {
+    GET_INFO(id, CL_DEVICE_TOPOLOGY_AMD, top);
+    snprintf(topology, sizeof(topology), "%02x:%02x.%x",
+             (unsigned) (unsigned char) top.pcie.bus, (unsigned) top.pcie.device, (unsigned) top.pcie.function);
+  } catch (const gpu_error& err) {
+  }
   return topology;
 }
 
 static string getBoardName(cl_device_id id) {
-  char boardName[64];
-  return getInfoMaybe(id, CL_DEVICE_BOARD_NAME_AMD, sizeof(boardName), boardName) ? boardName : "";
+  char boardName[64] = {0};
+  try {
+    GET_INFO(id, CL_DEVICE_BOARD_NAME_AMD, boardName);
+  } catch (const gpu_error& err) {
+  }
+  return boardName;
 }
 
 string getHwName(cl_device_id id) {
   char name[64];
-  getInfo(id, CL_DEVICE_NAME, sizeof(name), name);
+  GET_INFO(id, CL_DEVICE_NAME, name);
   return name;
 }
 
 static string getFreq(cl_device_id device) {
   unsigned computeUnits, frequency;
-  getInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits);
-  getInfo(device, CL_DEVICE_MAX_CLOCK_FREQUENCY, sizeof(frequency), &frequency);
+  GET_INFO(device, CL_DEVICE_MAX_COMPUTE_UNITS, computeUnits);
+  GET_INFO(device, CL_DEVICE_MAX_CLOCK_FREQUENCY, frequency);
 
   char info[64];
-  snprintf(info, sizeof(info), "%ux%4u", computeUnits, frequency);
+  snprintf(info, sizeof(info), "%u@%4u", computeUnits, frequency);
   return info;
 }
 

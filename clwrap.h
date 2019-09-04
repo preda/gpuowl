@@ -5,6 +5,7 @@
 #include "tinycl.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cassert>
 #include <memory>
@@ -40,7 +41,7 @@ using KernelHolder = std::unique_ptr<cl_kernel>;
 
 class Context;
 
-void check(int err, const char *file, int line, const char *func, const std::string& mes);
+void check(int err, const char *file, int line, const char *func, string_view mes);
 
 #define CHECK1(err) check(err, __FILE__, __LINE__, __func__, #err)
 #define CHECK2(err, mes) check(err, __FILE__, __LINE__, __func__, mes)
