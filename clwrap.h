@@ -69,7 +69,7 @@ void setArg(cl_kernel k, int pos, const T &value) { CHECK1(clSetKernelArg(k, pos
 template<>
 void setArg<int>(cl_kernel k, int pos, const int &value);
 
-cl_mem _makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr = 0);
+cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr = 0);
 cl_queue makeQueue(cl_device_id d, cl_context c);
 
 void flush( cl_queue q);

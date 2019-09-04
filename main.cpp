@@ -7,6 +7,8 @@
 #include "common.h"
 #include "file.h"
 #include "version.h"
+#include "AllocTrac.h"
+#include "typeName.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -49,6 +51,8 @@ int main(int argc, char **argv) {
       log("config: %s\n", mainLine.c_str());
     }
     args.parse(mainLine);
+
+    if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
     if (args.prpExp) {
       Worktodo::makePRP(args, args.prpExp).execute(args, background);      
@@ -63,7 +67,7 @@ int main(int argc, char **argv) {
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const std::exception& e) {
-    log("Exception %s: %s\n", typeid(e).name(), e.what());
+    log("Exception %s: %s\n", typeName(e), e.what());
   }
 
   background.wait();

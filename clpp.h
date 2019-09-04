@@ -3,6 +3,7 @@
 #pragma once
 
 #include "clwrap.h"
+#include "AllocTrac.h"
 
 #include <memory>
 #include <string>
@@ -38,11 +39,13 @@ template<typename T>
 class Buffer : public std::unique_ptr<cl_mem> {
   size_t size_{};
   std::string name_;
+  AllocTrac allocTrac;
 
   Buffer(cl_context context, std::string_view name, unsigned kind, size_t size, const T* ptr = nullptr)
-    : std::unique_ptr<cl_mem>{_makeBuf(context, kind, size * sizeof(T), ptr)}
+    : std::unique_ptr<cl_mem>{makeBuf_(context, kind, size * sizeof(T), ptr)}
     , size_(size)
     , name_(name)
+    , allocTrac(size * sizeof(T))
   {}
     
 public:
@@ -53,7 +56,7 @@ public:
   Buffer(const Context& context, std::string_view name, unsigned kind, size_t size, const T* ptr = nullptr)
     : Buffer(context.get(), name, kind, size, ptr)
   {}
-  
+
   size_t size() const { return size_; }
   const std::string& name() const { return name_; }
 };

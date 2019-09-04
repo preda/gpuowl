@@ -9,6 +9,7 @@
 #include "Signal.h"
 #include "FFTConfig.h"
 #include "GmpUtil.h"
+#include "AllocTrac.h"
 
 #include <cmath>
 #include <cstring>
@@ -788,14 +789,20 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   exponentiate(bufBase, 30030*30030, bufTmp, bufBaseD2);
     
   vector<Buffer<double>> blockBufs;
-  while (getFreeMem(device) >= 256 * 1024 * 1024 && (!args.maxBuffers || blockBufs.size() < args.maxBuffers)) {
-    blockBufs.push_back(context.buffer<double>(N, "pm1BlockBuf"));
+  try {
+    while (getFreeMem(device) >= 256 * 1024 * 1024) { blockBufs.push_back(context.buffer<double>(N, "pm1BlockBuf")); }
+  } catch (const gpu_bad_alloc& e) {
   }
-  
-  if (blockBufs.empty()) { throw "P-1 stage2 can't allocate\n"; }
-  
-  while (2880 % blockBufs.size()) { blockBufs.pop_back(); }
 
+  vector<u32> stage2Data;
+  
+  if (blockBufs.size() < 24) {
+    log("Not enough GPU memory, will skip stage2. Please wait for stage1 GCD\n");
+  } else {
+
+  // trim down to a divisor of 2880
+  blockBufs.resize(blockBufs.size() - (2880 % blockBufs.size()));
+  
   u32 nBufs = blockBufs.size();
   log("P-1 stage2 using %u buffers of %.1f MB each\n", nBufs, N / (1024.0f * 1024) * sizeof(double));
 
@@ -870,7 +877,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   fftW(bufAcc);
   carryA(bufAcc, bufData);
   carryB(bufData);
-  vector<u32> data = readData();
+  stage2Data = readData();
+  }
 
   if (gcdFuture.valid()) {
     gcdFuture.wait();
@@ -879,5 +887,5 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     if (!gcd.empty()) { return gcd; }
   }
   
-  return data;
+  return stage2Data;
 }

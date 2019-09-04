@@ -50,9 +50,9 @@ bool Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
                      exponent, "PRP-3", status, AID, args);
 }
 
-bool Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) const {
+bool Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, bool didStage2) const {
   string status = factor.empty() ? "NF" : "F";
-  string bounds = ", \"B1\":"s + to_string(B1) + ", \"B2\":"s + to_string(B2);
+  string bounds = ", \"B1\":"s + to_string(B1) + (didStage2 ? ", \"B2\":"s + to_string(B2) : "");
 
   return writeResult(fftStr(fftSize) + bounds + factorStr(factor),
                      exponent, "PM1", status, AID, args);
@@ -70,15 +70,19 @@ bool Task::execute(const Args& args, Background& background) {
     auto result = gpu->factorPM1(exponent, args, B1, B2);
     if (holds_alternative<string>(result)) {
       string factor = get<string>(result);
-      return writeResultPM1(args, factor, fftSize);
+      return writeResultPM1(args, factor, fftSize, false);
     } else {
-      background.run([&args, fftSize, task=*this, data=get<vector<u32>>(std::move(result))](){
-                    string gcd = GCD(task.exponent, data, 0);
-                    log("%u P-1 final GCD: %s\n", task.exponent, gcd.empty() ? "no factor" : gcd.c_str());
-                    task.writeResultPM1(args, gcd, fftSize);
-                     }
-        );
-      return true;
+      vector<u32> &data = get<vector<u32>>(result);
+      if (data.empty()) {
+        return writeResultPM1(args, "", fftSize, false);
+      } else {
+        background.run([&args, fftSize, &data, this](){
+                         string factor = GCD(exponent, data, 0);
+                         log("%u P-1 final GCD: %s\n", exponent, factor.empty() ? "no factor" : factor.c_str());
+                         writeResultPM1(args, factor, fftSize, true);
+                       });
+        return true;
+      }
     }
   }
   assert(false);

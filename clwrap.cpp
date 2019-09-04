@@ -3,6 +3,7 @@
 #include "clpp.h"
 #include "timeutil.h"
 #include "file.h"
+#include "AllocTrac.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -49,16 +50,6 @@ public:
   }
 };
 
-class gpu_bad_alloc : public std::bad_alloc {
-  string w;
-  
-public:
-  gpu_bad_alloc(const string& w) : w(w) {}
-  gpu_bad_alloc(size_t size) : gpu_bad_alloc("GPU size "s + to_string(size)) {}
-
-  const char *what() const noexcept override { return w.c_str(); }
-};
-
 void check(int err, const char *file, int line, const char *func, string_view mes) {  
   if (err != CL_SUCCESS) {
     // log("CL error %s (%d) %s\n", errMes(err).c_str(), err, mes.c_str());
@@ -102,7 +93,7 @@ static void getInfo_(cl_device_id id, int what, size_t bufSize, void *buf, strin
 #define GET_INFO(id, what, where) getInfo_(id, what, sizeof(where), &where, #what)
 
 u64 getFreeMem(cl_device_id id) {
-  u64 memSize = 0;
+  u64 memSize = 32 * 1024 * 1024;  // When no free mem available, return a liberal size
   try {
     GET_INFO(id, CL_DEVICE_GLOBAL_FREE_MEMORY_AMD, memSize);
   } catch (const gpu_error& err) {
@@ -274,9 +265,7 @@ cl_kernel makeKernel(cl_program program, const char *name) {
   return k;
 }
 
-cl_mem _makeBuf(cl_context context, unsigned kind, size_t size, const void *ptr) {
-  // if (getFreeMem(
-  
+cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr) {
   int err;
   cl_mem buf = clCreateBuffer(context, kind, size, (void *) ptr, &err);
   if (err == CL_OUT_OF_RESOURCES || err == CL_MEM_OBJECT_ALLOCATION_FAILURE) { throw gpu_bad_alloc(size); }

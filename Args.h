@@ -37,6 +37,7 @@ public:
   u32 pm1Exp = 0;
 
   u32 maxBuffers = 0;
+  size_t maxAlloc = 0;
 
   u32 iters = 0;
 
