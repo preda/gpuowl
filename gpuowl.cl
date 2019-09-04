@@ -1804,9 +1804,6 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
 
 #endif
 
-// The advanced pairMul() seems broken in P-1, so fall back to the original pairMul() pending investigation/fix.
-#define ORIG_PAIRMUL 1
-
 #ifdef ORIG_PAIRMUL
 
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
@@ -1867,7 +1864,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 
   T2 step = slowTrig(1, NH);
   
-  for (i32 i = 0; i < N/4; ++i, base = mul(base, step)) {
+  for (i32 i = 0; i < NH / 4; ++i, base = mul(base, step)) {
     T2 a = u[i];
     T2 b = v[i];
     T2 c = p[i];
