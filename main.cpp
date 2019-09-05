@@ -68,6 +68,8 @@ int main(int argc, char **argv) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const std::exception& e) {
     log("Exception %s: %s\n", typeName(e), e.what());
+  } catch (...) {
+    log("Unexpected exception\n");
   }
 
   background.wait();
