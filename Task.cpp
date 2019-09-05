@@ -76,10 +76,10 @@ bool Task::execute(const Args& args, Background& background) {
       if (data.empty()) {
         return writeResultPM1(args, "", fftSize, false);
       } else {
-        background.run([args, fftSize, data{std::move(data)}, this](){
-                         string factor = GCD(exponent, data, 0);
-                         log("%u P-1 final GCD: %s\n", exponent, factor.empty() ? "no factor" : factor.c_str());
-                         writeResultPM1(args, factor, fftSize, true);
+        background.run([args, fftSize, data{std::move(data)}, task{*this}](){
+                         string factor = GCD(task.exponent, data, 0);
+                         log("%u P-1 final GCD: %s\n", task.exponent, factor.empty() ? "no factor" : factor.c_str());
+                         task.writeResultPM1(args, factor, fftSize, true);
                        });
         return true;
       }
