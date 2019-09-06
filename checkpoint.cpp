@@ -3,9 +3,13 @@
 #include "checkpoint.h"
 #include "file.h"
 
+#include <filesystem>
+#include <ios>
 #include <cassert>
 #include <cmath>
 #include <gmp.h>
+
+namespace fs = std::filesystem;
 
 // Residue from compacted words.
 u64 residue(const vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
@@ -13,26 +17,16 @@ u64 residue(const vector<u32> &words) { return (u64(words[1]) << 32) | words[0];
 static std::string fileName(u32 E, const string &suffix) { return std::to_string(E) + suffix + ".owl"; }
 
 void PRPState::save() {
-  string tempFile = fileName(E, "-temp"s + SUFFIX);
-  if (!saveImpl(E, tempFile)) {
-    throw "can't save";
-  }
-  
-  string prevFile = fileName(E, "-prev"s + SUFFIX);
-  remove(prevFile.c_str());
+  string newFile = fileName(E, "-new"s + SUFFIX);
+  saveImpl(newFile);
   
   string saveFile = fileName(E, SUFFIX);
-  rename(saveFile.c_str(), prevFile.c_str());
-  rename(tempFile.c_str(), saveFile.c_str());
-  
-  string persist = durableName();
-  if (!persist.empty() && !saveImpl(E, fileName(E, persist + SUFFIX))) {
-    throw "can't save";
-  }
+  fs::rename(saveFile, fileName(E, "-old"s + SUFFIX));
+  fs::rename(newFile, saveFile);
 }
 
-static bool write(FILE *fo, const vector<u32> &v) {
-  return fwrite(v.data(), v.size() * sizeof(u32), 1, fo);
+static void write(FILE *fo, const vector<u32> &v) {
+  if (!fwrite(v.data(), v.size() * sizeof(u32), 1, fo)) { throw(std::ios_base::failure("can't write data")); }
 }
 
 static bool read(FILE *fi, u32 nWords, vector<u32> *v) {
@@ -77,18 +71,11 @@ PRPState::PRPState(u32 E, u32 iniBlockSize)
   }
 }
 
-bool PRPState::saveImpl(u32 E, const string &name) {
+void PRPState::saveImpl(const string &name) {
   u32 nWords = (E - 1) / 32 + 1;
   assert(check.size() == nWords);
 
-  auto fo(openWrite(name));
-  return
-    fo
-    && fprintf(fo.get(), HEADER_v9, E, k, blockSize, res64) > 0
-    && write(fo.get(), check);
-}
-
-string PRPState::durableName() {
-  if (k && (k % 20'000'000 == 0)) { return "."s + to_string(k/1'000'000)+"M"; }
-  return "";
+  auto fo{openWrite(name)};
+  if (fprintf(fo.get(), HEADER_v9, E, k, blockSize, res64) <= 0) { throw(ios_base::failure("can't write header")); }
+  write(fo.get(), check);
 }

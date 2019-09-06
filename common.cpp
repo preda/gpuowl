@@ -11,13 +11,17 @@
 #include <mutex>
 #include <sstream>
 #include <iomanip>
+#include <filesystem>
 
 vector<unique_ptr<FILE>> logFiles;
 string globalCpuName;
 
 static unique_ptr<FILE> open(const string &name, const char *mode, bool doLog) {
   std::unique_ptr<FILE> f{fopen(name.c_str(), mode)};
-  if (!f && doLog) { log("Can't open '%s' (mode '%s')\n", name.c_str(), mode); }
+  if (!f && doLog) {
+    log("Can't open '%s' (mode '%s')\n", name.c_str(), mode);
+    throw(fs::filesystem_error("can't open file"s, fs::path(name), {}));
+  }
   return f;
 }
 

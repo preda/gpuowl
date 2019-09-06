@@ -23,5 +23,7 @@ void initLog();
 void initLog(const char *);
 
 using namespace std;
+namespace std::filesystem{};
+namespace fs = std::filesystem;
 
 string hex(u64 x);
