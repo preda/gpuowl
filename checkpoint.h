@@ -15,6 +15,7 @@ class PRPState {
   static constexpr const char *SUFFIX = "";
   
   void saveImpl(const string &name);
+  bool load(FILE *fi);
   
 public:  
   PRPState(u32 E, u32 iniBlockSize);

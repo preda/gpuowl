@@ -44,34 +44,51 @@ static vector<u32> makeVect(u32 size, u32 elem0) {
   return v;
 }
 
-PRPState::PRPState(u32 E, u32 iniBlockSize)
-  : E(E) {
-  u32 nWords = (E - 1) / 32 + 1;
-  string name = fileName(E, SUFFIX);
-  auto fi{openRead(name)};
-  if (!fi) {
-    log("%s not found, starting from the beginning.\n", name.c_str());
-    k = 0;
-    blockSize = iniBlockSize;
-    res64  = 3;
-    check = makeVect(nWords, 1);
-    return;
-  }
-  
+bool PRPState::load(FILE* fi) {
   char line[256];
-  if (!fgets(line, sizeof(line), fi.get())) {
-    log("Invalid savefile '%s'\n", name.c_str());
-    throw("invalid savefile");
+  if (!fgets(line, sizeof(line), fi)) {
+    // throw("invalid savefile");
+    return false;
   }
   
   u32 fileE = 0;
   if (sscanf(line, HEADER_v9, &fileE, &k, &blockSize, &res64) == 4) {
     assert(E == fileE);
-    if (!read(fi.get(), nWords, &check)) { throw("load: error read check"); }
-    log("%s loaded: k %u, block %u, res64 %s\n", name.c_str(), k, blockSize, hex(res64).c_str());
+    u32 nWords = (E - 1) / 32 + 1;
+    return read(fi, nWords, &check);
   } else {
-    log("Invalid savefile '%s'\n", name.c_str());
-    throw("invalid savefile");    
+    return false;
+    // throw("invalid savefile");    
+  }
+}
+
+PRPState::PRPState(u32 E, u32 iniBlockSize)
+  : E(E) {
+  bool foundFiles = false;
+  // unique_ptr<FILE> fi;
+  for (auto&& path : {fileName(E, SUFFIX), fileName(E, "-old"s + SUFFIX)}) {    
+    if (auto fi = openRead(path)) {
+      foundFiles = true;
+      if (load(fi.get())) {
+        log("%s loaded: k %u, block %u, res64 %s\n", string(path).c_str(), k, blockSize, hex(res64).c_str());
+        return;
+      } else {
+        log("Invalid savefile '%s'\n", string(path).c_str());
+      }
+    } else {
+      log("%s not found\n", string(path).c_str());
+    }
+  }
+  
+  if (foundFiles) {
+    log("invalid savefiles found, investigate why\n");
+  } else {
+    log("starting from the beginning.\n");
+    k = 0;
+    blockSize = iniBlockSize;
+    res64  = 3;
+    u32 nWords = (E - 1) / 32 + 1;
+    check = makeVect(nWords, 1);
   }
 }
 
