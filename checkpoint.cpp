@@ -69,11 +69,7 @@ void PRPState::loadInt(u32 E, u32 iniBlockSize) {
   if (sscanf(line, HEADER_v9, &fileE, &k, &blockSize, &res64) == 4) {
     assert(E == fileE);
     if (!read(fi.get(), nWords, &check)) { throw("load: error read check"); }
-    #ifdef __MINGW64__
-      log("%s loaded: k %u, block %u, res64 %016I64x\n", name.c_str(), k, blockSize, res64);
-    #else
-      log("%s loaded: k %u, block %u, res64 %016llx\n", name.c_str(), k, blockSize, res64);
-    #endif
+    log("%s loaded: k %u, block %u, res64 %s\n", name.c_str(), k, blockSize, hex(res64).c_str());
   } else {
     log("Invalid savefile '%s'\n", name.c_str());
     throw("invalid savefile");    

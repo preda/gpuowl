@@ -9,6 +9,8 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <sstream>
+#include <iomanip>
 
 vector<unique_ptr<FILE>> logFiles;
 string globalCpuName;
@@ -56,4 +58,10 @@ void log(const char *fmt, ...) {
     fflush(f.get());
 #endif
   }
+}
+
+string hex(u64 x) {
+  ostringstream out{};
+  out << setbase(16) << setfill('0') << setw(16) << x;
+  return out.str();
 }

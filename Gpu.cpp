@@ -573,11 +573,8 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<doub
   bool ok = (res64 == loaded.res64);
   updateCheck(buf1, buf2, buf3);
   if (!ok) {
-#ifdef __MINGW64__
-    log("%u EE loaded: %d, blockSize %d, %016I64x (expected %016I64x)\n", E, loaded.k, loaded.blockSize, res64, loaded.res64);
-#else
-    log("%u EE loaded: %d, blockSize %d, %016llx (expected %016llx)\n",  E, loaded.k, loaded.blockSize, res64, loaded.res64);
-#endif          
+    log("%u EE loaded: %d, blockSize %d, %s (expected %s)\n",
+        E, loaded.k, loaded.blockSize, hex(res64).c_str(), hex(loaded.res64).c_str());
     throw "error on load";
   }
 
@@ -652,12 +649,7 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
       isPrime = equals9(words);
       doDiv9(E, words);
       finalRes64 = residue(words);
-
-#ifdef __MINGW64__
-      log("%s %8d / %d, %016I64x\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
-#else
-      log("%s %8d / %d, %016llx\n", isPrime ? "PP" : "CC", kEnd, E, finalRes64);
-#endif
+      log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
 
       int itersLeft = blockSize - (kEnd - k);
       if (itersLeft > 0) { modSqLoop(itersLeft, false, buf1, buf2, bufData); }
