@@ -565,7 +565,7 @@ static bool equals9(const vector<u32> &a) {
 }
 
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  auto loaded = PRPState::load(E, iniBlockSize);
+  PRPState loaded(E, iniBlockSize);
 
   writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
 
@@ -689,7 +689,7 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
     doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters);
     
     if (ok) {
-      if (k < kEnd) { PRPState{k, blockSize, res64, check}.save(E); }
+      if (k < kEnd) { PRPState{E, k, blockSize, res64, check}.save(); }
       if (isPrime || k >= kEnd) { return {isPrime, finalRes64}; }
       nSeqErrors = 0;      
     } else {

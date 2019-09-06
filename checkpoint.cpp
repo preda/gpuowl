@@ -12,7 +12,7 @@ u64 residue(const vector<u32> &words) { return (u64(words[1]) << 32) | words[0];
 
 static std::string fileName(u32 E, const string &suffix) { return std::to_string(E) + suffix + ".owl"; }
 
-void PRPState::save(u32 E) {
+void PRPState::save() {
   string tempFile = fileName(E, "-temp"s + SUFFIX);
   if (!saveImpl(E, tempFile)) {
     throw "can't save";
@@ -46,7 +46,8 @@ static vector<u32> makeVect(u32 size, u32 elem0) {
   return v;
 }
 
-void PRPState::loadInt(u32 E, u32 iniBlockSize) {
+PRPState::PRPState(u32 E, u32 iniBlockSize)
+  : E(E) {
   u32 nWords = (E - 1) / 32 + 1;
   string name = fileName(E, SUFFIX);
   auto fi{openRead(name)};
