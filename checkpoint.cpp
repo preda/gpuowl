@@ -6,22 +6,26 @@
 #include <filesystem>
 #include <ios>
 #include <cassert>
-#include <cmath>
-#include <gmp.h>
 
 namespace fs = std::filesystem;
 
 // Residue from compacted words.
 u64 residue(const vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
 
-static std::string fileName(u32 E, const string &suffix) { return std::to_string(E) + suffix + ".owl"; }
+static fs::path fileName(u32 E, const string &suffix) {
+  string sE = to_string(E);
+  auto baseDir = fs::current_path() / sE;
+  if (!fs::exists(baseDir)) { fs::create_directory(baseDir); }
+  return baseDir / (sE + suffix + ".owl");
+}
 
 void PRPState::save() {
   string newFile = fileName(E, "-new"s + SUFFIX);
   saveImpl(newFile);
   
   string saveFile = fileName(E, SUFFIX);
-  fs::rename(saveFile, fileName(E, "-old"s + SUFFIX));
+  error_code noThrow;
+  fs::rename(saveFile, fileName(E, "-old"s + SUFFIX), noThrow);
   fs::rename(newFile, saveFile);
 }
 
