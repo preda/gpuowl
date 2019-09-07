@@ -93,7 +93,7 @@ static void getInfo_(cl_device_id id, int what, size_t bufSize, void *buf, strin
 #define GET_INFO(id, what, where) getInfo_(id, what, sizeof(where), &where, #what)
 
 u64 getFreeMem(cl_device_id id) {
-  u64 memSize = 32 * 1024 * 1024;  // When no free mem available, return a liberal size
+  u64 memSize = 0;
   try {
     GET_INFO(id, CL_DEVICE_GLOBAL_FREE_MEMORY_AMD, memSize);
   } catch (const gpu_error& err) {

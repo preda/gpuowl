@@ -711,6 +711,11 @@ bool isRelPrime(u32 D, u32 j);
 
 std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 > B1);
+
+  if (!args.maxAlloc && !getFreeMem(device)) {
+    log("P-1: must specify -maxAlloc <MBytes> to indicate max GPU memory to use\n");
+    throw("missing -maxAlloc");
+  }
   
   vector<bool> bits = powerSmoothBitsRev(E, B1);
   // log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
@@ -782,7 +787,9 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     
   vector<Buffer<double>> blockBufs;
   try {
-    while (getFreeMem(device) >= 256 * 1024 * 1024) { blockBufs.push_back(context.buffer<double>(N, "pm1BlockBuf")); }
+    for (size_t freeMem = getFreeMem(device); freeMem && (freeMem >= 256 * 1024 * 1024);) {
+      blockBufs.push_back(context.buffer<double>(N, "pm1BlockBuf"));
+    }
   } catch (const gpu_bad_alloc& e) {
   }
 
