@@ -20,10 +20,10 @@ static fs::path fileName(u32 E, const string &suffix) {
 }
 
 void PRPState::save() {
-  string newFile = fileName(E, "-new"s + SUFFIX);
-  saveImpl(newFile);
+  fs::path newFile = fileName(E, "-new"s + SUFFIX);
+  saveImpl(newFile.string());
   
-  string saveFile = fileName(E, SUFFIX);
+  fs::path saveFile = fileName(E, SUFFIX);
   error_code noThrow;
   fs::rename(saveFile, fileName(E, "-old"s + SUFFIX), noThrow);
   fs::rename(newFile, saveFile);
@@ -67,16 +67,16 @@ PRPState::PRPState(u32 E, u32 iniBlockSize)
   bool foundFiles = false;
   // unique_ptr<FILE> fi;
   for (auto&& path : {fileName(E, SUFFIX), fileName(E, "-old"s + SUFFIX)}) {    
-    if (auto fi = openRead(path)) {
+    if (auto fi = openRead(path.string())) {
       foundFiles = true;
       if (load(fi.get())) {
-        log("%s loaded: k %u, block %u, res64 %s\n", string(path).c_str(), k, blockSize, hex(res64).c_str());
+        log("%s loaded: k %u, block %u, res64 %s\n", path.string().c_str(), k, blockSize, hex(res64).c_str());
         return;
       } else {
-        log("Invalid savefile '%s'\n", string(path).c_str());
+        log("Invalid savefile '%s'\n", path.string().c_str());
       }
     } else {
-      log("%s not found\n", string(path).c_str());
+      log("%s not found\n", path.string().c_str());
     }
   }
   
