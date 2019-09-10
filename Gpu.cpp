@@ -799,8 +799,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     log("Not enough GPU memory, will skip stage2. Please wait for stage1 GCD\n");
   } else {
 
-  // trim down to a divisor of 2880
-  blockBufs.resize(blockBufs.size() - (2880 % blockBufs.size()));
+  while (2880 % blockBufs.size()) { blockBufs.pop_back(); }
   
   u32 nBufs = blockBufs.size();
   log("P-1 stage2 using %u buffers of %.1f MB each\n", nBufs, N / (1024.0f * 1024) * sizeof(double));
