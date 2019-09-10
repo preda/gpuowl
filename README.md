@@ -120,6 +120,7 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 -pm1 \<exponent\>    : run a single P-1 test and exit, ignoring worktodo.txt\
 -results \<file\>    : name of results file, default 'results.txt'\
 -iters \<N\>         : run next PRP test for \<N\> iterations and exit. Multiple of 10000.\
+-maxAlloc          : limit GPU memory usage to this value in MB\
 -use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning).\
 -device \<N\>        : select a specific device:\
  \
