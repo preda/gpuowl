@@ -12,6 +12,11 @@ AlwaysBuild(Command('gpuowl-wrap.cpp', ['gpuowl.cl'], 'cat head.txt gpuowl.cl ta
 
 LIBPATH=['/opt/rocm/opencl/lib/x86_64']
 
-env.Program('gpuowl', srcs, LIBPATH=LIBPATH, LIBS=['amdocl64', 'gmp', 'stdc++fs'], parse_flags='-std=c++17 -O2 -Wall -pthread -fdiagnostics-color=auto -fmax-errors=6')
+config = '-g'
+#-fsanitize=address'
+# -fstack-protector-strong -static-libasan'
+#config = '-O2'
+
+env.Program('gpuowl', srcs, LIBPATH=LIBPATH, LIBS=['amdocl64', 'gmp', 'stdc++fs'], parse_flags='-std=c++17 -Wall -pthread -fdiagnostics-color=auto -fmax-errors=6 ' + config)
 
 # Program('asm', 'asm.cpp clpp.cpp clwrap.cpp'.split(), LIBS=['OpenCL'], parse_flags='-std=c++17 -O2 -Wall -pthread')

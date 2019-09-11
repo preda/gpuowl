@@ -806,9 +806,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
   auto jset = getJset();
 
-  // Build the stage2 plan early (before stage1) in order to display plan stats at start.
   u32 nRounds = 2880 / nBufs;
-  // log("%u P-1 using %u stage2 buffers (%u rounds)\n", E, nBufs, nRounds);
   
   auto [startBlock, nPrimes, allSelected] = makePm1Plan(B1, B2);
   u32 nBlocks = allSelected.size();
