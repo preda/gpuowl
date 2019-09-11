@@ -787,7 +787,9 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     
   vector<Buffer<double>> blockBufs;
   try {
-    for (size_t freeMem = getFreeMem(device); freeMem && (freeMem >= 256 * 1024 * 1024);) {
+    bool hasMemInfo = hasFreeMemInfo(device);
+    while (true) {
+      if (hasMemInfo && getFreeMem(device) < 256 * 1024 * 1024) { break; }
       blockBufs.push_back(context.buffer<double>(N, "pm1BlockBuf"));
     }
   } catch (const gpu_bad_alloc& e) {

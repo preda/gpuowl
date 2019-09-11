@@ -53,6 +53,7 @@ string getLongInfo(cl_device_id device);
 
 // Get GPU free memory in bytes.
 u64 getFreeMem(cl_device_id id);
+bool hasFreeMemInfo(cl_device_id id);
 
 Context createContext(cl_device_id id);
 

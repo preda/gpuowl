@@ -92,13 +92,24 @@ static void getInfo_(cl_device_id id, int what, size_t bufSize, void *buf, strin
 
 #define GET_INFO(id, what, where) getInfo_(id, what, sizeof(where), &where, #what)
 
-u64 getFreeMem(cl_device_id id) {
-  u64 memSize = 0;
+bool hasFreeMemInfo(cl_device_id id) {
   try {
-    GET_INFO(id, CL_DEVICE_GLOBAL_FREE_MEMORY_AMD, memSize);
+    u64 dummy = 0;
+    GET_INFO(id, CL_DEVICE_GLOBAL_FREE_MEMORY_AMD, dummy);
+    return true;
   } catch (const gpu_error& err) {
+    return false;
   }
-  return memSize * 1024; // KB to Bytes.
+}
+
+u64 getFreeMem(cl_device_id id) {
+  try {
+    u64 memSize = 0; 
+    GET_INFO(id, CL_DEVICE_GLOBAL_FREE_MEMORY_AMD, memSize);
+    return memSize * 1024; // KB to Bytes.    
+  } catch (const gpu_error& err) {
+    return u64(64) * 1024 * 1024 * 1024; // return huge size (64G) when free-info not available
+  }
 }
 
 static string getTopology(cl_device_id id) {
