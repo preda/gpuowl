@@ -18,6 +18,7 @@ struct PRPState;
 using double2 = pair<double, double>;
 
 class Gpu {
+  friend class SquaringSet;
   u32 E;
   u32 N;
 
@@ -105,7 +106,7 @@ class Gpu {
   void coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io);
 
   void multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& io);
-  void exponentiate(Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out);
+  void exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out);
   void topHalf(Buffer<double>& tmp, Buffer<double>& io);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   

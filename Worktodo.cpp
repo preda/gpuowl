@@ -20,6 +20,14 @@ static Task makePM1(Args& args, u32 exponent, const string& AID = "", const stri
   if (B2 == 0) {
     B2 = args.B2 ? args.B2 : (B1 * args.B2_B1_ratio);
   }
+  if (B1 < 15015) {
+    log("B1=%u too small, adjusted to 15015\n", B1);
+    B1 = 15015;
+  }
+  if (B2 <= B1) {
+    log("B2=%u too small, adjusted to %u\n", B2, B1 * 2);
+    B2 = B1 * 2;
+  }
   return Task{Task::PM1, exponent, AID, line, B1, B2};
 }
 
@@ -44,7 +52,7 @@ Task Worktodo::getTask(Args &args) {
       }
       outAID[0] = 0;
       
-      u32 B1 = 0, B2 = 0;      
+      u32 B1 = 0, B2 = 0;
       char *tail = line;
       
       if (sscanf(line, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||

@@ -76,7 +76,7 @@ public:
   template<typename T>
   vector<bitset<J>> select(const T &cond) {
     u32 beginBlock = blockFor(B1);
-    u32 endBlock   = blockFor(B2) + 1;
+    u32 endBlock   = blockFor(B2 - 1) + 1;
     auto jset = getJset();
 
     vector<bitset<J>> ret;
