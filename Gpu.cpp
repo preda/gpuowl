@@ -545,10 +545,10 @@ static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float msPerS
   return buf;
 }
 
-static void doLog(u32 E, u32 k, u32 timeCheck, u64 res, bool checkOK, TimeInfo &stats, u32 nIters) {
-  log("%s (check %.2fs)\n",      
+static void doLog(u32 E, u32 k, u32 timeCheck, u64 res, bool checkOK, TimeInfo &stats, u32 nIters, u32 nErrors) {
+  log("%s (check %.2fs)%s\n",      
       makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats.total / stats.n, nIters).c_str(),
-      timeCheck * .001f);
+      timeCheck * .001f, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
   stats.reset();
 }
 
@@ -618,17 +618,21 @@ void doDiv9(int E, std::vector<u32> &words) {
   doDiv3(E, words);
 }
 
-pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
+tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   auto buf1{context.buffer<double>(N, "buf1")};
   auto buf2{context.buffer<double>(N, "buf2")};
   auto buf3{context.buffer<double>(N, "buf3")};
   
   bufCheck = context.hostAccessBuf<decltype(bufCheck)::type>(N, "check");
-  
-  PRPState loaded = loadPRP(E, args.blockSize, buf1, buf2, buf3);
 
-  u32 k = loaded.k;
-  u32 blockSize = loaded.blockSize;
+  u32 k = 0, blockSize = 0, nErrors = 0;
+
+  {
+    PRPState loaded = loadPRP(E, args.blockSize, buf1, buf2, buf3);
+    k = loaded.k;
+    blockSize = loaded.blockSize;
+    nErrors = loaded.nErrors;
+  }
   assert(blockSize > 0 && 10000 % blockSize == 0);
   
   const u32 kEnd = E; // Type-1 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
@@ -694,13 +698,14 @@ pair<bool, u64> Gpu::isPrimePRP(u32 E, const Args &args) {
     u64 res64 = dataResidue();
 
     // the check time (above) is accounted separately, not added to iteration time.
-    doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters);
+    doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters, nErrors);
     
     if (ok) {
-      if (k < kEnd) { PRPState{E, k, blockSize, res64, check}.save(); }
-      if (isPrime || k >= kEnd) { return {isPrime, finalRes64}; }
+      if (k < kEnd) { PRPState{E, k, blockSize, res64, check, nErrors}.save(); }
+      if (isPrime || k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
       nSeqErrors = 0;      
     } else {
+      ++nErrors;
       if (++nSeqErrors > 2) {
         log("%d sequential errors, will stop.\n", nSeqErrors);
         throw "too many errors";

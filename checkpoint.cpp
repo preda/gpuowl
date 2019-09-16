@@ -54,7 +54,8 @@ bool PRPState::load(FILE* fi) {
   }
   
   u32 fileE = 0;
-  if (sscanf(line, HEADER_v9, &fileE, &k, &blockSize, &res64) == 4) {
+  if (sscanf(line, HEADER_v10, &fileE, &k, &blockSize, &res64, &nErrors) == 5
+      || sscanf(line, HEADER_v9, &fileE, &k, &blockSize, &res64) == 4) {
     assert(E == fileE);
     u32 nWords = (E - 1) / 32 + 1;
     return read(fi, nWords, &check);
@@ -99,6 +100,6 @@ void PRPState::saveImpl(const string &name) {
   assert(check.size() == nWords);
 
   auto fo{openWrite(name)};
-  if (fprintf(fo.get(), HEADER_v9, E, k, blockSize, res64) <= 0) { throw(ios_base::failure("can't write header")); }
+  if (fprintf(fo.get(), HEADER_v10, E, k, blockSize, res64, nErrors) <= 0) { throw(ios_base::failure("can't write header")); }
   write(fo.get(), check);
 }

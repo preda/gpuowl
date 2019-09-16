@@ -42,11 +42,11 @@ static string resStr(u64 res64) {
   return buf;
 }
 
-bool Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
+bool Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const {
   assert(B1 == 0 && B2 == 0);
 
   string status = isPrime ? "P" : "C";
-  return writeResult(fftStr(fftSize) + resStr(res64) + ", \"residue-type\":1",
+  return writeResult(fftStr(fftSize) + resStr(res64) + ", \"residue-type\":1, \"errors\":{\"gerbicz\":" + to_string(nErrors) + "}",
                      exponent, "PRP-3", status, AID, args);
 }
 
@@ -64,8 +64,8 @@ bool Task::execute(const Args& args, Background& background) {
   auto fftSize = gpu->getFFTSize();
   
   if (kind == PRP) {
-    auto [isPrime, res64] = gpu->isPrimePRP(exponent, args);
-    return writeResultPRP(args, isPrime, res64, fftSize);
+    auto [isPrime, res64, nErrors] = gpu->isPrimePRP(exponent, args);
+    return writeResultPRP(args, isPrime, res64, fftSize, nErrors);
   } else if (kind == PM1) {
     auto result = gpu->factorPM1(exponent, args, B1, B2);
     if (holds_alternative<string>(result)) {
