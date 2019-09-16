@@ -26,7 +26,7 @@ void PRPState::save() {
   fs::path saveFile = fileName(E, SUFFIX);
   fs::path oldFile = fileName(E, "-old"s + SUFFIX);
   error_code noThrow;
-  fs::remove(oldFile);
+  fs::remove(oldFile, noThrow);
   fs::rename(saveFile, oldFile, noThrow);
   fs::rename(newFile, saveFile);
 }
