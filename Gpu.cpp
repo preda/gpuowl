@@ -574,7 +574,8 @@ static bool equals9(const vector<u32> &a) {
 
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   PRPState loaded(E, iniBlockSize);
-
+  // log("%s loaded: k %u, block %u, res64 %s\n", path.string().c_str(), k, blockSize, hex(res64).c_str());
+  
   writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
 
   u64 res64 = dataResidue();
