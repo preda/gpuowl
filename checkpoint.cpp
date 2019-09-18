@@ -99,21 +99,25 @@ void PRPState::doSave(FILE* fo) {
 }
 
 
-Pm1State::Pm1State(u32 E) : E{E} {
-  if (!load(E, "pm1")) {  
+Pm1State::Pm1State(u32 E, u32 B1) : E{E}, B1{B1} {
+  if (!load(E, EXT_P1)) {  
     log("starting from the beginning.\n");
     k = 0;
-    B1 = 0;
     nBits = 0;
     u32 nWords = (E - 1) / 32 + 1;
-    data = makeVect(nWords, 3);
+    data = makeVect(nWords, 1);
   }
 }
 
 bool Pm1State::doLoad(const char* headerLine, FILE *fi) {
   u32 fileE = 0;
-  if (sscanf(headerLine, HEADER_v1, &fileE, &B1, &k, &nBits) == 4) {
+  u32 fileB1 = 0;
+  if (sscanf(headerLine, HEADER_v1, &fileE, &fileB1, &k, &nBits) == 4) {
     assert(E == fileE);
+    if (B1 != fileB1) {
+      log("%u P1 wants B1=%u but savefile has B1=%u. Fix B1 or move savefile\n", E, B1, fileB1);
+    }
+    
     u32 nWords = (E - 1) / 32 + 1;
     return read(fi, nWords, &data);
   } else {

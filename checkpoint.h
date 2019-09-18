@@ -56,17 +56,19 @@ public:
 class Pm1State : private StateLoader {
   // Exponent, B1, iteration, nBits
   static constexpr const char *HEADER_v1 = "OWL PM1 1 %u %u %u %u\n";
+  static constexpr const char *EXT_P1 = "p1.owl";
+  static constexpr const char *EXT_P2 = "p2.owl";
   
   bool doLoad(const char* headerLine, FILE *fi) override;
   void doSave(FILE *fo) override;
   
 public:
-  Pm1State(u32 E);
+  Pm1State(u32 E, u32 B1);
   Pm1State(u32 E, u32 B1, u32 k, u32 nBits, vector<u32> data)
     : E{E}, B1{B1}, k{k}, nBits{nBits}, data{std::move(data)} {
   }
 
-  void save() { StateLoader::save(E, "pm1"); }
+  void save() { StateLoader::save(E, EXT_P1); }
 
   const u32 E;
   u32 B1;

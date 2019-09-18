@@ -774,8 +774,8 @@ private:
 std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 >= B1);
 
-  if (!args.maxAlloc && !getFreeMem(device)) {
-    log("%u P1 must specify -maxAlloc <MBytes> to indicate max GPU memory to use\n", E);
+  if (!args.maxAlloc && !hasFreeMemInfo(device)) {
+    log("%u P1 must specify -maxAlloc <MBytes> to limit GPU memory to use\n", E);
     throw("missing -maxAlloc");
   }
   
@@ -788,36 +788,55 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
   // --- Stage 1 ---
 
-  const u32 kEnd = bits.size();
-  log("%u P1 B1=%u, B2=%u, stage1 %u bits\n", E, B1, B2, kEnd);
+  u32 kBegin = 0;
   {
-    vector<u32> data((E - 1) / 32 + 1, 0);
-    data[0] = 1;  
-    writeData(data);
+    Pm1State loaded{E, B1};
+    if (loaded.k == 0) {
+      assert(loaded.nBits == 0);
+      loaded.nBits = bits.size();
+    } else {
+      assert(loaded.nBits == bits.size());    
+    }
+    assert(loaded.data.size() == (E - 1) / 32 + 1);
+    writeData(loaded.data);
+    kBegin = loaded.k;
   }
 
+  const u32 kEnd = bits.size();
+  log("%u P1 B1=%u, B2=%u; %u bits; starting at %u\n", E, B1, B2, kEnd, kBegin);
+  
 
-  bool leadIn = true;
+  Signal signal;
   TimeInfo timeInfo;
-
   Timer timer;
+  Timer saveTimer;
 
   assert(kEnd > 0);
-  assert(!bits[kEnd - 1]);
-  
-  for (u32 k = 0; k < kEnd - 1; ++k) {
+  assert(bits.front() && !bits.back());
+
+  bool leadIn = true;
+  for (u32 k = kBegin; k < kEnd - 1; ++k) {
     bool doLog = (k + 1) % 10000 == 0;
+    bool doStop = signal.stopRequested();
+    if (doStop) { log("Stopping, please wait..\n"); }
+    bool doSave = doStop || saveTimer.elapsedMillis() > 300'000;
     
-    bool leadOut = useLongCarry || doLog;
+    bool leadOut = useLongCarry || doLog || doSave;
     coreStep(leadIn, leadOut, bits[k], bufAux, bufTmp, bufData);
     leadIn = leadOut;
 
-    if ((k + 1) % 100 == 0 || doLog) {
+    if ((k + 1) % 100 == 0 || doLog || doStop) {
       queue.finish();
       timeInfo.add(timer.deltaMillis(), (k + 1) - (k / 100) * 100);
       if (doLog) {
         logPm1Stage1(E, k + 1, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
         timeInfo.reset();
+      }
+      if (doSave) {
+        Pm1State{E, B1, k + 1, u32(bits.size()), readData()}.save();
+        log("%u P1 saved at %u\n", E, k + 1);
+        saveTimer.reset();
+        if (doStop) { throw "stop requested"; }
       }
     }
   }
