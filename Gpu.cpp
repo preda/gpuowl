@@ -791,12 +791,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   u32 kBegin = 0;
   {
     Pm1State loaded{E, B1};
-    if (loaded.k == 0) {
-      assert(loaded.nBits == 0);
-      loaded.nBits = bits.size();
-    } else {
-      assert(loaded.nBits == bits.size());    
-    }
+    assert(loaded.nBits == bits.size() || loaded.k == 0);
     assert(loaded.data.size() == (E - 1) / 32 + 1);
     writeData(loaded.data);
     kBegin = loaded.k;
@@ -805,7 +800,6 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   const u32 kEnd = bits.size();
   log("%u P1 B1=%u, B2=%u; %u bits; starting at %u\n", E, B1, B2, kEnd, kBegin);
   
-
   Signal signal;
   TimeInfo timeInfo;
   Timer timer;
@@ -816,16 +810,17 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
   bool leadIn = true;
   for (u32 k = kBegin; k < kEnd - 1; ++k) {
-    bool doLog = (k + 1) % 10000 == 0;
+    bool isAtEnd = k == kEnd - 2;
+    bool doLog = (k + 1) % 10000 == 0; // || isAtEnd;
     bool doStop = signal.stopRequested();
     if (doStop) { log("Stopping, please wait..\n"); }
-    bool doSave = doStop || saveTimer.elapsedMillis() > 300'000;
+    bool doSave = doStop || saveTimer.elapsedMillis() > 300'000 || isAtEnd;
     
     bool leadOut = useLongCarry || doLog || doSave;
     coreStep(leadIn, leadOut, bits[k], bufAux, bufTmp, bufData);
     leadIn = leadOut;
 
-    if ((k + 1) % 100 == 0 || doLog || doStop) {
+    if ((k + 1) % 100 == 0 || doLog || doSave) {
       queue.finish();
       timeInfo.add(timer.deltaMillis(), (k + 1) - (k / 100) * 100);
       if (doLog) {
@@ -853,12 +848,13 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   fftW(bufAux);
   carryA(bufAux, bufData);
   carryB(bufData);
-  
+
   future<string> gcdFuture = async(launch::async, GCD, E, readData(), 1);
 
   timeInfo.add(timer.deltaMillis(), kEnd - (kEnd / 100) * 100);
   logPm1Stage1(E, kEnd, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
-
+  signal.release();
+  
   // --- Stage 2 ---
   
   auto bufBase{context.buffer<double>(N, "base")};
