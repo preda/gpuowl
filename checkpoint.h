@@ -15,7 +15,8 @@ protected:
   
   virtual bool doLoad(const char* headerLine, FILE* fi) = 0;
   virtual void doSave(FILE* fo) = 0;
-
+  virtual u32 getK() = 0;
+  
   bool load(u32 E, const std::string& extension);
   void save(u32 E, const std::string& extension);
   
@@ -36,6 +37,7 @@ class PRPState : private StateLoader {
 protected:
   bool doLoad(const char* headerLine, FILE *fi) override;
   void doSave(FILE* fo) override;
+  u32 getK() override { return k; }
   
 public:  
   PRPState(u32 E, u32 iniBlockSize);
@@ -53,26 +55,50 @@ public:
   u32 nErrors{};
 };
 
-class Pm1State : private StateLoader {
+class P1State : private StateLoader {
   // Exponent, B1, iteration, nBits
-  static constexpr const char *HEADER_v1 = "OWL PM1 1 %u %u %u %u\n";
-  static constexpr const char *EXT_P1 = "p1.owl";
-  static constexpr const char *EXT_P2 = "p2.owl";
+  static constexpr const char *HEADER_v1 = "OWL P1 1 %u %u %u %u\n";
+  static constexpr const char *EXT = "p1.owl";
   
   bool doLoad(const char* headerLine, FILE *fi) override;
   void doSave(FILE *fo) override;
+  u32 getK() override { return k; }
   
 public:
-  Pm1State(u32 E, u32 B1);
-  Pm1State(u32 E, u32 B1, u32 k, u32 nBits, vector<u32> data)
+  P1State(u32 E, u32 B1);
+  P1State(u32 E, u32 B1, u32 k, u32 nBits, vector<u32> data)
     : E{E}, B1{B1}, k{k}, nBits{nBits}, data{std::move(data)} {
   }
 
-  void save() { StateLoader::save(E, EXT_P1); }
+  void save() { StateLoader::save(E, EXT); }
 
   const u32 E;
   u32 B1;
   u32 k;
   u32 nBits;
   vector<u32> data;
+};
+
+class P2State : private StateLoader {
+  // Exponent, B1, B2, nWords, kDone
+  static constexpr const char *HEADER_v1 = "OWL P2 1 %u %u %u %u 2880 %u\n";
+  static constexpr const char *EXT = "p2.owl";
+  
+  bool doLoad(const char* headerLine, FILE *fi) override;
+  void doSave(FILE *fo) override;
+  u32 getK() override { return k; }
+  
+public:
+  P2State(u32 E, u32 B1, u32 B2);
+  P2State(u32 E, u32 B1, u32 B2, u32 k, vector<double> raw)
+    : E{E}, B1{B1}, B2{B2}, k{k}, raw{std::move(raw)} {
+  }
+
+  void save() { StateLoader::save(E, EXT); }
+
+  const u32 E;
+  u32 B1;
+  u32 B2;
+  u32 k;
+  vector<double> raw;
 };

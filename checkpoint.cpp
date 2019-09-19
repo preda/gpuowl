@@ -19,13 +19,15 @@ static fs::path fileName(u32 E, const string& suffix = "", const string& extensi
   return baseDir / (sE + suffix + '.' + extension);
 }
 
-static void write(FILE *fo, const vector<u32> &v) {
-  if (!fwrite(v.data(), v.size() * sizeof(u32), 1, fo)) { throw(std::ios_base::failure("can't write data")); }
+template<typename T>
+static void write(FILE *fo, const vector<T> &v) {
+  if (!fwrite(v.data(), v.size() * sizeof(T), 1, fo)) { throw(std::ios_base::failure("can't write data")); }
 }
 
-static bool read(FILE *fi, u32 nWords, vector<u32> *v) {
+template<typename T>
+static bool read(FILE *fi, u32 nWords, vector<T> *v) {
   v->resize(nWords);
-  return fread(v->data(), nWords * sizeof(u32), 1, fi);
+  return fread(v->data(), nWords * sizeof(T), 1, fi);
 }
 
 static vector<u32> makeVect(u32 size, u32 elem0) {
@@ -44,6 +46,7 @@ void StateLoader::save(u32 E, const std::string& extension) {
   fs::remove(oldFile, noThrow);
   fs::rename(saveFile, oldFile, noThrow);
   fs::rename(newFile, saveFile);
+  log("'%s' saved at %u\n", saveFile.string().c_str(), getK());
 }
 
 bool StateLoader::load(u32 E, const std::string& extension) {
@@ -52,7 +55,7 @@ bool StateLoader::load(u32 E, const std::string& extension) {
     if (auto fi = openRead(path.string())) {
       foundFiles = true;
       if (load(fi.get())) {
-        log("'%s' loaded\n", path.string().c_str());
+        log("'%s' loaded at %u\n", path.string().c_str(), getK());
         return true;
       } else {
         log("'%s' invalid\n", path.string().c_str());
@@ -98,10 +101,11 @@ void PRPState::doSave(FILE* fo) {
   write(fo, check);
 }
 
+// --- P1 ---
 
-Pm1State::Pm1State(u32 E, u32 B1) : E{E}, B1{B1} {
-  if (!load(E, EXT_P1)) {  
-    log("starting from the beginning.\n");
+P1State::P1State(u32 E, u32 B1) : E{E}, B1{B1} {
+  if (!load(E, EXT)) {  
+    log("%u P1 starting from the beginning.\n", E);
     k = 0;
     nBits = 0;
     u32 nWords = (E - 1) / 32 + 1;
@@ -109,25 +113,56 @@ Pm1State::Pm1State(u32 E, u32 B1) : E{E}, B1{B1} {
   }
 }
 
-bool Pm1State::doLoad(const char* headerLine, FILE *fi) {
+bool P1State::doLoad(const char* headerLine, FILE *fi) {
   u32 fileE = 0;
   u32 fileB1 = 0;
   if (sscanf(headerLine, HEADER_v1, &fileE, &fileB1, &k, &nBits) == 4) {
     assert(E == fileE);
     if (B1 != fileB1) {
       log("%u P1 wants B1=%u but savefile has B1=%u. Fix B1 or move savefile\n", E, B1, fileB1);
+    } else {
+      u32 nWords = (E - 1) / 32 + 1;
+      return read(fi, nWords, &data);
     }
-    
-    u32 nWords = (E - 1) / 32 + 1;
-    return read(fi, nWords, &data);
-  } else {
-    return false;
   }
+  return false;
 }
 
-void Pm1State::doSave(FILE* fo) {
+void P1State::doSave(FILE* fo) {
   u32 nWords = (E - 1) / 32 + 1;
   assert(data.size() == nWords);
   if (fprintf(fo, HEADER_v1, E, B1, k, nBits) <= 0) { throw(ios_base::failure("can't write header")); }
   write(fo, data);
+}
+
+// --- P2 ---
+
+P2State::P2State(u32 E, u32 B1, u32 B2) : E{E}, B1{B1}, B2{B2} {
+  if (!load(E, EXT)) {  
+    log("%u P2 starting from the beginning.\n", E);
+    k = 0;
+    raw.clear();
+  }
+}
+
+bool P2State::doLoad(const char* headerLine, FILE *fi) {
+  u32 fileE = 0;
+  u32 fileB1 = 0;
+  u32 fileB2 = 0;
+  u32 nWords = 0;
+  if (sscanf(headerLine, HEADER_v1, &fileE, &fileB1, &fileB2, &nWords, &k) == 5) {
+    assert(E == fileE);
+    assert(k > 0 && k < 2880);
+    if (B1 != fileB1 || B2 != fileB2) {
+      log("%u P2 want B1=%u,B2=%u but savefile has B1=%u,B2=%u. Fix B1,B2 or move savefile\n", E, B1, B2, fileB1, fileB2);
+    } else {    
+      return read(fi, nWords, &raw);
+    }
+  }
+  return false;
+}
+
+void P2State::doSave(FILE* fo) {
+  if (fprintf(fo, HEADER_v1, E, B1, B2, u32(raw.size()), k) <= 0) { throw(ios_base::failure("can't write header")); }
+  write(fo, raw);
 }

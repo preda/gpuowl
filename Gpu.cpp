@@ -790,7 +790,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
   u32 kBegin = 0;
   {
-    Pm1State loaded{E, B1};
+    P1State loaded{E, B1};
     assert(loaded.nBits == bits.size() || loaded.k == 0);
     assert(loaded.data.size() == (E - 1) / 32 + 1);
     writeData(loaded.data);
@@ -828,7 +828,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         timeInfo.reset();
       }
       if (doSave) {
-        Pm1State{E, B1, k + 1, u32(bits.size()), readData()}.save();
+        P1State{E, B1, k + 1, u32(bits.size()), readData()}.save();
         log("%u P1 saved at %u\n", E, k + 1);
         saveTimer.reset();
         if (doStop) { throw "stop requested"; }
@@ -842,14 +842,30 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   tailFused(bufTmp);
   tH(bufTmp, bufAux);
 
-  auto bufAcc{context.buffer<double>(N, "acc")};
+  auto bufAcc{context.hostAccessBuf<double>(N, "acc")};
   queue.copyFromTo(bufAux, bufAcc);
   
   fftW(bufAux);
   carryA(bufAux, bufData);
   carryB(bufData);
 
-  future<string> gcdFuture = async(launch::async, GCD, E, readData(), 1);
+  u32 beginPos = 0;
+  {
+    P2State loaded{E, B1, B2};
+    if (loaded.k > 0) {
+      if (loaded.raw.size() != N) {
+        log("%u P2 wants %u words but savefile has %u\n", E, N, u32(loaded.raw.size()));
+        throw "P2 savefile FFT size mismatch";
+      }
+      beginPos = loaded.k;
+      queue.write(bufAcc, loaded.raw);
+    }
+  }
+
+  future<string> gcdFuture;
+  if (beginPos == 0) {
+    gcdFuture = async(launch::async, GCD, E, readData(), 1);
+  }
 
   timeInfo.add(timer.deltaMillis(), kEnd - (kEnd / 100) * 100);
   logPm1Stage1(E, kEnd, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
@@ -868,7 +884,13 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   log("%u P2 using blocks [%u - %u] to cover %u primes\n", E, startBlock, startBlock + nBlocks - 1, nPrimes);
   
   exponentiate(bufBase, 30030*30030, bufTmp, bufAux); // Aux := base^(D^2)
-  SquaringSet little{*this, N, bufBase, bufTmp, {1, 8, 8}, "little"};
+
+  constexpr auto jset = getJset();
+  static_assert(jset[0] == 1);
+  static_assert(jset[2880 - 1] == 15013);
+
+  u32 beginJ = jset[beginPos];
+  SquaringSet little{*this, N, bufBase, bufTmp, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
   SquaringSet bigStart{*this, N, bufAux, bufTmp, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "bigStart"};
   bufBase.reset();
   bufAux.reset();
@@ -891,23 +913,19 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   
   u32 nBufs = blockBufs.size();
   log("%u P2 using %u buffers of %.1f MB each\n", E, nBufs, N / (1024.0f * 1024) * sizeof(double));
-
-  constexpr auto jset = getJset();
-  static_assert(jset[0] == 1);
-  static_assert(jset[2880 - 1] == 15013);
   
   queue.finish();
 
-  for (u32 pos = 0; pos < 2880; pos += nBufs) {
+  u32 prevJ = jset[beginPos];
+  for (u32 pos = beginPos; pos < 2880; pos += nBufs) {
     timer.deltaSecs();
 
     u32 nUsedBufs = min(nBufs, 2880 - pos);
     for (u32 i = 0; i < nUsedBufs; ++i) {
-      if (pos || i) {
-        int delta = jset[pos + i] - jset[pos + i - 1];
-        assert((delta & 1) == 0);
-        for (int steps = delta / 2; steps > 0; --steps) { little.step(bufTmp); }
-      }
+      int delta = jset[pos + i] - prevJ;
+      prevJ = jset[pos + i];
+      assert((delta & 1) == 0);
+      for (int steps = delta / 2; steps > 0; --steps) { little.step(bufTmp); }
       queue.copyFromTo(little.C, blockBufs[i]);
     }
     
@@ -935,6 +953,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       queue.finish();
     }
 
+    if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, queue.read(bufAcc)}.save(); }
+    
     log("%u P2 %4u/2880: setup %4d ms; %4d us/prime, %u primes\n",
         E, pos + nUsedBufs, int(initSecs * 1000 + 0.5f), nSelected ? int(timer.deltaSecs() / nSelected * 1'000'000 + 0.5f) : 0, nSelected);
 
