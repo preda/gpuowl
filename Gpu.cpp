@@ -308,8 +308,8 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   bool useLongCarry = (bitsPerWord < 14.5f)
     || (args.carry == Args::CARRY_LONG)
     || (args.carry == Args::CARRY_AUTO && WIDTH >= 2048);
-  
-  log("using %s carry kernels\n", useLongCarry ? "long" : "short");
+
+  if (useLongCarry) { log("using long carry kernels\n"); }
 
   bool timeKernels = args.timeKernels;
     
@@ -829,7 +829,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       }
       if (doSave) {
         P1State{E, B1, k + 1, u32(bits.size()), readData()}.save();
-        log("%u P1 saved at %u\n", E, k + 1);
+        // log("%u P1 saved at %u\n", E, k + 1);
         saveTimer.reset();
         if (doStop) { throw "stop requested"; }
       }
@@ -859,16 +859,17 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       }
       beginPos = loaded.k;
       queue.write(bufAcc, loaded.raw);
+      log("%u P2 B1=%u, B2=%u, starting at %u\n", E, B1, B2, beginPos);
     }
   }
 
   future<string> gcdFuture;
   if (beginPos == 0) {
     gcdFuture = async(launch::async, GCD, E, readData(), 1);
+    timeInfo.add(timer.deltaMillis(), kEnd - (kEnd / 100) * 100);
+    logPm1Stage1(E, kEnd, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
   }
 
-  timeInfo.add(timer.deltaMillis(), kEnd - (kEnd / 100) * 100);
-  logPm1Stage1(E, kEnd, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
   signal.release();
   
   // --- Stage 2 ---

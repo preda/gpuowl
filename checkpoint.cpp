@@ -46,7 +46,7 @@ void StateLoader::save(u32 E, const std::string& extension) {
   fs::remove(oldFile, noThrow);
   fs::rename(saveFile, oldFile, noThrow);
   fs::rename(newFile, saveFile);
-  log("'%s' saved at %u\n", saveFile.string().c_str(), getK());
+  // log("'%s' saved at %u\n", saveFile.string().c_str(), getK());
 }
 
 bool StateLoader::load(u32 E, const std::string& extension) {
@@ -55,13 +55,13 @@ bool StateLoader::load(u32 E, const std::string& extension) {
     if (auto fi = openRead(path.string())) {
       foundFiles = true;
       if (load(fi.get())) {
-        log("'%s' loaded at %u\n", path.string().c_str(), getK());
+        // log("'%s' loaded at %u\n", path.string().c_str(), getK());
         return true;
       } else {
         log("'%s' invalid\n", path.string().c_str());
       }
     } else {
-      log("'%s' not found\n", path.string().c_str());
+      // log("'%s' not found\n", path.string().c_str());
     }
   }
   
@@ -73,7 +73,7 @@ bool StateLoader::load(u32 E, const std::string& extension) {
 
 PRPState::PRPState(u32 E, u32 iniBlockSize) : E{E} {
   if (!load(E, "owl")) {  
-    log("starting from the beginning.\n");
+    // log("starting from the beginning\n");
     k = 0;
     blockSize = iniBlockSize;
     res64  = 3;
@@ -105,7 +105,7 @@ void PRPState::doSave(FILE* fo) {
 
 P1State::P1State(u32 E, u32 B1) : E{E}, B1{B1} {
   if (!load(E, EXT)) {  
-    log("%u P1 starting from the beginning.\n", E);
+    // log("%u P1 starting from the beginning.\n", E);
     k = 0;
     nBits = 0;
     u32 nWords = (E - 1) / 32 + 1;
@@ -139,7 +139,7 @@ void P1State::doSave(FILE* fo) {
 
 P2State::P2State(u32 E, u32 B1, u32 B2) : E{E}, B1{B1}, B2{B2} {
   if (!load(E, EXT)) {  
-    log("%u P2 starting from the beginning.\n", E);
+    // log("%u P2 starting from the beginning.\n", E);
     k = 0;
     raw.clear();
   }
