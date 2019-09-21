@@ -18,7 +18,7 @@ struct TimeInfo {
 
 class Kernel {
   KernelHolder kernel;
-  Queue queue;
+  QueuePtr queue;
   int nWorkGroups;
   string name;
   bool doTime;
@@ -26,7 +26,7 @@ class Kernel {
   TimeInfo stats;
   
 public:
-  Kernel(cl_program program, Queue queue, cl_device_id device, int nWorkGroups, const std::string &name, bool doTime) :
+  Kernel(cl_program program, QueuePtr queue, cl_device_id device, int nWorkGroups, const std::string &name, bool doTime) :
     kernel(makeKernel(program, name.c_str())),
     queue(std::move(queue)),
     nWorkGroups(nWorkGroups),
@@ -58,11 +58,11 @@ private:
     if (doTime) {
       // queue.finish();
       Timer timer;
-      queue.run(kernel.get(), groupSize, nWorkGroups * groupSize, name);
-      queue.finish();
+      queue->run(kernel.get(), groupSize, nWorkGroups * groupSize, name);
+      queue->finish();
       stats.add(timer.deltaMicros());
     } else {
-      queue.run(kernel.get(), groupSize, nWorkGroups * groupSize, name);
+      queue->run(kernel.get(), groupSize, nWorkGroups * groupSize, name);
     }
   }
 };

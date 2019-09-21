@@ -78,15 +78,22 @@ struct TimeStats {
   void clear() { n = 0; nanos = 0; }
 };
 
-class Queue {
-  std::shared_ptr<QueueHolder> q;
+using QueuePtr = std::shared_ptr<class Queue>;
+
+class Queue : public QueueHolder {
+  // std::shared_ptr<QueueHolder> q;
   // using TimeMap = std::map<std::string, TimeStats>;
   // TimeMap timeMap;
   // std::vector<std::pair<Event, TimeMap::iterator>> events;
   // std::vector<Event> foo;
-    
+
+
+  // struct SharedAccess : public Queue { SharedAccess(cl_queue q) : Queue{q} {} };
 public:
-  explicit Queue(cl_queue q) : q(make_shared<QueueHolder>(q)) {}
+
+  explicit Queue(cl_queue q) : QueueHolder{q} {}  
+  static QueuePtr makeQueue(cl_queue q) { return make_shared<Queue>(q); }
+  
 
   /*
   Queue(const Queue&) = delete;
@@ -96,13 +103,11 @@ public:
   Queue& operator=(Queue&&) = default;
   */
   
-  cl_queue get() const { return q->get(); }
-
   template<typename T> vector<T> read(const Buffer<T>& buf, size_t sizeOrFull = 0) {
     auto size = sizeOrFull ? sizeOrFull : buf.size();
     assert(size <= buf.size());
     vector<T> ret(size);
-    ::read(q->get(), true, buf.get(), size * sizeof(T), ret.data());
+    ::read(get(), true, buf.get(), size * sizeof(T), ret.data());
     return ret;
   }
 
@@ -110,31 +115,31 @@ public:
     auto size = sizeOrFull ? sizeOrFull : buf.size();
     assert(size <= buf.size());
     out.resize(size);
-    ::read(q->get(), false, buf.get(), size * sizeof(T), out.data());
+    ::read(get(), false, buf.get(), size * sizeof(T), out.data());
   }
     
   template<typename T> void write(Buffer<T>& buf, const vector<T> &vect) {
     assert(vect.size() <= buf.size());
-    ::write(q->get(), true, buf.get(), vect.size() * sizeof(T), vect.data());
+    ::write(get(), true, buf.get(), vect.size() * sizeof(T), vect.data());
   }
 
   template<typename T> void writeAsync(Buffer<T>& buf, const vector<T> &vect) {
     assert(vect.size() <= buf.size());
-    ::write(q->get(), false, buf.get(), vect.size() * sizeof(T), vect.data());
+    ::write(get(), false, buf.get(), vect.size() * sizeof(T), vect.data());
   }
 
   template<typename T> void copyFromTo(const Buffer<T>& src, Buffer<T>& dst) {
     assert(src.size() <= dst.size());
-    copyBuf(q->get(), src.get(), dst.get(), src.size() * sizeof(T));
+    copyBuf(get(), src.get(), dst.get(), src.size() * sizeof(T));
   }
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
-    Event event{::run(q->get(), kernel, groupSize, workSize, name)};
+    Event event{::run(get(), kernel, groupSize, workSize, name)};
     // events.emplace_back(std::move(event), timeMap.insert({name, TimeStats{}}).first);
   }
 
   void finish() {
-    ::finish(q->get());
+    ::finish(get());
     // for (auto& [event, it] : events) { it->second.add(getEventNanos(event.get())); }
     // events.clear();
     
@@ -144,6 +149,6 @@ public:
     auto size = sizeOrFull ? sizeOrFull : buf.size();
     assert(size <= buf.size());
     T zero = 0;
-    fillBuf(q->get(), buf.get(), &zero, sizeof(T), size * sizeof(T));
+    fillBuf(get(), buf.get(), &zero, sizeof(T), size * sizeof(T));
   }
 };

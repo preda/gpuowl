@@ -175,7 +175,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   device(device),
   context(createContext(device)),
   program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW)),
-  queue(makeQueue(device, context.get())),  
+  queue{Queue::makeQueue(makeQueue(device, context.get()))},
 
 #define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name, timeKernels)
   LOAD(carryFused, BIG_H + 1),
@@ -235,7 +235,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailFused.setFixedArgs(1, bufTrigH);
   tailFusedMulDelta.setFixedArgs(3, bufTrigH);
     
-  queue.zero(bufReady, BIG_H);
+  queue->zero(bufReady, BIG_H);
 }
 
 void logTimeKernels(std::initializer_list<Kernel *> kerns) {
@@ -275,7 +275,7 @@ static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsF
 
 vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   readResidue(buf, bufSmallOut, start);
-  return queue.read<int>(bufSmallOut, 128);                    
+  return queue->read<int>(bufSmallOut, 128);                    
 }
 
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
@@ -354,14 +354,14 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize > 0);
     
   writeCheck(check);
-  queue.copyFromTo(bufCheck, bufData);
-  queue.copyFromTo(bufCheck, bufAux);
+  queue->copyFromTo(bufCheck, bufData);
+  queue->copyFromTo(bufCheck, bufAux);
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
     modMul(bufAux, false, buf1, buf2, buf3, bufData);
-    queue.copyFromTo(bufData, bufAux);
+    queue->copyFromTo(bufData, bufAux);
   }
 
   assert((n & (n - 1)) == 0);
@@ -384,7 +384,7 @@ void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>
 }
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  queue.copyFromTo(bufCheck, bufAux);
+  queue->copyFromTo(bufCheck, bufAux);
   modSqLoop(blockSize, true, buf1, buf2, bufAux);
   updateCheck(buf1, buf2, buf3);
   return equalNotZero(bufCheck, bufAux);
@@ -411,13 +411,13 @@ void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
   
 vector<int> Gpu::readOut(Buffer<int> &buf) {
   transposeOut(buf, bufAux);
-  return queue.read(bufAux);
+  return queue->read(bufAux);
 }
 
 void Gpu::writeIn(const vector<u32>& words, Buffer<int>& buf) { writeIn(expandBits(words, N, E), buf); }
 
 void Gpu::writeIn(const vector<int>& words, Buffer<int>& buf) {
-  queue.write(bufAux, words);
+  queue->write(bufAux, words);
   transposeIn(bufAux, buf);
 }
 
@@ -443,15 +443,15 @@ void Gpu::topHalf(Buffer<double>& tmp, Buffer<double>& io) {
 // All buffers are in "low" position.
 void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out) {
   if (exp == 0) {
-    queue.zero(out, N / 2);
+    queue->zero(out, N / 2);
     u32 data = 1;
-    fillBuf(queue.get(), out.get(), &data, sizeof(data));
+    fillBuf(queue->get(), out.get(), &data, sizeof(data));
     // write(queue.get(), false, out, sizeof(u32), &data);
     // queue.writeAsync(out, vector<>{1});    
     fftP(out, tmp);
     tW(tmp, out);    
   } else {
-    queue.copyFromTo(base, out);
+    queue->copyFromTo(base, out);
     if (exp == 1) { return; }
 
     int p = 63;
@@ -511,11 +511,11 @@ void Gpu::modSqLoop(u32 reps, bool mul3, Buffer<double>& buf1, Buffer<double>& b
 }
 
 bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
-  queue.zero(bufSmallOut, 1);
+  queue->zero(bufSmallOut, 1);
   u32 sizeBytes = N * sizeof(int);
   isNotZero(sizeBytes, buf1, bufSmallOut);
   isEqual(sizeBytes, buf1, buf2, bufSmallOut);
-  return queue.read(bufSmallOut, 1)[0];
+  return queue->read(bufSmallOut, 1)[0];
 }
   
 u64 Gpu::bufResidue(Buffer<int> &buf) {
@@ -671,7 +671,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     }
     k += blockSize;
 
-    queue.finish();
+    queue->finish();
         
     stats.add(timer.deltaMillis(), blockSize);
     bool doStop = signal.stopRequested();
@@ -746,7 +746,7 @@ struct SquaringSet {
     gpu.exponentiate(bufBase, exponents[0], bufTmp, C);
     gpu.exponentiate(bufBase, exponents[1], bufTmp, B);
     if (exponents[2] == exponents[1]) {
-      gpu.queue.copyFromTo(B, A);
+      gpu.queue->copyFromTo(B, A);
     } else {
       gpu.exponentiate(bufBase, exponents[2], bufTmp, A);
     }
@@ -765,9 +765,9 @@ struct SquaringSet {
 
 private:
   void copyFrom(const SquaringSet& rhs) {
-    gpu.queue.copyFromTo(rhs.A, A);
-    gpu.queue.copyFromTo(rhs.B, B);
-    gpu.queue.copyFromTo(rhs.C, C);    
+    gpu.queue->copyFromTo(rhs.A, A);
+    gpu.queue->copyFromTo(rhs.B, B);
+    gpu.queue->copyFromTo(rhs.C, C);    
   }
 };
 
@@ -821,7 +821,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     leadIn = leadOut;
 
     if ((k + 1) % 100 == 0 || doLog || doSave) {
-      queue.finish();
+      queue->finish();
       timeInfo.add(timer.deltaMillis(), (k + 1) - (k / 100) * 100);
       if (doLog) {
         logPm1Stage1(E, k + 1, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
@@ -843,7 +843,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   tH(bufTmp, bufAux);
 
   auto bufAcc{context.hostAccessBuf<double>(N, "acc")};
-  queue.copyFromTo(bufAux, bufAcc);
+  queue->copyFromTo(bufAux, bufAcc);
   
   fftW(bufAux);
   carryA(bufAux, bufData);
@@ -858,7 +858,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         throw "P2 savefile FFT size mismatch";
       }
       beginPos = loaded.k;
-      queue.write(bufAcc, loaded.raw);
+      queue->write(bufAcc, loaded.raw);
       log("%u P2 B1=%u, B2=%u, starting at %u\n", E, B1, B2, beginPos);
     }
   }
@@ -915,7 +915,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   u32 nBufs = blockBufs.size();
   log("%u P2 using %u buffers of %.1f MB each\n", E, nBufs, N / (1024.0f * 1024) * sizeof(double));
   
-  queue.finish();
+  queue->finish();
 
   u32 prevJ = jset[beginPos];
   for (u32 pos = beginPos; pos < 2880; pos += nBufs) {
@@ -927,10 +927,10 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       prevJ = jset[pos + i];
       assert((delta & 1) == 0);
       for (int steps = delta / 2; steps > 0; --steps) { little.step(bufTmp); }
-      queue.copyFromTo(little.C, blockBufs[i]);
+      queue->copyFromTo(little.C, blockBufs[i]);
     }
     
-    queue.finish();
+    queue->finish();
     float initSecs = timer.deltaSecs();
 
     u32 nSelected = 0;
@@ -951,10 +951,10 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
           tH(bufTmp, bufAcc);
         }
       }
-      queue.finish();
+      queue->finish();
     }
 
-    if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, queue.read(bufAcc)}.save(); }
+    if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, queue->read(bufAcc)}.save(); }
     
     log("%u P2 %4u/2880: setup %4d ms; %4d us/prime, %u primes\n",
         E, pos + nUsedBufs, int(initSecs * 1000 + 0.5f), nSelected ? int(timer.deltaSecs() / nSelected * 1'000'000 + 0.5f) : 0, nSelected);
