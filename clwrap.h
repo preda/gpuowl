@@ -19,6 +19,7 @@ void release(cl_kernel k);
 void release(cl_mem buf);
 void release(cl_program program);
 void release(cl_queue queue);
+void release(cl_event event);
 
 template<typename T>
 struct Deleter {
@@ -32,12 +33,14 @@ template<> struct default_delete<cl_kernel> : public Deleter<cl_kernel> {};
 template<> struct default_delete<cl_mem> : public Deleter<cl_mem> {};
 template<> struct default_delete<cl_program> : public Deleter<cl_program> {};
 template<> struct default_delete<cl_queue> : public Deleter<cl_queue> {};
+template<> struct default_delete<cl_event> : public Deleter<cl_event> {};
 }
 
 template<typename T> using Holder = std::unique_ptr<T, Deleter<T> >;
 
 using QueueHolder = std::unique_ptr<cl_queue>;
 using KernelHolder = std::unique_ptr<cl_kernel>;
+using EventHolder = std::unique_ptr<cl_event>;
 
 class Context;
 
@@ -76,7 +79,7 @@ cl_queue makeQueue(cl_device_id d, cl_context c);
 void flush( cl_queue q);
 void finish(cl_queue q);
 
-void run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name);
+EventHolder run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name);
 void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start = 0);
 void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *data, size_t start = 0);
 
@@ -94,3 +97,4 @@ int getWorkGroupSize(cl_kernel k, cl_device_id device, const char *name);
 std::string getKernelArgName(cl_kernel k, int pos);
 
 cl_device_id getDevice(int argsDevId);
+u64 getEventNanos(cl_event event);

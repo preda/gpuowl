@@ -28,7 +28,7 @@ class Kernel {
 public:
   Kernel(cl_program program, Queue queue, cl_device_id device, int nWorkGroups, const std::string &name, bool doTime) :
     kernel(makeKernel(program, name.c_str())),
-    queue(queue),
+    queue(std::move(queue)),
     nWorkGroups(nWorkGroups),
     name(name),
     doTime(doTime),

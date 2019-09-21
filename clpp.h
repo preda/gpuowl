@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 #include <memory>
+#include <map>
 
 template<typename T> class Buffer;
 
@@ -65,13 +66,36 @@ public:
 template<typename T>
 void setArg(cl_kernel k, int pos, const Buffer<T>& buf) { setArg(k, pos, buf.get()); }
 
+class Event : public EventHolder {
+public:
+  u64 nanos() { return getEventNanos(this->get()); }
+};
+
+struct TimeStats {
+  u64 nanos{};
+  u32 n{};
+  void add(u64 delta) { nanos += delta; ++n; }
+  void clear() { n = 0; nanos = 0; }
+};
 
 class Queue {
   std::shared_ptr<QueueHolder> q;
-  
+  // using TimeMap = std::map<std::string, TimeStats>;
+  // TimeMap timeMap;
+  // std::vector<std::pair<Event, TimeMap::iterator>> events;
+  // std::vector<Event> foo;
+    
 public:
   explicit Queue(cl_queue q) : q(make_shared<QueueHolder>(q)) {}
 
+  /*
+  Queue(const Queue&) = delete;
+  void operator=(const Queue&) = delete;
+
+  Queue(Queue&&) = default;
+  Queue& operator=(Queue&&) = default;
+  */
+  
   cl_queue get() const { return q->get(); }
 
   template<typename T> vector<T> read(const Buffer<T>& buf, size_t sizeOrFull = 0) {
@@ -105,10 +129,16 @@ public:
   }
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
-    ::run(q->get(), kernel, groupSize, workSize, name);
+    Event event{::run(q->get(), kernel, groupSize, workSize, name)};
+    // events.emplace_back(std::move(event), timeMap.insert({name, TimeStats{}}).first);
   }
 
-  void finish() { ::finish(q->get()); }
+  void finish() {
+    ::finish(q->get());
+    // for (auto& [event, it] : events) { it->second.add(getEventNanos(event.get())); }
+    // events.clear();
+    
+  }
 
   template<typename T> void zero(Buffer<T>& buf, size_t sizeOrFull = 0) {
     auto size = sizeOrFull ? sizeOrFull : buf.size();

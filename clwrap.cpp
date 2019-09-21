@@ -182,6 +182,7 @@ void release(cl_program program) { CHECK1(clReleaseProgram(program)); }
 void release(cl_mem buf)         { CHECK1(clReleaseMemObject(buf)); }
 void release(cl_queue queue)     { CHECK1(clReleaseCommandQueue(queue)); }
 void release(cl_kernel k)        { CHECK1(clReleaseKernel(k)); }
+void release(cl_event event)     { CHECK1(clReleaseEvent(event)); }
 
 void dumpBinary(cl_program program, const string &fileName) {
   if (auto fo = openWrite(fileName)) {
@@ -287,7 +288,8 @@ cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr)
 
 cl_queue makeQueue(cl_device_id d, cl_context c) {
   int err;
-  cl_queue q = clCreateCommandQueue(c, d, 0, &err);
+  cl_queue_properties props[] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0, 0};
+  cl_queue q = clCreateCommandQueue(c, d, props, &err);
   CHECK2(err, "clCreateCommandQueue");
   return q;
 }
@@ -295,8 +297,10 @@ cl_queue makeQueue(cl_device_id d, cl_context c) {
 void flush( cl_queue q) { CHECK1(clFlush(q)); }
 void finish(cl_queue q) { CHECK1(clFinish(q)); }
 
-void run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
-  CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL), name.c_str());
+EventHolder run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
+  cl_event event{};
+  CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, &event), name.c_str());
+  return EventHolder{event};
 }
 
 void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start) {
@@ -354,4 +358,12 @@ void Queue::zero(Buffer &buf, size_t size) {
 
 void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size, size_t start) {
   CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, start, size ? size : patSize, 0, 0, 0));
+}
+
+u64 getEventNanos(cl_event event) {
+  u64 start = 0;
+  u64 end = 0;
+  CHECK1(clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(start), &start, 0));
+  CHECK1(clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(end), &end, 0));
+  return end - start;
 }

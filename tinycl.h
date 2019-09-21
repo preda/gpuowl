@@ -24,6 +24,7 @@ typedef unsigned cl_device_info;
 typedef unsigned cl_kernel_info;
 typedef unsigned cl_kernel_arg_info;
 typedef unsigned cl_kernel_work_group_info;
+typedef unsigned cl_profiling_info;
 
 typedef u64 cl_mem_flags;
 typedef u64 cl_svm_mem_flags;
@@ -73,6 +74,8 @@ int clGetKernelInfo(cl_kernel, cl_kernel_info, size_t, void *, size_t *);
 int clGetKernelArgInfo(cl_kernel, unsigned, cl_kernel_arg_info, size_t, void *, size_t *);
 int clGetKernelWorkGroupInfo(cl_kernel, cl_device_id, cl_kernel_work_group_info, size_t, void *, size_t *);
 
+int clGetEventProfilingInfo(cl_event, cl_profiling_info, size_t, void*, size_t*);
+  
 void* clSVMAlloc(cl_context, cl_svm_mem_flags, size_t, unsigned alignment);
 void clSVMFree(cl_context, void*);
 
@@ -109,6 +112,15 @@ int clSetKernelArgSVMPointer(cl_kernel, unsigned, const void *);
 
 #define CL_MEM_SVM_FINE_GRAIN_BUFFER (1 << 10)
 #define CL_MEM_SVM_ATOMICS           (1 << 11)
+
+#define CL_QUEUE_PROFILING_ENABLE    (1 << 1)
+#define CL_QUEUE_PROPERTIES       0x1093
+
+#define CL_PROFILING_COMMAND_QUEUED                 0x1280
+#define CL_PROFILING_COMMAND_SUBMIT                 0x1281
+#define CL_PROFILING_COMMAND_START                  0x1282
+#define CL_PROFILING_COMMAND_END                    0x1283
+#define CL_PROFILING_COMMAND_COMPLETE               0x1284
 
 #define CL_INVALID_COMPILER_OPTIONS -66
 
