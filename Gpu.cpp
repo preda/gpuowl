@@ -172,6 +172,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufSize(N * sizeof(double)),
   useLongCarry(useLongCarry),
   useMiddle(BIG_H != SMALL_H),
+  timeKernels(timeKernels),
   device(device),
   context{device},
   program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW)),
@@ -368,21 +369,21 @@ bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buf
 }
 
 void Gpu::logTimeKernels() {
-  Queue::Profile profile = queue->getProfile();
-  queue->clearProfile();
-  double total = 0;
-  for (auto& p : profile) { total += p.first.total; }
+  if (timeKernels) {
+    Queue::Profile profile = queue->getProfile();
+    queue->clearProfile();
+    double total = 0;
+    for (auto& p : profile) { total += p.first.total; }
   
-  // std::sort(infos.begin(), infos.end(), [](const auto& a, const auto& b){ return a.first.total > b.first.total; });
-
-  for (auto& [stats, name]: profile) {
-    float percent = 100 / total * stats.total;
-    if (percent >= .01f) {
-      log("%5.2f%% %-14s : %6.0f us/call x %5d calls\n",
-          percent, name.c_str(), stats.total * (1e6f / stats.n), stats.n);
+    for (auto& [stats, name]: profile) {
+      float percent = 100 / total * stats.total;
+      if (percent >= .01f) {
+        log("%5.2f%% %-14s : %6.0f us/call x %5d calls\n",
+            percent, name.c_str(), stats.total * (1e6f / stats.n), stats.n);
+      }
     }
+    log("Total time %.3f s\n", total);
   }
-  log("\n");
 }
 
 void Gpu::tW(Buffer<double>& in, Buffer<double>& out) {
@@ -674,7 +675,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       this->updateCheck(buf1, buf2, buf3);
       if (k % args.logStep == 0) {
         doSmallLog(E, k, dataResidue(), stats, nTotalIters);
-        if (args.timeKernels) { this->logTimeKernels(); }
+        logTimeKernels();
       }
       continue;
     }
@@ -702,7 +703,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       k = loaded.k;
       assert(blockSize == loaded.blockSize);
     }
-    if (args.timeKernels) { this->logTimeKernels(); }
+    logTimeKernels();
     if (doStop) { throw "stop requested"; }
   }
 }
@@ -812,6 +813,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       if (doLog) {
         logPm1Stage1(E, k + 1, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
         timeInfo.clear();
+        logTimeKernels();
       }
       if (doSave) {
         P1State{E, B1, k + 1, u32(bits.size()), readData()}.save();
@@ -902,6 +904,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   log("%u P2 using %u buffers of %.1f MB each\n", E, nBufs, N / (1024.0f * 1024) * sizeof(double));
   
   queue->finish();
+  logTimeKernels();
 
   u32 prevJ = jset[beginPos];
   for (u32 pos = beginPos; pos < 2880; pos += nBufs) {
@@ -917,6 +920,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     }
     
     queue->finish();
+    // logTimeKernels();
     float initSecs = timer.deltaSecs();
 
     u32 nSelected = 0;
@@ -938,12 +942,14 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         }
       }
       queue->finish();
+      // logTimeKernels();
     }
 
     if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, queue->read(bufAcc)}.save(); }
     
     log("%u P2 %4u/2880: setup %4d ms; %4d us/prime, %u primes\n",
         E, pos + nUsedBufs, int(initSecs * 1000 + 0.5f), nSelected ? int(timer.deltaSecs() / nSelected * 1'000'000 + 0.5f) : 0, nSelected);
+    logTimeKernels();
 
     if (gcdFuture.valid()) {
       if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
