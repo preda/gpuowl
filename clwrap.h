@@ -58,7 +58,7 @@ string getLongInfo(cl_device_id device);
 u64 getFreeMem(cl_device_id id);
 bool hasFreeMemInfo(cl_device_id id);
 
-Context createContext(cl_device_id id);
+cl_context createContext(cl_device_id id);
 
 cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
                    const vector<pair<string, std::any>> &defines);
@@ -74,7 +74,7 @@ template<>
 void setArg<int>(cl_kernel k, int pos, const int &value);
 
 cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr = 0);
-cl_queue makeQueue(cl_device_id d, cl_context c);
+cl_queue makeQueue(cl_device_id d, cl_context c, bool profile);
 
 void flush( cl_queue q);
 void finish(cl_queue q);

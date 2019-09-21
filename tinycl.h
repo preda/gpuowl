@@ -25,6 +25,7 @@ typedef unsigned cl_kernel_info;
 typedef unsigned cl_kernel_arg_info;
 typedef unsigned cl_kernel_work_group_info;
 typedef unsigned cl_profiling_info;
+typedef unsigned cl_event_info;
 
 typedef u64 cl_mem_flags;
 typedef u64 cl_svm_mem_flags;
@@ -52,7 +53,7 @@ cl_kernel clCreateKernel(cl_program, const char *, int *);
 int clReleaseKernel(cl_kernel);
 cl_mem clCreateBuffer(cl_context, cl_mem_flags, size_t, void *, int *);
 int clReleaseMemObject(cl_mem);
-cl_command_queue clCreateCommandQueue(cl_context, cl_device_id, const cl_queue_properties *, int *);
+cl_command_queue clCreateCommandQueueWithProperties(cl_context, cl_device_id, const cl_queue_properties *, int *);
   
 int clEnqueueReadBuffer(cl_command_queue, cl_mem, cl_bool, size_t, size_t, void *,
                         unsigned numEvents, const cl_event *waitEvents, cl_event *outEvent);
@@ -74,6 +75,7 @@ int clGetKernelInfo(cl_kernel, cl_kernel_info, size_t, void *, size_t *);
 int clGetKernelArgInfo(cl_kernel, unsigned, cl_kernel_arg_info, size_t, void *, size_t *);
 int clGetKernelWorkGroupInfo(cl_kernel, cl_device_id, cl_kernel_work_group_info, size_t, void *, size_t *);
 
+int clGetEventInfo(cl_event, cl_event_info, size_t, void*, size_t*);
 int clGetEventProfilingInfo(cl_event, cl_profiling_info, size_t, void*, size_t*);
   
 void* clSVMAlloc(cl_context, cl_svm_mem_flags, size_t, unsigned alignment);
@@ -122,8 +124,13 @@ int clSetKernelArgSVMPointer(cl_kernel, unsigned, const void *);
 #define CL_PROFILING_COMMAND_END                    0x1283
 #define CL_PROFILING_COMMAND_COMPLETE               0x1284
 
-#define CL_INVALID_COMPILER_OPTIONS -66
+#define CL_EVENT_COMMAND_QUEUE                      0x11D0
+#define CL_EVENT_COMMAND_TYPE                       0x11D1
+#define CL_EVENT_REFERENCE_COUNT                    0x11D2
+#define CL_EVENT_COMMAND_EXECUTION_STATUS           0x11D3
+#define CL_EVENT_CONTEXT                            0x11D4
 
+#define CL_INVALID_COMPILER_OPTIONS -66
 
 #define CL_KERNEL_NUM_ARGS        0x1191
 #define CL_KERNEL_ARG_NAME        0x119A
@@ -146,3 +153,34 @@ typedef union
     struct { u32 type; u32 data[5]; } raw;
     struct { u32 type; char unused[17]; char bus; char device; char function; } pcie;
 } cl_device_topology_amd;
+
+#define CL_COMMAND_NDRANGE_KERNEL                   0x11F0
+#define CL_COMMAND_TASK                             0x11F1
+#define CL_COMMAND_NATIVE_KERNEL                    0x11F2
+#define CL_COMMAND_READ_BUFFER                      0x11F3
+#define CL_COMMAND_WRITE_BUFFER                     0x11F4
+#define CL_COMMAND_COPY_BUFFER                      0x11F5
+#define CL_COMMAND_READ_IMAGE                       0x11F6
+#define CL_COMMAND_WRITE_IMAGE                      0x11F7
+#define CL_COMMAND_COPY_IMAGE                       0x11F8
+#define CL_COMMAND_COPY_IMAGE_TO_BUFFER             0x11F9
+#define CL_COMMAND_COPY_BUFFER_TO_IMAGE             0x11FA
+#define CL_COMMAND_MAP_BUFFER                       0x11FB
+#define CL_COMMAND_MAP_IMAGE                        0x11FC
+#define CL_COMMAND_UNMAP_MEM_OBJECT                 0x11FD
+#define CL_COMMAND_MARKER                           0x11FE
+#define CL_COMMAND_ACQUIRE_GL_OBJECTS               0x11FF
+#define CL_COMMAND_RELEASE_GL_OBJECTS               0x1200
+#define CL_COMMAND_READ_BUFFER_RECT                 0x1201
+#define CL_COMMAND_WRITE_BUFFER_RECT                0x1202
+#define CL_COMMAND_COPY_BUFFER_RECT                 0x1203
+#define CL_COMMAND_USER                             0x1204
+#define CL_COMMAND_BARRIER                          0x1205
+#define CL_COMMAND_MIGRATE_MEM_OBJECTS              0x1206
+#define CL_COMMAND_FILL_BUFFER                      0x1207
+#define CL_COMMAND_FILL_IMAGE                       0x1208
+#define CL_COMMAND_SVM_FREE                         0x1209
+#define CL_COMMAND_SVM_MEMCPY                       0x120A
+#define CL_COMMAND_SVM_MEMFILL                      0x120B
+#define CL_COMMAND_SVM_MAP                          0x120C
+#define CL_COMMAND_SVM_UNMAP                        0x120D

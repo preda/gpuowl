@@ -11,14 +11,18 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <algorithm>
 
 template<typename T> class Buffer;
 
 class Context : public std::unique_ptr<cl_context> {
   static constexpr unsigned BUF_CONST = CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS;
 
+  cl_device_id id;
 public:
-  using std::unique_ptr<cl_context>::unique_ptr;
+  Context(cl_device_id id): unique_ptr<cl_context>{createContext(id)}, id{id} {}
+  
+  cl_device_id deviceId() const { return id; }
   
   template<typename T>
   auto constBuf(const std::vector<T>& vect, std::string_view name) const {
@@ -68,41 +72,39 @@ void setArg(cl_kernel k, int pos, const Buffer<T>& buf) { setArg(k, pos, buf.get
 
 class Event : public EventHolder {
 public:
-  u64 nanos() { return getEventNanos(this->get()); }
+  double secs() { return float(getEventNanos(this->get())) * 1e-9f; }
 };
 
+/*
 struct TimeStats {
   u64 nanos{};
   u32 n{};
   void add(u64 delta) { nanos += delta; ++n; }
   void clear() { n = 0; nanos = 0; }
 };
+*/
+
+struct TimeInfo {
+  double total{};
+  u32 n{};
+
+  bool operator<(const TimeInfo& rhs) const { return total > rhs.total; }
+  void add(double deltaTime, u32 deltaN = 1) { total += deltaTime; n += deltaN; }
+  void clear() { total = 0; n = 0; }
+};
 
 using QueuePtr = std::shared_ptr<class Queue>;
 
 class Queue : public QueueHolder {
-  // std::shared_ptr<QueueHolder> q;
-  // using TimeMap = std::map<std::string, TimeStats>;
-  // TimeMap timeMap;
-  // std::vector<std::pair<Event, TimeMap::iterator>> events;
-  // std::vector<Event> foo;
+  using TimeMap = std::map<std::string, TimeInfo>;
+  TimeMap timeMap;
+  std::vector<std::pair<Event, TimeMap::iterator>> events;
+  bool profile{};
 
-
-  // struct SharedAccess : public Queue { SharedAccess(cl_queue q) : Queue{q} {} };
 public:
-
-  explicit Queue(cl_queue q) : QueueHolder{q} {}  
-  static QueuePtr makeQueue(cl_queue q) { return make_shared<Queue>(q); }
-  
-
-  /*
-  Queue(const Queue&) = delete;
-  void operator=(const Queue&) = delete;
-
-  Queue(Queue&&) = default;
-  Queue& operator=(Queue&&) = default;
-  */
-  
+  explicit Queue(cl_queue q, bool profile) : QueueHolder{q}, profile{profile} {}  
+  static QueuePtr make(const Context& context, bool profile) { return make_shared<Queue>(makeQueue(context.deviceId(), context.get(), profile), profile); }
+    
   template<typename T> vector<T> read(const Buffer<T>& buf, size_t sizeOrFull = 0) {
     auto size = sizeOrFull ? sizeOrFull : buf.size();
     assert(size <= buf.size());
@@ -135,16 +137,30 @@ public:
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
     Event event{::run(get(), kernel, groupSize, workSize, name)};
-    // events.emplace_back(std::move(event), timeMap.insert({name, TimeStats{}}).first);
+    if (profile) { events.emplace_back(std::move(event), timeMap.insert({name, TimeInfo{}}).first); }
   }
 
   void finish() {
     ::finish(get());
-    // for (auto& [event, it] : events) { it->second.add(getEventNanos(event.get())); }
-    // events.clear();
-    
+    if (profile) {
+      for (auto& [event, it] : events) { it->second.add(event.secs()); }
+    }
+    events.clear();
   }
 
+  using Profile = std::vector<std::pair<TimeInfo, std::string>>;
+  Profile getProfile() {
+    Profile profile;
+    for (auto& [name, info] : timeMap) { profile.emplace_back(info, name); }
+    std::sort(profile.begin(), profile.end());
+    return profile;
+  }
+
+  void clearProfile() {
+    events.clear();
+    timeMap.clear();
+  }
+  
   template<typename T> void zero(Buffer<T>& buf, size_t sizeOrFull = 0) {
     auto size = sizeOrFull ? sizeOrFull : buf.size();
     assert(size <= buf.size());

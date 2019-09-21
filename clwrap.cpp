@@ -169,9 +169,9 @@ cl_device_id getDevice(int argsDevId) {
   return device;
 }
 
-Context createContext(cl_device_id id) {  
+cl_context createContext(cl_device_id id) {  
   int err;
-  Context context(clCreateContext(NULL, 1, &id, NULL, NULL, &err));
+  cl_context context = clCreateContext(NULL, 1, &id, NULL, NULL, &err);
   CHECK2(err, "clCreateContext");
   return context;
 }
@@ -286,10 +286,14 @@ cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr)
   return buf;
 }
 
-cl_queue makeQueue(cl_device_id d, cl_context c) {
+cl_queue makeQueue(cl_device_id d, cl_context c, bool profile) {
   int err;
-  cl_queue_properties props[] = {CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0, 0};
-  cl_queue q = clCreateCommandQueue(c, d, props, &err);
+  cl_queue_properties props[4] = {0};
+  if (profile) {
+    props[0] = CL_QUEUE_PROPERTIES;
+    props[1] = CL_QUEUE_PROFILING_ENABLE;
+  }
+  cl_queue q = clCreateCommandQueueWithProperties(c, d, props, &err);
   CHECK2(err, "clCreateCommandQueue");
   return q;
 }
@@ -361,6 +365,12 @@ void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size, siz
 }
 
 u64 getEventNanos(cl_event event) {
+  /*
+  u32 status = -1;
+  CHECK1(clGetEventInfo(event, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(status), &status, 0));
+  log("event execution status %u\n", status);
+  */
+  
   u64 start = 0;
   u64 end = 0;
   CHECK1(clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(start), &start, 0));

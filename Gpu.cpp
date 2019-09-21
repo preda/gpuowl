@@ -173,11 +173,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   useLongCarry(useLongCarry),
   useMiddle(BIG_H != SMALL_H),
   device(device),
-  context(createContext(device)),
+  context{device},
   program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW)),
-  queue{Queue::makeQueue(makeQueue(device, context.get()))},
+  queue(Queue::make(context, timeKernels)),
 
-#define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name, timeKernels)
+#define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name)
   LOAD(carryFused, BIG_H + 1),
   LOAD(carryFusedMul, BIG_H + 1),
   LOAD(fftP, BIG_H),
@@ -236,29 +236,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailFusedMulDelta.setFixedArgs(3, bufTrigH);
     
   queue->zero(bufReady, BIG_H);
-}
-
-void logTimeKernels(std::initializer_list<Kernel *> kerns) {
-  double total = 0;
-  vector<pair<TimeInfo, string>> infos;
-  for (Kernel *k : kerns) {
-    auto s = k->resetStats();
-    if (s.total > 0 && s.n > 0) {
-      infos.push_back(make_pair(s, k->getName()));
-      total += s.total;
-    }
-  }
-
-  std::sort(infos.begin(), infos.end(), [](const auto& a, const auto& b){ return a.first.total > b.first.total; });
-
-  for (auto& [stats, name]: infos) {
-    float percent = 100 / total * stats.total;
-    if (percent >= .01f) {
-      log("%5.2f%% %-14s : %6.0f us/call x %5d calls\n",
-          percent, name.c_str(), stats.total / stats.n, stats.n);
-    }
-  }
-  log("\n");
 }
 
 static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsFftSize) {
@@ -391,12 +368,21 @@ bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buf
 }
 
 void Gpu::logTimeKernels() {
-  ::logTimeKernels({&carryFused,
-        &fftP, &fftW, &fftH, &fftMiddleIn, &fftMiddleOut,
-        &carryA, &carryM, &carryB,
-        &transposeW, &transposeH, &transposeIn, &transposeOut,
-        &multiply, &square, &tailFused,
-        &readResidue, &isNotZero, &isEqual});
+  Queue::Profile profile = queue->getProfile();
+  queue->clearProfile();
+  double total = 0;
+  for (auto& p : profile) { total += p.first.total; }
+  
+  // std::sort(infos.begin(), infos.end(), [](const auto& a, const auto& b){ return a.first.total > b.first.total; });
+
+  for (auto& [stats, name]: profile) {
+    float percent = 100 / total * stats.total;
+    if (percent >= .01f) {
+      log("%5.2f%% %-14s : %6.0f us/call x %5d calls\n",
+          percent, name.c_str(), stats.total * (1e6f / stats.n), stats.n);
+    }
+  }
+  log("\n");
 }
 
 void Gpu::tW(Buffer<double>& in, Buffer<double>& out) {
@@ -549,12 +535,12 @@ static void doLog(u32 E, u32 k, u32 timeCheck, u64 res, bool checkOK, TimeInfo &
   log("%s (check %.2fs)%s\n",      
       makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats.total / stats.n, nIters).c_str(),
       timeCheck * .001f, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
-  stats.reset();
+  stats.clear();
 }
 
 static void doSmallLog(u32 E, u32 k, u64 res, TimeInfo &stats, u32 nIters) {
   log("%s\n", makeLogStr(E, "", k, res, stats.total / stats.n, nIters).c_str());
-  stats.reset();
+  stats.clear();
 }
 
 static void logPm1Stage1(u32 E, u32 k, u64 res, float msPerSq, u32 nIters) {
@@ -825,7 +811,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       timeInfo.add(timer.deltaMillis(), (k + 1) - (k / 100) * 100);
       if (doLog) {
         logPm1Stage1(E, k + 1, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
-        timeInfo.reset();
+        timeInfo.clear();
       }
       if (doSave) {
         P1State{E, B1, k + 1, u32(bits.size()), readData()}.save();

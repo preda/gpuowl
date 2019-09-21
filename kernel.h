@@ -8,30 +8,19 @@
 
 #include <string>
 
-struct TimeInfo {
-  double total = 0;
-  u32 n = 0;
-
-  void add(double deltaTime, u32 deltaN = 1) { total += deltaTime; n += deltaN; }
-  void reset() { total = 0; n = 0; }
-};
-
 class Kernel {
   KernelHolder kernel;
   QueuePtr queue;
   int nWorkGroups;
   string name;
-  bool doTime;
   int groupSize;
-  TimeInfo stats;
   
 public:
-  Kernel(cl_program program, QueuePtr queue, cl_device_id device, int nWorkGroups, const std::string &name, bool doTime) :
+  Kernel(cl_program program, QueuePtr queue, cl_device_id device, int nWorkGroups, const std::string &name) :
     kernel(makeKernel(program, name.c_str())),
     queue(std::move(queue)),
     nWorkGroups(nWorkGroups),
     name(name),
-    doTime(doTime),
     groupSize(getWorkGroupSize(kernel.get(), device, name.c_str()))
   {}
 
@@ -44,8 +33,6 @@ public:
 
   string getName() { return name; }
 
-  TimeInfo resetStats() { auto ret = stats; stats.reset(); return ret; }
-
 private:
   template<typename T> void setArgs(int pos, const T &arg) { ::setArg(kernel.get(), pos, arg); }
   
@@ -54,15 +41,5 @@ private:
     setArgs(pos + 1, tail...);
   }
   
-  void run() {
-    if (doTime) {
-      // queue.finish();
-      Timer timer;
-      queue->run(kernel.get(), groupSize, nWorkGroups * groupSize, name);
-      queue->finish();
-      stats.add(timer.deltaMicros());
-    } else {
-      queue->run(kernel.get(), groupSize, nWorkGroups * groupSize, name);
-    }
-  }
+  void run() { queue->run(kernel.get(), groupSize, nWorkGroups * groupSize, name); }
 };
