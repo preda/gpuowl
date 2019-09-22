@@ -3,6 +3,7 @@
 #pragma once
 
 #include "clpp.h"
+#include "Queue.h"
 #include "timeutil.h"
 #include "common.h"
 

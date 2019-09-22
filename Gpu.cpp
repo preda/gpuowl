@@ -10,6 +10,7 @@
 #include "FFTConfig.h"
 #include "GmpUtil.h"
 #include "AllocTrac.h"
+#include "Queue.h"
 
 #include <cmath>
 #include <cstring>
