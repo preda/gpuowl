@@ -139,13 +139,13 @@ public:
     }
   }
 
+  bool allEventsCompleted() { return events.empty() || events.back().first.isComplete(); }
+  
   void finish() {
-    if (events.empty()) { return; }
-    if (cudaYield) {
-      while (!events.back().first.isComplete()) { usleep(50); } // std::this_thread::sleep_for();
-    } else {
-      ::finish(get());
-    }
+    if (cudaYield) { while (!allEventsCompleted()) { usleep(1000); } }
+    
+    ::finish(get());
+    
     if (profile) { for (auto& [event, it] : events) { it->second.add(event.secs()); } }
     events.clear();
   }
