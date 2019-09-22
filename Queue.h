@@ -74,7 +74,10 @@ public:
   bool allEventsCompleted() { return events.empty() || events.back().first.isComplete(); }
   
   void finish() {
-    if (cudaYield) { while (!allEventsCompleted()) { usleep(1000); } }
+    if (cudaYield) {
+      ::flush(get());
+      while (!allEventsCompleted()) { usleep(1000); }
+    }
     
     ::finish(get());
     
