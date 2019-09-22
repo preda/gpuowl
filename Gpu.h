@@ -2,7 +2,10 @@
 
 #pragma once
 
-#include "clpp.h"
+#include "Buffer.h"
+#include "Context.h"
+#include "Queue.h"
+
 #include "common.h"
 #include "kernel.h"
 

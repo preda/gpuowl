@@ -2,8 +2,8 @@
 
 #include "Args.h"
 #include "file.h"
-#include "clpp.h"
 #include "FFTConfig.h"
+#include "clwrap.h"
 
 #include <vector>
 #include <string>

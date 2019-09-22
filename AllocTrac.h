@@ -1,19 +1,23 @@
 #pragma once
 
 #include <atomic>
+#include <new>
+#include <string>
+
+using namespace std::string_literals;
 
 class gpu_bad_alloc : public std::bad_alloc {
-  string w;
+  std::string w;
   
 public:
-  gpu_bad_alloc(const string& w) : w(w) {}
-  gpu_bad_alloc(size_t size) : gpu_bad_alloc("GPU size "s + to_string(size)) {}
+  gpu_bad_alloc(const std::string& w) : w(w) {}
+  gpu_bad_alloc(size_t size) : gpu_bad_alloc("GPU size "s + std::to_string(size)) {}
 
   const char *what() const noexcept override { return w.c_str(); }
 };
 
 class AllocTrac {
-  static atomic<size_t> totalAlloc;  
+  static std::atomic<size_t> totalAlloc;  
   static size_t maxAlloc;
   
   size_t size{};
@@ -22,7 +26,7 @@ public:
   AllocTrac() = default;
   AllocTrac(size_t size) : size(size) {
     if (size) {
-      if (totalAlloc + size >= maxAlloc) { throw gpu_bad_alloc("Reached GPU maxAlloc limit " + to_string(maxAlloc >> 20) + " MB"); }
+      if (totalAlloc + size >= maxAlloc) { throw gpu_bad_alloc("Reached GPU maxAlloc limit " + std::to_string(maxAlloc >> 20) + " MB"); }
       totalAlloc += size;
       // log("alloc %lu total %lu limit %lu\n", size, size_t(totalAlloc), maxAlloc);
     }

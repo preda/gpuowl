@@ -11,6 +11,6 @@ namespace std {
   };
 }
 
-unique_ptr<FILE> openRead(const string &name, bool logError = false);
-unique_ptr<FILE> openWrite(const string &name);
-unique_ptr<FILE> openAppend(const string &name);
+std::unique_ptr<FILE> openRead(const std::string &name, bool logError = false);
+std::unique_ptr<FILE> openWrite(const std::string &name);
+std::unique_ptr<FILE> openAppend(const std::string &name);

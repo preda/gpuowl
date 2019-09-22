@@ -1,9 +1,9 @@
 // Copyright (C) 2017-2018 Mihai Preda.
 
-#include "clpp.h"
 #include "timeutil.h"
 #include "file.h"
 #include "AllocTrac.h"
+#include "clwrap.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -11,6 +11,7 @@
 #include <string>
 #include <new>
 #include <memory>
+#include <vector>
 
 using namespace std;
 

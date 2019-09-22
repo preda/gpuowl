@@ -1,5 +1,5 @@
-#include "clpp.h"
+#include "AllocTrac.h"
 #include <limits>
 
-atomic<size_t> AllocTrac::totalAlloc = 0;
+std::atomic<size_t> AllocTrac::totalAlloc = 0;
 size_t AllocTrac::maxAlloc = std::numeric_limits<size_t>::max();
