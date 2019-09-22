@@ -176,7 +176,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   device(device),
   context{device},
   program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW)),
-  queue(Queue::make(context, timeKernels)),
+  queue(Queue::make(context, timeKernels, args.cudaYield)),
 
 #define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name)
   LOAD(carryFused, BIG_H + 1),

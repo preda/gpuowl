@@ -364,13 +364,13 @@ void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size, siz
   CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, start, size ? size : patSize, 0, 0, 0));
 }
 
-u64 getEventNanos(cl_event event) {
-  /*
+u32 getEventInfo(cl_event event) {
   u32 status = -1;
   CHECK1(clGetEventInfo(event, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(status), &status, 0));
-  log("event execution status %u\n", status);
-  */
-  
+  return status;
+}
+
+u64 getEventNanos(cl_event event) {  
   u64 start = 0;
   u64 end = 0;
   CHECK1(clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(start), &start, 0));

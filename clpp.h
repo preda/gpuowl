@@ -5,6 +5,7 @@
 #include "clwrap.h"
 #include "AllocTrac.h"
 
+#include <unistd.h>
 #include <memory>
 #include <string>
 #include <utility>
@@ -73,16 +74,8 @@ void setArg(cl_kernel k, int pos, const Buffer<T>& buf) { setArg(k, pos, buf.get
 class Event : public EventHolder {
 public:
   double secs() { return float(getEventNanos(this->get())) * 1e-9f; }
+  bool isComplete() { return getEventInfo(this->get()) == CL_COMPLETE; }
 };
-
-/*
-struct TimeStats {
-  u64 nanos{};
-  u32 n{};
-  void add(u64 delta) { nanos += delta; ++n; }
-  void clear() { n = 0; nanos = 0; }
-};
-*/
 
 struct TimeInfo {
   double total{};
@@ -100,10 +93,11 @@ class Queue : public QueueHolder {
   TimeMap timeMap;
   std::vector<std::pair<Event, TimeMap::iterator>> events;
   bool profile{};
+  bool cudaYield{};
 
 public:
-  explicit Queue(cl_queue q, bool profile) : QueueHolder{q}, profile{profile} {}  
-  static QueuePtr make(const Context& context, bool profile) { return make_shared<Queue>(makeQueue(context.deviceId(), context.get(), profile), profile); }
+  Queue(cl_queue q, bool profile, bool cudaYield) : QueueHolder{q}, profile{profile}, cudaYield{cudaYield} {}  
+  static QueuePtr make(const Context& context, bool profile, bool cudaYield) { return make_shared<Queue>(makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield); }
     
   template<typename T> vector<T> read(const Buffer<T>& buf, size_t sizeOrFull = 0) {
     auto size = sizeOrFull ? sizeOrFull : buf.size();
@@ -137,14 +131,22 @@ public:
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
     Event event{::run(get(), kernel, groupSize, workSize, name)};
-    if (profile) { events.emplace_back(std::move(event), timeMap.insert({name, TimeInfo{}}).first); }
+    auto it = profile ? timeMap.insert({name, TimeInfo{}}).first : timeMap.end();
+    if (profile || events.empty()) {
+      events.emplace_back(std::move(event), it);
+    } else {
+      events.front() = std::make_pair(std::move(event), it);
+    }
   }
 
   void finish() {
-    ::finish(get());
-    if (profile) {
-      for (auto& [event, it] : events) { it->second.add(event.secs()); }
+    if (events.empty()) { return; }
+    if (cudaYield) {
+      while (!events.back().first.isComplete()) { usleep(50); } // std::this_thread::sleep_for();
+    } else {
+      ::finish(get());
     }
+    if (profile) { for (auto& [event, it] : events) { it->second.add(event.secs()); } }
     events.clear();
   }
 

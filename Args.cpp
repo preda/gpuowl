@@ -58,7 +58,8 @@ Command line options:
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
--maxAlloc          : limit GPU memory usage to this value in MB
+-maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
+-yield             : enable work-around for CUDA busy wait taking up one CPU core
 -use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning).
 -device <N>        : select a specific device:
 )", blockSize, logStep, B1, B2_B1_ratio);
@@ -107,6 +108,7 @@ void Args::parse(string line) {
     else if (key == "-time") { timeKernels = true; }
     else if (key == "-device" || key == "-d") { device = stoi(s); }
     else if (key == "-dir") { dir = s; }
+    else if (key == "-yield") { cudaYield = true; }
     else if (key == "-carry") {
       if (s == "short" || s == "long") {
         carry = s == "short" ? CARRY_SHORT : CARRY_LONG;
