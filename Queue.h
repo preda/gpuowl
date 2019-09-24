@@ -2,12 +2,17 @@
 
 #pragma once
 
+#include "Buffer.h"
+
 #include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 #include <unistd.h>
+
+template<typename T> class ConstBuffer;
+template<typename T> class Buffer;
 
 struct TimeInfo {
   double total{};
@@ -16,6 +21,12 @@ struct TimeInfo {
   bool operator<(const TimeInfo& rhs) const { return total > rhs.total; }
   void add(double deltaTime, u32 deltaN = 1) { total += deltaTime; n += deltaN; }
   void clear() { total = 0; n = 0; }
+};
+
+class Event : public EventHolder {
+public:
+  double secs() { return float(getEventNanos(this->get())) * 1e-9f; }
+  bool isComplete() { return getEventInfo(this->get()) == CL_COMPLETE; }
 };
 
 using QueuePtr = std::shared_ptr<class Queue>;
@@ -31,15 +42,15 @@ public:
   Queue(cl_queue q, bool profile, bool cudaYield) : QueueHolder{q}, profile{profile}, cudaYield{cudaYield} {}  
   static QueuePtr make(const Context& context, bool profile, bool cudaYield) { return make_shared<Queue>(makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield); }
     
-  template<typename T> vector<T> read(const Buffer<T>& buf, size_t sizeOrFull = 0) {
-    auto size = sizeOrFull ? sizeOrFull : buf.size();
-    assert(size <= buf.size());
+  template<typename T> vector<T> read(const ConstBuffer<T>& buf, size_t sizeOrFull = 0) {
+    auto size = sizeOrFull ? sizeOrFull : buf.size;
+    assert(size <= buf.size);
     vector<T> ret(size);
     ::read(get(), true, buf.get(), size * sizeof(T), ret.data());
     return ret;
   }
 
-  template<typename T> void readAsync(const Buffer<T>& buf, vector<T>& out, size_t sizeOrFull = 0) {
+  template<typename T> void readAsync(const ConstBuffer<T>& buf, vector<T>& out, size_t sizeOrFull = 0) {
     auto size = sizeOrFull ? sizeOrFull : buf.size();
     assert(size <= buf.size());
     out.resize(size);
@@ -47,18 +58,18 @@ public:
   }
     
   template<typename T> void write(Buffer<T>& buf, const vector<T> &vect) {
-    assert(vect.size() <= buf.size());
+    assert(vect.size() <= buf.size);
     ::write(get(), true, buf.get(), vect.size() * sizeof(T), vect.data());
   }
 
   template<typename T> void writeAsync(Buffer<T>& buf, const vector<T> &vect) {
-    assert(vect.size() <= buf.size());
+    assert(vect.size() <= buf.size);
     ::write(get(), false, buf.get(), vect.size() * sizeof(T), vect.data());
   }
 
-  template<typename T> void copyFromTo(const Buffer<T>& src, Buffer<T>& dst) {
-    assert(src.size() <= dst.size());
-    copyBuf(get(), src.get(), dst.get(), src.size() * sizeof(T));
+  template<typename T> void copyFromTo(const ConstBuffer<T>& src, Buffer<T>& dst) {
+    assert(src.size <= dst.size);
+    copyBuf(get(), src.get(), dst.get(), src.size * sizeof(T));
   }
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
@@ -76,7 +87,7 @@ public:
   void finish() {
     if (cudaYield) {
       ::flush(get());
-      while (!allEventsCompleted()) { usleep(1000); }
+      while (!allEventsCompleted()) { usleep(500); }
     }
     
     ::finish(get());
@@ -99,8 +110,8 @@ public:
   }
   
   template<typename T> void zero(Buffer<T>& buf, size_t sizeOrFull = 0) {
-    auto size = sizeOrFull ? sizeOrFull : buf.size();
-    assert(size <= buf.size());
+    auto size = sizeOrFull ? sizeOrFull : buf.size;
+    assert(size <= buf.size);
     T zero = 0;
     fillBuf(get(), buf.get(), &zero, sizeof(T), size * sizeof(T));
   }

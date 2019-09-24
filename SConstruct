@@ -1,6 +1,6 @@
 import os
 
-env = Environment()
+env = Environment(CXX='g++-9')
 #CXX='g++-9')
 env['ENV']['TERM'] = os.environ['TERM']
 

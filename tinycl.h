@@ -26,6 +26,7 @@ typedef unsigned cl_kernel_arg_info;
 typedef unsigned cl_kernel_work_group_info;
 typedef unsigned cl_profiling_info;
 typedef unsigned cl_event_info;
+typedef unsigned cl_command_queue_info;
 
 typedef u64 cl_mem_flags;
 typedef u64 cl_svm_mem_flags;
@@ -48,7 +49,9 @@ int clGetProgramBuildInfo(cl_program, cl_device_id, cl_program_build_info, size_
 int clGetProgramInfo(cl_program, cl_program_info, size_t, void *, size_t *);
 int clGetDeviceInfo(cl_device_id, cl_device_info, size_t, void *, size_t *);
 int clGetPlatformInfo(cl_platform_id, cl_device_info, size_t, void *, size_t *);
+int clGetCommandQueueInfo(cl_command_queue, cl_command_queue_info, size_t, void*, size_t*);
 
+  
 cl_kernel clCreateKernel(cl_program, const char *, int *);
 int clReleaseKernel(cl_kernel);
 cl_mem clCreateBuffer(cl_context, cl_mem_flags, size_t, void *, int *);
@@ -119,6 +122,13 @@ int clSetKernelArgSVMPointer(cl_kernel, unsigned, const void *);
 
 #define CL_QUEUE_PROFILING_ENABLE    (1 << 1)
 #define CL_QUEUE_PROPERTIES       0x1093
+
+/* cl_command_queue_info */
+#define CL_QUEUE_CONTEXT                            0x1090
+#define CL_QUEUE_DEVICE                             0x1091
+#define CL_QUEUE_REFERENCE_COUNT                    0x1092
+#define CL_QUEUE_PROPERTIES                         0x1093
+#define CL_QUEUE_SIZE                               0x1094
 
 #define CL_PROFILING_COMMAND_QUEUED                 0x1280
 #define CL_PROFILING_COMMAND_SUBMIT                 0x1281

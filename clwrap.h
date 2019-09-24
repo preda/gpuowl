@@ -99,3 +99,5 @@ std::string getKernelArgName(cl_kernel k, int pos);
 cl_device_id getDevice(int argsDevId);
 u64 getEventNanos(cl_event event);
 u32 getEventInfo(cl_event event);
+
+cl_context getQueueContext(cl_command_queue q);

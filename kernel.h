@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Queue.h"
+#include "Buffer.h"
 #include "timeutil.h"
 #include "common.h"
 
@@ -34,6 +35,9 @@ public:
   string getName() { return name; }
 
 private:
+  template<typename T> void setArgs(int pos, const ConstBuffer<T>& buf) { setArgs(pos, buf.get()); }
+  template<typename T> void setArgs(int pos, const Buffer<T>& buf) { setArgs(pos, buf.get()); }
+  template<typename T> void setArgs(int pos, const HostAccessBuffer<T>& buf) { setArgs(pos, buf.get()); }
   template<typename T> void setArgs(int pos, const T &arg) { ::setArg(kernel.get(), pos, arg); }
   
   template<typename T, typename... Args> void setArgs(int pos, const T &arg, const Args &...tail) {

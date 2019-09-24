@@ -60,21 +60,21 @@ class Gpu {
   Kernel isEqual;
 
   // Trigonometry constant buffers, used in FFTs.
-  Buffer<double2> bufTrigW;
-  Buffer<double2> bufTrigH; 
+  ConstBuffer<double2> bufTrigW;
+  ConstBuffer<double2> bufTrigH; 
 
   // Weight constant buffers, with the direct and inverse weights. N x double.
-  Buffer<double> bufWeightA;      // Direct weights.
-  Buffer<double> bufWeightI;      // Inverse weights.
+  ConstBuffer<double> bufWeightA;      // Direct weights.
+  ConstBuffer<double> bufWeightI;      // Inverse weights.
 
-  Buffer<u32> bufBits;
-  Buffer<u32> bufExtras;
-  Buffer<double> bufGroupWeights;
-  Buffer<double> bufThreadWeights;
+  ConstBuffer<u32> bufBits;
+  ConstBuffer<u32> bufExtras;
+  ConstBuffer<double> bufGroupWeights;
+  ConstBuffer<double> bufThreadWeights;
   
   // "integer word" buffers. These are "small buffers": N x int.
-  Buffer<int> bufData;   // Main int buffer with the words.
-  Buffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
+  HostAccessBuffer<int> bufData;   // Main int buffer with the words.
+  HostAccessBuffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
   Buffer<int> bufCheck;  // Buffers used with the error check.
   
   // Carry buffers, used in carry and fusedCarry.
@@ -83,7 +83,7 @@ class Gpu {
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
 
   // Small aux buffer used to read res64.
-  Buffer<int> bufSmallOut;
+  HostAccessBuffer<int> bufSmallOut;
 
   vector<u32> computeBase(u32 E, u32 B1);
   pair<vector<u32>, vector<u32>> seedPRP(u32 E, u32 B1);
@@ -113,6 +113,9 @@ class Gpu {
   void exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out);
   void topHalf(Buffer<double>& tmp, Buffer<double>& io);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
+
+  Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
+      cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);

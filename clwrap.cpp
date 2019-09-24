@@ -388,3 +388,15 @@ u64 getEventNanos(cl_event event) {
   CHECK1(clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(end), &end, 0));
   return end - start;
 }
+
+cl_context getQueueContext(cl_command_queue q) {
+  cl_context ret;
+  CHECK1(clGetCommandQueueInfo(q, CL_QUEUE_CONTEXT, sizeof(cl_context), &ret, 0));
+  return ret;
+}
+
+cl_device_id getQueueDevice(cl_command_queue q) {
+  cl_device_id id;
+  CHECK1(clGetCommandQueueInfo(q, CL_QUEUE_DEVICE, sizeof(id), &id, 0));
+  return id;
+}
