@@ -52,16 +52,16 @@ public:
   }
   
   virtual ~ConstBuffer() = default;
-
+  
   cl_mem get() const { return ptr.get(); }
   void reset() { ptr.reset(); }
 };
 
 template<typename T>
 class Buffer : public ConstBuffer<T> {
-  QueuePtr queue;
-
 protected:
+  QueuePtr queue;
+  
   Buffer(QueuePtr queue, std::string_view name, size_t size, unsigned kind)
     : ConstBuffer<T>{getQueueContext(queue->get()), name, kind, size}
     , queue{queue}
@@ -71,22 +71,32 @@ public:
   Buffer(QueuePtr queue, std::string_view name, size_t size)
     : Buffer(queue, name, size, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS) {}
 
-  Buffer& operator=(ConstBuffer<T>& rhs) {
-    assert(size == rhs.size);
+  Buffer(Buffer&& rhs) = default;
+  
+  void operator=(const ConstBuffer<T>& rhs) {
+    assert(this->size == rhs.size);
     copyBuf(queue->get(), rhs.get(), this->get(), this->size * sizeof(T));
+  }
+
+  void operator=(const Buffer<T>& rhs) { *this = static_cast<const ConstBuffer<T>&>(rhs); }
+
+  void operator=(const vector<T>& vect) {
+    assert(size == vect.size());
+    write(queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
   }
 };
 
 template<typename T>
 class HostAccessBuffer : public Buffer<T> {
 public:
+  using Buffer<T>::operator=;
+  
   HostAccessBuffer(QueuePtr queue, std::string_view name, size_t size)
     : Buffer<T>(queue, name, size, CL_MEM_READ_WRITE) {}
+
+  operator vector<T>() const {
+    vector<T> ret(size);
+    read(this->queue->get(), true, this->get(), this->size * sizeof(T), ret.data());
+    return ret;
+  }
 };
-
-
-// Special-case Buffer argument: pass the wrapped cl_mem.
-/*
-template<typename T>
-void setArg(cl_kernel k, int pos, const ConstBuffer<T>& buf) { setArg(k, pos, buf.get()); }
-*/

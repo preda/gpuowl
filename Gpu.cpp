@@ -334,14 +334,14 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize > 0);
     
   writeCheck(check);
-  queue->copyFromTo(bufCheck, bufData);
-  queue->copyFromTo(bufCheck, bufAux);
+  bufData = bufCheck;
+  bufAux  = bufCheck;
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
     modMul(bufAux, false, buf1, buf2, buf3, bufData);
-    queue->copyFromTo(bufData, bufAux);
+    bufAux = bufData;
   }
 
   assert((n & (n - 1)) == 0);
