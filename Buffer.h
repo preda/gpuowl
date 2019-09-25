@@ -72,17 +72,25 @@ public:
     : Buffer(queue, name, size, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS) {}
 
   Buffer(Buffer&& rhs) = default;
-  
-  void operator=(const ConstBuffer<T>& rhs) {
+
+  // device-side copy
+  void operator<<(const ConstBuffer<T>& rhs) {
     assert(this->size == rhs.size);
     copyBuf(queue->get(), rhs.get(), this->get(), this->size * sizeof(T));
   }
 
-  void operator=(const Buffer<T>& rhs) { *this = static_cast<const ConstBuffer<T>&>(rhs); }
+  // void operator=(const Buffer<T>& rhs) { *this = static_cast<const ConstBuffer<T>&>(rhs); }
 
+  // sync write
   void operator=(const vector<T>& vect) {
     assert(size == vect.size());
     write(queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
+  }
+
+  // async write
+  void operator<<(const vector<T>& vect) {
+    assert(this->size == vect.size());
+    write(queue->get(), false, this->get(), this->size * sizeof(T), vect.data());
   }
 };
 
@@ -94,9 +102,16 @@ public:
   HostAccessBuffer(QueuePtr queue, std::string_view name, size_t size)
     : Buffer<T>(queue, name, size, CL_MEM_READ_WRITE) {}
 
+  // sync read
   operator vector<T>() const {
     vector<T> ret(size);
     read(this->queue->get(), true, this->get(), this->size * sizeof(T), ret.data());
     return ret;
+  }
+
+  // async read
+  void operator>>(vector<T>& out) const {
+    out.resize(size);
+    read(this->queue->get(), false, this->get(), this->size * sizeof(T), out.data());
   }
 };

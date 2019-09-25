@@ -334,14 +334,14 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize > 0);
     
   writeCheck(check);
-  bufData = bufCheck;
-  bufAux  = bufCheck;
+  bufData << bufCheck;
+  bufAux  << bufCheck;
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
     modMul(bufAux, false, buf1, buf2, buf3, bufData);
-    bufAux = bufData;
+    bufAux << bufData;
   }
 
   assert((n & (n - 1)) == 0);
@@ -364,7 +364,7 @@ void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>
 }
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  queue->copyFromTo(bufCheck, bufAux);
+  bufAux << bufCheck;
   modSqLoop(blockSize, true, buf1, buf2, bufAux);
   updateCheck(buf1, buf2, buf3);
   return equalNotZero(bufCheck, bufAux);
@@ -440,7 +440,7 @@ void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp,
     fftP(out, tmp);
     tW(tmp, out);    
   } else {
-    queue->copyFromTo(base, out);
+    out << base;
     if (exp == 1) { return; }
 
     int p = 63;
@@ -733,7 +733,7 @@ struct SquaringSet {
     gpu.exponentiate(bufBase, exponents[0], bufTmp, C);
     gpu.exponentiate(bufBase, exponents[1], bufTmp, B);
     if (exponents[2] == exponents[1]) {
-      gpu.queue->copyFromTo(B, A);
+      A << B;
     } else {
       gpu.exponentiate(bufBase, exponents[2], bufTmp, A);
     }
@@ -752,9 +752,9 @@ struct SquaringSet {
 
 private:
   void copyFrom(const SquaringSet& rhs) {
-    gpu.queue->copyFromTo(rhs.A, A);
-    gpu.queue->copyFromTo(rhs.B, B);
-    gpu.queue->copyFromTo(rhs.C, C);    
+    A << rhs.A;
+    B << rhs.B;
+    C << rhs.C;
   }
 };
 
@@ -832,7 +832,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   tH(bufTmp, bufAux);
 
   Buffer<double> bufAcc{queue, "acc", N};
-  queue->copyFromTo(bufAux, bufAcc);
+  bufAcc << bufAux;
   
   fftW(bufAux);
   carryA(bufAux, bufData);
@@ -917,7 +917,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       prevJ = jset[pos + i];
       assert((delta & 1) == 0);
       for (int steps = delta / 2; steps > 0; --steps) { little.step(bufTmp); }
-      queue->copyFromTo(little.C, blockBufs[i]);
+      blockBufs[i] << little.C;
     }
     
     queue->finish();

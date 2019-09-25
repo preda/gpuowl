@@ -66,11 +66,6 @@ public:
     assert(vect.size() <= buf.size);
     ::write(get(), false, buf.get(), vect.size() * sizeof(T), vect.data());
   }
-
-  template<typename T> void copyFromTo(const ConstBuffer<T>& src, Buffer<T>& dst) {
-    assert(src.size <= dst.size);
-    copyBuf(get(), src.get(), dst.get(), src.size * sizeof(T));
-  }
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
     Event event{::run(get(), kernel, groupSize, workSize, name)};
