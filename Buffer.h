@@ -83,7 +83,7 @@ public:
 
   // sync write
   void operator=(const vector<T>& vect) {
-    assert(size == vect.size());
+    assert(this->size == vect.size());
     write(queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
   }
 
@@ -103,15 +103,24 @@ public:
     : Buffer<T>(queue, name, size, CL_MEM_READ_WRITE) {}
 
   // sync read
-  operator vector<T>() const {
-    vector<T> ret(size);
-    read(this->queue->get(), true, this->get(), this->size * sizeof(T), ret.data());
+  vector<T> read(size_t sizeOrFull = 0) const {
+    auto readSize = sizeOrFull ? sizeOrFull : this->size;
+    assert(readSize <= this->size);
+    vector<T> ret(readSize);
+    ::read(this->queue->get(), true, this->get(), readSize * sizeof(T), ret.data());
     return ret;
   }
 
-  // async read
-  void operator>>(vector<T>& out) const {
-    out.resize(size);
-    read(this->queue->get(), false, this->get(), this->size * sizeof(T), out.data());
+  void readAsync(vector<T>& out, size_t sizeOrFull = 0) const {
+    auto readSize = sizeOrFull ? sizeOrFull : this->size;
+    assert(readSize <= this->size);
+    out.resize(readSize);
+    ::read(this->queue->get(), false, this->get(), readSize * sizeof(T), out.data());
   }
+    
+  operator vector<T>() const { return read(); }
+
+  // async read
+  void operator>>(vector<T>& out) const { readAsync(out); }
+
 };

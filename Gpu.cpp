@@ -255,7 +255,7 @@ static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsF
 
 vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   readResidue(buf, bufSmallOut, start);
-  return queue->read<int>(bufSmallOut, 128);                    
+  return bufSmallOut.read(128);
 }
 
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
@@ -400,13 +400,14 @@ void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
   
 vector<int> Gpu::readOut(Buffer<int> &buf) {
   transposeOut(buf, bufAux);
-  return queue->read(bufAux);
+  return bufAux.read();
 }
 
 void Gpu::writeIn(const vector<u32>& words, Buffer<int>& buf) { writeIn(expandBits(words, N, E), buf); }
 
 void Gpu::writeIn(const vector<int>& words, Buffer<int>& buf) {
-  queue->write(bufAux, words);
+  bufAux = words;
+  // queue->write(bufAux, words);
   transposeIn(bufAux, buf);
 }
 
@@ -435,8 +436,6 @@ void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp,
     queue->zero(out, N / 2);
     u32 data = 1;
     fillBuf(queue->get(), out.get(), &data, sizeof(data));
-    // write(queue.get(), false, out, sizeof(u32), &data);
-    // queue.writeAsync(out, vector<>{1});    
     fftP(out, tmp);
     tW(tmp, out);    
   } else {
@@ -504,7 +503,7 @@ bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
   u32 sizeBytes = N * sizeof(int);
   isNotZero(sizeBytes, buf1, bufSmallOut);
   isEqual(sizeBytes, buf1, buf2, bufSmallOut);
-  return queue->read(bufSmallOut, 1)[0];
+  return bufSmallOut.read(1)[0];
 }
   
 u64 Gpu::bufResidue(Buffer<int> &buf) {
@@ -831,7 +830,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   tailFused(bufTmp);
   tH(bufTmp, bufAux);
 
-  Buffer<double> bufAcc{queue, "acc", N};
+  HostAccessBuffer<double> bufAcc{queue, "acc", N};
   bufAcc << bufAux;
   
   fftW(bufAux);
@@ -847,7 +846,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         throw "P2 savefile FFT size mismatch";
       }
       beginPos = loaded.k;
-      queue->write(bufAcc, loaded.raw);
+      bufAcc = loaded.raw;
+      // queue->write(bufAcc, loaded.raw);
       log("%u P2 B1=%u, B2=%u, starting at %u\n", E, B1, B2, beginPos);
     }
   }
@@ -946,7 +946,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       // logTimeKernels();
     }
 
-    if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, queue->read(bufAcc)}.save(); }
+    if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, bufAcc.read()}.save(); }
     
     log("%u P2 %4u/2880: setup %4d ms; %4d us/prime, %u primes\n",
         E, pos + nUsedBufs, int(initSecs * 1000 + 0.5f), nSelected ? int(timer.deltaSecs() / nSelected * 1'000'000 + 0.5f) : 0, nSelected);

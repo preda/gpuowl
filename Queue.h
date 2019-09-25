@@ -41,31 +41,6 @@ class Queue : public QueueHolder {
 public:
   Queue(cl_queue q, bool profile, bool cudaYield) : QueueHolder{q}, profile{profile}, cudaYield{cudaYield} {}  
   static QueuePtr make(const Context& context, bool profile, bool cudaYield) { return make_shared<Queue>(makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield); }
-    
-  template<typename T> vector<T> read(const ConstBuffer<T>& buf, size_t sizeOrFull = 0) {
-    auto size = sizeOrFull ? sizeOrFull : buf.size;
-    assert(size <= buf.size);
-    vector<T> ret(size);
-    ::read(get(), true, buf.get(), size * sizeof(T), ret.data());
-    return ret;
-  }
-
-  template<typename T> void readAsync(const ConstBuffer<T>& buf, vector<T>& out, size_t sizeOrFull = 0) {
-    auto size = sizeOrFull ? sizeOrFull : buf.size();
-    assert(size <= buf.size());
-    out.resize(size);
-    ::read(get(), false, buf.get(), size * sizeof(T), out.data());
-  }
-    
-  template<typename T> void write(Buffer<T>& buf, const vector<T> &vect) {
-    assert(vect.size() <= buf.size);
-    ::write(get(), true, buf.get(), vect.size() * sizeof(T), vect.data());
-  }
-
-  template<typename T> void writeAsync(Buffer<T>& buf, const vector<T> &vect) {
-    assert(vect.size() <= buf.size);
-    ::write(get(), false, buf.get(), vect.size() * sizeof(T), vect.data());
-  }
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
     Event event{::run(get(), kernel, groupSize, workSize, name)};
