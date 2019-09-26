@@ -79,8 +79,6 @@ public:
     copyBuf(queue->get(), rhs.get(), this->get(), this->size * sizeof(T));
   }
 
-  // void operator=(const Buffer<T>& rhs) { *this = static_cast<const ConstBuffer<T>&>(rhs); }
-
   // sync write
   void operator=(const vector<T>& vect) {
     assert(this->size == vect.size());

@@ -407,7 +407,6 @@ void Gpu::writeIn(const vector<u32>& words, Buffer<int>& buf) { writeIn(expandBi
 
 void Gpu::writeIn(const vector<int>& words, Buffer<int>& buf) {
   bufAux = words;
-  // queue->write(bufAux, words);
   transposeIn(bufAux, buf);
 }
 
@@ -512,9 +511,9 @@ u64 Gpu::bufResidue(Buffer<int> &buf) {
   return residueFromRaw(N, E, readBuf);
 }
 
-static string getETA(u32 step, u32 total, float msPerStep) {
+static string getETA(u32 step, u32 total, float secsPerStep) {
   // assert(step <= total);
-  int etaMins = (total - step) * msPerStep * (1 / 60000.f) + .5f;
+  int etaMins = (total - step) * secsPerStep * (1 / 60.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
@@ -523,30 +522,28 @@ static string getETA(u32 step, u32 total, float msPerStep) {
   return string(buf);
 }
 
-static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float msPerSq, u32 nIters) {
+static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float secsPerIt, u32 nIters) {
   // float msPerSq = info.total / info.n;
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%u %2s %8d %6.2f%%; %4d us/sq; ETA %s; %016llx",
+  snprintf(buf, sizeof(buf), "%u %2s %8d %6.2f%%; %4.0f us/it; ETA %s; %016llx",
            E, status.data(), k, k / float(nIters) * 100,
-           int(msPerSq*1000+0.5f), getETA(k, nIters, msPerSq).c_str(), res);
+           secsPerIt * 1'000'000.f, getETA(k, nIters, secsPerIt).c_str(), res);
   return buf;
 }
 
-static void doLog(u32 E, u32 k, u32 timeCheck, u64 res, bool checkOK, TimeInfo &stats, u32 nIters, u32 nErrors) {
-  log("%s (check %.2fs)%s\n",      
-      makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats.total / stats.n, nIters).c_str(),
-      timeCheck * .001f, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
-  stats.clear();
+static void doLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, u32 nIters, u32 nErrors) {
+  log("%s %s\n",      
+      makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
+      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
-static void doSmallLog(u32 E, u32 k, u64 res, TimeInfo &stats, u32 nIters) {
-  log("%s\n", makeLogStr(E, "", k, res, stats.total / stats.n, nIters).c_str());
-  stats.clear();
+static void doSmallLog(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
+  log("%s\n", makeLogStr(E, "", k, res, secsPerIt, nIters).c_str());
 }
 
-static void logPm1Stage1(u32 E, u32 k, u64 res, float msPerSq, u32 nIters) {
-  log("%s\n", makeLogStr(E, "P1", k, res, msPerSq, nIters).c_str());
+static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
+  log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters).c_str());
 }
 
 [[maybe_unused]] static void logPm1Stage2(u32 E, float ratioComplete) {
@@ -607,6 +604,22 @@ void doDiv9(int E, std::vector<u32> &words) {
   doDiv3(E, words);
 }
 
+class IterationTimer {
+  Timer timer;
+  u32 kStart;
+  
+public:
+  IterationTimer(u32 kStart) : kStart(kStart) {}
+  
+  float at(u32 k) const { return (k > kStart) ? timer.elapsed() / (k - kStart) : 0; }
+  
+  float reset(u32 k, u32 extra = 0) {
+    float ret = (k + extra > kStart) ? timer.delta() / (k + extra - kStart) : 0;
+    kStart = k;
+    return ret;
+  }
+};
+
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
@@ -630,13 +643,12 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   u32 startK = k;
   
   Signal signal;
-  TimeInfo stats;
 
   // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
   int nSeqErrors = 0;
 
   bool isPrime = false;
-  Timer timer;
+  IterationTimer itTimer{startK};
 
   u64 finalRes64 = 0;
   u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
@@ -659,7 +671,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
 
     queue->finish();
         
-    stats.add(timer.deltaMillis(), blockSize);
+    // stats.add(timer.delta(), blockSize);
     bool doStop = signal.stopRequested();
     if (doStop) {
       log("Stopping, please wait..\n");
@@ -673,7 +685,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     if (!doCheck) {
       this->updateCheck(buf1, buf2, buf3);
       if (k % args.logStep == 0) {
-        doSmallLog(E, k, dataResidue(), stats, nTotalIters);
+        doSmallLog(E, k, dataResidue(), itTimer.reset(k), nTotalIters);
         logTimeKernels();
       }
       continue;
@@ -684,8 +696,8 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
 
     u64 res64 = dataResidue();
 
-    // the check time (above) is accounted separately, not added to iteration time.
-    doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters, nErrors);
+    doLog(E, k, res64, ok, itTimer.reset(k, blockSize), nTotalIters, nErrors);
+
     
     if (ok) {
       if (k < kEnd) { PRPState{E, k, blockSize, res64, check, nErrors}.save(); }
@@ -788,9 +800,10 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   log("%u P1 B1=%u, B2=%u; %u bits; starting at %u\n", E, B1, B2, kEnd, kBegin);
   
   Signal signal;
-  TimeInfo timeInfo;
-  Timer timer;
+  // TimeInfo timeInfo;
+  // Timer timer;
   Timer saveTimer;
+  IterationTimer itTimer{kBegin};
 
   assert(kEnd > 0);
   assert(bits.front() && !bits.back());
@@ -801,7 +814,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     bool doLog = (k + 1) % 10000 == 0; // || isAtEnd;
     bool doStop = signal.stopRequested();
     if (doStop) { log("Stopping, please wait..\n"); }
-    bool doSave = doStop || saveTimer.elapsedMillis() > 300'000 || isAtEnd;
+    bool doSave = doStop || saveTimer.elapsed() > 300 || isAtEnd;
     
     bool leadOut = useLongCarry || doLog || doSave;
     coreStep(leadIn, leadOut, bits[k], bufAux, bufTmp, bufData);
@@ -809,10 +822,9 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
     if ((k + 1) % 100 == 0 || doLog || doSave) {
       queue->finish();
-      timeInfo.add(timer.deltaMillis(), (k + 1) - (k / 100) * 100);
+      // timeInfo.add(timer.delta(), (k + 1) - (k / 100) * 100);
       if (doLog) {
-        logPm1Stage1(E, k + 1, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
-        timeInfo.clear();
+        logPm1Stage1(E, k + 1, dataResidue(), itTimer.reset(k + 1), kEnd);
         logTimeKernels();
       }
       if (doSave) {
@@ -855,8 +867,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   future<string> gcdFuture;
   if (beginPos == 0) {
     gcdFuture = async(launch::async, GCD, E, readData(), 1);
-    timeInfo.add(timer.deltaMillis(), kEnd - (kEnd / 100) * 100);
-    logPm1Stage1(E, kEnd, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
+    // timeInfo.add(timer.delta(), kEnd - (kEnd / 100) * 100);
+    logPm1Stage1(E, kEnd, dataResidue(), itTimer.reset(kEnd), kEnd);
   }
 
   signal.release();
@@ -906,11 +918,10 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   
   queue->finish();
   logTimeKernels();
-
+  Timer timer;
+  
   u32 prevJ = jset[beginPos];
   for (u32 pos = beginPos; pos < 2880; pos += nBufs) {
-    timer.deltaSecs();
-
     u32 nUsedBufs = min(nBufs, 2880 - pos);
     for (u32 i = 0; i < nUsedBufs; ++i) {
       int delta = jset[pos + i] - prevJ;
@@ -922,7 +933,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     
     queue->finish();
     // logTimeKernels();
-    float initSecs = timer.deltaSecs();
+    float setup = timer.delta();
 
     u32 nSelected = 0;
     bool first = true;
@@ -948,8 +959,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
     if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, bufAcc.read()}.save(); }
     
-    log("%u P2 %4u/2880: setup %4d ms; %4d us/prime, %u primes\n",
-        E, pos + nUsedBufs, int(initSecs * 1000 + 0.5f), nSelected ? int(timer.deltaSecs() / nSelected * 1'000'000 + 0.5f) : 0, nSelected);
+    log("%u P2 %4u/2880: %u primes; setup %5.2f s, %7.3f ms/prime\n", E, pos + nUsedBufs, nSelected, setup, timer.delta() * 1000.f / (nSelected + 1));
     logTimeKernels();
 
     if (gcdFuture.valid()) {

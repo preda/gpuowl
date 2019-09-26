@@ -233,7 +233,7 @@ static void build(cl_program program, cl_device_id device, const string &args) {
     log("%s\n", buf.get());
   }
   if (ok) {
-    log("OpenCL compilation in %d ms\n", timer.deltaMillis());
+    log("OpenCL compilation in %.2f s\n", timer.delta());
   } else {
     release(program);
     CHECK2(err, "clBuildProgram");

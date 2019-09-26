@@ -19,7 +19,7 @@ struct TimeInfo {
   u32 n{};
 
   bool operator<(const TimeInfo& rhs) const { return total > rhs.total; }
-  void add(double deltaTime, u32 deltaN = 1) { total += deltaTime; n += deltaN; }
+  void add(float deltaTime, u32 deltaN = 1) { total += deltaTime; n += deltaN; }
   void clear() { total = 0; n = 0; }
 };
 
@@ -53,10 +53,12 @@ public:
   }
 
   bool allEventsCompleted() { return events.empty() || events.back().first.isComplete(); }
+
+  void flush() { ::flush(get()); }
   
   void finish() {
     if (cudaYield) {
-      ::flush(get());
+      flush();
       while (!allEventsCompleted()) { usleep(500); }
     }
     

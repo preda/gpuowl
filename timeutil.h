@@ -8,24 +8,21 @@
 using namespace std::chrono;
 
 class Timer {
-  high_resolution_clock::time_point prev;
+  high_resolution_clock::time_point start;
 
-  auto delta() {
-    auto save = prev;
-    return (prev = high_resolution_clock::now()) - save;
-  }
-
-  auto elapsed() const { return high_resolution_clock::now() - prev; }
-  
 public:
-  Timer() : prev(high_resolution_clock::now()) { }
+  Timer() : start(high_resolution_clock::now()) {}
   
-  long deltaMicros() { return duration_cast<microseconds>(delta()).count(); }
-  int deltaMillis()  { return duration_cast<milliseconds>(delta()).count(); }
-  float deltaSecs()  { return deltaMillis() * 0.001f; }
+  void reset() { start = high_resolution_clock::now(); }
 
-  int elapsedMillis() const { return duration_cast<milliseconds>(elapsed()).count(); }
-  void reset() { deltaMillis(); }
+  float elapsed() const { return duration<float>(high_resolution_clock::now() - start).count(); }
+
+  float delta() {
+    auto now = high_resolution_clock::now();
+    double ret = duration<float>(now - start).count();
+    start = now;
+    return ret;
+  }
 };
 
 std::string timeStr();
