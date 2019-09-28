@@ -668,10 +668,8 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       modSqLoop(blockSize, false, buf1, buf2, bufData);
     }
     k += blockSize;
-
     queue->finish();
         
-    // stats.add(timer.delta(), blockSize);
     bool doStop = signal.stopRequested();
     if (doStop) {
       log("Stopping, please wait..\n");
@@ -698,7 +696,6 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
 
     doLog(E, k, res64, ok, itTimer.reset(k, blockSize), nTotalIters, nErrors);
 
-    
     if (ok) {
       if (k < kEnd) { PRPState{E, k, blockSize, res64, check, nErrors}.save(); }
       if (isPrime || k >= kEnd) { return {isPrime, finalRes64, nErrors}; }

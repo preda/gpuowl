@@ -5,21 +5,20 @@
 #include <chrono>
 #include <string>
 
-using namespace std::chrono;
-
 class Timer {
-  high_resolution_clock::time_point start;
+  using clock = std::chrono::high_resolution_clock;
+  clock::time_point start;
 
 public:
-  Timer() : start(high_resolution_clock::now()) {}
+  Timer() : start(clock::now()) {}
   
-  void reset() { start = high_resolution_clock::now(); }
+  void reset() { start = clock::now(); }
 
-  float elapsed() const { return duration<float>(high_resolution_clock::now() - start).count(); }
+  float elapsed() const { return std::chrono::duration<float>(clock::now() - start).count(); }
 
   float delta() {
-    auto now = high_resolution_clock::now();
-    double ret = duration<float>(now - start).count();
+    auto now = clock::now();
+    double ret = std::chrono::duration<float>(now - start).count();
     start = now;
     return ret;
   }
