@@ -1,7 +1,7 @@
 // Copyright (C) 2017-2018 Mihai Preda.
 
 #include "timeutil.h"
-#include "file.h"
+#include "File.h"
 #include "AllocTrac.h"
 #include "clwrap.h"
 
@@ -196,7 +196,7 @@ void release(cl_kernel k)        { CHECK1(clReleaseKernel(k)); }
 void release(cl_event event)     { CHECK1(clReleaseEvent(event)); }
 
 void dumpBinary(cl_program program, const string &fileName) {
-  if (auto fo = openWrite(fileName)) {
+  if (auto fo = File::openWrite(fileName)) {
     size_t size;
     CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
     char *buf = new char[size + 1];

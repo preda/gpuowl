@@ -9,6 +9,26 @@
 
 u64 residue(const vector<u32> &words);
 
+class ResidueSet {
+  // Exponent, step
+  static constexpr const char* HEADER_v1 = "OWL SET 1 %u %u\n";
+  
+public:
+  ResidueSet(u32 E);
+
+  u32 size() const { return size_; }
+  u32 step() const { return step_; }
+
+  vector<u32> read(u32 pos);
+  void append(const vector<u32>& data);
+
+  const u32 E{};
+  
+private:
+  u32 step_{};
+  u32 size_{};
+};
+
 class StateLoader {
 protected:
   virtual ~StateLoader() = default;

@@ -3,7 +3,7 @@
 #include "Worktodo.h"
 
 #include "Task.h"
-#include "file.h"
+#include "File.h"
 #include "common.h"
 #include "Args.h"
 
@@ -36,42 +36,41 @@ Task Worktodo::makePM1(Args& args, u32 exponent) {
 }
 
 Task Worktodo::getTask(Args &args) {
-  if (auto fi{openRead("worktodo.txt", true)}) {
-    char line[512];
-    while (fgets(line, sizeof(line), fi.get())) {
-      u32 exp = 0;
-      char outAID[64] = {0};
-      u32 bitLo = 0;
-      int pos = 0;
+  auto fi = File::openRead("worktodo.txt", true);
+  char line[512];
+  while (fgets(line, sizeof(line), fi.get())) {
+    u32 exp = 0;
+    char outAID[64] = {0};
+    u32 bitLo = 0;
+    int pos = 0;
 
-      if (sscanf(line, "%u,%u", &exp, &bitLo) == 2 ||
-          sscanf(line, "%u", &exp) == 1 ||
-          sscanf(line, "PRP=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
-          sscanf(line, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-          return Task{Task::PRP, exp, outAID, line};
-      }
-      outAID[0] = 0;
-      
-      u32 B1 = 0, B2 = 0;
-      char *tail = line;
-      
-      if (sscanf(line, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||
-          sscanf(line, "B1=%u;%n", &B1, &pos) == 1) {
-        tail = line + pos;
-      }
-      
-      if (sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
-          sscanf(tail, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-        return ::makePM1(args, exp, outAID, line, B1, B2);
-      }
-      outAID[0] = 0;
-      if (sscanf(tail, "PFactor=%u", &exp) == 1) { return ::makePM1(args, exp, "", line, B1, B2); }
-      
-      int n = strlen(line);
-      if (n >= 2 && (line[n - 2] == '\n' || line[n - 2] == '\r')) { line[n - 2] = 0; }
-      if (n >= 1 && (line[n - 1] == '\n' || line[n - 1] == '\r')) { line[n - 1] = 0; }
-      log("worktodo.txt: \"%s\" ignored\n", line);
+    if (sscanf(line, "%u,%u", &exp, &bitLo) == 2 ||
+        sscanf(line, "%u", &exp) == 1 ||
+        sscanf(line, "PRP=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
+        sscanf(line, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
+      return Task{Task::PRP, exp, outAID, line};
     }
+    outAID[0] = 0;
+      
+    u32 B1 = 0, B2 = 0;
+    char *tail = line;
+      
+    if (sscanf(line, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||
+        sscanf(line, "B1=%u;%n", &B1, &pos) == 1) {
+      tail = line + pos;
+    }
+      
+    if (sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
+        sscanf(tail, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
+      return ::makePM1(args, exp, outAID, line, B1, B2);
+    }
+    outAID[0] = 0;
+    if (sscanf(tail, "PFactor=%u", &exp) == 1) { return ::makePM1(args, exp, "", line, B1, B2); }
+      
+    int n = strlen(line);
+    if (n >= 2 && (line[n - 2] == '\n' || line[n - 2] == '\r')) { line[n - 2] = 0; }
+    if (n >= 1 && (line[n - 1] == '\n' || line[n - 1] == '\r')) { line[n - 1] = 0; }
+    log("worktodo.txt: \"%s\" ignored\n", line);
   }
   return Task{Task::NONE};
 }
@@ -82,10 +81,8 @@ bool Worktodo::deleteTask(const Task &task) {
 
   bool lineDeleted = false;
   {
-    auto fi{openRead("worktodo.txt", true)};
-    auto fo{openWrite("worktodo-tmp.tmp")};
-    if (!(fi && fo)) { return false; }
-      
+    auto fi{File::openRead("worktodo.txt", true)};
+    auto fo{File::openWrite("worktodo-tmp.tmp")};
     char line[512];
     while (fgets(line, sizeof(line), fi.get())) {
       if (!lineDeleted && !strcmp(line, task.line.c_str())) {

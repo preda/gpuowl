@@ -1,7 +1,7 @@
 // GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
 
 #include "checkpoint.h"
-#include "file.h"
+#include "File.h"
 
 #include <filesystem>
 #include <ios>
@@ -36,9 +36,14 @@ static vector<u32> makeVect(u32 size, u32 elem0) {
   return v;
 }
 
+ResidueSet::ResidueSet(u32 E) : E{E}, step_{(E - E % 1024) / 512} {
+  fs::path name = fileName(E, "", "set.owl");
+  File f{File::openReadAppend(name)};
+}
+
 void StateLoader::save(u32 E, const std::string& extension) {
   fs::path newFile = fileName(E, "-new", extension);
-  doSave(openWrite(newFile.string()).get());
+  doSave(File::openWrite(newFile).get());
   
   fs::path saveFile = fileName(E, "", extension);
   fs::path oldFile = fileName(E, "-old", extension);
@@ -52,7 +57,7 @@ void StateLoader::save(u32 E, const std::string& extension) {
 bool StateLoader::load(u32 E, const std::string& extension) {
   bool foundFiles = false;
   for (auto&& path : {fileName(E, "", extension), fileName(E, "-old", extension)}) {
-    if (auto fi = openRead(path.string())) {
+    if (auto fi = File::openRead(path)) {
       foundFiles = true;
       if (load(fi.get())) {
         // log("'%s' loaded at %u\n", path.string().c_str(), getK());

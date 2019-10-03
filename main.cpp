@@ -5,7 +5,7 @@
 #include "Background.h"
 #include "Worktodo.h"
 #include "common.h"
-#include "file.h"
+#include "File.h"
 #include "version.h"
 #include "AllocTrac.h"
 #include "typeName.h"
@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
     }
 
     Args args;
-    if (auto file = openRead("config.txt")) {
+    if (auto file = File::openRead("config.txt")) {
       char buf[256];
       while (fgets(buf, sizeof(buf), file.get())) {
         string line = buf;

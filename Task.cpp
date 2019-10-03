@@ -2,7 +2,7 @@
 
 #include "Gpu.h"
 #include "Args.h"
-#include "file.h"
+#include "File.h"
 #include "GmpUtil.h"
 #include "Background.h"
 #include "version.h"
@@ -25,10 +25,7 @@ static bool writeResult(const string &part, u32 E, const char *workType, const s
            E, workType, status.c_str(), VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part.c_str());
   
   log("%s\n", buf);
-  auto fo = openAppend(args.resultsFile);
-  if (!fo) { return false; }
-
-  fprintf(fo.get(), "%s\n", buf);
+  File::openAppend(args.resultsFile).printf("%s\n", buf);
   return true;
 }
 
