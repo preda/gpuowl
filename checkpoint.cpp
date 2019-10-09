@@ -36,9 +36,33 @@ static vector<u32> makeVect(u32 size, u32 elem0) {
   return v;
 }
 
-ResidueSet::ResidueSet(u32 E) : E{E}, step_{(E - E % 1024) / 512} {
-  fs::path name = fileName(E, "", "set.owl");
-  File f{File::openReadAppend(name)};
+ResidueSet::ResidueSet(u32 E) : E{E}, step{(E - E % 1024) / 512},
+                                file{File::openReadAppend(fileName(E, "", "set.owl"))}, nWords{(E - 1) / 32 + 1} {
+                                  // fs::path name = fileName(E, "", "set.owl");
+  std::string headerLine = file.readLine();
+  if (headerLine.empty()) {
+    if (!file.empty()) {
+      throw std::runtime_error(file.name + ": can't read header");
+    } else {    
+      file.printf(HEADER_v1, E, step);
+      file.seek(0);
+      headerLine = file.readLine();
+      assert(!headerLine.empty());
+    }
+  }
+
+  u32 fileE{}, fileStep{};
+  if (sscanf(headerLine.c_str(), HEADER_v1, &fileE, &fileStep) != 2) {
+    throw std::runtime_error(file.name + ": Invalid header");
+  }
+  assert(E == fileE && step == fileStep);
+  dataStart = file.ftell();
+  u32 fileSize = file.seekEnd();
+  u32 residueBytes= nWords * 4;
+  assert(fileSize >= dataStart);
+  u32 dataBytes = fileSize - dataStart;
+  size_ = dataBytes / residueBytes;
+  assert(size_ * residueBytes == dataBytes);
 }
 
 void StateLoader::save(u32 E, const std::string& extension) {

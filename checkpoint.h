@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "File.h"
 #include "common.h"
 
 #include <vector>
@@ -16,17 +17,28 @@ class ResidueSet {
 public:
   ResidueSet(u32 E);
 
-  u32 size() const { return size_; }
-  u32 step() const { return step_; }
+  vector<u32> read(u32 pos) {
+    if (pos >= size_) { throw std::out_of_range(std::to_string(pos)); }
+    file.seek(dataStart + nWords * sizeof(u32) * pos);
+    return file.read<u32>(nWords);
+  }
 
-  vector<u32> read(u32 pos);
-  void append(const vector<u32>& data);
+  void append(const vector<u32>& data) {
+    assert(data.size() == nWords);
+    file.write(data);
+    ++size_;
+  }
 
+  const u32 size() const { return size_; }
+  
   const u32 E{};
+  const u32 step{};
   
 private:
-  u32 step_{};
   u32 size_{};
+  u32 dataStart{};
+  File file;
+  u32 nWords;
 };
 
 class StateLoader {
