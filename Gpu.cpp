@@ -1,7 +1,7 @@
-// Copyright 2017 Mihai Preda.
+// Copyright (C) Mihai Preda.
 
 #include "Gpu.h"
-
+#include "ProofSet.h"
 #include "Pm1Plan.h"
 #include "checkpoint.h"
 #include "state.h"
@@ -621,6 +621,8 @@ public:
 };
 
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
+  bool withProof = args.prove || ProofSet::exists(E);
+  
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
   Buffer<double> buf3{queue, "buf3", N};
@@ -641,6 +643,14 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   const u32 checkStep = blockSize * blockSize;
   
   u32 startK = k;
+
+  
+  if (withProof) {
+
+  }
+  
+  // u32 proofK = 
+  
   
   Signal signal;
 

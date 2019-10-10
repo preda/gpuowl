@@ -27,6 +27,7 @@ public:
   bool timeKernels = false;
   bool enableTF = false;
   bool cudaYield = false;
+  bool prove = true;
   
   int carry = CARRY_AUTO;
   u32 blockSize = 500;

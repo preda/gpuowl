@@ -1,4 +1,4 @@
-// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+// GpuOwl Mersenne primality tester; Copyright (C) Mihai Preda.
 
 #pragma once
 
@@ -9,37 +9,6 @@
 #include <string>
 
 u64 residue(const vector<u32> &words);
-
-class ResidueSet {
-  // Exponent, step
-  static constexpr const char* HEADER_v1 = "OWL SET 1 %u %u\n";
-  
-public:
-  ResidueSet(u32 E);
-
-  vector<u32> read(u32 pos) {
-    if (pos >= size_) { throw std::out_of_range(std::to_string(pos)); }
-    file.seek(dataStart + nWords * sizeof(u32) * pos);
-    return file.read<u32>(nWords);
-  }
-
-  void append(const vector<u32>& data) {
-    assert(data.size() == nWords);
-    file.write(data);
-    ++size_;
-  }
-
-  const u32 size() const { return size_; }
-  
-  const u32 E{};
-  const u32 step{};
-  
-private:
-  u32 size_{};
-  u32 dataStart{};
-  File file;
-  u32 nWords;
-};
 
 class StateLoader {
 protected:

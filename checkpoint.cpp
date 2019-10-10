@@ -1,4 +1,4 @@
-// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+// GpuOwl Mersenne primality tester; Copyright (C) Mihai Preda.
 
 #include "checkpoint.h"
 #include "File.h"
@@ -11,13 +11,6 @@ namespace fs = std::filesystem;
 
 // Residue from compacted words.
 u64 residue(const vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
-
-static fs::path fileName(u32 E, const string& suffix = "", const string& extension = "owl") {
-  string sE = to_string(E);
-  auto baseDir = fs::current_path() / sE;
-  if (!fs::exists(baseDir)) { fs::create_directory(baseDir); }
-  return baseDir / (sE + suffix + '.' + extension);
-}
 
 template<typename T>
 static void write(FILE *fo, const vector<T> &v) {
@@ -36,41 +29,12 @@ static vector<u32> makeVect(u32 size, u32 elem0) {
   return v;
 }
 
-ResidueSet::ResidueSet(u32 E) : E{E}, step{(E - E % 1024) / 512},
-                                file{File::openReadAppend(fileName(E, "", "set.owl"))}, nWords{(E - 1) / 32 + 1} {
-                                  // fs::path name = fileName(E, "", "set.owl");
-  std::string headerLine = file.readLine();
-  if (headerLine.empty()) {
-    if (!file.empty()) {
-      throw std::runtime_error(file.name + ": can't read header");
-    } else {    
-      file.printf(HEADER_v1, E, step);
-      file.seek(0);
-      headerLine = file.readLine();
-      assert(!headerLine.empty());
-    }
-  }
-
-  u32 fileE{}, fileStep{};
-  if (sscanf(headerLine.c_str(), HEADER_v1, &fileE, &fileStep) != 2) {
-    throw std::runtime_error(file.name + ": Invalid header");
-  }
-  assert(E == fileE && step == fileStep);
-  dataStart = file.ftell();
-  u32 fileSize = file.seekEnd();
-  u32 residueBytes= nWords * 4;
-  assert(fileSize >= dataStart);
-  u32 dataBytes = fileSize - dataStart;
-  size_ = dataBytes / residueBytes;
-  assert(size_ * residueBytes == dataBytes);
-}
-
 void StateLoader::save(u32 E, const std::string& extension) {
-  fs::path newFile = fileName(E, "-new", extension);
+  fs::path newFile = File::fileName(E, "-new", extension);
   doSave(File::openWrite(newFile).get());
   
-  fs::path saveFile = fileName(E, "", extension);
-  fs::path oldFile = fileName(E, "-old", extension);
+  fs::path saveFile = File::fileName(E, "", extension);
+  fs::path oldFile = File::fileName(E, "-old", extension);
   error_code noThrow;
   fs::remove(oldFile, noThrow);
   fs::rename(saveFile, oldFile, noThrow);
@@ -80,7 +44,7 @@ void StateLoader::save(u32 E, const std::string& extension) {
 
 bool StateLoader::load(u32 E, const std::string& extension) {
   bool foundFiles = false;
-  for (auto&& path : {fileName(E, "", extension), fileName(E, "-old", extension)}) {
+  for (auto&& path : {File::fileName(E, "", extension), File::fileName(E, "-old", extension)}) {
     if (auto fi = File::openRead(path)) {
       foundFiles = true;
       if (load(fi.get())) {
