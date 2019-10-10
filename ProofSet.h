@@ -43,12 +43,12 @@ public:
     }
     assert(E == fileE);
     dataStart = file.ftell();
-    u32 fileSize = file.seekEnd();
+    u64 fileSize = file.seekEnd();
     u32 residueBytes= nWords * 4;
     assert(fileSize >= dataStart);
-    u32 dataBytes = fileSize - dataStart;
+    u64 dataBytes = fileSize - dataStart;
     size_ = dataBytes / residueBytes;
-    assert(size_ * residueBytes == dataBytes);
+    assert(size_ * u64(residueBytes) == dataBytes);
   }
 
 
