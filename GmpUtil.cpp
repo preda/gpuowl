@@ -1,3 +1,5 @@
+// Copyright (C) Mihai Preda.
+
 #include "GmpUtil.h"
 
 #include <gmp.h>

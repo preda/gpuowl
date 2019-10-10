@@ -1,3 +1,5 @@
+// Copyright (C) Mihai Preda.
+
 #include "Task.h"
 
 #include "Gpu.h"

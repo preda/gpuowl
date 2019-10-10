@@ -621,9 +621,7 @@ public:
   }
 };
 
-tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
-  bool withProof = args.withProof || ProofSet::exists(E);
-  
+tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {  
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
   Buffer<double> buf3{queue, "buf3", N};
@@ -644,6 +642,8 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   const u32 checkStep = blockSize * blockSize;
   
   u32 startK = k;
+  bool withProof = args.withProof && (ProofSet::exists(E) || startK == 0);
+  if (args.withProof && !withProof) { log("%u Note: -proof ignored because the test is ongoing\n", E); }
 
   std::optional<ProofSet> proofSet;
   u32 nextProofK = -1; // never

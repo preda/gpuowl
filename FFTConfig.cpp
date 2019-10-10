@@ -1,3 +1,5 @@
+// Copyright (C) Mihai Preda.
+
 #include "FFTConfig.h"
 #include "common.h"
 
