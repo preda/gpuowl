@@ -642,19 +642,23 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   const u32 checkStep = blockSize * blockSize;
   
   u32 startK = k;
-  bool withProof = args.withProof && (ProofSet::exists(E) || startK == 0);
-  if (args.withProof && !withProof) { log("%u Note: -proof ignored because the test is ongoing\n", E); }
+  u32 proofPow = (args.proofPow && (startK == 0 || ProofSet::exists(E))) ? args.proofPow : 0;
+  if (args.proofPow && !proofPow) { log("%u Note: -proof ignored because the test is ongoing\n", E); }
 
   std::optional<ProofSet> proofSet;
   u32 nextProofK = -1; // never
-  if (withProof) {
-    proofSet.emplace(E);
-    u32 nExpectedEntries = startK / proofSet->step;
+  if (proofPow) {
+    proofSet.emplace(E, proofPow);
+    if (proofSet->pow() != proofPow) {
+      proofPow = proofSet->pow();
+      log("%u proof <power> can't be changed while the test is ongoing; using %d\n", E, proofPow);
+    }
+    u32 nExpectedEntries = startK / proofSet->step();
     if (proofSet->size() != nExpectedEntries) {
       log("%u proof set size: expected %u, found %u\n", E, nExpectedEntries, proofSet->size());
       throw "proof set size";
     }
-    nextProofK = (proofSet->size() + 1) * proofSet->step;
+    nextProofK = (proofSet->size() + 1) * proofSet->step();
   }
   
   Signal signal;
@@ -678,7 +682,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       proofSet->append(readData());
       k = nextProofK;
       log("%u %u added to proof set\n", E, k);
-      nextProofK += proofSet->step;
+      nextProofK += proofSet->step();
     }
     
     if (nextK >= kEnd) {

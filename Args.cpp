@@ -59,7 +59,8 @@ Command line options:
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
 -yield             : enable work-around for CUDA busy wait taking up one CPU core
--use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning).
+-proof [<power>]   : enable experimental PRP proof generation. Uses a lot of disk. Default <power> is 8.
+-use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
 -device <N>        : select a specific device:
 )", blockSize, logStep, B1, B2_B1_ratio);
 
@@ -90,7 +91,13 @@ void Args::parse(string line) {
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
-    else if (key == "-proof") { withProof = true; }
+    else if (key == "-proof") {
+      proofPow = s.empty() ? 8 : stoi(s);
+      if (proofPow < 7 || proofPow > 10) {
+        log("-proofPow <power>: power must be between 7 and 10 (got %d); using 8\n", proofPow);
+        proofPow = 8;
+      }
+    }
     else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxBufs") { maxBuffers = stoi(s); }
     else if (key == "-maxAlloc") { maxAlloc = size_t(stoi(s)) << 20; }
