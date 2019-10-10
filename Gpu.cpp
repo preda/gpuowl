@@ -16,6 +16,7 @@
 #include <cstring>
 #include <algorithm>
 #include <future>
+#include <optional>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -621,7 +622,7 @@ public:
 };
 
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
-  bool withProof = args.prove || ProofSet::exists(E);
+  bool withProof = args.withProof || ProofSet::exists(E);
   
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
@@ -644,13 +645,17 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   
   u32 startK = k;
 
-  
+  std::optional<ProofSet> proofSet;
+  u32 nextProofK = -1; // never
   if (withProof) {
-
+    proofSet.emplace(E);
+    u32 nExpectedEntries = startK / proofSet->step;
+    if (proofSet->size() != nExpectedEntries) {
+      log("%u proof set size: expected %u, found %u\n", E, nExpectedEntries, proofSet->size());
+      throw "proof set size";
+    }
+    nextProofK = (proofSet->size() + 1) * proofSet->step;
   }
-  
-  // u32 proofK = 
-  
   
   Signal signal;
 
@@ -664,20 +669,32 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
   while (true) {
     assert(k % blockSize == 0);
-    if (k < kEnd && k + blockSize >= kEnd) {
+    assert(k < kEnd);
+    
+    u32 nextK = k + blockSize;
+    
+    if (nextK >= nextProofK) {
+      modSqLoop(nextProofK - k, false, buf1, buf2, bufData);
+      proofSet->append(readData());
+      k = nextProofK;
+      log("%u %u added to proof set\n", E, k);
+      nextProofK += proofSet->step;
+    }
+    
+    if (nextK >= kEnd) {
+      assert(kEnd > k);
       modSqLoop(kEnd - k, false, buf1, buf2, bufData);
       auto words = this->roundtripData();
       isPrime = equals9(words);
       doDiv9(E, words);
       finalRes64 = residue(words);
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
-
-      int itersLeft = blockSize - (kEnd - k);
-      if (itersLeft > 0) { modSqLoop(itersLeft, false, buf1, buf2, bufData); }
-    } else {
-      modSqLoop(blockSize, false, buf1, buf2, bufData);
+      k = kEnd;
     }
-    k += blockSize;
+    
+    assert(nextK > k);
+    modSqLoop(nextK - k, false, buf1, buf2, bufData);
+    k = nextK;
     queue->finish();
         
     bool doStop = signal.stopRequested();
@@ -708,7 +725,8 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
 
     if (ok) {
       if (k < kEnd) { PRPState{E, k, blockSize, res64, check, nErrors}.save(); }
-      if (isPrime || k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
+      assert(!isPrime || k >= kEnd);
+      if (k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
       nSeqErrors = 0;      
     } else {
       ++nErrors;

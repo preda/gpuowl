@@ -22,9 +22,10 @@ public:
   }
   
   ProofSet(u32 E) : E{E},
-                    step{(E - E % 1024) / 512},
+                    step{E / 512},
                     file{File::openReadAppend(E, "set.owl")},
                     nWords{(E - 1) / 32 + 1} {
+    assert(E & (512 - 1));
     std::string headerLine = file.readLine();
     if (headerLine.empty()) {
       if (!file.empty()) {

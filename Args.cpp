@@ -90,6 +90,7 @@ void Args::parse(string line) {
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
+    else if (key == "-proof") { withProof = true; }
     else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxBufs") { maxBuffers = stoi(s); }
     else if (key == "-maxAlloc") { maxAlloc = size_t(stoi(s)) << 20; }
