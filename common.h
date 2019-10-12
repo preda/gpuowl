@@ -4,12 +4,14 @@
 
 #include <string>
 
-typedef unsigned char byte;
-typedef long long i64;
-typedef unsigned long long u64;
-typedef int      i32;
-typedef unsigned u32;
+using byte = unsigned char;
+using u8 = byte;
+using i64 = long long;
+using u64 = unsigned long long;
+using i32 = int;
+using u32 = unsigned;
 
+static_assert(sizeof(u8)  == 1, "size u8");
 static_assert(sizeof(u32) == 4, "size u32");
 static_assert(sizeof(u64) == 8, "size u64");
 

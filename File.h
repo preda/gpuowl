@@ -56,6 +56,8 @@ public:
   void write(const vector<T>& v) {
     if (!fwrite(v.data(), v.size() * sizeof(T), 1, get())) { throw(std::ios_base::failure((name + ": can't write data").c_str())); }
   }
+
+  void flush() { fflush(get()); }
   
   int printf(const char *fmt, ...) __attribute__((format(printf, 2, 3))) {
     va_list va;

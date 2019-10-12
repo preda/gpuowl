@@ -488,9 +488,7 @@ void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, B
 }
 
 void Gpu::modSqLoop(u32 reps, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
-  assert(reps > 0);
-  bool leadIn = true;
-        
+  bool leadIn = true;        
   for (u32 i = 0; i < reps; ++i) {
     bool leadOut = useLongCarry || (i == reps - 1);
     coreStep(leadIn, leadOut, mul3 && (i == reps - 1), buf1, buf2, io);
@@ -642,24 +640,13 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   const u32 checkStep = blockSize * blockSize;
   
   u32 startK = k;
-  u32 proofPow = (args.proofPow && (startK == 0 || ProofSet::exists(E))) ? args.proofPow : 0;
-  if (args.proofPow && !proofPow) { log("%u Note: -proof ignored because the test is ongoing\n", E); }
-
-  std::optional<ProofSet> proofSet;
-  u32 nextProofK = -1; // never
-  if (proofPow) {
-    proofSet.emplace(E, proofPow);
-    if (proofSet->pow() != proofPow) {
-      proofPow = proofSet->pow();
-      log("%u proof <power> can't be changed while the test is ongoing; using %d\n", E, proofPow);
-    }
-    u32 nExpectedEntries = startK / proofSet->step();
-    if (proofSet->size() != nExpectedEntries) {
-      log("%u proof set size: expected %u, found %u\n", E, nExpectedEntries, proofSet->size());
-      throw "proof set size";
-    }
-    nextProofK = (proofSet->size() + 1) * proofSet->step();
+  ProofSet proofSet{E, args.proofPow};
+  if (!proofSet.validUpTo(startK)) {
+    log("%u invalid/incomplete proof set with power %u at iteration %u\n", E, args.proofPow, startK);
+    throw "invalid/incomplete proof set";
   }
+
+  u32 nextProofK = (startK / proofSet.step + 1) * proofSet.step;
   
   Signal signal;
 
@@ -679,10 +666,10 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     
     if (nextK >= nextProofK) {
       modSqLoop(nextProofK - k, false, buf1, buf2, bufData);
-      proofSet->append(readData());
       k = nextProofK;
+      proofSet.writeAtK(k, roundtripData());
       log("%u %u added to proof set\n", E, k);
-      nextProofK += proofSet->step();
+      nextProofK += proofSet.step;
     }
     
     if (nextK >= kEnd) {
@@ -696,7 +683,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       k = kEnd;
     }
     
-    assert(nextK > k);
+    assert(nextK >= k);
     modSqLoop(nextK - k, false, buf1, buf2, bufData);
     k = nextK;
     queue->finish();
