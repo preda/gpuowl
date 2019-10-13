@@ -78,24 +78,13 @@ public:
     assert(this->size == rhs.size);
     copyBuf(queue->get(), rhs.get(), this->get(), this->size * sizeof(T));
   }
-
-  // sync write
-  void operator=(const vector<T>& vect) {
-    assert(this->size == vect.size());
-    write(queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
-  }
-
-  // async write
-  void operator<<(const vector<T>& vect) {
-    assert(this->size == vect.size());
-    write(queue->get(), false, this->get(), this->size * sizeof(T), vect.data());
-  }
 };
 
 template<typename T>
 class HostAccessBuffer : public Buffer<T> {
 public:
   using Buffer<T>::operator=;
+  using Buffer<T>::operator<<;
   
   HostAccessBuffer(QueuePtr queue, std::string_view name, size_t size)
     : Buffer<T>(queue, name, size, CL_MEM_READ_WRITE) {}
@@ -115,7 +104,19 @@ public:
     out.resize(readSize);
     ::read(this->queue->get(), false, this->get(), readSize * sizeof(T), out.data());
   }
-    
+
+  // sync write
+  void operator=(const vector<T>& vect) {
+    assert(this->size == vect.size());
+    write(this->queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
+  }
+
+  // async write
+  void operator<<(const vector<T>& vect) {
+    assert(this->size == vect.size());
+    write(this->queue->get(), false, this->get(), this->size * sizeof(T), vect.data());
+  }
+  
   operator vector<T>() const { return read(); }
 
   // async read

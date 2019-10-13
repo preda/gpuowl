@@ -645,8 +645,6 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     log("%u invalid/incomplete proof set with power %u at iteration %u\n", E, args.proofPow, startK);
     throw "invalid/incomplete proof set";
   }
-
-  u32 nextProofK = (startK / proofSet.step + 1) * proofSet.step;
   
   Signal signal;
 
@@ -663,19 +661,19 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     assert(k < kEnd);
     
     u32 nextK = k + blockSize;
-    
+
+    u32 nextProofK = (k / proofSet.step + 1) * proofSet.step;
     if (nextK >= nextProofK) {
       modSqLoop(nextProofK - k, false, buf1, buf2, bufData);
       k = nextProofK;
       proofSet.writeAtK(k, roundtripData());
       log("%u %u added to proof set\n", E, k);
-      nextProofK += proofSet.step;
     }
     
     if (nextK >= kEnd) {
       assert(kEnd > k);
       modSqLoop(kEnd - k, false, buf1, buf2, bufData);
-      auto words = this->roundtripData();
+      auto words = roundtripData();
       isPrime = equals9(words);
       doDiv9(E, words);
       finalRes64 = residue(words);

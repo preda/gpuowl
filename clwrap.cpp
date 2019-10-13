@@ -326,16 +326,6 @@ void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *d
   CHECK1(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
 
-/*
-void read(cl_queue queue, bool blocking, Buffer &buf, size_t size, void *data, size_t start) {
-  CHECK1(clEnqueueReadBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
-}
-
-void write(cl_queue queue, bool blocking, Buffer &buf, size_t size, const void *data, size_t start) {
-  CHECK1(clEnqueueWriteBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
-}
-*/
-
 void copyBuf(cl_queue queue, const cl_mem src, cl_mem dst, size_t size) {
   CHECK1(clEnqueueCopyBuffer(queue, src, dst, 0, 0, size, 0, NULL, NULL));
 }
