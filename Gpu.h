@@ -58,6 +58,7 @@ class Gpu {
   Kernel readResidue;
   Kernel isNotZero;
   Kernel isEqual;
+  Kernel sum64;
 
   // Trigonometry constant buffers, used in FFTs.
   ConstBuffer<double2> bufTrigW;
@@ -84,6 +85,7 @@ class Gpu {
 
   // Small aux buffer used to read res64.
   HostAccessBuffer<int> bufSmallOut;
+  HostAccessBuffer<u64> bufSumOut;
 
   vector<u32> computeBase(u32 E, u32 B1);
   pair<vector<u32>, vector<u32>> seedPRP(u32 E, u32 B1);
@@ -93,7 +95,7 @@ class Gpu {
   void tW(Buffer<double>& in, Buffer<double>& out);
   void tH(Buffer<double>& in, Buffer<double>& out);
   
-  vector<int> readOut(Buffer<int> &buf);
+  vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(const vector<u32> &words, Buffer<int>& buf);
   void writeIn(const vector<int> &words, Buffer<int>& buf);
   
@@ -116,6 +118,8 @@ class Gpu {
 
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
+
+  vector<u32> readAndCompress(ConstBuffer<int>& buf);
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
@@ -123,8 +127,8 @@ public:
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry);
 
-  vector<u32> roundtripData()  { return writeData(readData()); }
-  vector<u32> roundtripCheck() { return writeCheck(readCheck()); }
+  vector<u32> roundtripData()  { return readData(); }
+  vector<u32> roundtripCheck() { return readCheck(); }
 
   vector<u32> writeData(const vector<u32> &v);
   vector<u32> writeCheck(const vector<u32> &v);
@@ -139,8 +143,8 @@ public:
 
   void logTimeKernels();
 
-  vector<u32> readCheck();
-  vector<u32> readData();
+  vector<u32> readCheck() { return readAndCompress(bufCheck); }
+  vector<u32> readData() { return readAndCompress(bufData); }
 
   std::tuple<bool, u64, u32> isPrimePRP(u32 E, const Args &args);
 

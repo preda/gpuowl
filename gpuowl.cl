@@ -11,6 +11,9 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
+// #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+// #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
+
 #if !NO_ASM
 #define HAS_ASM 1
 #endif
@@ -1132,8 +1135,21 @@ KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, u32 startDword) {
 
 u32 transPos(u32 k, u32 width, u32 height) { return k / height + k % height * width; }
 
-u32 kAt(u32 gx, u32 gy, u32 i) {
-  return CARRY_LEN * gy + BIG_HEIGHT * G_W * gx + BIG_HEIGHT * ((u32) get_local_id(0)) + i;
+KERNEL(256) sum64(u32 sizeBytes, global ulong* in, global ulong* out) {
+  if (get_global_id(0) == 0) { out[0] = 0; }
+  
+  ulong sum = 0;
+  for (i32 p = get_global_id(0); p < sizeBytes / sizeof(u64); p += get_global_size(0)) {
+    sum += in[p];
+  }
+  local ulong localSum;
+  if (get_local_id(0) == 0) { localSum = 0; }
+  bar();
+  atom_add(&localSum, sum);
+  // *(local atomic_long *)&localSum += sum;
+  bar();
+  if (get_local_id(0) == 0) { atom_add(&out[0], localSum); }
+  // out[get_group_id(0)] = localSum; }
 }
 
 // outEqual must be "true" on entry.

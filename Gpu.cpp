@@ -208,6 +208,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(readResidue, 1),
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
+  LOAD(sum64, 256),
 #undef LOAD
 
   bufTrigW{genSmallTrig(context, W, nW)},
@@ -223,7 +224,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCheck{queue, "check", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
-  bufSmallOut{queue, "smallOut", 256}
+  bufSmallOut{queue, "smallOut", 256},
+  bufSumOut{queue, "sumOut", 1}
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
@@ -238,7 +240,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   carryB.setFixedArgs(1, bufCarry, bufExtras);
   tailFused.setFixedArgs(1, bufTrigH);
   tailFusedMulDelta.setFixedArgs(3, bufTrigH);
-    
+  sum64.setFixedArgs(2, bufSumOut);
+  
   queue->zero(bufReady, BIG_H);
 }
 
@@ -298,8 +301,23 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
                           getDevice(args.device), timeKernels, useLongCarry);
 }
 
-vector<u32> Gpu::readData()  { return compactBits(readOut(bufData),  E); }
-vector<u32> Gpu::readCheck() { return compactBits(readOut(bufCheck), E); }
+vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
+  // queue->zero(bufSumOut);
+  while (true) {
+    sum64(u32(buf.size * sizeof(int)), buf);  
+    vector<int> data = readOut(buf);
+    u64 expectedSum = bufSumOut.read()[0];
+    u64 sum = 0;
+    for (auto it = data.begin(), end = data.end(); it < end; it += 2) {
+      sum += u32(*it) | (u64(*(it + 1)) << 32);
+    }
+    if (sum != expectedSum) {
+      log("GPU->host read failed (check %llx vs %llx)\n", sum, expectedSum);
+    } else {
+      return compactBits(std::move(data),  E);
+    }
+  }
+}
 
 vector<u32> Gpu::writeData(const vector<u32> &v) {
   writeIn(v, bufData);
@@ -399,7 +417,7 @@ void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
   transposeH(in, out);
 }
   
-vector<int> Gpu::readOut(Buffer<int> &buf) {
+vector<int> Gpu::readOut(ConstBuffer<int> &buf) {
   transposeOut(buf, bufAux);
   return bufAux.read();
 }
@@ -709,7 +727,6 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
 
     u64 res64 = dataResidue();
-
     doLog(E, k, res64, ok, itTimer.reset(k, blockSize), nTotalIters, nErrors);
 
     if (ok) {
