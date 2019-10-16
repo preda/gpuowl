@@ -304,15 +304,17 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
   // queue->zero(bufSumOut);
   while (true) {
-    sum64(u32(buf.size * sizeof(int)), buf);  
+    sum64(u32(buf.size * sizeof(int)), buf);
+    vector<u64> expectedVect(1);
+    bufSumOut >> expectedVect;
     vector<int> data = readOut(buf);
-    u64 expectedSum = bufSumOut.read()[0];
+    u64 expectedSum = expectedVect[0];
     u64 sum = 0;
     for (auto it = data.begin(), end = data.end(); it < end; it += 2) {
       sum += u32(*it) | (u64(*(it + 1)) << 32);
     }
     if (sum != expectedSum) {
-      log("GPU->host read failed (check %llx vs %llx)\n", sum, expectedSum);
+      log("GPU->host read failed (check %x vs %x)\n", unsigned(sum), unsigned(expectedSum));
     } else {
       return compactBits(std::move(data),  E);
     }
