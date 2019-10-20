@@ -65,7 +65,6 @@ static ConstBuffer<u32> genExtras(const Context& context, u32 E, u32 W, u32 H, u
     }
   }
   return {context, "extras", extras};
-  // context.constBuf(extras, "extras");
 }
 
 struct Weights {
@@ -632,8 +631,8 @@ public:
   
   float at(u32 k) const { return (k > kStart) ? timer.elapsed() / (k - kStart) : 0; }
   
-  float reset(u32 k, u32 extra = 0) {
-    float ret = (k + extra > kStart) ? timer.delta() / (k + extra - kStart) : 0;
+  float reset(u32 k) {
+    float ret = (k > kStart) ? timer.delta() / (k - kStart) : 0;
     kStart = k;
     return ret;
   }
@@ -725,11 +724,12 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       continue;
     }
 
+    float timeExcludingCheck = itTimer.reset(k);
     vector<u32> check = this->roundtripCheck();
     bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
 
     u64 res64 = dataResidue();
-    doLog(E, k, res64, ok, itTimer.reset(k, blockSize), nTotalIters, nErrors);
+    doLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors);
 
     if (ok) {
       if (k < kEnd) { PRPState{E, k, blockSize, res64, check, nErrors}.save(); }
@@ -747,6 +747,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       k = loaded.k;
       assert(blockSize == loaded.blockSize);
     }
+    itTimer.reset(k);
     logTimeKernels();
     if (doStop) { throw "stop requested"; }
   }
