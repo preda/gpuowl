@@ -99,9 +99,9 @@ class Gpu {
   void writeIn(const vector<u32> &words, Buffer<int>& buf);
   void writeIn(const vector<int> &words, Buffer<int>& buf);
   
-  void modSqLoop(u32 reps, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io);
+  void modSqLoop(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io, bool mul3 = false);
   
-  void modMul(Buffer<int>& in, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io);
+  void modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3 = false);
   bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
   u64 bufResidue(Buffer<int>& buf);
   

@@ -30,7 +30,7 @@ public:
   u32 proofPow = 0;
   
   int carry = CARRY_AUTO;
-  u32 blockSize = 500;
+  u32 blockSize = 200;
   u32 logStep = 50000;
   int fftSize = 0;
 

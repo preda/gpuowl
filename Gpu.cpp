@@ -331,7 +331,7 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
 }
 
 // The modular multiplication io *= in.
-void Gpu::modMul(Buffer<int>& in, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io) {
+void Gpu::modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3) {
   fftP(in, buf1);
   tW(buf1, buf3);
     
@@ -359,8 +359,8 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
-    modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
-    modMul(bufAux, false, buf1, buf2, buf3, bufData);
+    modSqLoop(n, buf1, buf2, bufData);
+    modMul(bufAux, buf1, buf2, buf3, bufData);
     bufAux << bufData;
   }
 
@@ -371,21 +371,21 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize >= 2);
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
-    modSqLoop(n, false, buf1, buf2, bufData); // dataLoop(n);
-    modMul(bufAux, false, buf1, buf2, buf3, bufData);
+    modSqLoop(n, buf1, buf2, bufData);
+    modMul(bufAux, buf1, buf2, buf3, bufData);
   }
   
-  modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
-  modMul(bufAux, true, buf1, buf2, buf3, bufData);
+  modSqLoop(n, buf1, buf2, bufData);
+  modMul(bufAux, buf1, buf2, buf3, bufData, true);
 }
 
 void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  modMul(bufData, false, buf1, buf2, buf3, bufCheck);
+  modMul(bufData, buf1, buf2, buf3, bufCheck);
 }
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   bufAux << bufCheck;
-  modSqLoop(blockSize, true, buf1, buf2, bufAux);
+  modSqLoop(blockSize, buf1, buf2, bufAux, true);
   updateCheck(buf1, buf2, buf3);
   return equalNotZero(bufCheck, bufAux);
 }
@@ -506,8 +506,8 @@ void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, B
   }  
 }
 
-void Gpu::modSqLoop(u32 reps, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
-  bool leadIn = true;        
+void Gpu::modSqLoop(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io, bool mul3) {
+  bool leadIn = true;
   for (u32 i = 0; i < reps; ++i) {
     bool leadOut = useLongCarry || (i == reps - 1);
     coreStep(leadIn, leadOut, mul3 && (i == reps - 1), buf1, buf2, io);
@@ -540,28 +540,27 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
   return string(buf);
 }
 
-static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float secsPerIt, u32 nIters) {
+static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float secsPerIt, u32 nIters, double minBlockTime, double allMinBlockTime) {
   // float msPerSq = info.total / info.n;
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%u %2s %8d %6.2f%%; %4.0f us/it; ETA %s; %016llx",
+  snprintf(buf, sizeof(buf), "%u %2s %8d %6.2f%%; %4.0f us/it (min %4.0f %4.0f); ETA %s; %016llx",
            E, status.data(), k, k / float(nIters) * 100,
-           secsPerIt * 1'000'000.f, getETA(k, nIters, secsPerIt).c_str(), res);
+           secsPerIt * 1'000'000, minBlockTime * 1'000'000, allMinBlockTime * 1'000'000, getETA(k, nIters, secsPerIt).c_str(), res);
   return buf;
 }
 
-static void doLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, u32 nIters, u32 nErrors) {
-  log("%s %s\n",      
-      makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, double minBlockTime, double allMinBlockTime) {
+  log("%s %s\n", makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters, minBlockTime, allMinBlockTime).c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
-static void doSmallLog(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
-  log("%s\n", makeLogStr(E, "", k, res, secsPerIt, nIters).c_str());
+static void doSmallLog(u32 E, u32 k, u64 res, double secsPerIt, u32 nIters, double minBlockTime, double allMinBlockTime) {
+  log("%s\n", makeLogStr(E, "", k, res, secsPerIt, nIters, minBlockTime, allMinBlockTime).c_str());
 }
 
 static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
-  log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters).c_str());
+  log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters, 0, 0).c_str());
 }
 
 [[maybe_unused]] static void logPm1Stage2(u32 E, float ratioComplete) {
@@ -584,9 +583,11 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<doub
   u64 res64 = dataResidue();
   bool ok = (res64 == loaded.res64);
   updateCheck(buf1, buf2, buf3);
+  
+  log("%u %2s %8d loaded: blockSize %d, %s (expected %s)\n",
+      E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), hex(loaded.res64).c_str());
+
   if (!ok) {
-    log("%u EE loaded: %d, blockSize %d, %s (expected %s)\n",
-        E, loaded.k, loaded.blockSize, hex(res64).c_str(), hex(loaded.res64).c_str());
     throw "error on load";
   }
 
@@ -625,14 +626,18 @@ void doDiv9(int E, std::vector<u32> &words) {
 class IterationTimer {
   Timer timer;
   u32 kStart;
+
+  double secsPerIt(double secs, u32 k) const { return secs / std::max(k - kStart, 1u); }
   
 public:
   IterationTimer(u32 kStart) : kStart(kStart) {}
   
-  float at(u32 k) const { return (k > kStart) ? timer.elapsed() / (k - kStart) : 0; }
+  // double at(u32 k) const { return secsPerIt(timer.elapsed(), k); }
   
-  float reset(u32 k) {
-    float ret = (k > kStart) ? timer.delta() / (k - kStart) : 0;
+  double reset(u32 k) {
+    double secs = timer.deltaSecs();
+    // log("ns %20.1f\n", secs * 1e9);
+    double ret = secsPerIt(secs, k);
     kStart = k;
     return ret;
   }
@@ -675,15 +680,21 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
 
   u64 finalRes64 = 0;
   u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
+  Timer timer;
+  double minBlockTime = 1e9;
+  double allMinBlockTime = 1e9;
+  
   while (true) {
     assert(k % blockSize == 0);
     assert(k < kEnd);
     
     u32 nextK = k + blockSize;
-
     u32 nextProofK = (k / proofSet.step + 1) * proofSet.step;
+
+    timer.reset();
+    
     if (nextK >= nextProofK) {
-      modSqLoop(nextProofK - k, false, buf1, buf2, bufData);
+      modSqLoop(nextProofK - k, buf1, buf2, bufData);
       k = nextProofK;
       proofSet.writeAtK(k, roundtripData());
       log("%u %u added to proof set\n", E, k);
@@ -691,7 +702,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     
     if (nextK >= kEnd) {
       assert(kEnd > k);
-      modSqLoop(kEnd - k, false, buf1, buf2, bufData);
+      modSqLoop(kEnd - k, buf1, buf2, bufData);
       auto words = roundtripData();
       isPrime = equals9(words);
       doDiv9(E, words);
@@ -701,55 +712,64 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     }
     
     assert(nextK >= k);
-    modSqLoop(nextK - k, false, buf1, buf2, bufData);
+    modSqLoop(nextK - k, buf1, buf2, bufData);
     k = nextK;
-    queue->finish();
-        
-    bool doStop = signal.stopRequested();
+
+    bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
     if (doStop) {
       log("Stopping, please wait..\n");
       signal.release();
     }
 
-    if (args.iters && k - startK == args.iters) { doStop = true; }
+    bool doCheck = doStop || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
+    bool doLog = (k % args.logStep == 0);
 
-    bool doCheck = (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || doStop || (k - startK == 2 * blockSize);
-    
     if (!doCheck) {
       this->updateCheck(buf1, buf2, buf3);
-      if (k % args.logStep == 0) {
-        doSmallLog(E, k, dataResidue(), itTimer.reset(k), nTotalIters);
+      if (doLog) {
+        u64 res = dataResidue();
+        doSmallLog(E, k, res, itTimer.reset(k), nTotalIters, minBlockTime / blockSize, allMinBlockTime / blockSize);
+        minBlockTime = 1e9;
         logTimeKernels();
+      } else {
+        queue->finish();
       }
-      continue;
-    }
-
-    float timeExcludingCheck = itTimer.reset(k);
-    vector<u32> check = this->roundtripCheck();
-    bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
-
-    u64 res64 = dataResidue();
-    doLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors);
-
-    if (ok) {
-      if (k < kEnd) { PRPState{E, k, blockSize, res64, check, nErrors}.save(); }
-      assert(!isPrime || k >= kEnd);
-      if (k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
-      nSeqErrors = 0;      
     } else {
-      ++nErrors;
-      if (++nSeqErrors > 2) {
-        log("%d sequential errors, will stop.\n", nSeqErrors);
-        throw "too many errors";
-      }
-      
-      auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
-      k = loaded.k;
-      assert(blockSize == loaded.blockSize);
+      queue->finish();
     }
-    itTimer.reset(k);
-    logTimeKernels();
-    if (doStop) { throw "stop requested"; }
+    
+    minBlockTime = std::min(minBlockTime, timer.deltaSecs());
+    allMinBlockTime = std::min(allMinBlockTime, minBlockTime);
+
+    if (doCheck) {
+      double timeExcludingCheck = itTimer.reset(k);
+      vector<u32> check = this->roundtripCheck();
+      bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
+
+      u64 res64 = dataResidue();
+      doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors + !ok, minBlockTime / blockSize, allMinBlockTime / blockSize);
+      minBlockTime = 1e9;
+
+      if (ok) {
+        if (k < kEnd) { PRPState{E, k, blockSize, res64, check, nErrors}.save(); }
+        assert(!isPrime || k >= kEnd);
+        if (k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
+        nSeqErrors = 0;      
+      } else {
+        ++nErrors;
+        if (++nSeqErrors > 2) {
+          log("%d sequential errors, will stop.\n", nSeqErrors);
+          throw "too many errors";
+        }
+      
+        auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
+        k = loaded.k;
+        assert(blockSize == loaded.blockSize);
+      }
+      itTimer.reset(k);
+      logTimeKernels();
+      if (doStop) { throw "stop requested"; }
+    }
   }
 }
 
@@ -967,7 +987,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     
     queue->finish();
     // logTimeKernels();
-    float setup = timer.delta();
+    float setup = timer.deltaSecs();
 
     u32 nSelected = 0;
     bool first = true;
@@ -993,7 +1013,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
     if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, bufAcc.read()}.save(); }
     
-    log("%u P2 %4u/2880: %u primes; setup %5.2f s, %7.3f ms/prime\n", E, pos + nUsedBufs, nSelected, setup, timer.delta() * 1000.f / (nSelected + 1));
+    log("%u P2 %4u/2880: %u primes; setup %5.2f s, %7.3f ms/prime\n", E, pos + nUsedBufs, nSelected, setup, timer.deltaSecs() * 1000.f / (nSelected + 1));
     logTimeKernels();
 
     if (gcdFuture.valid()) {

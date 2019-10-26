@@ -2,11 +2,13 @@
 
 #pragma once
 
+#include "common.h"
+
 #include <chrono>
 #include <string>
 
 class Timer {
-  using clock = std::chrono::high_resolution_clock;
+  using clock = std::chrono::steady_clock;
   clock::time_point start;
 
 public:
@@ -14,11 +16,18 @@ public:
   
   void reset() { start = clock::now(); }
 
-  float elapsed() const { return std::chrono::duration<float>(clock::now() - start).count(); }
+  u64 elapsed() const { return std::chrono::duration<u64, std::nano>(clock::now() - start).count(); }
 
-  float delta() {
+  u64 deltaNanos() {
     auto now = clock::now();
-    double ret = std::chrono::duration<float>(now - start).count();
+    u64 ret = std::chrono::duration<u64, std::nano>(now - start).count();
+    start = now;
+    return ret;
+  }
+
+  double deltaSecs() {
+    auto now = clock::now();
+    double ret = std::chrono::duration<double>(now - start).count();
     start = now;
     return ret;
   }
