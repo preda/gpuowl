@@ -1402,6 +1402,7 @@ void acquire() {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
+// __attribute__((amdgpu_num_vgpr(64)))
 KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   local T lds[WIDTH];
@@ -1423,6 +1424,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
   T invWeight = weights.x;
   u32 b = bits[G_W * line + me];
   
+  // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
     if (test(b, 2*i)) { invWeight *= 2; }
     T invWeight2 = invWeight * IWEIGHT_STEP;
@@ -1459,6 +1461,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
 
   acquire();
 
+  // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
     if (test(b, 2*i)) { weight *= 0.5; }
     T weight2 = weight * WEIGHT_STEP;

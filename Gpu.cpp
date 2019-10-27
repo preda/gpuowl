@@ -576,20 +576,18 @@ static bool equals9(const vector<u32> &a) {
 
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   PRPState loaded(E, iniBlockSize);
-  // log("%s loaded: k %u, block %u, res64 %s\n", path.string().c_str(), k, blockSize, hex(res64).c_str());
-  
   writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
 
   u64 res64 = dataResidue();
   bool ok = (res64 == loaded.res64);
   updateCheck(buf1, buf2, buf3);
-  
-  log("%u %2s %8d loaded: blockSize %d, %s (expected %s)\n",
-      E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), hex(loaded.res64).c_str());
 
-  if (!ok) {
-    throw "error on load";
-  }
+  std::string expected = " (expected "s + hex(loaded.res64) + ")";
+  
+  log("%u %2s %8d loaded: blockSize %d, %s%s\n",
+      E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
+
+  if (!ok) { throw "error on load"; }
 
   return loaded;
 }
@@ -683,7 +681,8 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   Timer timer;
   double minBlockTime = 1e9;
   double allMinBlockTime = 1e9;
-  
+
+  future<void> saveFuture;
   while (true) {
     assert(k % blockSize == 0);
     assert(k < kEnd);
@@ -751,7 +750,10 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       minBlockTime = 1e9;
 
       if (ok) {
-        if (k < kEnd) { PRPState{E, k, blockSize, res64, check, nErrors}.save(); }
+        if (k < kEnd) {
+          PRPState prpState{E, k, blockSize, res64, std::move(check), nErrors};
+          saveFuture = async(launch::async, &PRPState::save, std::move(prpState));
+        }
         assert(!isPrime || k >= kEnd);
         if (k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
         nSeqErrors = 0;      
@@ -768,7 +770,10 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       }
       itTimer.reset(k);
       logTimeKernels();
-      if (doStop) { throw "stop requested"; }
+      if (doStop) {
+        saveFuture.wait();
+        throw "stop requested";
+      }
     }
   }
 }
