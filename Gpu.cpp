@@ -714,6 +714,8 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     modSqLoop(nextK - k, buf1, buf2, bufData);
     k = nextK;
 
+    if (saveFuture.valid()) { saveFuture.get(); }
+    
     bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
     if (doStop) {
       log("Stopping, please wait..\n");
@@ -771,7 +773,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       itTimer.reset(k);
       logTimeKernels();
       if (doStop) {
-        saveFuture.wait();
+        if (saveFuture.valid()) { saveFuture.get(); }
         throw "stop requested";
       }
     }
@@ -1021,12 +1023,10 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     log("%u P2 %4u/2880: %u primes; setup %5.2f s, %7.3f ms/prime\n", E, pos + nUsedBufs, nSelected, setup, timer.deltaSecs() * 1000.f / (nSelected + 1));
     logTimeKernels();
 
-    if (gcdFuture.valid()) {
-      if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-        string gcd = gcdFuture.get();
-        log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-        if (!gcd.empty()) { return gcd; }
-      }
+    if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+      string gcd = gcdFuture.get();
+      log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+      if (!gcd.empty()) { return gcd; }
     }      
   }
 
@@ -1037,7 +1037,6 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   }
 
   if (gcdFuture.valid()) {
-    gcdFuture.wait();
     string gcd = gcdFuture.get();
     log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
     if (!gcd.empty()) { return gcd; }
