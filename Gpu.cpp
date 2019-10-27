@@ -550,9 +550,9 @@ static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float secsPe
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, double minBlockTime, double allMinBlockTime) {
-  log("%s %s\n", makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters, minBlockTime, allMinBlockTime).c_str(),
-      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, double minBlockTime, double allMinBlockTime, double checkTime) {
+  log("%s (check %.2fs)%s\n", makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters, minBlockTime, allMinBlockTime).c_str(),
+      checkTime, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
 static void doSmallLog(u32 E, u32 k, u64 res, double secsPerIt, u32 nIters, double minBlockTime, double allMinBlockTime) {
@@ -634,7 +634,6 @@ public:
   
   double reset(u32 k) {
     double secs = timer.deltaSecs();
-    // log("ns %20.1f\n", secs * 1e9);
     double ret = secsPerIt(secs, k);
     kStart = k;
     return ret;
@@ -748,7 +747,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
 
       u64 res64 = dataResidue();
-      doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors + !ok, minBlockTime / blockSize, allMinBlockTime / blockSize);
+      doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors + !ok, minBlockTime / blockSize, allMinBlockTime / blockSize, itTimer.reset(k));
       minBlockTime = 1e9;
 
       if (ok) {
