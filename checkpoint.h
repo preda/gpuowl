@@ -19,7 +19,7 @@ protected:
   virtual u32 getK() = 0;
   
   bool load(u32 E, const std::string& extension);
-  void save(u32 E, const std::string& extension);
+  void save(u32 E, const std::string& extension, u32 k = 0);
   
   bool load(FILE* fi) {
     char line[256];
@@ -46,7 +46,7 @@ public:
     : E{E}, k{k}, blockSize{blockSize}, res64{res64}, check{std::move(check)}, nErrors{nErrors} {
   }
 
-  void save() { StateLoader::save(E, "owl"); }
+  void save(bool persist) { StateLoader::save(E, "owl", persist ? k : 0); }
   
   const u32 E{};
   u32 k{};

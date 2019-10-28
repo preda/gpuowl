@@ -12,89 +12,24 @@
 namespace fs = std::filesystem;
 
 class ProofSet {
-  // Exponent, iteration, crc
-  static constexpr const char* HEADER_v1 = "OWL SET 1 %u %u %08x\n";
-
-  fs::path fileName(u32 k) {
-    string sE = to_string(E);
-    auto dir = fs::current_path() / sE / "set";
-    fs::create_directories(dir);
-    return dir / to_string(k);
-  }
-
-  
-  bool validAt(u32 k) { return !readAtK(k).empty(); }
-  
+  static constexpr u32 BLOCK_SIZE = 400;
 public:
-  bool validUpTo(u32 maxK) {
-    for (u32 k = step; k <= maxK; k += step) {
-      if (!validAt(k)) { return false; }
-    }
-    return true;
+  bool shouldPersist(u32 k) {
+    assert((k % BLOCK_SIZE) == 0);
+    return k % step == 0;
   }
   
-  ProofSet(u32 E, u32 power) : E{E}, power{power}, step{power ? E/1024*1024/(1 << power) : u32(-1)}, nWords{(E - 1) / 32 + 1} {
-    assert(power <= 10 && (power == 0 || power >= 7));
-  }
-
-
-  vector<u32> readAtK(u32 k) {
-    assert(k > 0 && k < E && k % step == 0);
-    
-    auto file{File::openRead(fileName(k))};
-    if (!file) {
-      log("'%s' can't open\n", file.name.c_str());
-      return {};
-    }
-    
-    auto header = file.readLine();
-    u32 fileE = 0, fileK = 0, fileCrc = 0;
-    if (sscanf(header.c_str(), HEADER_v1, &fileE, &fileK, &fileCrc) != 3 || fileE != E || fileK != k) {
-      log("'%s' invalid header\n", file.name.c_str());
-      return {};
-    }
-    
-    std::vector<u32> data;
-    try {
-      data = file.read<u32>(nWords);
-    } catch (ios_base::failure& e) {
-      log("'%s' can't read data\n", file.name.c_str());
-      return {};
-    }
-    
-    if (crc32(data) != fileCrc) {
-      log("'%s' mismatched CRC\n", file.name.c_str());
-      return {};
-    }
-
-    return data;
-  }
-
-  /*
-  vector<u32> readAtPos(u32 pos) {
-    assert(pos > 0 && pos < (1 << power));
-    return readAtK(pos * step);
-  }
-
-  void writeAtPos(u32 pos, const vector<u32>& data) {
-  }
-  */
-
-  void writeAtK(u32 k, const vector<u32>& data) {
-    assert(k > 0 && k < E && k % step == 0);
-    
-    auto file{File::openWrite(fileName(k))};    
-    file.printf(HEADER_v1, E, k, crc32(data));
-    file.write(data);
-  }
+  ProofSet(u32 E) : E{E} { assert(power >= 7 && power <= 9); }
   
-  const u32 E{};
-  const u32 power{};
-  const u32 step{};
+  const u32 E;
+  const u32 power{7};
+  const u32 step{E / (BLOCK_SIZE * (1 << power)) * BLOCK_SIZE};
   
 private:
-  const u32 nWords{};
-  
+};
+
+
+  /*
   static u32 crc32(const void *data, size_t size) {
     u32 tab[16] =
       { 0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC,
@@ -109,7 +44,7 @@ private:
     }
     return ~crc;
   }
-
+  
   template<typename T>
   static u32 crc32(const std::vector<T>& v) { return crc32(v.data(), v.size() * sizeof(T)); }
-};
+  */

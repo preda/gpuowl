@@ -555,9 +555,11 @@ static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 
       checkTime, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
+/*
 static void doSmallLog(u32 E, u32 k, u64 res, double secsPerIt, u32 nIters, double minBlockTime, double allMinBlockTime) {
   log("%s\n", makeLogStr(E, "", k, res, secsPerIt, nIters, minBlockTime, allMinBlockTime).c_str());
 }
+*/
 
 static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
   log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters, 0, 0).c_str());
@@ -661,11 +663,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   const u32 checkStep = blockSize * blockSize;
   
   u32 startK = k;
-  ProofSet proofSet{E, args.proofPow};
-  if (!proofSet.validUpTo(startK)) {
-    log("%u invalid/incomplete proof set with power %u at iteration %u\n", E, args.proofPow, startK);
-    throw "invalid/incomplete proof set";
-  }
+  ProofSet proofSet{E};
   
   Signal signal;
 
@@ -681,23 +679,14 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   double minBlockTime = 1e9;
   double allMinBlockTime = 1e9;
 
-  future<void> saveFuture;
+  // future<void> saveFuture;
   while (true) {
     assert(k % blockSize == 0);
     assert(k < kEnd);
     
     u32 nextK = k + blockSize;
-    u32 nextProofK = (k / proofSet.step + 1) * proofSet.step;
-
     timer.reset();
-    
-    if (nextK >= nextProofK) {
-      modSqLoop(nextProofK - k, buf1, buf2, bufData);
-      k = nextProofK;
-      proofSet.writeAtK(k, roundtripData());
-      log("%u %u added to proof set\n", E, k);
-    }
-    
+        
     if (nextK >= kEnd) {
       assert(kEnd > k);
       modSqLoop(kEnd - k, buf1, buf2, bufData);
@@ -713,7 +702,9 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     modSqLoop(nextK - k, buf1, buf2, bufData);
     k = nextK;
 
-    if (saveFuture.valid()) { saveFuture.get(); }
+    // if (saveFuture.valid()) { saveFuture.get(); }
+
+    bool persistProof = proofSet.shouldPersist(k);
     
     bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
     if (doStop) {
@@ -721,39 +712,26 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       signal.release();
     }
 
-    bool doCheck = doStop || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
-    bool doLog = (k % args.logStep == 0);
+    bool doCheck = doStop || persistProof || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
+    if (!doCheck) { this->updateCheck(buf1, buf2, buf3); }
 
-    if (!doCheck) {
-      this->updateCheck(buf1, buf2, buf3);
-      if (doLog) {
-        u64 res = dataResidue();
-        doSmallLog(E, k, res, itTimer.reset(k), nTotalIters, minBlockTime / blockSize, allMinBlockTime / blockSize);
-        minBlockTime = 1e9;
-        logTimeKernels();
-      } else {
-        queue->finish();
-      }
-    } else {
-      queue->finish();
-    }
+    queue->finish();
     
     minBlockTime = std::min(minBlockTime, timer.deltaSecs());
-    allMinBlockTime = std::min(allMinBlockTime, minBlockTime);
 
     if (doCheck) {
       double timeExcludingCheck = itTimer.reset(k);
-      vector<u32> check = this->roundtripCheck();
-      bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
-
       u64 res64 = dataResidue();
-      doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors + !ok, minBlockTime / blockSize, allMinBlockTime / blockSize, itTimer.reset(k));
-      minBlockTime = 1e9;
-
+      PRPState prpState{E, k, blockSize, res64, this->roundtripCheck(), nErrors};
+      bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
+      
       if (ok) {
-        if (k < kEnd) {
-          PRPState prpState{E, k, blockSize, res64, std::move(check), nErrors};
-          saveFuture = async(launch::async, &PRPState::save, std::move(prpState));
+        if (k < kEnd) {          
+          prpState.save(persistProof);
+          // saveFuture = async(launch::async, &PRPState::save, std::move(prpState));
+          
+          allMinBlockTime = std::min(allMinBlockTime, minBlockTime);
+          doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, minBlockTime / blockSize, allMinBlockTime / blockSize, itTimer.reset(k));
         }
         assert(!isPrime || k >= kEnd);
         if (k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
@@ -768,13 +746,18 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
         auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
         k = loaded.k;
         assert(blockSize == loaded.blockSize);
+        
+        allMinBlockTime = std::min(allMinBlockTime, minBlockTime);
+        doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, minBlockTime / blockSize, allMinBlockTime / blockSize, itTimer.reset(k));
+
       }
       itTimer.reset(k);
       logTimeKernels();
       if (doStop) {
-        if (saveFuture.valid()) { saveFuture.get(); }
+        // if (saveFuture.valid()) { saveFuture.get(); }
         throw "stop requested";
       }
+      minBlockTime = 1e9;
     }
   }
 }

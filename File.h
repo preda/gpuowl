@@ -35,18 +35,11 @@ class File {
   }
   
 public:
-  static fs::path fileName(u32 E, const string& suffix = "", const string& extension = "owl") {
-    string sE = to_string(E);
-    auto baseDir = fs::current_path() / sE;
-    if (!fs::exists(baseDir)) { fs::create_directory(baseDir); }
-    return baseDir / (sE + suffix + '.' + extension);
-  }
-
   static File openRead(const fs::path& name, bool doThrow = false) { return open(name, "rb", doThrow); }
   static File openWrite(const fs::path &name) { return open(name, "wb", true); }
   static File openAppend(const fs::path &name) { return open(name, "ab", true); }
-  static File openReadAppend(const fs::path &name) { return open(name, "a+b", true); }
-  static File openReadAppend(u32 E, const string& extension) { return openReadAppend(fileName(E, "", extension)); }
+  // static File openReadAppend(const fs::path &name) { return open(name, "a+b", true); }
+  // static File openReadAppend(u32 E, const string& extension) { return openReadAppend(fileName(E, "", extension)); }
 
   File(FILE* ptr, std::string_view name) : ptr{ptr}, name{name} {}
 

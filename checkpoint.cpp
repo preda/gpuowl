@@ -9,6 +9,13 @@
 
 namespace fs = std::filesystem;
 
+static fs::path fileName(u32 E, u32 k, const string& suffix = "", const string& extension = "owl") {
+  string sE = to_string(E);
+  auto baseDir = fs::current_path() / sE;
+  if (!fs::exists(baseDir)) { fs::create_directory(baseDir); }
+  return baseDir / (to_string(k) + suffix + '.' + extension);
+}
+
 // Residue from compacted words.
 u64 residue(const vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
 
@@ -29,22 +36,29 @@ static vector<u32> makeVect(u32 size, u32 elem0) {
   return v;
 }
 
-void StateLoader::save(u32 E, const std::string& extension) {
-  fs::path newFile = File::fileName(E, "-new", extension);
+void StateLoader::save(u32 E, const std::string& extension, u32 k) {
+  fs::path newFile = fileName(E, E, "-new", extension);
   doSave(File::openWrite(newFile).get());
   
-  fs::path saveFile = File::fileName(E, "", extension);
-  fs::path oldFile = File::fileName(E, "-old", extension);
+  fs::path saveFile = fileName(E, E, "", extension);
+  fs::path oldFile = fileName(E, E, "-old", extension);
   error_code noThrow;
   fs::remove(oldFile, noThrow);
   fs::rename(saveFile, oldFile, noThrow);
   fs::rename(newFile, saveFile);
+
+  if (k) {
+    fs::path persistFile = fileName(E, k, "", extension);
+    fs::remove(persistFile, noThrow);    
+    fs::copy_file(saveFile, persistFile, fs::copy_options::overwrite_existing);
+  }
+  
   // log("'%s' saved at %u\n", saveFile.string().c_str(), getK());
 }
 
 bool StateLoader::load(u32 E, const std::string& extension) {
   bool foundFiles = false;
-  for (auto&& path : {File::fileName(E, "", extension), File::fileName(E, "-old", extension)}) {
+  for (auto&& path : {fileName(E, E, "", extension), fileName(E, E, "-old", extension)}) {
     if (auto fi = File::openRead(path)) {
       foundFiles = true;
       if (load(fi.get())) {
