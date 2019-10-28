@@ -30,8 +30,8 @@ public:
   u32 proofPow = 0;
   
   int carry = CARRY_AUTO;
-  u32 blockSize = 400;
-  u32 logStep = 50000;
+  const u32 blockSize = 400;
+  u32 logStep = 200000;
   int fftSize = 0;
 
   u32 B1 = 500000;

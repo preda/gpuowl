@@ -59,7 +59,7 @@ Command line options:
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
 -yield             : enable work-around for CUDA busy wait taking up one CPU core
--proof [<power>]   : enable experimental PRP proof generation. Uses a lot of disk. Default <power> is 8.
+-proof [<power>]   : enable experimental PRP proof generation. Default <power> is 7.
 -use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
 -device <N>        : select a specific device:
 )", blockSize, logStep, B1, B2_B1_ratio);
@@ -92,10 +92,10 @@ void Args::parse(string line) {
   for (const auto& [key, s] : args) {
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
     else if (key == "-proof") {
-      proofPow = s.empty() ? 8 : stoi(s);
-      if (proofPow < 7 || proofPow > 10) {
-        log("-proofPow <power>: power must be between 7 and 10 (got %d); using 8\n", proofPow);
-        proofPow = 8;
+      proofPow = s.empty() ? 7 : stoi(s);
+      if (proofPow < 7 || proofPow > 9) {
+        log("-proofPow <power>: power must be between 7 and 9 (got %d); using 7\n", proofPow);
+        proofPow = 7;
       }
     }
     else if (key == "-results") { resultsFile = s; }
@@ -123,13 +123,14 @@ void Args::parse(string line) {
         log("-carry expects short|long\n");
         throw "-carry expects short|long";
       }
-    } else if (key == "-block") {
+    } /*else if (key == "-block") {
       blockSize = stoi(s);
       if (blockSize <= 0 || 10000 % blockSize) {
         log("Invalid blockSize %u, must divide 10000\n", blockSize);
         throw "-block size";
       }
-    } else if (key == "-use") {
+    } */
+      else if (key == "-use") {
       string ss = s;
       std::replace(ss.begin(), ss.end(), ',', ' ');
       std::istringstream iss{ss};
@@ -138,5 +139,9 @@ void Args::parse(string line) {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";
     }
+  }
+  if (logStep % blockSize) {
+    log("blockSize (%u) must divide logStep (%u)\n", blockSize, logStep);
+    throw "args: blockSize, logStep";
   }
 }

@@ -12,18 +12,20 @@
 namespace fs = std::filesystem;
 
 class ProofSet {
-  static constexpr u32 BLOCK_SIZE = 400;
 public:
   bool shouldPersist(u32 k) {
-    assert((k % BLOCK_SIZE) == 0);
-    return k % step == 0;
+    assert((k % blockSize) == 0);
+    return power && (k % step == 0);
   }
   
-  ProofSet(u32 E) : E{E} { assert(power >= 7 && power <= 9); }
+  ProofSet(u32 E, u32 blockSize, u32 proofPow) : E{E}, blockSize{blockSize}, power{proofPow} {
+    assert(!power || (power >= 7 && power <= 9));
+  }
   
   const u32 E;
-  const u32 power{7};
-  const u32 step{E / (BLOCK_SIZE * (1 << power)) * BLOCK_SIZE};
+  const u32 blockSize;
+  const u32 power;
+  const u32 step{E / (blockSize * (1 << power)) * blockSize};
   
 private:
 };

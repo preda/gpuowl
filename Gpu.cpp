@@ -642,6 +642,17 @@ public:
   }
 };
 
+static u32 checkStepForErrors(u32 baseCheckStep, u32 nErrors) {
+  if (baseCheckStep != 200'000) { return baseCheckStep; }
+  
+  switch (nErrors) {
+    case 0: return 200'000;
+    case 1: return 100'000;
+    case 2: return  50'000;
+    default: return 20'000;
+  }
+}
+
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {  
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
@@ -660,10 +671,10 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   const u32 kEnd = E; // Type-1 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
 
-  const u32 checkStep = blockSize * blockSize;
+  u32 checkStep = checkStepForErrors(args.logStep, nErrors);
   
   u32 startK = k;
-  ProofSet proofSet{E};
+  ProofSet proofSet{E, blockSize, args.proofPow};
   
   Signal signal;
 
@@ -742,7 +753,8 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
           throw "too many errors";
         }
-      
+        checkStep = checkStepForErrors(args.logStep, nErrors);
+        
         auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
         k = loaded.k;
         assert(blockSize == loaded.blockSize);
