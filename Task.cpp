@@ -14,7 +14,7 @@
 #include <thread>
 #include <cassert>
 
-static bool writeResult(const string &part, u32 E, const char *workType, const string &status,
+static void writeResult(const string &part, u32 E, const char *workType, const string &status,
                         const std::string &AID, const Args &args) { // const std::string &user, const std::string &cpu) {
   std::string uid;
   if (!args.user.empty()) { uid += ", \"user\":\"" + args.user + '"'; }
@@ -28,7 +28,6 @@ static bool writeResult(const string &part, u32 E, const char *workType, const s
   
   log("%s\n", buf);
   File::openAppend(args.resultsFile).printf("%s\n", buf);
-  return true;
 }
 
 static string factorStr(const string &factor) { return factor.empty() ? "" : (", \"factors\":[\"" + factor + "\"]"); }
@@ -37,24 +36,23 @@ static string fftStr(u32 fftSize) { return string(", \"fft-length\":") + to_stri
 
 static string resStr(u64 res64) {
   char buf[64];
-  snprintf(buf, sizeof(buf), ", \"res64\":\"%016llx\"", res64);
+  snprintf(buf, sizeof(buf), ", \"res64\":\"%s\"", hex(res64).c_str());
   return buf;
 }
 
-bool Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const {
+void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const {
   assert(B1 == 0 && B2 == 0);
 
   string status = isPrime ? "P" : "C";
-  return writeResult(fftStr(fftSize) + resStr(res64) + ", \"residue-type\":1, \"errors\":{\"gerbicz\":" + to_string(nErrors) + "}",
-                     exponent, "PRP-3", status, AID, args);
+  writeResult(fftStr(fftSize) + resStr(res64) + ", \"residue-type\":1, \"errors\":{\"gerbicz\":" + to_string(nErrors) + "}",
+              exponent, "PRP-3", status, AID, args);
 }
 
-bool Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, bool didStage2) const {
+void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, bool didStage2) const {
   string status = factor.empty() ? "NF" : "F";
   string bounds = ", \"B1\":"s + to_string(B1) + (didStage2 ? ", \"B2\":"s + to_string(B2) : "");
 
-  return writeResult(fftStr(fftSize) + bounds + factorStr(factor),
-                     exponent, "PM1", status, AID, args);
+  writeResult(fftStr(fftSize) + bounds + factorStr(factor), exponent, "PM1", status, AID, args);
 }
 
 bool Task::execute(const Args& args, Background& background) {
@@ -64,16 +62,22 @@ bool Task::execute(const Args& args, Background& background) {
   
   if (kind == PRP) {
     auto [isPrime, res64, nErrors] = gpu->isPrimePRP(exponent, args);
-    return writeResultPRP(args, isPrime, res64, fftSize, nErrors);
+    writeResultPRP(args, isPrime, res64, fftSize, nErrors);
+    if (args.proofPow) {
+      gpu->buildProof(exponent, args);
+    }
+    return true;
   } else if (kind == PM1) {
     auto result = gpu->factorPM1(exponent, args, B1, B2);
     if (holds_alternative<string>(result)) {
       string factor = get<string>(result);
-      return writeResultPM1(args, factor, fftSize, false);
+      writeResultPM1(args, factor, fftSize, false);
+      return true;
     } else {
       vector<u32> &data = get<vector<u32>>(result);
       if (data.empty()) {
-        return writeResultPM1(args, "", fftSize, false);
+        writeResultPM1(args, "", fftSize, false);
+        return true;
       } else {
         background.run([args, fftSize, data{std::move(data)}, task{*this}](){
                          string factor = GCD(task.exponent, data, 0);

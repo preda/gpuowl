@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <string>
+#include <cinttypes>
 
 u64 residue(const vector<u32> &words);
 
@@ -29,11 +30,8 @@ protected:
 };
 
 class PRPState : private StateLoader {
-  // Exponent, iteration, block-size, res64
-  static constexpr const char *HEADER_v9  = "OWL PRP 9 %u %u %u %016llx\n";
-  
   // Exponent, iteration, block-size, res64, nErrors
-  static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016llx %u\n";
+  static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
   
 protected:
   bool doLoad(const char* headerLine, FILE *fi) override;

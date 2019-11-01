@@ -2,14 +2,14 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
-using byte = unsigned char;
-using u8 = byte;
-using i64 = long long;
-using u64 = unsigned long long;
-using i32 = int;
-using u32 = unsigned;
+using u8  = uint8_t;
+using i32 = int32_t;
+using u32 = uint32_t;
+using i64 = int64_t;
+using u64 = uint64_t;
 
 static_assert(sizeof(u8)  == 1, "size u8");
 static_assert(sizeof(u32) == 4, "size u32");

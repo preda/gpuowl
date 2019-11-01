@@ -91,8 +91,7 @@ PRPState::PRPState(u32 E, u32 iniBlockSize) : E{E} {
 
 bool PRPState::doLoad(const char* headerLine, FILE *fi) {
   u32 fileE = 0;
-  if (sscanf(headerLine, HEADER_v10, &fileE, &k, &blockSize, &res64, &nErrors) == 5
-      || sscanf(headerLine, HEADER_v9, &fileE, &k, &blockSize, &res64) == 4) {
+  if (sscanf(headerLine, HEADER_v10, &fileE, &k, &blockSize, &res64, &nErrors) == 5) {
     assert(E == fileE);
     u32 nWords = (E - 1) / 32 + 1;
     return read(fi, nWords, &check);

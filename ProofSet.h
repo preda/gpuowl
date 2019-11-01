@@ -4,6 +4,7 @@
 
 #include "File.h"
 #include "common.h"
+#include "Blake2.h"
 #include <vector>
 #include <string>
 #include <filesystem>
@@ -28,6 +29,25 @@ public:
   const u32 step{E / (blockSize * (1 << power)) * blockSize};
   
 private:
+};
+
+class Proof {
+  vector<vector<u32>> levels;
+
+  using Res = vector<u32>;
+  
+public:
+  Proof(u32 exp, u32 kEnd, u32 power) : exp{exp}, kEnd{kEnd}, power{power} {}
+  
+  const u32 exp;
+  const u32 kEnd;
+  const u32 power;
+
+  u64 headerHash() { return std::move((Blake2{} << exp << kEnd << power)).finish(); }
+
+  void addLevel0(const Res& y0, const Res& u0) {
+    [[maybe_unused]] u64 hash0 = Blake2::hash({headerHash(), y0, u0}); 
+  }  
 };
 
 
