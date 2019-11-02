@@ -836,7 +836,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     throw("missing -maxAlloc");
   }
   
-  vector<bool> bits = powerSmoothBitsRev(E, B1);
+  vector<bool> bits = powerSmoothBE(E, B1);
   // log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
 
   // Buffers used in both stages.

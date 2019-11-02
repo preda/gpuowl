@@ -31,23 +31,49 @@ public:
 private:
 };
 
-class Proof {
-  vector<vector<u32>> levels;
+using Words = vector<u32>;
 
-  using Res = vector<u32>;
+struct Level {
+  Words x, y, u;
+  u64 hash;
+};
+
+class Proof {
+  vector<Level> levels;
+
+
   
 public:
-  Proof(u32 exp, u32 kEnd, u32 power) : exp{exp}, kEnd{kEnd}, power{power} {}
+  Proof(u32 E, u32 kEnd, u32 power) : E{E}, kEnd{kEnd}, power{power}, prevHash{headerHash()} {
+  }
   
-  const u32 exp;
+  const u32 E;
   const u32 kEnd;
   const u32 power;
+  const u32 nWords{(E-1) / 32 + 1};
+  u64 prevHash{};
 
-  u64 headerHash() { return std::move((Blake2{} << exp << kEnd << power)).finish(); }
+  
+  u64 headerHash() { return Blake2::hash({E, kEnd, power}); }
 
-  void addLevel0(const Res& y0, const Res& u0) {
-    [[maybe_unused]] u64 hash0 = Blake2::hash({headerHash(), y0, u0}); 
-  }  
+  /*
+  void addLevel(const Words& x, const Words& y, const Words& u) {
+    // Words x0(nWords);
+    // x0[0] = 3;
+    
+    assert(levels.empty());
+    prevHash = Blake2::hash({prevHash, x, y, u});
+    levels.emplace_back(x, y, u, prevHash);
+  }
+
+  void addNextLevel() {
+    Level& prev = levels.back();
+    Words x = powerMul(prev.x, prev.hash, prev.u);
+    Words y = powerMul(prev.u, prev.hash, prev.y);
+    // Words u = ;
+  }
+  */
+  
 };
 
 
