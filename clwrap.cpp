@@ -113,6 +113,16 @@ u64 getFreeMem(cl_device_id id) {
   }
 }
 
+u64 getTotalMem(cl_device_id id) {
+  try {
+    u64 totSize = 0; 
+    GET_INFO(id, CL_DEVICE_GLOBAL_MEM_SIZE, totSize);
+    return totSize * 1024; // KB to Bytes.    
+  } catch (const gpu_error& err) {
+    return u64(64) * 1024 * 1024 * 1024; // return huge size (64G) when free-info not available
+  }
+}
+
 static string getTopology(cl_device_id id) {
   char topology[64] = {0};
   cl_device_topology_amd top;
