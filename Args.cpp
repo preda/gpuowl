@@ -106,7 +106,7 @@ void Args::parse(string line) {
     else if (key == "-user") { user = s; }
     else if (key == "-cpu") { cpu = s; }
     else if (key == "-time") { timeKernels = true; }
-    else if (key == "-device" || key == "-d") { device = stoi(s); }
+    else if (key == "-device" || key == "-d") { device = stoi(s); cpu = getHwName(device) + "-" + getBoardName(device) + "-" + str(device); }
     else if (key == "-dir") { dir = s; }
     else if (key == "-yield") { cudaYield = true; }
     else if (key == "-carry") {
