@@ -1368,19 +1368,19 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) extras) {
 
 void release() {
 #if 0
-  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE, memory_order_release, memory_scope_device);
+  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_order_release, memory_scope_device);
   work_group_barrier(0);
 #else
-  work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+  work_group_barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_scope_device);
 #endif
 }
 
 void acquire() {
 #if 0
-  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE, memory_order_acquire, memory_scope_device);
+  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_order_acquire, memory_scope_device);
   work_group_barrier(0);
 #else
-  work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+  work_group_barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_scope_device);
 #endif
 }
 
@@ -1424,7 +1424,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
   
   // Signal that this group is done writing the carry.
   if (gr < H && me == 0) {
-    atomic_store_explicit((atomic_uint *) &ready[gr], 1, memory_order_release, memory_scope_device); 
+    atomic_store((atomic_uint *) &ready[gr], 1);
   }
 
   if (gr == 0) { return; }
@@ -1433,8 +1433,8 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
   
   // Wait until the previous group is ready with the carry.
   if (me == 0) {
-    while(!atomic_load_explicit((atomic_uint *) &ready[gr - 1], memory_order_acquire, memory_scope_device));
-    ready[gr - 1] = 0;
+    while(!atomic_load((atomic_uint *) &ready[gr - 1]));
+    atomic_store((atomic_uint *) &ready[gr - 1], 0);
   }
 
   acquire();
@@ -1492,16 +1492,16 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
   
   // Signal that this group is done writing the carry.
   if (gr < H && me == 0) {
-    atomic_store_explicit((atomic_uint *) &ready[gr], 1, memory_order_release, memory_scope_device); 
+    atomic_store((atomic_uint *) &ready[gr], 1);
   }
 
   if (gr == 0) { return; }
   
-  extra = extra0;  
+  extra = extra0;
   // Wait until the previous group is ready with the carry.
   if (me == 0) {
-    while(!atomic_load_explicit((atomic_uint *) &ready[gr - 1], memory_order_acquire, memory_scope_device));
-    ready[gr - 1] = 0;
+    while(!atomic_load((atomic_uint *) &ready[gr - 1]));
+    atomic_store((atomic_uint *) &ready[gr - 1], 0);
   }
 
   acquire();
