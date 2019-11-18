@@ -49,7 +49,7 @@ void check(int err, const char *file, int line, const char *func, string_view me
 #define CHECK1(err) check(err, __FILE__, __LINE__, __func__, #err)
 #define CHECK2(err, mes) check(err, __FILE__, __LINE__, __func__, mes)
 
-vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
+std::vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
 string getHwName(cl_device_id id);
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
@@ -61,7 +61,7 @@ bool hasFreeMemInfo(cl_device_id id);
 cl_context createContext(cl_device_id id);
 
 cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
-                   const vector<pair<string, std::any>> &defines);
+                   const std::vector<pair<string, std::any>> &defines);
 
 void dumpBinary(cl_program program, const string& fileName);
 

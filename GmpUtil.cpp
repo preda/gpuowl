@@ -2,36 +2,37 @@
 
 #include "GmpUtil.h"
 
-#include <gmpxx.h>
 #include <gmp.h>
 #include <cmath>
 #include <cassert>
 
 using namespace std;
 
-// vector<bool> mulBE(const vector<bool>& a, u64 b) {}
+namespace {
 
-static mpz_class mpz(const vector<u32>& words) {
+mpz_class mpz(const vector<u32>& words) {
   mpz_class b{};
   mpz_import(b.get_mpz_t(), words.size(), -1 /*order: LSWord first*/, sizeof(u32), 0 /*endianess: native*/, 0 /*nails*/, words.data());
   return b;
 }
 
-static mpz_class primorial(u32 p) {
+mpz_class primorial(u32 p) {
   mpz_class b{};
   mpz_primorial_ui(b.get_mpz_t(), p);
   return b;
 }
 
-static mpz_class powerSmooth(u32 exp, u32 B1) {
+mpz_class powerSmooth(u32 exp, u32 B1) {
   mpz_class a{u64(exp) << 8}; // boost 2s.
   for (int k = log2(B1); k >= 1; --k) { a *= primorial(pow(B1, 1.0 / k)); }
   return a;
 }
 
-static u32 sizeBits(mpz_class a) { return mpz_sizeinbase(a.get_mpz_t(), 2); }
+u32 sizeBits(mpz_class a) { return mpz_sizeinbase(a.get_mpz_t(), 2); }
 
-static vector<bool> bitsMSB(mpz_class a) {
+}
+
+vector<bool> bitsMSB(mpz_class a) {
   vector<bool> bits;
   int nBits = sizeBits(a);
   bits.reserve(nBits);
@@ -48,4 +49,4 @@ std::string GCD(u32 exp, const std::vector<u32>& words, u32 sub) {
 
 
 // "Rev" means: most significant bit first (at index 0).
-vector<bool> powerSmoothBE(u32 exp, u32 B1) { return bitsMSB(powerSmooth(exp, B1)); }
+vector<bool> powerSmoothMSB(u32 exp, u32 B1) { return bitsMSB(powerSmooth(exp, B1)); }

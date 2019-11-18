@@ -463,7 +463,7 @@ void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp,
 
     int p = 63;
     while ((exp >> p) == 0) { --p; }
-    assert(p >= 1);
+    assert(p > 0);
 
     // square from "low" position.
     square(out);
@@ -655,6 +655,8 @@ static u32 checkStepForErrors(u32 baseCheckStep, u32 nErrors) {
 }
 
 void Gpu::buildProof(u32 E, const Args& args) {
+  u32 power = args.proofPow;
+  assert(power);
   
 }
 
@@ -836,8 +838,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     throw("missing -maxAlloc");
   }
   
-  vector<bool> bits = powerSmoothBE(E, B1);
-  // log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
+  vector<bool> bits = powerSmoothMSB(E, B1);
 
   // Buffers used in both stages.
   Buffer<double> bufTmp{queue, "tmp", N};

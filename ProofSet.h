@@ -2,15 +2,13 @@
 
 #pragma once
 
+#include "GmpUtil.h"
 #include "File.h"
 #include "common.h"
 #include "Blake2.h"
 #include <vector>
 #include <string>
-#include <filesystem>
 #include <cassert>
-
-namespace fs = std::filesystem;
 
 class ProofSet {
 public:
@@ -31,40 +29,80 @@ public:
 private:
 };
 
-using Words = vector<u32>;
+using Words = std::vector<u32>;
+
+Words makeWords3(u32 E) {
+  u32 nWords = (E - 1) / 32 + 1;
+  Words x(nWords);
+  x[0] = 3;
+  return x;
+}
 
 struct Level {
   Words x, y, u;
   u64 hash;
+  vector<mpz_class> exponents;
 };
 
-class Proof {
-  vector<Level> levels;
+struct Proof {
+  u32 E, kEnd;
+  Words yEnd;
+  vector<Words> middles;
 
+  bool checks() {
+    u32 power = middles.size();
+    assert(power);
+    assert((kEnd & ((u32(1) << power) - 1)) == 0);
 
-  
+    Words x{makeWords3(E)};
+    Words y = yEnd;
+    [[maybe_unused]] u64 hash = Blake2::hash({E, kEnd, power});
+    u32 distanceXY = kEnd;
+
+    /*
+    for (const Words& u : middles) {
+      hash = Blake2::hash({hash, x, y, u});
+      x = powMul(x, hash, u);
+      y = powMul(u, hash, y);
+      assert(distanceXY && ((distanceXY & 1) == 0));
+      distanceXY /= 2;
+    }
+    */
+
+    assert(distanceXY);
+    // return exp2exp(x, distanceXY) == y;
+    return true;
+  }
+};
+
+class ProofBuilder {
 public:
-  Proof(u32 E, u32 kEnd, u32 power) : E{E}, kEnd{kEnd}, power{power}, prevHash{headerHash()} {
+  ProofBuilder(u32 E, u32 kEnd, u32 power, Words y, Words u) : E{E}, kEnd{kEnd}, power{power} {
+    Words x(nWords);
+    x[0] = 3;
+    vector<mpz_class> exponents{{1}};
+    u64 hash = Blake2::hash({Blake2::hash({E, kEnd, power}), x, y, u});
+    levels.push_back({std::move(x), std::move(y), std::move(u), hash, {{1}}});
+  }
+
+  void addLevel(Words x, Words y, Words u, const vector<mpz_class> exponents) {
+    u64 hash = Blake2::hash({levels.back().hash, x, y, u});
+    levels.push_back({std::move(x), std::move(y), std::move(u), hash, std::move(exponents)});
+  }
+
+  Proof getProof() {
+    return {};
   }
   
   const u32 E;
   const u32 kEnd;
   const u32 power;
   const u32 nWords{(E-1) / 32 + 1};
-  u64 prevHash{};
 
-  
-  u64 headerHash() { return Blake2::hash({E, kEnd, power}); }
+private:
+  vector<Level> levels{};
 
   /*
-  void addLevel(const Words& x, const Words& y, const Words& u) {
-    // Words x0(nWords);
-    // x0[0] = 3;
-    
-    assert(levels.empty());
-    prevHash = Blake2::hash({prevHash, x, y, u});
-    levels.emplace_back(x, y, u, prevHash);
-  }
 
   void addNextLevel() {
     Level& prev = levels.back();
@@ -75,24 +113,3 @@ public:
   */
   
 };
-
-
-  /*
-  static u32 crc32(const void *data, size_t size) {
-    u32 tab[16] =
-      { 0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC,
-        0x76DC4190, 0x6B6B51F4, 0x4DB26158, 0x5005713C,
-        0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C,
-        0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C,
-      };
-    u32 crc = ~0u;
-    for (auto *p = static_cast<const u8*>(data), *end = p + size; p < end; ++p) {
-      crc = tab[(crc ^  *p      ) & 0xf] ^ (crc >> 4);
-      crc = tab[(crc ^ (*p >> 4)) & 0xf] ^ (crc >> 4);
-    }
-    return ~crc;
-  }
-  
-  template<typename T>
-  static u32 crc32(const std::vector<T>& v) { return crc32(v.data(), v.size() * sizeof(T)); }
-  */
