@@ -1421,10 +1421,14 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
   }
 
   release();
-  
+
   // Signal that this group is done writing the carry.
   if (gr < H && me == 0) {
+#ifdef ATOMICALLY_CORRECT
     atomic_store((atomic_uint *) &ready[gr], 1);
+#else
+    ready[gr] = 1;
+#endif
   }
 
   if (gr == 0) { return; }
@@ -1492,7 +1496,11 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
   
   // Signal that this group is done writing the carry.
   if (gr < H && me == 0) {
+#ifdef ATOMICALLY_CORRECT
     atomic_store((atomic_uint *) &ready[gr], 1);
+#else
+    ready[gr] = 1;
+#endif
   }
 
   if (gr == 0) { return; }
