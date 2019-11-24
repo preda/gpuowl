@@ -27,7 +27,7 @@ static void writeResult(const string &part, u32 E, const char *workType, const s
            E, workType, status.c_str(), VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part.c_str());
   
   log("%s\n", buf);
-  File::openAppend(args.resultsFile).printf("%s\n", buf);
+  File::append(args.resultsFile, std::string(buf) + '\n');
 }
 
 static string factorStr(const string &factor) { return factor.empty() ? "" : (", \"factors\":[\"" + factor + "\"]"); }

@@ -20,6 +20,7 @@ public:
   string dump;
   string dir;
   string resultsFile = "results.txt";
+  string masterDir;
   std::vector<std::string> flags;
   
   int device = -1;

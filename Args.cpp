@@ -1,6 +1,7 @@
 // Copyright Mihai Preda.
 
 #include "Args.h"
+#include "File.h"
 #include "FFTConfig.h"
 #include "clwrap.h"
 
@@ -42,7 +43,8 @@ void Args::printHelp() {
   printf(R"(
 Command line options:
 
--dir <folder>      : specify work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
+-dir <folder>      : specify local work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
+-masterDir <dir>   : specify global directory with the global worktodo.txt and results.txt
 -user <name>       : specify the user name.
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
@@ -98,6 +100,7 @@ void Args::parse(string line) {
         proofPow = 7;
       }
     }
+    else if (key == "-masterDir") { masterDir = s; }
     else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxBufs") { maxBuffers = stoi(s); }
     else if (key == "-maxAlloc") { maxAlloc = size_t(stoi(s)) << 20; }
@@ -144,4 +147,10 @@ void Args::parse(string line) {
     log("blockSize (%u) must divide logStep (%u)\n", blockSize, logStep);
     throw "args: blockSize, logStep";
   }
+  if (!masterDir.empty()) {
+    if (resultsFile.find_first_of('/') == std::string::npos) {
+      resultsFile = masterDir + '/' + resultsFile;
+    }
+  }
+  File::openAppend(resultsFile);  // verify that it's possible to write results
 }

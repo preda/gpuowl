@@ -38,9 +38,8 @@ public:
   static File openRead(const fs::path& name, bool doThrow = false) { return open(name, "rb", doThrow); }
   static File openWrite(const fs::path &name) { return open(name, "wb", true); }
   static File openAppend(const fs::path &name) { return open(name, "ab", true); }
-  // static File openReadAppend(const fs::path &name) { return open(name, "a+b", true); }
-  // static File openReadAppend(u32 E, const string& extension) { return openReadAppend(fileName(E, "", extension)); }
-
+  static void append(const fs::path& name, std::string_view s) { File::openAppend(name).write(s); }
+  
   File(FILE* ptr, std::string_view name) : ptr{ptr}, name{name} {}
 
   const std::string name;
@@ -58,6 +57,12 @@ public:
     int ret = vfprintf(ptr.get(), fmt, va);
     va_end(va);
     return ret;
+  }
+
+  void write(string_view s) {
+    if (fwrite(s.data(), s.size(), 1, ptr.get()) != 1) {
+      throw fs::filesystem_error("can't write to file"s, name, {});
+    }
   }
 
   operator bool() const { return bool(ptr); }
@@ -90,8 +95,9 @@ public:
   bool empty() { return size() == 0; }
 
   std::string readLine() {
-    char buf[256];
-    return fgets(buf, sizeof(buf), get()) ? buf : "";
+    char buf[512];
+    bool ok = fgets(buf, sizeof(buf), get());
+    return ok ? buf : "";
   }
 
   template<typename T>
