@@ -12,7 +12,7 @@ class Result;
 class Background;
 
 struct Task {
-  enum Kind {NONE = 0, PRP, PM1};
+  enum Kind {PRP, PM1};
 
   Kind kind;
   u32 exponent;
@@ -25,8 +25,6 @@ struct Task {
 
   void adjustBounds(Args& args);
   
-  operator bool() { return kind != NONE; }
-
   bool execute(const Args& args, Background& background);
 
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const;

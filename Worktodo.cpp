@@ -12,10 +12,6 @@
 #include <string>
 #include <optional>
 
-Task Worktodo::makePRP(Args& args, u32 exponent) {
-  return Task{Task::PRP, exponent};
-}
-
 namespace {
 std::string rstripNewline(std::string s) {
   while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) { s.pop_back(); }
@@ -57,16 +53,16 @@ std::optional<Task> parseLine(const std::string& sline) {
 }
 }
 
-Task Worktodo::getTask(Args &args) {
+std::optional<Task> Worktodo::getTask(Args &args) {
   auto fi = File::openRead("worktodo.txt", true);
   char line[512];
   while (fgets(line, sizeof(line), fi.get())) {
     if (auto maybeTask = parseLine(line)) {
       maybeTask->adjustBounds(args);
-      return *maybeTask;
+      return maybeTask;
     }
   }
-  return Task{Task::NONE};
+  return std::nullopt;
 }
 
 bool Worktodo::deleteTask(const Task &task) {
