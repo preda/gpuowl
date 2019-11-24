@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "Args.h"
 #include "common.h"
 #include <string>
 
@@ -15,13 +16,15 @@ struct Task {
 
   Kind kind;
   u32 exponent;
-  string AID;  
+  string AID;  // Assignment ID
   string line; // the verbatim worktodo line, used in deleteTask().
 
   // PM1
   u32 B1 = 0;
   u32 B2 = 0;
 
+  void adjustBounds(Args& args);
+  
   operator bool() { return kind != NONE; }
 
   bool execute(const Args& args, Background& background);

@@ -40,6 +40,21 @@ static string resStr(u64 res64) {
   return buf;
 }
 
+void Task::adjustBounds(Args& args) {
+  if (kind == PM1) {
+    if (B1 == 0) { B1 = args.B1; }
+    if (B2 == 0) { B2 = args.B2 ? args.B2 : (B1 * args.B2_B1_ratio); }
+    if (B1 < 15015) {
+      log("B1=%u too small, adjusted to 15015\n", B1);
+      B1 = 15015;
+    }
+    if (B2 <= B1) {
+      log("B2=%u too small, adjusted to %u\n", B2, B1 * 2);
+      B2 = B1 * 2;
+    }
+  }
+}
+
 void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const {
   assert(B1 == 0 && B2 == 0);
 
