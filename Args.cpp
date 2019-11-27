@@ -64,7 +64,7 @@ Command line options:
 -device <N>        : select a specific device:
 )", blockSize, logStep, B1, B2_B1_ratio);
 
-  vector<cl_device_id> deviceIds = getDeviceIDs();
+  vector<cl_device_id> deviceIds = getAllDeviceIDs();
   for (unsigned i = 0; i < deviceIds.size(); ++i) { printf("%2u : %s\n", i, getLongInfo(deviceIds[i]).c_str()); }
   printf("\nFFT Configurations:\n");
   

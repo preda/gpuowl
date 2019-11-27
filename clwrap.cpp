@@ -58,7 +58,7 @@ void check(int err, const char *file, int line, const char *func, string_view me
   }
 }
 
-vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
+static vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
   cl_platform_id platforms[16];
   int nPlatforms = 0;
   CHECK1(clGetPlatformIDs(16, platforms, (unsigned *) &nPlatforms));
@@ -73,19 +73,8 @@ vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
   return ret;
 }
 
-int getNumberOfDevices() {
-  cl_platform_id platforms[8];
-  unsigned nPlatforms;
-  CHECK1(clGetPlatformIDs(8, platforms, &nPlatforms));
-  
-  unsigned n = 0;
-  for (int i = 0; i < (int) nPlatforms; ++i) {
-    unsigned delta = 0;
-    CHECK1(clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, 0, NULL, &delta));
-    n += delta;
-  }
-  return n;
-}
+vector<cl_device_id> getAllDeviceIDs() { return getDeviceIDs(false); }
+vector<cl_device_id> getGpuDeviceIDs() { return getDeviceIDs(true); }
 
 static void getInfo_(cl_device_id id, int what, size_t bufSize, void *buf, string_view whatStr) {
   CHECK2(clGetDeviceInfo(id, what, bufSize, buf, NULL), whatStr);
@@ -163,21 +152,17 @@ static string getFreq(cl_device_id device) {
 string getShortInfo(cl_device_id device) { return getHwName(device) + "-" + getFreq(device) + "-" + getTopology(device); }
 string getLongInfo(cl_device_id device) { return getShortInfo(device) + " " + getBoardName(device); }
 
-cl_device_id getDevice(int argsDevId) {
-  cl_device_id device = nullptr;
-  if (argsDevId >= 0) {
-    auto devices = getDeviceIDs(false);    
-    assert(int(devices.size()) > argsDevId);
-    device = devices[argsDevId];
-  } else {
-    auto devices = getDeviceIDs(true);
-    if (devices.empty()) {
-      log("No GPU device found. See -h for how to select a specific device.\n");
-      throw("No device specified, and no GPU device found");
-    }
-    device = devices[0];
+cl_device_id getDevice(u32 argsDeviceId) {
+  auto devices = getAllDeviceIDs();
+  if (devices.empty()) {
+    log("No OpenCL device found. Check clinfo\n");
+    throw("No OpenCL device found. Check clinfo");
   }
-  return device;
+  if (argsDeviceId >= devices.size()) {
+    log("Requested device #%u, but only %u devices found\n", argsDeviceId, unsigned(devices.size()));
+    throw("Invalid -d device");
+  }
+  return devices[argsDeviceId];
 }
 
 cl_context createContext(cl_device_id id) {  

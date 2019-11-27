@@ -22,7 +22,7 @@ public:
   string resultsFile = "results.txt";
   std::vector<std::string> flags;
   
-  int device = -1;
+  int device = 0;
   
   bool timeKernels = false;
   bool enableTF = false;

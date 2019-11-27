@@ -49,7 +49,9 @@ void check(int err, const char *file, int line, const char *func, string_view me
 #define CHECK1(err) check(err, __FILE__, __LINE__, __func__, #err)
 #define CHECK2(err, mes) check(err, __FILE__, __LINE__, __func__, mes)
 
-vector<cl_device_id> getDeviceIDs(bool onlyGPU = false);
+vector<cl_device_id> getAllDeviceIDs();
+vector<cl_device_id> getGPUDeviceIDs();
+
 string getHwName(cl_device_id id);
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
@@ -96,6 +98,6 @@ int getKernelNumArgs(cl_kernel k);
 int getWorkGroupSize(cl_kernel k, cl_device_id device, const char *name);
 std::string getKernelArgName(cl_kernel k, int pos);
 
-cl_device_id getDevice(int argsDevId);
+cl_device_id getDevice(u32 argsDevId);
 u64 getEventNanos(cl_event event);
 u32 getEventInfo(cl_event event);
