@@ -60,12 +60,16 @@ Task Worktodo::getTask(Args &args) {
         tail = line + pos;
       }
       
-      if (sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
-          sscanf(tail, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
+      if (sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2
+          || sscanf(tail, "Pfactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2
+          || sscanf(tail, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3
+          || sscanf(tail, "Pfactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
         return ::makePM1(args, exp, outAID, line, B1, B2);
       }
       outAID[0] = 0;
-      if (sscanf(tail, "PFactor=%u", &exp) == 1) { return ::makePM1(args, exp, "", line, B1, B2); }
+      if (sscanf(tail, "PFactor=%u", &exp) == 1 || sscanf(tail, "Pfactor=%u", &exp) == 1) {
+        return ::makePM1(args, exp, "", line, B1, B2);
+      }
       
       int n = strlen(line);
       if (n >= 2 && (line[n - 2] == '\n' || line[n - 2] == '\r')) { line[n - 2] = 0; }
