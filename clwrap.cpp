@@ -112,6 +112,22 @@ u64 getTotalMem(cl_device_id id) {
   }
 }
 
+static string getBoardName(cl_device_id id) {
+  char boardName[64] = {0};
+  try {
+    GET_INFO(id, CL_DEVICE_BOARD_NAME_AMD, boardName);
+  } catch (const gpu_error& err) {
+  }
+  return boardName;
+}
+
+static string getHwName(cl_device_id id) {
+  char name[64];
+  GET_INFO(id, CL_DEVICE_NAME, name);
+  return name;
+}
+
+/*
 static string getTopology(cl_device_id id) {
   char topology[64] = {0};
   cl_device_topology_amd top;
@@ -124,21 +140,6 @@ static string getTopology(cl_device_id id) {
   return topology;
 }
 
-static string getBoardName(cl_device_id id) {
-  char boardName[64] = {0};
-  try {
-    GET_INFO(id, CL_DEVICE_BOARD_NAME_AMD, boardName);
-  } catch (const gpu_error& err) {
-  }
-  return boardName;
-}
-
-string getHwName(cl_device_id id) {
-  char name[64];
-  GET_INFO(id, CL_DEVICE_NAME, name);
-  return name;
-}
-
 static string getFreq(cl_device_id device) {
   unsigned computeUnits, frequency;
   GET_INFO(device, CL_DEVICE_MAX_COMPUTE_UNITS, computeUnits);
@@ -148,9 +149,10 @@ static string getFreq(cl_device_id device) {
   snprintf(info, sizeof(info), "%u@%4u", computeUnits, frequency);
   return info;
 }
+*/
 
-string getShortInfo(cl_device_id device) { return getHwName(device) + "-" + getFreq(device) + "-" + getTopology(device); }
-string getLongInfo(cl_device_id device) { return getShortInfo(device) + " " + getBoardName(device); }
+string getShortInfo(cl_device_id device) { return getHwName(device); }
+string getLongInfo(cl_device_id device) { return getShortInfo(device) + "-" + getBoardName(device); }
 
 cl_device_id getDevice(u32 argsDeviceId) {
   auto devices = getAllDeviceIDs();

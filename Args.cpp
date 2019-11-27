@@ -132,4 +132,8 @@ void Args::parse(string line) {
       throw "args";
     }
   }
+
+  if (cpu.empty()) {
+    cpu = getShortInfo(getDevice(device)) + "-" + std::to_string(device);
+  }
 }

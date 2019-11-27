@@ -52,7 +52,6 @@ void check(int err, const char *file, int line, const char *func, string_view me
 vector<cl_device_id> getAllDeviceIDs();
 vector<cl_device_id> getGPUDeviceIDs();
 
-string getHwName(cl_device_id id);
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
 
