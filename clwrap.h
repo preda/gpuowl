@@ -51,7 +51,6 @@ void check(int err, const char *file, int line, const char *func, string_view me
 
 vector<cl_device_id> getAllDeviceIDs();
 vector<cl_device_id> getGPUDeviceIDs();
-
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
 
@@ -62,7 +61,7 @@ bool hasFreeMemInfo(cl_device_id id);
 cl_context createContext(cl_device_id id);
 
 cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
-                   const vector<pair<string, std::any>> &defines);
+                   const std::vector<pair<string, std::any>> &defines);
 
 void dumpBinary(cl_program program, const string& fileName);
 
@@ -100,3 +99,5 @@ std::string getKernelArgName(cl_kernel k, int pos);
 cl_device_id getDevice(u32 argsDevId);
 u64 getEventNanos(cl_event event);
 u32 getEventInfo(cl_event event);
+
+cl_context getQueueContext(cl_command_queue q);

@@ -1,7 +1,8 @@
+// Copyright (C) Mihai Preda.
+
 #include "Signal.h"
 
 #include <signal.h>
-// #include <cassert>
 
 static volatile int stop = 0;
 static void (*oldHandler)(int) = 0;

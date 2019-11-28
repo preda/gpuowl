@@ -1,7 +1,7 @@
-// Copyright 2017 Mihai Preda.
+// Copyright (C) Mihai Preda.
 
 #include "Gpu.h"
-
+#include "ProofSet.h"
 #include "Pm1Plan.h"
 #include "checkpoint.h"
 #include "state.h"
@@ -16,6 +16,7 @@
 #include <cstring>
 #include <algorithm>
 #include <future>
+#include <optional>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -41,20 +42,20 @@ static double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   return p;
 }
 
-static Buffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
+static ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
   vector<double2> tab(size);
   auto *p = tab.data() + radix;
   u32 w = 0;
   for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
   assert(p - tab.data() == size);
-  return context.constBuf(tab, "smallTrig");
+  return {context, "smallTrig", tab};
 }
 
 static u32 kAt(u32 H, u32 line, u32 col, u32 rep) {
   return (line + col * H) * 2 + rep;
 }
 
-static Buffer<u32> genExtras(const Context& context, u32 E, u32 W, u32 H, u32 nW) {
+static ConstBuffer<u32> genExtras(const Context& context, u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
   vector<u32> extras;
   u32 groupWidth = W / nW;
@@ -63,7 +64,7 @@ static Buffer<u32> genExtras(const Context& context, u32 E, u32 W, u32 H, u32 nW
       extras.push_back(extra(N, E, kAt(H, line, thread, 0)));
     }
   }
-  return context.constBuf(extras, "extras");
+  return {context, "extras", extras};
 }
 
 struct Weights {
@@ -164,7 +165,12 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
 }
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool timeKernels, bool useLongCarry) :
+         cl_device_id device, bool timeKernels, bool useLongCarry)
+  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, genWeights(E, W, BIG_H, nW)}
+{}
+
+Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
+         cl_device_id device, bool timeKernels, bool useLongCarry, Weights&& weights) :
   E(E),
   N(W * BIG_H * 2),
   hN(N / 2),
@@ -201,30 +207,27 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(readResidue, 1),
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
+  LOAD(sum64, 256),
 #undef LOAD
 
   bufTrigW{genSmallTrig(context, W, nW)},
   bufTrigH{genSmallTrig(context, SMALL_H, nH)},
+  bufWeightA{context, "weightA", weights.aTab},
+  bufWeightI{context, "weightI", weights.iTab},
+  bufBits{context, "bits", weights.bits},
   bufExtras{genExtras(context, E, W, BIG_H, nW)},
-  
-  bufData{context.hostAccessBuf<decltype(bufData)::type>(N, "data")},
-  bufAux{context.hostAccessBuf<decltype(bufAux)::type>(N, "aux")},
-  
-  bufCarry{context.buffer<decltype(bufCarry)::type>(N / 2, "carry")},
-  bufReady{context.buffer<decltype(bufReady)::type>(BIG_H, "ready")},
-  bufSmallOut(context.hostAccessBuf<decltype(bufSmallOut)::type>(256, "smallOut"))
+  bufGroupWeights{context, "groupWeights", weights.groupWeights},
+  bufThreadWeights{context, "threadWeights", weights.threadWeights},
+  bufData{queue, "data", N},
+  bufAux{queue, "aux", N},
+  bufCheck{queue, "check", N},
+  bufCarry{queue, "carry", N / 2},
+  bufReady{queue, "ready", BIG_H},
+  bufSmallOut{queue, "smallOut", 256},
+  bufSumOut{queue, "sumOut", 1}
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
-
-  Weights weights = genWeights(E, W, BIG_H, nW);  
-  bufWeightA = context.constBuf(weights.aTab, "weightA");
-  bufWeightI = context.constBuf(weights.iTab, "weightI");
-
-  bufGroupWeights = context.constBuf(weights.groupWeights, "groupWeights");
-  bufThreadWeights = context.constBuf(weights.threadWeights, "threadWeights");
-  bufBits = context.constBuf(weights.bits, "bits");
-  
   carryFused.setFixedArgs(   1, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
   carryFusedMul.setFixedArgs(1, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW, bufExtras);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
@@ -236,7 +239,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   carryB.setFixedArgs(1, bufCarry, bufExtras);
   tailFused.setFixedArgs(1, bufTrigH);
   tailFusedMulDelta.setFixedArgs(3, bufTrigH);
-    
+  sum64.setFixedArgs(2, bufSumOut);
+  
   queue->zero(bufReady, BIG_H);
 }
 
@@ -254,7 +258,7 @@ static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsF
 
 vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   readResidue(buf, bufSmallOut, start);
-  return queue->read<int>(bufSmallOut, 128);                    
+  return bufSmallOut.read(128);
 }
 
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
@@ -296,8 +300,25 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
                           getDevice(args.device), timeKernels, useLongCarry);
 }
 
-vector<u32> Gpu::readData()  { return compactBits(readOut(bufData),  E); }
-vector<u32> Gpu::readCheck() { return compactBits(readOut(bufCheck), E); }
+vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
+  // queue->zero(bufSumOut);
+  while (true) {
+    sum64(u32(buf.size * sizeof(int)), buf);
+    vector<u64> expectedVect(1);
+    bufSumOut >> expectedVect;
+    vector<int> data = readOut(buf);
+    u64 expectedSum = expectedVect[0];
+    u64 sum = 0;
+    for (auto it = data.begin(), end = data.end(); it < end; it += 2) {
+      sum += u32(*it) | (u64(*(it + 1)) << 32);
+    }
+    if (sum != expectedSum) {
+      log("GPU->host read failed (check %x vs %x)\n", unsigned(sum), unsigned(expectedSum));
+    } else {
+      return compactBits(std::move(data),  E);
+    }
+  }
+}
 
 vector<u32> Gpu::writeData(const vector<u32> &v) {
   writeIn(v, bufData);
@@ -310,7 +331,7 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
 }
 
 // The modular multiplication io *= in.
-void Gpu::modMul(Buffer<int>& in, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io) {
+void Gpu::modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3) {
   fftP(in, buf1);
   tW(buf1, buf3);
     
@@ -333,14 +354,14 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize > 0);
     
   writeCheck(check);
-  queue->copyFromTo(bufCheck, bufData);
-  queue->copyFromTo(bufCheck, bufAux);
+  bufData << bufCheck;
+  bufAux  << bufCheck;
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
-    modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
-    modMul(bufAux, false, buf1, buf2, buf3, bufData);
-    queue->copyFromTo(bufData, bufAux);
+    modSqLoop(n, buf1, buf2, bufData);
+    modMul(bufAux, buf1, buf2, buf3, bufData);
+    bufAux << bufData;
   }
 
   assert((n & (n - 1)) == 0);
@@ -350,21 +371,21 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize >= 2);
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
-    modSqLoop(n, false, buf1, buf2, bufData); // dataLoop(n);
-    modMul(bufAux, false, buf1, buf2, buf3, bufData);
+    modSqLoop(n, buf1, buf2, bufData);
+    modMul(bufAux, buf1, buf2, buf3, bufData);
   }
   
-  modSqLoop(n, false, buf1, buf2, bufData);  // dataLoop(n);
-  modMul(bufAux, true, buf1, buf2, buf3, bufData);
+  modSqLoop(n, buf1, buf2, bufData);
+  modMul(bufAux, buf1, buf2, buf3, bufData, true);
 }
 
 void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  modMul(bufData, false, buf1, buf2, buf3, bufCheck);
+  modMul(bufData, buf1, buf2, buf3, bufCheck);
 }
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  queue->copyFromTo(bufCheck, bufAux);
-  modSqLoop(blockSize, true, buf1, buf2, bufAux);
+  bufAux << bufCheck;
+  modSqLoop(blockSize, buf1, buf2, bufAux, true);
   updateCheck(buf1, buf2, buf3);
   return equalNotZero(bufCheck, bufAux);
 }
@@ -397,15 +418,15 @@ void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
   transposeH(in, out);
 }
   
-vector<int> Gpu::readOut(Buffer<int> &buf) {
+vector<int> Gpu::readOut(ConstBuffer<int> &buf) {
   transposeOut(buf, bufAux);
-  return queue->read(bufAux);
+  return bufAux.read();
 }
 
 void Gpu::writeIn(const vector<u32>& words, Buffer<int>& buf) { writeIn(expandBits(words, N, E), buf); }
 
 void Gpu::writeIn(const vector<int>& words, Buffer<int>& buf) {
-  queue->write(bufAux, words);
+  bufAux = words;
   transposeIn(bufAux, buf);
 }
 
@@ -434,17 +455,15 @@ void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp,
     queue->zero(out, N / 2);
     u32 data = 1;
     fillBuf(queue->get(), out.get(), &data, sizeof(data));
-    // write(queue.get(), false, out, sizeof(u32), &data);
-    // queue.writeAsync(out, vector<>{1});    
     fftP(out, tmp);
     tW(tmp, out);    
   } else {
-    queue->copyFromTo(base, out);
+    out << base;
     if (exp == 1) { return; }
 
     int p = 63;
     while ((exp >> p) == 0) { --p; }
-    assert(p >= 1);
+    assert(p > 0);
 
     // square from "low" position.
     square(out);
@@ -487,10 +506,8 @@ void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, B
   }  
 }
 
-void Gpu::modSqLoop(u32 reps, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
-  assert(reps > 0);
+void Gpu::modSqLoop(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io, bool mul3) {
   bool leadIn = true;
-        
   for (u32 i = 0; i < reps; ++i) {
     bool leadOut = useLongCarry || (i == reps - 1);
     coreStep(leadIn, leadOut, mul3 && (i == reps - 1), buf1, buf2, io);
@@ -503,7 +520,7 @@ bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
   u32 sizeBytes = N * sizeof(int);
   isNotZero(sizeBytes, buf1, bufSmallOut);
   isEqual(sizeBytes, buf1, buf2, bufSmallOut);
-  return queue->read(bufSmallOut, 1)[0];
+  return bufSmallOut.read(1)[0];
 }
   
 u64 Gpu::bufResidue(Buffer<int> &buf) {
@@ -512,9 +529,9 @@ u64 Gpu::bufResidue(Buffer<int> &buf) {
   return residueFromRaw(N, E, readBuf);
 }
 
-static string getETA(u32 step, u32 total, float msPerStep) {
+static string getETA(u32 step, u32 total, float secsPerStep) {
   // assert(step <= total);
-  int etaMins = (total - step) * msPerStep * (1 / 60000.f) + .5f;
+  int etaMins = (total - step) * secsPerStep * (1 / 60.f) + .5f;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
@@ -523,30 +540,30 @@ static string getETA(u32 step, u32 total, float msPerStep) {
   return string(buf);
 }
 
-static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float msPerSq, u32 nIters) {
+static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float secsPerIt, u32 nIters, double minBlockTime, double allMinBlockTime) {
   // float msPerSq = info.total / info.n;
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%u %2s %8d %6.2f%%; %4d us/sq; ETA %s; %016llx",
+  snprintf(buf, sizeof(buf), "%u %2s %8d %6.2f%%; %4.0f us/it (min %4.0f %4.0f); ETA %s; %s",
            E, status.data(), k, k / float(nIters) * 100,
-           int(msPerSq*1000+0.5f), getETA(k, nIters, msPerSq).c_str(), res);
+           secsPerIt * 1'000'000, minBlockTime * 1'000'000, allMinBlockTime * 1'000'000, getETA(k, nIters, secsPerIt).c_str(),
+           hex(res).c_str());
   return buf;
 }
 
-static void doLog(u32 E, u32 k, u32 timeCheck, u64 res, bool checkOK, TimeInfo &stats, u32 nIters, u32 nErrors) {
-  log("%s (check %.2fs)%s\n",      
-      makeLogStr(E, checkOK ? "OK" : "EE", k, res, stats.total / stats.n, nIters).c_str(),
-      timeCheck * .001f, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
-  stats.clear();
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, double minBlockTime, double allMinBlockTime, double checkTime) {
+  log("%s (check %.2fs)%s\n", makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters, minBlockTime, allMinBlockTime).c_str(),
+      checkTime, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
-static void doSmallLog(u32 E, u32 k, u64 res, TimeInfo &stats, u32 nIters) {
-  log("%s\n", makeLogStr(E, "", k, res, stats.total / stats.n, nIters).c_str());
-  stats.clear();
+/*
+static void doSmallLog(u32 E, u32 k, u64 res, double secsPerIt, u32 nIters, double minBlockTime, double allMinBlockTime) {
+  log("%s\n", makeLogStr(E, "", k, res, secsPerIt, nIters, minBlockTime, allMinBlockTime).c_str());
 }
+*/
 
-static void logPm1Stage1(u32 E, u32 k, u64 res, float msPerSq, u32 nIters) {
-  log("%s\n", makeLogStr(E, "P1", k, res, msPerSq, nIters).c_str());
+static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
+  log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters, 0, 0).c_str());
 }
 
 [[maybe_unused]] static void logPm1Stage2(u32 E, float ratioComplete) {
@@ -562,18 +579,18 @@ static bool equals9(const vector<u32> &a) {
 
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   PRPState loaded(E, iniBlockSize);
-  // log("%s loaded: k %u, block %u, res64 %s\n", path.string().c_str(), k, blockSize, hex(res64).c_str());
-  
   writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
 
   u64 res64 = dataResidue();
   bool ok = (res64 == loaded.res64);
   updateCheck(buf1, buf2, buf3);
-  if (!ok) {
-    log("%u EE loaded: %d, blockSize %d, %s (expected %s)\n",
-        E, loaded.k, loaded.blockSize, hex(res64).c_str(), hex(loaded.res64).c_str());
-    throw "error on load";
-  }
+
+  std::string expected = " (expected "s + hex(loaded.res64) + ")";
+  
+  log("%u %2s %8d loaded: blockSize %d, %s%s\n",
+      E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
+
+  if (!ok) { throw "error on load"; }
 
   return loaded;
 }
@@ -607,13 +624,47 @@ void doDiv9(int E, std::vector<u32> &words) {
   doDiv3(E, words);
 }
 
-tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
-  auto buf1{context.buffer<double>(N, "buf1")};
-  auto buf2{context.buffer<double>(N, "buf2")};
-  auto buf3{context.buffer<double>(N, "buf3")};
-  
-  bufCheck = context.hostAccessBuf<decltype(bufCheck)::type>(N, "check");
+class IterationTimer {
+  Timer timer;
+  u32 kStart;
 
+  double secsPerIt(double secs, u32 k) const { return secs / std::max(k - kStart, 1u); }
+  
+public:
+  IterationTimer(u32 kStart) : kStart(kStart) {}
+  
+  // double at(u32 k) const { return secsPerIt(timer.elapsed(), k); }
+  
+  double reset(u32 k) {
+    double secs = timer.deltaSecs();
+    double ret = secsPerIt(secs, k);
+    kStart = k;
+    return ret;
+  }
+};
+
+static u32 checkStepForErrors(u32 baseCheckStep, u32 nErrors) {
+  if (baseCheckStep != 200'000) { return baseCheckStep; }
+  
+  switch (nErrors) {
+    case 0: return 200'000;
+    case 1: return 100'000;
+    case 2: return  50'000;
+    default: return 20'000;
+  }
+}
+
+void Gpu::buildProof(u32 E, const Args& args) {
+  u32 power = args.proofPow;
+  assert(power);
+  
+}
+
+tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {  
+  Buffer<double> buf1{queue, "buf1", N};
+  Buffer<double> buf2{queue, "buf2", N};
+  Buffer<double> buf3{queue, "buf3", N};
+  
   u32 k = 0, blockSize = 0, nErrors = 0;
 
   {
@@ -627,85 +678,104 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   const u32 kEnd = E; // Type-1 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
   assert(k < kEnd);
 
-  const u32 checkStep = blockSize * blockSize;
+  u32 checkStep = checkStepForErrors(args.logStep, nErrors);
   
   u32 startK = k;
+  ProofSet proofSet{E, blockSize, args.proofPow};
   
   Signal signal;
-  TimeInfo stats;
 
   // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
   int nSeqErrors = 0;
 
   bool isPrime = false;
-  Timer timer;
+  IterationTimer itTimer{startK};
 
   u64 finalRes64 = 0;
   u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
+  Timer timer;
+  double minBlockTime = 1e9;
+  double allMinBlockTime = 1e9;
+
+  // future<void> saveFuture;
   while (true) {
     assert(k % blockSize == 0);
-    if (k < kEnd && k + blockSize >= kEnd) {
-      modSqLoop(kEnd - k, false, buf1, buf2, bufData);
-      auto words = this->roundtripData();
+    assert(k < kEnd);
+    
+    u32 nextK = k + blockSize;
+    timer.reset();
+        
+    if (nextK >= kEnd) {
+      assert(kEnd > k);
+      modSqLoop(kEnd - k, buf1, buf2, bufData);
+      auto words = roundtripData();
       isPrime = equals9(words);
       doDiv9(E, words);
       finalRes64 = residue(words);
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
-
-      int itersLeft = blockSize - (kEnd - k);
-      if (itersLeft > 0) { modSqLoop(itersLeft, false, buf1, buf2, bufData); }
-    } else {
-      modSqLoop(blockSize, false, buf1, buf2, bufData);
+      k = kEnd;
     }
-    k += blockSize;
+    
+    assert(nextK >= k);
+    modSqLoop(nextK - k, buf1, buf2, bufData);
+    k = nextK;
 
-    queue->finish();
-        
-    stats.add(timer.deltaMillis(), blockSize);
-    bool doStop = signal.stopRequested();
+    // if (saveFuture.valid()) { saveFuture.get(); }
+
+    bool persistProof = proofSet.shouldPersist(k);
+    
+    bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
     if (doStop) {
       log("Stopping, please wait..\n");
       signal.release();
     }
 
-    if (args.iters && k - startK == args.iters) { doStop = true; }
+    bool doCheck = doStop || persistProof || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
+    if (!doCheck) { this->updateCheck(buf1, buf2, buf3); }
 
-    bool doCheck = (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || doStop || (k - startK == 2 * blockSize);
+    queue->finish();
     
-    if (!doCheck) {
-      this->updateCheck(buf1, buf2, buf3);
-      if (k % args.logStep == 0) {
-        doSmallLog(E, k, dataResidue(), stats, nTotalIters);
-        logTimeKernels();
-      }
-      continue;
-    }
+    minBlockTime = std::min(minBlockTime, timer.deltaSecs());
 
-    vector<u32> check = this->roundtripCheck();
-    bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
-
-    u64 res64 = dataResidue();
-
-    // the check time (above) is accounted separately, not added to iteration time.
-    doLog(E, k, timer.deltaMillis(), res64, ok, stats, nTotalIters, nErrors);
-    
-    if (ok) {
-      if (k < kEnd) { PRPState{E, k, blockSize, res64, check, nErrors}.save(); }
-      if (isPrime || k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
-      nSeqErrors = 0;      
-    } else {
-      ++nErrors;
-      if (++nSeqErrors > 2) {
-        log("%d sequential errors, will stop.\n", nSeqErrors);
-        throw "too many errors";
-      }
+    if (doCheck) {
+      double timeExcludingCheck = itTimer.reset(k);
+      u64 res64 = dataResidue();
+      PRPState prpState{E, k, blockSize, res64, this->roundtripCheck(), nErrors};
+      bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
       
-      auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
-      k = loaded.k;
-      assert(blockSize == loaded.blockSize);
+      if (ok) {
+        if (k < kEnd) {          
+          prpState.save(persistProof);
+          // saveFuture = async(launch::async, &PRPState::save, std::move(prpState));
+          
+          allMinBlockTime = std::min(allMinBlockTime, minBlockTime);
+          doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, minBlockTime / blockSize, allMinBlockTime / blockSize, itTimer.reset(k));
+        }
+        assert(!isPrime || k >= kEnd);
+        if (k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
+        nSeqErrors = 0;      
+      } else {
+        allMinBlockTime = std::min(allMinBlockTime, minBlockTime);
+        doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, minBlockTime / blockSize, allMinBlockTime / blockSize, itTimer.reset(k));
+
+        ++nErrors;
+        if (++nSeqErrors > 2) {
+          log("%d sequential errors, will stop.\n", nSeqErrors);
+          throw "too many errors";
+        }
+        checkStep = checkStepForErrors(args.logStep, nErrors);        
+        auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
+        k = loaded.k;
+        assert(blockSize == loaded.blockSize);
+      }
+      itTimer.reset(k);
+      logTimeKernels();
+      if (doStop) {
+        // if (saveFuture.valid()) { saveFuture.get(); }
+        throw "stop requested";
+      }
+      minBlockTime = 1e9;
     }
-    logTimeKernels();
-    if (doStop) { throw "stop requested"; }
   }
 }
 
@@ -720,9 +790,9 @@ struct SquaringSet {
   SquaringSet(Gpu& gpu, u32 N, string_view name)
     : name(name)
     , N(N)
-    , A{gpu.context.buffer<double>(N, this->name + ":A")}
-    , B{gpu.context.buffer<double>(N, this->name + ":B")}
-    , C{gpu.context.buffer<double>(N, this->name + ":C")}
+    , A{gpu.queue, this->name + ":A", N}
+    , B{gpu.queue, this->name + ":B", N}
+    , C{gpu.queue, this->name + ":C", N}
     , gpu(gpu)
   {}
    
@@ -734,7 +804,7 @@ struct SquaringSet {
     gpu.exponentiate(bufBase, exponents[0], bufTmp, C);
     gpu.exponentiate(bufBase, exponents[1], bufTmp, B);
     if (exponents[2] == exponents[1]) {
-      gpu.queue->copyFromTo(B, A);
+      A << B;
     } else {
       gpu.exponentiate(bufBase, exponents[2], bufTmp, A);
     }
@@ -753,26 +823,26 @@ struct SquaringSet {
 
 private:
   void copyFrom(const SquaringSet& rhs) {
-    gpu.queue->copyFromTo(rhs.A, A);
-    gpu.queue->copyFromTo(rhs.B, B);
-    gpu.queue->copyFromTo(rhs.C, C);    
+    A << rhs.A;
+    B << rhs.B;
+    C << rhs.C;
   }
 };
 
 std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 >= B1);
-
+  bufCheck.reset();
+  
   if (!args.maxAlloc && !hasFreeMemInfo(device)) {
     log("%u P1 must specify -maxAlloc <MBytes> to limit GPU memory to use\n", E);
     throw("missing -maxAlloc");
   }
   
-  vector<bool> bits = powerSmoothBitsRev(E, B1);
-  // log("%u P-1 powerSmooth(B1=%u): %u bits\n", E, B1, u32(bits.size()));
+  vector<bool> bits = powerSmoothMSB(E, B1);
 
   // Buffers used in both stages.
-  auto bufTmp{context.buffer<double>(N, "tmp")};
-  auto bufAux{context.buffer<double>(N, "aux")};
+  Buffer<double> bufTmp{queue, "tmp", N};
+  Buffer<double> bufAux{queue, "aux", N};
 
   // --- Stage 1 ---
 
@@ -789,9 +859,10 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   log("%u P1 B1=%u, B2=%u; %u bits; starting at %u\n", E, B1, B2, kEnd, kBegin);
   
   Signal signal;
-  TimeInfo timeInfo;
-  Timer timer;
+  // TimeInfo timeInfo;
+  // Timer timer;
   Timer saveTimer;
+  IterationTimer itTimer{kBegin};
 
   assert(kEnd > 0);
   assert(bits.front() && !bits.back());
@@ -802,7 +873,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     bool doLog = (k + 1) % 10000 == 0; // || isAtEnd;
     bool doStop = signal.stopRequested();
     if (doStop) { log("Stopping, please wait..\n"); }
-    bool doSave = doStop || saveTimer.elapsedMillis() > 300'000 || isAtEnd;
+    bool doSave = doStop || saveTimer.elapsed() > 300 || isAtEnd;
     
     bool leadOut = useLongCarry || doLog || doSave;
     coreStep(leadIn, leadOut, bits[k], bufAux, bufTmp, bufData);
@@ -810,10 +881,9 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
     if ((k + 1) % 100 == 0 || doLog || doSave) {
       queue->finish();
-      timeInfo.add(timer.deltaMillis(), (k + 1) - (k / 100) * 100);
+      // timeInfo.add(timer.delta(), (k + 1) - (k / 100) * 100);
       if (doLog) {
-        logPm1Stage1(E, k + 1, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
-        timeInfo.clear();
+        logPm1Stage1(E, k + 1, dataResidue(), itTimer.reset(k + 1), kEnd);
         logTimeKernels();
       }
       if (doSave) {
@@ -831,8 +901,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   tailFused(bufTmp);
   tH(bufTmp, bufAux);
 
-  auto bufAcc{context.hostAccessBuf<double>(N, "acc")};
-  queue->copyFromTo(bufAux, bufAcc);
+  HostAccessBuffer<double> bufAcc{queue, "acc", N};
+  bufAcc << bufAux;
   
   fftW(bufAux);
   carryA(bufAux, bufData);
@@ -847,7 +917,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         throw "P2 savefile FFT size mismatch";
       }
       beginPos = loaded.k;
-      queue->write(bufAcc, loaded.raw);
+      bufAcc = loaded.raw;
+      // queue->write(bufAcc, loaded.raw);
       log("%u P2 B1=%u, B2=%u, starting at %u\n", E, B1, B2, beginPos);
     }
   }
@@ -855,15 +926,15 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   future<string> gcdFuture;
   if (beginPos == 0) {
     gcdFuture = async(launch::async, GCD, E, readData(), 1);
-    timeInfo.add(timer.deltaMillis(), kEnd - (kEnd / 100) * 100);
-    logPm1Stage1(E, kEnd, dataResidue(), timeInfo.total / timeInfo.n, kEnd);
+    // timeInfo.add(timer.delta(), kEnd - (kEnd / 100) * 100);
+    logPm1Stage1(E, kEnd, dataResidue(), itTimer.reset(kEnd), kEnd);
   }
 
   signal.release();
   
   // --- Stage 2 ---
   
-  auto bufBase{context.buffer<double>(N, "base")};
+  Buffer<double> bufBase{queue, "base", N};
   fftP(bufData, bufAux);
   tW(bufAux, bufBase);
   fftH(bufBase);
@@ -890,7 +961,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   try {
     bool hasMemInfo = hasFreeMemInfo(device);
     while ((blockBufs.size() < 2880 / 2) && (!hasMemInfo || (getFreeMem(device) >= 256 * 1024 * 1024))) {
-      blockBufs.push_back(context.buffer<double>(N, "pm1BlockBuf"));
+      blockBufs.emplace_back(queue, "pm1BlockBuf", N);
     }
   } catch (const gpu_bad_alloc& e) {
   }
@@ -906,23 +977,22 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   
   queue->finish();
   logTimeKernels();
-
+  Timer timer;
+  
   u32 prevJ = jset[beginPos];
   for (u32 pos = beginPos; pos < 2880; pos += nBufs) {
-    timer.deltaSecs();
-
     u32 nUsedBufs = min(nBufs, 2880 - pos);
     for (u32 i = 0; i < nUsedBufs; ++i) {
       int delta = jset[pos + i] - prevJ;
       prevJ = jset[pos + i];
       assert((delta & 1) == 0);
       for (int steps = delta / 2; steps > 0; --steps) { little.step(bufTmp); }
-      queue->copyFromTo(little.C, blockBufs[i]);
+      blockBufs[i] << little.C;
     }
     
     queue->finish();
     // logTimeKernels();
-    float initSecs = timer.deltaSecs();
+    float setup = timer.deltaSecs();
 
     u32 nSelected = 0;
     bool first = true;
@@ -946,18 +1016,15 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       // logTimeKernels();
     }
 
-    if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, queue->read(bufAcc)}.save(); }
+    if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, bufAcc.read()}.save(); }
     
-    log("%u P2 %4u/2880: setup %4d ms; %4d us/prime, %u primes\n",
-        E, pos + nUsedBufs, int(initSecs * 1000 + 0.5f), nSelected ? int(timer.deltaSecs() / nSelected * 1'000'000 + 0.5f) : 0, nSelected);
+    log("%u P2 %4u/2880: %u primes; setup %5.2f s, %7.3f ms/prime\n", E, pos + nUsedBufs, nSelected, setup, timer.deltaSecs() * 1000.f / (nSelected + 1));
     logTimeKernels();
 
-    if (gcdFuture.valid()) {
-      if (gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-        string gcd = gcdFuture.get();
-        log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-        if (!gcd.empty()) { return gcd; }
-      }
+    if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+      string gcd = gcdFuture.get();
+      log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+      if (!gcd.empty()) { return gcd; }
     }      
   }
 
@@ -968,7 +1035,6 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   }
 
   if (gcdFuture.valid()) {
-    gcdFuture.wait();
     string gcd = gcdFuture.get();
     log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
     if (!gcd.empty()) { return gcd; }

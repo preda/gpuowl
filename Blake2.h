@@ -1,40 +1,74 @@
-#include <cstdint>
+#include "common.h"
 #include <cstring>
 #include <vector>
+#include <initializer_list>
 
 // Blake2 hash: https://tools.ietf.org/html/rfc7693
 class Blake2 {
-  using u64 = uint64_t;
-  using u8 = uint8_t;
+  struct Data {
+    const char* begin;
+    const char* end;
 
+    Data(const char* ptr, size_t size) : begin(ptr), end(ptr + size) {}
+    Data(const void* ptr, size_t size) : Data{static_cast<const char*>(ptr), size} {}
+
+    Data(u32 x) : Data{&x, sizeof(x)} {}
+    Data(u64 x) : Data{&x, sizeof(x)} {}
+    
+    template<typename T>
+    Data(const std::vector<T>& v) : Data{v.data(), v.size() * sizeof(T)} {}
+  };
+
+  
 public:
-  template<typename T>
-  static u64 hash64(const std::vector<T>& v) { return hash64(v.data(), v.size() * sizeof(T)); }
-  
-  static u64 hash64(const void* ptr, size_t size) {
-    return Blake2{}.hash<8>(static_cast<const char*>(ptr), size).h[0];
+  static u64 hash(std::initializer_list<Data> datas) {
+    Blake2 hasher{};
+    for (Data data : datas) { hasher << data; }
+    return std::move(hasher).finish();
   }
   
+  Blake2() : Blake2{8} {}
+  
+  Blake2& push(Data data) { push(data.begin, data.end); return *this; }
+  Blake2& operator<<(Data data) { return push(data); }
+
+  u64 finish() && {
+    assert(blockIt);
+    memset(blockIt, 0, blockEnd - blockIt);
+    compress<true>(blockIt - blockBegin);
+    blockIt = nullptr;
+    return h[0];
+  }
+    
 private:
-  template<u8 HASH_BYTES>
-  Blake2& hash(const char* ptr, size_t size) {
+  Blake2(u8 nOutputBytes) {
     for (int i = 0; i < 8; ++i) { h[i] = IV[i]; }
-    h[0] ^= 0x01'01'00'00 | HASH_BYTES;
-    t = 0;
-    while (size > 128) {
-      t += 128;
-      memcpy(m, ptr, 128);
-      compress<false>();
-      size -= 128;
-      ptr += 128;
-    }
-    t += size;
-    memset(m, 0, 128);
-    memcpy(m, ptr, size);
-    compress<true>();
-    return *this;
+    h[0] ^= 0x01'01'00'00 | nOutputBytes;
   }
   
+  void push(const char* it, const char* end) {
+    assert(blockIt);
+    while (it < end) {
+      if (blockIt == blockEnd) {
+        compress<false>(blockEnd - blockBegin); // == 128
+        blockIt = blockBegin;
+      }
+      
+      unsigned nFit = std::min(end - it, blockEnd - blockIt);
+      memcpy(blockIt, it, nFit);
+      blockIt += nFit;
+      it += nFit;
+    }
+  }
+  
+  u64 h[8];
+  u64 v[16];
+  u64 m[16];
+  u64 t = 0;
+  char* const blockBegin = reinterpret_cast<char*>(m);
+  char* const blockEnd = reinterpret_cast<char*>(m + 16);
+  char* blockIt = blockBegin;
+    
   static constexpr u64 IV[8] = {0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL, 0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL, 0x510e527fade682d1ULL, 0x9b05688c2b3e6c1fULL, 0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL};
 
   static constexpr u8 sigma[12][16] = {
@@ -77,7 +111,8 @@ private:
   }
 
   template<bool isFinal>
-  void compress() {
+  void compress(unsigned nDeltaBytes) {
+    t += nDeltaBytes;
     for (int i = 0; i < 8; ++i) { v[i] = h[i]; }
     for (int i = 0; i < 8; ++i) { v[8 + i] = IV[i]; }
     v[12] ^= t;
@@ -85,9 +120,4 @@ private:
     for (int i = 0; i < 12; ++i) { round(i); }
     for (int i = 0; i < 8; ++i) { h[i] ^= v[i] ^ v[i + 8]; }
   }
-
-  u64 h[8];
-  u64 v[16];
-  u64 m[16];
-  u64 t = 0;
 };

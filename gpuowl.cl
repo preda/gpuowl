@@ -11,6 +11,9 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
+// #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+// #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
+
 #if !NO_ASM
 #define HAS_ASM 1
 #endif
@@ -1093,8 +1096,21 @@ KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, u32 startDword) {
 
 u32 transPos(u32 k, u32 width, u32 height) { return k / height + k % height * width; }
 
-u32 kAt(u32 gx, u32 gy, u32 i) {
-  return CARRY_LEN * gy + BIG_HEIGHT * G_W * gx + BIG_HEIGHT * ((u32) get_local_id(0)) + i;
+KERNEL(256) sum64(u32 sizeBytes, global ulong* in, global ulong* out) {
+  if (get_global_id(0) == 0) { out[0] = 0; }
+  
+  ulong sum = 0;
+  for (i32 p = get_global_id(0); p < sizeBytes / sizeof(u64); p += get_global_size(0)) {
+    sum += in[p];
+  }
+  local ulong localSum;
+  if (get_local_id(0) == 0) { localSum = 0; }
+  bar();
+  atom_add(&localSum, sum);
+  // *(local atomic_long *)&localSum += sum;
+  bar();
+  if (get_local_id(0) == 0) { atom_add(&out[0], localSum); }
+  // out[get_group_id(0)] = localSum; }
 }
 
 // outEqual must be "true" on entry.
@@ -1347,6 +1363,7 @@ void acquire() {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
+// __attribute__((amdgpu_num_vgpr(64)))
 KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   local T lds[WIDTH];
@@ -1368,6 +1385,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
   T invWeight = weights.x;
   u32 b = bits[G_W * line + me];
   
+  // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
     if (test(b, 2*i)) { invWeight *= 2; }
     T invWeight2 = invWeight * IWEIGHT_STEP;
@@ -1404,6 +1422,7 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
 
   acquire();
 
+  // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
     if (test(b, 2*i)) { weight *= 0.5; }
     T weight2 = weight * WEIGHT_STEP;

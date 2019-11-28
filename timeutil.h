@@ -2,30 +2,35 @@
 
 #pragma once
 
+#include "common.h"
+
 #include <chrono>
 #include <string>
 
-using namespace std::chrono;
-
 class Timer {
-  high_resolution_clock::time_point prev;
+  using clock = std::chrono::steady_clock;
+  clock::time_point start;
 
-  auto delta() {
-    auto save = prev;
-    return (prev = high_resolution_clock::now()) - save;
+public:
+  Timer() : start(clock::now()) {}
+  
+  void reset() { start = clock::now(); }
+
+  u64 elapsed() const { return std::chrono::duration<u64, std::nano>(clock::now() - start).count(); }
+
+  u64 deltaNanos() {
+    auto now = clock::now();
+    u64 ret = std::chrono::duration<u64, std::nano>(now - start).count();
+    start = now;
+    return ret;
   }
 
-  auto elapsed() const { return high_resolution_clock::now() - prev; }
-  
-public:
-  Timer() : prev(high_resolution_clock::now()) { }
-  
-  long deltaMicros() { return duration_cast<microseconds>(delta()).count(); }
-  int deltaMillis()  { return duration_cast<milliseconds>(delta()).count(); }
-  float deltaSecs()  { return deltaMillis() * 0.001f; }
-
-  int elapsedMillis() const { return duration_cast<milliseconds>(elapsed()).count(); }
-  void reset() { deltaMillis(); }
+  double deltaSecs() {
+    auto now = clock::now();
+    double ret = std::chrono::duration<double>(now - start).count();
+    start = now;
+    return ret;
+  }
 };
 
 std::string timeStr();

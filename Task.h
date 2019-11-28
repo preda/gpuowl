@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "Args.h"
 #include "common.h"
 #include <string>
 
@@ -11,21 +12,21 @@ class Result;
 class Background;
 
 struct Task {
-  enum Kind {NONE = 0, PRP, PM1};
+  enum Kind {PRP, PM1};
 
   Kind kind;
   u32 exponent;
-  string AID;  
+  string AID;  // Assignment ID
   string line; // the verbatim worktodo line, used in deleteTask().
 
   // PM1
   u32 B1 = 0;
   u32 B2 = 0;
 
-  operator bool() { return kind != NONE; }
-
+  void adjustBounds(Args& args);
+  
   bool execute(const Args& args, Background& background);
 
-  bool writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const;
-  bool writeResultPM1(const Args&, const std::string& factor, u32 fftSize, bool didStage2) const;
+  void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const;
+  void writeResultPM1(const Args&, const std::string& factor, u32 fftSize, bool didStage2) const;
 };

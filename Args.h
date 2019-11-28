@@ -20,6 +20,7 @@ public:
   string dump;
   string dir;
   string resultsFile = "results.txt";
+  string masterDir;
   std::vector<std::string> flags;
   
   int device = 0;
@@ -27,10 +28,11 @@ public:
   bool timeKernels = false;
   bool enableTF = false;
   bool cudaYield = false;
+  u32 proofPow = 0;
   
   int carry = CARRY_AUTO;
-  u32 blockSize = 500;
-  u32 logStep = 50000;
+  const u32 blockSize = 400;
+  u32 logStep = 200000;
   int fftSize = 0;
 
   u32 B1 = 500000;

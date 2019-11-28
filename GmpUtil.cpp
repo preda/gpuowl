@@ -1,3 +1,5 @@
+// Copyright (C) Mihai Preda.
+
 #include "GmpUtil.h"
 
 #include <gmp.h>
@@ -6,67 +8,45 @@
 
 using namespace std;
 
-// return 2**exp - 1
-static void mersenne(mpz_t m, u32 exp) {
-  // m := 2^exp - 1.
-  mpz_set_ui(m, 1);
-  mpz_mul_2exp(m, m, exp);
-  mpz_sub_ui(m, m, 1);
-  assert(mpz_sizeinbase(m, 2) == exp);
+namespace {
+
+mpz_class mpz(const vector<u32>& words) {
+  mpz_class b{};
+  mpz_import(b.get_mpz_t(), words.size(), -1 /*order: LSWord first*/, sizeof(u32), 0 /*endianess: native*/, 0 /*nails*/, words.data());
+  return b;
+}
+
+mpz_class primorial(u32 p) {
+  mpz_class b{};
+  mpz_primorial_ui(b.get_mpz_t(), p);
+  return b;
+}
+
+mpz_class powerSmooth(u32 exp, u32 B1) {
+  mpz_class a{u64(exp) << 8}; // boost 2s.
+  for (int k = log2(B1); k >= 1; --k) { a *= primorial(pow(B1, 1.0 / k)); }
+  return a;
+}
+
+u32 sizeBits(mpz_class a) { return mpz_sizeinbase(a.get_mpz_t(), 2); }
+
+}
+
+vector<bool> bitsMSB(mpz_class a) {
+  vector<bool> bits;
+  int nBits = sizeBits(a);
+  bits.reserve(nBits);
+  for (int i = nBits - 1; i >= 0; --i) { bits.push_back(mpz_tstbit(a.get_mpz_t(), i)); }
+  assert(int(bits.size()) == nBits);
+  return bits;
 }
 
 // return GCD(bits - sub, 2^exp - 1) as a decimal string if GCD!=1, or empty string otherwise.
-std::string GCD(u32 exp, const std::vector<u32> &bits, u32 sub) {
-  mpz_t b;
-  mpz_init(b);
-  mpz_import(b, bits.size(), -1 /*order: LSWord first*/, sizeof(u32), 0 /*endianess: native*/, 0 /*nails*/, bits.data());
-  if (sub) { mpz_sub_ui(b, b, sub); }
-  assert(mpz_sizeinbase(b, 2) <= exp);
-  assert(mpz_cmp_ui(b, 0)); // b != 0.
-  
-  mpz_t m;
-  mpz_init(m);
-  mersenne(m, exp);   // m := 2**exp - 1
-    
-  mpz_gcd(m, m, b);
-    
-  mpz_clear(b);
-
-  string ret = "";
-  
-  if (mpz_cmp_ui(m, 1)) {
-    char *buf = mpz_get_str(nullptr, 10, m);
-    ret = buf;
-    free(buf);
-  }
-  
-  mpz_clear(m);
-  return ret;
+std::string GCD(u32 exp, const std::vector<u32>& words, u32 sub) {
+  string ret = mpz_class{gcd((mpz_class{1} << exp) - 1, mpz(words) - sub)}.get_str();
+  return ret == "1" ? ""s : ret;
 }
 
-static void powerSmooth(mpz_t a, u32 exp, u32 B1) {
-  mpz_set_ui(a, exp);
-  mpz_mul_2exp(a, a, 8); // boost 2s.
-
-  mpz_t b;
-  mpz_init(b);
-  
-  for (int k = log2(B1); k >= 1; --k) {
-    mpz_primorial_ui(b, u32(pow(B1, 1.0 / k)));
-    mpz_mul(a, a, b);
-  }  
-  mpz_clear(b);
-}
 
 // "Rev" means: most significant bit first (at index 0).
-vector<bool> powerSmoothBitsRev(u32 exp, u32 B1) {
-  mpz_t a;
-  mpz_init(a);
-  powerSmooth(a, exp, B1);
-  int nBits = mpz_sizeinbase(a, 2);
-  vector<bool> bits;
-  for (int i = nBits - 1; i >= 0; --i) { bits.push_back(mpz_tstbit(a, i)); }
-  assert(int(bits.size()) == nBits);
-  mpz_clear(a);
-  return bits;
-}
+vector<bool> powerSmoothMSB(u32 exp, u32 B1) { return bitsMSB(powerSmooth(exp, B1)); }

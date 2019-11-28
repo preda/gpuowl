@@ -5,7 +5,7 @@
 #include "Background.h"
 #include "Worktodo.h"
 #include "common.h"
-#include "file.h"
+#include "File.h"
 #include "version.h"
 #include "AllocTrac.h"
 #include "typeName.h"
@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
     }
 
     Args args;
-    if (auto file = openRead("config.txt")) {
+    if (auto file = File::openRead("config.txt")) {
       char buf[256];
       while (fgets(buf, sizeof(buf), file.get())) {
         string line = buf;
@@ -59,9 +59,9 @@ int main(int argc, char **argv) {
     } else if (args.pm1Exp) {
       Worktodo::makePM1(args, args.pm1Exp).execute(args, background);
     } else {
-      while (Task task = Worktodo::getTask(args)) {
-        if (!task.execute(args, background)) { break; }
-        Worktodo::deleteTask(task);
+      while (auto task = Worktodo::getTask(args)) {
+        if (!task->execute(args, background)) { break; }
+        Worktodo::deleteTask(*task);
       }
     }
   } catch (const char *mes) {

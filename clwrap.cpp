@@ -1,7 +1,7 @@
 // Copyright (C) 2017-2018 Mihai Preda.
 
 #include "timeutil.h"
-#include "file.h"
+#include "File.h"
 #include "AllocTrac.h"
 #include "clwrap.h"
 
@@ -183,7 +183,7 @@ void release(cl_kernel k)        { CHECK1(clReleaseKernel(k)); }
 void release(cl_event event)     { CHECK1(clReleaseEvent(event)); }
 
 void dumpBinary(cl_program program, const string &fileName) {
-  if (auto fo = openWrite(fileName)) {
+  if (auto fo = File::openWrite(fileName)) {
     size_t size;
     CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
     char *buf = new char[size + 1];
@@ -220,7 +220,7 @@ static void build(cl_program program, cl_device_id device, const string &args) {
     log("%s\n", buf.get());
   }
   if (ok) {
-    log("OpenCL compilation in %d ms\n", timer.deltaMillis());
+    log("OpenCL compilation in %.2f s\n", timer.deltaSecs());
   } else {
     release(program);
     CHECK2(err, "clBuildProgram");
@@ -313,16 +313,6 @@ void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *d
   CHECK1(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data, 0, NULL, NULL));
 }
 
-/*
-void read(cl_queue queue, bool blocking, Buffer &buf, size_t size, void *data, size_t start) {
-  CHECK1(clEnqueueReadBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
-}
-
-void write(cl_queue queue, bool blocking, Buffer &buf, size_t size, const void *data, size_t start) {
-  CHECK1(clEnqueueWriteBuffer(queue, buf.get(), blocking, start, size, data, 0, NULL, NULL));
-}
-*/
-
 void copyBuf(cl_queue queue, const cl_mem src, cl_mem dst, size_t size) {
   CHECK1(clEnqueueCopyBuffer(queue, src, dst, 0, 0, size, 0, NULL, NULL));
 }
@@ -374,4 +364,16 @@ u64 getEventNanos(cl_event event) {
   CHECK1(clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(start), &start, 0));
   CHECK1(clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(end), &end, 0));
   return end - start;
+}
+
+cl_context getQueueContext(cl_command_queue q) {
+  cl_context ret;
+  CHECK1(clGetCommandQueueInfo(q, CL_QUEUE_CONTEXT, sizeof(cl_context), &ret, 0));
+  return ret;
+}
+
+cl_device_id getQueueDevice(cl_command_queue q) {
+  cl_device_id id;
+  CHECK1(clGetCommandQueueInfo(q, CL_QUEUE_DEVICE, sizeof(id), &id, 0));
+  return id;
 }

@@ -1,3 +1,5 @@
+// Copyright (C) Mihai Preda.
+
 #include "AllocTrac.h"
 #include <limits>
 

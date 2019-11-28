@@ -1,11 +1,13 @@
-// GpuOwl Mersenne primality tester; Copyright (C) 2017-2018 Mihai Preda.
+// GpuOwl Mersenne primality tester; Copyright (C) Mihai Preda.
 
 #pragma once
 
+#include "File.h"
 #include "common.h"
 
 #include <vector>
 #include <string>
+#include <cinttypes>
 
 u64 residue(const vector<u32> &words);
 
@@ -18,7 +20,7 @@ protected:
   virtual u32 getK() = 0;
   
   bool load(u32 E, const std::string& extension);
-  void save(u32 E, const std::string& extension);
+  void save(u32 E, const std::string& extension, u32 k = 0);
   
   bool load(FILE* fi) {
     char line[256];
@@ -28,11 +30,8 @@ protected:
 };
 
 class PRPState : private StateLoader {
-  // Exponent, iteration, block-size, res64
-  static constexpr const char *HEADER_v9  = "OWL PRP 9 %u %u %u %016llx\n";
-  
   // Exponent, iteration, block-size, res64, nErrors
-  static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016llx %u\n";
+  static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
   
 protected:
   bool doLoad(const char* headerLine, FILE *fi) override;
@@ -45,7 +44,7 @@ public:
     : E{E}, k{k}, blockSize{blockSize}, res64{res64}, check{std::move(check)}, nErrors{nErrors} {
   }
 
-  void save() { StateLoader::save(E, "owl"); }
+  void save(bool persist) { StateLoader::save(E, "owl", persist ? k : 0); }
   
   const u32 E{};
   u32 k{};
