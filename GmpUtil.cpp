@@ -22,8 +22,9 @@ mpz_class primorial(u32 p) {
   return b;
 }
 
-mpz_class powerSmooth(u32 exp, u32 B1) {
-  mpz_class a{u64(exp) << 8}; // boost 2s.
+mpz_class powerSmooth(u32 exp, u32 B1) {  
+  mpz_class a{exp};
+  a *= 256;  // boost 2s.
   for (int k = log2(B1); k >= 1; --k) { a *= primorial(pow(B1, 1.0 / k)); }
   return a;
 }
