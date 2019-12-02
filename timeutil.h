@@ -16,7 +16,7 @@ public:
   
   void reset() { start = clock::now(); }
 
-  u64 elapsed() const { return std::chrono::duration<u64, std::nano>(clock::now() - start).count(); }
+  double elapsedSecs() const { return std::chrono::duration<double>(clock::now() - start).count(); }
 
   u64 deltaNanos() {
     auto now = clock::now();

@@ -873,7 +873,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     bool doLog = (k + 1) % 10000 == 0; // || isAtEnd;
     bool doStop = signal.stopRequested();
     if (doStop) { log("Stopping, please wait..\n"); }
-    bool doSave = doStop || saveTimer.elapsed() > 300 || isAtEnd;
+    bool doSave = doStop || saveTimer.elapsedSecs() > 300 || isAtEnd;
     
     bool leadOut = useLongCarry || doLog || doSave;
     coreStep(leadIn, leadOut, bits[k], bufAux, bufTmp, bufData);
@@ -891,6 +891,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         // log("%u P1 saved at %u\n", E, k + 1);
         saveTimer.reset();
         if (doStop) { throw "stop requested"; }
+        log("saved\n");
       }
     }
   }
