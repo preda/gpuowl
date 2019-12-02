@@ -1167,19 +1167,37 @@ void fft_HEIGHT(local T *lds, T2 *u, Trig trig) {
 #endif
 }
 
-KERNEL(G_W) fftW(P(T2) io, Trig smallTrig) {
+// Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
+KERNEL(G_W) fftW(CP(T2) in, P(T2) out, Trig smallTrig) {
   local T lds[WIDTH];
   T2 u[NW];
 
   u32 g = get_group_id(0);
-  io += WIDTH * g;
+  in += WIDTH * g;
 
-  read(G_W, NW, u, io, 0);
+  read(G_W, NW, u, in, 0);
   fft_WIDTH(lds, u, smallTrig);  
-  write(G_W, NW, u, io, 0);
+  out += WIDTH * g;
+  write(G_W, NW, u, out, 0);
 }
 
-KERNEL(G_H) fftH(P(T2) io, Trig smallTrig) {
+// Do an FFT Height after a transposeW (which may not have fully transposed data, leading to non-sequential input)
+KERNEL(G_H) fftHin(CP(T2) in, P(T2) out, Trig smallTrig) {
+  local T lds[SMALL_HEIGHT];
+  T2 u[NH];
+
+  u32 g = get_group_id(0);
+  in += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
+
+  read(G_H, NH, u, in, 0);
+  fft_HEIGHT(lds, u, smallTrig);
+
+  out += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
+  write(G_H, NH, u, out, 0);
+}
+
+// Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)
+KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   local T lds[SMALL_HEIGHT];
   T2 u[NH];
 
@@ -1364,20 +1382,20 @@ void acquire() {
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 // __attribute__((amdgpu_num_vgpr(64)))
-KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
+KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   local T lds[WIDTH];
 
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
-  
+
   u32 H = BIG_HEIGHT;
   u32 line = gr % H;
   
   T2 u[NW];
   Word2 wu[NW];
   
-  read(G_W, NW, u, io, WIDTH * line);
+  read(G_W, NW, u, in, WIDTH * line);
 
   fft_WIDTH(lds, u, smallTrig);
 
@@ -1435,11 +1453,11 @@ KERNEL(G_W) carryFused(P(T2) io, P(Carry) carryShuttle, P(u32) ready, Trig small
 
   fft_WIDTH(lds, u, smallTrig);
 
-  write(G_W, NW, u, io, WIDTH * line);
+  write(G_W, NW, u, out, WIDTH * line);
 }
 
 // copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
-KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
+KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready,
                           CP(T2) A, CP(T2) iA, Trig smallTrig, CP(u32) extras) {
   local T lds[WIDTH];
 
@@ -1449,14 +1467,15 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
   u32 H = BIG_HEIGHT;
   u32 line = gr % H;
   u32 step = WIDTH * line;
-  io += step;
+  in += step;
+  out += step;
   A  += step;
   iA += step;
   
   T2 u[NW];
   Word2 wu[NW];
   
-  read(G_W, NW, u, io, 0);
+  read(G_W, NW, u, in, 0);
 
   fft_WIDTH(lds, u, smallTrig);
 
@@ -1503,7 +1522,7 @@ KERNEL(G_W) carryFusedMul(P(T2) io, P(Carry) carryShuttle, P(u32) ready,
 
   fft_WIDTH(lds, u, smallTrig);
 
-  write(G_W, NW, u, io, 0);
+  write(G_W, NW, u, out, 0);
 }
 
 // __attribute__((amdgpu_num_vgpr(128)))
@@ -1906,8 +1925,8 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 
 #endif
 
-// equivalent to: fftH, multiply, fftH.
-KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
+// equivalent to: fftHin, multiply, fftHout.
+KERNEL(G_H) tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
   local T2 rawLds[(SMALL_HEIGHT+1)/2];
   local T *lds = (local T *)rawLds;
   T2 u[NH], v[NH];
@@ -1919,9 +1938,9 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   u32 line2 = line1 ? H - line1 : (H / 2);
   u32 g1 = transPos(line1, MIDDLE, WIDTH);
   u32 g2 = transPos(line2, MIDDLE, WIDTH);
-  
-  read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
-  read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
+
+  read(G_H, NH, u, in, g1 * SMALL_HEIGHT);
+  read(G_H, NH, v, in, g2 * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig);
   fft_HEIGHT(lds, v, smallTrig);
 
@@ -1943,14 +1962,14 @@ KERNEL(G_H) tailFused(P(T2) io, Trig smallTrig) {
   }
 
   fft_HEIGHT(lds, v, smallTrig);
-  write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
+  write(G_H, NH, v, out, g2 * SMALL_HEIGHT);
   
   fft_HEIGHT(lds, u, smallTrig);
-  write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
+  write(G_H, NH, u, out, g1 * SMALL_HEIGHT);
 }
 
-// equivalent to: fftH(io), multiply(io, a - b), fftH(io)
-KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
+// equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
+KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig smallTrig) {
   local T2 rawLds[(SMALL_HEIGHT+1)/2];
   local T *lds = (local T *)rawLds;
   T2 u[NH], v[NH];
@@ -1964,8 +1983,8 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
   u32 g1 = transPos(line1, MIDDLE, WIDTH);
   u32 g2 = transPos(line2, MIDDLE, WIDTH);
   
-  read(G_H, NH, u, io, g1 * SMALL_HEIGHT);
-  read(G_H, NH, v, io, g2 * SMALL_HEIGHT);
+  read(G_H, NH, u, in, g1 * SMALL_HEIGHT);
+  read(G_H, NH, v, in, g2 * SMALL_HEIGHT);
   
   readDelta(G_H, NH, p, a, b, g1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, g2 * SMALL_HEIGHT);
@@ -1995,10 +2014,10 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) io, CP(T2) a, CP(T2) b, Trig smallTrig) {
   }
 
   fft_HEIGHT(lds, v, smallTrig);
-  write(G_H, NH, v, io, g2 * SMALL_HEIGHT);
+  write(G_H, NH, v, out, g2 * SMALL_HEIGHT);
   
   fft_HEIGHT(lds, u, smallTrig);
-  write(G_H, NH, u, io, g1 * SMALL_HEIGHT);
+  write(G_H, NH, u, out, g1 * SMALL_HEIGHT);
 }
 
 // #define TEST_KERNEL	// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize

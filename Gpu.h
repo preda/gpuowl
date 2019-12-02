@@ -39,7 +39,8 @@ class Gpu {
   Kernel carryFusedMul;
   Kernel fftP;
   Kernel fftW;
-  Kernel fftH;
+  Kernel fftHin;
+  Kernel fftHout;
   Kernel fftMiddleIn;
   Kernel fftMiddleOut;
   
