@@ -487,6 +487,7 @@ void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp,
 
         // multiply from low
         multiply(out, base);
+	fftHout(out);
         topHalf(out, tmp);
       }
       if (p <= 0) { break; }
@@ -882,7 +883,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     bool doLog = (k + 1) % 10000 == 0; // || isAtEnd;
     bool doStop = signal.stopRequested();
     if (doStop) { log("Stopping, please wait..\n"); }
-    bool doSave = doStop || saveTimer.elapsed() > 300 || isAtEnd;
+    bool doSave = doStop || saveTimer.elapsedSecs() > 300 || isAtEnd;
 
     bool leadOut = useLongCarry || doLog || doSave;
     coreStep(leadIn, leadOut, bits[k], bufAux, bufTmp, bufData);
