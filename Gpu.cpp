@@ -165,12 +165,12 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
 }
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool timeKernels, bool useLongCarry)
-  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, genWeights(E, W, BIG_H, nW)}
+         cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle)
+  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, useMergedMiddle, genWeights(E, W, BIG_H, nW)}
 {}
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool timeKernels, bool useLongCarry, Weights&& weights) :
+         cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, Weights&& weights) :
   E(E),
   N(W * BIG_H * 2),
   hN(N / 2),
@@ -179,6 +179,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufSize(N * sizeof(double)),
   useLongCarry(useLongCarry),
   useMiddle(BIG_H != SMALL_H),
+  useMergedMiddle(BIG_H != SMALL_H && useMergedMiddle),
   timeKernels(timeKernels),
   device(device),
   context{device},
@@ -294,12 +295,15 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
     || (args.carry == Args::CARRY_LONG)
     || (args.carry == Args::CARRY_AUTO && WIDTH >= 2048);
 
+  bool useMergedMiddle = 0;
+  for (const string& flag : args.flags) if (flag == "MERGED_MIDDLE") useMergedMiddle = 1;
+
   if (useLongCarry) { log("using long carry kernels\n"); }
 
   bool timeKernels = args.timeKernels;
-    
+
   return make_unique<Gpu>(args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
-                          getDevice(args.device), timeKernels, useLongCarry);
+                          getDevice(args.device), timeKernels, useLongCarry, useMergedMiddle);
 }
 
 vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
@@ -409,13 +413,19 @@ void Gpu::logTimeKernels() {
 }
 
 void Gpu::tW(Buffer<double>& in, Buffer<double>& out) {
-  transposeW(in, out);
-  if (useMiddle) { fftMiddleIn(out); }
+  if (useMergedMiddle) fftMiddleIn(in, out);
+  else {
+    transposeW(in, out);
+    if (useMiddle) fftMiddleIn(out, out);
+  }
 }
 
 void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
-  if (useMiddle) { fftMiddleOut(in); }
-  transposeH(in, out);
+  if (useMergedMiddle) fftMiddleOut(in, out);
+  else {
+    if (useMiddle) { fftMiddleOut(in, in); }
+    transposeH(in, out);
+  }
 }
   
 vector<int> Gpu::readOut(ConstBuffer<int> &buf) {
@@ -441,10 +451,10 @@ void Gpu::multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& i
 }
 
 // Auxiliary performing the top half of the cycle (excluding the bottom tailFused).
-void Gpu::topHalf(Buffer<double>& buf1, Buffer<double>& buf2) {
-  tH(buf1, buf2);
-  carryFused(buf2, buf1);
-  tW(buf1, buf2);
+void Gpu::topHalf(Buffer<double>& in, Buffer<double>& out) {
+  tH(in, out);
+  carryFused(out, in);
+  tW(in, out);
 }
 
 // See "left-to-right binary exponentiation" on wikipedia
