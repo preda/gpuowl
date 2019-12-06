@@ -1169,7 +1169,7 @@ void fft_HEIGHT(local T *lds, T2 *u, Trig trig) {
 
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
-#ifndef MERGED_MIDDLE
+#if !defined (MERGED_MIDDLE) || G_W < 16
   read(G_W, NW, u, in, line * WIDTH);
 #elif ATTEMPT2
 // fftMiddleOut produced this layout when using MERGED_MIDDLE option (for a 5M FFT):
@@ -1236,7 +1236,7 @@ KERNEL(G_W) fftW(CP(T2) in, P(T2) out, Trig smallTrig) {
 
 // Read a line for tailFused or fftHin
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
-#ifndef MERGED_MIDDLE
+#if !defined (MERGED_MIDDLE) || G_H < 16
   read(G_H, NH, u, in, memline * SMALL_HEIGHT);
 #elif ATTEMPT5
 // The memory layout from FFTMiddleIn is:
@@ -1435,14 +1435,11 @@ void middleMul2(T2 *u, u32 g, u32 me) {
   }
 }
 
-#ifdef ATTEMPT1
+#if G_H < 16
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   local T2 lds[256];
   T2 u[MIDDLE];
-//  u32 N = SMALL_HEIGHT / 256;
   u32 g = get_group_id(0);
-//  u32 gx = g % N;
-//  u32 gy = g / N;
   u32 me = get_local_id(0);
 
 // We are going to transpose and do the middle FFT in one kernel.  The input matrix is
@@ -1650,7 +1647,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   write(SMALL_HEIGHT, MIDDLE, u, out, 0);
 }
 
-#elif ATTEMPT1
+#elif G_W < 16
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   local T2 lds[256];
@@ -1831,7 +1828,7 @@ u32 step = start_col  + (me % 16); // BUG - silly. pass in step to middleMul - d
 //BUG - also test speed of split writes
   out += (start_col/16) * (WIDTH/16)*256 + (start_row/16) * 256;
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (SMALL_HEIGHT/16)*(WIDTH/16)*256 + me] = u[i]; }
-
+}
 #else
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
@@ -1969,13 +1966,11 @@ void acquire() {
 #endif
 }
 
+
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-// __attribute__((amdgpu_num_vgpr(64)))
-KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
-                       CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
-  local T lds[WIDTH];
-
+void carryFusedCore(u32 mul, local T *lds, CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
+                    CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -2002,7 +1997,7 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
     u32 p = i * G_W + me;
     Carry carry = 0;
 
-    wu[i] = unweightAndCarryMulx(1, conjugate(u[i]), &carry, U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+    wu[i] = unweightAndCarryMulx(mul, conjugate(u[i]), &carry, U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
     invWeight *= IWEIGHT_BIGSTEP;
   }
@@ -2046,73 +2041,22 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   write(G_W, NW, u, out, WIDTH * line);
 }
 
-// copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
-KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready,
-                          CP(T2) A, CP(T2) iA, Trig smallTrig, CP(u32) extras) {
+// The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
+// It uses "stairway" carry data forwarding from one group to the next.
+// __attribute__((amdgpu_num_vgpr(64)))
+KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
+                       CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   local T lds[WIDTH];
-// BUG -- this routine does not mimic carryFused  ----  why???  Commonize???
-  u32 gr = get_group_id(0);
-  u32 me = get_local_id(0);
-
-  u32 H = BIG_HEIGHT;
-  u32 line = gr % H;
-  u32 step = WIDTH * line;
-  out += step;
-  A  += step;
-  iA += step;
-
-  T2 u[NW];
-  Word2 wu[NW];
-  
-  readCarryFusedLine(in, u, line);
-
-  fft_WIDTH(lds, u, smallTrig);
-
-  u32 extra0 = extras[G_W * line + me];
-  u32 extra = extra0;
-
-  for (i32 i = 0; i < NW; ++i) {
-    u32 p = i * G_W + me;
-    Carry carry = 0;
-    // u32 k = line + BIG_HEIGHT * p;
-    wu[i] = unweightAndCarryMul(3, conjugate(u[i]), &carry, iA[p], extra);
-    if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
-    extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
-  }
-
-  release();
-  
-  // Signal that this group is done writing the carry.
-  if (gr < H && me == 0) {
-#ifdef ATOMICALLY_CORRECT
-    atomic_store((atomic_uint *) &ready[gr], 1);
-#else
-    ready[gr] = 1;
-#endif
-  }
-
-  if (gr == 0) { return; }
-  
-  extra = extra0;
-  // Wait until the previous group is ready with the carry.
-  if (me == 0) {
-    while(!atomic_load((atomic_uint *) &ready[gr - 1]));
-    atomic_store((atomic_uint *) &ready[gr - 1], 0);
-  }
-
-  acquire();
-  
-  for (i32 i = 0; i < NW; ++i) {
-    u32 p = i * G_W + me;
-    // u32 k = line + BIG_HEIGHT * p;
-    u[i] = carryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], A[p], extra);
-    extra = reduce(extra + (u32) (2u * H * G_W * (u64) STEP % NWORDS));
-  }
-
-  fft_WIDTH(lds, u, smallTrig);
-
-  write(G_W, NW, u, out, 0);
+  carryFusedCore(1, lds, in, out, carryShuttle, ready, smallTrig, bits, groupWeights, threadWeights);
 }
+
+// copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
+KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
+                          CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
+  local T lds[WIDTH];
+  carryFusedCore(3, lds, in, out, carryShuttle, ready, smallTrig, bits, groupWeights, threadWeights);
+}
+
 
 // __attribute__((amdgpu_num_vgpr(128)))
 KERNEL(256) transposeW(CP(T2) in, P(T2) out) {
@@ -2575,7 +2519,6 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
   readTailFusedLine(in, u, line1, memline1);
   readTailFusedLine(in, v, line2, memline2);
 
-//BUG - needs to mimic readTailFusedLIne????? or has a and b been saved in memline order?
   readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
 

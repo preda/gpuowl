@@ -231,7 +231,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
   carryFused.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
-  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufWeightA, bufWeightI, bufTrigW, bufExtras);
+  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
@@ -340,7 +340,7 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
 void Gpu::modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3) {
   fftP(in, buf1);
   tW(buf1, buf3);
-  fftHin(buf3, buf1);		// GW:  buf1 could be reused multiplier does not change -- pass in a leadIn argument???
+  fftHin(buf3, buf1);		// GW:  buf1 could be reused, multiplier does not change -- pass in a leadIn argument???
 
   fftP(io, buf2);
   tW(buf2, buf3);
@@ -476,7 +476,7 @@ void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp,
     assert(p > 0);
 
     // square from "low" position.
-    square(out);
+    square(out);				// GW:  The multiply and square routines could also do fftHout
     fftHout(out);
     topHalf(out, tmp);
 
@@ -486,7 +486,7 @@ void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp,
         fftHin(tmp, out); // to low
 
         // multiply from low
-        multiply(out, base);
+        multiply(out, base);			// GW:  The multiply and square routines could also do fftHout
 	fftHout(out);
         topHalf(out, tmp);
       }
@@ -501,26 +501,26 @@ void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp,
   fftHin(tmp, out); // to low
 }
 
-void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
+void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io) {
   if (leadIn) { fftP(io, buf1); }
-  tW(buf1, buf2);
-  tailFused(buf2, buf1);
-  tH(buf1, buf2);
+  tW(buf1, bufTmp);
+  tailFused(bufTmp, buf1);
+  tH(buf1, bufTmp);
 
   if (leadOut) {
-    fftW(buf2, buf1);
+    fftW(bufTmp, buf1);
     mul3 ? carryM(buf1, io) : carryA(buf1, io);
     carryB(io);
   } else {
-    mul3 ? carryFusedMul(buf2, buf1) : carryFused(buf2, buf1);
+    mul3 ? carryFusedMul(bufTmp, buf1) : carryFused(bufTmp, buf1);
   }  
 }
 
-void Gpu::modSqLoop(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io, bool mul3) {
+void Gpu::modSqLoop(u32 reps, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io, bool mul3) {
   bool leadIn = true;
   for (u32 i = 0; i < reps; ++i) {
     bool leadOut = useLongCarry || (i == reps - 1);
-    coreStep(leadIn, leadOut, mul3 && (i == reps - 1), buf1, buf2, io);
+    coreStep(leadIn, leadOut, mul3 && (i == reps - 1), buf1, bufTmp, io);
     leadIn = leadOut;
   }
 }
@@ -907,14 +907,13 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
   // See coreStep().
   if (leadIn) { fftP(bufData, bufAux); }
-  tW(bufAux, bufTmp);
-  tailFused(bufTmp, bufAux);
-  tH(bufAux, bufTmp);
 
   HostAccessBuffer<double> bufAcc{queue, "acc", N};
-  bufAcc << bufTmp;
-  
-  fftW(bufTmp, bufAux);
+
+  tW(bufAux, bufTmp);
+  tailFused(bufTmp, bufAux);
+  tH(bufAux, bufAcc);			// Save bufAcc for later use as an accumulator
+  fftW(bufAcc, bufAux);
   carryA(bufAux, bufData);
   carryB(bufData);
 
