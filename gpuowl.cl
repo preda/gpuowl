@@ -1423,7 +1423,30 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
 #else
 
-// Apply the twiddles needed after WIDTH and before MIDDLE in forward FFT.  Also used after MIDDLE and before WIDTH in inverse FFT.
+// Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
+// Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
+// s varies from 0 to SMALL_HEIGHT-1
+void middleMul1(T2 *u, u32 s) {
+  T2 step = slowTrig(s, BIG_HEIGHT / 2);
+  // This implementation improves roundoff accuracy by shortening the chain of complex multiplies.
+  // There is also some chance that replacing mul with sq could result in a small reduction in f64 ops.
+  // One might think this increases VGPR usage due to extra temporaries, however as of rocm 2.2
+  // all the various t value are precomputed anyway (to give the global loads more time to complete).
+  T2 steps[MIDDLE];
+  for (i32 i = 1; i < MIDDLE; i++) {
+    if (i == 1) {
+      steps[i] = step;
+    } else if (i & 1) {
+      steps[i] = mul(steps[i/2], steps[i/2 + 1]);
+    } else {
+      steps[i] = sq(steps[i/2]);
+    }
+    u[i] = mul(u[i], steps[i]);
+  }
+}
+
+// Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
+// Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
 // g varies from 0 to WIDTH-1, me varies from 0 to SMALL_HEIGHT-1
 void middleMul2(T2 *u, u32 g, u32 me) {
   T2 base = slowTrig(g * me,  BIG_HEIGHT * WIDTH / 2);
@@ -1467,9 +1490,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
   fft_MIDDLE(u);
 
-//  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);  --- range 0 to SMALL_HEIGHT-1
-u32 step = start_row  + (me / 16); // BUG - silly. pass in step to middleMul - doc as 0..SMALL_HEIGHT-1
-  middleMul(u, step / 256, step % 256);
+  middleMul1(u, start_row + (me / 16));
 
 // Swizzle data so we will write 1K byte contiguous chunks
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -1523,9 +1544,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
   fft_MIDDLE(u);
 
-//  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);  --- range 0 to SMALL_HEIGHT-1
-u32 step = start_row  + (me / 16); // BUG - silly. pass in step to middleMul - doc as 0..SMALL_HEIGHT-1
-  middleMul(u, step / 256, step % 256);
+  middleMul1(u, start_row + (me / 16));
 
 // Swizzle data so it is closer to the sequential order needed by tailFused.
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -1590,9 +1609,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
   fft_MIDDLE(u);
 
-//  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);  --- range 0 to SMALL_HEIGHT-1
-u32 step = start_row  + (me / 16); // BUG - silly. pass in step to middleMul - doc as 0..SMALL_HEIGHT-1
-  middleMul(u, step / 256, step % 256);
+  middleMul1(u, start_row + (me / 16));
 
 // Swizzle data so it is closer to the sequential order needed by tailFused.
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -1619,7 +1636,9 @@ u32 step = start_row  + (me / 16); // BUG - silly. pass in step to middleMul - d
 
 //BUG - also test speed of split writes
   out += (start_col/16) * 16*BIG_HEIGHT + (start_row/16) * MIDDLE*256;
-//BUG - isn't this the same as     out += g * MIDDLE*256;
+// BUG - if we reverse col x row with row x col, then out will be in order and it might be faster
+// is it better to read out of order or write out of order???
+//  out += g * MIDDLE*256;
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * 256 + me] = u[i]; }
 }
 
@@ -1675,9 +1694,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
 
-//  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);  --- range 0 to SMALL_HEIGHT-1
-u32 step = start_col  + (me % 16); // BUG - silly. pass in step to middleMul - doc as 0..SMALL_HEIGHT-1
-  middleMul(u, step / 256, step % 256);
+  middleMul1(u, start_col + (me % 16));
 
   fft_MIDDLE(u);
 
@@ -1729,9 +1746,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
 
-//  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);  --- range 0 to SMALL_HEIGHT-1
-u32 step = start_col  + (me % 16); // BUG - silly. pass in step to middleMul - doc as 0..SMALL_HEIGHT-1
-  middleMul(u, step / 256, step % 256);
+  middleMul1(u, start_col + (me % 16));
 
   fft_MIDDLE(u);
 
@@ -1794,9 +1809,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
 
-//  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);  --- range 0 to SMALL_HEIGHT-1
-u32 step = start_col  + (me % 16); // BUG - silly. pass in step to middleMul - doc as 0..SMALL_HEIGHT-1
-  middleMul(u, step / 256, step % 256);
+  middleMul1(u, start_col + (me % 16));
 
   fft_MIDDLE(u);
 
@@ -1857,9 +1870,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
 
-//  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);  --- range 0 to SMALL_HEIGHT-1
-u32 step = start_col  + (me % 16); // BUG - silly. pass in step to middleMul - doc as 0..SMALL_HEIGHT-1
-  middleMul(u, step / 256, step % 256);
+  middleMul1(u, start_col + (me % 16));
 
   fft_MIDDLE(u);
 
@@ -2047,14 +2058,148 @@ void carryFusedCore(u32 mul, local T *lds, CP(T2) in, P(T2) out, P(Carry) carryS
 KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   local T lds[WIDTH];
-  carryFusedCore(1, lds, in, out, carryShuttle, ready, smallTrig, bits, groupWeights, threadWeights);
+  u32 gr = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  u32 H = BIG_HEIGHT;
+  u32 line = gr % H;
+
+  T2 u[NW];
+  Word2 wu[NW];
+
+  readCarryFusedLine(in, u, line);
+
+  fft_WIDTH(lds, u, smallTrig);
+
+  T2 weights = groupWeights[line] * threadWeights[me];
+  T invWeight = weights.x;
+  u32 b = bits[G_W * line + me];
+  
+  // __attribute__((opencl_unroll_hint(1)))
+  for (i32 i = 0; i < NW; ++i) {
+    if (test(b, 2*i)) { invWeight *= 2; }
+    T invWeight2 = invWeight * IWEIGHT_STEP;
+    if (test(b, 2*i + 1)) { invWeight2 *= 2; }
+    
+    u32 p = i * G_W + me;
+    Carry carry = 0;
+
+    wu[i] = unweightAndCarryMulx(1, conjugate(u[i]), &carry, U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+    if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
+    invWeight *= IWEIGHT_BIGSTEP;
+  }
+
+  release();
+
+  // Signal that this group is done writing the carry.
+  if (gr < H && me == 0) {
+#ifdef ATOMICALLY_CORRECT
+    atomic_store((atomic_uint *) &ready[gr], 1);
+#else
+    ready[gr] = 1;
+#endif
+  }
+
+  if (gr == 0) { return; }
+  
+  T weight = weights.y;
+  
+  // Wait until the previous group is ready with the carry.
+  if (me == 0) {
+    while(!atomic_load((atomic_uint *) &ready[gr - 1]));
+    atomic_store((atomic_uint *) &ready[gr - 1], 0);
+  }
+
+  acquire();
+
+  // __attribute__((opencl_unroll_hint(1)))
+  for (i32 i = 0; i < NW; ++i) {
+    if (test(b, 2*i)) { weight *= 0.5; }
+    T weight2 = weight * WEIGHT_STEP;
+    if (test(b, 2*i + 1)) { weight2 *= 0.5; }
+    
+    u32 p = i * G_W + me;
+    u[i] = carryAndWeightFinalx(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), test(b, 2*(NW+i)));
+    weight *= WEIGHT_BIGSTEP;
+  }
+
+  fft_WIDTH(lds, u, smallTrig);
+
+  write(G_W, NW, u, out, WIDTH * line);
 }
 
 // copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
 KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                           CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   local T lds[WIDTH];
-  carryFusedCore(3, lds, in, out, carryShuttle, ready, smallTrig, bits, groupWeights, threadWeights);
+  u32 gr = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  u32 H = BIG_HEIGHT;
+  u32 line = gr % H;
+
+  T2 u[NW];
+  Word2 wu[NW];
+
+  readCarryFusedLine(in, u, line);
+
+  fft_WIDTH(lds, u, smallTrig);
+
+  T2 weights = groupWeights[line] * threadWeights[me];
+  T invWeight = weights.x;
+  u32 b = bits[G_W * line + me];
+  
+  // __attribute__((opencl_unroll_hint(1)))
+  for (i32 i = 0; i < NW; ++i) {
+    if (test(b, 2*i)) { invWeight *= 2; }
+    T invWeight2 = invWeight * IWEIGHT_STEP;
+    if (test(b, 2*i + 1)) { invWeight2 *= 2; }
+    
+    u32 p = i * G_W + me;
+    Carry carry = 0;
+
+    wu[i] = unweightAndCarryMulx(3, conjugate(u[i]), &carry, U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+    if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
+    invWeight *= IWEIGHT_BIGSTEP;
+  }
+
+  release();
+
+  // Signal that this group is done writing the carry.
+  if (gr < H && me == 0) {
+#ifdef ATOMICALLY_CORRECT
+    atomic_store((atomic_uint *) &ready[gr], 1);
+#else
+    ready[gr] = 1;
+#endif
+  }
+
+  if (gr == 0) { return; }
+  
+  T weight = weights.y;
+  
+  // Wait until the previous group is ready with the carry.
+  if (me == 0) {
+    while(!atomic_load((atomic_uint *) &ready[gr - 1]));
+    atomic_store((atomic_uint *) &ready[gr - 1], 0);
+  }
+
+  acquire();
+
+  // __attribute__((opencl_unroll_hint(1)))
+  for (i32 i = 0; i < NW; ++i) {
+    if (test(b, 2*i)) { weight *= 0.5; }
+    T weight2 = weight * WEIGHT_STEP;
+    if (test(b, 2*i + 1)) { weight2 *= 0.5; }
+    
+    u32 p = i * G_W + me;
+    u[i] = carryAndWeightFinalx(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), test(b, 2*(NW+i)));
+    weight *= WEIGHT_BIGSTEP;
+  }
+
+  fft_WIDTH(lds, u, smallTrig);
+
+  write(G_W, NW, u, out, WIDTH * line);
 }
 
 
