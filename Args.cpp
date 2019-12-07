@@ -57,6 +57,7 @@ Command line options:
 -B1                : P-1 B1 bound, default %u
 -B2                : P-1 B2 bound, default B1 * 30
 -rB2               : ratio of B2 to B1. Default %u, used only if B2 is not explicitly set
+-cleanup           : delete save files at end of run
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -results <file>    : name of results file, default 'results.txt'
@@ -120,6 +121,7 @@ void Args::parse(string line) {
     else if (key == "-device" || key == "-d") { device = stoi(s); }
     else if (key == "-dir") { dir = s; }
     else if (key == "-yield") { cudaYield = true; }
+    else if (key == "-cleanup") { cleanup = true; }
     else if (key == "-carry") {
       if (s == "short" || s == "long") {
         carry = s == "short" ? CARRY_SHORT : CARRY_LONG;
