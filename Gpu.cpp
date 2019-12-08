@@ -708,7 +708,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   double allMinBlockTime = 1e9;
 
   // string spinner = "|/-\\";
-  string spinner = " .oO*";
+  string spinner = "-\\|/";
   size_t spinPos = 0;
   
   // future<void> saveFuture;
