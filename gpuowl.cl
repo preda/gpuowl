@@ -208,6 +208,13 @@ T2 fmaT2(T a, T2 b, T2 c) { return (U2 (fma(a, b.x, c.x), fma(a, b.y, c.y))); }
 // saves one negation
 T2 mul_by_conjugate(T2 a, T2 b) { return U2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y ); }
 
+// Combined complex mul and mul by conjugate.  Saves 4 multiplies compared to two complex mul calls. 
+void mul_and_mul_by_conjugate(T2 *res1, T2 *res2, T2 a, T2 b) {
+	T axbx = a.x * b.x; T axby = a.x * b.y; T aybx = a.y * b.x; T ayby = a.y * b.y;
+	res1->x = axbx - ayby; res1->y = axby + aybx;		// Complex mul
+	res2->x = axbx + ayby; res2->y = aybx - axby;		// Complex mul by conjugate
+}
+
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
   X2_mul_t4(u[1], u[3]);
@@ -1611,6 +1618,43 @@ void middleMul1(T2 *u, u32 s) {
   // One might think this increases VGPR usage due to extra temporaries, however as of rocm 2.2
   // all the various t value are precomputed anyway (to give the global loads more time to complete).
   T2 steps[MIDDLE];
+  // FANCY_MIDDLEMUL1 should be marginally less F64 ops by using a mul_by_conjugate to compute steps
+  // in the reverse direction.  Timings were inconclusive.  Needs more investigation.  If better, we can
+  // create implementations for each MIDDLE value.
+#if FANCY_MIDDLEMUL1 && MIDDLE == 10
+   steps[2] = sq(step);
+   u[1] = mul(u[1], step);
+   u[2] = mul(u[2], steps[2]);
+   steps[4] = sq(steps[2]);
+   mul_and_mul_by_conjugate(&steps[5], &steps[3], steps[4], step);
+   u[3] = mul(u[3], steps[3]);
+   u[4] = mul(u[4], steps[4]);
+   u[5] = mul(u[5], steps[5]);
+   steps[6] = sq(steps[3]);
+   steps[8] = sq(steps[4]);
+   mul_and_mul_by_conjugate(&steps[9], &steps[7], steps[8], step);
+   u[6] = mul(u[6], steps[6]);
+   u[7] = mul(u[7], steps[7]);
+   u[8] = mul(u[8], steps[8]);
+   u[9] = mul(u[9], steps[9]);
+#elif FANCY_MIDDLEMUL1 && MIDDLE == 11
+   steps[2] = sq(step);
+   u[1] = mul(u[1], step);
+   u[2] = mul(u[2], steps[2]);
+   steps[4] = sq(steps[2]);
+   mul_and_mul_by_conjugate(&steps[5], &steps[3], steps[4], step);
+   u[3] = mul(u[3], steps[3]);
+   u[4] = mul(u[4], steps[4]);
+   u[5] = mul(u[5], steps[5]);
+   steps[8] = sq(steps[4]);
+   mul_and_mul_by_conjugate(&steps[9], &steps[7], steps[8], step);
+   u[7] = mul(u[7], steps[7]);
+   u[8] = mul(u[8], steps[8]);
+   u[9] = mul(u[9], steps[9]);
+   mul_and_mul_by_conjugate(&steps[10], &steps[6], steps[8], steps[2]);
+   u[6] = mul(u[6], steps[6]);
+   u[10] = mul(u[10], steps[10]);
+#else
   for (i32 i = 1; i < MIDDLE; i++) {
     if (i == 1) {
       steps[i] = step;
@@ -1621,6 +1665,7 @@ void middleMul1(T2 *u, u32 s) {
     }
     u[i] = mul(u[i], steps[i]);
   }
+#endif
 }
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
@@ -3251,16 +3296,17 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
 // Small test kernel so we can easily find code snipets to compare different implementations of macros
 KERNEL(256) testKernel(P(T2) io) {
 	u32 me = get_local_id(0);
-	T2 u[7];
-	read(256, 7, u, io, 0);
+	T2 u[10];
+	read(256, 10, u, io, 0);
 //      fft4(u);
 //      fft5(u);
-	fft7(u);
+//	fft7(u);
 //	fft8(u);
 //	fft10(u);
+	middleMul1 (u, 14);
 //    pairSq(NH, io, io+100, slowTrig(14, ND), false);
 //    pairMul(NH, io, io+100, io+200, io+300, slowTrig(14, ND), false);
-	write(256, 7, u, io, 0);
+	write(256, 10, u, io, 0);
 }
 #endif
 
