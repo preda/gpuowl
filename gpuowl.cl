@@ -2972,6 +2972,34 @@ void reverse(u32 WG, local T *rawLds, T2 *u, bool bump) {
   for (i32 i = 0; i < NH/2; ++i) { u[i] = lds[i * WG + me]; }
 }
 
+
+// The literature indicates crosslane permute instructions ought to be much faster than local memory.
+// Alas the code below did not yield any improvement!  I kept it in place because it took a long time
+// to figure out how to make this work using "as_int2" and the "+" modifier.
+#if defined(ASM_REVERSE_LINE) && WG == 64
+
+#define reverse_t(b) { \
+	__asm volatile ( "ds_permute_b32 %1, %3, %1\n \
+			  ds_permute_b32 %2, %3, %2\n" : "+v" (b) : "v" (as_int2(b).x), "v" (as_int2(b).y), "v" (reverse_lane_ids)); }
+#define reverse_t2(a) { reverse_t (a.x); reverse_t (a.y); }
+
+void reverseLine(u32 WG, local T *lds, T2 *u) {
+  u32 me = get_local_id(0);			// Lane ID - in the range 0-63
+  u32 reverse_lane_ids = (WG - 1 - me) * 4;	// Reverse of the lane ID * 4 -- for ds_permute_b32
+
+  // reverse each T2 value
+  for (i32 i = 0; i < NH; ++i) {
+	reverse_t2 (u[i]);
+  }
+//  __asm volatile ( "s_waitcnt lgkmcnt(0)\n");\
+
+  // Now reverse the NH values
+  for (i32 i = 0; i < NH/2; ++i)
+	SWAP (u[i], u[NH-1-i]);
+}
+
+#else
+
 void reverseLine(u32 WG, local T *lds, T2 *u) {
   u32 me = get_local_id(0);
   u32 revMe = WG - 1 - me;
@@ -2982,6 +3010,8 @@ void reverseLine(u32 WG, local T *lds, T2 *u) {
     for (i32 i = 0; i < NH; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
   }
 }
+
+#endif
 
 #ifdef ORIG_PAIRSQ
 
