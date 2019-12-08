@@ -129,14 +129,13 @@ void Args::parse(string line) {
         log("-carry expects short|long\n");
         throw "-carry expects short|long";
       }
-    } /*else if (key == "-block") {
+    } else if (key == "-block") {
       blockSize = stoi(s);
       if (blockSize <= 0 || 10000 % blockSize) {
         log("Invalid blockSize %u, must divide 10000\n", blockSize);
         throw "-block size";
       }
-    } */
-      else if (key == "-use") {
+    } else if (key == "-use") {
       string ss = s;
       std::replace(ss.begin(), ss.end(), ',', ' ');
       std::istringstream iss{ss};

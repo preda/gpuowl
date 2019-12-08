@@ -707,6 +707,10 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   double minBlockTime = 1e9;
   double allMinBlockTime = 1e9;
 
+  // string spinner = "|/-\\";
+  string spinner = " .oO*";
+  size_t spinPos = 0;
+  
   // future<void> saveFuture;
   while (true) {
     assert(k % blockSize == 0);
@@ -743,6 +747,9 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     bool doCheck = doStop || persistProof || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
     if (!doCheck) { this->updateCheck(buf1, buf2, buf3); }
 
+    printf("\r%c", spinner[spinPos++]);
+    fflush(stdout);
+    if (spinPos >= spinner.size()) { spinPos = 0; }
     queue->finish();
     
     minBlockTime = std::min(minBlockTime, timer.deltaSecs());
@@ -884,7 +891,6 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     bool doStop = signal.stopRequested();
     if (doStop) { log("Stopping, please wait..\n"); }
     bool doSave = doStop || saveTimer.elapsedSecs() > 300 || isAtEnd;
-
     bool leadOut = useLongCarry || doLog || doSave;
     coreStep(leadIn, leadOut, bits[k], bufAux, bufTmp, bufData);
     leadIn = leadOut;
@@ -901,6 +907,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         // log("%u P1 saved at %u\n", E, k + 1);
         saveTimer.reset();
         if (doStop) { throw "stop requested"; }
+        log("saved\n");
       }
     }
   }
