@@ -11,8 +11,8 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
-// #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
-// #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+#pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
 #if !NO_ASM
 #define HAS_ASM 1
