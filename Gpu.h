@@ -28,6 +28,7 @@ class Gpu {
   u32 hN, nW, nH, bufSize;
   bool useLongCarry;
   bool useMiddle;
+  bool useMergedMiddle;
   bool timeKernels;
 
   cl_device_id device;
@@ -39,7 +40,8 @@ class Gpu {
   Kernel carryFusedMul;
   Kernel fftP;
   Kernel fftW;
-  Kernel fftH;
+  Kernel fftHin;
+  Kernel fftHout;
   Kernel fftMiddleIn;
   Kernel fftMiddleOut;
   
@@ -117,7 +119,7 @@ class Gpu {
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
 
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
+      cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, struct Weights&& weights);
 
   vector<u32> readAndCompress(ConstBuffer<int>& buf);
   
@@ -125,7 +127,7 @@ public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry);
+      cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle);
 
   vector<u32> roundtripData()  { return readData(); }
   vector<u32> roundtripCheck() { return readCheck(); }

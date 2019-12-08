@@ -7,6 +7,7 @@
 #include "File.h"
 #include "GmpUtil.h"
 #include "Background.h"
+#include "checkpoint.h"
 #include "version.h"
 
 #include <cstdio>
@@ -81,6 +82,7 @@ bool Task::execute(const Args& args, Background& background) {
     if (args.proofPow) {
       gpu->buildProof(exponent, args);
     }
+    if (args.cleanup && !isPrime) deleteSaveFiles(exponent);
     return true;
   } else if (kind == PM1) {
     auto result = gpu->factorPM1(exponent, args, B1, B2);

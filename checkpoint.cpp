@@ -9,6 +9,12 @@
 
 namespace fs = std::filesystem;
 
+void deleteSaveFiles(u32 E) {
+  string sE = to_string(E);
+  auto baseDir = fs::current_path() / sE;
+  fs::remove_all(baseDir);
+}
+
 static fs::path fileName(u32 E, u32 k, const string& suffix = "", const string& extension = "owl") {
   string sE = to_string(E);
   auto baseDir = fs::current_path() / sE;

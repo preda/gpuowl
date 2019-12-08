@@ -28,6 +28,7 @@ public:
   bool timeKernels = false;
   bool enableTF = false;
   bool cudaYield = false;
+  bool cleanup = false;
   u32 proofPow = 0;
   
   int carry = CARRY_AUTO;
