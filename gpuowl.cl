@@ -1216,6 +1216,9 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   in += ((line % SMALL_HEIGHT) / 16) * MIDDLE*256;
   in += (line / SMALL_HEIGHT) * 256;
 
+#if G_W < 16
+#error WORKINGOUT0 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NW; ++i) { u[i] = in[i * 16*16*BIG_HEIGHT + (me / 16) * 16*BIG_HEIGHT + (me % 16)]; }
 
 #elif defined(WORKINGOUT1) || defined(WORKINGOUT1A)
@@ -1235,6 +1238,9 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   in += ((line % SMALL_HEIGHT) / 16) * (WIDTH/16)*MIDDLE*256;
   in += (line / SMALL_HEIGHT) * 256;
 
+#if G_W < 16
+#error WORKINGOUT1 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W/16*MIDDLE*256 + (me / 16) * MIDDLE*256 + (me % 16)]; }
 
 #elif defined(WORKINGOUT2)
@@ -1255,6 +1261,9 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   in += (line / SMALL_HEIGHT) * (WIDTH/16)*256;
   in += ((line % SMALL_HEIGHT) / 16) * (WIDTH/16)*MIDDLE*256;
 
+#if G_W < 16
+#error WORKINGOUT2 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W/16*256 + (me / 16) * 256 + (me % 16)]; }
 
 #elif defined(WORKINGOUT3)
@@ -1274,6 +1283,9 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   in += ((line % SMALL_HEIGHT) / 8) * (WIDTH/32)*MIDDLE*256;
   in += (line / SMALL_HEIGHT) * 256;
 
+#if G_W < 32
+#error WORKINGOUT3 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W/32*MIDDLE*256 + (me / 32) * MIDDLE*256 + (me % 32)]; }
 
 #elif defined(WORKINGOUT4)
@@ -1293,6 +1305,9 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   in += ((line % SMALL_HEIGHT) / 4) * (WIDTH/64)*MIDDLE*256;
   in += (line / SMALL_HEIGHT) * 256;
 
+#if G_W < 64
+#error WORKINGOUT4 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W/64*MIDDLE*256 + (me / 64) * MIDDLE*256 + (me % 64)]; }
 
 #elif defined(WORKINGOUT5)
@@ -1312,6 +1327,9 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   in += ((line % SMALL_HEIGHT) / 32) * (WIDTH/8)*MIDDLE*256;
   in += (line / SMALL_HEIGHT) * 256;
 
+#if G_W < 8
+#error WORKINGOUT5 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W/8*MIDDLE*256 + (me / 8) * MIDDLE*256 + (me % 8)]; }
 
 #endif
@@ -1388,6 +1406,9 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
   in += (line % 16) * 16;
   in += ((line % WIDTH) / 16) * (SMALL_HEIGHT/16)*MIDDLE*256;
 
+#if G_H < 16
+#error WORKINGIN1 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/16)*MIDDLE*256 + (me / 16) * MIDDLE*256 + (me % 16)]; }
 
 #elif WORKINGIN2
@@ -1422,6 +1443,9 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
   in += (line % 16) * 16;
   in += ((line % WIDTH) / 16) * MIDDLE*256;
 
+#if G_H < 16
+#error WORKINGIN2 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/16)*(WIDTH/16)*MIDDLE*256 + (me / 16) * (WIDTH/16)*MIDDLE*256 + (me % 16)]; }
 
 #elif WORKINGIN3
@@ -1456,6 +1480,9 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
   in += (line % 8) * 32;
   in += ((line % WIDTH) / 8) * (SMALL_HEIGHT/32)*MIDDLE*256;
 
+#if G_H < 32
+#error WORKINGIN3 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/32)*MIDDLE*256 + (me / 32) * MIDDLE*256 + (me % 32)]; }
 
 #elif WORKINGIN4
@@ -1490,6 +1517,9 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
   in += (line % 4) * 64;
   in += ((line % WIDTH) / 4) * (SMALL_HEIGHT/64)*MIDDLE*256;
 
+#if G_H < 64
+#error WORKINGIN4 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/64)*MIDDLE*256 + (me / 64) * MIDDLE*256 + (me % 64)]; }
 
 #elif WORKINGIN5
@@ -1524,6 +1554,9 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
   in += (line % 32) * 8;
   in += ((line % WIDTH) / 32) * (SMALL_HEIGHT/8)*MIDDLE*256;
 
+#if G_H < 8
+#error WORKINGIN5 not compatible with this FFT size
+#endif
   for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/8)*MIDDLE*256 + (me / 8) * MIDDLE*256 + (me % 8)]; }
 
 #endif
