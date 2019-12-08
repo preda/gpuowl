@@ -1,0 +1,239 @@
+Some timings with 5632K FFT and the new MERGED_MIDDLE
+
+FFT 5632K: Width 256x4, Height 64x4, Middle 11
+Radeon VII, --setsclk 3, mem 1180
+
+Baseline:
+2019-12-08 17:29:27 gfx906+sram-ecc-3 99023567 OK 70644000  71.34%; 1038 us/it (min 1033 1028); ETA 0d 08:11; 61699e99974abbf9 (check 0.85s)
+2019-12-08 17:29:27 gfx906+sram-ecc-3 32.61% carryFused     :    321 us/call x 28728 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3 23.64% tailFused      :    232 us/call x 28800 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3 11.16% transposeH     :    109 us/call x 28871 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3 11.11% transposeW     :    109 us/call x 28942 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3 10.77% fftMiddleIn    :    105 us/call x 28942 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3 10.32% fftMiddleOut   :    101 us/call x 28871 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3  0.12% fftP           :    154 us/call x   214 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3  0.08% carryA         :    148 us/call x   143 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3  0.07% fftW           :    140 us/call x   143 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3  0.06% fftHin         :    118 us/call x   142 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3  0.04% multiply       :    163 us/call x    71 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3  0.03% fftHout        :    113 us/call x    71 calls
+2019-12-08 17:29:27 gfx906+sram-ecc-3 Total time 28.289 s
+
+-use MERGED_MIDDLE
+2019-12-08 17:30:53 gfx906+sram-ecc-3 99023567 OK 70702400  71.40%;  947 us/it (min  944  943); ETA 0d 07:27; f208b381195b6de8 (check 0.79s)
+2019-12-08 17:30:53 gfx906+sram-ecc-3 37.23% carryFused     :    339 us/call x 57456 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3 29.40% tailFused      :    267 us/call x 57600 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3 16.73% fftMiddleIn    :    151 us/call x 57886 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3 16.21% fftMiddleOut   :    147 us/call x 57743 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3  0.13% fftP           :    153 us/call x   430 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x   287 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3  0.08% fftW           :    145 us/call x   287 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3  0.07% fftHin         :    121 us/call x   286 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x   143 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x   143 calls
+2019-12-08 17:30:53 gfx906+sram-ecc-3 Total time 52.361 s
+
+-use MERGED_MIDDLE,WORKINGIN
+2019-12-08 17:34:27 gfx906+sram-ecc-3 99023567 OK 70723600  71.42%; 1305 us/it (min 1298 1298); ETA 0d 10:15; e372ee04f69477eb (check 0.91s)
+2019-12-08 17:34:27 gfx906+sram-ecc-3 42.92% fftMiddleIn    :    541 us/call x 20500 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3 26.75% carryFused     :    340 us/call x 20349 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3 18.38% tailFused      :    233 us/call x 20400 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3 11.64% fftMiddleOut   :    147 us/call x 20450 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3  0.09% fftP           :    153 us/call x   151 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3  0.06% carryA         :    149 us/call x   101 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3  0.06% fftW           :    145 us/call x   101 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3  0.05% fftHin         :    118 us/call x   100 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3  0.03% multiply       :    162 us/call x    50 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3  0.02% fftHout        :    111 us/call x    50 calls
+2019-12-08 17:34:27 gfx906+sram-ecc-3 Total time 25.834 s
+
+MERGED_MIDDLE,WORKINGIN1
+2019-12-08 17:35:48 gfx906+sram-ecc-3 99023567 OK 70746000  71.44%;  953 us/it (min  949  949); ETA 0d 07:29; fdda49576e42e111 (check 0.77s)
+2019-12-08 17:35:48 gfx906+sram-ecc-3 37.05% carryFused     :    340 us/call x 21546 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3 29.65% tailFused      :    271 us/call x 21600 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3 16.75% fftMiddleIn    :    152 us/call x 21706 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3 16.12% fftMiddleOut   :    147 us/call x 21653 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3  0.12% fftP           :    154 us/call x   160 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x   107 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3  0.08% fftW           :    146 us/call x   107 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3  0.07% fftHin         :    127 us/call x   106 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    53 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    53 calls
+2019-12-08 17:35:48 gfx906+sram-ecc-3 Total time 19.745 s
+
+
+MERGED_MIDDLE,WORKINGIN1A
+2019-12-08 17:37:05 gfx906+sram-ecc-3 99023567 OK 70762000  71.46%;  955 us/it (min  949  947); ETA 0d 07:30; a7b9ec48505ea4a5 (check 0.77s)
+2019-12-08 17:37:05 gfx906+sram-ecc-3 37.01% carryFused     :    340 us/call x 15162 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3 29.81% tailFused      :    273 us/call x 15200 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3 16.64% fftMiddleIn    :    152 us/call x 15274 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3 16.10% fftMiddleOut   :    147 us/call x 15237 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3  0.13% fftP           :    160 us/call x   112 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x    75 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3  0.08% fftW           :    146 us/call x    75 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3  0.07% fftHin         :    127 us/call x    74 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    37 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    37 calls
+2019-12-08 17:37:05 gfx906+sram-ecc-3 Total time 13.923 s
+2019-12-08 17:37:05 gfx906+sram-ecc-3 Exiting because "stop requested"
+2019-12-08 17:37:05 gfx906+sram-ecc-3 Bye
+
+
+MERGED_MIDDLE,WORKINGIN2
+2019-12-08 17:37:59 gfx906+sram-ecc-3 99023567 OK 70774800  71.47%;  993 us/it (min  987  986); ETA 0d 07:47; c72d2f90f06e959c (check 0.77s)
+2019-12-08 17:37:59 gfx906+sram-ecc-3 35.57% carryFused     :    340 us/call x 11970 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3 32.59% tailFused      :    311 us/call x 12000 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3 15.93% fftMiddleIn    :    151 us/call x 12058 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3 15.48% fftMiddleOut   :    147 us/call x 12029 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3  0.12% fftP           :    155 us/call x    88 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3  0.09% fftHin         :    171 us/call x    58 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x    59 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3  0.08% fftW           :    146 us/call x    59 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    29 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3  0.03% fftHout        :    112 us/call x    29 calls
+2019-12-08 17:37:59 gfx906+sram-ecc-3 Total time 11.455 s
+
+
+-use MERGED_MIDDLE,WORKINGIN3
+2019-12-08 17:38:58 gfx906+sram-ecc-3 99023567 OK 70792800  71.49%;  949 us/it (min  945  945); ETA 0d 07:27; c2255c052a8c5547 (check 0.76s)
+2019-12-08 17:38:58 gfx906+sram-ecc-3 37.24% carryFused     :    340 us/call x 17157 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3 29.39% tailFused      :    268 us/call x 17200 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3 16.74% fftMiddleIn    :    152 us/call x 17284 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3 16.21% fftMiddleOut   :    147 us/call x 17242 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3  0.12% fftP           :    154 us/call x   127 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x    85 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3  0.08% fftW           :    145 us/call x    85 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3  0.07% fftHin         :    121 us/call x    84 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    42 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    42 calls
+2019-12-08 17:38:58 gfx906+sram-ecc-3 Total time 15.660 s
+
+
+-use MERGED_MIDDLE,WORKINGIN5
+2019-12-08 17:40:13 gfx906+sram-ecc-3 99023567 OK 70814000  71.51%;  953 us/it (min  947  947); ETA 0d 07:28; 44e3fda9d3365f89 (check 0.75s)
+2019-12-08 17:40:13 gfx906+sram-ecc-3 37.04% carryFused     :    340 us/call x 13965 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3 30.53% tailFused      :    279 us/call x 14000 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3 16.13% fftMiddleOut   :    147 us/call x 14034 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3 15.87% fftMiddleIn    :    144 us/call x 14068 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3  0.12% fftP           :    154 us/call x   103 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x    69 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3  0.08% fftW           :    146 us/call x    69 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3  0.07% fftHin         :    141 us/call x    68 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    34 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    34 calls
+2019-12-08 17:40:13 gfx906+sram-ecc-3 Total time 12.803 s
+
+use MERGED_MIDDLE,WORKINGOUT
+2019-12-08 17:41:07 gfx906+sram-ecc-3 99023567 OK 70821200  71.52%; 1145 us/it (min 1141 1140); ETA 0d 08:58; 9ff7b1ed1b43e540 (check 0.86s)
+2019-12-08 17:41:07 gfx906+sram-ecc-3 32.52% fftMiddleOut   :    358 us/call x  6415 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3 29.08% carryFused     :    322 us/call x  6384 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3 24.27% tailFused      :    268 us/call x  6400 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3 13.79% fftMiddleIn    :    151 us/call x  6430 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3  0.10% fftP           :    153 us/call x    46 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3  0.07% carryA         :    149 us/call x    31 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3  0.06% fftW           :    139 us/call x    31 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3  0.05% fftHin         :    121 us/call x    30 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3  0.03% multiply       :    162 us/call x    15 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3  0.02% fftHout        :    110 us/call x    15 calls
+2019-12-08 17:41:07 gfx906+sram-ecc-3 Total time 7.064 s
+
+
+use MERGED_MIDDLE,WORKINGOUT0
+2019-12-08 17:42:17 gfx906+sram-ecc-3 99023567 OK 70841200  71.54%;  998 us/it (min  994  992); ETA 0d 07:49; 5aeb979a091c8715 (check 0.77s)
+2019-12-08 17:42:17 gfx906+sram-ecc-3 39.56% carryFused     :    381 us/call x 19152 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3 27.86% tailFused      :    267 us/call x 19200 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3 16.29% fftMiddleOut   :    156 us/call x 19247 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3 15.87% fftMiddleIn    :    152 us/call x 19294 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3  0.12% fftP           :    154 us/call x   142 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3  0.09% fftW           :    180 us/call x    95 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x    95 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3  0.06% fftHin         :    122 us/call x    94 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    47 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    47 calls
+2019-12-08 17:42:17 gfx906+sram-ecc-3 Total time 18.426 s
+
+-use MERGED_MIDDLE,WORKINGOUT1
+2019-12-08 18:01:06 gfx906+sram-ecc-3 99023567 OK 70872800  71.57%;  976 us/it (min  970  970); ETA 0d 07:38; 1abbe60a1e6269d1 (check 0.80s)
+2019-12-08 18:01:06 gfx906+sram-ecc-3 38.07% carryFused     :    358 us/call x 30723 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3 28.54% tailFused      :    268 us/call x 30800 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3 16.71% fftMiddleOut   :    156 us/call x 30876 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3 16.26% fftMiddleIn    :    152 us/call x 30952 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3  0.12% fftP           :    154 us/call x   229 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3  0.09% fftW           :    163 us/call x   153 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x   153 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3  0.06% fftHin         :    122 us/call x   152 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    76 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    76 calls
+2019-12-08 18:01:06 gfx906+sram-ecc-3 Total time 28.876 s
+
+
+-use MERGED_MIDDLE,WORKINGOUT1A
+2019-12-08 18:01:53 gfx906+sram-ecc-3 99023567 OK 70888800  71.59%;  977 us/it (min  972  972); ETA 0d 07:38; eeff3e42df379cb3 (check 0.80s)
+2019-12-08 18:01:53 gfx906+sram-ecc-3 38.02% carryFused     :    358 us/call x 15162 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3 28.66% tailFused      :    269 us/call x 15200 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3 16.68% fftMiddleOut   :    156 us/call x 15237 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3 16.22% fftMiddleIn    :    152 us/call x 15274 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3  0.12% fftP           :    153 us/call x   112 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3  0.09% fftW           :    163 us/call x    75 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x    75 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3  0.06% fftHin         :    121 us/call x    74 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    37 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    37 calls
+2019-12-08 18:01:53 gfx906+sram-ecc-3 Total time 14.274 s
+
+-use MERGED_MIDDLE,WORKINGOUT2
+2019-12-08 18:02:30 gfx906+sram-ecc-3 99023567 OK 70896800  71.60%; 1084 us/it (min 1080 1079); ETA 0d 08:28; 9a04159b4f408db8 (check 0.81s)
+2019-12-08 18:02:30 gfx906+sram-ecc-3 34.55% carryFused     :    359 us/call x  7182 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3 25.81% tailFused      :    267 us/call x  7200 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3 24.57% fftMiddleOut   :    254 us/call x  7217 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3 14.69% fftMiddleIn    :    151 us/call x  7234 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3  0.11% fftP           :    154 us/call x    52 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3  0.08% fftW           :    163 us/call x    35 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3  0.07% carryA         :    148 us/call x    35 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3  0.06% fftHin         :    121 us/call x    34 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    17 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    17 calls
+2019-12-08 18:02:30 gfx906+sram-ecc-3 Total time 7.459 s
+
+-use MERGED_MIDDLE,WORKINGOUT3
+2019-12-08 18:02:59 gfx906+sram-ecc-3 99023567 OK 70906400  71.61%;  950 us/it (min  945  942); ETA 0d 07:25; adea27c3c929fe9b (check 0.76s)
+2019-12-08 18:02:59 gfx906+sram-ecc-3 37.25% carryFused     :    340 us/call x  8778 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3 29.38% tailFused      :    268 us/call x  8800 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3 16.73% fftMiddleIn    :    152 us/call x  8842 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3 16.21% fftMiddleOut   :    147 us/call x  8821 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3  0.12% fftP           :    153 us/call x    64 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x    43 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3  0.08% fftW           :    146 us/call x    43 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3  0.06% fftHin         :    121 us/call x    42 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    21 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3  0.03% fftHout        :    112 us/call x    21 calls
+2019-12-08 18:02:59 gfx906+sram-ecc-3 Total time 8.019 s
+
+-use MERGED_MIDDLE,WORKINGOUT4
+2019-12-08 18:05:18 gfx906+sram-ecc-3 99023567 OK 70921600  71.62%;  953 us/it (min  950  950); ETA 0d 07:27; c09ee8938958089e (check 0.78s)
+2019-12-08 18:05:18 gfx906+sram-ecc-3 36.11% carryFused     :    331 us/call x 14364 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3 29.15% tailFused      :    267 us/call x 14400 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3 17.70% fftMiddleOut   :    162 us/call x 14435 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3 16.62% fftMiddleIn    :    151 us/call x 14470 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3  0.12% fftP           :    153 us/call x   106 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3  0.08% carryA         :    149 us/call x    71 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3  0.07% fftW           :    137 us/call x    71 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3  0.06% fftHin         :    121 us/call x    70 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    35 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    35 calls
+2019-12-08 18:05:18 gfx906+sram-ecc-3 Total time 13.187 s
+
+-use MERGED_MIDDLE,WORKINGOUT5
+2019-12-08 18:05:55 gfx906+sram-ecc-3 99023567 OK 70933600  71.63%;  965 us/it (min  958  958); ETA 0d 07:32; ccc4ebe54367dd7e (check 0.76s)
+2019-12-08 18:05:55 gfx906+sram-ecc-3 39.01% carryFused     :    362 us/call x 11172 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3 28.84% tailFused      :    267 us/call x 11200 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3 16.42% fftMiddleIn    :    151 us/call x 11254 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3 15.30% fftMiddleOut   :    141 us/call x 11227 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3  0.12% fftP           :    153 us/call x    82 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3  0.09% fftW           :    169 us/call x    55 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3  0.08% carryA         :    148 us/call x    55 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3  0.06% fftHin         :    121 us/call x    54 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3  0.04% multiply       :    162 us/call x    27 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3  0.03% fftHout        :    111 us/call x    27 calls
+2019-12-08 18:05:55 gfx906+sram-ecc-3 Total time 10.374 s
+

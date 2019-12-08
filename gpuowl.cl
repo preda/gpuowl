@@ -2255,7 +2255,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
   out += (start_col/16) * (WIDTH/16)*MIDDLE*256 + (start_row/16) * MIDDLE*256;
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * 256 + me] = u[i]; }
-
+}
 #elif WORKINGOUT1A
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {

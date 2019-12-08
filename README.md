@@ -2,6 +2,8 @@
 
 GpuOwl is a Mersenne primality tester for AMD GPUs.
 
+If you are making source code changes to GpuOwl, please read the [code style](codestyle.md)
+
 ## Mersenne primes
 Mersenne numbers are numbers of the form 2^p -1. Some of these are prime numbers, called <em>Mersenne primes</em>.
 
