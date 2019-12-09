@@ -1765,6 +1765,31 @@ void middleMul2(T2 *u, u32 g, u32 me) {
   }
 }
 
+// Do a partial transpose during fftMiddleIn/Out
+// The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
+// than reading/writing T2 values.  This routine lets us try both versions.
+
+void middleShuffle(local T2 *lds, T2 *u, u32 kernel_width, u32 group_size) {
+  u32 me = get_local_id(0);
+#ifdef T2_SHUFFLE
+  for (i32 i = 0; i < MIDDLE; ++i) {
+    bar ();
+    lds[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i];
+    bar ();
+    u[i] = lds[me];
+  }
+#else
+  for (i32 i = 0; i < MIDDLE; ++i) {
+    bar();
+    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i].x;
+    ((local T*)lds)[kernel_width + (me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i].y;
+    bar();
+    u[i].x = ((local T*)lds)[me];
+    u[i].y = ((local T*)lds)[kernel_width + me];
+  }
+#endif
+}
+
 // This version outputs data in the exact same order as the non-merged transpose and middle.
 // It is slow, but it does work.
 
@@ -1809,12 +1834,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->16, 2->32, ..., 16->1, 17->17, 18->33, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 16) * 16 + (me / 16)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 16);
 
 // The output matrix is size WIDTH x BIG_HEIGHT.  Each column in a BIG_HEIGHT row has a unit stride.
 
@@ -1863,12 +1883,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->16, 2->32, ..., 16->1, 17->17, 18->33, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 16) * 16 + (me / 16)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 16);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -1926,12 +1941,12 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 // thus lanes do this:  0.x->0, 0.y->1, 1.x->32, 1.y->33, 2->64, ..., 16.x->2, 16.y->3, 17.x->34, 17.y->35, 18->66, ...
 
   for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 16) * 32 + (me / 16) * 2] = u[i].x;
-	  lds[(me % 16) * 32 + (me / 16) * 2 + 1] = u[i].y;
-	  bar ();
-	  u[i].x = lds[me];
-	  u[i].y = lds[me+256];
+    bar ();
+    lds[(me % 16) * 32 + (me / 16) * 2] = u[i].x;
+    lds[(me % 16) * 32 + (me / 16) * 2 + 1] = u[i].y;
+    bar ();
+    u[i].x = lds[me];
+    u[i].y = lds[me+256];
   }
 
 // Radeon VII has poor performance if we do not write contiguous values.
@@ -1946,8 +1961,8 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
   out += (start_col/16) * 16*BIG_HEIGHT + (start_row/16) * MIDDLE*256;
   for (i32 i = 0; i < MIDDLE; ++i) {
-	  ((T*)(&out[i * 256]))[me] = u[i].x;
-	  ((T*)(&out[i * 256]))[me + 256] = u[i].y;
+    ((T*)(&out[i * 256]))[me] = u[i].x;
+    ((T*)(&out[i * 256]))[me + 256] = u[i].y;
   }
 }
 
@@ -1992,12 +2007,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->16, 2->32, ..., 16->1, 17->17, 18->33, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 16) * 16 + (me / 16)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 16);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -2054,12 +2064,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->32, 2->64, ..., 8->1, 9->33, 10->65, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 8) * 32 + (me / 8)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 8);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -2116,12 +2121,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->64, 2->128, ..., 4->1, 5->65, 6->129, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 4) * 64 + (me / 4)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 4);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -2178,12 +2178,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->8, 2->16, ..., 32->1, 33->9, 34->17, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 32) * 8 + (me / 32)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 32);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -2202,6 +2197,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #endif
 
 #endif
+
 
 #if MIDDLE == 1 || !defined(MERGED_MIDDLE)
 
@@ -2267,12 +2263,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->16, 2->32, ..., 16->1, 17->17, 18->33, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 16) * 16 + (me / 16)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 16);
 
   out += start_col * WIDTH + start_row;
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * SMALL_HEIGHT*WIDTH + (me / 16) * WIDTH + (me % 16)] = u[i]; }
@@ -2319,12 +2310,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->16, 2->32, ..., 16->1, 17->17, 18->33, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 16) * 16 + (me / 16)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 16);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -2382,12 +2368,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->16, 2->32, ..., 16->1, 17->17, 18->33, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 16) * 16 + (me / 16)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 16);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -2444,12 +2425,12 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 // thus lanes do this:  0.x->0, 0.y->1, 1.x->32, 1.y->33, 2->64, ..., 16.x->2, 16.y->3, 17.x->34, 17.y->35, 18->66, ...
 
   for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 16) * 32 + (me / 16) * 2] = u[i].x;
-	  lds[(me % 16) * 32 + (me / 16) * 2 + 1] = u[i].y;
-	  bar ();
-	  u[i].x = lds[me];
-	  u[i].y = lds[me+256];
+    bar ();
+    lds[(me % 16) * 32 + (me / 16) * 2] = u[i].x;
+    lds[(me % 16) * 32 + (me / 16) * 2 + 1] = u[i].y;
+    bar ();
+    u[i].x = lds[me];
+    u[i].y = lds[me+256];
   }
 
 // Radeon VII has poor performance if we do not write contiguous values.
@@ -2464,8 +2445,8 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
   out += (start_col/16) * (WIDTH/16)*MIDDLE*256 + (start_row/16) * MIDDLE*256;
   for (i32 i = 0; i < MIDDLE; ++i) {
-	  ((T*)(&out[i * 256]))[me] = u[i].x;
-	  ((T*)(&out[i * 256]))[me + 256] = u[i].y;
+    ((T*)(&out[i * 256]))[me] = u[i].x;
+    ((T*)(&out[i * 256]))[me + 256] = u[i].y;
   }
 }
 
@@ -2510,12 +2491,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->16, 2->32, ..., 16->1, 17->17, 18->33, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 16) * 16 + (me / 16)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 16);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -2572,12 +2548,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->32, 2->64, ..., 8->1, 9->33, 10->65, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 8) * 32 + (me / 8)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 8);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -2634,12 +2605,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->64, 2->128, ..., 4->1, 5->65, 6->129, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 4) * 64 + (me / 4)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 4);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
@@ -2696,12 +2662,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 //
 // thus lanes do this:  0->0, 1->8, 2->16, ..., 32->1, 33->9, 34->17, ...
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-	  bar ();
-	  lds[(me % 32) * 8 + (me / 32)] = u[i];
-	  bar ();
-	  u[i] = lds[me];
-  }
+  middleShuffle(lds, u, 256, 32);
 
 // Radeon VII has poor performance if we do not write contiguous values.
 // For 5M FFT the memory layout will look like this
