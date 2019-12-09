@@ -127,6 +127,14 @@ static string getHwName(cl_device_id id) {
   return name;
 }
 
+
+#define CL_DEVICE_VENDOR_ID 0x1001
+bool isAmdGpu(cl_device_id id) {
+  u32 pcieId = 0;
+  GET_INFO(id, CL_DEVICE_VENDOR_ID, pcieId);
+  return pcieId == 0x1002;
+}
+
 /*
 static string getTopology(cl_device_id id) {
   char topology[64] = {0};

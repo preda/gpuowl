@@ -146,8 +146,11 @@ extern const char *CL_SOURCE;
 
 static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
+  cl_device_id id = getDevice(args.device);
+  
   vector<pair<string, std::any>> defines =
-    {{"EXP", E},
+    {{"AMDGPU", int(isAmdGpu(id))},
+     {"EXP", E},
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
      {"MIDDLE", MIDDLE},
@@ -159,7 +162,7 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
   
   for (const string& flag : args.flags) { defines.push_back(pair{flag, 1}); }
   
-  cl_program program = compile({getDevice(args.device)}, context, CL_SOURCE, clArgs, defines);
+  cl_program program = compile({id}, context, CL_SOURCE, clArgs, defines);
   if (!program) { throw "OpenCL compilation"; }
   return program;
 }

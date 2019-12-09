@@ -44,7 +44,7 @@ void log(const char *fmt, ...) {
 
   std::unique_lock lock(logMutex);
   for (auto &f : logFiles) {
-    fprintf(f.get(), "%s %s", prefix.c_str(), buf);
+    fprintf(f.get(), f.get() == stdout ? "\r%s %s" : "%s %s", prefix.c_str(), buf);
 #if !(defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE))
     fflush(f.get());
 #endif
