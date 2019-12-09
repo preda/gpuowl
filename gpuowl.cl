@@ -21,12 +21,9 @@
 // On AMDGPU the default is HAS_ASM
 #if !NO_ASM
 #define HAS_ASM 1
-#endif
-
-#endif
-
-#if HAS_ASM
 // #warning ASM is enabled (pass '-use NO_ASM' to disable it)
+#endif
+
 #endif
 
 typedef int i32;

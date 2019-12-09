@@ -146,11 +146,9 @@ extern const char *CL_SOURCE;
 
 static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
-  cl_device_id id = getDevice(args.device);
-  
+
   vector<pair<string, std::any>> defines =
-    {{"AMDGPU", int(isAmdGpu(id))},
-     {"EXP", E},
+    {{"EXP", E},
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
      {"MIDDLE", MIDDLE},
@@ -159,6 +157,9 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
      {"WEIGHT_BIGSTEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, WIDTH / nW, 0))},
      {"IWEIGHT_BIGSTEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, WIDTH / nW, 0))},
     };
+
+  cl_device_id id = getDevice(args.device);
+  if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
   
   for (const string& flag : args.flags) { defines.push_back(pair{flag, 1}); }
   
