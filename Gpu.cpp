@@ -707,7 +707,6 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   double minBlockTime = 1e9;
   double allMinBlockTime = 1e9;
 
-  // string spinner = "|/-\\";
   string spinner = "-\\|/";
   size_t spinPos = 0;
   
@@ -747,9 +746,11 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     bool doCheck = doStop || persistProof || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
     if (!doCheck) { this->updateCheck(buf1, buf2, buf3); }
 
-    printf("\r%c", spinner[spinPos++]);
-    fflush(stdout);
-    if (spinPos >= spinner.size()) { spinPos = 0; }
+    if (!args.noSpin) {
+      printf("\r%c", spinner[spinPos++]);
+      fflush(stdout);
+      if (spinPos >= spinner.size()) { spinPos = 0; }
+    }
     queue->finish();
     
     minBlockTime = std::min(minBlockTime, timer.deltaSecs());

@@ -13,7 +13,7 @@ AlwaysBuild(Command('gpuowl-wrap.cpp', ['gpuowl.cl'], 'cat head.txt gpuowl.cl ta
 
 LIBPATH=['/opt/rocm/opencl/lib/x86_64']
 
-config = '-g'
+config = '-g -O2'
 #-fsanitize=address'
 # -fstack-protector-strong -static-libasan'
 #config = '-O2'
