@@ -70,7 +70,9 @@ Command line options:
 )", blockSize, logStep, B1, B2_B1_ratio);
   // -proof [<power>]   : enable experimental PRP proof generation. Default <power> is 7.
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
-  for (unsigned i = 0; i < deviceIds.size(); ++i) { printf("%2u : %s\n", i, getLongInfo(deviceIds[i]).c_str()); }
+  for (unsigned i = 0; i < deviceIds.size(); ++i) {
+    printf("%2u : %s %s\n", i, getLongInfo(deviceIds[i]).c_str(), isAmdGpu(deviceIds[i]) ? "AMD" : "not-AMD");
+  }
   printf("\nFFT Configurations:\n");
   
   vector<FFTConfig> configs = FFTConfig::genConfigs();
