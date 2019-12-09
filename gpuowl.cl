@@ -8,7 +8,7 @@
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
 
-#if __OPENCL_VERSION__ < 200
+#if !defined(CL_VERSION_2_0) || __OPENCL_VERSION__ < 200
 #pragma message "GpuOwl requires OpenCL 200, found " STR(__OPENCL_VERSION__)
 #error OpenCL >= 2.0 required
 #endif
@@ -87,6 +87,10 @@ T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
 // complex square
 #ifdef ORIG_SQ
 T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }		// 2 adds, 3 muls, two muls may be FMA-able later
+#elif MUL2_SQ_THAT_DOES_NOT_WORK_REASONS_UNKNOWN
+T2 sq(T2 a) { T tmp; \
+              __asm( "v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp) : "v" (a.x), "v" (a.y)); \
+              return U2(fma(a.x, a.x, -a.y*a.y), tmp); }			// 2 muls, 1 fma
 #else
 T2 sq(T2 a) { return U2(fma(a.x, a.x, -a.y*a.y), 2 * a.x * a.y); }		// 3 muls, 1 fma, one mul may be FMA-able later
 #endif
@@ -1207,7 +1211,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 #endif
 #endif
 
-#if !defined(MERGED_MIDDLE) || defined(WORKINGOUT)
+#if MIDDLE == 1 || !defined(MERGED_MIDDLE) || defined(WORKINGOUT)
 
 	read(G_W, NW, u, in, line * WIDTH);
 
@@ -1382,7 +1386,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 #endif
 #endif
 
-#if !defined(MERGED_MIDDLE) || defined(WORKINGIN)
+#if MIDDLE == 1 || !defined(MERGED_MIDDLE) || defined(WORKINGIN)
 
   read(G_H, NH, u, in, memline * SMALL_HEIGHT);
 
@@ -1666,7 +1670,7 @@ void fft_MIDDLE(T2 *u) {
 #endif
 }
 
-#ifndef MERGED_MIDDLE
+#if MIDDLE == 1 || !defined(MERGED_MIDDLE)
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   T2 u[MIDDLE];
@@ -2199,7 +2203,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
 #endif
 
-#ifndef MERGED_MIDDLE
+#if MIDDLE == 1 || !defined(MERGED_MIDDLE)
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   T2 u[MIDDLE];
