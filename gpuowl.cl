@@ -5,6 +5,14 @@
 // The pair (a, b) is sometimes interpreted as the complex value a + i*b.
 // The order of words is column-major (i.e. transposed from the usual row-major matrix order).
 
+#define STR(x) XSTR(x)
+#define XSTR(x) #x
+
+#if __OPENCL_VERSION__ < 200
+#pragma message "GpuOwl requires OpenCL 200, found " STR(__OPENCL_VERSION__)
+#error OpenCL >= 2.0 required
+#endif
+
 #pragma OPENCL FP_CONTRACT ON
 
 #ifdef cl_khr_fp64
