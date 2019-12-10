@@ -2773,8 +2773,13 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
 
   T2 weights = groupWeights[line] * threadWeights[me];
   T invWeight = weights.x;
-  u32 b = bits[G_W * line + me];
-  
+#if NW == 4
+  u32 b = bits[WIDTH*4/32 * line + me/2];
+  b = b >> ((me & 1) * 16);
+#else
+  u32 b = bits[WIDTH*4/32 * line + me];
+#endif
+
   // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
     if (test(b, 2*i)) { invWeight *= 2; }
@@ -2847,7 +2852,12 @@ KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) re
 
   T2 weights = groupWeights[line] * threadWeights[me];
   T invWeight = weights.x;
-  u32 b = bits[G_W * line + me];
+#if NW == 4
+  u32 b = bits[WIDTH*4/32 * line + me/2];
+  b = b >> ((me & 1) * 16);
+#else
+  u32 b = bits[WIDTH*4/32 * line + me];
+#endif
   
   // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
