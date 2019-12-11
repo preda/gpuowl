@@ -8,9 +8,9 @@
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
 
-#if !defined(CL_VERSION_2_0) || __OPENCL_VERSION__ < 200
+#if __OPENCL_VERSION__ < 200
 #pragma message "GpuOwl requires OpenCL 200, found " STR(__OPENCL_VERSION__)
-#error OpenCL >= 2.0 required
+// #error OpenCL >= 2.0 required
 #endif
 
 #pragma OPENCL FP_CONTRACT ON
