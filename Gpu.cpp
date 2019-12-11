@@ -556,30 +556,23 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
   return string(buf);
 }
 
-static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float secsPerIt, u32 nIters, double minBlockTime, double allMinBlockTime) {
-  // float msPerSq = info.total / info.n;
+static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float secsPerIt, u32 nIters) {
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%u %2s %8d %6.2f%%; %4.0f us/it (min %4.0f %4.0f); ETA %s; %s",
+  snprintf(buf, sizeof(buf), "%u %2s %8d %6.2f%%; %4.0f us/it; ETA %s; %s",
            E, status.data(), k, k / float(nIters) * 100,
-           secsPerIt * 1'000'000, minBlockTime * 1'000'000, allMinBlockTime * 1'000'000, getETA(k, nIters, secsPerIt).c_str(),
+           secsPerIt * 1'000'000, getETA(k, nIters, secsPerIt).c_str(),
            hex(res).c_str());
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, double minBlockTime, double allMinBlockTime, double checkTime) {
-  log("%s (check %.2fs)%s\n", makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters, minBlockTime, allMinBlockTime).c_str(),
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, double checkTime) {
+  log("%s (check %.2fs)%s\n", makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
       checkTime, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
-/*
-static void doSmallLog(u32 E, u32 k, u64 res, double secsPerIt, u32 nIters, double minBlockTime, double allMinBlockTime) {
-  log("%s\n", makeLogStr(E, "", k, res, secsPerIt, nIters, minBlockTime, allMinBlockTime).c_str());
-}
-*/
-
 static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
-  log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters, 0, 0).c_str());
+  log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters).c_str());
 }
 
 [[maybe_unused]] static void logPm1Stage2(u32 E, float ratioComplete) {
@@ -710,8 +703,6 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   u64 finalRes64 = 0;
   u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
   Timer timer;
-  double minBlockTime = 1e9;
-  double allMinBlockTime = 1e9;
 
   string spinner = "-\\|/";
   size_t spinPos = 0;
@@ -759,8 +750,6 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
     }
     queue->finish();
     
-    minBlockTime = std::min(minBlockTime, timer.deltaSecs());
-
     if (doCheck) {
       double timeExcludingCheck = itTimer.reset(k);
       u64 res64 = dataResidue();
@@ -770,17 +759,13 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       if (ok) {
         if (k < kEnd) {          
           prpState.save(persistProof);
-          // saveFuture = async(launch::async, &PRPState::save, std::move(prpState));
-          
-          allMinBlockTime = std::min(allMinBlockTime, minBlockTime);
-          doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, minBlockTime / blockSize, allMinBlockTime / blockSize, itTimer.reset(k));
+          doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, itTimer.reset(k));
         }
         assert(!isPrime || k >= kEnd);
         if (k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
         nSeqErrors = 0;      
       } else {
-        allMinBlockTime = std::min(allMinBlockTime, minBlockTime);
-        doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, minBlockTime / blockSize, allMinBlockTime / blockSize, itTimer.reset(k));
+        doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, itTimer.reset(k));
 
         ++nErrors;
         if (++nSeqErrors > 2) {
@@ -798,7 +783,6 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
         // if (saveFuture.valid()) { saveFuture.get(); }
         throw "stop requested";
       }
-      minBlockTime = 1e9;
     }
   }
 }
