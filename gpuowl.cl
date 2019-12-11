@@ -61,6 +61,56 @@ typedef ulong u64;
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
 
+// A T2 shuffle requires twice as much local memory as a T shuffle.  This won't affect occupancy for MIDDLE shuffles
+// and small WIDTH and HEIGHT shuffles.  However, 4K and 2K widths and heights might be better off using less local memory.
+// Consequently, we have separate defines so we can selectively do T2 shuffling.  For now we assume the original code
+// that does 64x64 shuffles uses so much local memory that we'll not offer a T2 shuffle in there.
+//
+// For a 5M FFT on a Radeon VII, the best combination is inexplicably T2_SHUFFLE_WIDTH,T2_SHUFFLE_MIDDLE,T2_SHUFFLE_REVERSELINE.
+// But NOT T2_SHUFFLE_HEIGHT.  Well maybe that's because tailFused kernel width is 64.  However, I tried the "fft +1" option
+// which gives us a 64x4 width.  In this case, all T2_SHUFFLE settings are very beneficial AND the width shuffle and height shuffle
+// uses the exact same code!
+//
+// Until we can investigate further, default to T2_SHUFFLE_WIDTH,T2_SHUFFLE_MIDDLE,T2_SHUFFLE_REVERSELINE, plus
+// T2_SHUFFLE_HEIGHT if NH > 64.
+//
+// Now it gets really weird.  On SkylakeX box, T2_SHUFFLE_WIDTH is also a loser!  SkylakeX has an older rocm installed.
+// Thus, I think we have an rocm optimizer problem in tailFused.
+
+#if !defined(T2_SHUFFLE) && !defined(NO_T2_SHUFFLE) && !defined(T2_SHUFFLE_WIDTH) && !defined(T2_SHUFFLE_MIDDLE) && !defined(T2_SHUFFLE_HEIGHT) && !defined(T2_SHUFFLE_REVERSELINE)
+#define T2_SHUFFLE_WIDTH
+#define T2_SHUFFLE_MIDDLE
+#if NH > 64
+#define T2_SHUFFLE_HEIGHT
+#endif
+#define T2_SHUFFLE_REVERSELINE
+#endif
+
+#if defined(T2_SHUFFLE) || defined(T2_SHUFFLE_WIDTH)
+#undef T2_SHUFFLE_WIDTH
+#define T2_SHUFFLE_WIDTH	2
+#else
+#define T2_SHUFFLE_WIDTH	1
+#endif
+#if defined(T2_SHUFFLE) || defined(T2_SHUFFLE_MIDDLE)
+#undef T2_SHUFFLE_MIDDLE
+#define T2_SHUFFLE_MIDDLE	2
+#else
+#define T2_SHUFFLE_MIDDLE	1
+#endif
+#if defined(T2_SHUFFLE) || defined(T2_SHUFFLE_HEIGHT)
+#undef T2_SHUFFLE_HEIGHT
+#define T2_SHUFFLE_HEIGHT	2
+#else
+#define T2_SHUFFLE_HEIGHT	1
+#endif
+#if defined(T2_SHUFFLE) || defined(T2_SHUFFLE_REVERSELINE)
+#undef T2_SHUFFLE_REVERSELINE
+#define T2_SHUFFLE_REVERSELINE	2
+#else
+#define T2_SHUFFLE_REVERSELINE	1
+#endif
+
 typedef double T;
 typedef double2 T2;
 typedef i32 Word;
@@ -877,16 +927,45 @@ void fft12(T2 *u) {
   u[7] = tmp68a - tmp68b;
 }
 
-void shufl(u32 WG, local T *lds, T2 *u, u32 n, u32 f) {
+// NOTE: I tried merging shuflw and shuflh by passing in the appropriate T2_SHUFFLE_FLAG as an argument
+// but the rocm compiler was not up to optimizing away the unused code path.
+
+void shuflw(u32 WG, local T *lds, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   u32 m = me / f;
-  
+
+#if T2_SHUFFLE_WIDTH == 2
+  bar();
+  for (u32 i = 0; i < n; ++i) { ((local T2*)lds)[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i] = ((local T2*)lds)[i * WG + me]; }
+#else
   for (i32 b = 0; b < 2; ++b) {
     bar();
     for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = ((T *) (u + i))[b]; }
     bar();
     for (u32 i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
   }
+#endif
+}
+
+void shuflh(u32 WG, local T *lds, T2 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+  u32 m = me / f;
+
+#if T2_SHUFFLE_HEIGHT == 2
+  bar();
+  for (u32 i = 0; i < n; ++i) { ((local T2*)lds)[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i] = ((local T2*)lds)[i * WG + me]; }
+#else
+  for (i32 b = 0; b < 2; ++b) {
+    bar();
+    for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = ((T *) (u + i))[b]; }
+    bar();
+    for (u32 i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
+  }
+#endif
 }
 
 void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
@@ -894,73 +973,130 @@ void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   for (i32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
 }
 
-void shuflAndMul(u32 WG, local T *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
-#if 0
-  u32 me = get_local_id(0);
-  u32 m = me / f;
-  
-  for (i32 b = 0; b < 2; ++b) {
-    bar();
-    for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = ((T *) (u + i))[b]; }
-    bar();
-    for (u32 i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
-  }
-
-  for (i32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }  
-#else
-  shufl(WG, lds, u, n, f);
+void shuflAndMulw(u32 WG, local T *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
+  shuflw(WG, lds, u, n, f);
   tabMul(WG, trig, u, n, f);
-#endif
+}
+
+void shuflAndMulh(u32 WG, local T *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
+  shuflh(WG, lds, u, n, f);
+  tabMul(WG, trig, u, n, f);
 }
 
 // 8x8
-void fft64(local T *lds, T2 *u, const global T2 *trig) {
+void fft64w(local T *lds, T2 *u, const global T2 *trig) {
   fft8(u);
-  shuflAndMul(8, lds, trig, u, 8, 1);
+  shuflAndMulw(8, lds, trig, u, 8, 1);
+  fft8(u);
+}
+void fft64h(local T *lds, T2 *u, const global T2 *trig) {
+  fft8(u);
+  shuflAndMulh(8, lds, trig, u, 8, 1);
   fft8(u);
 }
 
 // 64x4
-void fft256(local T *lds, T2 *u, const global T2 *trig) {
+void fft256w(local T *lds, T2 *u, const global T2 *trig) {
   for (i32 s = 4; s >= 0; s -= 2) {
     fft4(u);
-    shuflAndMul(64, lds, trig, u, 4, 1 << s);
+    shuflAndMulw(64, lds, trig, u, 4, 1 << s);
+  }
+  fft4(u);
+}
+void fft256h(local T *lds, T2 *u, const global T2 *trig) {
+  for (i32 s = 4; s >= 0; s -= 2) {
+    fft4(u);
+    shuflAndMulh(64, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
 }
 
 // 64x8
-void fft512(local T *lds, T2 *u, const global T2 *trig) {
+void fft512w(local T *lds, T2 *u, const global T2 *trig) {
   for (i32 s = 3; s >= 0; s -= 3) {
     fft8(u);
-    shuflAndMul(64, lds, trig, u, 8, 1 << s);
+    shuflAndMulw(64, lds, trig, u, 8, 1 << s);
+  }
+  fft8(u);
+}
+void fft512h(local T *lds, T2 *u, const global T2 *trig) {
+  for (i32 s = 3; s >= 0; s -= 3) {
+    fft8(u);
+    shuflAndMulh(64, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 }
 
 // 256x4
-void fft1K(local T *lds, T2 *u, const global T2 *trig) {
+void fft1Kw(local T *lds, T2 *u, const global T2 *trig) {
   for (i32 s = 6; s >= 0; s -= 2) {
     fft4(u);
-    shuflAndMul(256, lds, trig, u, 4, 1 << s);
+    shuflAndMulw(256, lds, trig, u, 4, 1 << s);
+  }
+  fft4(u);
+}
+void fft1Kh(local T *lds, T2 *u, const global T2 *trig) {
+  for (i32 s = 6; s >= 0; s -= 2) {
+    fft4(u);
+    shuflAndMulh(256, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
 }
 
 // 512x8
-void fft4K(local T *lds, T2 *u, const global T2 *trig) {
+void fft4Kw(local T *lds, T2 *u, const global T2 *trig) {
   for (i32 s = 6; s >= 0; s -= 3) {
     fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, 1 << s);
+    shuflAndMulw(512, lds, trig, u, 8, 1 << s);
+  }
+  fft8(u);
+}
+void fft4Kh(local T *lds, T2 *u, const global T2 *trig) {
+  for (i32 s = 6; s >= 0; s -= 3) {
+    fft8(u);
+    shuflAndMulh(512, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 }
 
 // 256x8
-void fft2K(local T *lds, T2 *u, const global T2 *trig) {
+void fft2Kw(local T *lds, T2 *u, const global T2 *trig) {
   for (i32 s = 5; s >= 2; s -= 3) {
     fft8(u);
-    shuflAndMul(256, lds, trig, u, 8, 1 << s);
+    shuflAndMulw(256, lds, trig, u, 8, 1 << s);
+  }
+
+  fft8(u);
+
+  u32 me = get_local_id(0);
+  for (i32 b = 0; b < 2; ++b) {
+    bar();
+    for (i32 i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = ((T *) (u + i))[b]; }
+    bar();
+    for (i32 i = 0; i < 4; ++i) {
+      ((T *) (u + i))[b]     = lds[i * 512       + me];
+      ((T *) (u + i + 4))[b] = lds[i * 512 + 256 + me];
+    }
+  }
+
+  for (i32 i = 1; i < 4; ++i) {
+    u[i]     = mul(u[i],     trig[i * 512       + me]);
+    u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
+  }
+
+  fft4(u);
+  fft4(u + 4);
+
+  // fix order: interleave u[0:3] and u[4:7], like (u.even, u.odd) = (u.lo, u.hi).
+  SWAP(u[1], u[2]);
+  SWAP(u[1], u[4]);
+  SWAP(u[5], u[6]);
+  SWAP(u[3], u[6]);
+}
+void fft2Kh(local T *lds, T2 *u, const global T2 *trig) {
+  for (i32 s = 5; s >= 2; s -= 3) {
+    fft8(u);
+    shuflAndMulh(256, lds, trig, u, 8, 1 << s);
   }
 
   fft8(u);
@@ -1158,17 +1294,17 @@ KERNEL(256) isNotZero(u32 sizeBytes, global i64 *in, P(bool) outNotZero) {
 
 void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
 #if   WIDTH == 64
-  fft64(lds, u, trig);
+  fft64w(lds, u, trig);
 #elif WIDTH == 256
-  fft256(lds, u, trig);
+  fft256w(lds, u, trig);
 #elif WIDTH == 512
-  fft512(lds, u, trig);
+  fft512w(lds, u, trig);
 #elif WIDTH == 1024
-  fft1K(lds, u, trig);
+  fft1Kw(lds, u, trig);
 #elif WIDTH == 2048
-  fft2K(lds, u, trig);
+  fft2Kw(lds, u, trig);
 #elif WIDTH == 4096
-  fft4K(lds, u, trig);
+  fft4Kw(lds, u, trig);
 #else
 #error unexpected WIDTH.  
 #endif  
@@ -1176,15 +1312,15 @@ void fft_WIDTH(local T *lds, T2 *u, Trig trig) {
 
 void fft_HEIGHT(local T *lds, T2 *u, Trig trig) {
 #if SMALL_HEIGHT == 64
-  fft64(lds, u, trig);
+  fft64h(lds, u, trig);
 #elif SMALL_HEIGHT == 256
-  fft256(lds, u, trig);
+  fft256h(lds, u, trig);
 #elif SMALL_HEIGHT == 512
-  fft512(lds, u, trig);
+  fft512h(lds, u, trig);
 #elif SMALL_HEIGHT == 1024
-  fft1K(lds, u, trig);
+  fft1Kh(lds, u, trig);
 #elif SMALL_HEIGHT == 2048
-  fft2K(lds, u, trig);
+  fft2Kh(lds, u, trig);
 #else
 #error unexpected SMALL_HEIGHT.
 #endif
@@ -1354,7 +1490,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_W) fftW(CP(T2) in, P(T2) out, Trig smallTrig) {
-  local T lds[WIDTH];
+  local T lds[WIDTH*T2_SHUFFLE_WIDTH];
   T2 u[NW];
 
   u32 g = get_group_id(0);
@@ -1580,7 +1716,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 
 // Do an FFT Height after a transposeW (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_H) fftHin(CP(T2) in, P(T2) out, Trig smallTrig) {
-  local T lds[SMALL_HEIGHT];
+  local T lds[SMALL_HEIGHT*T2_SHUFFLE_HEIGHT];
   T2 u[NH];
 
   u32 g = get_group_id(0);
@@ -1594,7 +1730,7 @@ KERNEL(G_H) fftHin(CP(T2) in, P(T2) out, Trig smallTrig) {
 
 // Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)
 KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
-  local T lds[SMALL_HEIGHT];
+  local T lds[SMALL_HEIGHT*T2_SHUFFLE_HEIGHT];
   T2 u[NH];
 
   u32 g = get_group_id(0);
@@ -1607,7 +1743,7 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
-  local T lds[WIDTH];
+  local T lds[WIDTH*T2_SHUFFLE_WIDTH];
   T2 u[NW];
 
   u32 g = get_group_id(0);
@@ -1769,23 +1905,23 @@ void middleMul2(T2 *u, u32 g, u32 me) {
 // The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
 // than reading/writing T2 values.  This routine lets us try both versions.
 
-void middleShuffle(local T2 *lds, T2 *u, u32 kernel_width, u32 group_size) {
+void middleShuffle(local T *lds, T2 *u, u32 kernel_width, u32 group_size) {
   u32 me = get_local_id(0);
-#ifdef T2_SHUFFLE
+#if T2_SHUFFLE_MIDDLE == 2
   for (i32 i = 0; i < MIDDLE; ++i) {
     bar ();
-    lds[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i];
+    ((local T2*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i];
     bar ();
-    u[i] = lds[me];
+    u[i] = ((local T2*)lds)[me];
   }
 #else
-  for (i32 i = 0; i < MIDDLE; ++i) {
-    bar();
-    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i].x;
-    ((local T*)lds)[kernel_width + (me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i].y;
-    bar();
-    u[i].x = ((local T*)lds)[me];
-    u[i].y = ((local T*)lds)[kernel_width + me];
+  for (u32 b = 0; b < 2; ++b) {
+    for (i32 i = 0; i < MIDDLE; ++i) {
+      bar();
+      lds[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = ((T*)(u + i))[b];
+      bar();
+      ((T*)(u + i))[b] = lds[me];
+    }
   }
 #endif
 }
@@ -1795,7 +1931,7 @@ void middleShuffle(local T2 *lds, T2 *u, u32 kernel_width, u32 group_size) {
 
 #if defined(WORKINGIN)
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -1845,7 +1981,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN1
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -1969,7 +2105,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN2
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2026,7 +2162,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN3
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2083,7 +2219,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN4
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2140,7 +2276,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN5
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2225,7 +2361,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif defined(WORKINGOUT)
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2272,7 +2408,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT0
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2330,7 +2466,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT1
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2453,7 +2589,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT2
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2510,7 +2646,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT3
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2567,7 +2703,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT4
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2624,7 +2760,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT5
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256];
+  local T lds[256*T2_SHUFFLE_MIDDLE];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2757,7 +2893,7 @@ void acquire() {
 // __attribute__((amdgpu_num_vgpr(64)))
 KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
-  local T lds[WIDTH];
+  local T lds[WIDTH*T2_SHUFFLE_WIDTH];
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -2836,7 +2972,7 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
 // copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
 KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                           CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
-  local T lds[WIDTH];
+  local T lds[WIDTH*T2_SHUFFLE_WIDTH];
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -3064,7 +3200,7 @@ KERNEL(SMALL_HEIGHT / 2 / 4) multiply(P(T2) io, CP(T2) in) {
 }
 #endif
 
-// tailFused below
+// Routines used by tailFused below
 
 void reverse(u32 WG, local T *rawLds, T2 *u, bool bump) {
   local T2 *lds = (local T2 *)rawLds;
@@ -3120,12 +3256,19 @@ void reverseLine(u32 WG, local T *lds, T2 *u) {
 void reverseLine(u32 WG, local T *lds, T2 *u) {
   u32 me = get_local_id(0);
   u32 revMe = WG - 1 - me;
+#if T2_SHUFFLE_REVERSELINE == 2
+  bar();
+  for (i32 i = 0; i < NH; ++i) { ((local T2*)lds)[i * WG + revMe] = u[(NH - 1) - i]; }
+  bar();
+  for (i32 i = 0; i < NH; ++i) { u[i] = ((local T2*)lds)[i * WG + me]; }
+#else
   for (i32 b = 0; b < 2; ++b) {
     bar();
     for (i32 i = 0; i < NH; ++i) { lds[i * WG + revMe] = ((T *) (u + ((NH - 1) - i)))[b]; }  
     bar();
     for (i32 i = 0; i < NH; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
   }
+#endif
 }
 
 #endif
@@ -3345,8 +3488,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 
 // equivalent to: fftHin, multiply, fftHout.
 KERNEL(G_H) tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
-  local T2 rawLds[(SMALL_HEIGHT+1)/2];
-  local T *lds = (local T *)rawLds;
+  local T lds[SMALL_HEIGHT*((T2_SHUFFLE_HEIGHT+T2_SHUFFLE_REVERSELINE+1)/2)];
   T2 u[NH], v[NH];
 
   u32 W = SMALL_HEIGHT;
@@ -3388,8 +3530,7 @@ KERNEL(G_H) tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
 
 // equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
 KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig smallTrig) {
-  local T2 rawLds[(SMALL_HEIGHT+1)/2];
-  local T *lds = (local T *)rawLds;
+  local T lds[SMALL_HEIGHT*((T2_SHUFFLE_HEIGHT+T2_SHUFFLE_REVERSELINE+1)/2)];
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];
 
