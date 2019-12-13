@@ -91,14 +91,13 @@ typedef ulong u64;
 // Consequently, we have separate defines so we can selectively do T2 shuffling.  For now we assume the original code
 // that does 64x64 shuffles uses so much local memory that we'll not offer a T2 shuffle in there.
 //
-// For a 5M FFT on a Radeon VII, the best combination is T2_SHUFFLE_MIDDLE,T2_SHUFFLE_REVERSELINE, but
-// not T2_SHUFFLE_WIDTH,T2_SHUFFLE_HEIGHT.  This may indicate that any speed differences are due to vagaries of
+// For a 5M FFT on a Radeon VII, the best combination is T2_SHUFFLE_REVERSELINE, but not T2_SHUFFLE_MIDDLE,
+// T2_SHUFFLE_WIDTH,T2_SHUFFLE_HEIGHT.  This may indicate that speed differences are due to vagaries of
 // the ROCm optimizer rather than an inherit benefit of T2 vs. T shuffles.  The AMD OpenCL optimization manual says
 // T shuffles should give the best performance.
 
 #if !defined(T2_SHUFFLE) && !defined(NO_T2_SHUFFLE) && !defined(T2_SHUFFLE_WIDTH) && !defined(T2_SHUFFLE_MIDDLE) && !defined(T2_SHUFFLE_HEIGHT) && !defined(T2_SHUFFLE_REVERSELINE)
 #ifdef AMDGPU
-#define T2_SHUFFLE_MIDDLE
 #define T2_SHUFFLE_REVERSELINE
 #endif
 #endif
@@ -1382,13 +1381,13 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 
-// My 5M timings (in us).	WorkingOut0 is fftMiddleOut 128 + carryFused 372
-//				WorkingOut1 is fftMiddleOut 129 + carryFused 305
-//				WorkingOut1a is fftMiddleOut 128 + carryFused 305
-//				WorkingOut2 is fftMiddleOut 221 + carryFused 300
-//				WorkingOut3 is fftMiddleOut 130 + carryFused 291
-//				WorkingOut4 is fftMiddleOut 167 + carryFused 285
-//				WorkingOut5 is fftMiddleOut 120 + carryFused 311
+// My 5M timings (in us).	WorkingOut0 is fftMiddleOut 128 + carryFused 372 (T2_SHUFFLE_MIDDLE)	133/369 (NO_T2_SHUFFLE)
+//				WorkingOut1 is fftMiddleOut 129 + carryFused 305			133/301
+//				WorkingOut1a is fftMiddleOut 128 + carryFused 305			128/305
+//				WorkingOut2 is fftMiddleOut 221 + carryFused 300			223/298
+//				WorkingOut3 is fftMiddleOut 130 + carryFused 291			127/287
+//				WorkingOut4 is fftMiddleOut 167 + carryFused 285			169/280
+//				WorkingOut5 is fftMiddleOut 120 + carryFused 311			111/309
 // For comparison non-merged carryFused is 297 us
 #if !defined(WORKINGOUT) && !defined(WORKINGOUT0) && !defined(WORKINGOUT1) && !defined(WORKINGOUT1A) && !defined(WORKINGOUT2) && !defined(WORKINGOUT3) && !defined(WORKINGOUT4) && !defined(WORKINGOUT5)
 #if G_W >= 32
@@ -1556,11 +1555,11 @@ KERNEL(G_W) fftW(CP(T2) in, P(T2) out, Trig smallTrig) {
 // Read a line for tailFused or fftHin
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 
-// My 5M timings (in us).	WorkingIn1 is fftMiddleIn 144 + tailFused 191
+// My 5M timings (in us).	WorkingIn1 is fftMiddleIn 144 + tailFused 191 (T2_SHUFFLE_MIDDLE && T2_SHUFFLE_REVERSELINE)
 //				WorkingIn1a is fftMiddleIn 141 + tailFused 191
 //				WorkingIn2 is fftMiddleIn 133 + tailFused 217
 //				WorkingIn3 is fftMiddleIn 138 + tailFused 192
-//				WorkingIn4 is fftMiddleIn 207 + tailFused 189
+//				WorkingIn4 is fftMiddleIn 207 + tailFused 189		
 //				WorkingIn5 is fftMiddleIn 134 + tailFused 194
 // For comparison non-merged tailFused is 192 us
 #if !defined(WORKINGIN) && !defined(WORKINGIN1) && !defined(WORKINGIN1A) && !defined(WORKINGIN2) && !defined(WORKINGIN3) && !defined(WORKINGIN4) && !defined(WORKINGIN5)
