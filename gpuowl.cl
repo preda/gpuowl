@@ -1382,19 +1382,17 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 
-// My 5M timings (in us).	WorkingOut0 is fftMiddleOut 128 + carryFused 449
-//				WorkingOut1 is fftMiddleOut 128 + carryFused 372
-//				WorkingOut1a is fftMiddleOut 128 + carryFused 372
-//				WorkingOut2 is fftMiddleOut 221 + carryFused 372
-//				WorkingOut3 is fftMiddleOut 129 + carryFused 352
-//				WorkingOut4 is fftMiddleOut 167 + carryFused 345
-//				WorkingOut5 is fftMiddleOut 120 + carryFused 398
-// For comparison non-merged carryFused is 343 us
+// My 5M timings (in us).	WorkingOut0 is fftMiddleOut 128 + carryFused 372
+//				WorkingOut1 is fftMiddleOut 129 + carryFused 305
+//				WorkingOut1a is fftMiddleOut 128 + carryFused 305
+//				WorkingOut2 is fftMiddleOut 221 + carryFused 300
+//				WorkingOut3 is fftMiddleOut 130 + carryFused 291
+//				WorkingOut4 is fftMiddleOut 167 + carryFused 285
+//				WorkingOut5 is fftMiddleOut 120 + carryFused 311
+// For comparison non-merged carryFused is 297 us
 #if !defined(WORKINGOUT) && !defined(WORKINGOUT0) && !defined(WORKINGOUT1) && !defined(WORKINGOUT1A) && !defined(WORKINGOUT2) && !defined(WORKINGOUT3) && !defined(WORKINGOUT4) && !defined(WORKINGOUT5)
 #if G_W >= 32
 #define WORKINGOUT3 1
-#elif G_W >= 16
-#define WORKINGOUT1A 1
 #elif G_W >= 8
 #define WORKINGOUT5 1
 #endif
@@ -1558,21 +1556,15 @@ KERNEL(G_W) fftW(CP(T2) in, P(T2) out, Trig smallTrig) {
 // Read a line for tailFused or fftHin
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 
-// My 5M timings (in us).	WorkingIn1 is fftMiddleIn 139 + tailFused 196
-//				WorkingIn1a is fftMiddleIn 138 + tailFused 196
-//				WorkingIn2 is fftMiddleIn 130 + tailFused 214
-//				WorkingIn3 is fftMiddleIn 135 + tailFused 196
-//				WorkingIn4 is fftMiddleIn 204 + tailFused 195
-//				WorkingIn5 is fftMiddleIn 130 + tailFused 200
+// My 5M timings (in us).	WorkingIn1 is fftMiddleIn 144 + tailFused 191
+//				WorkingIn1a is fftMiddleIn 141 + tailFused 191
+//				WorkingIn2 is fftMiddleIn 133 + tailFused 217
+//				WorkingIn3 is fftMiddleIn 138 + tailFused 192
+//				WorkingIn4 is fftMiddleIn 207 + tailFused 189
+//				WorkingIn5 is fftMiddleIn 134 + tailFused 194
 // For comparison non-merged tailFused is 192 us
 #if !defined(WORKINGIN) && !defined(WORKINGIN1) && !defined(WORKINGIN1A) && !defined(WORKINGIN2) && !defined(WORKINGIN3) && !defined(WORKINGIN4) && !defined(WORKINGIN5)
-#if G_H >= 32
-#define WORKINGIN3 1
-#elif G_H >= 16
-#define WORKINGIN1A 1
-#elif G_H >= 8
 #define WORKINGIN5 1
-#endif
 #endif
 
 #if MIDDLE == 1 || !defined(MERGED_MIDDLE) || defined(WORKINGIN)
