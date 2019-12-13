@@ -65,7 +65,7 @@ typedef ulong u64;
 // which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
 // For AMD GPUs we default to unrolling fft_HEIGHT but not fft_WIDTH loops.  For nVidia GPUs, we unroll everything.
 
-#if !defined(UNROLL_ALL) && !defined(UNROLL_NONE) && !defined(UNROLL_WIDTH) && !defined(UNROLL_HEIGHT)
+#if !defined(UNROLL_ALL) && !defined(UNROLL_NONE) && !defined(UNROLL_WIDTH) && !defined(UNROLL_HEIGHT) && !defined(UNROLL_MIDDLEMUL1) && !defined(UNROLL_MIDDLEMUL2)
 #ifdef AMDGPU
 #define UNROLL_HEIGHT
 #else
@@ -83,6 +83,18 @@ typedef ulong u64;
 #define UNROLL_HEIGHT_CONTROL
 #else
 #define UNROLL_HEIGHT_CONTROL	  __attribute__((opencl_unroll_hint(1)))
+#endif
+
+#if defined(UNROLL_ALL) || defined(UNROLL_MIDDLEMUL1)
+#define UNROLL_MIDDLEMUL1_CONTROL
+#else
+#define UNROLL_MIDDLEMUL1_CONTROL  __attribute__((opencl_unroll_hint(1)))
+#endif
+
+#if defined(UNROLL_ALL) || defined(UNROLL_MIDDLEMUL2)
+#define UNROLL_MIDDLEMUL2_CONTROL
+#else
+#define UNROLL_MIDDLEMUL2_CONTROL  __attribute__((opencl_unroll_hint(1)))
 #endif
 
 
@@ -1918,7 +1930,7 @@ void middleMul1(T2 *u, u32 s) {
    mul_and_mul_by_conjugate(&steps[10], &steps[6], steps[8], steps[2]);
    u[6] = mul(u[6], steps[6]);
    u[10] = mul(u[10], steps[10]);
-#else
+#elif MORE_SQUARES_MIDDLEMUL1		// Less floating point ops, uses more registers
   for (i32 i = 1; i < MIDDLE; i++) {
     if (i == 1) {
       steps[i] = step;
@@ -1928,6 +1940,13 @@ void middleMul1(T2 *u, u32 s) {
       steps[i] = sq(steps[i/2]);
     }
     u[i] = mul(u[i], steps[i]);
+  }
+#else					// The original version.  Can use the fewest VGPRs.
+  T2 base = step;
+  UNROLL_MIDDLEMUL1_CONTROL
+  for (i32 i = 1; i < MIDDLE; ++i) {
+    u[i] = mul(u[i], base);
+    base = mul(base, step);
   }
 #endif
 }
@@ -1939,6 +1958,7 @@ void middleMul2(T2 *u, u32 g, u32 me) {
   T2 base = slowTrig(g * me,  BIG_HEIGHT * WIDTH / 2);
   T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
 
+  UNROLL_MIDDLEMUL2_CONTROL
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
