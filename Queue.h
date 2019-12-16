@@ -25,7 +25,7 @@ struct TimeInfo {
 
 class Event : public EventHolder {
 public:
-  double secs() { return float(getEventNanos(this->get())) * 1e-9f; }
+  double secs() { return getEventNanos(this->get()) * 1e-9f; }
   bool isComplete() { return getEventInfo(this->get()) == CL_COMPLETE; }
 };
 
@@ -43,12 +43,16 @@ public:
   static QueuePtr make(const Context& context, bool profile, bool cudaYield) { return make_shared<Queue>(makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield); }
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
-    Event event{::run(get(), kernel, groupSize, workSize, name)};
+    Event event{::run(get(), kernel, groupSize, workSize, name, profile || cudaYield)};
     auto it = profile ? timeMap.insert({name, TimeInfo{}}).first : timeMap.end();
-    if (profile || events.empty()) {
+    if (profile) {
       events.emplace_back(std::move(event), it);
-    } else {
-      events.front() = std::make_pair(std::move(event), it);
+    } else if (cudaYield) {
+      if (events.empty()) {
+        events.emplace_back(std::move(event), it);
+      } else {
+        events.front() = std::make_pair(std::move(event), it);
+      }
     }
   }
 

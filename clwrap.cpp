@@ -307,10 +307,15 @@ cl_queue makeQueue(cl_device_id d, cl_context c, bool profile) {
 void flush( cl_queue q) { CHECK1(clFlush(q)); }
 void finish(cl_queue q) { CHECK1(clFinish(q)); }
 
-EventHolder run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
-  cl_event event{};
-  CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, &event), name.c_str());
-  return EventHolder{event};
+EventHolder run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name, bool generateEvent) {
+  if (generateEvent) {
+    cl_event event{};
+    CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, &event), name.c_str());
+    return EventHolder{event};
+  } else {
+    CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize, 0, NULL, NULL), name.c_str());
+    return {};
+  }
 }
 
 void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start) {
