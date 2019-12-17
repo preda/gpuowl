@@ -44,10 +44,13 @@ vector<bool> bitsMSB(mpz_class a) {
 
 // return GCD(bits - sub, 2^exp - 1) as a decimal string if GCD!=1, or empty string otherwise.
 std::string GCD(u32 exp, const std::vector<u32>& words, u32 sub) {
-  string ret = mpz_class{gcd((mpz_class{1} << exp) - 1, mpz(words) - sub)}.get_str();
-  return ret == "1" ? ""s : ret;
+  mpz_class w = mpz(words);
+  if (w == 0 || w == sub) {
+    throw std::domain_error("GCD invalid input");
+  }
+  mpz_class resultGcd = gcd((mpz_class{1} << exp) - 1, w - sub);
+  return (resultGcd == 1) ? ""s : resultGcd.get_str();
 }
-
 
 // "Rev" means: most significant bit first (at index 0).
 vector<bool> powerSmoothMSB(u32 exp, u32 B1) { return bitsMSB(powerSmooth(exp, B1)); }
