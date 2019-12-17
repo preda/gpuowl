@@ -145,6 +145,15 @@ typedef ulong u64;
 #define T2_SHUFFLE_TAILFUSED	2
 #endif
 
+// turn IEEE mode and denormals off so that mul:2 and div:2 work
+#if HAS_ASM
+#define ENABLE_MUL2() { __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0\n"); \
+		        __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 5\n"); \
+		      }
+#else
+#define ENABLE_MUL2()
+#endif
+
 typedef double T;
 typedef double2 T2;
 typedef i32 Word;
@@ -169,14 +178,23 @@ u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
 
 // complex square
+
+#if !defined(ORIG_SQ) && !defined(NEW_SQ) && !defined(MUL2_SQ)
+#if HAS_ASM
+#define MUL2_SQ 1
+#endif
+#endif
+
 #ifdef ORIG_SQ
 T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }		// 2 adds, 3 muls, two muls may be FMA-able later
-#elif MUL2_SQ_THAT_DOES_NOT_WORK_REASONS_UNKNOWN
+#elif NEW_SQ
+T2 sq(T2 a) { return U2(fma(a.x, a.x, -a.y*a.y), 2 * a.x * a.y); }		// 3 muls, 1 fma, one mul may be FMA-able later
+#elif MUL2_SQ
 T2 sq(T2 a) { T tmp; \
               __asm( "v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp) : "v" (a.x), "v" (a.y)); \
               return U2(fma(a.x, a.x, -a.y*a.y), tmp); }			// 2 muls, 1 fma
 #else
-T2 sq(T2 a) { return U2(fma(a.x, a.x, -a.y*a.y), 2 * a.x * a.y); }		// 3 muls, 1 fma, one mul may be FMA-able later
+#error None of ORIG_SQ, NEW_SQ, MUL2_SQ defined
 #endif
 
 T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
@@ -1554,10 +1572,10 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 KERNEL(G_W) fftW(CP(T2) in, P(T2) out, Trig smallTrig) {
   local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
   T2 u[NW];
-
   u32 g = get_group_id(0);
 
   readCarryFusedLine(in, u, g);
+  ENABLE_MUL2();
   fft_WIDTH(lds, u, smallTrig);  
   out += WIDTH * g;
   write(G_W, NW, u, out, 0);
@@ -1774,10 +1792,10 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 KERNEL(G_H) fftHin(CP(T2) in, P(T2) out, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_HEIGHT];
   T2 u[NH];
-
   u32 g = get_group_id(0);
 
   readTailFusedLine(in, u, g, transPos(g, MIDDLE, WIDTH));
+  ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
 
   out += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
@@ -1788,11 +1806,12 @@ KERNEL(G_H) fftHin(CP(T2) in, P(T2) out, Trig smallTrig) {
 KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_HEIGHT];
   T2 u[NH];
-
   u32 g = get_group_id(0);
+
   io += g * SMALL_HEIGHT;
 
   read(G_H, NH, u, io, 0);
+  ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, 0);
 }
@@ -1801,8 +1820,8 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
   T2 u[NW];
-
   u32 g = get_group_id(0);
+
   u32 step = WIDTH * g;
   A   += step;
   in  += step;
@@ -1815,6 +1834,7 @@ KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
     // u32 hk = g + BIG_HEIGHT * p;
     u[i] = weight(in[p], A[p]);
   }
+  ENABLE_MUL2();
 
   fft_WIDTH(lds, u, smallTrig);
   
@@ -1871,8 +1891,10 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   u32 gx = g % N;
   u32 gy = g / N;
   u32 me = get_local_id(0);
+
   in += BIG_HEIGHT * gy + 256 * gx;
   read(SMALL_HEIGHT, MIDDLE, u, in, 0);
+  ENABLE_MUL2();
 
   fft_MIDDLE(u);
 
@@ -2020,6 +2042,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   in += start_row * WIDTH + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + (me / 16) * WIDTH + me % 16]; }
+  ENABLE_MUL2();
 
   middleMul2(u, start_col + me % 16, start_row + (me / 16));
 
@@ -2069,6 +2092,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   in += start_row * WIDTH + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + (me / 16) * WIDTH + (me % 16)]; }
+  ENABLE_MUL2();
 
   middleMul2(u, start_col + (me % 16), start_row + (me / 16));
 
@@ -2126,6 +2150,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   in += start_row * WIDTH + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + (me / 16) * WIDTH + (me % 16)]; }
+  ENABLE_MUL2();
 
   middleMul2(u, start_col + (me % 16), start_row + (me / 16));
 
@@ -2193,6 +2218,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   in += start_row * WIDTH + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + (me / 16) * WIDTH + (me % 16)]; }
+  ENABLE_MUL2();
 
   middleMul2(u, start_col + (me % 16), start_row + (me / 16));
 
@@ -2250,6 +2276,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   in += start_row * WIDTH + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + (me / 8) * WIDTH + (me % 8)]; }
+  ENABLE_MUL2();
 
   middleMul2(u, start_col + (me % 8), start_row + (me / 8));
 
@@ -2307,6 +2334,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   in += start_row * WIDTH + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + (me / 4) * WIDTH + (me % 4)]; }
+  ENABLE_MUL2();
 
   middleMul2(u, start_col + (me % 4), start_row + (me / 4));
 
@@ -2364,6 +2392,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   in += start_row * WIDTH + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + (me / 32) * WIDTH + (me % 32)]; }
+  ENABLE_MUL2();
 
   middleMul2(u, start_col + (me % 32), start_row + (me / 32));
 
@@ -2408,8 +2437,10 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   u32 gx = g % N;
   u32 gy = g / N;
   u32 me = get_local_id(0);
+
   in += BIG_HEIGHT * gy + 256 * gx;
   read(SMALL_HEIGHT, MIDDLE, u, in, 0);
+  ENABLE_MUL2();
 
   middleMul(u, gx, me);
 
@@ -2449,6 +2480,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   in += start_row * BIG_HEIGHT + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
+  ENABLE_MUL2();
 
   middleMul1(u, start_col + (me % 16));
 
@@ -2496,6 +2528,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   in += start_row * BIG_HEIGHT + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
+  ENABLE_MUL2();
 
   middleMul1(u, start_col + (me % 16));
 
@@ -2554,6 +2587,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   in += start_row * BIG_HEIGHT + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
+  ENABLE_MUL2();
 
   middleMul1(u, start_col + (me % 16));
 
@@ -2610,6 +2644,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   in += start_row * BIG_HEIGHT + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
+  ENABLE_MUL2();
 
   middleMul1(u, start_col + (me % 16));
 
@@ -2677,6 +2712,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   in += start_row * BIG_HEIGHT + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
+  ENABLE_MUL2();
 
   middleMul1(u, start_col + (me % 16));
 
@@ -2734,6 +2770,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   in += start_row * BIG_HEIGHT + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 8) * BIG_HEIGHT + (me % 8)]; }
+  ENABLE_MUL2();
 
   middleMul1(u, start_col + (me % 8));
 
@@ -2791,6 +2828,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   in += start_row * BIG_HEIGHT + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 4) * BIG_HEIGHT + (me % 4)]; }
+  ENABLE_MUL2();
 
   middleMul1(u, start_col + (me % 4));
 
@@ -2848,6 +2886,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   in += start_row * BIG_HEIGHT + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 32) * BIG_HEIGHT + (me % 32)]; }
+  ENABLE_MUL2();
 
   middleMul1(u, start_col + (me % 32));
 
@@ -2900,10 +2939,12 @@ void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *
 }
 
 KERNEL(G_W) carryA(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
+  ENABLE_MUL2();
   carryACore(1, in, A, out, carryOut, extras);
 }
 
 KERNEL(G_W) carryM(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
+  ENABLE_MUL2();
   carryACore(3, in, A, out, carryOut, extras);
 }
 
@@ -2912,6 +2953,8 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) extras) {
   u32 me = get_local_id(0);  
   u32 gx = g % NW;
   u32 gy = g / NW;
+
+  ENABLE_MUL2();
 
   u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
   
@@ -2968,6 +3011,7 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   Word2 wu[NW];
 
   readCarryFusedLine(in, u, line);
+  ENABLE_MUL2();
 
   fft_WIDTH(lds, u, smallTrig);
 
@@ -3047,6 +3091,7 @@ KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) re
   Word2 wu[NW];
 
   readCarryFusedLine(in, u, line);
+  ENABLE_MUL2();
 
   fft_WIDTH(lds, u, smallTrig);
 
@@ -3116,29 +3161,35 @@ KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) re
 // __attribute__((amdgpu_num_vgpr(128)))
 KERNEL(256) transposeW(CP(T2) in, P(T2) out) {
   local T lds[4096];
+  ENABLE_MUL2();
   transpose(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
 KERNEL(256) transposeH(CP(T2) in, P(T2) out) {
   local T lds[4096];
+  ENABLE_MUL2();
   transpose(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
 // from transposed to sequential.
 KERNEL(256) transposeOut(CP(Word2) in, P(Word2) out) {
   local Word2 lds[4096];
+  ENABLE_MUL2();
   transposeWords(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
 // from sequential to transposed.
 KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
   local Word2 lds[4096];
+  ENABLE_MUL2();
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
 KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
+
+  ENABLE_MUL2();
 
   u32 me = get_local_id(0);
   u32 line1 = get_group_id(0);
@@ -3176,7 +3227,9 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
 KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
-  
+
+  ENABLE_MUL2();
+
   u32 line1 = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -3220,6 +3273,8 @@ KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
 KERNEL(SMALL_HEIGHT / 2 / 4) multiply(P(T2) io, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
+
+  ENABLE_MUL2();
 
   u32 me = get_local_id(0);
   u32 line1 = get_group_id(0);
@@ -3561,6 +3616,8 @@ KERNEL(G_H) tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
 
   readTailFusedLine(in, u, line1, memline1);
   readTailFusedLine(in, v, line2, memline2);
+  ENABLE_MUL2();
+
   fft_HEIGHT(lds, u, smallTrig);
   fft_HEIGHT(lds, v, smallTrig);
 
@@ -3607,6 +3664,7 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
 
   readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
+  ENABLE_MUL2 ();
 
   fft_HEIGHT(lds, u, smallTrig);
   fft_HEIGHT(lds, v, smallTrig);
@@ -3639,12 +3697,13 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
 
-// #define TEST_KERNEL	// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
+// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
 // Small test kernel so we can easily find code snipets to compare different implementations of macros
 KERNEL(256) testKernel(P(T2) io) {
 	u32 me = get_local_id(0);
 	T2 u[10];
+	ENABLE_MUL2 ();
 	read(256, 10, u, io, 0);
 //      fft4(u);
 //      fft5(u);
