@@ -1415,19 +1415,9 @@ void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out)
   }
 }
 
-#ifndef ALT_RESTRICT
-
 #define P(x) global x * restrict
 #define CP(x) const P(x)
-typedef CP(T2) Trig;
-
-#else
-
-#define P(x) global x *
-#define CP(x) const P(x)
 typedef CP(T2) restrict Trig;
-
-#endif
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
