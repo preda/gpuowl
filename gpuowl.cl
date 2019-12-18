@@ -2,46 +2,63 @@
 // Copyright Mihai Preda and George Woltman.
 
 /* List of user-serviceable -use flags and their effects
- * 
- * FMA    : use OpenCL fma(x, y, z) instead of x * y + z in MAD(x, y, z)
- * NO_ASM : request to not use any inline __asm()
- * NO_OMOD: do not use GCN output modifiers in __asm()
- * 
- * UNROLL_ALL
- * UNROLL_NONE
- * UNROLL_WIDTH
- * UNROLL_HEIGHT
- * UNROLL_MIDDLEMUL1
- * UNROLL_MIDDLEMUL2
- *
- * T2_SHUFFLE
- * NO_T2_SHUFFLE
- * T2_SHUFFLE_WIDTH
- * T2_SHUFFLE_MIDDLE
- * T2_SHUFFLE_HEIGHT
- * T2_SHUFFLE_REVERSELINE
- *
- *
- */
+
+FMA    : use OpenCL fma(x, y, z) instead of x * y + z in MAD(x, y, z)
+NO_ASM : request to not use any inline __asm()
+NO_OMOD: do not use GCN output modifiers in __asm()
+
+MERGED_MIDDLE
+
+PREFER_LESS_FMA
+
+ORIG_X2
+INLINE_X2
+FMA_X2
+
+UNROLL_ALL
+UNROLL_NONE
+UNROLL_WIDTH
+UNROLL_HEIGHT
+UNROLL_MIDDLEMUL1
+UNROLL_MIDDLEMUL2
+
+T2_SHUFFLE
+NO_T2_SHUFFLE
+T2_SHUFFLE_WIDTH
+T2_SHUFFLE_MIDDLE
+T2_SHUFFLE_HEIGHT
+T2_SHUFFLE_REVERSELINE
+
+OLD_FFT8 <default>
+NEWEST_FFT8
+NEW_FFT8
+
+OLD_FFT5
+NEW_FFT5 <default>
+NEWEST_FFT5
+
+NEW_FFT10 <default>
+OLD_FFT10
+*/
 
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
- * AMDGPU  : set on AMD GPUs
- * HAS_ASM : set if we believe __asm() can be used
- * T2_SHUFFLE_TAILFUSED
+AMDGPU  : set on AMD GPUs
+HAS_ASM : set if we believe __asm() can be used
+T2_SHUFFLE_TAILFUSED
  */
 
 /* List of code-specific macros. These are set by the C++ host code or derived
- * EXP        the exponent
- * WIDTH
- * BIG_HEIGHT
- * SMALL_HEIGHT
- * MIDDLE
- * ND         number of dwords
- * NWORDS     number of words
- * NW
- * NH
- * G_W        "group width"
- * G_H        "group height"
+EXP        the exponent
+WIDTH
+BIG_HEIGHT
+SMALL_HEIGHT
+MIDDLE
+ND         number of dwords
+NWORDS     number of words
+NW
+NH
+G_W        "group width"
+G_H        "group height"
  */
 
 #define STR(x) XSTR(x)
@@ -64,13 +81,17 @@
 // ROCm generates warning on this: #pragma OPENCL EXTENSION all : enable
 
 #if AMDGPU
-
 // On AMDGPU the default is HAS_ASM
 #if !NO_ASM
 #define HAS_ASM 1
 // #warning ASM is enabled (pass '-use NO_ASM' to disable it)
 #endif
+#endif // AMDGPU
 
+#if !HAS_ASM
+// disable everything that depends on ASM
+#define NO_OMOD 1
+#define INLINE_X2 0
 #endif
 
 typedef int i32;
@@ -240,29 +261,34 @@ u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 #define CARRY_LEN 16
 
 // complex mul
-T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+T2 mul(T2 a, T2 b) { return U2(MAD(a.x, b.x, -a.y * b.y), MAD(a.x, b.y, a.y * b.x)); }
+  // return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
 
 // complex mul * 4
-#if HAS_ASM && !defined(NO_OMOD)
-T2 mul4(T2 a, T2 b) { T axbx = a.x * b.x; \
-		      T axby = a.x * b.y; \
-		      T2 tmp; \
-		      __asm("v_fma_f64 %0, %1, -%2, %3 mul:4\n" : "=v" (tmp.x) : "v" (a.y), "v" (b.y), "v" (axbx)); \
-		      __asm("v_fma_f64 %0, %1, %2, %3 mul:4\n" : "=v" (tmp.y) : "v" (a.y), "v" (b.x), "v" (axby)); \
-		      return (tmp); }
+T2 mul4(T2 a, T2 b) {
+#if !NO_OMOD
+  T axbx = a.x * b.x;
+  T axby = a.x * b.y;
+  T2 tmp;
+  __asm("v_fma_f64 %0, %1, -%2, %3 mul:4\n" : "=v" (tmp.x) : "v" (a.y), "v" (b.y), "v" (axbx));
+  __asm("v_fma_f64 %0, %1, %2, %3 mul:4\n" : "=v" (tmp.y) : "v" (a.y), "v" (b.x), "v" (axby));
+  return (tmp);
 #else
-T2 mul4(T2 a, T2 b) { return 4.0 * U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+  return 4 * mul(a, b);
 #endif
+}
 
 // complex add * 2
-#if HAS_ASM && !defined(NO_OMOD)
-T2 add2(T2 a, T2 b) { T2 tmp; \
-		      __asm("v_add_f64 %0, %1, %2 mul:2\n" : "=v" (tmp.x) : "v" (a.x), "v" (b.x)); \
-		      __asm("v_add_f64 %0, %1, %2 mul:2\n" : "=v" (tmp.y) : "v" (a.y), "v" (b.y)); \
-		      return (tmp); }
+T2 add2(T2 a, T2 b) {
+#if !NO_OMOD
+ T2 tmp;
+ __asm("v_add_f64 %0, %1, %2 mul:2\n" : "=v" (tmp.x) : "v" (a.x), "v" (b.x));
+ __asm("v_add_f64 %0, %1, %2 mul:2\n" : "=v" (tmp.y) : "v" (a.y), "v" (b.y));
+ return (tmp);
 #else
-T2 add2(T2 a, T2 b) { return (2.0 * (a + b)); }
+ return 2 * (a + b);
 #endif
+}
 
 // x^2 - y^2
 T diffsq(T x, T y) { return MAD(x, x, - y * y); } // worse: (x + y) * (x - y)
@@ -346,7 +372,7 @@ T2 foo2(T2 a, T2 b) {
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 T2 foo(T2 a) { return foo2(a, a); }
 
-#if !defined(ORIG_X2) && !defined(INLINE_X2) && !defined(FMA_X2)
+#if !ORIG_X2 && !INLINE_X2 && !FMA_X2
 #if HAS_ASM
 #define INLINE_X2 1
 #else
@@ -391,16 +417,16 @@ T2 foo(T2 a) { return foo2(a, a); }
 T2 fmaT2(T a, T2 b, T2 c) { return (U2 (fma(a, b.x, c.x), fma(a, b.y, c.y))); }
 
 // Promote 2 multiplies and 4 add/sub instructions into 4 FMA instructions.
-#ifndef PREFER_LESS_FMA
+#if !PREFER_LESS_FMA
 #define fma_addsub(a, b, sin, c, d) { a = fmaT2 (sin, d, c); b = fmaT2 (sin, -d, c); }
 #else
 // Force rocm to NOT promote 2 multiplies and 4 add/sub instructions into 4 FMA instructions.  FMA has higher latency.
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; \
-	__asm( "v_add_f64 %0, %1, %2\n" : "=v" (a.x) : "v" (c.x), "v" (d.x)); \
-	__asm( "v_add_f64 %0, %1, %2\n" : "=v" (a.y) : "v" (c.y), "v" (d.y)); \
-	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.x) : "v" (c.x), "v" (d.x)); \
-	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.y) : "v" (c.y), "v" (d.y)); \
-	}
+    __asm( "v_add_f64 %0, %1, %2\n" : "=v" (a.x) : "v" (c.x), "v" (d.x)); \
+    __asm( "v_add_f64 %0, %1, %2\n" : "=v" (a.y) : "v" (c.y), "v" (d.y)); \
+    __asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.x) : "v" (c.x), "v" (d.x)); \
+    __asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.y) : "v" (c.y), "v" (d.y)); \
+  }
 #endif
 
 // a * conjugate(b)
@@ -427,7 +453,7 @@ void fft4(T2 *u) {
   SWAP(u[1], u[2]);
 }
 
-#if !defined(NEWEST_FFT8) && !defined(NEW_FFT8)
+#if !OLD_FFT8 && !NEWEST_FFT8 && !NEW_FFT8
 #define OLD_FFT8 1
 #endif
 
@@ -531,8 +557,7 @@ void fft6(T2 *u) {
   u[2] = tmp;
 }
 
-#if !defined(NEWEST_FFT5) && !defined(NEW_FFT5) && !defined(OLD_FFT5)
-// default to new fft5
+#if !NEWEST_FFT5 && !NEW_FFT5 && !OLD_FFT5
 #define NEW_FFT5 1
 #endif
 
@@ -651,8 +676,7 @@ void fft5(T2 *u) {
 #endif
 
 
-#if !defined(NEW_FFT10) && !defined(OLD_FFT10)
-// default to new fft10
+#if !NEW_FFT10 && !OLD_FFT10
 #define NEW_FFT10 1
 #endif
 
