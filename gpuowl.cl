@@ -1,10 +1,47 @@
 // gpuOwl, an OpenCL Mersenne primality test.
 // Copyright Mihai Preda and George Woltman.
 
-/* The list of -use flags and their effects
+/* List of user-serviceable -use flags and their effects
  * 
- * FMA : use OpenCL fma(x, y, z) instead of x * y + z in MAD(x, y, z)
+ * FMA    : use OpenCL fma(x, y, z) instead of x * y + z in MAD(x, y, z)
+ * NO_ASM : request to not use any inline __asm()
+ * NO_OMOD: do not use GCN output modifiers in __asm()
+ * 
+ * UNROLL_ALL
+ * UNROLL_NONE
+ * UNROLL_WIDTH
+ * UNROLL_HEIGHT
+ * UNROLL_MIDDLEMUL1
+ * UNROLL_MIDDLEMUL2
  *
+ * T2_SHUFFLE
+ * NO_T2_SHUFFLE
+ * T2_SHUFFLE_WIDTH
+ * T2_SHUFFLE_MIDDLE
+ * T2_SHUFFLE_HEIGHT
+ * T2_SHUFFLE_REVERSELINE
+ *
+ *
+ */
+
+/* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
+ * AMDGPU  : set on AMD GPUs
+ * HAS_ASM : set if we believe __asm() can be used
+ * T2_SHUFFLE_TAILFUSED
+ */
+
+/* List of code-specific macros. These are set by the C++ host code or derived
+ * EXP        the exponent
+ * WIDTH
+ * BIG_HEIGHT
+ * SMALL_HEIGHT
+ * MIDDLE
+ * ND         number of dwords
+ * NWORDS     number of words
+ * NW
+ * NH
+ * G_W        "group width"
+ * G_H        "group height"
  */
 
 #define STR(x) XSTR(x)
@@ -67,33 +104,40 @@ typedef ulong u64;
 // which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
 // For AMD GPUs we default to unrolling fft_HEIGHT but not fft_WIDTH loops.  For nVidia GPUs, we unroll everything.
 
-#if !defined(UNROLL_ALL) && !defined(UNROLL_NONE) && !defined(UNROLL_WIDTH) && !defined(UNROLL_HEIGHT) && !defined(UNROLL_MIDDLEMUL1) && !defined(UNROLL_MIDDLEMUL2)
-#ifdef AMDGPU
-#define UNROLL_HEIGHT
+#if !UNROLL_ALL && !UNROLL_NONE && !UNROLL_WIDTH && !UNROLL_HEIGHT && !UNROLL_MIDDLEMUL1 && !UNROLL_MIDDLEMUL2
+#if AMDGPU
+#define UNROLL_HEIGHT 1
 #else
-#define UNROLL_ALL
+#define UNROLL_ALL 1
 #endif
 #endif
 
-#if defined(UNROLL_ALL) || defined(UNROLL_WIDTH)
+#if UNROLL_ALL
+#define UNROLL_WIDTH 1
+#define UNROLL_HEIGHT 1
+#define UNROLL_MIDDLEMUL1 1
+#define UNROLL_MIDDLEMUL2 1
+#endif
+
+#if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
 #else
-#define UNROLL_WIDTH_CONTROL	  __attribute__((opencl_unroll_hint(1)))
+#define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
 #endif
 
-#if defined(UNROLL_ALL) || defined(UNROLL_HEIGHT)
+#if UNROLL_HEIGHT
 #define UNROLL_HEIGHT_CONTROL
 #else
-#define UNROLL_HEIGHT_CONTROL	  __attribute__((opencl_unroll_hint(1)))
+#define UNROLL_HEIGHT_CONTROL	   __attribute__((opencl_unroll_hint(1)))
 #endif
 
-#if defined(UNROLL_ALL) || defined(UNROLL_MIDDLEMUL1)
+#if UNROLL_MIDDLEMUL1
 #define UNROLL_MIDDLEMUL1_CONTROL
 #else
 #define UNROLL_MIDDLEMUL1_CONTROL  __attribute__((opencl_unroll_hint(1)))
 #endif
 
-#if defined(UNROLL_ALL) || defined(UNROLL_MIDDLEMUL2)
+#if UNROLL_MIDDLEMUL2
 #define UNROLL_MIDDLEMUL2_CONTROL
 #else
 #define UNROLL_MIDDLEMUL2_CONTROL  __attribute__((opencl_unroll_hint(1)))
@@ -110,31 +154,41 @@ typedef ulong u64;
 // the ROCm optimizer rather than an inherit benefit of T2 vs. T shuffles.  The AMD OpenCL optimization manual says
 // T shuffles should give the best performance.
 
-#if !defined(T2_SHUFFLE) && !defined(NO_T2_SHUFFLE) && !defined(T2_SHUFFLE_WIDTH) && !defined(T2_SHUFFLE_MIDDLE) && !defined(T2_SHUFFLE_HEIGHT) && !defined(T2_SHUFFLE_REVERSELINE)
+#if !T2_SHUFFLE && !NO_T2_SHUFFLE && !T2_SHUFFLE_WIDTH && !T2_SHUFFLE_MIDDLE && !T2_SHUFFLE_HEIGHT && !T2_SHUFFLE_REVERSELINE
 #ifdef AMDGPU
-#define T2_SHUFFLE_REVERSELINE
+#define T2_SHUFFLE_REVERSELINE 1
 #endif
 #endif
 
-#if defined(T2_SHUFFLE) || defined(T2_SHUFFLE_WIDTH)
+#if T2_SHUFFLE
+#define T2_SHUFFLE_WIDTH 1
+#define T2_SHUFFLE_MIDDLE 1
+#define T2_SHUFFLE_HEIGHT 1
+#define T2_SHUFFLE_REVERSELINE 1
+#endif
+
+#if T2_SHUFFLE_WIDTH
 #undef T2_SHUFFLE_WIDTH
 #define T2_SHUFFLE_WIDTH	1
 #else
 #define T2_SHUFFLE_WIDTH	2
 #endif
-#if defined(T2_SHUFFLE) || defined(T2_SHUFFLE_MIDDLE)
+
+#if T2_SHUFFLE_MIDDLE
 #undef T2_SHUFFLE_MIDDLE
 #define T2_SHUFFLE_MIDDLE	1
 #else
 #define T2_SHUFFLE_MIDDLE	2
 #endif
-#if defined(T2_SHUFFLE) || defined(T2_SHUFFLE_HEIGHT)
+
+#if T2_SHUFFLE_HEIGHT
 #undef T2_SHUFFLE_HEIGHT
 #define T2_SHUFFLE_HEIGHT	1
 #else
 #define T2_SHUFFLE_HEIGHT	2
 #endif
-#if defined(T2_SHUFFLE) || defined(T2_SHUFFLE_REVERSELINE)
+
+#if T2_SHUFFLE_REVERSELINE
 #undef T2_SHUFFLE_REVERSELINE
 #define T2_SHUFFLE_REVERSELINE	1
 #else
@@ -147,8 +201,8 @@ typedef ulong u64;
 #define T2_SHUFFLE_TAILFUSED	2
 #endif
 
+#if HAS_ASM && !NO_OMOD
 // turn IEEE mode and denormals off so that mul:2 and div:2 work
-#if HAS_ASM && !defined(NO_OMOD)
 #define ENABLE_MUL2() { __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0\n"); \
 		        __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 5\n"); \
 		      }
