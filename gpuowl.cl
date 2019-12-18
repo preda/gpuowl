@@ -146,7 +146,7 @@ typedef ulong u64;
 #endif
 
 // turn IEEE mode and denormals off so that mul:2 and div:2 work
-#if HAS_ASM
+#if HAS_ASM && !defined(NO_OMOD)
 #define ENABLE_MUL2() { __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0\n"); \
 		        __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 5\n"); \
 		      }
@@ -177,24 +177,39 @@ u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 // complex mul
 T2 mul(T2 a, T2 b) { return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
 
-// complex square
+// complex mul * 4
+#if HAS_ASM && !defined(NO_OMOD)
+T2 mul4(T2 a, T2 b) { T axbx = a.x * b.x; \
+		      T axby = a.x * b.y; \
+		      T2 tmp; \
+		      __asm("v_fma_f64 %0, %1, -%2, %3 mul:4\n" : "=v" (tmp.x) : "v" (a.y), "v" (b.y), "v" (axbx)); \
+		      __asm("v_fma_f64 %0, %1, %2, %3 mul:4\n" : "=v" (tmp.y) : "v" (a.y), "v" (b.x), "v" (axby)); \
+		      return (tmp); }
+#else
+T2 mul4(T2 a, T2 b) { return 4.0 * U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+#endif
 
-#if !defined(ORIG_SQ) && !defined(NEW_SQ) && !defined(MUL2_SQ)
-#if HAS_ASM
-#define MUL2_SQ 1
+// complex add * 2
+#if HAS_ASM && !defined(NO_OMOD)
+T2 add2(T2 a, T2 b) { T2 tmp; \
+		      __asm("v_add_f64 %0, %1, %2 mul:2\n" : "=v" (tmp.x) : "v" (a.x), "v" (b.x)); \
+		      __asm("v_add_f64 %0, %1, %2 mul:2\n" : "=v" (tmp.y) : "v" (a.y), "v" (b.y)); \
+		      return (tmp); }
+#else
+T2 add2(T2 a, T2 b) { return (2.0 * (a + b)); }
 #endif
-#endif
+
+
+// complex square
 
 #ifdef ORIG_SQ
 T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }		// 2 adds, 3 muls, two muls may be FMA-able later
-#elif NEW_SQ
-T2 sq(T2 a) { return U2(fma(a.x, a.x, -a.y*a.y), 2 * a.x * a.y); }		// 3 muls, 1 fma, one mul may be FMA-able later
-#elif MUL2_SQ
+#elif HAS_ASM && !defined(NO_OMOD)
 T2 sq(T2 a) { T tmp; \
               __asm( "v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp) : "v" (a.x), "v" (a.y)); \
               return U2(fma(a.x, a.x, -a.y*a.y), tmp); }			// 2 muls, 1 fma
 #else
-#error None of ORIG_SQ, NEW_SQ, MUL2_SQ defined
+T2 sq(T2 a) { return U2(fma(a.x, a.x, -a.y*a.y), 2 * a.x * a.y); }		// 3 muls, 1 fma, one mul may be FMA-able later
 #endif
 
 T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
@@ -3421,7 +3436,8 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
 
 // Better pairSq.  Reduces complex muls in base calculations and improves roundoff error
 
-// This can be done with 31 float ops
+// This can be done with 30 float ops
+#if 0
 #define onePairSq(a, b, t) { \
       b = conjugate(b); \
       X2(a, b); \
@@ -3434,6 +3450,23 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
       X2(a, b); \
       a = conjugate(a); \
 }
+
+// This alternate implementation takes better advantage of the AMD OMOD (output modifier) feature.
+// NOTE:  For other GPUs we should change this routine and onePairMul and the special cases to
+// return the proper result divided by 2 or 4.  This saves a  multiply or two.  It requires a
+// small adjustment in the inverse weights at set up.
+
+#else
+#define onePairSq(a, b, t) { T2 tmp;\
+      b = conjugate(b); \
+      X2(a, b); \
+      tmp = mul_by_conjugate(b, t); \
+      b = mul4(a,b);		/* 4 * a * b */ \
+      a = add2(sq(a),sq(tmp));	/* 2 * (a^2 + tmp^2) */ \
+      X2(a, b); \
+      a = conjugate(a); \
+}
+#endif
 
 void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
   u32 me = get_local_id(0);
