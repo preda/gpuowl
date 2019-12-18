@@ -1,9 +1,11 @@
 // gpuOwl, an OpenCL Mersenne primality test.
 // Copyright Mihai Preda and George Woltman.
 
-// The data is organized in pairs of words in a matrix WIDTH x HEIGHT.
-// The pair (a, b) is sometimes interpreted as the complex value a + i*b.
-// The order of words is column-major (i.e. transposed from the usual row-major matrix order).
+/* The list of -use flags and their effects
+ * 
+ * FMA : use OpenCL fma(x, y, z) instead of x * y + z in MAD(x, y, z)
+ *
+ */
 
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
@@ -160,6 +162,15 @@ typedef i32 Word;
 typedef int2 Word2;
 typedef i64 Carry;
 
+// x * y + z, "Multiply ADd"
+T MAD(T x, T y, T z) {
+#if !FMA
+  return x * y + z;
+#else
+  return fma(x, y, z);
+#endif
+}
+
 T2 U2(T a, T b) { return (T2)(a, b); }
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
@@ -199,18 +210,19 @@ T2 add2(T2 a, T2 b) { T2 tmp; \
 T2 add2(T2 a, T2 b) { return (2.0 * (a + b)); }
 #endif
 
+// x^2 - y^2
+T diffsq(T x, T y) { return MAD(x, x, - y * y); } // worse: (x + y) * (x - y)
 
-// complex square
-
-#ifdef ORIG_SQ
-T2 sq(T2 a) { return U2((a.x + a.y) * (a.x - a.y), 2 * a.x * a.y); }		// 2 adds, 3 muls, two muls may be FMA-able later
-#elif HAS_ASM && !defined(NO_OMOD)
-T2 sq(T2 a) { T tmp; \
-              __asm( "v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp) : "v" (a.x), "v" (a.y)); \
-              return U2(fma(a.x, a.x, -a.y*a.y), tmp); }			// 2 muls, 1 fma
+// x * y * 2
+T xy2(T x, T y) {
+#if !NO_OMOD
+  T tmp; __asm( "v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp) : "v" (x), "v" (y)); return tmp;
 #else
-T2 sq(T2 a) { return U2(fma(a.x, a.x, -a.y*a.y), 2 * a.x * a.y); }		// 3 muls, 1 fma, one mul may be FMA-able later
+  return 2 * x * y;
 #endif
+}
+
+T2 sq(T2 a) { return U2(diffsq(a.x, a.y), xy2(a.x, a.y)); }
 
 T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
 T2 mul_t8(T2 a)  { return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
