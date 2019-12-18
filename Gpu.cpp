@@ -301,8 +301,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
     || (args.carry == Args::CARRY_LONG)
     || (args.carry == Args::CARRY_AUTO && WIDTH >= 2048);
 
-  bool useMergedMiddle = 0;
-  for (const string& flag : args.flags) if (flag == "MERGED_MIDDLE") useMergedMiddle = 1;
+  bool useMergedMiddle = (std::find(args.flags.begin(), args.flags.end(), "NO_MERGED_MIDDLE") == args.flags.end());
 
   if (useLongCarry) { log("using long carry kernels\n"); }
 
@@ -419,16 +418,18 @@ void Gpu::logTimeKernels() {
 }
 
 void Gpu::tW(Buffer<double>& in, Buffer<double>& out) {
-  if (useMergedMiddle) fftMiddleIn(in, out);
-  else {
+  if (useMergedMiddle) {
+    fftMiddleIn(in, out);
+  } else {
     transposeW(in, out);
-    if (useMiddle) fftMiddleIn(out, out);
+    if (useMiddle) { fftMiddleIn(out, out); }
   }
 }
 
 void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
-  if (useMergedMiddle) fftMiddleOut(in, out);
-  else {
+  if (useMergedMiddle) {
+    fftMiddleOut(in, out);
+  } else {
     if (useMiddle) { fftMiddleOut(in, in); }
     transposeH(in, out);
   }

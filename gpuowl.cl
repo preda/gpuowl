@@ -7,7 +7,9 @@ FMA    : use OpenCL fma(x, y, z) instead of x * y + z in MAD(x, y, z)
 NO_ASM : request to not use any inline __asm()
 NO_OMOD: do not use GCN output modifiers in __asm()
 
-MERGED_MIDDLE
+NO_MERGED_MIDDLE
+WORKINGOUT
+WORKINGIN
 
 PREFER_LESS_FMA
 
@@ -45,14 +47,17 @@ OLD_FFT10
 AMDGPU  : set on AMD GPUs
 HAS_ASM : set if we believe __asm() can be used
 T2_SHUFFLE_TAILFUSED
+MERGED_MIDDLE : set unless NO_MERGED_MIDDLE is set
  */
 
 /* List of code-specific macros. These are set by the C++ host code or derived
 EXP        the exponent
 WIDTH
-BIG_HEIGHT
 SMALL_HEIGHT
 MIDDLE
+
+-- Derived from above:
+BIG_HEIGHT = SMALL_HEIGHT * MIDDLE
 ND         number of dwords
 NWORDS     number of words
 NW
@@ -94,6 +99,21 @@ G_H        "group height"
 #define INLINE_X2 0
 #endif
 
+// The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  Thus negatively impacts occupancy
+// which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
+// For AMD GPUs we default to unrolling fft_HEIGHT but not fft_WIDTH loops.  For nVidia GPUs, we unroll everything.
+#if !UNROLL_ALL && !UNROLL_NONE && !UNROLL_WIDTH && !UNROLL_HEIGHT && !UNROLL_MIDDLEMUL1 && !UNROLL_MIDDLEMUL2
+#if AMDGPU
+#define UNROLL_HEIGHT 1
+#else
+#define UNROLL_ALL 1
+#endif
+#endif
+
+#if !NO_MERGED_MIDDLE
+#define MERGED_MIDDLE 1
+#endif
+
 typedef int i32;
 typedef uint u32;
 typedef long i64;
@@ -120,18 +140,6 @@ typedef ulong u64;
 
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
-
-// The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  Thus negatively impacts occupancy
-// which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
-// For AMD GPUs we default to unrolling fft_HEIGHT but not fft_WIDTH loops.  For nVidia GPUs, we unroll everything.
-
-#if !UNROLL_ALL && !UNROLL_NONE && !UNROLL_WIDTH && !UNROLL_HEIGHT && !UNROLL_MIDDLEMUL1 && !UNROLL_MIDDLEMUL2
-#if AMDGPU
-#define UNROLL_HEIGHT 1
-#else
-#define UNROLL_ALL 1
-#endif
-#endif
 
 #if UNROLL_ALL
 #define UNROLL_WIDTH 1
@@ -1417,7 +1425,7 @@ void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out)
 
 #define P(x) global x * restrict
 #define CP(x) const P(x)
-typedef CP(T2) restrict Trig;
+typedef CP(T2) Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
@@ -1522,7 +1530,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 #endif
 #endif
 
-#if MIDDLE == 1 || !defined(MERGED_MIDDLE) || defined(WORKINGOUT)
+#if MIDDLE == 1 || !MERGED_MIDDLE || WORKINGOUT
 
 	read(G_W, NW, u, in, line * WIDTH);
 
@@ -1691,7 +1699,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 #define WORKINGIN5 1
 #endif
 
-#if MIDDLE == 1 || !defined(MERGED_MIDDLE) || defined(WORKINGIN)
+#if MIDDLE == 1 || !MERGED_MIDDLE || WORKINGIN
 
   read(G_H, NH, u, in, memline * SMALL_HEIGHT);
 
@@ -1977,7 +1985,7 @@ void fft_MIDDLE(T2 *u) {
 #endif
 }
 
-#if MIDDLE == 1 || !defined(MERGED_MIDDLE)
+#if MIDDLE == 1 || !MERGED_MIDDLE
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
   T2 u[MIDDLE];
@@ -2523,7 +2531,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #endif
 
 
-#if MIDDLE == 1 || !defined(MERGED_MIDDLE)
+#if MIDDLE == 1 || !MERGED_MIDDLE
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
   T2 u[MIDDLE];
