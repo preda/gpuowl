@@ -3491,6 +3491,9 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
 
 #endif
 
+
+// Original pairSq implementation
+
 #ifdef ORIG_PAIRSQ
 
 void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
@@ -3520,12 +3523,11 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
   }
 }
 
-#else
-
 // Better pairSq.  Reduces complex muls in base calculations and improves roundoff error
-
 // This can be done with 30 float ops
-#if 0
+
+#elif 0
+
 #define onePairSq(a, b, t) { \
       b = conjugate(b); \
       X2(a, b); \
@@ -3538,23 +3540,6 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
       X2(a, b); \
       a = conjugate(a); \
 }
-
-// This alternate implementation takes better advantage of the AMD OMOD (output modifier) feature.
-// NOTE:  For other GPUs we should change this routine and onePairMul and the special cases to
-// return the proper result divided by 2 or 4.  This saves a  multiply or two.  It requires a
-// small adjustment in the inverse weights at set up.
-
-#else
-#define onePairSq(a, b, t) { T2 tmp;\
-      b = conjugate(b); \
-      X2(a, b); \
-      tmp = mul_by_conjugate(b, t); \
-      b = mul4(a,b);		/* 4 * a * b */ \
-      a = add2(sq(a),sq(tmp));	/* 2 * (a^2 + tmp^2) */ \
-      X2(a, b); \
-      a = conjugate(a); \
-}
-#endif
 
 void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
   u32 me = get_local_id(0);
@@ -3606,7 +3591,87 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
   }
 }
 
+// Best pairSq
+
+#else
+
+// This alternate implementation takes better advantage of the AMD OMOD (output modifier) feature.
+// NOTE:  For other GPUs we should change this routine and onePairMul and the special line 0 cases to
+// return the proper result divided by 2.  This saves a multiply or two.  It requires a small adjustment
+// in the inverse weights at set up.
+//
+// Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
+// Now consider these lines from the implementation above (comments appear alongside):
+//      b = mul_by_conjugate(b, t); 			bt'
+//      X2(a, b);					a + bt', a - bt'
+//      a = sq(a);					a^2 + 2abt' + (bt')^2
+//      b = sq(b);					a^2 - 2abt' + (bt')^2
+//      X2(a, b);					2a^2 + 2(bt')^2, 4abt'
+//      b = mul(b, t);					                 4ab
+// Original code is 2 complex muls, 2 complex squares, 4 complex adds
+// New code is 2 complex squares, 2 complex muls, 1 complex adds PLUS a complex-mul-by-2 and a complex-mul-by-4
+// NOTE: the new code works just as well if the t value is squared already, but the code that calls onePairSq can
+// save a mul_t8 instruction by dealing with squared t values.
+
+#define onePairSq(a, b, conjugate_t_squared) { T2 tmp;\
+      b = conjugate(b); \
+      X2(a, b); \
+      tmp = sq(b); \
+      b = mul4(a,b);					/* 4 * a * b */ \
+      a = add2(sq(a),mul(tmp,conjugate_t_squared));	/* 2 * (a^2 + b^2 * conjugate_t_squared) */ \
+      X2(a, b); \
+      a = conjugate(a); \
+}
+
+// From original code t = swap(base) and we need sq(conjugate(t)).  This macro computes sq(conjugate(t)) from base^2.
+#define swap_squared(a) (-a)
+
+void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
+  u32 me = get_local_id(0);
+
+  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8 (base_squared)) {
+    T2 a = u[i];
+    T2 b = v[i];
+    if (special && i == 0 && me == 0) {
+      b = conjugate(b);
+      a = shl(foo(a), 2);
+      b = shl(sq(b), 3);
+      a = conjugate(a);
+    } else {
+      onePairSq(a, b, swap_squared(base_squared));
+    }
+    u[i] = a;
+    v[i] = b;
+
+    if (N == NH) {
+	a = u[i+NH/2];
+	b = v[i+NH/2];
+	onePairSq(a, b, swap_squared(-base_squared));
+	u[i+NH/2] = a;
+	v[i+NH/2] = b;
+    }
+
+    a = u[i+NH/4];
+    b = v[i+NH/4];
+    T2 new_base_squared = mul (base_squared, U2(0, -1));
+    onePairSq(a, b, swap_squared (new_base_squared));
+    u[i+NH/4] = a;
+    v[i+NH/4] = b;
+
+    if (N == NH) {
+	a = u[i+3*NH/4];
+	b = v[i+3*NH/4];
+	onePairSq(a, b, swap_squared (-new_base_squared));
+	u[i+3*NH/4] = a;
+	v[i+3*NH/4] = b;
+    }
+  }
+}
+
 #endif
+
+
+// Original pairMul implementation
 
 #ifdef ORIG_PAIRMUL
 
@@ -3662,6 +3727,26 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
       X2(a, b); \
       a = conjugate(a); \
 }
+
+// *********** IMPLEMENT THIS! ***************
+// An alternate implementation takes better advantage of the AMD OMOD (output modifier) feature.
+// NOTE:  For other GPUs we should change this routine to return the proper result divided by 2.
+// This saves a multiply or two.  It requires a small adjustment in the inverse weights at set up.
+//
+// Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
+// Now consider these lines from the implementation above (comments appear alongside):
+//      b = mul_by_conjugate(b, t); 
+//      X2(a, b);					a + bt', a - bt'
+//      d = mul_by_conjugate(d, t); 
+//      X2(c, d);					c + dt', c - dt'
+//      a = mul(a, c);					(a+bt')(c+dt') = ac + bct' + adt' + bdt'^2
+//      b = mul(b, d);					(a-bt')(c-dt') = ac - bct' - adt' + bdt'^2
+//      X2(a, b);					2ac + 2bdt'^2,  2bct' + 2adt'
+//      b = mul(b, t);					                2bc + 2ad
+// Original code is 5 complex muls, 6 complex adds
+// New code is 5 complex muls, 1 complex square, 2 complex adds PLUS two complex-mul-by-2
+// NOTE: the new code can be improved further (saves a complex squaring) if the t value is squared already, plus the
+// caller saves a mul_t8 instruction by dealing with squared t values!!!
 
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
   u32 me = get_local_id(0);
@@ -3746,16 +3831,16 @@ KERNEL(G_H) tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);
-    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W), true);
+    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W/2), true);		// GW 12/18/19: Use squared trig value
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
+    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W), false);	// GW 12/18/19: Use squared trig value
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, slowTrig(line1 + me * H, ND), false);
+    pairSq(NH, u, v, slowTrig(line1 + me * H, ND/2), false);		// GW 12/18/19: Use squared trig value
     reverseLine(G_H, lds, v);
   }
 
@@ -3820,18 +3905,16 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
-// Small test kernel so we can easily find code snipets to compare different implementations of macros
 KERNEL(256) testKernel(P(T2) io) {
 	u32 me = get_local_id(0);
 	T2 u[10];
-	ENABLE_MUL2 ();
 	read(256, 10, u, io, 0);
 //      fft4(u);
 //      fft5(u);
 //	fft7(u);
 //	fft8(u);
 //	fft10(u);
-	middleMul1 (u, 14);
+//	middleMul1 (u, 14);
 //    pairSq(NH, io, io+100, slowTrig(14, ND), false);
 //    pairMul(NH, io, io+100, io+200, io+300, slowTrig(14, ND), false);
 	write(256, 10, u, io, 0);
