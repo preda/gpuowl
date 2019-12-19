@@ -17,6 +17,8 @@ for line in sys.stdin:
     # print(words)
     if len(words) >= 3 and words[1] in ('NumSGPRsForWavesPerEU:', 'NumVGPRsForWavesPerEU:', 'Occupancy:'):
         counts[words[1]] = int(words[2])
+    elif len(words) >= 4 and words[1] == 'codeLenInByte':
+        counts[words[1]] = int(words[3])
     
     word = words[0] if words else ''
     
