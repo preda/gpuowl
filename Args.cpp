@@ -47,6 +47,7 @@ Command line options:
 -pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
                      Multiple GpuOwl instances, each in its own directory, can share a pool of assignments and report
                      the results back to the common pool.
+-uid <gpu-UUID>    : specifies to use the GPU with the given UUID (only on ROCm/Linux)
 -user <name>       : specify the user name.
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
@@ -71,7 +72,7 @@ Command line options:
   // -proof [<power>]   : enable experimental PRP proof generation. Default <power> is 7.
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
-    printf("%2u : %s %s\n", i, getLongInfo(deviceIds[i]).c_str(), isAmdGpu(deviceIds[i]) ? "AMD" : "not-AMD");
+    printf("%2u %s : %s %s\n", i, getUUID(i).c_str(), getLongInfo(deviceIds[i]).c_str(), isAmdGpu(deviceIds[i]) ? "AMD" : "not-AMD");
   }
   printf("\nFFT Configurations:\n");
   
@@ -92,6 +93,18 @@ Command line options:
     activeSize = c.fftSize;
     variants += " "s + FFTConfig::configName(c.width, c.height, c.middle);
   }
+}
+
+static int getSeqId(const std::string& uid) {
+  for (int i = 0;; ++i) {
+    string foundId = getUUID(i);
+    if (foundId == uid) {
+      return i;
+    } else if (foundId.empty()) {
+      break;
+    }
+  }
+  throw std::runtime_error("Could not find GPU with unique-id "s + uid);
 }
 
 void Args::parse(string line) {  
@@ -122,6 +135,7 @@ void Args::parse(string line) {
     else if (key == "-cpu") { cpu = s; }
     else if (key == "-time") { timeKernels = true; }
     else if (key == "-device" || key == "-d") { device = stoi(s); }
+    else if (key == "-uid") { device = getSeqId(s); }
     else if (key == "-dir") { dir = s; }
     else if (key == "-yield") { cudaYield = true; }
     else if (key == "-nospin") { noSpin = true; }
@@ -150,10 +164,6 @@ void Args::parse(string line) {
     }
   }
 
-  if (cpu.empty()) {
-    cpu = getShortInfo(getDevice(device)) + "-" + std::to_string(device);
-  }
-
   if (logStep % blockSize) {
     log("blockSize (%u) must divide logStep (%u)\n", blockSize, logStep);
     throw "args: blockSize, logStep";
@@ -164,4 +174,13 @@ void Args::parse(string line) {
     }
   }
   File::openAppend(resultsFile);  // verify that it's possible to write results
+}
+
+void Args::setDefaults() {
+  uid = getUUID(device);
+  log("device %d, unique id '%s'\n", device, uid.c_str());
+  
+  if (cpu.empty()) {
+    cpu = uid.empty() ? getShortInfo(getDevice(device)) + "-" + std::to_string(device) : uid;
+  }
 }

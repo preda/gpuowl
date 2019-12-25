@@ -58,6 +58,13 @@ void check(int err, const char *file, int line, const char *func, string_view me
   }
 }
 
+std::string getUUID(int seqId) {
+  File f = File::openRead("/sys/class/drm/card"s + std::to_string(seqId) + "/device/unique_id");
+  std::string uuid = f ? f.readLine() : "";
+  if (!uuid.empty() && uuid.back() == '\n') { uuid.pop_back(); }
+  return uuid;
+}
+
 static vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
   cl_platform_id platforms[16];
   int nPlatforms = 0;
@@ -74,7 +81,6 @@ static vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
 }
 
 vector<cl_device_id> getAllDeviceIDs() { return getDeviceIDs(false); }
-vector<cl_device_id> getGpuDeviceIDs() { return getDeviceIDs(true); }
 
 static void getInfo_(cl_device_id id, int what, size_t bufSize, void *buf, string_view whatStr) {
   CHECK2(clGetDeviceInfo(id, what, bufSize, buf, NULL), whatStr);

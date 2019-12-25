@@ -44,13 +44,14 @@ using EventHolder = std::unique_ptr<cl_event>;
 
 class Context;
 
+std::string getUUID(int seqId);
+
 void check(int err, const char *file, int line, const char *func, string_view mes);
 
 #define CHECK1(err) check(err, __FILE__, __LINE__, __func__, #err)
 #define CHECK2(err, mes) check(err, __FILE__, __LINE__, __func__, mes)
 
 vector<cl_device_id> getAllDeviceIDs();
-vector<cl_device_id> getGPUDeviceIDs();
 string getShortInfo(cl_device_id device);
 string getLongInfo(cl_device_id device);
 

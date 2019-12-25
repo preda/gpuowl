@@ -14,13 +14,15 @@ public:
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
   void parse(string line);
-  
+  void setDefaults();
+
   string user;
   string cpu;
   string dump;
   string dir;
   string resultsFile = "results.txt";
   string masterDir;
+  string uid;
   std::vector<std::string> flags;
   
   int device = 0;

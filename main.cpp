@@ -46,12 +46,14 @@ int main(int argc, char **argv) {
     } else {
       log("Note: no config.txt file found\n");
     }
-    if (!args.cpu.empty()) { globalCpuName = args.cpu; }
+    
     if (!mainLine.empty()) {
       log("config: %s\n", mainLine.c_str());
     }
     args.parse(mainLine);
-
+    args.setDefaults();
+    if (!args.cpu.empty()) { globalCpuName = args.cpu; }
+    
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
     if (args.prpExp) {

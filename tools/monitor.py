@@ -33,11 +33,21 @@ class Gpu:
     sclk: int
     mclk: int
     voltage: int
+    pcieRead: int
+    pcieWrite: int
+    pcieErr: int
+    memBusy: int
+    memUsedGB: float
 
-def readGpu(d: int):
+def readGpu(d: int, readSlow = False):
     device = drm + f'card{d}/device/'
     uid = read(device + 'unique_id')
-        
+    pcieRead, pcieWrite, pcieSize = map(int, read(device + 'pcie_bw').split()) if readSlow else (0, 0, 0)
+    pcieErr = readInt(device + 'pcie_replay_count', 1)
+    memBusy = readInt(device + 'mem_busy_percent', 1)
+    memUsed = readInt(device + 'mem_info_vram_used', 1)
+    memUsedGB = memUsed * (1.0 / (1024 * 1024 * 1024))
+    
     hwmon = hwmonPath(device)
     temps = [(int(read(hwmon + f'temp{i}_input')) + 500) // 1000 for i in range(1, 4)]
     fan = readInt(hwmon + 'fan1_input', 1)
@@ -45,22 +55,25 @@ def readGpu(d: int):
     sclk = readInt(hwmon + 'freq1_input')
     mclk = readInt(hwmon + 'freq2_input')
     voltage = readInt(hwmon + 'in0_input', 1)
-    return Gpu(uid=uid, temps=temps, fan=fan, power=power, sclk=sclk, mclk=mclk, voltage=voltage)
+    return Gpu(uid=uid, temps=temps, fan=fan, power=power, sclk=sclk, mclk=mclk, voltage=voltage,
+               pcieRead=pcieRead, pcieWrite=pcieWrite, pcieErr=pcieErr, memBusy=memBusy, memUsedGB=memUsedGB)
 
-def printInfo(devices):
-    print('GPU UID            VDD   SCLK MCLK PWR  FAN  Temp      ' + str(datetime.now()))
+def printInfo(devices, readSlow):
+    print('GPU UID            VDD   SCLK MCLK Mem-used Mem-busy PWR  FAN  Temp     PCIeErr' + (' PCIe R/W' if readSlow else ''))
     for d in devices:
-        gpu = readGpu(d)
+        gpu = readGpu(d, readSlow)
         temps = '/'.join((str(x) for x in gpu.temps))
-        print('%(card)d %(uid)s %(voltage)dmV %(sclk)s %(mclk)s %(power)3dW %(fan)4d %(temps)sC' %
-              dict(gpu.__dict__, card=d, temps=temps))
-    print()
+        print(('%(card)d %(uid)s %(voltage)dmV %(sclk)4d %(mclk)4d %(memUsedGB)5.2fGB    %(memBusy)d%%    %(power)3dW %(fan)4d %(temps)s %(pcieErr)7d' + (' %(pcieRead)d/%(pcieWrite)d' if readSlow else ''))
+              % dict(gpu.__dict__, card=d, temps=temps))
     
 devices = deviceList()
 
+readSlow = len(sys.argv) >= 2 and sys.argv[1] == '-s'
+
 sleep = int(sys.argv[2]) if len(sys.argv) >= 3 and sys.argv[1] == '-t' else None
 
-printInfo(devices)
+printInfo(devices, readSlow)
 while sleep:
     time.sleep(sleep)
-    printInfo(devices)
+    print('\n', datetime.now())
+    printInfo(devices, readSlow)
