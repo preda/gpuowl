@@ -21,8 +21,14 @@ def read(path):
     with open(path) as f:
         return f.read().strip()
 
+def readOr(path, fallback=''):
+    try:
+        return read(path)
+    except FileNotFoundError:
+        return fallback
+
 def readInt(path, scale=1e-6):
-    return int(float(read(path)) * scale + 0.5)
+    return int(float(readOr(path, '0')) * scale + 0.5)
 
 @dataclass
 class Gpu:
@@ -41,7 +47,7 @@ class Gpu:
 
 def readGpu(d: int, readSlow = False):
     device = drm + f'card{d}/device/'
-    uid = read(device + 'unique_id')
+    uid = readOr(device + 'unique_id', '----------------')
     pcieRead, pcieWrite, pcieSize = map(int, read(device + 'pcie_bw').split()) if readSlow else (0, 0, 0)
     pcieErr = readInt(device + 'pcie_replay_count', 1)
     memBusy = readInt(device + 'mem_busy_percent', 1)
