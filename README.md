@@ -89,7 +89,6 @@ The first form indicates just the exponent to test, while the form starting with
 exponent and the assignment ID (AID) from PrimeNet.
 
 ## Usage
-* Make sure that the gpuowl.cl file is in the same folder as the executable
 * Get "PRP smallest available first time tests" assignments from GIMPS Manual Testing ( http://mersenne.org/ ).
 * Copy the assignment lines from GIMPS to a file named 'worktodo.txt'
 * Run gpuowl. It prints progress report on stdout and in gpuowl.log, and writes result lines to results.txt
