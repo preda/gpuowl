@@ -219,10 +219,17 @@ static cl_program loadSource(cl_context context, const string &source) {
   return program;
 }
 
-static void build(cl_program program, cl_device_id device, const string &args) {
+static void build(cl_program program, cl_device_id device, string args) {
   Timer timer;
   int err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
   bool ok = (err == CL_SUCCESS);
+  if (!ok) {
+    // Attempt compilation once more, this time disabling __asm() use.
+    args += " -DNO_ASM=1";
+    err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
+    ok = (err == CL_SUCCESS);
+  }
+  
   if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }
   
   size_t logSize;

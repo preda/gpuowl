@@ -47,7 +47,7 @@ Command line options:
 -pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
                      Multiple GpuOwl instances, each in its own directory, can share a pool of assignments and report
                      the results back to the common pool.
--uid <gpu-UUID>    : specifies to use the GPU with the given UUID (only on ROCm/Linux)
+-uid <unique_id>   : specifies to use the GPU with the given unique_id (only on ROCm/Linux)
 -user <name>       : specify the user name.
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
