@@ -51,7 +51,7 @@ Command line options:
 -user <name>       : specify the user name.
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
--fft <size>        : specify FFT size, such as: 5000K, 4M, +2, -1.
+-fft <size>        : specify FFT size, such as: 5000K, 4M, +2.
 -block <value>     : PRP GEC block size. Default %u. Smaller block is slower but detects errors sooner.
 -log <step>        : log every <step> iterations, default %u. Multiple of 10000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.

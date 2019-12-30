@@ -278,7 +278,7 @@ cl_program compile(cl_device_id device, cl_context context, const string &source
   cl_program program = 0;
 
   if ((program = loadSource(context, source))) {
-    build(program, device, args);
+    build(program, device, std::move(args));
     return program;
   }
   

@@ -422,11 +422,11 @@ T2 foo(T2 a) { return foo2(a, a); }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
-T2 fmaT2(T a, T2 b, T2 c) { return (U2 (fma(a, b.x, c.x), fma(a, b.y, c.y))); }
+T2 fmaT2(T a, T2 b, T2 c) { return (U2(fma(a, b.x, c.x), fma(a, b.y, c.y))); }
 
 // Promote 2 multiplies and 4 add/sub instructions into 4 FMA instructions.
 #if !PREFER_LESS_FMA
-#define fma_addsub(a, b, sin, c, d) { a = fmaT2 (sin, d, c); b = fmaT2 (sin, -d, c); }
+#define fma_addsub(a, b, sin, c, d) { a = fmaT2(sin, d, c); b = fmaT2(sin, -d, c); }
 #else
 // Force rocm to NOT promote 2 multiplies and 4 add/sub instructions into 4 FMA instructions.  FMA has higher latency.
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; \
@@ -439,7 +439,7 @@ T2 fmaT2(T a, T2 b, T2 c) { return (U2 (fma(a, b.x, c.x), fma(a, b.y, c.y))); }
 
 // a * conjugate(b)
 // saves one negation
-T2 mul_by_conjugate(T2 a, T2 b) { return U2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y ); }
+T2 mul_by_conjugate(T2 a, T2 b) { return U2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y); }
 
 // Combined complex mul and mul by conjugate.  Saves 4 multiplies compared to two complex mul calls. 
 void mul_and_mul_by_conjugate(T2 *res1, T2 *res2, T2 a, T2 b) {
@@ -627,19 +627,19 @@ void fft5(T2 *u) {
   X2_mul_t4(u[1], u[4]);				// (r2+ i2+),  (i2- -r2-)
   X2_mul_t4(u[2], u[3]);				// (r3+ i3+),  (i3- -r3-)
 
-  T2 tmp25a = fmaT2 (COS1, u[1], u[0]);
-  T2 tmp34a = fmaT2 (-COS2, u[1], u[0]);
+  T2 tmp25a = fmaT2(COS1, u[1], u[0]);
+  T2 tmp34a = fmaT2(-COS2, u[1], u[0]);
   u[0] = u[0] + u[1];
 
-  T2 tmp25b = fmaT2 (SIN2_SIN1, u[3], u[4]);		// (i2- +.588/.951*i3-, -r2- -.588/.951*r3-)
-  T2 tmp34b = fmaT2 (SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2- -i3-, -.588/.951*r2- +r3-)
+  T2 tmp25b = fmaT2(SIN2_SIN1, u[3], u[4]);		// (i2- +.588/.951*i3-, -r2- -.588/.951*r3-)
+  T2 tmp34b = fmaT2(SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2- -i3-, -.588/.951*r2- +r3-)
 
-  tmp25a = fmaT2 (-COS2, u[2], tmp25a);
-  tmp34a = fmaT2 (COS1, u[2], tmp34a);
+  tmp25a = fmaT2(-COS2, u[2], tmp25a);
+  tmp34a = fmaT2(COS1, u[2], tmp34a);
   u[0] = u[0] + u[2];
 
-  fma_addsub (u[1], u[4], SIN1, tmp25a, tmp25b);
-  fma_addsub (u[2], u[3], SIN1, tmp34a, tmp34b);
+  fma_addsub(u[1], u[4], SIN1, tmp25a, tmp25b);
+  fma_addsub(u[2], u[3], SIN1, tmp34a, tmp34b);
 }
 
 // Using rocm 2.9, testKernel shows this macro generates an ideal 44 f64 ops (12 FMA) or 32 f64 ops (20 FMA), 30 vgprs.
@@ -667,17 +667,17 @@ void fft5(T2 *u) {
   X2_mul_t4(u[2], u[3]);				// (r3+ i3+),  (i3- -r3-)
   X2(u[1], u[2]);					// (r2++ i2++), (r2+- i2+-)
 
-  T2 tmp2345a = fmaT2 (-0.25, u[1], u[0]);
+  T2 tmp2345a = fmaT2(-0.25, u[1], u[0]);
   u[0] = u[0] + u[1];
 
-  T2 tmp25b = fmaT2 (SIN2_SIN1, u[3], u[4]);		// (i2- +.588/.951*i3-, -r2- -.588/.951*r3-)
-  T2 tmp34b = fmaT2 (SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2- -i3-, -.588/.951*r2- +r3-)
+  T2 tmp25b = fmaT2(SIN2_SIN1, u[3], u[4]);		// (i2- +.588/.951*i3-, -r2- -.588/.951*r3-)
+  T2 tmp34b = fmaT2(SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2- -i3-, -.588/.951*r2- +r3-)
 
   T2 tmp25a, tmp34a;
-  fma_addsub (tmp25a, tmp34a, COS12, tmp2345a, u[2]);
+  fma_addsub(tmp25a, tmp34a, COS12, tmp2345a, u[2]);
 
-  fma_addsub (u[1], u[4], SIN1, tmp25a, tmp25b);
-  fma_addsub (u[2], u[3], SIN1, tmp34a, tmp34b);
+  fma_addsub(u[1], u[4], SIN1, tmp25a, tmp25b);
+  fma_addsub(u[2], u[3], SIN1, tmp34a, tmp34b);
 }
 #else
 #error None of OLD_FFT5, NEW_FFT5, NEWEST_FFT5 defined
@@ -760,29 +760,29 @@ void fft10(T2 *u) {
   X2_mul_t4(u[2], u[3]);				// (r3++  i3++),  (i3+- -r3+-)
   X2_mul_t4(u[7], u[8]);				// (i3-+ -r3-+), (-r3-- -i3--)
 
-  T2 tmp39a = fmaT2 (COS1, u[1], u[0]);
-  T2 tmp57a = fmaT2 (-COS2, u[1], u[0]);
+  T2 tmp39a = fmaT2(COS1, u[1], u[0]);
+  T2 tmp57a = fmaT2(-COS2, u[1], u[0]);
   u[0] = u[0] + u[1];
-  T2 tmp210a = fmaT2 (-COS2, u[9], u[5]);
-  T2 tmp48a = fmaT2 (COS1, u[9], u[5]);
+  T2 tmp210a = fmaT2(-COS2, u[9], u[5]);
+  T2 tmp48a = fmaT2(COS1, u[9], u[5]);
   u[5] = u[5] + u[9];
 
-  T2 tmp39b = fmaT2 (SIN2_SIN1, u[3], u[4]);		// (i2+- +.588/.951*i3+-, -r2+- -.588/.951*r3+-)
-  T2 tmp57b = fmaT2 (SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2+- -i3+-, -.588/.951*r2+- +r3+-)
-  T2 tmp210b = fmaT2 (SIN2_SIN1, u[6], u[7]);		// (.588/.951*i2-+ +i3-+, -.588/.951*r2-+ -r3-+)
-  T2 tmp48b = fmaT2 (-SIN2_SIN1, u[7], u[6]);		// (i2-+ -.588/.951*i3-+, -r2-+ +.588/.951*r3-+)
+  T2 tmp39b = fmaT2(SIN2_SIN1, u[3], u[4]);		// (i2+- +.588/.951*i3+-, -r2+- -.588/.951*r3+-)
+  T2 tmp57b = fmaT2(SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2+- -i3+-, -.588/.951*r2+- +r3+-)
+  T2 tmp210b = fmaT2(SIN2_SIN1, u[6], u[7]);		// (.588/.951*i2-+ +i3-+, -.588/.951*r2-+ -r3-+)
+  T2 tmp48b = fmaT2(-SIN2_SIN1, u[7], u[6]);		// (i2-+ -.588/.951*i3-+, -r2-+ +.588/.951*r3-+)
 
-  tmp39a = fmaT2 (-COS2, u[2], tmp39a);
-  tmp57a = fmaT2 (COS1, u[2], tmp57a);
+  tmp39a = fmaT2(-COS2, u[2], tmp39a);
+  tmp57a = fmaT2(COS1, u[2], tmp57a);
   u[0] = u[0] + u[2];
-  tmp210a = fmaT2 (-COS1, u[8], tmp210a);
-  tmp48a = fmaT2 (COS2, u[8], tmp48a);
+  tmp210a = fmaT2(-COS1, u[8], tmp210a);
+  tmp48a = fmaT2(COS2, u[8], tmp48a);
   u[5] = u[5] - u[8];
 
-  fma_addsub (u[2], u[8], SIN1, tmp39a, tmp39b);
-  fma_addsub (u[4], u[6], SIN1, tmp57a, tmp57b);
-  fma_addsub (u[1], u[9], SIN1, tmp210a, tmp210b);
-  fma_addsub (u[3], u[7], SIN1, tmp48a, tmp48b);
+  fma_addsub(u[2], u[8], SIN1, tmp39a, tmp39b);
+  fma_addsub(u[4], u[6], SIN1, tmp57a, tmp57b);
+  fma_addsub(u[1], u[9], SIN1, tmp210a, tmp210b);
+  fma_addsub(u[3], u[7], SIN1, tmp48a, tmp48b);
 }
 #else
 #error None of OLD_FFT10, NEW_FFT10 defined
@@ -818,32 +818,32 @@ void fft7(T2 *u) {
   X2_mul_t4(u[2], u[5]);				// (r3+ i3+),  (i3- -r3-)
   X2_mul_t4(u[3], u[4]);				// (r4+ i4+),  (i4- -r4-)
 
-  T2 tmp27a = fmaT2 (COS1, u[1], u[0]);
-  T2 tmp36a = fmaT2 (COS2, u[1], u[0]);
-  T2 tmp45a = fmaT2 (COS3, u[1], u[0]);
+  T2 tmp27a = fmaT2(COS1, u[1], u[0]);
+  T2 tmp36a = fmaT2(COS2, u[1], u[0]);
+  T2 tmp45a = fmaT2(COS3, u[1], u[0]);
   u[0] = u[0] + u[1];
 
-  tmp27a = fmaT2 (COS2, u[2], tmp27a);
-  tmp36a = fmaT2 (COS3, u[2], tmp36a);
-  tmp45a = fmaT2 (COS1, u[2], tmp45a);
+  tmp27a = fmaT2(COS2, u[2], tmp27a);
+  tmp36a = fmaT2(COS3, u[2], tmp36a);
+  tmp45a = fmaT2(COS1, u[2], tmp45a);
   u[0] = u[0] + u[2];
 
-  tmp27a = fmaT2 (COS3, u[3], tmp27a);
-  tmp36a = fmaT2 (COS1, u[3], tmp36a);
-  tmp45a = fmaT2 (COS2, u[3], tmp45a);
+  tmp27a = fmaT2(COS3, u[3], tmp27a);
+  tmp36a = fmaT2(COS1, u[3], tmp36a);
+  tmp45a = fmaT2(COS2, u[3], tmp45a);
   u[0] = u[0] + u[3];
 
-  T2 tmp27b = fmaT2 (SIN2_SIN1, u[5], u[6]);		// .975/.782
-  T2 tmp36b = fmaT2 (SIN2_SIN1, u[6], -u[4]);
-  T2 tmp45b = fmaT2 (SIN2_SIN1, u[4], -u[5]);
+  T2 tmp27b = fmaT2(SIN2_SIN1, u[5], u[6]);		// .975/.782
+  T2 tmp36b = fmaT2(SIN2_SIN1, u[6], -u[4]);
+  T2 tmp45b = fmaT2(SIN2_SIN1, u[4], -u[5]);
 
-  tmp27b = fmaT2 (SIN3_SIN1, u[4], tmp27b);		// .434/.782
-  tmp36b = fmaT2 (SIN3_SIN1, -u[5], tmp36b);
-  tmp45b = fmaT2 (SIN3_SIN1, u[6], tmp45b);
+  tmp27b = fmaT2(SIN3_SIN1, u[4], tmp27b);		// .434/.782
+  tmp36b = fmaT2(SIN3_SIN1, -u[5], tmp36b);
+  tmp45b = fmaT2(SIN3_SIN1, u[6], tmp45b);
 
-  fma_addsub (u[1], u[6], SIN1, tmp27a, tmp27b);
-  fma_addsub (u[2], u[5], SIN1, tmp36a, tmp36b);
-  fma_addsub (u[3], u[4], SIN1, tmp45a, tmp45b);
+  fma_addsub(u[1], u[6], SIN1, tmp27a, tmp27b);
+  fma_addsub(u[2], u[5], SIN1, tmp36a, tmp36b);
+  fma_addsub(u[3], u[4], SIN1, tmp45a, tmp45b);
 }
 
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.7 "9-Point DFT".
@@ -949,70 +949,70 @@ void fft11(T2 *u) {
   X2_mul_t4(u[4], u[7]);				// (r5+ i5+),  (i5- -r5-)
   X2_mul_t4(u[5], u[6]);				// (r6+ i6+),  (i6- -r6-)
 
-  T2 tmp211a = fmaT2 (COS1, u[1], u[0]);
-  T2 tmp310a = fmaT2 (COS2, u[1], u[0]);
-  T2 tmp49a = fmaT2 (COS3, u[1], u[0]);
-  T2 tmp58a = fmaT2 (COS4, u[1], u[0]);
-  T2 tmp67a = fmaT2 (COS5, u[1], u[0]);
+  T2 tmp211a = fmaT2(COS1, u[1], u[0]);
+  T2 tmp310a = fmaT2(COS2, u[1], u[0]);
+  T2 tmp49a = fmaT2(COS3, u[1], u[0]);
+  T2 tmp58a = fmaT2(COS4, u[1], u[0]);
+  T2 tmp67a = fmaT2(COS5, u[1], u[0]);
   u[0] = u[0] + u[1];
 
-  tmp211a = fmaT2 (COS2, u[2], tmp211a);
-  tmp310a = fmaT2 (COS4, u[2], tmp310a);
-  tmp49a = fmaT2 (COS5, u[2], tmp49a);
-  tmp58a = fmaT2 (COS3, u[2], tmp58a);
-  tmp67a = fmaT2 (COS1, u[2], tmp67a);
+  tmp211a = fmaT2(COS2, u[2], tmp211a);
+  tmp310a = fmaT2(COS4, u[2], tmp310a);
+  tmp49a = fmaT2(COS5, u[2], tmp49a);
+  tmp58a = fmaT2(COS3, u[2], tmp58a);
+  tmp67a = fmaT2(COS1, u[2], tmp67a);
   u[0] = u[0] + u[2];
 
-  tmp211a = fmaT2 (COS3, u[3], tmp211a);
-  tmp310a = fmaT2 (COS5, u[3], tmp310a);
-  tmp49a = fmaT2 (COS2, u[3], tmp49a);
-  tmp58a = fmaT2 (COS1, u[3], tmp58a);
-  tmp67a = fmaT2 (COS4, u[3], tmp67a);
+  tmp211a = fmaT2(COS3, u[3], tmp211a);
+  tmp310a = fmaT2(COS5, u[3], tmp310a);
+  tmp49a = fmaT2(COS2, u[3], tmp49a);
+  tmp58a = fmaT2(COS1, u[3], tmp58a);
+  tmp67a = fmaT2(COS4, u[3], tmp67a);
   u[0] = u[0] + u[3];
 
-  tmp211a = fmaT2 (COS4, u[4], tmp211a);
-  tmp310a = fmaT2 (COS3, u[4], tmp310a);
-  tmp49a = fmaT2 (COS1, u[4], tmp49a);
-  tmp58a = fmaT2 (COS5, u[4], tmp58a);
-  tmp67a = fmaT2 (COS2, u[4], tmp67a);
+  tmp211a = fmaT2(COS4, u[4], tmp211a);
+  tmp310a = fmaT2(COS3, u[4], tmp310a);
+  tmp49a = fmaT2(COS1, u[4], tmp49a);
+  tmp58a = fmaT2(COS5, u[4], tmp58a);
+  tmp67a = fmaT2(COS2, u[4], tmp67a);
   u[0] = u[0] + u[4];
 
-  tmp211a = fmaT2 (COS5, u[5], tmp211a);
-  tmp310a = fmaT2 (COS1, u[5], tmp310a);
-  tmp49a = fmaT2 (COS4, u[5], tmp49a);
-  tmp58a = fmaT2 (COS2, u[5], tmp58a);
-  tmp67a = fmaT2 (COS3, u[5], tmp67a);
+  tmp211a = fmaT2(COS5, u[5], tmp211a);
+  tmp310a = fmaT2(COS1, u[5], tmp310a);
+  tmp49a = fmaT2(COS4, u[5], tmp49a);
+  tmp58a = fmaT2(COS2, u[5], tmp58a);
+  tmp67a = fmaT2(COS3, u[5], tmp67a);
   u[0] = u[0] + u[5];
 
-  T2 tmp211b = fmaT2 (SIN2_SIN1, u[9], u[10]);		// .910/.541
-  T2 tmp310b = fmaT2 (SIN2_SIN1, u[10], -u[6]);
-  T2 tmp49b = fmaT2 (SIN2_SIN1, -u[8], u[7]);
-  T2 tmp58b = fmaT2 (SIN2_SIN1, -u[6], u[8]);
-  T2 tmp67b = fmaT2 (SIN2_SIN1, -u[7], -u[9]);
+  T2 tmp211b = fmaT2(SIN2_SIN1, u[9], u[10]);		// .910/.541
+  T2 tmp310b = fmaT2(SIN2_SIN1, u[10], -u[6]);
+  T2 tmp49b = fmaT2(SIN2_SIN1, -u[8], u[7]);
+  T2 tmp58b = fmaT2(SIN2_SIN1, -u[6], u[8]);
+  T2 tmp67b = fmaT2(SIN2_SIN1, -u[7], -u[9]);
 
-  tmp211b = fmaT2 (SIN3_SIN1, u[8], tmp211b);		// .990/.541
-  tmp310b = fmaT2 (SIN3_SIN1, -u[7], tmp310b);
-  tmp49b = fmaT2 (SIN3_SIN1, u[10], tmp49b);
-  tmp58b = fmaT2 (SIN3_SIN1, -u[9], tmp58b);
-  tmp67b = fmaT2 (SIN3_SIN1, u[6], tmp67b);
+  tmp211b = fmaT2(SIN3_SIN1, u[8], tmp211b);		// .990/.541
+  tmp310b = fmaT2(SIN3_SIN1, -u[7], tmp310b);
+  tmp49b = fmaT2(SIN3_SIN1, u[10], tmp49b);
+  tmp58b = fmaT2(SIN3_SIN1, -u[9], tmp58b);
+  tmp67b = fmaT2(SIN3_SIN1, u[6], tmp67b);
 
-  tmp211b = fmaT2 (SIN4_SIN1, u[7], tmp211b);		// .756/.541
-  tmp310b = fmaT2 (SIN4_SIN1, u[9], tmp310b);
-  tmp49b = fmaT2 (SIN4_SIN1, u[6], tmp49b);
-  tmp58b = fmaT2 (SIN4_SIN1, u[10], tmp58b);
-  tmp67b = fmaT2 (SIN4_SIN1, u[8], tmp67b);
+  tmp211b = fmaT2(SIN4_SIN1, u[7], tmp211b);		// .756/.541
+  tmp310b = fmaT2(SIN4_SIN1, u[9], tmp310b);
+  tmp49b = fmaT2(SIN4_SIN1, u[6], tmp49b);
+  tmp58b = fmaT2(SIN4_SIN1, u[10], tmp58b);
+  tmp67b = fmaT2(SIN4_SIN1, u[8], tmp67b);
 
-  tmp211b = fmaT2 (SIN5_SIN1, u[6], tmp211b);		// .282/.541
-  tmp310b = fmaT2 (SIN5_SIN1, -u[8], tmp310b);
-  tmp49b = fmaT2 (SIN5_SIN1, -u[9], tmp49b);
-  tmp58b = fmaT2 (SIN5_SIN1, u[7], tmp58b);
-  tmp67b = fmaT2 (SIN5_SIN1, u[10], tmp67b);
+  tmp211b = fmaT2(SIN5_SIN1, u[6], tmp211b);		// .282/.541
+  tmp310b = fmaT2(SIN5_SIN1, -u[8], tmp310b);
+  tmp49b = fmaT2(SIN5_SIN1, -u[9], tmp49b);
+  tmp58b = fmaT2(SIN5_SIN1, u[7], tmp58b);
+  tmp67b = fmaT2(SIN5_SIN1, u[10], tmp67b);
 
-  fma_addsub (u[1], u[10], SIN1, tmp211a, tmp211b);
-  fma_addsub (u[2], u[9], SIN1, tmp310a, tmp310b);
-  fma_addsub (u[3], u[8], SIN1, tmp49a, tmp49b);
-  fma_addsub (u[4], u[7], SIN1, tmp58a, tmp58b);
-  fma_addsub (u[5], u[6], SIN1, tmp67a, tmp67b);
+  fma_addsub(u[1], u[10], SIN1, tmp211a, tmp211b);
+  fma_addsub(u[2], u[9], SIN1, tmp310a, tmp310b);
+  fma_addsub(u[3], u[8], SIN1, tmp49a, tmp49b);
+  fma_addsub(u[4], u[7], SIN1, tmp58a, tmp58b);
+  fma_addsub(u[5], u[6], SIN1, tmp67a, tmp67b);
 }
 
 
@@ -1064,20 +1064,20 @@ void fft12(T2 *u) {
   X2(u[2], u[1]);				// (r3+++  i3+++),  (r3++- i3++-)
   X2(u[4], u[5]);				// (i3+-+  -r3+-+), (i3+-- -r3+--)
 
-  T2 tmp26812b = fmaT2 (COS1, u[7], u[9]);
+  T2 tmp26812b = fmaT2(COS1, u[7], u[9]);
   T2 tmp410b = u[9] - u[7];
 
-  T2 tmp26812a = fmaT2 (-COS1, u[10], u[6]);
+  T2 tmp26812a = fmaT2(-COS1, u[10], u[6]);
   T2 tmp410a = u[6] + u[10];
 
   T2 tmp68a, tmp68b, tmp212a, tmp212b;
-  fma_addsub (tmp212b, tmp68b, SIN1, tmp26812b, u[8]);
-  fma_addsub (tmp68a, tmp212a, SIN1, tmp26812a, u[11]);
+  fma_addsub(tmp212b, tmp68b, SIN1, tmp26812b, u[8]);
+  fma_addsub(tmp68a, tmp212a, SIN1, tmp26812a, u[11]);
 
-  T2 tmp311 = fmaT2 (-COS1, u[1], u[3]);
+  T2 tmp311 = fmaT2(-COS1, u[1], u[3]);
   u[6] = u[3] + u[1];
 
-  T2 tmp59 = fmaT2 (-COS1, u[2], u[0]);
+  T2 tmp59 = fmaT2(-COS1, u[2], u[0]);
   u[0] = u[0] + u[2];
 
   u[3] = tmp410a - tmp410b;
@@ -1085,8 +1085,8 @@ void fft12(T2 *u) {
   u[1] = tmp212a + tmp212b;
   u[11] = tmp212a - tmp212b;
 
-  fma_addsub (u[2], u[10], SIN1, tmp311, u[4]);
-  fma_addsub (u[8], u[4], SIN1, tmp59, u[5]);
+  fma_addsub(u[2], u[10], SIN1, tmp311, u[4]);
+  fma_addsub(u[8], u[4], SIN1, tmp59, u[5]);
 
   u[5] = tmp68a + tmp68b;
   u[7] = tmp68a - tmp68b;
@@ -1277,6 +1277,7 @@ void fft2Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   SWAP(u[5], u[6]);
   SWAP(u[3], u[6]);
 }
+
 void fft2Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_HEIGHT_CONTROL
   for (i32 s = 5; s >= 2; s -= 3) {
