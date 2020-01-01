@@ -41,6 +41,9 @@ NEWEST_FFT5
 
 NEW_FFT10 <default>
 OLD_FFT10
+
+CARRY32		// This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
+CARRY64 <default>
 */
 
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
@@ -290,9 +293,6 @@ u32 bitlen(u32 extra) { return EXP / NWORDS + isBigWord(extra); }
 u32 bitlenx(bool b) { return EXP / NWORDS + b; }
 u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 
-// Propagate carry this many pairs of words.
-#define CARRY_LEN 16
-
 // complex mul
 T2 mul(T2 a, T2 b) { return U2(MAD(a.x, b.x, -a.y * b.y), MAD(a.x, b.y, a.y * b.x)); }
   // return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
@@ -349,7 +349,19 @@ T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
 void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
 
-Word lowBits(i32 u, u32 bits) { return (u << (32 - bits)) >> (32 - bits); }
+// Signed and unsigned bit field extract with bit offset 0
+
+#if HAS_ASM
+i32 lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2\n" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2\n" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+#else
+i32 lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
+u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
+#endif
+
+//
+// Macros used in carry propagation
+//
 
 Word carryStep(Carry x, Carry *carry, i32 bits) {
   x += *carry;
@@ -358,26 +370,100 @@ Word carryStep(Carry x, Carry *carry, i32 bits) {
   return w;
 }
 
-Carry unweight(T x, T weight) { return rint(x * weight); }
+i64 unweight(T x, T weight) { return rint(x * weight); }
+T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
-Word2 unweightAndCarryMulx(u32 mul, T2 u, Carry *carry, T2 weight, bool b1, bool b2) {
-  Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlenx(b1));
-  Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlenx(b2));
+//void optionalDouble(T *iw, bool b) { *iw = ldexp(*iw, (u32) b); }		// ROCm bug -- wastes VGPRs
+void optionalDouble(T *iw, bool b) { if (b) *iw = *iw * 2.0; }
+//void optionalHalve(T *w, bool b) { *w = ldexp(*w, - (i32) (u32) b); }		// ROCm bug -- wastes VGPRs
+void optionalHalve(T *w, bool b) { if (b) *w = *w * 0.5; }
+
+// We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
+// but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
+// that the carry will not fit in 32-bits -- corrupting results.  That said, I did test 2000 iterations of an exponent
+// just over 1 billion.  Max(abs(carry)) was 0x637225E9 which is OK (0x80000000 or more is fatal).  P-1 testing is more
+// problematic as the mul-by-3 triples the carry too.
+
+#if CARRY32
+
+typedef i32 CFcarry;
+
+#define RNDVAL  3.0 * 131072.0 * 131072.0 * 131072.0	// Rounding constant: 3 * 2^51
+
+Word2 CFunweightAndCarry(T2 u, CFcarry *carry, T2 weight, bool b1, bool b2) {
+  union { double d; int2 i; i64 li; } tmp;
+  tmp.d = u.x * weight.x + RNDVAL;			// Unweight and round u.x
+  i32 bits1 = bitlenx(b1);				// Desired number of bits in u.x
+  Word a = ulowBits(tmp.i.x, bits1);			// Extract lower bits unsigned, assumes least significant bits in i.x
+  tmp.i.x -= a;						// Clear extracted bits
+  tmp.d -= RNDVAL;					// Undo the rndval constant
+  tmp.d = ldexp (tmp.d, -bits1);			// carry!
+
+  tmp.d = u.y * weight.y + tmp.d + RNDVAL;		// Unweight, add carry, and round u.y
+  Word b = lowBits(tmp.i.x, bitlenx(b2));		// Grab lower bits signed
+  tmp.li -= b;						// Subtract the lower bits -- which may affect upper word of double
+  tmp.d -= RNDVAL;					// Undo the rndval constant
+  tmp.d = ldexp (tmp.d, -bitlenx(b2));			// carry!
+
+  *carry = tmp.d;					// Convert carry to 32-bit int
   return (Word2) (a, b);
 }
+
+T2 CFcarryAndWeightFinal(Word2 u, CFcarry carry, T2 w, bool b1) {
+  u32 bits1 = bitlenx(b1);				// Desired number of bits in u.x
+  u.x += carry;						// Add the carry
+  Word lo = lowBits(u.x, bits1);			// Extract signed lower bits
+  carry = (u.x - lo) >> bits1;				// Next carry
+  u.y += carry;						// Apply the carry
+  return weight((Word2) (lo, u.y), w);			// Weight the final result
+}
+
+#else
+
+typedef i64 CFcarry;
+
+Word2 CFunweightAndCarry(T2 u, CFcarry *carry, T2 weight, bool b1, bool b2) {
+  *carry = 0;
+  Word a = carryStep(unweight(u.x, weight.x), carry, bitlenx(b1));
+  Word b = carryStep(unweight(u.y, weight.y), carry, bitlenx(b2));
+  return (Word2) (a, b);
+}
+
+T2 CFcarryAndWeightFinal(Word2 u, CFcarry carry, T2 w, bool b1) {
+  Word x = carryStep(u.x, &carry, bitlenx(b1));
+  Word y = u.y + carry;
+  return weight((Word2) (x, y), w);
+}
+
+#endif
+
+// These are the carry macros used in carryFusedMul.  They are separate macros to later allow us to support
+// CARRY32 in carryFused and CARRY64 in carryFusedMul.
+
+typedef i64 CFMcarry;
+
+Word2 CFMunweightAndCarry(T2 u, CFMcarry *carry, T2 weight, bool b1, bool b2) {
+  Word a = carryStep(3 * unweight(u.x, weight.x), carry, bitlenx(b1));
+  Word b = carryStep(3 * unweight(u.y, weight.y), carry, bitlenx(b2));
+  return (Word2) (a, b);
+}
+
+T2 CFMcarryAndWeightFinal(Word2 u, CFMcarry carry, T2 w, bool b1) {
+  Word x = carryStep(u.x, &carry, bitlenx(b1));
+  Word y = u.y + carry;
+  return weight((Word2) (x, y), w);
+}
+
+// These are the carry macros used in carryA / carryB.  These kernels should be upgraded to use
+// the more efficient carryFused macros above.
+
+// Propagate carry this many pairs of words.
+#define CARRY_LEN 16
 
 Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
   Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(extra));
   Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(reduce(extra + STEP)));
   return (Word2) (a, b);
-}
-
-T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
-
-T2 carryAndWeightFinalx(Word2 u, Carry carry, T2 w, bool b1) {
-  Word x = carryStep(u.x, &carry, bitlenx(b1));
-  Word y = u.y + carry;
-  return weight((Word2) (x, y), w);
 }
 
 // No carry out. The final carry is "absorbed" in the last word.
@@ -393,6 +479,10 @@ Word2 carryWord(Word2 a, Carry *carry, u32 extra) {
   a.y = carryStep(a.y, carry, bitlen(reduce(extra + STEP)));
   return a;
 }
+
+//
+// More miscellaneous macros
+//
 
 T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
 
@@ -3110,7 +3200,6 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   u32 line = gr % H;
 
   T2 u[NW];
-  Word2 wu[NW];
 
   readCarryFusedLine(in, u, line);
   ENABLE_MUL2();
@@ -3118,7 +3207,6 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   fft_WIDTH(lds, u, smallTrig);
 
   T2 weights = groupWeights[line] * threadWeights[me];
-  T invWeight = weights.x;
 #if NW == 4
   u32 b = bits[WIDTH*4/32 * line + me/2];
   b = b >> ((me & 1) * 16);
@@ -3126,19 +3214,35 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   u32 b = bits[WIDTH*4/32 * line + me];
 #endif
 
+// Convert each u value into 2 words and a 32 or 64 bit carry
+
+  P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
+  Word2 wu[NW];
+  CFcarry carry[NW];
+  T invWeight = weights.x;
   // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
-    if (test(b, 2*i)) { invWeight *= 2; }
+    optionalDouble(&invWeight, test(b, 2*i));
     T invWeight2 = invWeight * IWEIGHT_STEP;
-    if (test(b, 2*i + 1)) { invWeight2 *= 2; }
-    
-    u32 p = i * G_W + me;
-    Carry carry = 0;
+    optionalDouble(&invWeight2, test(b, 2*i+1));
 
-    wu[i] = unweightAndCarryMulx(1, conjugate(u[i]), &carry, U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
-    if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
+    wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+#if OLD_CARRY_LAYOUT
+    if (gr < H) { carryShuttlePtr[gr * WIDTH + i * G_W + me] = carry[i]; }
+#endif
     invWeight *= IWEIGHT_BIGSTEP;
   }
+
+// Write the carries to carry shuttle.  AMD GPUs are faster writing and reading 4 consecutive values at a time.
+// But, subtle code changes like this can affect VGPR usage which if it changes occupancy can be a more important consideration.
+
+#if !OLD_CARRY_LAYOUT
+  if (gr < H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
+    }
+  }
+#endif
 
   release();
 
@@ -3152,9 +3256,7 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   }
 
   if (gr == 0) { return; }
-  
-  T weight = weights.y;
-  
+
   // Wait until the previous group is ready with the carry.
   if (me == 0) {
     while(!atomic_load((atomic_uint *) &ready[gr - 1]));
@@ -3163,14 +3265,29 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
 
   acquire();
 
+// Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
+
+#if OLD_CARRY_LAYOUT
+  for (i32 i = 0; i < NW; ++i) {
+    carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((i * G_W + me + WIDTH - gr / H) % WIDTH)];
+  }
+#else
+    for (i32 i = 0; i < NW; ++i) {
+      u32 newi = ((i * G_W + me + WIDTH - gr / H) % WIDTH) / G_W;
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((me + G_W - gr / H) % G_W) * NW + newi];
+    }
+#endif
+
+// Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
+
+  T weight = weights.y;
   // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
-    if (test(b, 2*i)) { weight *= 0.5; }
+    optionalHalve(&weight, test(b, 2*i));
     T weight2 = weight * WEIGHT_STEP;
-    if (test(b, 2*i + 1)) { weight2 *= 0.5; }
-    
-    u32 p = i * G_W + me;
-    u[i] = carryAndWeightFinalx(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), test(b, 2*(NW+i)));
+    optionalHalve(&weight2, test(b, 2*i+1));
+
+    u[i] = CFcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*(NW+i)));
     weight *= WEIGHT_BIGSTEP;
   }
 
@@ -3205,17 +3322,17 @@ KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) re
 #else
   u32 b = bits[WIDTH*4/32 * line + me];
 #endif
-  
+
   // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
     if (test(b, 2*i)) { invWeight *= 2; }
     T invWeight2 = invWeight * IWEIGHT_STEP;
     if (test(b, 2*i + 1)) { invWeight2 *= 2; }
-    
-    u32 p = i * G_W + me;
-    Carry carry = 0;
 
-    wu[i] = unweightAndCarryMulx(3, conjugate(u[i]), &carry, U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+    u32 p = i * G_W + me;
+    CFMcarry carry = 0;
+
+    wu[i] = CFMunweightAndCarry(conjugate(u[i]), &carry, U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
     if (gr < H) { carryShuttle[gr * WIDTH + p] = carry; }
     invWeight *= IWEIGHT_BIGSTEP;
   }
@@ -3248,9 +3365,9 @@ KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) re
     if (test(b, 2*i)) { weight *= 0.5; }
     T weight2 = weight * WEIGHT_STEP;
     if (test(b, 2*i + 1)) { weight2 *= 0.5; }
-    
+
     u32 p = i * G_W + me;
-    u[i] = carryAndWeightFinalx(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), test(b, 2*(NW+i)));
+    u[i] = CFMcarryAndWeightFinal(wu[i], carryShuttle[(gr - 1) * WIDTH + ((p + WIDTH - gr / H) % WIDTH)], U2(weight, weight2), test(b, 2*(NW+i)));
     weight *= WEIGHT_BIGSTEP;
   }
 
@@ -3908,6 +4025,22 @@ KERNEL(256) testKernel(P(T2) io) {
 	u32 me = get_local_id(0);
 	T2 u[10];
 	read(256, 10, u, io, 0);
+
+	bool b[4];
+	u32 bits = as_int2(u[3].x).x;
+	b[0] = bits & 1;
+	b[1] = test(bits, 1);
+	b[2] = test(bits, 2);
+	b[3] = test(bits, 3);
+	CFcarry c;
+	Word2 a = CFunweightAndCarry(u[0], &c, u[1], b[1], b[3]);
+	u[2] = a.x;
+	u[3] = a.y;
+	u[4] = c;
+	u[4] = ldexp (u[4], (i32) b[0]);
+	u[2] = ldexp (u[2], (i32) -b[2]);
+	u[5] = 1.0 / u[2];
+
 //      fft4(u);
 //      fft5(u);
 //	fft7(u);
