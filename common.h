@@ -29,3 +29,5 @@ namespace std::filesystem{};
 namespace fs = std::filesystem;
 
 string hex(u64 x);
+
+string rstripNewline(string s);

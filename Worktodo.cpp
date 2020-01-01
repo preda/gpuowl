@@ -13,10 +13,6 @@
 #include <optional>
 
 namespace {
-std::string rstripNewline(std::string s) {
-  while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) { s.pop_back(); }
-  return s;
-}
 
 std::optional<Task> parseLine(const std::string& sline) {
   const char* line = sline.c_str();

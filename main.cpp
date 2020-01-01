@@ -36,12 +36,14 @@ int main(int argc, char **argv) {
 
     Args args;
     if (auto file = File::openRead("config.txt")) {
-      char buf[256];
-      while (fgets(buf, sizeof(buf), file.get())) {
-        string line = buf;
-        while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) { line.pop_back(); }
-        log("config.txt: %s\n", line.c_str());
-        args.parse(line);
+      while (true) {
+        if (string line = file.readLine(); !line.empty()) {
+          line = rstripNewline(line);
+          log("config.txt: %s\n", line.c_str());
+          args.parse(line);        
+        } else {
+          break;
+        }
       }
     } else {
       log("Note: no config.txt file found\n");

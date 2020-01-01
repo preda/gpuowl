@@ -56,3 +56,8 @@ string hex(u64 x) {
   out << setbase(16) << setfill('0') << setw(16) << x;
   return out.str();
 }
+
+std::string rstripNewline(std::string s) {
+  while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) { s.pop_back(); }
+  return s;
+}
