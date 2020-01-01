@@ -114,11 +114,6 @@ G_H        "group height"
 #define MERGED_MIDDLE 1
 #endif
 
-typedef int i32;
-typedef uint u32;
-typedef long i64;
-typedef ulong u64;
-
 // Expected defines: EXP the exponent.
 // WIDTH, SMALL_HEIGHT, MIDDLE.
 
@@ -148,6 +143,33 @@ typedef ulong u64;
 #define UNROLL_MIDDLEMUL2 1
 #endif
 
+// My 5M timings (in us).	WorkingOut0 is fftMiddleOut 128 + carryFused 372 (T2_SHUFFLE_MIDDLE)	133/369 (NO_T2_SHUFFLE)
+//				WorkingOut1 is fftMiddleOut 129 + carryFused 305			133/301
+//				WorkingOut1a is fftMiddleOut 128 + carryFused 305			128/305
+//				WorkingOut2 is fftMiddleOut 221 + carryFused 300			223/298
+//				WorkingOut3 is fftMiddleOut 130 + carryFused 291			127/287
+//				WorkingOut4 is fftMiddleOut 167 + carryFused 285			169/280
+//				WorkingOut5 is fftMiddleOut 120 + carryFused 311			111/309
+// For comparison non-merged carryFused is 297 us
+#if !WORKINGOUT && !WORKINGOUT0 && !WORKINGOUT1 && !WORKINGOUT1A && !WORKINGOUT2 && !WORKINGOUT3 && !WORKINGOUT4 && !WORKINGOUT5
+#if G_W >= 32
+#define WORKINGOUT3 1
+#elif G_W >= 8
+#define WORKINGOUT5 1
+#endif
+#endif
+
+// My 5M timings (in us).	WorkingIn1 is fftMiddleIn 144 + tailFused 191 (T2_SHUFFLE_MIDDLE && T2_SHUFFLE_REVERSELINE)
+//				WorkingIn1a is fftMiddleIn 141 + tailFused 191
+//				WorkingIn2 is fftMiddleIn 133 + tailFused 217
+//				WorkingIn3 is fftMiddleIn 138 + tailFused 192
+//				WorkingIn4 is fftMiddleIn 207 + tailFused 189
+//				WorkingIn5 is fftMiddleIn 134 + tailFused 194
+// For comparison non-merged tailFused is 192 us
+#if !WORKINGIN && !WORKINGIN1 && !WORKINGIN1A && !WORKINGIN2 && !WORKINGIN3 && !WORKINGIN4 && !WORKINGIN5
+#define WORKINGIN5 1
+#endif
+
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
 #else
@@ -171,7 +193,6 @@ typedef ulong u64;
 #else
 #define UNROLL_MIDDLEMUL2_CONTROL  __attribute__((opencl_unroll_hint(1)))
 #endif
-
 
 // A T2 shuffle requires twice as much local memory as a T shuffle.  This won't affect occupancy for MIDDLE shuffles
 // and small WIDTH and HEIGHT shuffles.  However, 4K and 2K widths and heights might be better off using less local memory.
@@ -239,6 +260,10 @@ typedef ulong u64;
 #define ENABLE_MUL2()
 #endif
 
+typedef int i32;
+typedef uint u32;
+typedef long i64;
+typedef ulong u64;
 typedef double T;
 typedef double2 T2;
 typedef i32 Word;
@@ -1515,22 +1540,6 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 
-// My 5M timings (in us).	WorkingOut0 is fftMiddleOut 128 + carryFused 372 (T2_SHUFFLE_MIDDLE)	133/369 (NO_T2_SHUFFLE)
-//				WorkingOut1 is fftMiddleOut 129 + carryFused 305			133/301
-//				WorkingOut1a is fftMiddleOut 128 + carryFused 305			128/305
-//				WorkingOut2 is fftMiddleOut 221 + carryFused 300			223/298
-//				WorkingOut3 is fftMiddleOut 130 + carryFused 291			127/287
-//				WorkingOut4 is fftMiddleOut 167 + carryFused 285			169/280
-//				WorkingOut5 is fftMiddleOut 120 + carryFused 311			111/309
-// For comparison non-merged carryFused is 297 us
-#if !defined(WORKINGOUT) && !defined(WORKINGOUT0) && !defined(WORKINGOUT1) && !defined(WORKINGOUT1A) && !defined(WORKINGOUT2) && !defined(WORKINGOUT3) && !defined(WORKINGOUT4) && !defined(WORKINGOUT5)
-#if G_W >= 32
-#define WORKINGOUT3 1
-#elif G_W >= 8
-#define WORKINGOUT5 1
-#endif
-#endif
-
 #if MIDDLE == 1 || !MERGED_MIDDLE || WORKINGOUT
 
 	read(G_W, NW, u, in, line * WIDTH);
@@ -1688,17 +1697,6 @@ KERNEL(G_W) fftW(CP(T2) in, P(T2) out, Trig smallTrig) {
 
 // Read a line for tailFused or fftHin
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
-
-// My 5M timings (in us).	WorkingIn1 is fftMiddleIn 144 + tailFused 191 (T2_SHUFFLE_MIDDLE && T2_SHUFFLE_REVERSELINE)
-//				WorkingIn1a is fftMiddleIn 141 + tailFused 191
-//				WorkingIn2 is fftMiddleIn 133 + tailFused 217
-//				WorkingIn3 is fftMiddleIn 138 + tailFused 192
-//				WorkingIn4 is fftMiddleIn 207 + tailFused 189		
-//				WorkingIn5 is fftMiddleIn 134 + tailFused 194
-// For comparison non-merged tailFused is 192 us
-#if !defined(WORKINGIN) && !defined(WORKINGIN1) && !defined(WORKINGIN1A) && !defined(WORKINGIN2) && !defined(WORKINGIN3) && !defined(WORKINGIN4) && !defined(WORKINGIN5)
-#define WORKINGIN5 1
-#endif
 
 #if MIDDLE == 1 || !MERGED_MIDDLE || WORKINGIN
 
