@@ -373,10 +373,11 @@ Word carryStep(Carry x, Carry *carry, i32 bits) {
 i64 unweight(T x, T weight) { return rint(x * weight); }
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
-//void optionalDouble(T *iw, bool b) { *iw = ldexp(*iw, (u32) b); }		// ROCm bug -- wastes VGPRs
-void optionalDouble(T *iw, bool b) { if (b) *iw = *iw * 2.0; }
-//void optionalHalve(T *w, bool b) { *w = ldexp(*w, - (i32) (u32) b); }		// ROCm bug -- wastes VGPRs
-void optionalHalve(T *w, bool b) { if (b) *w = *w * 0.5; }
+//void optionalDouble(T *iw, u32 bits, u32 off) { union { double d; int2 i; } tmp; tmp.d = *iw; tmp.i.y += (((bits >> off) & 1) << 20); *iw = tmp.d; }
+//void optionalDouble(T *iw, u32 bits, u32 off) { *iw = ldexp(*iw, (u32) test(bits, off)); }		// ROCm bug -- wastes VGPRs
+void optionalDouble(T *iw, u32 bits, u32 off) { if (test(bits, off)) *iw = *iw * 2.0; }
+//void optionalHalve(T *w, u32 bits, u32 off) { *w = ldexp(*w, - (i32) (u32) test(bits, off)); }	// ROCm bug -- wastes VGPRs
+void optionalHalve(T *w, u32 bits, u32 off) { if (test(bits, off)) *w = *w * 0.5; }
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
@@ -3206,7 +3207,6 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
 
   fft_WIDTH(lds, u, smallTrig);
 
-  T2 weights = groupWeights[line] * threadWeights[me];
 #if NW == 4
   u32 b = bits[WIDTH*4/32 * line + me/2];
   b = b >> ((me & 1) * 16);
@@ -3214,19 +3214,33 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   u32 b = bits[WIDTH*4/32 * line + me];
 #endif
 
+// Pre-apply the inverse weight steps.  It sometimes helps the ROCm compiler use fewer VGPRs.
+
+#if DBL_EARLY
+  for (i32 i = 0; i < NW; ++i) {
+    T tmp = u[i].y * IWEIGHT_STEP;
+    optionalDouble(&tmp, b, 2*i+1);
+    u[i].y = tmp;
+  }
+#endif
+
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
   Word2 wu[NW];
   CFcarry carry[NW];
+  T2 weights = groupWeights[line] * threadWeights[me];
   T invWeight = weights.x;
   // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
-    optionalDouble(&invWeight, test(b, 2*i));
+    optionalDouble(&invWeight, b, 2*i);
+#if DBL_EARLY
+    wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+#else
     T invWeight2 = invWeight * IWEIGHT_STEP;
-    optionalDouble(&invWeight2, test(b, 2*i+1));
-
+    optionalDouble(&invWeight2, b, 2*i+1);
     wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+#endif
 #if OLD_CARRY_LAYOUT
     if (gr < H) { carryShuttlePtr[gr * WIDTH + i * G_W + me] = carry[i]; }
 #endif
@@ -3234,7 +3248,7 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   }
 
 // Write the carries to carry shuttle.  AMD GPUs are faster writing and reading 4 consecutive values at a time.
-// But, subtle code changes like this can affect VGPR usage which if it changes occupancy can be a more important consideration.
+// However, seemingly innocuous code changes can affect VGPR usage which if it changes occupancy can be a more important consideration.
 
 #if !OLD_CARRY_LAYOUT
   if (gr < H) {
@@ -3266,16 +3280,21 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   acquire();
 
 // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
+// The new carry layout lets the compiler generate global_load_dwordx4 instructions.
 
 #if OLD_CARRY_LAYOUT
   for (i32 i = 0; i < NW; ++i) {
     carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((i * G_W + me + WIDTH - gr / H) % WIDTH)];
   }
 #else
-    for (i32 i = 0; i < NW; ++i) {
-      u32 newi = ((i * G_W + me + WIDTH - gr / H) % WIDTH) / G_W;
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((me + G_W - gr / H) % G_W) * NW + newi];
-    }
+  for (i32 i = 0; i < NW; ++i) {
+    carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((me + G_W - gr / H) % G_W) * NW + i];
+  }
+  if (gr == H && me == 0) {
+    CFcarry tmp = carry[NW-1];
+    for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
+    carry[0] = tmp;
+  }
 #endif
 
 // Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
@@ -3283,9 +3302,9 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
   T weight = weights.y;
   // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
-    optionalHalve(&weight, test(b, 2*i));
+    optionalHalve(&weight, b, 2*i);
     T weight2 = weight * WEIGHT_STEP;
-    optionalHalve(&weight2, test(b, 2*i+1));
+    optionalHalve(&weight2, b, 2*i+1);
 
     u[i] = CFcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*(NW+i)));
     weight *= WEIGHT_BIGSTEP;
