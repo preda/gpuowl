@@ -42,8 +42,8 @@ NEWEST_FFT5
 NEW_FFT10 <default>
 OLD_FFT10
 
-CARRY32		// This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
-CARRY64 <default>
+CARRY32	<default>  // This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
+CARRY64
 */
 
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
@@ -100,6 +100,10 @@ G_H        "group height"
 // disable everything that depends on ASM
 #define NO_OMOD 1
 #define INLINE_X2 0
+#endif
+
+#if !CARRY32 && !CARRY64
+#define CARRY32 1
 #endif
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  Thus negatively impacts occupancy
@@ -401,10 +405,11 @@ Word2 CFunweightAndCarry(T2 u, CFcarry *carry, T2 weight, bool b1, bool b2) {
   tmp.d = ldexp (tmp.d, -bits1);			// carry!
 
   tmp.d = u.y * weight.y + tmp.d + RNDVAL;		// Unweight, add carry, and round u.y
-  Word b = lowBits(tmp.i.x, bitlenx(b2));		// Grab lower bits signed
+  i32 bits2 = bitlenx(b2);
+  Word b = lowBits(tmp.i.x, bits2);		        // Grab lower bits signed
   tmp.li -= b;						// Subtract the lower bits -- which may affect upper word of double
   tmp.d -= RNDVAL;					// Undo the rndval constant
-  tmp.d = ldexp (tmp.d, -bitlenx(b2));			// carry!
+  tmp.d = ldexp (tmp.d, -bits2);			// carry!
 
   *carry = tmp.d;					// Convert carry to 32-bit int
   return (Word2) (a, b);
@@ -4040,35 +4045,8 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
-KERNEL(256) testKernel(P(T2) io) {
+KERNEL(256) testKernel(global int* io) {
 	u32 me = get_local_id(0);
-	T2 u[10];
-	read(256, 10, u, io, 0);
-
-	bool b[4];
-	u32 bits = as_int2(u[3].x).x;
-	b[0] = bits & 1;
-	b[1] = test(bits, 1);
-	b[2] = test(bits, 2);
-	b[3] = test(bits, 3);
-	CFcarry c;
-	Word2 a = CFunweightAndCarry(u[0], &c, u[1], b[1], b[3]);
-	u[2] = a.x;
-	u[3] = a.y;
-	u[4] = c;
-	u[4] = ldexp (u[4], (i32) b[0]);
-	u[2] = ldexp (u[2], (i32) -b[2]);
-	u[5] = 1.0 / u[2];
-
-//      fft4(u);
-//      fft5(u);
-//	fft7(u);
-//	fft8(u);
-//	fft10(u);
-//	middleMul1 (u, 14);
-//    pairSq(NH, io, io+100, slowTrig(14, ND), false);
-//    pairMul(NH, io, io+100, io+200, io+300, slowTrig(14, ND), false);
-	write(256, 10, u, io, 0);
+        io[2*me] = lowBits(io[2*me], ((unsigned) io[2*me + 1]) & 31);
 }
 #endif
-
