@@ -15,30 +15,61 @@
 #include <thread>
 #include <cassert>
 
-static void writeResult(const string &part, u32 E, const char *workType, const string &status,
-                        const std::string &AID, const Args &args) { // const std::string &user, const std::string &cpu) {
-  std::string uid;
-  if (!args.user.empty()) { uid += ", \"user\":\"" + args.user + '"'; }
-  if (!args.cpu.empty())  { uid += ", \"computer\":\"" + args.cpu + '"'; }
-  std::string aidJson = AID.empty() ? "" : ", \"aid\":\"" + AID + '"';
-  
-  char buf[512];
-  snprintf(buf, sizeof(buf), "{\"exponent\":\"%u\", \"worktype\":\"%s\", \"status\":\"%s\", "
-           "\"program\":{\"name\":\"gpuowl\", \"version\":\"%s\"}, \"timestamp\":\"%s\"%s%s%s}",
-           E, workType, status.c_str(), VERSION, timeStr().c_str(), uid.c_str(), aidJson.c_str(), part.c_str());
-  
-  log("%s\n", buf);
-  File::append(args.resultsFile, std::string(buf) + '\n');
+namespace {
+
+std::string to_string(const std::vector<std::string>& v) {
+  bool isFirst = true;
+  string s = "{";
+  for (const std::string& e : v) {
+    if (e.empty()) { continue; }
+    if (!isFirst) { s += ", "; } else { isFirst = false; }
+    s += e;
+  }
+  return {isFirst ? ""s : (s + '}')};
 }
 
-static string factorStr(const string &factor) { return factor.empty() ? "" : (", \"factors\":[\"" + factor + "\"]"); }
+std::string json(const std::string& s) { return '"' + s + '"'; }
 
-static string fftStr(u32 fftSize) { return string(", \"fft-length\":") + to_string(fftSize); }
+template<typename T>
+std::string json(const std::optional<T>& opt) { return opt ? json(*opt) : ""s; }
 
-static string resStr(u64 res64) {
+std::string json(const std::string& key, const std::string& value) { return json(key) + ':' + json(value); }
+std::string json(const std::string& key, const char* value) { return json(key) + ':' + json(value); }
+std::string json(const std::string& key, const std::optional<std::string>& v) { return v ? json(key, *v) : ""s; }
+std::string json(const std::string& key, const std::vector<std::string>& v) { return json(key) + ':' + to_string(v); }
+
+
+std::optional<std::string> optStr(const std::string& s) { return s.empty() ? std::optional<std::string>{} : s; }
+
+void writeResult(const string &part, u32 E, const char *workType, const string &status,
+                        const std::string &AID, const Args &args) {
+  std::string s = to_string({
+                             json("exponent", std::to_string(E)),
+                             json("worktype", workType),
+                             json("status", status),
+                             json("program", {json("name", "gpuowl"), json("version", VERSION)}),
+                             json("timestamp", timeStr()),
+                             json("user", optStr(args.user)),
+                             json("computer", optStr(args.cpu)),
+                             json("uid", optStr(args.uid)),
+                             json("aid", optStr(AID)),
+                             part
+    });
+               
+  log("%s\n", s.c_str());
+  File::append(args.resultsFile, s + '\n');
+}
+
+string factorStr(const string &factor) { return factor.empty() ? "" : (", \"factors\":[\"" + factor + "\"]"); }
+
+string fftStr(u32 fftSize) { return string("\"fft-length\":") + std::to_string(fftSize); }
+
+string resStr(u64 res64) {
   char buf[64];
   snprintf(buf, sizeof(buf), ", \"res64\":\"%s\"", hex(res64).c_str());
   return buf;
+}
+
 }
 
 void Task::adjustBounds(Args& args) {
