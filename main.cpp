@@ -17,6 +17,23 @@ extern string globalCpuName;
 
 namespace fs = std::filesystem;
 
+void readConfig(Args& args, const std::string& path, bool doLog) {
+  if (auto file = File::openRead(path)) {
+    // log("reading %s\n", path.c_str());
+    while (true) {
+      if (string line = file.readLine(); !line.empty()) {
+        line = rstripNewline(line);
+        if (doLog) { log("config: %s\n", line.c_str()); }
+        args.parse(line);
+      } else {
+        break;
+      }
+    }
+  } else {
+    if (doLog) { log("Note: not found '%s'\n", path.c_str()); }
+  }
+}
+
 int main(int argc, char **argv) {
   initLog();
   log("gpuowl %s\n", VERSION);
@@ -34,25 +51,21 @@ int main(int argc, char **argv) {
       initLog("gpuowl.log");
     }
 
-    Args args;
-    if (auto file = File::openRead("config.txt")) {
-      while (true) {
-        if (string line = file.readLine(); !line.empty()) {
-          line = rstripNewline(line);
-          log("config.txt: %s\n", line.c_str());
-          args.parse(line);        
-        } else {
-          break;
-        }
-      }
-    } else {
-      log("Note: no config.txt file found\n");
+    string poolDir{};
+    {
+      Args args;
+      readConfig(args, "config.txt", false);
+      args.parse(mainLine);
+      poolDir = args.masterDir;
     }
-    
+
+    Args args;
+    if (!poolDir.empty()) { readConfig(args, poolDir + '/' + "config.txt", true); }
+    readConfig(args, "config.txt", true);
     if (!mainLine.empty()) {
       log("config: %s\n", mainLine.c_str());
+      args.parse(mainLine);
     }
-    args.parse(mainLine);
     args.setDefaults();
     if (!args.cpu.empty()) { globalCpuName = args.cpu; }
     

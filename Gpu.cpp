@@ -670,7 +670,7 @@ void Gpu::buildProof(u32 E, const Args& args) {
   
 }
 
-tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {  
+tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
   Buffer<double> buf3{queue, "buf3", N};
