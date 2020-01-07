@@ -1,6 +1,6 @@
 CXXFLAGS = -Wall -O2 -std=c++17
 
-LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L/c/Windows/System32 -L.
+LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
 
 LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
 
@@ -23,7 +23,7 @@ gpuowl-win.exe: ${OBJS}
 	strip $@
 
 clean:
-	rm -f ${OBJS} gpuowl gpuowl-win
+	rm -f ${OBJS} gpuowl gpuowl-win.exe
 
 %.o : %.cpp
 %.o : %.cpp $(DEPDIR)/%.d gpuowl-wrap.cpp version.inc
