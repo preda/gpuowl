@@ -74,15 +74,15 @@ string resStr(u64 res64) {
 
 void Task::adjustBounds(Args& args) {
   if (kind == PM1) {
-    if (B1 == 0) { B1 = args.B1; }
+    if (B1 == 0) { B1 = args.B1 ? args.B1 : (u32(exponent * 1e-7f + .5f) * 100'000); }
     if (B2 == 0) { B2 = args.B2 ? args.B2 : (B1 * args.B2_B1_ratio); }
     if (B1 < 15015) {
       log("B1=%u too small, adjusted to 15015\n", B1);
       B1 = 15015;
     }
     if (B2 <= B1) {
-      log("B2=%u too small, adjusted to %u\n", B2, B1 * 2);
-      B2 = B1 * 2;
+      log("B2=%u too small, adjusted to %u\n", B2, B1 * 10);
+      B2 = B1 * 10;
     }
   }
 }

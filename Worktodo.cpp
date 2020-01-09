@@ -14,52 +14,36 @@
 
 namespace {
 
-std::optional<Task> parseLine(const std::string& sline) {
-  const char* line = sline.c_str();
+std::optional<Task> parse(const std::string& line) {
   u32 exp = 0;
-  char outAID[64] = {0};
+
   u32 bitLo = 0;
   int pos = 0;
-
-  if (sscanf(line, "%u,%u", &exp, &bitLo) == 2 ||
-      sscanf(line, "%u", &exp) == 1 ||
-      sscanf(line, "PRP=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2 ||
-      sscanf(line, "PRP=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-    return {{Task::PRP, exp, outAID, line}};
-  }
-  outAID[0] = 0;
-      
+  u32 wantsPm1 = 0;
   u32 B1 = 0, B2 = 0;
-  const char* tail = line;
   
-  if (sscanf(line, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||
-      sscanf(line, "B1=%u;%n", &B1, &pos) == 1) {
-    tail = line + pos;
+  const char* tail = line.c_str();
+  if (sscanf(tail, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||
+      sscanf(tail, "B1=%u;%n", &B1, &pos) == 1) {
+    tail += pos;
   }
 
-  if (sscanf(tail, "PFactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2
-      || sscanf(tail, "Pfactor=N/A,1,2,%u,-1,%u", &exp, &bitLo) == 2
-      || sscanf(tail, "PFactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3
-      || sscanf(tail, "Pfactor=%32[0-9a-fA-F],1,2,%u,-1,%u", outAID, &exp, &bitLo) == 3) {
-    return {{Task::PM1, exp, outAID, line, B1, B2}};
-  }
-  outAID[0] = 0;
-  if (sscanf(tail, "PFactor=%u", &exp) == 1 || sscanf(tail, "Pfactor=%u", &exp) == 1) {
-    return {{Task::PM1, exp, "", line, B1, B2}};
-  }
-
-  log("worktodo.txt line ignored: \"%s\"\n", rstripNewline(line).c_str());
-  return std::nullopt;
-}
-
-std::string findGoodLine(const std::string& fileName) {
-  if (auto fi = File::openRead(fileName)) {
-    char line[512];
-    while (fgets(line, sizeof(line), fi.get())) {
-      if (parseLine(line)) { return line; }
+  char kindStr[32] = {0};
+  if(sscanf(tail, "%7[a-zA-Z]=%n", kindStr, &pos) == 1) {
+    string kind = kindStr;
+    tail += pos;
+    if (kind == "PRP" || kind == "PFactor" || kind == "Pfactor") {
+      char AIDStr[64] = {0};
+      if (sscanf(tail, "%32[0-9a-fA-FN/],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
+          || (AIDStr[0]=0, sscanf(tail, "%u", &exp)) == 1) {
+        string AID = AIDStr;
+        if (AID == "N/A" || AID == "0") { AID = ""; }        
+        return {{kind == "PRP" ? Task::PRP : Task::PM1, exp, AIDStr, line, B1, B2, bitLo, wantsPm1}};
+      }
     }
   }
-  return {};
+  log("worktodo.txt line ignored: \"%s\"\n", rstripNewline(line).c_str());
+  return std::nullopt;
 }
 
 void remove(const std::string& s) { ::remove(s.c_str()); }
@@ -90,28 +74,44 @@ bool deleteLine(const std::string& fileName, const std::string& targetLine) {
   return true;
 }
 
+std::optional<Task> firstGoodTask(const std::string& fileName) {
+  for (const string& line : File::openRead(fileName)) {
+    if (optional<Task> maybeTask = parse(line)) { return maybeTask; }
+  }
+  return nullopt;
+}
+
 }
 
 std::optional<Task> Worktodo::getTask(Args &args) {
-  for (int pass = 0; pass < 2; ++pass) {
-    std::string localWorktodo = "worktodo.txt";
-    
-    // Try to get a task from the local worktodo.txt
-    std::string line = findGoodLine(localWorktodo);
-    if (!line.empty()) {    
-      Task task = parseLine(line).value();
-      task.adjustBounds(args);
-      return task;
+  string worktodoTxt = "worktodo.txt";
+  
+ again:
+  // Try to get a task from the local worktodo.txt
+  if (optional<Task> task = firstGoodTask(worktodoTxt)) {
+    if (task->kind == Task::PRP && task->wantsPm1) {
+      // Some worktodo tasks can be expanded into subtasks:
+      // PRP with wantsPm1>0 is expanded into a sequence of P-1 followed by PRP with wantsPm1==0.
+      Task pm1{Task::PM1, task->exponent, "", "", task->B1, task->B2, task->wantsPm1};
+      pm1.adjustBounds(args);
+      task->wantsPm1 = 0;
+      // File::append(worktodoTxt, "#"s + task.line);
+      File::append(worktodoTxt, string(pm1) + '\n');
+      File::append(worktodoTxt, string(*task) + '\n');
+      deleteLine(worktodoTxt, task->line);
+      goto again;
     }
-
-    // First time, try to move a task from master worktodo.txt to local
-    if (pass == 0 && !args.masterDir.empty()) {
-      std::string masterWorktodo = args.masterDir + '/' + "worktodo.txt";
-      line = findGoodLine(masterWorktodo);
-      if (!line.empty()) {
-        File::append(localWorktodo, line);
-        deleteLine(masterWorktodo, line);
-      }
+    
+    task->adjustBounds(args);
+    return task;
+  }
+  
+  if (!args.masterDir.empty()) {
+    string globalWorktodo = args.masterDir + '/' + worktodoTxt;
+    if (optional<Task> task = firstGoodTask(globalWorktodo)) {
+      File::append(worktodoTxt, task->line);
+      deleteLine(globalWorktodo, task->line);
+      goto again;
     }
   }
   

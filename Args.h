@@ -40,7 +40,7 @@ public:
   u32 logStep = 200000;
   int fftSize = 0;
 
-  u32 B1 = 500000;
+  u32 B1 = 1000000;
   u32 B2 = 0;
   u32 B2_B1_ratio = 30;
 
