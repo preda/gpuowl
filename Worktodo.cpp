@@ -125,6 +125,7 @@ void Worktodo::deletePRP(u32 exponent) {
     for (const string& line : File::openRead(fileName, true)) {
       if (optional<Task> task = parse(line); task && task->exponent == exponent && task->kind == Task::PRP) {
         changed = true;
+        log("task removed: \"%s\"\n", rstripNewline(line).c_str());
       } else {
         fo.write(line);
       }
