@@ -13,6 +13,7 @@
 #include <string>
 #include <memory>
 #include <variant>
+#include <atomic>
 
 struct Args;
 struct PRPResult;
@@ -148,7 +149,7 @@ public:
   vector<u32> readCheck() { return readAndCompress(bufCheck); }
   vector<u32> readData() { return readAndCompress(bufData); }
 
-  std::tuple<bool, u64, u32> isPrimePRP(u32 E, const Args& args);
+  std::tuple<bool, u64, u32> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp);
 
   void buildProof(u32 E, const Args& args);
   

@@ -7,6 +7,7 @@
 #include "common.h"
 #include <string>
 #include <cstdio>
+#include <atomic>
 
 class Args;
 class Result;
@@ -29,7 +30,7 @@ struct Task {
   
   void adjustBounds(Args& args);
   
-  bool execute(const Args& args, Background& background);
+  void execute(const Args& args, Background& background, std::atomic<u32>& factorFoundForExp);
 
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const;
   void writeResultPM1(const Args&, const std::string& factor, u32 fftSize, bool didStage2) const;

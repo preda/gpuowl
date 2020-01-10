@@ -7,6 +7,7 @@
 #include "File.h"
 #include "GmpUtil.h"
 #include "Background.h"
+#include "Worktodo.h"
 #include "checkpoint.h"
 #include "version.h"
 
@@ -96,46 +97,51 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
 }
 
 void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, bool didStage2) const {
-  string status = factor.empty() ? "NF" : "F";
+  bool hasFactor = !factor.empty();
+  string status = hasFactor ? "F" : "NF";
   string bounds = ", \"B1\":"s + to_string(B1) + (didStage2 ? ", \"B2\":"s + to_string(B2) : "");
-
   writeResult(fftStr(fftSize) + bounds + factorStr(factor), exponent, "PM1", status, AID, args);
 }
 
-bool Task::execute(const Args& args, Background& background) {
+void Task::execute(const Args& args, Background& background, std::atomic<u32>& factorFoundForExp) {
   assert(kind == PRP || kind == PM1);
   auto gpu = Gpu::make(exponent, args);
   auto fftSize = gpu->getFFTSize();
   
   if (kind == PRP) {
-    auto [isPrime, res64, nErrors] = gpu->isPrimePRP(exponent, args);
-    writeResultPRP(args, isPrime, res64, fftSize, nErrors);
-    if (args.proofPow) {
-      gpu->buildProof(exponent, args);
+    auto [isPrime, res64, nErrors] = gpu->isPrimePRP(exponent, args, factorFoundForExp);
+    bool abortedFactorFound = (!isPrime && !res64 && nErrors == u32(-1));
+    if (!abortedFactorFound) {
+      writeResultPRP(args, isPrime, res64, fftSize, nErrors);
+      if (args.proofPow) { gpu->buildProof(exponent, args); }
+      Worktodo::deleteTask(*this);
+    } else {
+      Worktodo::deletePRP(exponent);
+      factorFoundForExp = 0;
     }
-    if (args.cleanup && !isPrime) deleteSaveFiles(exponent);
-    return true;
+    if (args.cleanup && !isPrime) { deleteSaveFiles(exponent); }
+    
   } else if (kind == PM1) {
     auto result = gpu->factorPM1(exponent, args, B1, B2);
     if (holds_alternative<string>(result)) {
       string factor = get<string>(result);
       writeResultPM1(args, factor, fftSize, false);
-      return true;
+      if (!factor.empty()) { Worktodo::deletePRP(exponent); }
     } else {
       vector<u32> &data = get<vector<u32>>(result);
       if (data.empty()) {
         writeResultPM1(args, "", fftSize, false);
-        return true;
       } else {
-        background.run([args, fftSize, data{std::move(data)}, task{*this}](){
+        background.run([args, fftSize, data{std::move(data)}, task{*this}, &factorFoundForExp](){
                          string factor = GCD(task.exponent, data, 0);
-                         log("%u P2 GCD: %s\n", task.exponent, factor.empty() ? "no factor" : factor.c_str());
+                         bool factorFound = !factor.empty();
+                         log("%u P2 GCD: %s\n", task.exponent, factorFound ? factor.c_str() : "no factor");
+                         if (factorFound) { factorFoundForExp = task.exponent; }
                          task.writeResultPM1(args, factor, fftSize, true);
                        });
-        return true;
       }
     }
+    Worktodo::deleteTask(*this);
   }
-  assert(false);
-  return false;
+
 }

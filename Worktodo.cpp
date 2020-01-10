@@ -53,9 +53,8 @@ bool deleteLine(const std::string& fileName, const std::string& targetLine) {
   assert(!targetLine.empty());
   bool lineDeleted = false;
   {
-    auto fi{File::openRead(fileName, true)};
     auto fo{File::openWrite(fileName + "-tmp")};
-    for (auto line = fi.readLine(); !line.empty(); line = fi.readLine()) {
+    for (const string& line : File::openRead(fileName, true)) {
       if (!lineDeleted && line == targetLine) {
         lineDeleted = true;
       } else {
@@ -116,6 +115,27 @@ std::optional<Task> Worktodo::getTask(Args &args) {
   }
   
   return std::nullopt;
+}
+
+void Worktodo::deletePRP(u32 exponent) {
+  std::string fileName = "worktodo.txt";
+  bool changed = false;
+  {
+    auto fo{File::openWrite(fileName + "-tmp")};
+    for (const string& line : File::openRead(fileName, true)) {
+      if (optional<Task> task = parse(line); task && task->exponent == exponent && task->kind == Task::PRP) {
+        changed = true;
+      } else {
+        fo.write(line);
+      }
+    }
+  }
+
+  if (changed) {
+    remove(fileName + "-bak");
+    rename(fileName, fileName + "-bak");
+    rename(fileName + "-tmp", fileName);  
+  }
 }
 
 bool Worktodo::deleteTask(const Task &task) {

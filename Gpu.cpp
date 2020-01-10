@@ -670,7 +670,7 @@ void Gpu::buildProof(u32 E, const Args& args) {
   
 }
 
-tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
+tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
   Buffer<double> buf3{queue, "buf3", N};
@@ -750,6 +750,10 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args) {
       if (spinPos >= spinner.size()) { spinPos = 0; }
     }
     queue->finish();
+    if (factorFoundForExp == E) {
+      log("aborting the PRP test because a factor was found\n");
+      return {false, 0, u32(-1)};
+    } 
     
     if (doCheck) {
       double timeExcludingCheck = itTimer.reset(k);

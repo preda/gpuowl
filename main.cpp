@@ -41,6 +41,8 @@ int main(int argc, char **argv) {
   Background background;
 
   int exitCode = 0;
+
+  std::atomic<u32> factorFoundForExp = 0;
   
   try {
     string mainLine = Args::mergeArgs(argc, argv);
@@ -72,14 +74,11 @@ int main(int argc, char **argv) {
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
     if (args.prpExp) {
-      Worktodo::makePRP(args, args.prpExp).execute(args, background);      
+      Worktodo::makePRP(args, args.prpExp).execute(args, background, factorFoundForExp);
     } else if (args.pm1Exp) {
-      Worktodo::makePM1(args, args.pm1Exp).execute(args, background);
+      Worktodo::makePM1(args, args.pm1Exp).execute(args, background, factorFoundForExp);
     } else {
-      while (auto task = Worktodo::getTask(args)) {
-        if (!task->execute(args, background)) { break; }
-        Worktodo::deleteTask(*task);
-      }
+      while (auto task = Worktodo::getTask(args)) { task->execute(args, background, factorFoundForExp); }
     }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
@@ -90,6 +89,7 @@ int main(int argc, char **argv) {
   }
 
   background.wait();
+  if (factorFoundForExp) { Worktodo::deletePRP(factorFoundForExp); }
   log("Bye\n");
   return exitCode; // not used yet.
 }
