@@ -91,7 +91,7 @@ std::optional<Task> Worktodo::getTask(Args &args) {
     if (task->kind == Task::PRP && task->wantsPm1) {
       // Some worktodo tasks can be expanded into subtasks:
       // PRP with wantsPm1>0 is expanded into a sequence of P-1 followed by PRP with wantsPm1==0.
-      Task pm1{Task::PM1, task->exponent, "", "", task->B1, task->B2, task->wantsPm1};
+      Task pm1{Task::PM1, task->exponent, task->AID, "", task->B1, task->B2, task->wantsPm1};
       pm1.adjustBounds(args);
       task->wantsPm1 = 0;
       // File::append(worktodoTxt, "#"s + task.line);
