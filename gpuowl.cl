@@ -2388,9 +2388,10 @@ void middleMul1(T2 *u, u32 s) {
 #elif CHEBYSHEV_METHOD_FMA		// Fewest floating point ops of any method.
   steps[1] = step;
   u[1] = mul(u[1], steps[1]);
-  steps[2] = sq(steps[1]);
-  u[2] = mul(u[2], steps[2]);
   T step1xtimes2 = steps[1].x * 2.0;
+  steps[2].x = step1xtimes2 * steps[1].x - 1.0;
+  steps[2].y = step1xtimes2 * steps[1].y;
+  u[2] = mul(u[2], steps[2]);
   UNROLL_MIDDLEMUL1_CONTROL
   for (i32 i = 3; i < MIDDLE; i++) {
     steps[i].x = MSUB(step1xtimes2, steps[i-1].x, steps[i-2].x);
