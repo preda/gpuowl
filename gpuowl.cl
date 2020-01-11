@@ -47,13 +47,13 @@ CARRY64
 
 FANCY_MIDDLEMUL1		// Only implemented for MIDDLE=10 and MIDDLE=11
 MORE_SQUARES_MIDDLEMUL1		// Replaces some complex muls with complex squares but uses more registers
-CHEBYSHEV_METHOD		// Uses fewer floating point ops than original MiddleMul1 implementation
-CHEBYSHEV_METHOD_FMA <default>	// Uses fewest floating point ops of any of the MiddleMul1 implementations
+CHEBYSHEV_METHOD		// Uses fewer floating point ops than original MiddleMul1 implementation (worse accuracy?)
+CHEBYSHEV_METHOD_FMA		// Uses fewest floating point ops of any of the MiddleMul1 implementations (worse accuracy?)
 ORIGINAL_METHOD			// The original straightforward MiddleMul1 implementation
-ORIGINAL_TWEAKED		// The original MiddleMul1 implementation tweaked to save two multiplies
+ORIGINAL_TWEAKED <default>	// The original MiddleMul1 implementation tweaked to save two multiplies
 
-ORIG_MIDDLEMUL2			// The original straightforward MiddleMul2 implementation
-CHEBYSHEV_MIDDLEMUL2 <default>	// Uses fewer floating point ops than original MiddleMul2 implementation
+ORIG_MIDDLEMUL2 <default>	// The original straightforward MiddleMul2 implementation
+CHEBYSHEV_MIDDLEMUL2		// Uses fewer floating point ops than original MiddleMul2 implementation (worse accuracy?)
 
 ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
@@ -168,11 +168,11 @@ G_H        "group height"
 #endif
 
 #if !FANCY_MIDDLEMUL1 && !MORE_SQUARES_MIDDLEMUL1 && !CHEBYSHEV_METHOD && !CHEBYSHEV_METHOD_FMA && !ORIGINAL_METHOD && !ORIGINAL_TWEAKED
-#define CHEBYSHEV_METHOD_FMA 1
+#define ORIGINAL_TWEAKED 1
 #endif
 
 #if !ORIG_MIDDLEMUL2 && !CHEBYSHEV_MIDDLEMUL2
-#define CHEBYSHEV_MIDDLEMUL2 1
+#define ORIG_MIDDLEMUL2 1
 #endif
 
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
