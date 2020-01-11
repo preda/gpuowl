@@ -37,7 +37,8 @@ std::optional<Task> parse(const std::string& line) {
       if (sscanf(tail, "%32[0-9a-fA-FN/],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
           || (AIDStr[0]=0, sscanf(tail, "%u", &exp)) == 1) {
         string AID = AIDStr;
-        if (AID == "N/A" || AID == "0") { AID = ""; }        
+        if (AID == "N/A" || AID == "0") { AID = ""; }
+        // log("AID '%s'\n", AID.c_str());
         return {{kind == "PRP" ? Task::PRP : Task::PM1, exp, AIDStr, line, B1, B2, bitLo, wantsPm1}};
       }
     }

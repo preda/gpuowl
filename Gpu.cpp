@@ -1026,13 +1026,13 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         }
       }
       queue->finish();
-      // logTimeKernels();
+      logTimeKernels();
     }
 
     if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, bufAcc.read()}.save(); }
     
     log("%u P2 %4u/2880: %u primes; setup %5.2f s, %7.3f ms/prime\n", E, pos + nUsedBufs, nSelected, setup, timer.deltaSecs() * 1000.f / (nSelected + 1));
-    logTimeKernels();
+    // logTimeKernels();
 
     if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
       string gcd = gcdFuture.get();
