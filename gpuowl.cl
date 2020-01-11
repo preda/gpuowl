@@ -52,6 +52,9 @@ CHEBYSHEV_METHOD_FMA <default>	// Uses fewest floating point ops of any of the M
 ORIGINAL_METHOD			// The original straightforward MiddleMul1 implementation
 ORIGINAL_TWEAKED		// The original MiddleMul1 implementation tweaked to save two multiplies
 
+ORIG_MIDDLEMUL2			// The original straightforward MiddleMul2 implementation
+CHEBYSHEV_MIDDLEMUL2 <default>	// Uses fewer floating point ops than original MiddleMul2 implementation
+
 ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
 MORE_ACCURATE <default>		// Our own sin/cos implementation with extra accuracy (should be needlessly slower, but isn't)
@@ -166,6 +169,10 @@ G_H        "group height"
 
 #if !FANCY_MIDDLEMUL1 && !MORE_SQUARES_MIDDLEMUL1 && !CHEBYSHEV_METHOD && !CHEBYSHEV_METHOD_FMA && !ORIGINAL_METHOD && !ORIGINAL_TWEAKED
 #define CHEBYSHEV_METHOD_FMA 1
+#endif
+
+#if !ORIG_MIDDLEMUL2 && !CHEBYSHEV_MIDDLEMUL2
+#define CHEBYSHEV_MIDDLEMUL2 1
 #endif
 
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
@@ -1527,6 +1534,8 @@ double2 slowTrig(i32 k, i32 n) {
 
 // This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
 // We found free Sun Microsystems code that is short and efficient in the range [-pi/4, pi/4].
+// Links to said code are http://www.netlib.org/fdlibm/s_sin.c (plus k_sin.c, s_cos.c, k_cos.c).
+// Another excellent source is at https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/ieee754/dbl-64/s_sin.c;hb=HEAD#l194
 
 /* ====================================================
  * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
@@ -2426,11 +2435,30 @@ void middleMul2(T2 *u, u32 g, u32 me) {
   T2 base = slowTrigMid8(g * me,  BIG_HEIGHT * WIDTH / 2);
   T2 step = slowTrigMid8(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
 
+#if ORIG_MIDDLEMUL2
   UNROLL_MIDDLEMUL2_CONTROL
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
+
+#elif CHEBYSHEV_MIDDLEMUL2
+  T2 steps[MIDDLE];
+  steps[0] = base;
+  u[0] = mul(u[0], steps[0]);
+  steps[1] = mul(base, step);
+  u[1] = mul(u[1], steps[1]);
+  T stepxtimes2 = step.x * 2.0;
+  UNROLL_MIDDLEMUL2_CONTROL
+  for (i32 i = 2; i < MIDDLE; i++) {
+    steps[i].x = MSUB(stepxtimes2, steps[i-1].x, steps[i-2].x);
+    steps[i].y = MSUB(stepxtimes2, steps[i-1].y, steps[i-2].y);
+    u[i] = mul(u[i], steps[i]);
+  }
+
+#else
+#error No MiddleMul2 defined
+#endif
 }
 
 // Do a partial transpose during fftMiddleIn/Out
