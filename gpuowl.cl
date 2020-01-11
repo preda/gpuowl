@@ -44,6 +44,18 @@ OLD_FFT10
 
 CARRY32	<default>  // This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
 CARRY64
+
+FANCY_MIDDLEMUL1		// Only implemented for MIDDLE=10 and MIDDLE=11
+MORE_SQUARES_MIDDLEMUL1		// Replaces some complex muls with complex squares but uses more registers
+CHEBYSHEV_METHOD		// Uses fewer floating point ops than original MiddleMul1 implementation
+CHEBYSHEV_METHOD_FMA <default>	// Uses fewest floating point ops of any of the MiddleMul1 implementations
+ORIGINAL_METHOD			// The original straightforward MiddleMul1 implementation
+ORIGINAL_TWEAKED		// The original MiddleMul1 implementation tweaked to save two multiplies
+
+ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
+NEW_SLOWTRIG <default>		// Our own sin/cos implementation
+MORE_ACCURATE <default>		// Our own sin/cos implementation with extra accuracy (should be needlessly slower, but isn't)
+LESS_ACCURATE			// Opposite of MORE_ACCURATE
 */
 
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
@@ -106,12 +118,14 @@ G_H        "group height"
 #define CARRY32 1
 #endif
 
-// The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  Thus negatively impacts occupancy
+// The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
 // which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
 // For AMD GPUs we default to unrolling fft_HEIGHT but not fft_WIDTH loops.  For nVidia GPUs, we unroll everything.
 #if !UNROLL_ALL && !UNROLL_NONE && !UNROLL_WIDTH && !UNROLL_HEIGHT && !UNROLL_MIDDLEMUL1 && !UNROLL_MIDDLEMUL2
 #if AMDGPU
 #define UNROLL_HEIGHT 1
+#define UNROLL_MIDDLEMUL1 1
+#define UNROLL_MIDDLEMUL2 1
 #else
 #define UNROLL_ALL 1
 #endif
@@ -148,6 +162,18 @@ G_H        "group height"
 #define UNROLL_HEIGHT 1
 #define UNROLL_MIDDLEMUL1 1
 #define UNROLL_MIDDLEMUL2 1
+#endif
+
+#if !FANCY_MIDDLEMUL1 && !MORE_SQUARES_MIDDLEMUL1 && !CHEBYSHEV_METHOD && !CHEBYSHEV_METHOD_FMA && !ORIGINAL_METHOD && !ORIGINAL_TWEAKED
+#define CHEBYSHEV_METHOD_FMA 1
+#endif
+
+#if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
+#define NEW_SLOWTRIG 1
+#endif
+
+#if !MORE_ACCURATE && !LESS_ACCURATE
+#define MORE_ACCURATE 1
 #endif
 
 // My 5M timings (in us).	WorkingOut0 is fftMiddleOut 128 + carryFused 372 (T2_SHUFFLE_MIDDLE)	133/369 (NO_T2_SHUFFLE)
@@ -286,6 +312,19 @@ T MAD(T x, T y, T z) {
 #endif
 }
 
+// x * y - z, "Multiply SUB"
+// Works around more ROCm poor optimizations in CHEBYSHEV_METHOD_FMA.  Same optimization bug as INLINE_X4 works around.
+// A bug report has been filed and a fix is promised for some future ROCm version.
+T MSUB(T x, T y, T z) {
+#if FMA
+  return fma(x, y, -z);
+#elif HAS_ASM
+  T tmp; __asm("v_fma_f64 %0, %1, %2, -%3\n" : "=v" (tmp) : "v" (x), "v" (y), "v" (z)); return tmp;
+#else
+  return x * y - z;
+#endif
+}
+
 T2 U2(T a, T b) { return (T2)(a, b); }
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
@@ -333,9 +372,23 @@ T diffsq(T x, T y) { return MAD(x, x, - y * y); } // worse: (x + y) * (x - y)
 // x * y * 2
 T xy2(T x, T y) {
 #if !NO_OMOD
-  T tmp; __asm( "v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp) : "v" (x), "v" (y)); return tmp;
+  T tmp; __asm("v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp) : "v" (x), "v" (y)); return tmp;
 #else
   return 2 * x * y;
+#endif
+}
+
+// x * y * 2 - z
+// Works around more ROCm poor optimizations in CHEBYSHEV_METHOD.  Same optimization bug as INLINE_X4 works around.
+// A bug report has been filed and a fix is promised for some future ROCm version.
+T xy2minus(T x, T y, T z) {
+#if !NO_OMOD
+  T tmp1, tmp2;
+  __asm("v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp1) : "v" (x), "v" (y));
+  __asm("v_add_f64 %0, %1, -%2\n" : "=v" (tmp2) : "v" (tmp1), "v" (z));
+  return tmp2;
+#else
+  return 2 * x * y - z;
 #endif
 }
 
@@ -1459,12 +1512,171 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
   }
 }
 
-// Returns e^(-i * pi * k/n);
+// Returns e^(-i * pi * k/n)
+#if ORIG_SLOWTRIG
 double2 slowTrig(i32 k, i32 n) {
   double c;
   double s = sincos(M_PI / n * k, &c);
   return U2(c, -s);
 }
+
+// Caller can use this version if caller knows that k/n <= 0.25
+#define slowTrig1	slowTrig
+
+#elif NEW_SLOWTRIG
+
+// This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
+// We found free Sun Microsystems code that is short and efficient in the range [-pi/4, pi/4].
+
+/* ====================================================
+ * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+ *
+ * Developed at SunSoft, a Sun Microsystems, Inc. business.
+ * Permission to use, copy, modify, and distribute this
+ * software is freely granted, provided that this notice 
+ * is preserved.
+ * ====================================================
+ */
+
+/* __kernel_sin(x)
+ * kernel sin function on [-pi/4, pi/4], pi/4 ~ 0.7854
+ * Input x is assumed to be bounded by ~pi/4 in magnitude.
+ *
+ * Algorithm
+ *	1. Since sin(-x) = -sin(x), we need only to consider positive x. 
+ *	2. sin(x) is approximated by a polynomial of degree 13 on [0,pi/4]
+ *		  	         3            13
+ *	   	sin(x) ~ x + S1*x + ... + S6*x
+ *	   where
+ *	
+ * 	|sin(x)         2     4     6     8     10     12  |     -58
+ * 	|----- - (1+S1*x +S2*x +S3*x +S4*x +S5*x  +S6*x   )| <= 2
+ * 	|  x 					           | 
+ * 
+ */
+
+double __kernel_sin(double x)
+{
+  const double 
+  S1  = -1.66666666666666324348e-01, /* 0xBFC55555, 0x55555549 */
+  S2  =  8.33333333332248946124e-03, /* 0x3F811111, 0x1110F8A6 */
+  S3  = -1.98412698298579493134e-04, /* 0xBF2A01A0, 0x19C161D5 */
+  S4  =  2.75573137070700676789e-06, /* 0x3EC71DE3, 0x57B1FE7D */
+  S5  = -2.50507602534068634195e-08, /* 0xBE5AE5E6, 0x8A2B9CEB */
+  S6  =  1.58969099521155010221e-10; /* 0x3DE5D93A, 0x5ACFD57C */
+  double z,r,v;
+  z	=  x*x;
+  v	=  z*x;
+  r	=  S2+z*(S3+z*(S4+z*(S5+z*S6)));
+  return x+v*(S1+z*r);
+}
+
+/*
+ * __kernel_cos( x )
+ * kernel cos function on [-pi/4, pi/4], pi/4 ~ 0.785398164
+ * Input x is assumed to be bounded by ~pi/4 in magnitude.
+ *
+ * Algorithm
+ *	1. Since cos(-x) = cos(x), we need only to consider positive x.
+ *	2. cos(x) is approximated by a polynomial of degree 14 on [0,pi/4]
+ *		  	                 4            14
+ *	   	cos(x) ~ 1 - x*x/2 + C1*x + ... + C6*x
+ *	   where the remez error is
+ *	
+ * 	|              2     4     6     8     10    12     14 |     -58
+ * 	|cos(x)-(1-.5*x +C1*x +C2*x +C3*x +C4*x +C5*x  +C6*x  )| <= 2
+ * 	|    					               | 
+ * 
+ * 	               4     6     8     10    12     14 
+ *	4. let r = C1*x +C2*x +C3*x +C4*x +C5*x  +C6*x  , then
+ *	       cos(x) = 1 - x*x/2 + r
+ *	   since cos(x+y) ~ cos(x) - sin(x)*y 
+ *			  ~ cos(x) - x*y,
+ *	   a correction term is necessary in cos(x) and hence
+ *		cos(x+y) = 1 - (x*x/2 - (r - x*y))
+ *	   For better accuracy when x > 0.3, let qx = |x|/4 with
+ *	   the last 32 bits mask off, and if x > 0.78125, let qx = 0.28125.
+ *	   Then
+ *		cos(x+y) = (1-qx) - ((x*x/2-qx) - (r-x*y)).
+ *	   Note that 1-qx and (x*x/2-qx) is EXACT here, and the
+ *	   magnitude of the latter is at least a quarter of x*x/2,
+ *	   thus, reducing the rounding error in the subtraction.
+ */
+
+double __kernel_cos(double x)
+{
+  const double 
+  C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
+  C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
+  C3  =  2.48015872894767294178e-05, /* 0x3EFA01A0, 0x19CB1590 */
+  C4  = -2.75573143513906633035e-07, /* 0xBE927E4F, 0x809C52AD */
+  C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
+  C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
+  double z,r;
+  z  = x*x;
+  r  = z*(C1+z*(C2+z*(C3+z*(C4+z*(C5+z*C6)))));
+#if !MORE_ACCURATE
+  return 1.0 - (0.5*z - (z*r));
+#else
+  union { double d; int2 i; i64 li; } tmp;
+  double a,hz,qx;
+  int ix;
+  tmp.d = x;
+  ix = tmp.i.y & 0x7fffffff;		/* ix = |x|'s high word*/
+  if (ix < 0x3FD33333) 			/* if |x| < 0.3 */ 
+    return 1.0 - (0.5*z - (z*r));
+  else {
+    if(ix > 0x3fe90000) {		/* x > 0.78125 */
+      qx = 0.28125;
+    } else {
+      tmp.i.y = ix - 0x00200000;	/* x/4 */
+      tmp.i.x = 0;
+      qx = tmp.d;
+    }
+    hz = 0.5*z - qx;
+    a  = 1.0 - qx;
+    return a - (hz - (z*r));
+  }
+#endif
+}
+
+// We use the following trig identities to convert our [0, pi/2] range to [-pi/4, pi/4] range:
+//	cos(A + B) = cos A cos B - sin A sin B 
+//	sin(A + B) = sin A cos B + cos A sin B 
+// We want to compute sin(pi*k/n) and cos(pi*k/n).  Let x = pi*k/n - pi/4
+// cos(pi*k/n) = cos(x + pi/4) = cos(x) * SQRTHALF - sin(x) * SQRTHALF
+// sin(pi*k/n) = sin(x + pi/4) = sin(x) * SQRTHALF + cos(x) * SQRTHALF
+
+double2 slowTrig(i32 k, i32 n) {
+  double angle = M_PI / n * k - M_PI / 4;
+  double c = __kernel_cos(angle);
+  double s = __kernel_sin(angle);
+#if DEBUG
+  if (k * 2 > n) printf ("slowTrig fail: k=%d, n=%d\n", k, n);
+#endif
+  return M_SQRT1_2 * U2(c - s, -(c + s));
+}
+
+// Caller can use this version if caller knows that k/n <= 0.25
+double2 slowTrig1(i32 k, i32 n) {
+  double angle = M_PI / n * k;
+#if DEBUG
+  if (k * 4 > n) printf ("slowTrig1 fail: k=%d, n=%d\n", k, n);
+#endif
+  return U2(__kernel_cos(angle), -__kernel_sin(angle));
+}
+
+#else
+#error No slowTrig defined  
+#endif
+
+// Macros that call slowTrig1 or slowTrig based on MIDDLE.  Larger MIDDLE values can lead to smaller k/n values.
+
+#if MIDDLE < 8
+#define slowTrigMid8	slowTrig
+#else
+#define slowTrigMid8	slowTrig1
+#endif
 
 // transpose LDS 64 x 64.
 void transposeLDS(local T *lds, T2 *u) {
@@ -2108,7 +2320,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 // s varies from 0 to SMALL_HEIGHT-1
 void middleMul1(T2 *u, u32 s) {
-  T2 step = slowTrig(s, BIG_HEIGHT / 2);
+  T2 step = slowTrigMid8(s, BIG_HEIGHT / 2);
   // This implementation improves roundoff accuracy by shortening the chain of complex multiplies.
   // There is also some chance that replacing mul with sq could result in a small reduction in f64 ops.
   // One might think this increases VGPR usage due to extra temporaries, however as of rocm 2.2
@@ -2150,7 +2362,8 @@ void middleMul1(T2 *u, u32 s) {
    mul_and_mul_by_conjugate(&steps[10], &steps[6], steps[8], steps[2]);
    u[6] = mul(u[6], steps[6]);
    u[10] = mul(u[10], steps[10]);
-#elif MORE_SQUARES_MIDDLEMUL1		// Less floating point ops, uses more registers
+#elif MORE_SQUARES_MIDDLEMUL1		// Less floating point ops, might be most accurate, uses more registers
+  UNROLL_MIDDLEMUL1_CONTROL
   for (i32 i = 1; i < MIDDLE; i++) {
     if (i == 1) {
       steps[i] = step;
@@ -2161,13 +2374,47 @@ void middleMul1(T2 *u, u32 s) {
     }
     u[i] = mul(u[i], steps[i]);
   }
-#else					// The original version.  Can use the fewest VGPRs.
+#elif CHEBYSHEV_METHOD			// Fewer floating point ops than original method.  Oddly, not faster.
+  steps[1] = step;
+  u[1] = mul(u[1], steps[1]);
+  steps[2] = sq(steps[1]);
+  u[2] = mul(u[2], steps[2]);
+  UNROLL_MIDDLEMUL1_CONTROL
+  for (i32 i = 3; i < MIDDLE; i++) {
+    steps[i].x = xy2minus(steps[1].x, steps[i-1].x, steps[i-2].x);
+    steps[i].y = xy2minus(steps[1].x, steps[i-1].y, steps[i-2].y);
+    u[i] = mul(u[i], steps[i]);
+  }
+#elif CHEBYSHEV_METHOD_FMA		// Fewest floating point ops of any method.
+  steps[1] = step;
+  u[1] = mul(u[1], steps[1]);
+  steps[2] = sq(steps[1]);
+  u[2] = mul(u[2], steps[2]);
+  T step1xtimes2 = steps[1].x * 2.0;
+  UNROLL_MIDDLEMUL1_CONTROL
+  for (i32 i = 3; i < MIDDLE; i++) {
+    steps[i].x = MSUB(step1xtimes2, steps[i-1].x, steps[i-2].x);
+    steps[i].y = MSUB(step1xtimes2, steps[i-1].y, steps[i-2].y);
+    u[i] = mul(u[i], steps[i]);
+  }
+#elif ORIGINAL_METHOD			// The original version.  May use the fewest VGPRs.
   T2 base = step;
   UNROLL_MIDDLEMUL1_CONTROL
   for (i32 i = 1; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
+#elif ORIGINAL_TWEAKED			// The original version with one minor tweak.  Should beat original when unrolled.
+  T2 base = step;
+  u[1] = mul(u[1], base);
+  base = sq(base);
+  UNROLL_MIDDLEMUL1_CONTROL
+  for (i32 i = 2; i < MIDDLE; ++i) {
+    u[i] = mul(u[i], base);
+    base = mul(base, step);
+  }
+#else
+#error No MiddleMul1 implementation
 #endif
 }
 
@@ -2175,8 +2422,8 @@ void middleMul1(T2 *u, u32 s) {
 // Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
 // g varies from 0 to WIDTH-1, me varies from 0 to SMALL_HEIGHT-1
 void middleMul2(T2 *u, u32 g, u32 me) {
-  T2 base = slowTrig(g * me,  BIG_HEIGHT * WIDTH / 2);
-  T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
+  T2 base = slowTrigMid8(g * me,  BIG_HEIGHT * WIDTH / 2);
+  T2 step = slowTrigMid8(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
 
   UNROLL_MIDDLEMUL2_CONTROL
   for (i32 i = 0; i < MIDDLE; ++i) {
@@ -3441,7 +3688,7 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
   u32 g2 = transPos(line2, MIDDLE, WIDTH);
 
   T2 base = slowTrig(me * H + line1, W * H);
-  T2 step = slowTrig(1, 8);
+  T2 step = slowTrig1(1, 8);
   
   for (u32 i = 0; i < 4; ++i, base = mul(base, step)) {
     if (i == 0 && line1 == 0 && me == 0) {
@@ -3526,7 +3773,7 @@ KERNEL(SMALL_HEIGHT / 2 / 4) multiply(P(T2) io, CP(T2) in) {
   u32 g2 = transPos(line2, MIDDLE, WIDTH);
 
   T2 base = slowTrig(me * H + line1, W * H);
-  T2 step = slowTrig(1, 8);
+  T2 step = slowTrig1(1, 8);
 
   for (u32 i = 0; i < 4; ++i, base = mul(base, step)) {
     if (i == 0 && line1 == 0 && me == 0) {
@@ -3639,7 +3886,7 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
 void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
   u32 me = get_local_id(0);
 
-  T2 step = slowTrig(1, NH);
+  T2 step = slowTrig1(1, NH);
   
   for (i32 i = 0; i < N; ++i, base = mul(base, step)) {
     T2 a = u[i];
@@ -3686,7 +3933,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
 
 // Should assert N == NH/2 or N == NH
 
-  T2 step = slowTrig(1, NH);
+  T2 step = slowTrig1(1, NH);
 
   for (i32 i = 0; i < NH / 4; ++i, base = mul(base, step)) {
     T2 a = u[i];
@@ -3818,7 +4065,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
   u32 me = get_local_id(0);
 
-  T2 step = slowTrig(1, NH);
+  T2 step = slowTrig1(1, NH);
   
   for (i32 i = 0; i < N; ++i, base = mul(base, step)) {
     T2 a = u[i];
@@ -3891,7 +4138,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
   u32 me = get_local_id(0);
 
-  T2 step = slowTrig(1, NH);
+  T2 step = slowTrig1(1, NH);
   
   for (i32 i = 0; i < NH / 4; ++i, base = mul(base, step)) {
     T2 a = u[i];
