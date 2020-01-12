@@ -9,18 +9,29 @@
 
 namespace fs = std::filesystem;
 
-void deleteSaveFiles(u32 E) {
-  string sE = to_string(E);
-  auto baseDir = fs::current_path() / sE;
-  fs::remove_all(baseDir);
-}
+namespace {
 
-static fs::path fileName(u32 E, u32 k, const string& suffix = "", const string& extension = "owl") {
+fs::path fileName(u32 E, u32 k, const string& suffix, const string& extension) {
   string sE = to_string(E);
   auto baseDir = fs::current_path() / sE;
   if (!fs::exists(baseDir)) { fs::create_directory(baseDir); }
   return baseDir / (to_string(k) + suffix + '.' + extension);
 }
+
+void cleanup(u32 E, const string& ext) {
+  error_code noThrow;
+  fs::remove(fileName(E, E, "", ext), noThrow);
+  fs::remove(fileName(E, E, "-old", ext), noThrow);
+  
+  // attempt delete the exponent folder in case it is now empty
+  fs::remove(fs::current_path() / to_string(E), noThrow);
+}
+
+}
+
+void PRPState::cleanup(u32 E) { ::cleanup(E, EXT); }
+void  P1State::cleanup(u32 E) { ::cleanup(E, EXT); }
+void  P2State::cleanup(u32 E) { ::cleanup(E, EXT); }
 
 // Residue from compacted words.
 u64 residue(const vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }

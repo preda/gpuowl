@@ -751,7 +751,8 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
     }
     queue->finish();
     if (factorFoundForExp == E) {
-      log("aborting the PRP test because a factor was found\n");
+      log("Aborting the PRP test because a factor was found\n");
+      factorFoundForExp = 0;
       return {false, 0, u32(-1)};
     } 
     

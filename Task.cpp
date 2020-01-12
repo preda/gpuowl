@@ -119,8 +119,7 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
       Worktodo::deletePRP(exponent);
       factorFoundForExp = 0;
     }
-    if (args.cleanup && !isPrime) { deleteSaveFiles(exponent); }
-    
+    if (args.cleanup && !isPrime) { PRPState::cleanup(exponent); }
   } else if (kind == PM1) {
     auto result = gpu->factorPM1(exponent, args, B1, B2);
     if (holds_alternative<string>(result)) {

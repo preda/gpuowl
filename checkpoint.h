@@ -34,6 +34,7 @@ protected:
 class PRPState : private StateLoader {
   // Exponent, iteration, block-size, res64, nErrors
   static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
+  static constexpr const char *EXT = "owl";
   
 protected:
   bool doLoad(const char* headerLine, FILE *fi) override;
@@ -41,13 +42,15 @@ protected:
   u32 getK() override { return k; }
   
 public:  
+  static void cleanup(u32 E);
+
   PRPState(u32 E, u32 iniBlockSize);
   PRPState(u32 E, u32 k, u32 blockSize, u64 res64, vector<u32> check, u32 nErrors)
     : E{E}, k{k}, blockSize{blockSize}, res64{res64}, check{std::move(check)}, nErrors{nErrors} {
   }
 
-  void save(bool persist) { StateLoader::save(E, "owl", persist ? k : 0); }
-  
+  void save(bool persist) { StateLoader::save(E, EXT, persist ? k : 0); }
+
   const u32 E{};
   u32 k{};
   u32 blockSize{};
@@ -66,6 +69,8 @@ class P1State : private StateLoader {
   u32 getK() override { return k; }
   
 public:
+  static void cleanup(u32 E);
+
   P1State(u32 E, u32 B1);
   P1State(u32 E, u32 B1, u32 k, u32 nBits, vector<u32> data)
     : E{E}, B1{B1}, k{k}, nBits{nBits}, data{std::move(data)} {
@@ -90,6 +95,8 @@ class P2State : private StateLoader {
   u32 getK() override { return k; }
   
 public:
+  static void cleanup(u32 E);
+  
   P2State(u32 E, u32 B1, u32 B2);
   P2State(u32 E, u32 B1, u32 B2, u32 k, vector<double> raw)
     : E{E}, B1{B1}, B2{B2}, k{k}, raw{std::move(raw)} {
