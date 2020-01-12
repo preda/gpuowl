@@ -4321,8 +4321,8 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
-KERNEL(256) testKernel(global T* io) {
+KERNEL(256) testKernel(global float* io) {
 	u32 me = get_local_id(0);
-        io[me] = sqrt(io[me]);
+        io[me] = native_sin(io[me]);
 }
 #endif
