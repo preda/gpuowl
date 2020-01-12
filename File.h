@@ -120,18 +120,24 @@ public:
 
   bool empty() { return size() == 0; }
 
+  // Returns newline-ended line.
   std::string readLine() {
     char buf[512];
+    buf[0] = 0;
     bool ok = fgets(buf, sizeof(buf), get());
-    return ok ? buf : "";
+    if (!ok) { return ""; }  // EOF or error
+    string line = buf;
+    if (line.empty() || line.back() != '\n') {
+      log("%s : line \"%s\" does not end with a newline", name.c_str(), line.c_str());
+      throw "lines must end with newline";
+    }
+    return line;
   }
 
   std::optional<std::string> maybeReadLine() {
-    char buf[512];
-    bool ok = fgets(buf, sizeof(buf), get());
-    std::optional<string> ret;
-    if (ok) { ret = buf; }
-    return ret;
+    std::string line = readLine();
+    if (line.empty()) { return std::nullopt; }
+    return line;
   }
 
   template<typename T>
