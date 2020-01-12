@@ -2475,13 +2475,13 @@ void middleShuffle(local T2 *lds, T2 *u, u32 kernel_width, u32 group_size) {
     u[i] = lds[me];
   }
 #else
-  for (u32 b = 0; b < 2; ++b) {
-    for (i32 i = 0; i < MIDDLE; ++i) {
-      bar();
-      ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = ((T*)(u + i))[b];
-      bar();
-      ((T*)(u + i))[b] = ((local T*)lds)[me];
-    }
+  for (i32 i = 0; i < MIDDLE; ++i) {
+    bar();
+    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = ((T*)(u + i))[0];
+    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size) + 256] = ((T*)(u + i))[1];
+    bar();
+    ((T*)(u + i))[0] = ((local T*)lds)[me];
+    ((T*)(u + i))[1] = ((local T*)lds)[me + 256];
   }
 #endif
 }
@@ -2491,7 +2491,7 @@ void middleShuffle(local T2 *lds, T2 *u, u32 kernel_width, u32 group_size) {
 
 #if defined(WORKINGIN)
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2542,7 +2542,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN1
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2668,7 +2668,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN2
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2726,7 +2726,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN3
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2784,7 +2784,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN4
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2842,7 +2842,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 #elif WORKINGIN5
 
 KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2930,7 +2930,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif defined(WORKINGOUT)
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2978,7 +2978,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT0
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -3037,7 +3037,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT1
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -3162,7 +3162,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT2
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -3220,7 +3220,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT3
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -3278,7 +3278,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT4
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -3336,7 +3336,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 #elif WORKINGOUT5
 
 KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
-  local T2 lds[256/T2_SHUFFLE_MIDDLE];
+  local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
   u32 me = get_local_id(0);
@@ -4321,8 +4321,8 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
-KERNEL(256) testKernel(global int* io) {
+KERNEL(256) testKernel(global T* io) {
 	u32 me = get_local_id(0);
-        io[2*me] = lowBits(io[2*me], ((unsigned) io[2*me + 1]) & 31);
+        io[me] = sqrt(io[me]);
 }
 #endif
