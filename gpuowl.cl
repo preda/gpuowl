@@ -8,8 +8,8 @@ NO_ASM : request to not use any inline __asm()
 NO_OMOD: do not use GCN output modifiers in __asm()
 
 NO_MERGED_MIDDLE
-WORKINGOUT
-WORKINGIN
+WORKINGOUTs <AMD default is WORKINGOUT3> <nVidia default is WORKINGOUT4>
+WORKINGINs  <AMD default is WORKINGIN5>  <nVidia default is WORKINGIN4>
 
 PREFER_LESS_FMA
 
@@ -17,19 +17,19 @@ ORIG_X2
 INLINE_X2
 FMA_X2
 
-UNROLL_ALL
+UNROLL_ALL <nVidia default>
 UNROLL_NONE
 UNROLL_WIDTH
-UNROLL_HEIGHT
-UNROLL_MIDDLEMUL1
-UNROLL_MIDDLEMUL2
+UNROLL_HEIGHT <AMD default>
+UNROLL_MIDDLEMUL1 <AMD default>
+UNROLL_MIDDLEMUL2 <AMD default>
 
-T2_SHUFFLE
+T2_SHUFFLE <nVidia default>
 NO_T2_SHUFFLE
 T2_SHUFFLE_WIDTH
 T2_SHUFFLE_MIDDLE
 T2_SHUFFLE_HEIGHT
-T2_SHUFFLE_REVERSELINE
+T2_SHUFFLE_REVERSELINE <AMD default>
 
 OLD_FFT8 <default>
 NEWEST_FFT8
@@ -42,29 +42,29 @@ NEWEST_FFT5
 NEW_FFT10 <default>
 OLD_FFT10
 
-CARRY32	<default>  // This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
-CARRY64
+CARRY32	<AMD default>		// This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
+CARRY64 <nVidia default>
 
-FANCY_MIDDLEMUL1		// Only implemented for MIDDLE=10 and MIDDLE=11
+FANCY_MIDDLEMUL1 <nVidia default> // Only implemented for MIDDLE=10 and MIDDLE=11
 MORE_SQUARES_MIDDLEMUL1		// Replaces some complex muls with complex squares but uses more registers
 CHEBYSHEV_METHOD		// Uses fewer floating point ops than original MiddleMul1 implementation (worse accuracy?)
 CHEBYSHEV_METHOD_FMA		// Uses fewest floating point ops of any of the MiddleMul1 implementations (worse accuracy?)
 ORIGINAL_METHOD			// The original straightforward MiddleMul1 implementation
-ORIGINAL_TWEAKED <default>	// The original MiddleMul1 implementation tweaked to save two multiplies
+ORIGINAL_TWEAKED <AMD default>	// The original MiddleMul1 implementation tweaked to save two multiplies
 
 ORIG_MIDDLEMUL2 <default>	// The original straightforward MiddleMul2 implementation
 CHEBYSHEV_MIDDLEMUL2		// Uses fewer floating point ops than original MiddleMul2 implementation (worse accuracy?)
 
 ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
-MORE_ACCURATE <default>		// Our own sin/cos implementation with extra accuracy (should be needlessly slower, but isn't)
-LESS_ACCURATE			// Opposite of MORE_ACCURATE
+MORE_ACCURATE <AMD default>	// Our own sin/cos implementation with extra accuracy (should be needlessly slower, but isn't)
+LESS_ACCURATE <nVidia default>	// Opposite of MORE_ACCURATE
 */
 
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
 AMDGPU  : set on AMD GPUs
 HAS_ASM : set if we believe __asm() can be used
-T2_SHUFFLE_TAILFUSED
+T2_SHUFFLE_TAILFUSED : set if either T2_SHUFFLE_HEIGHT or T2_SHUFFLE_REVERSELINE is set
 MERGED_MIDDLE : set unless NO_MERGED_MIDDLE is set
  */
 
@@ -118,7 +118,11 @@ G_H        "group height"
 #endif
 
 #if !CARRY32 && !CARRY64
+#if AMDGPU
 #define CARRY32 1
+#else
+#define CARRY64 1
+#endif
 #endif
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
@@ -168,7 +172,12 @@ G_H        "group height"
 #endif
 
 #if !FANCY_MIDDLEMUL1 && !MORE_SQUARES_MIDDLEMUL1 && !CHEBYSHEV_METHOD && !CHEBYSHEV_METHOD_FMA && !ORIGINAL_METHOD && !ORIGINAL_TWEAKED
+#if AMDGPU
 #define ORIGINAL_TWEAKED 1
+#else
+#define FANCY_MIDDLEMUL1 1
+#define ORIGINAL_TWEAKED 1
+#endif
 #endif
 
 #if !ORIG_MIDDLEMUL2 && !CHEBYSHEV_MIDDLEMUL2
@@ -180,7 +189,11 @@ G_H        "group height"
 #endif
 
 #if !MORE_ACCURATE && !LESS_ACCURATE
+#if AMDGPU
 #define MORE_ACCURATE 1
+#else
+#define LESS_ACCURATE 1
+#endif
 #endif
 
 // My 5M timings (in us).	WorkingOut0 is fftMiddleOut 128 + carryFused 372 (T2_SHUFFLE_MIDDLE)	133/369 (NO_T2_SHUFFLE)
@@ -192,10 +205,18 @@ G_H        "group height"
 //				WorkingOut5 is fftMiddleOut 120 + carryFused 311			111/309
 // For comparison non-merged carryFused is 297 us
 #if !WORKINGOUT && !WORKINGOUT0 && !WORKINGOUT1 && !WORKINGOUT1A && !WORKINGOUT2 && !WORKINGOUT3 && !WORKINGOUT4 && !WORKINGOUT5
+#if AMDGPU
 #if G_W >= 32
 #define WORKINGOUT3 1
 #elif G_W >= 8
 #define WORKINGOUT5 1
+#endif
+#else
+#if G_W >= 64
+#define WORKINGOUT4 1
+#elif G_W >= 8
+#define WORKINGOUT5 1
+#endif
 #endif
 #endif
 
@@ -207,7 +228,15 @@ G_H        "group height"
 //				WorkingIn5 is fftMiddleIn 134 + tailFused 194
 // For comparison non-merged tailFused is 192 us
 #if !WORKINGIN && !WORKINGIN1 && !WORKINGIN1A && !WORKINGIN2 && !WORKINGIN3 && !WORKINGIN4 && !WORKINGIN5
+#if AMDGPU
 #define WORKINGIN5 1
+#else
+#if G_H >= 64
+#define WORKINGIN4 1
+#else
+#define WORKINGIN5 1
+#endif
+#endif
 #endif
 
 #if UNROLL_WIDTH
@@ -245,8 +274,10 @@ G_H        "group height"
 // T shuffles should give the best performance.
 
 #if !T2_SHUFFLE && !NO_T2_SHUFFLE && !T2_SHUFFLE_WIDTH && !T2_SHUFFLE_MIDDLE && !T2_SHUFFLE_HEIGHT && !T2_SHUFFLE_REVERSELINE
-#ifdef AMDGPU
+#if AMDGPU
 #define T2_SHUFFLE_REVERSELINE 1
+#else
+#define T2_SHUFFLE 1
 #endif
 #endif
 
@@ -4321,8 +4352,8 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
-KERNEL(256) testKernel(global T* io) {
+KERNEL(256) testKernel(global float* io) {
 	u32 me = get_local_id(0);
-        io[me] = sqrt(io[me]);
+        io[me] = native_sin(io[me]);
 }
 #endif
