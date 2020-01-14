@@ -670,6 +670,20 @@ void Gpu::buildProof(u32 E, const Args& args) {
   
 }
 
+namespace {
+int nFitBufs(cl_device_id device, size_t bufSize) {
+  // log("availableBytes %lu\n", AllocTrac::availableBytes());
+  int n = AllocTrac::availableBytes() / bufSize;  
+  if (hasFreeMemInfo(device)) {
+    // log("freemem %lu\n", getFreeMem(device));
+    int n2 = (i64(getFreeMem(device)) - 256 * 1024 * 1024) / bufSize;
+    n = std::min(n, n2);
+  }
+  return n;
+}
+
+}
+
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
@@ -971,18 +985,18 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   bufAux.reset();
   SquaringSet big{*this, N, "big"};
   
+
   vector<Buffer<double>> blockBufs;
   try {
-    bool hasMemInfo = hasFreeMemInfo(device);
-    while ((blockBufs.size() < 2880 / 2) && (!hasMemInfo || (getFreeMem(device) >= 256 * 1024 * 1024))) {
-      blockBufs.emplace_back(queue, "pm1BlockBuf", N);
+    for (int i = 0, end = std::min(2880/2, nFitBufs(device, sizeof(double) * N)); i < end; ++i) {
+      blockBufs.emplace_back(queue, "p2BlockBuf"s + std::to_string(i), N);
     }
   } catch (const gpu_bad_alloc& e) {
   }
 
   vector<u32> stage2Data;
   
-  if (blockBufs.empty()) {
+  if (blockBufs.size() < 4) {
     log("%u P2 Not enough GPU memory. Please wait for GCD\n", E);
   } else {
   

@@ -55,7 +55,8 @@ public:
     using std::swap;
     swap(a.size, b.size);
   }
-  
-  static size_t totalAllocBytes() { return totalAlloc; }
+
   static void setMaxAlloc(size_t m) { maxAlloc = m; }
+  static size_t totalAllocBytes() { return totalAlloc; }
+  static size_t availableBytes() { return maxAlloc - totalAlloc; }
 };
