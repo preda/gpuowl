@@ -39,7 +39,7 @@ class File {
 public:
   class It {
   public:
-    It(File& file) : file{&file}, line{file.maybeReadLine()} {}
+    It(File& file) : file{&file}, line{file ? file.maybeReadLine() : nullopt} {}
     It() = default;
 
     bool operator==(const It& rhs) const { return !line && !rhs.line; }
