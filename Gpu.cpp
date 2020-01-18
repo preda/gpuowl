@@ -209,6 +209,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
   LOAD(multiply, hN / SMALL_H),
+  LOAD(multiplyDelta, hN / SMALL_H),
   LOAD(square, hN/SMALL_H),
   LOAD(tailFused, (hN / SMALL_H) / 2),
   LOAD(tailFusedMulDelta, (hN / SMALL_H) / 2),
@@ -232,7 +233,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
   bufSmallOut{queue, "smallOut", 256},
-  bufSumOut{queue, "sumOut", 1}
+  bufSumOut{queue, "sumOut", 1},
+  args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
@@ -345,7 +347,7 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
 void Gpu::modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3) {
   fftP(in, buf1);
   tW(buf1, buf3);
-  fftHin(buf3, buf1);		// GW:  buf1 could be reused, multiplier does not change -- pass in a leadIn argument???
+  fftHin(buf3, buf1); // GW:  buf1 could be reused, multiplier does not change -- pass in a leadIn argument???
 
   fftP(io, buf2);
   tW(buf2, buf3);
@@ -356,7 +358,7 @@ void Gpu::modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Bu
 
   tH(buf2, buf3);    
   fftW(buf3, buf2);
-  mul3 ? carryM(buf2, io) : carryA(buf2, io);
+  if (mul3) { carryM(buf2, io); } else { carryA(buf2, io); }
   carryB(io);
 };
 
@@ -434,7 +436,17 @@ void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
     transposeH(in, out);
   }
 }
-  
+
+void Gpu::tailMulDelta(Buffer<double>& in, Buffer<double>& out, Buffer<double>& bufA, Buffer<double>& bufB) {
+  if (args.uses("NO_P2_FUSED_TAIL")) {
+    fftHin(in, out);
+    multiplyDelta(out, bufA, bufB);
+    fftHout(out);
+  } else {
+    tailFusedMulDelta(in, out, bufA, bufB);
+  }
+}
+
 vector<int> Gpu::readOut(ConstBuffer<int> &buf) {
   transposeOut(buf, bufAux);
   return bufAux.read();
@@ -1036,7 +1048,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
           ++nSelected;
           carryFused(bufAcc, bufTmp);
           tW(bufTmp, bufAcc);
-          tailFusedMulDelta(bufAcc, bufTmp, big.C, blockBufs[i]);
+          tailMulDelta(bufAcc, bufTmp, big.C, blockBufs[i]);
           tH(bufTmp, bufAcc);
         }
       }

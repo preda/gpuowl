@@ -157,7 +157,7 @@ void Args::parse(string line) {
       string ss = s;
       std::replace(ss.begin(), ss.end(), ',', ' ');
       std::istringstream iss{ss};
-      flags.insert(flags.end(), std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{});
+      flags.insert(std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{});
     } else {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";

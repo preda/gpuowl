@@ -54,6 +54,7 @@ class Gpu {
   Kernel transposeIn, transposeOut;
 
   Kernel multiply;
+  Kernel multiplyDelta;
   Kernel square;
   Kernel tailFused;
   Kernel tailFusedMulDelta;
@@ -90,6 +91,8 @@ class Gpu {
   HostAccessBuffer<int> bufSmallOut;
   HostAccessBuffer<u64> bufSumOut;
 
+  const Args& args;
+  
   vector<u32> computeBase(u32 E, u32 B1);
   pair<vector<u32>, vector<u32>> seedPRP(u32 E, u32 B1);
   
@@ -118,6 +121,7 @@ class Gpu {
   void exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out);
   void topHalf(Buffer<double>& tmp, Buffer<double>& io);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
+  void tailMulDelta(Buffer<double>& in, Buffer<double>& out, Buffer<double>& bufA, Buffer<double>& bufB);
 
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, struct Weights&& weights);

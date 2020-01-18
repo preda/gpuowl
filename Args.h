@@ -5,7 +5,7 @@
 #include "common.h"
 
 #include <string>
-#include <vector>
+#include <set>
 
 class Args {
 public:
@@ -15,7 +15,8 @@ public:
 
   void parse(string line);
   void setDefaults();
-
+  bool uses(const std::string& key) const { return flags.count(key); }
+  
   string user;
   string cpu;
   string dump;
@@ -23,7 +24,7 @@ public:
   string resultsFile = "results.txt";
   string masterDir;
   string uid;
-  std::vector<std::string> flags;
+  std::set<std::string> flags;
   
   int device = 0;
   

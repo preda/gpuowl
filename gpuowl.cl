@@ -59,6 +59,12 @@ ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
 MORE_ACCURATE <AMD default>	// Our own sin/cos implementation with extra accuracy (should be needlessly slower, but isn't)
 LESS_ACCURATE <nVidia default>	// Opposite of MORE_ACCURATE
+
+
+---- P-1 below ----
+
+NO_P2_FUSED_TAIL                // Do not use the big kernel tailFusedMulDelta 
+
 */
 
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
@@ -3818,54 +3824,49 @@ KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   io[v] = b;
 }
 
-#if 0
-// Alternative form
-KERNEL(SMALL_HEIGHT / 2 / 4) multiply(P(T2) io, CP(T2) in) {
+#if NO_P2_FUSED_TAIL
+KERNEL(SMALL_HEIGHT / 2) multiplyDelta(P(T2) io, CP(T2) inA, CP(T2) inB ) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
   ENABLE_MUL2();
 
-  u32 me = get_local_id(0);
   u32 line1 = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  if (line1 == 0 && me == 0) {
+    io[0]     = shl(conjugate(foo2(io[0], inA[0] - inB[0])), 2);
+    io[W / 2] = shl(conjugate(mul(io[W / 2], inA[W / 2] - inB[W / 2])), 3);
+    return;
+  }
+
   u32 line2 = (H - line1) % H;
   u32 g1 = transPos(line1, MIDDLE, WIDTH);
   u32 g2 = transPos(line2, MIDDLE, WIDTH);
+  u32 k = g1 * W + me;
+  u32 v = g2 * W + (W - 1) - me + (line1 == 0);
+  T2 a = io[k];
+  T2 b = conjugate(io[v]);
+  T2 t = swap(slowTrig(me * H + line1, W * H));
+  X2(a, b);
+  b = mul(b, conjugate(t));
+  X2(a, b);
 
-  T2 base = slowTrig(me * H + line1, W * H);
-  T2 step = slowTrig1(1, 8);
+  T2 c = inA[k] - inB[k];
+  T2 d = conjugate(inA[v] - inB[v]);
+  X2(c, d);
+  d = mul(d, conjugate(t));
+  X2(c, d);
 
-  for (u32 i = 0; i < 4; ++i, base = mul(base, step)) {
-    if (i == 0 && line1 == 0 && me == 0) {
-      io[0]     = shl(foo2(conjugate(io[0]), conjugate(in[0])), 2);
-      io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2])), 3);
-    } else {
-      u32 k = g1 * W + i * (W / 8) + me;
-      u32 v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
-      T2 a = io[k];
-      T2 b = conjugate(io[v]);
-      T2 t = swap(base);
-      X2(a, b);
-      b = mul(b, conjugate(t));
-      X2(a, b);
+  a = mul(a, c);
+  b = mul(b, d);
 
-      T2 c = in[k];
-      T2 d = conjugate(in[v]);
-      X2(c, d);
-      d = mul(d, conjugate(t));
-      X2(c, d);
+  X2(a, b);
+  b = mul(b, t);
+  X2(a, b);
 
-      a = mul(a, c);
-      b = mul(b, d);
-
-      X2(a, b);
-      b = mul(b, t);
-      X2(a, b);
-
-      io[k] = conjugate(a);
-      io[v] = b;
-    }
-  }
+  io[k] = conjugate(a);
+  io[v] = b;
 }
 #endif
 
@@ -4298,6 +4299,9 @@ KERNEL(G_H) tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
 
+
+#if !NO_P2_FUSED_TAIL
+
 // equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
 KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_TAILFUSED];
@@ -4317,7 +4321,7 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
 
   readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
-  ENABLE_MUL2 ();
+  ENABLE_MUL2();
 
   fft_HEIGHT(lds, u, smallTrig);
   fft_HEIGHT(lds, v, smallTrig);
@@ -4349,6 +4353,8 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
   fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
+
+#endif
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL

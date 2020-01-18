@@ -8,6 +8,7 @@
 #include "common.h"
 
 #include <string>
+#include <stdexcept>
 
 class Kernel {
   KernelHolder kernel;
@@ -22,7 +23,7 @@ public:
     queue(std::move(queue)),
     nWorkGroups(nWorkGroups),
     name(name),
-    groupSize(getWorkGroupSize(kernel.get(), device, name.c_str()))
+    groupSize(kernel ? getWorkGroupSize(kernel.get(), device, name.c_str()) : 0)
   {}
 
   template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(pos, tail...); }
@@ -45,5 +46,11 @@ private:
     setArgs(pos + 1, tail...);
   }
   
-  void run() { queue->run(kernel.get(), groupSize, nWorkGroups * groupSize, name); }
+  void run() {
+    if (kernel) {
+      queue->run(kernel.get(), groupSize, nWorkGroups * groupSize, name);
+    } else {
+      throw std::runtime_error("OpenCL kernel "s + name + " not found");
+    }
+  }
 };

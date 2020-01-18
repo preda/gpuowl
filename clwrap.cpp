@@ -292,6 +292,7 @@ cl_program compile(cl_device_id device, cl_context context, const string &source
 cl_kernel makeKernel(cl_program program, const char *name) {
   int err;
   cl_kernel k = clCreateKernel(program, name, &err);
+  if (err == CL_INVALID_KERNEL_NAME) { return nullptr; }
   CHECK2(err, name);
   return k;
 }
