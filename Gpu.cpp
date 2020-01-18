@@ -249,7 +249,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   carryM.setFixedArgs(2, bufCarry, bufWeightI, bufExtras);
   carryB.setFixedArgs(1, bufCarry, bufExtras);
   tailFused.setFixedArgs(2, bufTrigH);
-  tailFusedMulDelta.setFixedArgs(4, bufTrigH);
+  tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
   sum64.setFixedArgs(2, bufSumOut);
   
   queue->zero(bufReady, BIG_H);

@@ -7,7 +7,7 @@ from operator import itemgetter
 def dump(name, counts):
     items = sorted(counts.items()) # , key=itemgetter(1))
     for a, b in items:
-        print(name, ':', a, b)
+        print('%-17s:    %-25s %5d' % (name, a, b))
     counts.clear()         
 
 counts = defaultdict(int)

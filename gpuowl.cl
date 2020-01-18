@@ -4303,7 +4303,12 @@ KERNEL(G_H) tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
 #if !NO_P2_FUSED_TAIL
 
 // equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
-KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig smallTrig) {
+// __attribute__((amdgpu_num_vgpr(128)))
+KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig smallTrig, Trig smallTrig2) {
+  // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
+  // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
+  // to poor occupancy.
+  
   local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_TAILFUSED];
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];
@@ -4318,11 +4323,10 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
 
   readTailFusedLine(in, u, line1, memline1);
   readTailFusedLine(in, v, line2, memline2);
-
   readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
-  ENABLE_MUL2();
 
+  ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
   fft_HEIGHT(lds, v, smallTrig);
 
@@ -4347,10 +4351,10 @@ KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig sma
     reverseLine(G_H, lds, q);
   }
 
-  fft_HEIGHT(lds, v, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig2);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   
-  fft_HEIGHT(lds, u, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig2);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
 
