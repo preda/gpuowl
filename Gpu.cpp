@@ -197,8 +197,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(carryFusedMul, BIG_H + 1),
   LOAD(fftP, BIG_H),
   LOAD(fftW, BIG_H),
-  LOAD(fftHin, (hN / SMALL_H)),
-  LOAD(fftHout, (hN / SMALL_H)),
+  LOAD(fftHin,  hN / SMALL_H),
+  LOAD(fftHout, hN / SMALL_H),
   LOAD(fftMiddleIn,  hN / (256 * (BIG_H / SMALL_H))),
   LOAD(fftMiddleOut, hN / (256 * (BIG_H / SMALL_H))),
   LOAD(carryA,   nW * (BIG_H/16)),
@@ -208,9 +208,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(transposeH,   (W/64) * (BIG_H/64)),
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
-  LOAD(multiply, hN / SMALL_H),
+  LOAD(multiply,      hN / SMALL_H),
   LOAD(multiplyDelta, hN / SMALL_H),
-  LOAD(square, hN/SMALL_H),
+  LOAD(square,        hN/SMALL_H),
   LOAD(tailFused, (hN / SMALL_H) / 2),
   LOAD(tailFusedMulDelta, (hN / SMALL_H) / 2),
   LOAD(readResidue, 1),
@@ -1053,19 +1053,16 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         }
       }
       queue->finish();
-      logTimeKernels();
+      if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+        string gcd = gcdFuture.get();
+        log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+        if (!gcd.empty()) { return gcd; }
+      }
     }
 
     if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, bufAcc.read()}.save(); }
-    
     log("%u P2 %4u/2880: %u primes; setup %5.2f s, %7.3f ms/prime\n", E, pos + nUsedBufs, nSelected, setup, timer.deltaSecs() * 1000.f / (nSelected + 1));
-    // logTimeKernels();
-
-    if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-      string gcd = gcdFuture.get();
-      log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-      if (!gcd.empty()) { return gcd; }
-    }      
+    logTimeKernels();
   }
 
   fftW(bufAcc, bufTmp);

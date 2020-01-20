@@ -2260,7 +2260,7 @@ KERNEL(G_H) fftHin(CP(T2) in, P(T2) out, Trig smallTrig) {
 
 // Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)
 KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_HEIGHT];
+  local T2 lds[SMALL_HEIGHT / T2_SHUFFLE_HEIGHT];
   T2 u[NH];
   u32 g = get_group_id(0);
 
