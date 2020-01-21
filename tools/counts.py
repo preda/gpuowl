@@ -15,7 +15,7 @@ name = ''
 for line in sys.stdin:
     words = line.strip().split()
     # print(words)
-    if len(words) >= 3 and words[1] in ('NumSGPRsForWavesPerEU:', 'NumVGPRsForWavesPerEU:', 'Occupancy:'):
+    if len(words) >= 3 and words[1] in ('NumSGPRsForWavesPerEU:', 'NumVGPRsForWavesPerEU:', 'Occupancy:', 'LDSByteSize:'):
         counts[words[1]] = int(words[2])
     elif len(words) >= 4 and words[1] == 'codeLenInByte':
         counts[words[1]] = int(words[3])

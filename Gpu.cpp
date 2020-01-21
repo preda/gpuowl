@@ -211,8 +211,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(multiply,      hN / SMALL_H),
   LOAD(multiplyDelta, hN / SMALL_H),
   LOAD(square,        hN/SMALL_H),
-  LOAD(tailFused, (hN / SMALL_H) / 2),
-  LOAD(tailFusedMulDelta, (hN / SMALL_H) / 2),
+  LOAD(tailFused,         hN / SMALL_H / 2),
+  LOAD(tailFusedMulDelta, hN / SMALL_H / 2),
+  LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
+  LOAD(tailFusedMul,      hN / SMALL_H / 2),
   LOAD(readResidue, 1),
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
@@ -250,6 +252,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   carryB.setFixedArgs(1, bufCarry, bufExtras);
   tailFused.setFixedArgs(2, bufTrigH);
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
+  tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);
+  tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
   sum64.setFixedArgs(2, bufSumOut);
   
   queue->zero(bufReady, BIG_H);
@@ -343,18 +347,26 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
   return v;
 }
 
+void Gpu::tailMul(Buffer<double>& in, Buffer<double>& out, Buffer<double>& inTmp) {
+  if (true) {
+    tailFusedMul(in, out, inTmp);
+  } else {
+    fftHin(inTmp, out);
+    fftHin(in, inTmp);
+    multiply(out, inTmp);
+    fftHout(out);
+  }
+}
+
 // The modular multiplication io *= in.
 void Gpu::modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3) {
-  fftP(in, buf1);
-  tW(buf1, buf3);
-  fftHin(buf3, buf1); // GW:  buf1 could be reused, multiplier does not change -- pass in a leadIn argument???
+  fftP(in, buf2);
+  tW(buf2, buf1);
 
   fftP(io, buf2);
   tW(buf2, buf3);
-  fftHin(buf3, buf2);
 
-  multiply(buf2, buf1);
-  fftHout(buf2);
+  tailMul(buf3, buf2, buf1);
 
   tH(buf2, buf3);    
   fftW(buf3, buf2);
