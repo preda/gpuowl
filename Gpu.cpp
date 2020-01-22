@@ -488,10 +488,41 @@ void Gpu::topHalf(Buffer<double>& in, Buffer<double>& out) {
   tW(in, out);
 }
 
+/*
+void Gpu::exponentiateHigh(Buffer<int>& bufOut, const Buffer<int>& bufBaseHi, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2) {
+  if (exp == 0) {
+    queue->zero(bufOut, N);
+    u32 data = 1;
+    fillBuf(queue->get(), bufOut.get(), &data, sizeof(data));
+  } else {
+    if (exp == 1) {
+      bufOut << bufBaseHi;
+      return;
+    }
+
+    fftP(bufBaseHi, buf1);
+    tW(buf1, buf2);
+    fftHin(buf2, bufBase);
+    
+    int p = 63;
+    while ((exp >> p) == 0) { --p; }
+    assert(p > 0);
+    coreStep(true, false, false, buf1, buf2, base);
+
+    while (true) {
+      --p;
+      if ((exp >> p) & 1) {
+        
+      }
+    }
+  }
+}
+*/
+
 // See "left-to-right binary exponentiation" on wikipedia
 // Computes out := base**exp
 // All buffers are in "low" position.
-void Gpu::exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out) {
+void Gpu::exponentiateLow(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out) {
   if (exp == 0) {
     queue->zero(out, N / 2);
     u32 data = 1;
@@ -853,12 +884,12 @@ struct SquaringSet {
   SquaringSet(Gpu& gpu, u32 N, const Buffer<double>& bufBase, Buffer<double>& bufTmp, array<u64, 3> exponents, string_view name)
     : SquaringSet(gpu, N, name) {
     
-    gpu.exponentiate(bufBase, exponents[0], bufTmp, C);
-    gpu.exponentiate(bufBase, exponents[1], bufTmp, B);
+    gpu.exponentiateLow(bufBase, exponents[0], bufTmp, C);
+    gpu.exponentiateLow(bufBase, exponents[1], bufTmp, B);
     if (exponents[2] == exponents[1]) {
       A << B;
     } else {
-      gpu.exponentiate(bufBase, exponents[2], bufTmp, A);
+      gpu.exponentiateLow(bufBase, exponents[2], bufTmp, A);
     }
   }
 
@@ -996,7 +1027,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   u32 nBlocks = allSelected.size();
   log("%u P2 using blocks [%u - %u] to cover %u primes\n", E, startBlock, startBlock + nBlocks - 1, nPrimes);
   
-  exponentiate(bufBase, 30030*30030, bufTmp, bufAux); // Aux := base^(D^2)
+  exponentiateLow(bufBase, 30030*30030, bufTmp, bufAux); // Aux := base^(D^2)
 
   constexpr auto jset = getJset();
   static_assert(jset[0] == 1);

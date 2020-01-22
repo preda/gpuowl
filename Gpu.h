@@ -120,7 +120,7 @@ class Gpu {
   void coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io);
 
   void multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& io);
-  void exponentiate(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out);
+  void exponentiateLow(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out);
   void topHalf(Buffer<double>& tmp, Buffer<double>& io);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   void tailMulDelta(Buffer<double>& in, Buffer<double>& out, Buffer<double>& bufA, Buffer<double>& bufB);
