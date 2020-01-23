@@ -1810,7 +1810,7 @@ typedef CP(T2) Trig;
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 // Read 64 Word2 starting at position 'startDword'.
-KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, u32 startDword) {
+KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
   u32 me = get_local_id(0);
   u32 k = (startDword + me) % ND;
   u32 y = k % BIG_HEIGHT;
@@ -1820,7 +1820,7 @@ KERNEL(64) readResidue(CP(Word2) in, P(Word2) out, u32 startDword) {
 
 u32 transPos(u32 k, u32 width, u32 height) { return k / height + k % height * width; }
 
-KERNEL(256) sum64(u32 sizeBytes, global ulong* in, global ulong* out) {
+KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
   if (get_global_id(0) == 0) { out[0] = 0; }
   
   ulong sum = 0;
@@ -1838,7 +1838,7 @@ KERNEL(256) sum64(u32 sizeBytes, global ulong* in, global ulong* out) {
 }
 
 // outEqual must be "true" on entry.
-KERNEL(256) isEqual(u32 sizeBytes, global i64 *in1, global i64 *in2, P(bool) outEqual) {
+KERNEL(256) isEqual(P(bool) outEqual, u32 sizeBytes, global i64 *in1, global i64 *in2) {
   for (i32 p = get_global_id(0); p < sizeBytes / sizeof(i64); p += get_global_size(0)) {
     if (in1[p] != in2[p]) {
       *outEqual = false;
@@ -1848,7 +1848,7 @@ KERNEL(256) isEqual(u32 sizeBytes, global i64 *in1, global i64 *in2, P(bool) out
 }
 
 // outNotZero must be "false" on entry.
-KERNEL(256) isNotZero(u32 sizeBytes, global i64 *in, P(bool) outNotZero) {
+KERNEL(256) isNotZero(P(bool) outNotZero, u32 sizeBytes, global i64 *in) {
   for (i32 p = get_global_id(0); p < sizeBytes / sizeof(i64); p += get_global_size(0)) {
     if (in[p] != 0) {
       *outNotZero = true;
@@ -2036,7 +2036,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 }
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
-KERNEL(G_W) fftW(CP(T2) in, P(T2) out, Trig smallTrig) {
+KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
   local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
   T2 u[NW];
   u32 g = get_group_id(0);
@@ -2245,7 +2245,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 }
 
 // Do an FFT Height after a transposeW (which may not have fully transposed data, leading to non-sequential input)
-KERNEL(G_H) fftHin(CP(T2) in, P(T2) out, Trig smallTrig) {
+KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_HEIGHT];
   T2 u[NH];
   u32 g = get_group_id(0);
@@ -2340,7 +2340,7 @@ void fft_MIDDLE(T2 *u) {
 
 #if MIDDLE == 1 || !MERGED_MIDDLE
 
-KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   T2 u[MIDDLE];
   u32 N = SMALL_HEIGHT / 256;
   u32 g = get_group_id(0);
@@ -2527,7 +2527,7 @@ void middleShuffle(local T2 *lds, T2 *u, u32 kernel_width, u32 group_size) {
 // It is slow, but it does work.
 
 #if defined(WORKINGIN)
-KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -2578,7 +2578,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
 #elif WORKINGIN1
 
-KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -2636,7 +2636,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
 #elif WORKINGIN1A
 
-KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   local T lds[256*2];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -2704,7 +2704,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
 #elif WORKINGIN2
 
-KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -2762,7 +2762,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
 #elif WORKINGIN3
 
-KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -2820,7 +2820,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
 #elif WORKINGIN4
 
-KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -2878,7 +2878,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
 #elif WORKINGIN5
 
-KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -2941,7 +2941,7 @@ KERNEL(256) fftMiddleIn(CP(T2) in, P(T2) out) {
 
 #if MIDDLE == 1 || !MERGED_MIDDLE
 
-KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   T2 u[MIDDLE];
   u32 N = SMALL_HEIGHT / 256;
   u32 g = get_group_id(0);
@@ -2966,7 +2966,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
 #elif defined(WORKINGOUT)
 
-KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -3014,7 +3014,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
 #elif WORKINGOUT0
 
-KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -3073,7 +3073,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
 #elif WORKINGOUT1
 
-KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -3130,7 +3130,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 }
 #elif WORKINGOUT1A
 
-KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   local T lds[256*2];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -3198,7 +3198,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
 #elif WORKINGOUT2
 
-KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -3256,7 +3256,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
 #elif WORKINGOUT3
 
-KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -3314,7 +3314,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
 #elif WORKINGOUT4
 
-KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -3372,7 +3372,7 @@ KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
 
 #elif WORKINGOUT5
 
-KERNEL(256) fftMiddleOut(P(T2) in, P(T2) out) {
+KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -3449,12 +3449,12 @@ void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *
   carryOut[G_W * g + me] = carry;
 }
 
-KERNEL(G_W) carryA(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
+KERNEL(G_W) carryA(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
   ENABLE_MUL2();
   carryACore(1, in, A, out, carryOut, extras);
 }
 
-KERNEL(G_W) carryM(CP(T2) in, P(Word2) out, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
+KERNEL(G_W) carryM(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
   ENABLE_MUL2();
   carryACore(3, in, A, out, carryOut, extras);
 }
@@ -3509,7 +3509,7 @@ void acquire() {
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 // __attribute__((amdgpu_num_vgpr(64)))
-KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
+KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
   u32 gr = get_group_id(0);
@@ -3634,7 +3634,7 @@ KERNEL(G_W) carryFused(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready
 }
 
 // copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
-KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
+KERNEL(G_W) carryFusedMul(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                           CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
   u32 gr = get_group_id(0);
@@ -3715,27 +3715,27 @@ KERNEL(G_W) carryFusedMul(CP(T2) in, P(T2) out, P(Carry) carryShuttle, P(u32) re
 
 
 // __attribute__((amdgpu_num_vgpr(128)))
-KERNEL(256) transposeW(CP(T2) in, P(T2) out) {
+KERNEL(256) transposeW(P(T2) out, CP(T2) in) {
   local T lds[4096];
   ENABLE_MUL2();
   transpose(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
-KERNEL(256) transposeH(CP(T2) in, P(T2) out) {
+KERNEL(256) transposeH(P(T2) out, CP(T2) in) {
   local T lds[4096];
   ENABLE_MUL2();
   transpose(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
 // from transposed to sequential.
-KERNEL(256) transposeOut(CP(Word2) in, P(Word2) out) {
+KERNEL(256) transposeOut(P(Word2) out, CP(Word2) in) {
   local Word2 lds[4096];
   ENABLE_MUL2();
   transposeWords(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
 // from sequential to transposed.
-KERNEL(256) transposeIn(CP(Word2) in, P(Word2) out) {
+KERNEL(256) transposeIn(P(Word2) out, CP(Word2) in) {
   local Word2 lds[4096];
   ENABLE_MUL2();
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
@@ -4300,7 +4300,7 @@ KERNEL(G_H) tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
 }
 
 // equivalent to: fftHin(io, out), fftHin(base, tmp), multiply(out, tmp), fftH(out)
-KERNEL(G_H) tailFusedMul(CP(T2) in, P(T2) out, CP(T2) base, Trig smallTrig, Trig smallTrig2) {
+KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, Trig smallTrig2) {
   // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
@@ -4357,7 +4357,7 @@ KERNEL(G_H) tailFusedMul(CP(T2) in, P(T2) out, CP(T2) base, Trig smallTrig, Trig
 }
 
 // equivalent to: fftHin(io, out), multiply(out, base), fftH(out)
-KERNEL(G_H) tailFusedMulLow(CP(T2) in, P(T2) out, CP(T2) base, Trig smallTrig, Trig smallTrig2) {
+KERNEL(G_H) tailFusedMulLow(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, Trig smallTrig2) {
   // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
@@ -4417,7 +4417,7 @@ KERNEL(G_H) tailFusedMulLow(CP(T2) in, P(T2) out, CP(T2) base, Trig smallTrig, T
 
 // equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
 // __attribute__((amdgpu_num_vgpr(128)))
-KERNEL(G_H) tailFusedMulDelta(CP(T2) in, P(T2) out, CP(T2) a, CP(T2) b, Trig smallTrig, Trig smallTrig2) {
+KERNEL(G_H) tailFusedMulDelta(P(T2) out, CP(T2) in, CP(T2) a, CP(T2) b, Trig smallTrig, Trig smallTrig2) {
   // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
