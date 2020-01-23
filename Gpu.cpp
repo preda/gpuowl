@@ -346,7 +346,7 @@ vector<u32> Gpu::writeCheck(const vector<u32> &v) {
   return v;
 }
 
-void Gpu::tailMul(Buffer<double>& in, Buffer<double>& out, Buffer<double>& inTmp) {
+void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp) {
   if (true) {
     tailFusedMul(out, in, inTmp);
   } else {
@@ -360,14 +360,14 @@ void Gpu::tailMul(Buffer<double>& in, Buffer<double>& out, Buffer<double>& inTmp
 // The modular multiplication io *= in.
 void Gpu::modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3) {
   fftP(in, buf2);
-  tW(buf2, buf1);
+  tW(buf1, buf2);
 
   fftP(io, buf2);
-  tW(buf2, buf3);
+  tW(buf3, buf2);
 
-  tailMul(buf3, buf2, buf1);
+  tailMul(buf2, buf3, buf1);
 
-  tH(buf2, buf3);    
+  tH(buf3, buf2);
   fftW(buf2, buf3);
   if (mul3) { carryM(io, buf2); } else { carryA(io, buf2); }
   carryB(io);
@@ -430,7 +430,7 @@ void Gpu::logTimeKernels() {
   }
 }
 
-void Gpu::tW(Buffer<double>& in, Buffer<double>& out) {
+void Gpu::tW(Buffer<double>& out, Buffer<double>& in) {
   if (useMergedMiddle) {
     fftMiddleIn(out, in);
   } else {
@@ -439,7 +439,7 @@ void Gpu::tW(Buffer<double>& in, Buffer<double>& out) {
   }
 }
 
-void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
+void Gpu::tH(Buffer<double>& out, Buffer<double>& in) {
   if (useMergedMiddle) {
     fftMiddleOut(out, in);
   } else {
@@ -448,7 +448,7 @@ void Gpu::tH(Buffer<double>& in, Buffer<double>& out) {
   }
 }
 
-void Gpu::tailMulDelta(Buffer<double>& in, Buffer<double>& out, Buffer<double>& bufA, Buffer<double>& bufB) {
+void Gpu::tailMulDelta(Buffer<double>& out, Buffer<double>& in, Buffer<double>& bufA, Buffer<double>& bufB) {
   if (args.uses("NO_P2_FUSED_TAIL")) {
     fftHin(out, in);
     multiplyDelta(out, bufA, bufB);
@@ -474,17 +474,17 @@ void Gpu::writeIn(const vector<int>& words, Buffer<int>& buf) {
 void Gpu::multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& io) {
   multiply(io, in);
   fftHout(io);
-  tH(io, tmp);
+  tH(tmp, io);
   carryFused(io, tmp);
-  tW(io, tmp);
+  tW(tmp, io);
   fftHin(io, tmp);
 }
 
 // Auxiliary performing the top half of the cycle (excluding the bottom tailFused).
 void Gpu::topHalf(Buffer<double>& in, Buffer<double>& out) {
-  tH(in, out);
+  tH(out, in);
   carryFused(in, out);
-  tW(in, out);
+  tW(out, in);
 }
 
 /*
@@ -500,7 +500,7 @@ void Gpu::exponentiateHigh(Buffer<int>& bufOut, const Buffer<int>& bufBaseHi, u6
     }
 
     fftP(bufBaseHi, buf1);
-    tW(buf1, buf2);
+    tW(buf2, buf1);
     fftHin(bufBase, buf2);
     
     int p = 63;
@@ -527,7 +527,7 @@ void Gpu::exponentiateLow(const Buffer<double>& base, u64 exp, Buffer<double>& t
     u32 data = 1;
     fillBuf(queue->get(), out.get(), &data, sizeof(data));
     fftP(out, tmp);
-    tW(tmp, out);
+    tW(out, tmp);
   } else {
     out << base;
     if (exp == 1) { return; }
@@ -564,9 +564,9 @@ void Gpu::exponentiateLow(const Buffer<double>& base, u64 exp, Buffer<double>& t
 
 void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io) {
   if (leadIn) { fftP(io, buf1); }
-  tW(buf1, bufTmp);
+  tW(bufTmp, buf1);
   tailFused(bufTmp, buf1);
-  tH(buf1, bufTmp);
+  tH(bufTmp, buf1);
 
   if (leadOut) {
     fftW(buf1, bufTmp);
@@ -982,9 +982,9 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
   HostAccessBuffer<double> bufAcc{queue, "acc", N};
 
-  tW(bufAux, bufTmp);
+  tW(bufTmp, bufAux);
   tailFused(bufTmp, bufAux);
-  tH(bufAux, bufAcc);			// Save bufAcc for later use as an accumulator
+  tH(bufAcc, bufAux);			// Save bufAcc for later use as an accumulator
   fftW(bufAux, bufAcc);
   carryA(bufData, bufAux);
   carryB(bufData);
@@ -1018,7 +1018,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   // Take bufData to "low" state stored in bufBase
   Buffer<double> bufBase{queue, "base", N};
   fftP(bufData, bufBase);
-  tW(bufBase, bufTmp);
+  tW(bufTmp, bufBase);
   fftHin(bufBase, bufTmp);
   
   auto [startBlock, nPrimes, allSelected] = makePm1Plan(B1, B2);
@@ -1089,9 +1089,9 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         if (selected[pos + i]) {
           ++nSelected;
           carryFused(bufTmp, bufAcc);
-          tW(bufTmp, bufAcc);
-          tailMulDelta(bufAcc, bufTmp, big.C, blockBufs[i]);
-          tH(bufTmp, bufAcc);
+          tW(bufAcc, bufTmp);
+          tailMulDelta(bufTmp, bufAcc, big.C, blockBufs[i]);
+          tH(bufAcc, bufTmp);
         }
       }
       queue->finish();
