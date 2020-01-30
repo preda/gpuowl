@@ -2273,7 +2273,7 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-KERNEL(G_W) fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
+KERNEL(G_W) k_fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
   T2 u[NW];
   u32 g = get_group_id(0);
@@ -4256,7 +4256,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 #endif
 
 // equivalent to: fftHin, multiply, fftHout.
-KERNEL(G_H) tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
+KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT / T2_SHUFFLE_TAILFUSED];
   T2 u[NH], v[NH];
 

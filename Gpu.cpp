@@ -193,9 +193,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   queue(Queue::make(context, timeKernels, args.cudaYield)),
 
 #define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name)
-  LOAD(carryFused, BIG_H + 1),
+  LOAD(carryFused,    BIG_H + 1),
   LOAD(carryFusedMul, BIG_H + 1),
-  LOAD(fftP, BIG_H),
+  LOAD(k_fftP, BIG_H),
   LOAD(fftW, BIG_H),
   LOAD(fftHin,  hN / SMALL_H),
   LOAD(fftHout, hN / SMALL_H),
@@ -211,7 +211,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(multiply,      hN / SMALL_H),
   LOAD(multiplyDelta, hN / SMALL_H),
   LOAD(square,        hN/SMALL_H),
-  LOAD(tailFused,         hN / SMALL_H / 2),
+  LOAD(k_tailFused,         hN / SMALL_H / 2),
   LOAD(tailFusedMulDelta, hN / SMALL_H / 2),
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
   LOAD(tailFusedMul,      hN / SMALL_H / 2),
@@ -242,7 +242,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   program.reset();
   carryFused.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
-  fftP.setFixedArgs(2, bufWeightA, bufTrigW);
+  k_fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
@@ -250,7 +250,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   carryA.setFixedArgs(2, bufCarry, bufWeightI, bufExtras);
   carryM.setFixedArgs(2, bufCarry, bufWeightI, bufExtras);
   carryB.setFixedArgs(1, bufCarry, bufExtras);
-  tailFused.setFixedArgs(2, bufTrigH);
+  k_tailFused.setFixedArgs(2, bufTrigH);
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
   tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);
   tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
@@ -359,10 +359,10 @@ void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp
 
 // The modular multiplication io *= in.
 void Gpu::modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3) {
-  fftP(in, buf2);
+  fftP(buf2, in);
   tW(buf1, buf2);
 
-  fftP(io, buf2);
+  fftP(buf2, io);
   tW(buf3, buf2);
 
   tailMul(buf2, buf3, buf1);
@@ -481,7 +481,7 @@ void Gpu::multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& i
 }
 
 // Auxiliary performing the top half of the cycle (excluding the bottom tailFused).
-void Gpu::topHalf(Buffer<double>& in, Buffer<double>& out) {
+void Gpu::topHalf(Buffer<double>& out, Buffer<double>& in) {
   tH(out, in);
   carryFused(in, out);
   tW(out, in);
@@ -522,50 +522,53 @@ void Gpu::exponentiateHigh(Buffer<int>& bufOut, const Buffer<int>& bufBaseHi, u6
 // Computes out := base**exp
 // All buffers are in "low" position.
 void Gpu::exponentiateLow(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out) {
+  assert(exp);
+  /*
   if (exp == 0) {
     queue->zero(out, N / 2);
     u32 data = 1;
     fillBuf(queue->get(), out.get(), &data, sizeof(data));
-    fftP(out, tmp);
+    fftP(tmp, out);
     tW(out, tmp);
   } else {
-    out << base;
-    if (exp == 1) { return; }
+  */
+  out << base;
+  if (exp == 1) { return; }
 
-    int p = 63;
-    while ((exp >> p) == 0) { --p; }
-    assert(p > 0);
+  int p = 63;
+  while ((exp >> p) == 0) { --p; }
+  assert(p > 0);
 
-    // square from "low" position.
-    square(out);				// GW:  The multiply and square routines could also do fftHout
-    fftHout(out);
-    topHalf(out, tmp);
+  // square from "low" position.
+  square(out);				// GW:  The multiply and square routines could also do fftHout
+  fftHout(out);
+  topHalf(tmp, out);
 
-    while (true) {
-      --p;
-      if ((exp >> p) & 1) {
-        fftHin(out, tmp); // to low
-
-        // multiply from low
-        multiply(out, base);			// GW:  The multiply and square routines could also do fftHout
-	fftHout(out);
-        topHalf(out, tmp);
-      }
-      if (p <= 0) { break; }
-
-      // square
-      tailFused(tmp, out);
-      topHalf(out, tmp);
+  while (true) {
+    --p;
+    if ((exp >> p) & 1) {
+      fftHin(out, tmp); // to low
+      
+      // multiply from low
+      multiply(out, base);			// GW:  The multiply and square routines could also do fftHout
+      fftHout(out);
+      topHalf(tmp, out);
     }
+    if (p <= 0) { break; }
+    
+    // square
+    tailFused(out, tmp);
+    topHalf(tmp, out);
   }
+  //}
 
   fftHin(out, tmp); // to low
 }
 
 void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io) {
-  if (leadIn) { fftP(io, buf1); }
+  if (leadIn) { fftP(buf1, io); }
   tW(bufTmp, buf1);
-  tailFused(bufTmp, buf1);
+  tailFused(buf1, bufTmp);
   tH(bufTmp, buf1);
 
   if (leadOut) {
@@ -978,12 +981,12 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   }
 
   // See coreStep().
-  if (leadIn) { fftP(bufData, bufAux); }
+  if (leadIn) { fftP(bufAux, bufData); }
 
   HostAccessBuffer<double> bufAcc{queue, "acc", N};
 
   tW(bufTmp, bufAux);
-  tailFused(bufTmp, bufAux);
+  tailFused(bufAux, bufTmp);
   tH(bufAcc, bufAux);			// Save bufAcc for later use as an accumulator
   fftW(bufAux, bufAcc);
   carryA(bufData, bufAux);
@@ -1017,7 +1020,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
 
   // Take bufData to "low" state stored in bufBase
   Buffer<double> bufBase{queue, "base", N};
-  fftP(bufData, bufBase);
+  fftP(bufBase, bufData);
   tW(bufTmp, bufBase);
   fftHin(bufBase, bufTmp);
   
