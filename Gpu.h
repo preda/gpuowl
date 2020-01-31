@@ -61,6 +61,7 @@ class Gpu {
   Kernel tailFusedMulLow;
   Kernel tailFusedMul;
   Kernel tailSquareLow;
+  Kernel tailMulLowLow;
   
   Kernel readResidue;
   Kernel isNotZero;
@@ -122,7 +123,7 @@ class Gpu {
 
   void coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io);
 
-  void multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& io);
+  void multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
 
   void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
   void exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& tmp2);

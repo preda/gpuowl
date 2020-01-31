@@ -216,6 +216,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
   LOAD(tailFusedMul,      hN / SMALL_H / 2),
   LOAD(tailSquareLow,     hN / SMALL_H / 2),
+  LOAD(tailMulLowLow,     hN / SMALL_H / 2),
   LOAD(readResidue, 1),
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
@@ -255,6 +256,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
   tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);
   tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
+  tailMulLowLow.setFixedArgs(2, bufTrigH);
   
   k_tailFused.setFixedArgs(2, bufTrigH);
   tailSquareLow.setFixedArgs(2, bufTrigH);
@@ -475,9 +477,9 @@ void Gpu::writeIn(const vector<int>& words, Buffer<int>& buf) {
 }
 
 // io *= in; with buffers in low position.
-void Gpu::multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& io) {
-  multiply(io, in);
-  fftHout(io);
+void Gpu::multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp) {
+  // multiply(io, in); fftHout(io);
+  tailMulLowLow(io, in);
   tH(tmp, io);
   carryFused(io, tmp);
   tW(tmp, io);
@@ -888,8 +890,8 @@ struct SquaringSet {
   }
 
   void step(Buffer<double>& bufTmp) {
-    gpu.multiplyLow(B, bufTmp, C);
-    gpu.multiplyLow(A, bufTmp, B);
+    gpu.multiplyLow(C, B, bufTmp);
+    gpu.multiplyLow(B, A, bufTmp);
   }
 
 private:

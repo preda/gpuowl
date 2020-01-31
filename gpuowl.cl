@@ -4453,6 +4453,53 @@ KERNEL(G_H) tailFusedMulLow(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, T
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
 
+KERNEL(G_H) tailMulLowLow(P(T2) io, CP(T2) in, Trig smallTrig) {
+  local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_TAILFUSED];
+  T2 u[NH], v[NH];
+  T2 p[NH], q[NH];
+
+  u32 W = SMALL_HEIGHT;
+  u32 H = ND / W;
+
+  u32 line1 = get_group_id(0);
+  u32 line2 = line1 ? H - line1 : (H / 2);
+  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
+  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
+
+  read(G_H, NH, u, io, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, v, io, memline2 * SMALL_HEIGHT);
+  
+  read(G_H, NH, p, in, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, q, in, memline2 * SMALL_HEIGHT);
+  ENABLE_MUL2();
+
+  u32 me = get_local_id(0);
+  if (line1 == 0) {
+    reverse(G_H, lds, u + NH/2, true);
+    reverse(G_H, lds, p + NH/2, true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W), true);
+    reverse(G_H, lds, u + NH/2, true);
+    reverse(G_H, lds, p + NH/2, true);
+
+    reverse(G_H, lds, v + NH/2, false);
+    reverse(G_H, lds, q + NH/2, false);
+    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
+    reverse(G_H, lds, v + NH/2, false);
+    reverse(G_H, lds, q + NH/2, false);
+  } else {    
+    reverseLine(G_H, lds, v);
+    reverseLine(G_H, lds, q);
+    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
+    reverseLine(G_H, lds, v);
+    reverseLine(G_H, lds, q);
+  }
+
+  fft_HEIGHT(lds, v, smallTrig);
+  write(G_H, NH, v, io, memline2 * SMALL_HEIGHT);
+  
+  fft_HEIGHT(lds, u, smallTrig);
+  write(G_H, NH, u, io, memline1 * SMALL_HEIGHT);
+}
 
 #if !NO_P2_FUSED_TAIL
 
