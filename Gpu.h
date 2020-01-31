@@ -60,6 +60,7 @@ class Gpu {
   Kernel tailFusedMulDelta;
   Kernel tailFusedMulLow;
   Kernel tailFusedMul;
+  Kernel tailSquareLow;
   
   Kernel readResidue;
   Kernel isNotZero;
@@ -102,7 +103,7 @@ class Gpu {
 
   void tW(Buffer<double>& out, Buffer<double>& in);
   void tH(Buffer<double>& out, Buffer<double>& in);
-  void fftP(Buffer<double>& out, Buffer<int>& in) { k_fftP(in, out); }
+  void fftP(Buffer<double>& out, const Buffer<int>& in) { k_fftP(in, out); }
   void tailFused(Buffer<double>& out, Buffer<double>& in) { k_tailFused(in, out); }
   
   vector<int> readOut(ConstBuffer<int> &buf);
@@ -122,7 +123,12 @@ class Gpu {
   void coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io);
 
   void multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& io);
-  void exponentiateLow(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out);
+
+  void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
+  void exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& tmp2);
+  void exponentiateHigh(Buffer<int>& bufOut, const Buffer<int>& bufBaseHi, u64 exp,
+                        Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2);
+  
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   void tailMulDelta(Buffer<double>& out, Buffer<double>& in, Buffer<double>& bufA, Buffer<double>& bufB);

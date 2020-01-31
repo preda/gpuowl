@@ -196,7 +196,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(carryFused,    BIG_H + 1),
   LOAD(carryFusedMul, BIG_H + 1),
   LOAD(k_fftP, BIG_H),
-  LOAD(fftW, BIG_H),
+  LOAD(fftW,   BIG_H),
   LOAD(fftHin,  hN / SMALL_H),
   LOAD(fftHout, hN / SMALL_H),
   LOAD(fftMiddleIn,  hN / (256 * (BIG_H / SMALL_H))),
@@ -211,10 +211,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(multiply,      hN / SMALL_H),
   LOAD(multiplyDelta, hN / SMALL_H),
   LOAD(square,        hN/SMALL_H),
-  LOAD(k_tailFused,         hN / SMALL_H / 2),
+  LOAD(k_tailFused,       hN / SMALL_H / 2),
   LOAD(tailFusedMulDelta, hN / SMALL_H / 2),
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
   LOAD(tailFusedMul,      hN / SMALL_H / 2),
+  LOAD(tailSquareLow,     hN / SMALL_H / 2),
   LOAD(readResidue, 1),
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
@@ -250,10 +251,13 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   carryA.setFixedArgs(2, bufCarry, bufWeightI, bufExtras);
   carryM.setFixedArgs(2, bufCarry, bufWeightI, bufExtras);
   carryB.setFixedArgs(1, bufCarry, bufExtras);
-  k_tailFused.setFixedArgs(2, bufTrigH);
+
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
   tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);
   tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
+  
+  k_tailFused.setFixedArgs(2, bufTrigH);
+  tailSquareLow.setFixedArgs(2, bufTrigH);
   
   queue->zero(bufReady, BIG_H);
 }
@@ -480,89 +484,71 @@ void Gpu::multiplyLow(Buffer<double>& in, Buffer<double>& tmp, Buffer<double>& i
   fftHin(io, tmp);
 }
 
-// Auxiliary performing the top half of the cycle (excluding the bottom tailFused).
-void Gpu::topHalf(Buffer<double>& out, Buffer<double>& in) {
-  tH(out, in);
-  carryFused(in, out);
-  tW(out, in);
-}
-
-/*
-void Gpu::exponentiateHigh(Buffer<int>& bufOut, const Buffer<int>& bufBaseHi, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2) {
+void Gpu::exponentiateHigh(Buffer<int>& bufOut, const Buffer<int>& bufBaseHi, u64 exp,
+                           Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2) {
+  
+  
   if (exp == 0) {
     queue->zero(bufOut, N);
     u32 data = 1;
     fillBuf(queue->get(), bufOut.get(), &data, sizeof(data));
+  } else if (exp == 1) {
+    bufOut << bufBaseHi;
   } else {
-    if (exp == 1) {
-      bufOut << bufBaseHi;
-      return;
-    }
-
-    fftP(bufBaseHi, buf1);
+    fftP(buf1, bufBaseHi);
     tW(buf2, buf1);
-    fftHin(bufBase, buf2);
-    
-    int p = 63;
-    while ((exp >> p) == 0) { --p; }
-    assert(p > 0);
-    coreStep(true, false, false, buf1, buf2, base);
-
-    while (true) {
-      --p;
-      if ((exp >> p) & 1) {
-        
-      }
-    }
+    fftHin(bufBaseLow, buf2);
+    exponentiateCore(buf1, bufBaseLow, exp, buf2);
+    carryA(bufOut, buf1);
+    carryB(bufOut);
   }
 }
-*/
+
+// All buffers are in "low" position.
+void Gpu::exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& tmp2) {
+  assert(exp > 0);
+  
+  if (exp == 1) {
+    out << base;    
+  } else {
+    exponentiateCore(out, base, exp, tmp);
+    carryFused(tmp, out);
+    tW(tmp2, tmp);
+    fftHin(out, tmp2);
+  }
+}
 
 // See "left-to-right binary exponentiation" on wikipedia
-// Computes out := base**exp
-// All buffers are in "low" position.
-void Gpu::exponentiateLow(const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& out) {
-  assert(exp);
-  /*
-  if (exp == 0) {
-    queue->zero(out, N / 2);
-    u32 data = 1;
-    fillBuf(queue->get(), out.get(), &data, sizeof(data));
-    fftP(tmp, out);
-    tW(out, tmp);
-  } else {
-  */
-  out << base;
-  if (exp == 1) { return; }
+void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp) {
+  assert(exp >= 2);
 
   int p = 63;
   while ((exp >> p) == 0) { --p; }
   assert(p > 0);
 
-  // square from "low" position.
-  square(out);				// GW:  The multiply and square routines could also do fftHout
-  fftHout(out);
-  topHalf(tmp, out);
+  // square(tmp, base); fftHout(tmp);
+  tailSquareLow(tmp, base);
+  tH(out, tmp);
 
   while (true) {
     --p;
     if ((exp >> p) & 1) {
-      fftHin(out, tmp); // to low
-      
-      // multiply from low
-      multiply(out, base);			// GW:  The multiply and square routines could also do fftHout
-      fftHout(out);
-      topHalf(tmp, out);
+      carryFused(tmp, out);
+      tW(out, tmp);
+
+      // fftHin(tmp, out);
+      // multiply(tmp, base);
+      // fftHout(tmp);
+      tailFusedMulLow(tmp, out, base);
+      tH(out, tmp);
     }
     if (p <= 0) { break; }
-    
-    // square
-    tailFused(out, tmp);
-    topHalf(tmp, out);
-  }
-  //}
 
-  fftHin(out, tmp); // to low
+    carryFused(tmp, out);
+    tW(out, tmp);
+    tailFused(tmp, out);
+    tH(out, tmp);
+  }
 }
 
 void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io) {
@@ -883,15 +869,15 @@ struct SquaringSet {
    
   SquaringSet(const SquaringSet& rhs, string_view name) : SquaringSet{rhs.gpu, rhs.N, name} { copyFrom(rhs); }
   
-  SquaringSet(Gpu& gpu, u32 N, const Buffer<double>& bufBase, Buffer<double>& bufTmp, array<u64, 3> exponents, string_view name)
+  SquaringSet(Gpu& gpu, u32 N, const Buffer<double>& bufBase, Buffer<double>& bufTmp, Buffer<double>& bufTmp2, array<u64, 3> exponents, string_view name)
     : SquaringSet(gpu, N, name) {
     
-    gpu.exponentiateLow(bufBase, exponents[0], bufTmp, C);
-    gpu.exponentiateLow(bufBase, exponents[1], bufTmp, B);
+    gpu.exponentiateLow(C, bufBase, exponents[0], bufTmp, bufTmp2);
+    gpu.exponentiateLow(B, bufBase, exponents[1], bufTmp, bufTmp2);
     if (exponents[2] == exponents[1]) {
       A << B;
     } else {
-      gpu.exponentiateLow(bufBase, exponents[2], bufTmp, A);
+      gpu.exponentiateLow(A, bufBase, exponents[2], bufTmp, bufTmp2);
     }
   }
 
@@ -1018,6 +1004,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   
   // --- Stage 2 ---
 
+  Buffer<double> bufTmp2{queue, "tmp2", N};
+  
   // Take bufData to "low" state stored in bufBase
   Buffer<double> bufBase{queue, "base", N};
   fftP(bufBase, bufData);
@@ -1029,15 +1017,15 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   u32 nBlocks = allSelected.size();
   log("%u P2 using blocks [%u - %u] to cover %u primes\n", E, startBlock, startBlock + nBlocks - 1, nPrimes);
   
-  exponentiateLow(bufBase, 30030*30030, bufTmp, bufAux); // Aux := base^(D^2)
+  exponentiateLow(bufAux, bufBase, 30030*30030, bufTmp, bufTmp2); // Aux := base^(D^2)
 
   constexpr auto jset = getJset();
   static_assert(jset[0] == 1);
   static_assert(jset[2880 - 1] == 15013);
 
   u32 beginJ = jset[beginPos];
-  SquaringSet little{*this, N, bufBase, bufTmp, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
-  SquaringSet bigStart{*this, N, bufAux, bufTmp, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "bigStart"};
+  SquaringSet little{*this, N, bufBase, bufTmp, bufTmp2, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
+  SquaringSet bigStart{*this, N, bufAux, bufTmp, bufTmp2, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "bigStart"};
   bufBase.reset();
   bufAux.reset();
   SquaringSet big{*this, N, "big"};

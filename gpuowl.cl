@@ -3741,7 +3741,7 @@ KERNEL(256) transposeIn(P(Word2) out, CP(Word2) in) {
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
-KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
+KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
@@ -3758,13 +3758,13 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
   
   for (u32 i = 0; i < 4; ++i, base = mul(base, step)) {
     if (i == 0 && line1 == 0 && me == 0) {
-      io[0]     = shl(foo(conjugate(io[0])), 2);
-      io[W / 2] = shl(sq(conjugate(io[W / 2])), 3);    
+      out[0]     = shl(foo(conjugate(in[0])), 2);
+      out[W / 2] = shl(sq(conjugate(in[W / 2])), 3);    
     } else {
       u32 k = g1 * W + i * (W / 8) + me;
       u32 v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
-      T2 a = io[k];
-      T2 b = conjugate(io[v]);
+      T2 a = in[k];
+      T2 b = conjugate(in[v]);
       T2 t = swap(base);
       X2(a, b);
       b = mul(b, conjugate(t));
@@ -3774,8 +3774,8 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) io) {
       X2(a, b);
       b = mul(b, t);
       X2(a, b);
-      io[k] = conjugate(a);
-      io[v] = b;
+      out[k] = conjugate(a);
+      out[v] = b;
     }
   }
 }
@@ -4299,6 +4299,47 @@ KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
 
+// equivalent to: square, fftHout.
+KERNEL(G_H) tailSquareLow(P(T2) out, CP(T2) in, Trig smallTrig) {
+  local T2 lds[SMALL_HEIGHT / T2_SHUFFLE_TAILFUSED];
+  T2 u[NH], v[NH];
+
+  u32 W = SMALL_HEIGHT;
+  u32 H = ND / W;
+
+  u32 line1 = get_group_id(0);
+  u32 line2 = line1 ? H - line1 : (H / 2);
+  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
+  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
+
+  read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, v, in, memline2 * SMALL_HEIGHT);
+  ENABLE_MUL2();
+  
+  u32 me = get_local_id(0);
+  if (line1 == 0) {
+    // Line 0 is special: it pairs with itself, offseted by 1.
+    reverse(G_H, lds, u + NH/2, true);
+    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W/2), true);		// GW 12/18/19: Use squared trig value
+    reverse(G_H, lds, u + NH/2, true);
+
+    // Line H/2 also pairs with itself (but without offset).
+    reverse(G_H, lds, v + NH/2, false);
+    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W), false);	// GW 12/18/19: Use squared trig value
+    reverse(G_H, lds, v + NH/2, false);
+  } else {    
+    reverseLine(G_H, lds, v);
+    pairSq(NH, u, v, slowTrig(line1 + me * H, ND/2), false);		// GW 12/18/19: Use squared trig value
+    reverseLine(G_H, lds, v);
+  }
+
+  fft_HEIGHT(lds, v, smallTrig);
+  write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
+  
+  fft_HEIGHT(lds, u, smallTrig);
+  write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
+}
+
 // equivalent to: fftHin(io, out), fftHin(base, tmp), multiply(out, tmp), fftH(out)
 KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, Trig smallTrig2) {
   // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
@@ -4356,7 +4397,7 @@ KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, Trig
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
 
-// equivalent to: fftHin(io, out), multiply(out, base), fftH(out)
+// equivalent to: fftHin(out, in), multiply(out, base), fftH(out)
 KERNEL(G_H) tailFusedMulLow(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, Trig smallTrig2) {
   // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
