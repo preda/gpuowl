@@ -3559,23 +3559,22 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
     optionalDouble(&invWeight2, b, 2*i+1);
     wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
 #endif
-#if OLD_CARRY_LAYOUT
-    if (gr < H) { carryShuttlePtr[gr * WIDTH + i * G_W + me] = carry[i]; }
-#endif
     invWeight *= IWEIGHT_BIGSTEP;
   }
 
-// Write the carries to carry shuttle.  AMD GPUs are faster writing and reading 4 consecutive values at a time.
-// However, seemingly innocuous code changes can affect VGPR usage which if it changes occupancy can be a more important consideration.
-
-#if !OLD_CARRY_LAYOUT
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
+#if OLD_CARRY_LAYOUT
+      carryShuttlePtr[gr * WIDTH + i * G_W + me] = carry[i];
+#else
+      // Write the carries to carry shuttle.  AMD GPUs are faster writing and reading 4 consecutive values at a time.
+      // However, seemingly innocuous code changes can affect VGPR usage which if it changes occupancy can be a
+      // more important consideration.
       carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
+#endif
     }
   }
-#endif
-
+    
   release();
 
   // Signal that this group is done writing the carry.
@@ -3601,8 +3600,14 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
 // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
 
 #if OLD_CARRY_LAYOUT
-  for (i32 i = 0; i < NW; ++i) {
-    carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((i * G_W + me + WIDTH - gr / H) % WIDTH)];
+  if (gr == H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((i * G_W + (WIDTH - 1) + me) % WIDTH)];
+    }
+  } else {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + i * G_W + me];
+    }
   }
 #else
   for (i32 i = 0; i < NW; ++i) {
