@@ -3610,13 +3610,19 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
     }
   }
 #else
-  for (i32 i = 0; i < NW; ++i) {
-    carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((me + G_W - gr / H) % G_W) * NW + i];
-  }
-  if (gr == H && me == 0) {
-    CFcarry tmp = carry[NW-1];
-    for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
-    carry[0] = tmp;
+  if (gr == H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
+    }
+    if (me == 0) {
+      CFcarry tmp = carry[NW-1];
+      for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
+      carry[0] = tmp;
+    }
+  } else {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
+    }
   }
 #endif
 
