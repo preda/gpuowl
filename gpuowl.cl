@@ -1557,12 +1557,13 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
 }
 
 // Returns e^(-i * pi * k/n)
-#if ORIG_SLOWTRIG
 double2 slowTrig(i32 k, i32 n) {
   double c;
   double s = sincos(M_PI / n * k, &c);
   return U2(c, -s);
 }
+
+#if ORIG_SLOWTRIG
 
 // Caller can use this version if caller knows that k/n <= 0.25
 #define slowTrig1	slowTrig
@@ -1692,7 +1693,12 @@ double __kernel_cos(double x)
 // We want to compute sin(pi*k/n) and cos(pi*k/n).  Let x = pi*k/n - pi/4
 // cos(pi*k/n) = cos(x + pi/4) = cos(x) * SQRTHALF - sin(x) * SQRTHALF
 // sin(pi*k/n) = sin(x + pi/4) = sin(x) * SQRTHALF + cos(x) * SQRTHALF
+// 
+// Mihai: the use of the above technique for changing the range of the input from [0, pi/2] to [-pi/4, pi/4] may
+// not be a good idea from a numerical stability POV, because of potential catastrophic cancelation happening in
+// c - s or c + s below.
 
+/*
 double2 slowTrig(i32 k, i32 n) {
   double angle = M_PI / n * k - M_PI / 4;
   double c = __kernel_cos(angle);
@@ -1702,6 +1708,7 @@ double2 slowTrig(i32 k, i32 n) {
 #endif
   return M_SQRT1_2 * U2(c - s, -(c + s));
 }
+*/
 
 // Caller can use this version if caller knows that k/n <= 0.25
 double2 slowTrig1(i32 k, i32 n) {
