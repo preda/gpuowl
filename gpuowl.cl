@@ -328,11 +328,13 @@ G_H        "group height"
 #define T2_SHUFFLE_TAILFUSED	2
 #endif
 
+
 #if HAS_ASM && !NO_OMOD
 // turn IEEE mode and denormals off so that mul:2 and div:2 work
-#define ENABLE_MUL2() { __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0\n"); \
-		        __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 5\n"); \
-		      }
+#define ENABLE_MUL2() {\
+    __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0");\
+    __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 5");\
+}
 #else
 #define ENABLE_MUL2()
 #endif
@@ -363,7 +365,7 @@ T MSUB(T x, T y, T z) {
 #if FMA
   return fma(x, y, -z);
 #elif HAS_ASM
-  T tmp; __asm("v_fma_f64 %0, %1, %2, -%3\n" : "=v" (tmp) : "v" (x), "v" (y), "v" (z)); return tmp;
+  T tmp; __asm("v_fma_f64 %0, %1, %2, -%3" : "=v" (tmp) : "v" (x), "v" (y), "v" (z)); return tmp;
 #else
   return x * y - z;
 #endif
@@ -390,8 +392,8 @@ T2 mul4(T2 a, T2 b) {
   T axbx = a.x * b.x;
   T axby = a.x * b.y;
   T2 tmp;
-  __asm("v_fma_f64 %0, %1, -%2, %3 mul:4\n" : "=v" (tmp.x) : "v" (a.y), "v" (b.y), "v" (axbx));
-  __asm("v_fma_f64 %0, %1, %2, %3 mul:4\n" : "=v" (tmp.y) : "v" (a.y), "v" (b.x), "v" (axby));
+  __asm("v_fma_f64 %0, %1, -%2, %3 mul:4" : "=v" (tmp.x) : "v" (a.y), "v" (b.y), "v" (axbx));
+  __asm("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (tmp.y) : "v" (a.y), "v" (b.x), "v" (axby));
   return (tmp);
 #else
   return 4 * mul(a, b);
@@ -402,8 +404,8 @@ T2 mul4(T2 a, T2 b) {
 T2 add2(T2 a, T2 b) {
 #if !NO_OMOD
  T2 tmp;
- __asm("v_add_f64 %0, %1, %2 mul:2\n" : "=v" (tmp.x) : "v" (a.x), "v" (b.x));
- __asm("v_add_f64 %0, %1, %2 mul:2\n" : "=v" (tmp.y) : "v" (a.y), "v" (b.y));
+ __asm("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp.x) : "v" (a.x), "v" (b.x));
+ __asm("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp.y) : "v" (a.y), "v" (b.y));
  return (tmp);
 #else
  return 2 * (a + b);
@@ -416,7 +418,7 @@ T diffsq(T x, T y) { return MAD(x, x, - y * y); } // worse: (x + y) * (x - y)
 // x * y * 2
 T xy2(T x, T y) {
 #if !NO_OMOD
-  T tmp; __asm("v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp) : "v" (x), "v" (y)); return tmp;
+  T tmp; __asm("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y)); return tmp;
 #else
   return 2 * x * y;
 #endif
@@ -428,8 +430,8 @@ T xy2(T x, T y) {
 T xy2minus(T x, T y, T z) {
 #if !NO_OMOD
   T tmp1, tmp2;
-  __asm("v_mul_f64 %0, %1, %2 mul:2\n" : "=v" (tmp1) : "v" (x), "v" (y));
-  __asm("v_add_f64 %0, %1, -%2\n" : "=v" (tmp2) : "v" (tmp1), "v" (z));
+  __asm("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp1) : "v" (x), "v" (y));
+  __asm("v_add_f64 %0, %1, -%2" : "=v" (tmp2) : "v" (tmp1), "v" (z));
   return tmp2;
 #else
   return 2 * x * y - z;
@@ -453,8 +455,8 @@ void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
 // Signed and unsigned bit field extract with bit offset 0
 
 #if HAS_ASM
-i32 lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2\n" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
-u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2\n" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+i32 lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
 #else
 i32 lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
@@ -624,14 +626,14 @@ T2 foo(T2 a) { return foo2(a, a); }
 // Here's hoping the inline asm tricks rocm into not generating extra f64 ops.
 #define X2(a, b) { \
 	T2 t = a; a = t + b; \
-	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
-	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
+	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
+	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
 	}
 
 #define X2_mul_t4(a, b) { \
 	T2 t = a; a = t + b; \
-	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (t.x) : "v" (b.x), "v" (t.x)); \
-	__asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.x) : "v" (t.y), "v" (b.y)); \
+	__asm( "v_add_f64 %0, %1, -%2" : "=v" (t.x) : "v" (b.x), "v" (t.x)); \
+	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (t.y), "v" (b.y)); \
 	b.y = t.x; \
 	}
 #else
@@ -648,10 +650,10 @@ T2 fmaT2(T a, T2 b, T2 c) { return (U2(fma(a, b.x, c.x), fma(a, b.y, c.y))); }
 #else
 // Force rocm to NOT promote 2 multiplies and 4 add/sub instructions into 4 FMA instructions.  FMA has higher latency.
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; \
-    __asm( "v_add_f64 %0, %1, %2\n" : "=v" (a.x) : "v" (c.x), "v" (d.x)); \
-    __asm( "v_add_f64 %0, %1, %2\n" : "=v" (a.y) : "v" (c.y), "v" (d.y)); \
-    __asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.x) : "v" (c.x), "v" (d.x)); \
-    __asm( "v_add_f64 %0, %1, -%2\n" : "=v" (b.y) : "v" (c.y), "v" (d.y)); \
+    __asm( "v_add_f64 %0, %1, %2" : "=v" (a.x) : "v" (c.x), "v" (d.x));  \
+    __asm( "v_add_f64 %0, %1, %2" : "=v" (a.y) : "v" (c.y), "v" (d.y));  \
+    __asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (c.x), "v" (d.x)); \
+    __asm( "v_add_f64 %0, %1, -%2" : "=v" (b.y) : "v" (c.y), "v" (d.y)); \
   }
 #endif
 
@@ -1556,14 +1558,15 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
   }
 }
 
+
+#if ORIG_SLOWTRIG
+
 // Returns e^(-i * pi * k/n)
 double2 slowTrig(i32 k, i32 n) {
   double c;
   double s = sincos(M_PI / n * k, &c);
   return U2(c, -s);
 }
-
-#if ORIG_SLOWTRIG
 
 // Caller can use this version if caller knows that k/n <= 0.25
 #define slowTrig1	slowTrig
@@ -1602,7 +1605,7 @@ double2 slowTrig(i32 k, i32 n) {
  * 
  */
 
-double __kernel_sin(double x)
+double ksin(double x)
 {
   const double 
   S1  = -1.66666666666666324348e-01, /* 0xBFC55555, 0x55555549 */
@@ -1611,11 +1614,14 @@ double __kernel_sin(double x)
   S4  =  2.75573137070700676789e-06, /* 0x3EC71DE3, 0x57B1FE7D */
   S5  = -2.50507602534068634195e-08, /* 0xBE5AE5E6, 0x8A2B9CEB */
   S6  =  1.58969099521155010221e-10; /* 0x3DE5D93A, 0x5ACFD57C */
-  double z,r,v;
-  z	=  x*x;
-  v	=  z*x;
-  r	=  S2+z*(S3+z*(S4+z*(S5+z*S6)));
-  return x+v*(S1+z*r);
+  double z = x*x;
+  double v = z*x;
+  
+  // r	=  S2+z*(S3+z*(S4+z*(S5+z*S6)));  
+  // return x+v*(S1+z*r);
+
+  return (((((S6 * z + S5) * z + S4) * z + S3) * z + S2) * z + S1) * v + x;
+  // return fma(fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1), v, x);
 }
 
 /*
@@ -1650,8 +1656,12 @@ double __kernel_sin(double x)
  *	   thus, reducing the rounding error in the subtraction.
  */
 
-double __kernel_cos(double x)
+double kcos(double x)
 {
+#if SIMPLE_COS
+  double hs = ksin(x * 0.5);
+  return 1 - hs * hs * 2;
+#else  
   const double 
   C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
   C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
@@ -1685,30 +1695,20 @@ double __kernel_cos(double x)
     return a - (hz - (z*r));
   }
 #endif
-}
-
-// We use the following trig identities to convert our [0, pi/2] range to [-pi/4, pi/4] range:
-//	cos(A + B) = cos A cos B - sin A sin B 
-//	sin(A + B) = sin A cos B + cos A sin B 
-// We want to compute sin(pi*k/n) and cos(pi*k/n).  Let x = pi*k/n - pi/4
-// cos(pi*k/n) = cos(x + pi/4) = cos(x) * SQRTHALF - sin(x) * SQRTHALF
-// sin(pi*k/n) = sin(x + pi/4) = sin(x) * SQRTHALF + cos(x) * SQRTHALF
-// 
-// Mihai: the use of the above technique for changing the range of the input from [0, pi/2] to [-pi/4, pi/4] may
-// not be a good idea from a numerical stability POV, because of potential catastrophic cancelation happening in
-// c - s or c + s below.
-
-/*
-double2 slowTrig(i32 k, i32 n) {
-  double angle = M_PI / n * k - M_PI / 4;
-  double c = __kernel_cos(angle);
-  double s = __kernel_sin(angle);
-#if DEBUG
-  if (k * 2 > n) printf ("slowTrig fail: k=%d, n=%d\n", k, n);
 #endif
-  return M_SQRT1_2 * U2(c - s, -(c + s));
 }
-*/
+
+double2 slowTrig(i32 k, i32 n) {
+  double angle = M_PI / n * k;
+  double a = ksin(angle / 2);
+  double c = -fma(a, 2 * a, -1);
+  // double c = 1 - 2 * a * a;
+  
+  double b = ksin(angle / 3);
+  double s = b * fma(2 * b, 2 * b, -3);
+  // double s = b * (4 * b * b - 3);
+  return U2(c, s);  
+}
 
 // Caller can use this version if caller knows that k/n <= 0.25
 double2 slowTrig1(i32 k, i32 n) {
@@ -1716,7 +1716,7 @@ double2 slowTrig1(i32 k, i32 n) {
 #if DEBUG
   if (k * 4 > n) printf ("slowTrig1 fail: k=%d, n=%d\n", k, n);
 #endif
-  return U2(__kernel_cos(angle), -__kernel_sin(angle));
+  return U2(kcos(angle), -ksin(angle));
 }
 
 #else
@@ -2355,16 +2355,15 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   u32 gy = g / N;
   u32 me = get_local_id(0);
 
-  in += BIG_HEIGHT * gy + 256 * gx;
-  read(SMALL_HEIGHT, MIDDLE, u, in, 0);
+  read(SMALL_HEIGHT, MIDDLE, u, in, BIG_HEIGHT * gy + 256 * gx);
+  
   ENABLE_MUL2();
 
   fft_MIDDLE(u);
 
   middleMul(u, gx, me);
 
-  out += BIG_HEIGHT * gy + 256 * gx;
-  write(SMALL_HEIGHT, MIDDLE, u, out, 0);
+  write(SMALL_HEIGHT, MIDDLE, u, out, BIG_HEIGHT * gy + 256 * gx);
 }
 
 #else
@@ -2885,7 +2884,7 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
 
 #elif WORKINGIN5
 
-KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
+KERNEL(256) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   local T2 lds[256];
   T2 u[MIDDLE];
   u32 g = get_group_id(0);
@@ -2910,6 +2909,7 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
   in += start_row * WIDTH + start_col;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + (me / 32) * WIDTH + (me % 32)]; }
+
   ENABLE_MUL2();
 
   middleMul2(u, start_col + (me % 32), start_row + (me / 32));
@@ -3920,7 +3920,7 @@ void reverse(u32 WG, local T2 *lds, T2 *u, bool bump) {
 
 #define reverse_t(b) { \
 	__asm volatile ( "ds_permute_b32 %1, %3, %1\n \
-			  ds_permute_b32 %2, %3, %2\n" : "+v" (b) : "v" (as_int2(b).x), "v" (as_int2(b).y), "v" (reverse_lane_ids)); }
+			  ds_permute_b32 %2, %3, %2" : "+v" (b) : "v" (as_int2(b).x), "v" (as_int2(b).y), "v" (reverse_lane_ids)); }
 #define reverse_t2(a) { reverse_t (a.x); reverse_t (a.y); }
 
 void reverseLine(u32 WG, local T2 *lds, T2 *u) {
