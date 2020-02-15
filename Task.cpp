@@ -105,7 +105,7 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, b
 
 void Task::execute(const Args& args, Background& background, std::atomic<u32>& factorFoundForExp) {
   assert(kind == PRP || kind == PM1);
-  auto gpu = Gpu::make(exponent, args);
+  auto gpu = Gpu::make(exponent, args, kind == PM1);
   auto fftSize = gpu->getFFTSize();
   
   if (kind == PRP) {

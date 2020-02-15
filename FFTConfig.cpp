@@ -11,29 +11,31 @@
 
 using namespace std;
 
-FFTConfig::FFTConfig(u32 width, u32 height, u32 middle) :
+FFTConfig::FFTConfig(u32 width, u32 height, u32 middle, bool isPm1) :
   width(width),
   height(height),
   middle(middle),
   fftSize(width * height * middle * 2),
 
-  maxExp(getMaxExp(fftSize)) {
+  maxExp(getMaxExp(fftSize, isPm1)) {
   assert(width == 64  || width == 256 || width  == 512 || width == 1024 || width == 2048 || width == 4096);
   assert(height == 64 || height == 256 || height == 512 || height == 1024 || height == 2048);
   assert(middle == 1 || middle == 3 || middle == 5 || middle == 6 || middle == 7 || middle == 9 || middle == 10 || middle == 11 || middle == 12);
 }
 
-u32 FFTConfig::getMaxExp(u32 fftSize) { return fftSize * (18.257 - 0.33 * log2(fftSize * (1.0 / (9 * 512 * 1024)))); }
+u32 FFTConfig::getMaxExp(u32 fftSize, bool isPm1) {
+  return fftSize * ((isPm1 ? 18.0 : 18.257) - 0.33 * log2(fftSize * (1.0 / (9 * 512 * 1024))));
+}
 // { return fftSize * (17.77 + 0.33 * (24 - log2(fftSize))); }
 // 17.88 + 0.36 * (24 - log2(n)); Update after feedback on 86700001, FFT 4608 (18.37b/w) being insufficient.
 
-vector<FFTConfig> FFTConfig::genConfigs() {
+vector<FFTConfig> FFTConfig::genConfigs(bool isPm1) {
   vector<FFTConfig> configs;
   for (u32 width : {64, 256, 512, 1024, 2048, 4096}) {
     for (u32 height : {64, 256, 512, 1024, 2048}) {
       for (u32 middle : {1, /*3, 5,*/ 6, 7, 9, 10, 11, 12}) {
         if (middle == 1 || height >= 256) {
-          configs.push_back(FFTConfig(width, height, middle));
+          configs.push_back(FFTConfig(width, height, middle, isPm1));
         }
       }
     }

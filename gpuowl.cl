@@ -79,6 +79,7 @@ EXP        the exponent
 WIDTH
 SMALL_HEIGHT
 MIDDLE
+PM1        set to indicate that a P-1 test will be done (as opposed to PRP)
 
 -- Derived from above:
 BIG_HEIGHT = SMALL_HEIGHT * MIDDLE
@@ -191,7 +192,11 @@ G_H        "group height"
 #endif
 
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
+#if PM1
+#define ORIG_SLOWTRIG 1
+#else
 #define NEW_SLOWTRIG 1
+#endif
 #endif
 
 #if !MORE_ACCURATE && !LESS_ACCURATE

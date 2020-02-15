@@ -146,7 +146,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
 extern const char *CL_SOURCE;
 
-static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
+static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW, bool isPm1) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
 
   vector<pair<string, std::any>> defines =
@@ -158,6 +158,7 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
      {"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1))},
      {"WEIGHT_BIGSTEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, WIDTH / nW, 0))},
      {"IWEIGHT_BIGSTEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, WIDTH / nW, 0))},
+     {"PM1", (isPm1 ? 1 : 0)},
     };
 
   cl_device_id id = getDevice(args.device);
@@ -171,12 +172,12 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
 }
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle)
-  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, useMergedMiddle, genWeights(E, W, BIG_H, nW)}
+         cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, bool isPm1)
+  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, useMergedMiddle, genWeights(E, W, BIG_H, nW), isPm1}
 {}
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, Weights&& weights) :
+         cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, Weights&& weights, bool isPm1) :
   E(E),
   N(W * BIG_H * 2),
   hN(N / 2),
@@ -189,7 +190,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   timeKernels(timeKernels),
   device(device),
   context{device},
-  program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW)),
+  program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW, isPm1)),
   queue(Queue::make(context, timeKernels, args.cudaYield)),
 
 #define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name)
@@ -281,7 +282,7 @@ vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   return bufSmallOut.read(128);
 }
 
-unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
+unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {
   vector<FFTConfig> configs = FFTConfig::genConfigs();
         
   FFTConfig config = getFFTConfig(configs, E, args.fftSize);
@@ -319,7 +320,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   bool timeKernels = args.timeKernels;
 
   return make_unique<Gpu>(args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
-                          getDevice(args.device), timeKernels, useLongCarry, useMergedMiddle);
+                          getDevice(args.device), timeKernels, useLongCarry, useMergedMiddle, isPm1);
 }
 
 vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
