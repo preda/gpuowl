@@ -19,7 +19,7 @@ struct FFTConfig {
 
   static u32 getMaxExp(u32 fftSize, bool isPm1);
 
-  static std::vector<FFTConfig> genConfigs(bool isPm1 = false);
+  static std::vector<FFTConfig> genConfigs(bool isPm1);
 
   static std::string configName(u32 width, u32 height, u32 middle);
   

@@ -76,7 +76,7 @@ Command line options:
   }
   printf("\nFFT Configurations:\n");
   
-  vector<FFTConfig> configs = FFTConfig::genConfigs();
+  vector<FFTConfig> configs = FFTConfig::genConfigs(false);
   configs.push_back(FFTConfig{}); // dummy guard for the loop below.
   string variants;
   u32 activeSize = 0;

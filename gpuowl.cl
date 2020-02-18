@@ -358,6 +358,8 @@ typedef i64 Carry;
 T MAD(T x, T y, T z) {
 #if !FMA
   return x * y + z;
+#elif HAS_ASM
+  return __builtin_fma(x, y, z);
 #else
   return fma(x, y, z);
 #endif
@@ -1578,11 +1580,8 @@ double2 slowTrig(i32 k, i32 n) {
 
 #elif NEW_SLOWTRIG
 
-// This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
-// We found free Sun Microsystems code that is short and efficient in the range [-pi/4, pi/4].
-// Links to said code are http://www.netlib.org/fdlibm/s_sin.c (plus k_sin.c, s_cos.c, k_cos.c).
-// Another excellent source is at https://sourceware.org/git/?p=glibc.git;a=blob;f=sysdeps/ieee754/dbl-64/s_sin.c;hb=HEAD#l194
-
+double ksin(double x)
+{
 /* ====================================================
  * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
  *
@@ -1593,135 +1592,101 @@ double2 slowTrig(i32 k, i32 n) {
  * ====================================================
  */
 
-/* __kernel_sin(x)
- * kernel sin function on [-pi/4, pi/4], pi/4 ~ 0.7854
- * Input x is assumed to be bounded by ~pi/4 in magnitude.
- *
- * Algorithm
- *	1. Since sin(-x) = -sin(x), we need only to consider positive x. 
- *	2. sin(x) is approximated by a polynomial of degree 13 on [0,pi/4]
- *		  	         3            13
- *	   	sin(x) ~ x + S1*x + ... + S6*x
- *	   where
- *	
- * 	|sin(x)         2     4     6     8     10     12  |     -58
- * 	|----- - (1+S1*x +S2*x +S3*x +S4*x +S5*x  +S6*x   )| <= 2
- * 	|  x 					           | 
- * 
- */
+  // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
+  // Excellent accuracy in [-pi/4, pi/4]
+  const double
+  S1 = -0x1.5555555555555p-3,  // -1.66666666666666657415e-01 bfc55555'55555555
+  S2 = +0x1.1111111110bb3p-7,  // +8.33333333333094970763e-03 3f811111'11110bb3
+  S3 = -0x1.a01a019e83e5cp-13, // -1.98412698367611268872e-04 bf2a01a0'19e83e5c
+  S4 = +0x1.71de3796cde01p-19, // +2.75573161037288024585e-06 3ec71de3'796cde01
+  S5 = -0x1.ae600b42fdfa7p-26, // -2.50511320680216983368e-08 be5ae600'b42fdfa7
+  S6 = +0x1.5e0b2f9a43bb8p-33; // +1.59181443044859141215e-10 3de5e0b2'f9a43bb8
 
-double ksin(double x)
-{
-  const double 
-  S1  = -1.66666666666666324348e-01, /* 0xBFC55555, 0x55555549 */
-  S2  =  8.33333333332248946124e-03, /* 0x3F811111, 0x1110F8A6 */
-  S3  = -1.98412698298579493134e-04, /* 0xBF2A01A0, 0x19C161D5 */
-  S4  =  2.75573137070700676789e-06, /* 0x3EC71DE3, 0x57B1FE7D */
-  S5  = -2.50507602534068634195e-08, /* 0xBE5AE5E6, 0x8A2B9CEB */
-  S6  =  1.58969099521155010221e-10; /* 0x3DE5D93A, 0x5ACFD57C */
-  double z = x*x;
-  double v = z*x;
-  
-  // r	=  S2+z*(S3+z*(S4+z*(S5+z*S6)));  
-  // return x+v*(S1+z*r);
-
+  // Alternative coefficients from https://github.com/RadeonOpenCompute/ROCm-Device-Libs/blob/master/ocml/src/sincosredD.cl
+  // Seem to be a tiny bit worse than the fdlibm ones.
+  /*
+  const double
+  S1 = -0x1.5555555555549p-3,  // -1.66666666666666324348e-01 bfc55555'55555549
+  S2 = +0x1.111111110f8a6p-7,  // +8.33333333332248946124e-03 3f811111'1110f8a6
+  S3 = -0x1.a01a019c161d5p-13, // -1.98412698298579493134e-04 bf2a01a0'19c161d5
+  S4 = +0x1.71de357b1fe7dp-19, // +2.75573137070700676789e-06 3ec71de3'57b1fe7d
+  S5 = -0x1.ae5e68a2b9cebp-26, // -2.50507602534068634195e-08 be5ae5e6'8a2b9ceb
+  S6 = +0x1.5d93a5acfd57cp-33; // +1.58969099521155010221e-10 3de5d93a'5acfd57c
+  */
+ 
+  double z = x * x;
+  double v = z * x;
   return (((((S6 * z + S5) * z + S4) * z + S3) * z + S2) * z + S1) * v + x;
-  // return fma(fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1), v, x);
 }
 
-/*
- * __kernel_cos( x )
- * kernel cos function on [-pi/4, pi/4], pi/4 ~ 0.785398164
- * Input x is assumed to be bounded by ~pi/4 in magnitude.
- *
- * Algorithm
- *	1. Since cos(-x) = cos(x), we need only to consider positive x.
- *	2. cos(x) is approximated by a polynomial of degree 14 on [0,pi/4]
- *		  	                 4            14
- *	   	cos(x) ~ 1 - x*x/2 + C1*x + ... + C6*x
- *	   where the remez error is
- *	
- * 	|              2     4     6     8     10    12     14 |     -58
- * 	|cos(x)-(1-.5*x +C1*x +C2*x +C3*x +C4*x +C5*x  +C6*x  )| <= 2
- * 	|    					               | 
- * 
- * 	               4     6     8     10    12     14 
- *	4. let r = C1*x +C2*x +C3*x +C4*x +C5*x  +C6*x  , then
- *	       cos(x) = 1 - x*x/2 + r
- *	   since cos(x+y) ~ cos(x) - sin(x)*y 
- *			  ~ cos(x) - x*y,
- *	   a correction term is necessary in cos(x) and hence
- *		cos(x+y) = 1 - (x*x/2 - (r - x*y))
- *	   For better accuracy when x > 0.3, let qx = |x|/4 with
- *	   the last 32 bits mask off, and if x > 0.78125, let qx = 0.28125.
- *	   Then
- *		cos(x+y) = (1-qx) - ((x*x/2-qx) - (r-x*y)).
- *	   Note that 1-qx and (x*x/2-qx) is EXACT here, and the
- *	   magnitude of the latter is at least a quarter of x*x/2,
- *	   thus, reducing the rounding error in the subtraction.
- */
-
-double kcos(double x)
-{
+double kcos(double x) {
 #if SIMPLE_COS
-  double hs = ksin(x * 0.5);
-  return 1 - hs * hs * 2;
-#else  
-  const double 
-  C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
-  C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
-  C3  =  2.48015872894767294178e-05, /* 0x3EFA01A0, 0x19CB1590 */
-  C4  = -2.75573143513906633035e-07, /* 0xBE927E4F, 0x809C52AD */
-  C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
-  C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
-  double z,r;
-  z  = x*x;
-  r  = z*(C1+z*(C2+z*(C3+z*(C4+z*(C5+z*C6)))));
-#if !MORE_ACCURATE
-  return 1.0 - (0.5*z - (z*r));
+  double s = ksin(x * 0.5);
+  double c;
+  return 1 - 2 * s * s;
 #else
-  union { double d; int2 i; i64 li; } tmp;
-  double a,hz,qx;
-  int ix;
-  tmp.d = x;
-  ix = tmp.i.y & 0x7fffffff;		/* ix = |x|'s high word*/
-  if (ix < 0x3FD33333) 			/* if |x| < 0.3 */ 
-    return 1.0 - (0.5*z - (z*r));
-  else {
-    if(ix > 0x3fe90000) {		/* x > 0.78125 */
-      qx = 0.28125;
-    } else {
-      tmp.i.y = ix - 0x00200000;	/* x/4 */
-      tmp.i.x = 0;
-      qx = tmp.d;
-    }
-    hz = 0.5*z - qx;
-    a  = 1.0 - qx;
-    return a - (hz - (z*r));
-  }
+  // Coefficients from https://github.com/RadeonOpenCompute/ROCm-Device-Libs/blob/master/ocml/src/sincosredD.cl
+  
+  const double
+    C1 = +0x1.5555555555555p-5,  // +4.16666666666666643537e-02 3fa55555'55555555
+    C2 = -0x1.6c16c16c16967p-10, // -1.38888888888873975568e-03 bf56c16c'16c16967
+    C3 = +0x1.a01a019f4ec90p-16, // +2.48015872987670409934e-05 3efa01a0'19f4ec90
+    C4 = -0x1.27e4fa17f65f6p-22, // -2.75573172723441884136e-07 be927e4f'a17f65f6
+    C5 = +0x1.1eeb69037ab78p-29, // +2.08761463822329626149e-09 3e21eeb6'9037ab78
+    C6 = -0x1.907db46cc5e42p-37; // -1.13826398067944865324e-11 bda907db'46cc5e42
+
+  double z = x * x;
+  double r = 0.5 * z;
+  double t = 1 - r;
+  double u = 1 - t;
+  double v = u - r;
+
+#if AMDGPU
+#define _FMA __builtin_fma
+#else
+#define _FMA fma
+// Alternatives for _FMA: mad(), or a * b + c.
 #endif
+  
+  double c = _FMA(z, C6, C5);
+  c = _FMA(z, c, C4);
+  c = _FMA(z, c, C3);
+  c = _FMA(z, c, C2);
+  c = _FMA(z, c, C1);
+  c = _FMA((z * z), c, v);
+  
+#undef _FMA
+
+  return t + c;  
 #endif
 }
 
+// This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
 double2 slowTrig(i32 k, i32 n) {
-  double angle = M_PI / n * k;
-  double a = ksin(angle / 2);
-  double c = -fma(a, 2 * a, -1);
-  // double c = 1 - 2 * a * a;
+  bool flip = k * 4 > n;
+  if (flip) {
+    k = n / 2 - k;
+  }
   
-  double b = ksin(angle / 3);
-  double s = b * fma(2 * b, 2 * b, -3);
-  // double s = b * (4 * b * b - 3);
-  return U2(c, s);  
+  double x = M_PI / n * k;
+
+  double c = kcos(x);
+  double s = ksin(x);
+  
+  if (flip) {
+    double tmp = c;
+    c = s;
+    s = tmp;
+  }
+  return U2(c, -s);
 }
 
 // Caller can use this version if caller knows that k/n <= 0.25
 double2 slowTrig1(i32 k, i32 n) {
-  double angle = M_PI / n * k;
-#if DEBUG
-  if (k * 4 > n) printf ("slowTrig1 fail: k=%d, n=%d\n", k, n);
-#endif
-  return U2(kcos(angle), -ksin(angle));
+  double x = M_PI / n * k;
+  double c = kcos(x);
+  double s = ksin(x);
+  return U2(c, -s);
 }
 
 #else
@@ -4586,8 +4551,8 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) out, CP(T2) in, CP(T2) a, CP(T2) b, Trig sma
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
-KERNEL(256) testKernel(global float* io) {
-	u32 me = get_local_id(0);
-        io[me] = native_sin(io[me]);
+KERNEL(256) testKernel(global double* io) {
+  u32 me = get_local_id(0);
+  io[me] = kcos(io[me]);
 }
 #endif

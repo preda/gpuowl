@@ -283,7 +283,7 @@ vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
 }
 
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {
-  vector<FFTConfig> configs = FFTConfig::genConfigs();
+  vector<FFTConfig> configs = FFTConfig::genConfigs(isPm1);
         
   FFTConfig config = getFFTConfig(configs, E, args.fftSize);
   u32 WIDTH        = config.width;
