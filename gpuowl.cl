@@ -21,7 +21,6 @@ UNROLL_ALL <nVidia default>
 UNROLL_NONE
 UNROLL_WIDTH
 UNROLL_HEIGHT <AMD default>
-UNROLL_MIDDLEMUL1 <AMD default>
 UNROLL_MIDDLEMUL2 <AMD default>
 
 T2_SHUFFLE <nVidia default>
@@ -128,10 +127,9 @@ G_H        "group height"
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
 // which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
 // For AMD GPUs we default to unrolling fft_HEIGHT but not fft_WIDTH loops.  For nVidia GPUs, we unroll everything.
-#if !UNROLL_ALL && !UNROLL_NONE && !UNROLL_WIDTH && !UNROLL_HEIGHT && !UNROLL_MIDDLEMUL1 && !UNROLL_MIDDLEMUL2
+#if !UNROLL_ALL && !UNROLL_NONE && !UNROLL_WIDTH && !UNROLL_HEIGHT && !UNROLL_MIDDLEMUL2
 #if AMDGPU
 #define UNROLL_HEIGHT 1
-#define UNROLL_MIDDLEMUL1 1
 #define UNROLL_MIDDLEMUL2 1
 #else
 #define UNROLL_ALL 1
@@ -167,7 +165,6 @@ G_H        "group height"
 #if UNROLL_ALL
 #define UNROLL_WIDTH 1
 #define UNROLL_HEIGHT 1
-#define UNROLL_MIDDLEMUL1 1
 #define UNROLL_MIDDLEMUL2 1
 #endif
 
@@ -253,12 +250,6 @@ G_H        "group height"
 #define UNROLL_HEIGHT_CONTROL
 #else
 #define UNROLL_HEIGHT_CONTROL	   __attribute__((opencl_unroll_hint(1)))
-#endif
-
-#if UNROLL_MIDDLEMUL1
-#define UNROLL_MIDDLEMUL1_CONTROL
-#else
-#define UNROLL_MIDDLEMUL1_CONTROL  __attribute__((opencl_unroll_hint(1)))
 #endif
 
 #if UNROLL_MIDDLEMUL2
@@ -2345,7 +2336,6 @@ void middleMul1(T2 *u, u32 s) {
   T2 base = step;
   u[1] = mul(u[1], base);
   base = sq(base);
-  UNROLL_MIDDLEMUL1_CONTROL
   for (i32 i = 2; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
