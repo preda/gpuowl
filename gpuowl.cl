@@ -45,13 +45,6 @@ OLD_FFT10
 CARRY32	<AMD default>		// This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
 CARRY64 <nVidia default>
 
-FANCY_MIDDLEMUL1 <nVidia default> // Only implemented for MIDDLE=10 and MIDDLE=11
-MORE_SQUARES_MIDDLEMUL1		// Replaces some complex muls with complex squares but uses more registers
-CHEBYSHEV_METHOD		// Uses fewer floating point ops than original MiddleMul1 implementation (worse accuracy?)
-CHEBYSHEV_METHOD_FMA		// Uses fewest floating point ops of any of the MiddleMul1 implementations (worse accuracy?)
-ORIGINAL_METHOD			// The original straightforward MiddleMul1 implementation
-ORIGINAL_TWEAKED <AMD default>	// The original MiddleMul1 implementation tweaked to save two multiplies
-
 ORIG_MIDDLEMUL2 <default>	// The original straightforward MiddleMul2 implementation
 CHEBYSHEV_MIDDLEMUL2		// Uses fewer floating point ops than original MiddleMul2 implementation (worse accuracy?)
 
@@ -649,7 +642,8 @@ T2 foo(T2 a) { return foo2(a, a); }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
-T2 fmaT2(T a, T2 b, T2 c) { return (U2(fma(a, b.x, c.x), fma(a, b.y, c.y))); }
+// T2 fmaT2(T a, T2 b, T2 c) { return U2(__builtin_fma(a, b.x, c.x), __builtin_fma(a, b.y, c.y)); }
+T2 fmaT2(T a, T2 b, T2 c) { return U2(fma(a, b.x, c.x), fma(a, b.y, c.y)); }
 
 // Promote 2 multiplies and 4 add/sub instructions into 4 FMA instructions.
 #if !PREFER_LESS_FMA
@@ -1665,7 +1659,7 @@ double kcos(double x) {
 double2 slowTrig(i32 k, i32 n) {
   bool flip = k * 4 > n;
   if (flip) {
-    k = n / 2 - k;
+    k = n / 2 - k;  // assumes n even
   }
   
   double x = M_PI / n * k;
@@ -1889,7 +1883,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 me = get_local_id(0);
 
   in += (line % 16) * 16;
-  in += ((line % SMALL_HEIGHT) / 16) * MIDDLE*256;
+  in += ((line % SMALL_HEIGHT) / 16) * MIDDLE * 256;
   in += (line / SMALL_HEIGHT) * 256;
 
 #if G_W < 16
@@ -2348,86 +2342,6 @@ void middleMul1(T2 *u, u32 s) {
   // One might think this increases VGPR usage due to extra temporaries, however as of rocm 2.2
   // all the various t value are precomputed anyway (to give the global loads more time to complete).
   T2 steps[MIDDLE];
-  // FANCY_MIDDLEMUL1 should be marginally less F64 ops by using a mul_by_conjugate to compute steps
-  // in the reverse direction.  Timings were inconclusive.  Needs more investigation.  If better, we can
-  // create implementations for each MIDDLE value.
-#if FANCY_MIDDLEMUL1 && MIDDLE == 10
-   steps[2] = sq(step);
-   u[1] = mul(u[1], step);
-   u[2] = mul(u[2], steps[2]);
-   steps[4] = sq(steps[2]);
-   mul_and_mul_by_conjugate(&steps[5], &steps[3], steps[4], step);
-   u[3] = mul(u[3], steps[3]);
-   u[4] = mul(u[4], steps[4]);
-   u[5] = mul(u[5], steps[5]);
-   steps[6] = sq(steps[3]);
-   steps[8] = sq(steps[4]);
-   mul_and_mul_by_conjugate(&steps[9], &steps[7], steps[8], step);
-   u[6] = mul(u[6], steps[6]);
-   u[7] = mul(u[7], steps[7]);
-   u[8] = mul(u[8], steps[8]);
-   u[9] = mul(u[9], steps[9]);
-#elif FANCY_MIDDLEMUL1 && MIDDLE == 11
-   steps[2] = sq(step);
-   u[1] = mul(u[1], step);
-   u[2] = mul(u[2], steps[2]);
-   steps[4] = sq(steps[2]);
-   mul_and_mul_by_conjugate(&steps[5], &steps[3], steps[4], step);
-   u[3] = mul(u[3], steps[3]);
-   u[4] = mul(u[4], steps[4]);
-   u[5] = mul(u[5], steps[5]);
-   steps[8] = sq(steps[4]);
-   mul_and_mul_by_conjugate(&steps[9], &steps[7], steps[8], step);
-   u[7] = mul(u[7], steps[7]);
-   u[8] = mul(u[8], steps[8]);
-   u[9] = mul(u[9], steps[9]);
-   mul_and_mul_by_conjugate(&steps[10], &steps[6], steps[8], steps[2]);
-   u[6] = mul(u[6], steps[6]);
-   u[10] = mul(u[10], steps[10]);
-#elif MORE_SQUARES_MIDDLEMUL1		// Less floating point ops, might be most accurate, uses more registers
-  UNROLL_MIDDLEMUL1_CONTROL
-  for (i32 i = 1; i < MIDDLE; i++) {
-    if (i == 1) {
-      steps[i] = step;
-    } else if (i & 1) {
-      steps[i] = mul(steps[i/2], steps[i/2 + 1]);
-    } else {
-      steps[i] = sq(steps[i/2]);
-    }
-    u[i] = mul(u[i], steps[i]);
-  }
-#elif CHEBYSHEV_METHOD			// Fewer floating point ops than original method.  Oddly, not faster.
-  steps[1] = step;
-  u[1] = mul(u[1], steps[1]);
-  steps[2] = sq(steps[1]);
-  u[2] = mul(u[2], steps[2]);
-  UNROLL_MIDDLEMUL1_CONTROL
-  for (i32 i = 3; i < MIDDLE; i++) {
-    steps[i].x = xy2minus(steps[1].x, steps[i-1].x, steps[i-2].x);
-    steps[i].y = xy2minus(steps[1].x, steps[i-1].y, steps[i-2].y);
-    u[i] = mul(u[i], steps[i]);
-  }
-#elif CHEBYSHEV_METHOD_FMA		// Fewest floating point ops of any method.
-  steps[1] = step;
-  u[1] = mul(u[1], steps[1]);
-  T step1xtimes2 = steps[1].x * 2.0;
-  steps[2].x = step1xtimes2 * steps[1].x - 1.0;
-  steps[2].y = step1xtimes2 * steps[1].y;
-  u[2] = mul(u[2], steps[2]);
-  UNROLL_MIDDLEMUL1_CONTROL
-  for (i32 i = 3; i < MIDDLE; i++) {
-    steps[i].x = MSUB(step1xtimes2, steps[i-1].x, steps[i-2].x);
-    steps[i].y = MSUB(step1xtimes2, steps[i-1].y, steps[i-2].y);
-    u[i] = mul(u[i], steps[i]);
-  }
-#elif ORIGINAL_METHOD			// The original version.  May use the fewest VGPRs.
-  T2 base = step;
-  UNROLL_MIDDLEMUL1_CONTROL
-  for (i32 i = 1; i < MIDDLE; ++i) {
-    u[i] = mul(u[i], base);
-    base = mul(base, step);
-  }
-#elif ORIGINAL_TWEAKED			// The original version with one minor tweak.  Should beat original when unrolled.
   T2 base = step;
   u[1] = mul(u[1], base);
   base = sq(base);
@@ -2436,9 +2350,6 @@ void middleMul1(T2 *u, u32 s) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
-#else
-#error No MiddleMul1 implementation
-#endif
 }
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
@@ -3485,7 +3396,6 @@ void acquire() {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-// __attribute__((amdgpu_num_vgpr(64)))
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
   local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
