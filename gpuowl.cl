@@ -2259,25 +2259,6 @@ KERNEL(G_W) k_fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
   write(G_W, NW, u, out, 0);
 }
 
-void middleMul(T2 *u, u32 gx, u32 me) {
-  T2 step = slowTrig(256 * gx + me, BIG_HEIGHT / 2);
-  // This implementation improves roundoff accuracy by shortening the chain of complex multiplies.
-  // There is also some chance that replacing mul with sq could result in a small reduction in f64 ops.
-  // One might think this increases VGPR usage due to extra temporaries, however as of rocm 2.2
-  // all the various t value are precomputed anyway (to give the global loads more time to complete).
-  T2 steps[MIDDLE];
-  for (i32 i = 1; i < MIDDLE; i++) {
-    if (i == 1) {
-      steps[i] = step;
-    } else if (i & 1) {
-      steps[i] = mul(steps[i/2], steps[i/2 + 1]);
-    } else {
-      steps[i] = sq(steps[i/2]);
-    }
-    u[i] = mul(u[i], steps[i]);
-  }
-}
-
 void fft_MIDDLE(T2 *u) {
 #if   MIDDLE == 3
   fft3(u);
@@ -2300,6 +2281,21 @@ void fft_MIDDLE(T2 *u) {
 #endif
 }
 
+// Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
+// Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
+// s varies from 0 to SMALL_HEIGHT-1
+void middleMul(T2 *u, u32 s) {
+  T2 step = slowTrigMid8(s, BIG_HEIGHT / 2);
+  T2 steps[MIDDLE];
+  T2 base = step;
+  u[1] = mul(u[1], base);
+  base = sq(base);
+  for (i32 i = 2; i < MIDDLE; ++i) {
+    u[i] = mul(u[i], base);
+    base = mul(base, step);
+  }
+}
+
 #if MIDDLE == 1 || !MERGED_MIDDLE
 
 KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
@@ -2316,31 +2312,12 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul(u, gx, me);
+  middleMul(u, 256 * gx + me);
 
   write(SMALL_HEIGHT, MIDDLE, u, out, BIG_HEIGHT * gy + 256 * gx);
 }
 
 #else
-
-// Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
-// Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
-// s varies from 0 to SMALL_HEIGHT-1
-void middleMul1(T2 *u, u32 s) {
-  T2 step = slowTrigMid8(s, BIG_HEIGHT / 2);
-  // This implementation improves roundoff accuracy by shortening the chain of complex multiplies.
-  // There is also some chance that replacing mul with sq could result in a small reduction in f64 ops.
-  // One might think this increases VGPR usage due to extra temporaries, however as of rocm 2.2
-  // all the various t value are precomputed anyway (to give the global loads more time to complete).
-  T2 steps[MIDDLE];
-  T2 base = step;
-  u[1] = mul(u[1], base);
-  base = sq(base);
-  for (i32 i = 2; i < MIDDLE; ++i) {
-    u[i] = mul(u[i], base);
-    base = mul(base, step);
-  }
-}
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
 // Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
@@ -2436,7 +2413,7 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul1(u, start_row + (me / 16));
+  middleMul(u, start_row + (me / 16));
 
 // Swizzle data so we will write 1K byte contiguous chunks
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -2486,7 +2463,7 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul1(u, start_row + (me / 16));
+  middleMul(u, start_row + (me / 16));
 
 // Swizzle data so it is closer to the sequential order needed by tailFused.
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -2544,7 +2521,7 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul1(u, start_row + (me / 16));
+  middleMul(u, start_row + (me / 16));
 
 // Swizzle data so we write contiguous T values instead of T2 values.
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -2612,7 +2589,7 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul1(u, start_row + (me / 16));
+  middleMul(u, start_row + (me / 16));
 
 // Swizzle data so it is closer to the sequential order needed by tailFused.
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -2670,7 +2647,7 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul1(u, start_row + (me / 8));
+  middleMul(u, start_row + (me / 8));
 
 // Swizzle data so it is closer to the sequential order needed by tailFused.
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -2728,7 +2705,7 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul1(u, start_row + (me / 4));
+  middleMul(u, start_row + (me / 4));
 
 // Swizzle data so it is closer to the sequential order needed by tailFused.
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -2787,7 +2764,7 @@ KERNEL(256) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul1(u, start_row + (me / 32));
+  middleMul(u, start_row + (me / 32));
 
 // Swizzle data so it is closer to the sequential order needed by tailFused.
 // If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
@@ -2831,7 +2808,7 @@ KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   read(SMALL_HEIGHT, MIDDLE, u, in, 0);
   ENABLE_MUL2();
 
-  middleMul(u, gx, me);
+  middleMul(u, 256 * gx + me);
 
   fft_MIDDLE(u);
 
@@ -2871,7 +2848,7 @@ KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
   ENABLE_MUL2();
 
-  middleMul1(u, start_col + (me % 16));
+  middleMul(u, start_col + (me % 16));
 
   fft_MIDDLE(u);
 
@@ -2919,7 +2896,7 @@ KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
   ENABLE_MUL2();
 
-  middleMul1(u, start_col + (me % 16));
+  middleMul(u, start_col + (me % 16));
 
   fft_MIDDLE(u);
 
@@ -2978,7 +2955,7 @@ KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
   ENABLE_MUL2();
 
-  middleMul1(u, start_col + (me % 16));
+  middleMul(u, start_col + (me % 16));
 
   fft_MIDDLE(u);
 
@@ -3035,7 +3012,7 @@ KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
   ENABLE_MUL2();
 
-  middleMul1(u, start_col + (me % 16));
+  middleMul(u, start_col + (me % 16));
 
   fft_MIDDLE(u);
 
@@ -3103,7 +3080,7 @@ KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
   ENABLE_MUL2();
 
-  middleMul1(u, start_col + (me % 16));
+  middleMul(u, start_col + (me % 16));
 
   fft_MIDDLE(u);
 
@@ -3161,7 +3138,7 @@ KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 8) * BIG_HEIGHT + (me % 8)]; }
   ENABLE_MUL2();
 
-  middleMul1(u, start_col + (me % 8));
+  middleMul(u, start_col + (me % 8));
 
   fft_MIDDLE(u);
 
@@ -3219,7 +3196,7 @@ KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 4) * BIG_HEIGHT + (me % 4)]; }
   ENABLE_MUL2();
 
-  middleMul1(u, start_col + (me % 4));
+  middleMul(u, start_col + (me % 4));
 
   fft_MIDDLE(u);
 
@@ -3277,7 +3254,7 @@ KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 32) * BIG_HEIGHT + (me % 32)]; }
   ENABLE_MUL2();
 
-  middleMul1(u, start_col + (me % 32));
+  middleMul(u, start_col + (me % 32));
 
   fft_MIDDLE(u);
 
