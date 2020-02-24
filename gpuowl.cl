@@ -349,19 +349,6 @@ T MAD(T x, T y, T z) {
 #endif
 }
 
-// x * y - z, "Multiply SUB"
-// Works around more ROCm poor optimizations in CHEBYSHEV_METHOD_FMA.  Same optimization bug as INLINE_X4 works around.
-// A bug report has been filed and a fix is promised for some future ROCm version.
-T MSUB(T x, T y, T z) {
-#if FMA
-  return fma(x, y, -z);
-#elif HAS_ASM
-  T tmp; __asm("v_fma_f64 %0, %1, %2, -%3" : "=v" (tmp) : "v" (x), "v" (y), "v" (z)); return tmp;
-#else
-  return x * y - z;
-#endif
-}
-
 T2 U2(T a, T b) { return (T2)(a, b); }
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
@@ -375,7 +362,6 @@ u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 
 // complex mul
 T2 mul(T2 a, T2 b) { return U2(MAD(a.x, b.x, -a.y * b.y), MAD(a.x, b.y, a.y * b.x)); }
-  // return U2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
 
 // complex mul * 4
 T2 mul4(T2 a, T2 b) {
@@ -385,58 +371,46 @@ T2 mul4(T2 a, T2 b) {
   T2 tmp;
   __asm("v_fma_f64 %0, %1, -%2, %3 mul:4" : "=v" (tmp.x) : "v" (a.y), "v" (b.y), "v" (axbx));
   __asm("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (tmp.y) : "v" (a.y), "v" (b.x), "v" (axby));
-  return (tmp);
+  return tmp;
 #else
   return 4 * mul(a, b);
 #endif
 }
 
-// complex add * 2
-T2 add2(T2 a, T2 b) {
+T add1_mul2(T x, T y) {
 #if !NO_OMOD
- T2 tmp;
- __asm("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp.x) : "v" (a.x), "v" (b.x));
- __asm("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp.y) : "v" (a.y), "v" (b.y));
- return (tmp);
+  T tmp;
+   __asm("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
+   return tmp;
 #else
- return 2 * (a + b);
+   return 2 * (a + b);
 #endif
+}
+
+// complex add * 2
+T2 add_mul2(T2 a, T2 b) {
+  return U2(add1_mul2(a.x, b.x), add1_mul2(a.y, b.y));
 }
 
 // x^2 - y^2
 T diffsq(T x, T y) { return MAD(x, x, - y * y); } // worse: (x + y) * (x - y)
 
 // x * y * 2
-T xy2(T x, T y) {
+T xy_mul2(T x, T y) {
 #if !NO_OMOD
-  T tmp; __asm("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y)); return tmp;
+  T tmp;
+  __asm("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
+  return tmp;
 #else
   return 2 * x * y;
 #endif
 }
 
-// x * y * 2 - z
-// Works around more ROCm poor optimizations in CHEBYSHEV_METHOD.  Same optimization bug as INLINE_X4 works around.
-// A bug report has been filed and a fix is promised for some future ROCm version.
-T xy2minus(T x, T y, T z) {
-#if !NO_OMOD
-  T tmp1, tmp2;
-  __asm("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp1) : "v" (x), "v" (y));
-  __asm("v_add_f64 %0, %1, -%2" : "=v" (tmp2) : "v" (tmp1), "v" (z));
-  return tmp2;
-#else
-  return 2 * x * y - z;
-#endif
-}
-
-T2 sq(T2 a) { return U2(diffsq(a.x, a.y), xy2(a.x, a.y)); }
+T2 sq(T2 a) { return U2(diffsq(a.x, a.y), xy_mul2(a.x, a.y)); }
 
 T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
 T2 mul_t8(T2 a)  { return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return U2(a.x - a.y, a.x + a.y) * - M_SQRT1_2; } // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
-
-T  shl1(T a, u32 k) { return a * (1 << k); }
-T2 shl(T2 a, u32 k) { return U2(shl1(a.x, k), shl1(a.y, k)); }
 
 T2 swap(T2 a) { return U2(a.y, a.x); }
 T2 conjugate(T2 a) { return U2(a.x, -a.y); }
@@ -581,6 +555,7 @@ Word2 carryWord(Word2 a, Carry *carry, u32 extra) {
 //
 
 T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
+T2 addsub_mul2(T2 a) { return U2(add1_mul2(a.x, a.y), add1_mul2(a.x, -a.y)); }
 
 T2 foo2(T2 a, T2 b) {
   a = addsub(a);
@@ -588,8 +563,15 @@ T2 foo2(T2 a, T2 b) {
   return addsub(U2(a.x * b.x, a.y * b.y));
 }
 
+T2 foo2_mul4(T2 a, T2 b) {
+  a = addsub_mul2(a);
+  b = addsub_mul2(b);
+  return addsub(U2(a.x * b.x, a.y * b.y));
+}
+
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 T2 foo(T2 a) { return foo2(a, a); }
+T2 foo_mul4(T2 a) { return foo2_mul4(a, a); }
 
 #if !ORIG_X2 && !INLINE_X2 && !FMA_X2
 #if HAS_ASM
@@ -2342,8 +2324,8 @@ void middleMul2(T2 *u, u32 g, u32 me) {
   T stepxtimes2 = step.x * 2.0;
   UNROLL_MIDDLEMUL2_CONTROL
   for (i32 i = 2; i < MIDDLE; i++) {
-    steps[i].x = MSUB(stepxtimes2, steps[i-1].x, steps[i-2].x);
-    steps[i].y = MSUB(stepxtimes2, steps[i-1].y, steps[i-2].y);
+    steps[i].x = MAD(stepxtimes2, steps[i-1].x, -steps[i-2].x);
+    steps[i].y = MAD(stepxtimes2, steps[i-1].y, -steps[i-2].y);
     u[i] = mul(u[i], steps[i]);
   }
 
@@ -3579,7 +3561,6 @@ KERNEL(G_W) carryFusedMul(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) re
 }
 
 
-// __attribute__((amdgpu_num_vgpr(128)))
 KERNEL(256) transposeW(P(T2) out, CP(T2) in) {
   local T lds[4096];
   ENABLE_MUL2();
@@ -3623,8 +3604,8 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
   
   for (u32 i = 0; i < 4; ++i, base = mul(base, step)) {
     if (i == 0 && line1 == 0 && me == 0) {
-      out[0]     = shl(foo(conjugate(in[0])), 2);
-      out[W / 2] = shl(sq(conjugate(in[W / 2])), 3);    
+      out[0]     = foo_mul4(conjugate(in[0]));
+      out[W / 2] = 8 * sq(conjugate(in[W / 2]));
     } else {
       u32 k = g1 * W + i * (W / 8) + me;
       u32 v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
@@ -3655,8 +3636,8 @@ KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   u32 me = get_local_id(0);
 
   if (line1 == 0 && me == 0) {
-    io[0]     = shl(conjugate(foo2(io[0], in[0])), 2);
-    io[W / 2] = shl(conjugate(mul(io[W / 2], in[W / 2])), 3);
+    io[0]     = foo2_mul4(conjugate(io[0]), conjugate(in[0]));
+    io[W / 2] = 8 * conjugate(mul(io[W / 2], in[W / 2]));
     return;
   }
 
@@ -3700,8 +3681,8 @@ KERNEL(SMALL_HEIGHT / 2) multiplyDelta(P(T2) io, CP(T2) inA, CP(T2) inB ) {
   u32 me = get_local_id(0);
 
   if (line1 == 0 && me == 0) {
-    io[0]     = shl(conjugate(foo2(io[0], inA[0] - inB[0])), 2);
-    io[W / 2] = shl(conjugate(mul(io[W / 2], inA[W / 2] - inB[W / 2])), 3);
+    io[0]     = foo2_mul4(cojugate(io[0]), conjugate(inA[0] - inB[0]));
+    io[W / 2] = 8 * conjugate(mul(io[W / 2], inA[W / 2] - inB[W / 2]));
     return;
   }
 
@@ -3819,8 +3800,8 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
     T2 b = conjugate(v[i]);
     T2 t = swap(base);    
     if (special && i == 0 && me == 0) {
-      a = shl(foo(a), 2);
-      b = shl(sq(b), 3);
+      a = foo_mul4(a);
+      b = 8 * sq(b);
     } else {
       X2(a, b);
       b = mul(b, conjugate(t));
@@ -3867,8 +3848,8 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
     T2 t = swap(base);    
     if (special && i == 0 && me == 0) {
       b = conjugate(b);
-      a = shl(foo(a), 2);
-      b = shl(sq(b), 3);
+      a = foo_mul4(a);
+      b = 8 * sq(b);
       a = conjugate(a);
     } else {
       onePairSq(a, b, t);
@@ -3931,7 +3912,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
       X2(a, b); \
       tmp = sq(b); \
       b = mul4(a,b);					/* 4 * a * b */ \
-      a = add2(sq(a),mul(tmp,conjugate_t_squared));	/* 2 * (a^2 + b^2 * conjugate_t_squared) */ \
+      a = add_mul2(sq(a),mul(tmp,conjugate_t_squared));	/* 2 * (a^2 + b^2 * conjugate_t_squared) */ \
       X2(a, b); \
       a = conjugate(a); \
 }
@@ -3947,8 +3928,8 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
     T2 b = v[i];
     if (special && i == 0 && me == 0) {
       b = conjugate(b);
-      a = shl(foo(a), 2);
-      b = shl(sq(b), 3);
+      a = foo_mul4(a);
+      b = 8 * sq(b);
       a = conjugate(a);
     } else {
       onePairSq(a, b, swap_squared(base_squared));
@@ -4000,8 +3981,8 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
     T2 d = conjugate(q[i]);
     T2 t = swap(base);
     if (special && i == 0 && me == 0) {
-      a = shl(foo2(a, c), 2);
-      b = shl(mul(b, d), 3);
+      a = foo2_mul4(a, c);
+      b = 8 * mul(b, d);
     } else {
       X2(a, b);
       b = mul(b, conjugate(t));
@@ -4075,8 +4056,8 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
     if (special && i == 0 && me == 0) {
       b = conjugate(b);
       d = conjugate(d);
-      a = shl(foo2(a, c), 2);
-      b = shl(mul(b, d), 3);
+      a = foo2_mul4(a, c);
+      b = 8 * mul(b, d);
       a = conjugate(a);
     } else {
       onePairMul(a, b, c, d, t);
