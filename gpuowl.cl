@@ -45,9 +45,6 @@ CARRY64 <nVidia default>
 
 ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
-MORE_ACCURATE <AMD default>	// Our own sin/cos implementation with extra accuracy (should be needlessly slower, but isn't)
-LESS_ACCURATE <nVidia default>	// Opposite of MORE_ACCURATE
-
 
 ---- P-1 below ----
 
@@ -162,28 +159,11 @@ G_H        "group height"
 #define UNROLL_HEIGHT 1
 #endif
 
-#if !FANCY_MIDDLEMUL1 && !MORE_SQUARES_MIDDLEMUL1 && !ORIGINAL_METHOD && !ORIGINAL_TWEAKED
-#if AMDGPU
-#define ORIGINAL_TWEAKED 1
-#else
-#define FANCY_MIDDLEMUL1 1
-#define ORIGINAL_TWEAKED 1
-#endif
-#endif
-
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
 #if PM1
 #define ORIG_SLOWTRIG 1
 #else
 #define NEW_SLOWTRIG 1
-#endif
-#endif
-
-#if !MORE_ACCURATE && !LESS_ACCURATE
-#if AMDGPU
-#define MORE_ACCURATE 1
-#else
-#define LESS_ACCURATE 1
 #endif
 #endif
 
@@ -426,10 +406,8 @@ i64 unweight(T x, T weight) { return rint(x * weight); }
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
 //void optionalDouble(T *iw, u32 bits, u32 off) { union { double d; int2 i; } tmp; tmp.d = *iw; tmp.i.y += (((bits >> off) & 1) << 20); *iw = tmp.d; }
-//void optionalDouble(T *iw, u32 bits, u32 off) { *iw = ldexp(*iw, (u32) test(bits, off)); }		// ROCm bug -- wastes VGPRs
-void optionalDouble(T *iw, u32 bits, u32 off) { if (test(bits, off)) *iw = *iw * 2.0; }
-//void optionalHalve(T *w, u32 bits, u32 off) { *w = ldexp(*w, - (i32) (u32) test(bits, off)); }	// ROCm bug -- wastes VGPRs
-void optionalHalve(T *w, u32 bits, u32 off) { if (test(bits, off)) *w = *w * 0.5; }
+void optionalDouble(T *iw, u32 bits, u32 off) { if (test(bits, off)) *iw *= 2; }
+void optionalHalve(T *w, u32 bits, u32 off)   { if (test(bits, off)) *w  *= 0.5; }
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
