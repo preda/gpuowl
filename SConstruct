@@ -11,7 +11,7 @@ srcs = 'AllocTrac.cpp Pm1Plan.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.
 AlwaysBuild(Command('version.inc', [], 'echo \\"`git describe --long --dirty --always`\\" > $TARGETS'))
 AlwaysBuild(Command('gpuowl-wrap.cpp', ['gpuowl.cl'], 'cat head.txt gpuowl.cl tail.txt > gpuowl-wrap.cpp'))
 
-LIBPATH=['/opt/rocm/opencl/lib/x86_64']
+LIBPATH=['/opt/rocm/opencl/lib/x86_64', '/opt/rocm-3.1.0/opencl/lib/x86_64']
 
 config = '-g -O2'
 #-fsanitize=address'

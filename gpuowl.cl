@@ -377,7 +377,7 @@ T2 mul4(T2 a, T2 b) {
 #endif
 }
 
-T add1_mul2(T x, T y) {
+T add1_m2(T x, T y) {
 #if !NO_OMOD
   T tmp;
    __asm("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
@@ -388,15 +388,15 @@ T add1_mul2(T x, T y) {
 }
 
 // complex add * 2
-T2 add_mul2(T2 a, T2 b) {
-  return U2(add1_mul2(a.x, b.x), add1_mul2(a.y, b.y));
+T2 add_m2(T2 a, T2 b) {
+  return U2(add1_m2(a.x, b.x), add1_m2(a.y, b.y));
 }
 
 // x^2 - y^2
 T diffsq(T x, T y) { return MAD(x, x, - y * y); } // worse: (x + y) * (x - y)
 
 // x * y * 2
-T xy_mul2(T x, T y) {
+T mul1_m2(T x, T y) {
 #if !NO_OMOD
   T tmp;
   __asm("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
@@ -406,7 +406,7 @@ T xy_mul2(T x, T y) {
 #endif
 }
 
-T2 sq(T2 a) { return U2(diffsq(a.x, a.y), xy_mul2(a.x, a.y)); }
+T2 sq(T2 a) { return U2(diffsq(a.x, a.y), mul1_m2(a.x, a.y)); }
 
 T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
 T2 mul_t8(T2 a)  { return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
@@ -555,8 +555,9 @@ Word2 carryWord(Word2 a, Carry *carry, u32 extra) {
 //
 
 T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
-T2 addsub_mul2(T2 a) { return U2(add1_mul2(a.x, a.y), add1_mul2(a.x, -a.y)); }
+T2 addsub_m2(T2 a) { return U2(add1_m2(a.x, a.y), add1_m2(a.x, -a.y)); }
 
+// computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 T2 foo2(T2 a, T2 b) {
   a = addsub(a);
   b = addsub(b);
@@ -564,8 +565,8 @@ T2 foo2(T2 a, T2 b) {
 }
 
 T2 foo2_mul4(T2 a, T2 b) {
-  a = addsub_mul2(a);
-  b = addsub_mul2(b);
+  a = addsub_m2(a);
+  b = addsub_m2(b);
   return addsub(U2(a.x * b.x, a.y * b.y));
 }
 
@@ -3912,7 +3913,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
       X2(a, b); \
       tmp = sq(b); \
       b = mul4(a,b);					/* 4 * a * b */ \
-      a = add_mul2(sq(a),mul(tmp,conjugate_t_squared));	/* 2 * (a^2 + b^2 * conjugate_t_squared) */ \
+      a = add_m2(sq(a),mul(tmp,conjugate_t_squared));	/* 2 * (a^2 + b^2 * conjugate_t_squared) */ \
       X2(a, b); \
       a = conjugate(a); \
 }
@@ -4411,6 +4412,9 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) out, CP(T2) in, CP(T2) a, CP(T2) b, Trig sma
 #ifdef TEST_KERNEL
 KERNEL(256) testKernel(global double* io) {
   u32 me = get_local_id(0);
-  io[me] = kcos(io[me]);
+  double a = io[me];
+  double b = me;
+  double c = 4 * (a * a);
+  io[me] = c;
 }
 #endif
