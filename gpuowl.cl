@@ -21,7 +21,6 @@ UNROLL_ALL <nVidia default>
 UNROLL_NONE
 UNROLL_WIDTH
 UNROLL_HEIGHT <AMD default>
-UNROLL_MIDDLEMUL2 <AMD default>
 
 T2_SHUFFLE <nVidia default>
 NO_T2_SHUFFLE
@@ -43,9 +42,6 @@ OLD_FFT10
 
 CARRY32	<AMD default>		// This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
 CARRY64 <nVidia default>
-
-ORIG_MIDDLEMUL2 <default>	// The original straightforward MiddleMul2 implementation
-CHEBYSHEV_MIDDLEMUL2		// Uses fewer floating point ops than original MiddleMul2 implementation (worse accuracy?)
 
 ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
@@ -127,10 +123,9 @@ G_H        "group height"
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
 // which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
 // For AMD GPUs we default to unrolling fft_HEIGHT but not fft_WIDTH loops.  For nVidia GPUs, we unroll everything.
-#if !UNROLL_ALL && !UNROLL_NONE && !UNROLL_WIDTH && !UNROLL_HEIGHT && !UNROLL_MIDDLEMUL2
+#if !UNROLL_ALL && !UNROLL_NONE && !UNROLL_WIDTH && !UNROLL_HEIGHT
 #if AMDGPU
 #define UNROLL_HEIGHT 1
-#define UNROLL_MIDDLEMUL2 1
 #else
 #define UNROLL_ALL 1
 #endif
@@ -165,20 +160,15 @@ G_H        "group height"
 #if UNROLL_ALL
 #define UNROLL_WIDTH 1
 #define UNROLL_HEIGHT 1
-#define UNROLL_MIDDLEMUL2 1
 #endif
 
-#if !FANCY_MIDDLEMUL1 && !MORE_SQUARES_MIDDLEMUL1 && !CHEBYSHEV_METHOD && !CHEBYSHEV_METHOD_FMA && !ORIGINAL_METHOD && !ORIGINAL_TWEAKED
+#if !FANCY_MIDDLEMUL1 && !MORE_SQUARES_MIDDLEMUL1 && !ORIGINAL_METHOD && !ORIGINAL_TWEAKED
 #if AMDGPU
 #define ORIGINAL_TWEAKED 1
 #else
 #define FANCY_MIDDLEMUL1 1
 #define ORIGINAL_TWEAKED 1
 #endif
-#endif
-
-#if !ORIG_MIDDLEMUL2 && !CHEBYSHEV_MIDDLEMUL2
-#define ORIG_MIDDLEMUL2 1
 #endif
 
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
@@ -250,12 +240,6 @@ G_H        "group height"
 #define UNROLL_HEIGHT_CONTROL
 #else
 #define UNROLL_HEIGHT_CONTROL	   __attribute__((opencl_unroll_hint(1)))
-#endif
-
-#if UNROLL_MIDDLEMUL2
-#define UNROLL_MIDDLEMUL2_CONTROL
-#else
-#define UNROLL_MIDDLEMUL2_CONTROL  __attribute__((opencl_unroll_hint(1)))
 #endif
 
 // A T2 shuffle requires twice as much local memory as a T shuffle.  This won't affect occupancy for MIDDLE shuffles
@@ -2269,11 +2253,21 @@ void fft_MIDDLE(T2 *u) {
 // s varies from 0 to SMALL_HEIGHT-1
 void middleMul(T2 *u, u32 s) {
   T2 step = slowTrigMid8(s, BIG_HEIGHT / 2);
-  T2 steps[MIDDLE];
-  T2 base = step;
-  u[1] = mul(u[1], base);
-  base = sq(base);
+  u[1] = mul(u[1], step);
+  T2 base = sq(step);
   for (i32 i = 2; i < MIDDLE; ++i) {
+    u[i] = mul(u[i], base);
+    base = mul(base, step);
+  }
+}
+
+// Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
+// Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
+// g varies from 0 to WIDTH-1, me varies from 0 to SMALL_HEIGHT-1
+void middleMul2(T2 *u, u32 g, u32 me) {
+  T2 base = slowTrigMid8(g * me,           BIG_HEIGHT * WIDTH / 2);
+  T2 step = slowTrigMid8(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
+  for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
@@ -2301,39 +2295,6 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
 }
 
 #else
-
-// Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
-// Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
-// g varies from 0 to WIDTH-1, me varies from 0 to SMALL_HEIGHT-1
-void middleMul2(T2 *u, u32 g, u32 me) {
-  T2 base = slowTrigMid8(g * me,  BIG_HEIGHT * WIDTH / 2);
-  T2 step = slowTrigMid8(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
-
-#if ORIG_MIDDLEMUL2
-  UNROLL_MIDDLEMUL2_CONTROL
-  for (i32 i = 0; i < MIDDLE; ++i) {
-    u[i] = mul(u[i], base);
-    base = mul(base, step);
-  }
-
-#elif CHEBYSHEV_MIDDLEMUL2
-  T2 steps[MIDDLE];
-  steps[0] = base;
-  u[0] = mul(u[0], steps[0]);
-  steps[1] = mul(base, step);
-  u[1] = mul(u[1], steps[1]);
-  T stepxtimes2 = step.x * 2.0;
-  UNROLL_MIDDLEMUL2_CONTROL
-  for (i32 i = 2; i < MIDDLE; i++) {
-    steps[i].x = MAD(stepxtimes2, steps[i-1].x, -steps[i-2].x);
-    steps[i].y = MAD(stepxtimes2, steps[i-1].y, -steps[i-2].y);
-    u[i] = mul(u[i], steps[i]);
-  }
-
-#else
-#error No MiddleMul2 defined
-#endif
-}
 
 // Do a partial transpose during fftMiddleIn/Out
 // The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
