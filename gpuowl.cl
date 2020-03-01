@@ -96,6 +96,12 @@ G_H        "group height"
 // ROCm generates warning on this: #pragma OPENCL EXTENSION all : enable
 
 #if AMDGPU
+#define ASSERT(condition) if (!(condition)) { __builtin_trap(); }
+#else
+#define ASSERT(condition)
+#endif
+
+#if AMDGPU
 // On AMDGPU the default is HAS_ASM
 #if !NO_ASM
 #define HAS_ASM 1
@@ -3282,7 +3288,6 @@ void acquire() {
 #endif
 }
 
-
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
@@ -3400,7 +3405,9 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
       carry[0] = tmp;
     }
   } else {
-    // this is unreachable because 'gr' is in range [1 .. H], so one of the previous branches must have been taken
+    // This is unreachable because 'gr' is in range [1 .. H], so one of the previous branches must have been taken
+    // Feel free to un-comment the assert below to verify this.
+    // ASSERT(false);
   }
 #endif
 
