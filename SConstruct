@@ -18,6 +18,7 @@ config = '-g -O2'
 # -fstack-protector-strong -static-libasan'
 #config = '-O2'
 
-env.Program('gpuowl', srcs, LIBPATH=LIBPATH, LIBS=['amdocl64', 'gmp', 'stdc++fs'], parse_flags='-std=c++17 -Wall -pthread -fdiagnostics-color=auto -fmax-errors=6 ' + config)
+env.Program('gpuowl', srcs, LIBPATH=LIBPATH, LIBS=['OpenCL', 'gmp', 'stdc++fs'], parse_flags='-std=c++17 -Wall -pthread -fdiagnostics-color=auto -fmax-errors=6 ' + config)
+#'amdocl64'
 
 # Program('asm', 'asm.cpp clpp.cpp clwrap.cpp'.split(), LIBS=['OpenCL'], parse_flags='-std=c++17 -O2 -Wall -pthread')
