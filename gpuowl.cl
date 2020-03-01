@@ -3386,7 +3386,11 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
     }
   }
 #else
-  if (gr == H) {
+  if (gr < H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
+    }
+  } else if (gr == H) {
     for (i32 i = 0; i < NW; ++i) {
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
     }
@@ -3396,9 +3400,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
       carry[0] = tmp;
     }
   } else {
-    for (i32 i = 0; i < NW; ++i) {
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
-    }
+    // this is unreachable because 'gr' is in range [1 .. H], so one of the previous branches must have been taken
   }
 #endif
 
