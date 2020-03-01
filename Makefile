@@ -1,6 +1,6 @@
 CXXFLAGS = -Wall -O2 -std=c++17
 
-LIBPATH = -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
+LIBPATH = -L/opt/rocm-3.1.0/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
 
 LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
 
