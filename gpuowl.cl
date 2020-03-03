@@ -3,6 +3,8 @@
 
 /* List of user-serviceable -use flags and their effects
 
+DEBUG  : enable asserts. Slow, but allows to verify that all asserts hold.
+   
 FMA    : use OpenCL fma(x, y, z) instead of x * y + z in MAD(x, y, z)
 NO_ASM : request to not use any inline __asm()
 NO_OMOD: do not use GCN output modifiers in __asm()
@@ -95,11 +97,20 @@ G_H        "group height"
 
 // ROCm generates warning on this: #pragma OPENCL EXTENSION all : enable
 
-#if AMDGPU
-#define ASSERT(condition) if (!(condition)) { __builtin_trap(); }
+
+
+#if DEBUG
+#define assert(condition) if (!(condition)) { printf("assert(%s) failed at line %d\n", STR(condition), __LINE__ - 1); }
+// __builtin_trap();
 #else
-#define ASSERT(condition)
-#endif
+
+#if AMDGPU
+#define assert(condition)
+//__builtin_assume(condition)
+#else
+#define assert(condition)    
+#endif // AMDGPU
+#endif // DEBUG
 
 #if AMDGPU
 // On AMDGPU the default is HAS_ASM
@@ -1594,14 +1605,17 @@ double kcos(double x) {
 #undef _FMA
 
   return t + c;  
-#endif
+#endif // SIMPLE_COS
 }
 
 // This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
 double2 slowTrig(i32 k, i32 n) {
+  assert(n % 2 == 0); // n even
+  assert(2 * k <= n); // angle <= pi/2
+  
   bool flip = k * 4 > n;
   if (flip) {
-    k = n / 2 - k;  // assumes n even
+    k = n / 2 - k;
   }
   
   double x = M_PI / n * k;
@@ -1618,7 +1632,9 @@ double2 slowTrig(i32 k, i32 n) {
 }
 
 // Caller can use this version if caller knows that k/n <= 0.25
-double2 slowTrig1(i32 k, i32 n) {
+double2 slowTrig1(i32 k, i32 n) {  
+  assert(k * 4 <= n); // angle <= pi/4
+  
   double x = M_PI / n * k;
   double c = kcos(x);
   double s = ksin(x);
@@ -3380,6 +3396,8 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
 // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
 // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
 
+  assert(gr > 0 && gr <= H);
+  
 #if OLD_CARRY_LAYOUT
   if (gr == H) {
     for (i32 i = 0; i < NW; ++i) {
@@ -3406,8 +3424,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
     }
   } else {
     // This is unreachable because 'gr' is in range [1 .. H], so one of the previous branches must have been taken
-    // Feel free to un-comment the assert below to verify this.
-    // ASSERT(false);
+    // assert(gr <= H);
   }
 #endif
 
@@ -3787,7 +3804,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
 void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
   u32 me = get_local_id(0);
 
-// Should assert N == NH/2 or N == NH
+  assert(N == NH / 2 || N == NH);
 
   T2 step = slowTrig1(1, NH);
 
