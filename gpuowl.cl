@@ -165,6 +165,11 @@ G_H        "group height"
 #define UNROLL_HEIGHT 1
 #endif
 
+#if MIDDLE == 1			// Transpose routine want trig values outside the 0 to pi/2 range.
+#define ORIG_SLOWTRIG 1
+#undef NEW_SLOWTRIG
+#endif
+
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
 #if PM1
 #define ORIG_SLOWTRIG 1
@@ -698,6 +703,9 @@ void fft8(T2 *u) {
   SWAP(u[3], u[6]);
 }
 
+
+// FFT routines to implement the middle step
+
 void fft3(T2 *u) {
   const double SQRT3_2 = 0x1.bb67ae8584caap-1; // sin(tau/3), sqrt(3)/2, 0.86602540378443859659;
   
@@ -709,22 +717,25 @@ void fft3(T2 *u) {
   X2(u[1], u[2]);
 }
 
-void fft6(T2 *u) {
-  const double SQRT3_2 = 0x1.bb67ae8584caap-1; // sin(tau/3), sqrt(3)/2, 0.86602540378443859659;
-  
-  for (i32 i = 0; i < 3; ++i) { X2(u[i], u[i + 3]); }
-  
-  u[4] = mul(u[4], U2( 0.5, -SQRT3_2));
-  u[5] = mul(u[5], U2(-0.5, -SQRT3_2));
-  
-  fft3(u);
-  fft3(u + 3);
-  
-  // fix order [0, 2, 4, 1, 3, 5]
-  T2 tmp = u[1];
-  u[1] = u[3];
-  u[3] = u[4];
-  u[4] = u[2];
+// Operations needed to do a length 4 middle step
+// R1 = (r1+r3) +(r2+r4)
+// R3 = (r1+r3) -(r2+r4)
+// R2 = (r1-r3)           +(i2-i4)
+// R4 = (r1-r3)           -(i2-i4)
+
+// I1 = (i1+i3) +(i2+i4)
+// I3 = (i1+i3) -(i2+i4)
+// I2 = (i1-i3)           -(r2-r4)
+// I4 = (i1-i3)           +(r2-r4)
+
+void fft4mid(T2 *u) {
+  X2(u[0], u[2]);				// (r1+ i1+), (r1-  i1-)
+  X2_mul_t4(u[1], u[3]);			// (r2+ i2+), (i2- -r2-)
+
+  T2 tmp = u[0] - u[1];
+  u[0] = u[0] + u[1];
+  u[1] = u[2] + u[3];
+  u[3] = u[2] - u[3];
   u[2] = tmp;
 }
 
@@ -847,6 +858,187 @@ void fft5(T2 *u) {
 #endif
 
 
+void fft6(T2 *u) {
+  const double SQRT3_2 = 0x1.bb67ae8584caap-1; // sin(tau/3), sqrt(3)/2, 0.86602540378443859659;
+
+  for (i32 i = 0; i < 3; ++i) { X2(u[i], u[i + 3]); }
+  
+  u[4] = mul(u[4], U2( 0.5, -SQRT3_2));
+  u[5] = mul(u[5], U2(-0.5, -SQRT3_2));
+  
+  fft3(u);
+  fft3(u + 3);
+  
+  // fix order [0, 2, 4, 1, 3, 5]
+  T2 tmp = u[1];
+  u[1] = u[3];
+  u[3] = u[4];
+  u[4] = u[2];
+  u[2] = tmp;
+}
+
+// See prime95's gwnum/zr7.mac file for more detailed explanation of the formulas below
+// R1= r1     +(r2+r7)     +(r3+r6)     +(r4+r5)
+// R2= r1 +.623(r2+r7) -.223(r3+r6) -.901(r4+r5)  +(.782(i2-i7) +.975(i3-i6) +.434(i4-i5))
+// R7= r1 +.623(r2+r7) -.223(r3+r6) -.901(r4+r5)  -(.782(i2-i7) +.975(i3-i6) +.434(i4-i5))
+// R3= r1 -.223(r2+r7) -.901(r3+r6) +.623(r4+r5)  +(.975(i2-i7) -.434(i3-i6) -.782(i4-i5))
+// R6= r1 -.223(r2+r7) -.901(r3+r6) +.623(r4+r5)  -(.975(i2-i7) -.434(i3-i6) -.782(i4-i5))
+// R4= r1 -.901(r2+r7) +.623(r3+r6) -.223(r4+r5)  +(.434(i2-i7) -.782(i3-i6) +.975(i4-i5))
+// R5= r1 -.901(r2+r7) +.623(r3+r6) -.223(r4+r5)  -(.434(i2-i7) -.782(i3-i6) +.975(i4-i5))
+
+// I1= i1     +(i2+i7)     +(i3+i6)     +(i4+i5)
+// I2= i1 +.623(i2+i7) -.223(i3+i6) -.901(i4+i5)  -(.782(r2-r7) +.975(r3-r6) +.434(r4-r5))
+// I7= i1 +.623(i2+i7) -.223(i3+i6) -.901(i4+i5)  +(.782(r2-r7) +.975(r3-r6) +.434(r4-r5))
+// I3= i1 -.223(i2+i7) -.901(i3+i6) +.623(i4+i5)  -(.975(r2-r7) -.434(r3-r6) -.782(r4-r5))
+// I6= i1 -.223(i2+i7) -.901(i3+i6) +.623(i4+i5)  +(.975(r2-r7) -.434(r3-r6) -.782(r4-r5))
+// I4= i1 -.901(i2+i7) +.623(i3+i6) -.223(i4+i5)  -(.434(r2-r7) -.782(r3-r6) +.975(r4-r5))
+// I5= i1 -.901(i2+i7) +.623(i3+i6) -.223(i4+i5)  +(.434(r2-r7) -.782(r3-r6) +.975(r4-r5))
+
+void fft7(T2 *u) {
+  const double COS1 = 0.6234898018587335305;		// cos(tau/7)
+  const double COS2 = -0.2225209339563144043;		// cos(2*tau/7)
+  const double COS3 = -0.9009688679024191262;		// cos(3*tau/7)
+  const double SIN1 = 0.781831482468029809;		// sin(tau/7)
+  const double SIN2_SIN1 = 1.2469796037174670611;	// sin(2*tau/7) / sin(tau/7) = .975/.782
+  const double SIN3_SIN1 = 0.5549581320873711914;	// sin(3*tau/7) / sin(tau/7) = .434/.782
+
+  X2_mul_t4(u[1], u[6]);				// (r2+ i2+),  (i2- -r2-)
+  X2_mul_t4(u[2], u[5]);				// (r3+ i3+),  (i3- -r3-)
+  X2_mul_t4(u[3], u[4]);				// (r4+ i4+),  (i4- -r4-)
+
+  T2 tmp27a = fmaT2(COS1, u[1], u[0]);
+  T2 tmp36a = fmaT2(COS2, u[1], u[0]);
+  T2 tmp45a = fmaT2(COS3, u[1], u[0]);
+  u[0] = u[0] + u[1];
+
+  tmp27a = fmaT2(COS2, u[2], tmp27a);
+  tmp36a = fmaT2(COS3, u[2], tmp36a);
+  tmp45a = fmaT2(COS1, u[2], tmp45a);
+  u[0] = u[0] + u[2];
+
+  tmp27a = fmaT2(COS3, u[3], tmp27a);
+  tmp36a = fmaT2(COS1, u[3], tmp36a);
+  tmp45a = fmaT2(COS2, u[3], tmp45a);
+  u[0] = u[0] + u[3];
+
+  T2 tmp27b = fmaT2(SIN2_SIN1, u[5], u[6]);		// .975/.782
+  T2 tmp36b = fmaT2(SIN2_SIN1, u[6], -u[4]);
+  T2 tmp45b = fmaT2(SIN2_SIN1, u[4], -u[5]);
+
+  tmp27b = fmaT2(SIN3_SIN1, u[4], tmp27b);		// .434/.782
+  tmp36b = fmaT2(SIN3_SIN1, -u[5], tmp36b);
+  tmp45b = fmaT2(SIN3_SIN1, u[6], tmp45b);
+
+  fma_addsub(u[1], u[6], SIN1, tmp27a, tmp27b);
+  fma_addsub(u[2], u[5], SIN1, tmp36a, tmp36b);
+  fma_addsub(u[3], u[4], SIN1, tmp45a, tmp45b);
+}
+
+// See prime95's gwnum/zr8.mac file for more detailed explanation of the formulas below
+// R1 = ((r1+r5)+(r3+r7)) +((r2+r6)+(r4+r8))
+// R5 = ((r1+r5)+(r3+r7)) -((r2+r6)+(r4+r8))
+// R3 = ((r1+r5)-(r3+r7))                                    +((i2+i6)-(i4+i8))
+// R7 = ((r1+r5)-(r3+r7))                                    -((i2+i6)-(i4+i8))
+// R2 = ((r1-r5)      +.707((r2-r6)-(r4-r8)))  + ((i3-i7)+.707((i2-i6)+(i4-i8)))
+// R8 = ((r1-r5)      +.707((r2-r6)-(r4-r8)))  - ((i3-i7)+.707((i2-i6)+(i4-i8)))
+// R4 = ((r1-r5)      -.707((r2-r6)-(r4-r8)))  - ((i3-i7)-.707((i2-i6)+(i4-i8)))
+// R6 = ((r1-r5)      -.707((r2-r6)-(r4-r8)))  + ((i3-i7)-.707((i2-i6)+(i4-i8)))
+
+// I1 = ((i1+i5)+(i3+i7)) +((i2+i6)+(i4+i8))
+// I5 = ((i1+i5)+(i3+i7)) -((i2+i6)+(i4+i8))
+// I3 = ((i1+i5)-(i3+i7))                                    -((r2+r6)-(r4+r8))
+// I7 = ((i1+i5)-(i3+i7))                                    +((r2+r6)-(r4+r8))
+// I2 = ((i1-i5)      +.707((i2-i6)-(i4-i8)))  - ((r3-r7)+.707((r2-r6)+(r4-r8)))
+// I8 = ((i1-i5)      +.707((i2-i6)-(i4-i8)))  + ((r3-r7)+.707((r2-r6)+(r4-r8)))
+// I4 = ((i1-i5)      -.707((i2-i6)-(i4-i8)))  + ((r3-r7)-.707((r2-r6)+(r4-r8)))
+// I6 = ((i1-i5)      -.707((i2-i6)-(i4-i8)))  - ((r3-r7)-.707((r2-r6)+(r4-r8)))
+
+void fft8mid(T2 *u) {
+  X2(u[0], u[4]);					// (r1+ i1+), (r1-  i1-)
+  X2_mul_t4(u[1], u[5]);				// (r2+ i2+), (i2- -r2-)
+  X2_mul_t4(u[2], u[6]);				// (r3+ i3+), (i3- -r3-)
+  X2_mul_t4(u[3], u[7]);				// (r4+ i4+), (i4- -r4-)
+
+  X2(u[0], u[2]);					// (r1++  i1++), ( r1+-  i1+-)
+  X2_mul_t4(u[1], u[3]);				// (r2++  i2++), ( i2+- -r2+-)
+  X2_mul_t4(u[5], u[7]);				// (i2-+ -r2-+), (-r2-- -i2--)
+
+  T2 tmp28a = fmaT2(-M_SQRT1_2, u[7], u[4]);
+  T2 tmp46a = fmaT2(M_SQRT1_2, u[7], u[4]);
+  T2 tmp28b = fmaT2(M_SQRT1_2, u[5], u[6]);
+  T2 tmp46b = fmaT2(-M_SQRT1_2, u[5], u[6]);
+
+  u[4] = u[0] - u[1];
+  u[0] = u[0] + u[1];
+  u[6] = u[2] - u[3];
+  u[2] = u[2] + u[3];
+
+  u[1] = tmp28a + tmp28b;
+  u[7] = tmp28a - tmp28b;
+  u[3] = tmp46a - tmp46b;
+  u[5] = tmp46a + tmp46b;
+}
+
+
+// Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.7 "9-Point DFT".
+void fft9(T2 *u) {
+  const double C0 = 0x1.8836fa2cf5039p-1; //   0.766044443118978013 (2*c(u) - c(2*u) - c(4*u))/3
+  const double C1 = 0x1.e11f642522d1cp-1; //   0.939692620785908428 (c(u) + c(2*u) - 2*c(4*u))/3
+  const double C2 = 0x1.63a1a7e0b738ap-3; //   0.173648177666930359 -(c(u) - 2*c(2*u) + c(4*u))/3
+  const double C3 = 0x1.bb67ae8584caap-1; //   0.866025403784438597 s(3*u)
+  const double C4 = 0x1.491b7523c161dp-1; //   0.642787609686539363 s(u)
+  const double C5 = 0x1.5e3a8748a0bf5p-2; //   0.342020143325668713 s(4*u)
+  const double C6 = 0x1.f838b8c811c17p-1; //   0.984807753012208020 s(2*u)
+
+  X2(u[1], u[8]);
+  X2(u[2], u[7]);
+  X2(u[3], u[6]);
+  X2(u[4], u[5]);
+
+  T2 m4 = (u[2] - u[4]) * C1;
+  T2 s0 = (u[2] - u[1]) * C0 - m4;
+
+  X2(u[1], u[4]);
+  
+  T2 t5 = u[1] + u[2];
+  
+  T2 m8  = mul_t4(u[7] + u[8]) * C4;
+  T2 m10 = mul_t4(u[5] - u[8]) * C6;
+
+  X2(u[5], u[7]);
+  
+  T2 m9  = mul_t4(u[5]) * C5;
+  T2 t10 = u[8] + u[7];
+  
+  T2 s2 = m8 + m9;
+  u[5] = m9 - m10;
+
+  u[2] = u[0] - u[3] / 2;
+  u[0] += u[3];
+  u[3] = u[0] - t5 / 2;
+  u[0] += t5;
+  
+  u[7] = mul_t4(u[6]) * C3;
+  u[8] = u[7] + s2;
+  u[6] = mul_t4(t10)  * C3;
+
+  u[1] = u[2] - s0;
+
+  u[4] = u[4] * C2 - m4;
+  
+  X2(u[2], u[4]);
+  
+  u[4] += s0;
+
+  X2(u[5], u[7]);
+  u[5] -= s2;
+  
+  X2(u[4], u[5]);
+  X2(u[3], u[6]);  
+  X2(u[2], u[7]);
+  X2(u[1], u[8]);
+}
+
 #if !NEW_FFT10 && !OLD_FFT10
 #define NEW_FFT10 1
 #endif
@@ -950,123 +1142,6 @@ void fft10(T2 *u) {
 #else
 #error None of OLD_FFT10, NEW_FFT10 defined
 #endif
-
-
-// See prime95's gwnum/zr7.mac file for more detailed explanation of the formulas below
-// R1= r1     +(r2+r7)     +(r3+r6)     +(r4+r5)
-// R2= r1 +.623(r2+r7) -.223(r3+r6) -.901(r4+r5)  +(.782(i2-i7) +.975(i3-i6) +.434(i4-i5))
-// R7= r1 +.623(r2+r7) -.223(r3+r6) -.901(r4+r5)  -(.782(i2-i7) +.975(i3-i6) +.434(i4-i5))
-// R3= r1 -.223(r2+r7) -.901(r3+r6) +.623(r4+r5)  +(.975(i2-i7) -.434(i3-i6) -.782(i4-i5))
-// R6= r1 -.223(r2+r7) -.901(r3+r6) +.623(r4+r5)  -(.975(i2-i7) -.434(i3-i6) -.782(i4-i5))
-// R4= r1 -.901(r2+r7) +.623(r3+r6) -.223(r4+r5)  +(.434(i2-i7) -.782(i3-i6) +.975(i4-i5))
-// R5= r1 -.901(r2+r7) +.623(r3+r6) -.223(r4+r5)  -(.434(i2-i7) -.782(i3-i6) +.975(i4-i5))
-
-// I1= i1     +(i2+i7)     +(i3+i6)     +(i4+i5)
-// I2= i1 +.623(i2+i7) -.223(i3+i6) -.901(i4+i5)  -(.782(r2-r7) +.975(r3-r6) +.434(r4-r5))
-// I7= i1 +.623(i2+i7) -.223(i3+i6) -.901(i4+i5)  +(.782(r2-r7) +.975(r3-r6) +.434(r4-r5))
-// I3= i1 -.223(i2+i7) -.901(i3+i6) +.623(i4+i5)  -(.975(r2-r7) -.434(r3-r6) -.782(r4-r5))
-// I6= i1 -.223(i2+i7) -.901(i3+i6) +.623(i4+i5)  +(.975(r2-r7) -.434(r3-r6) -.782(r4-r5))
-// I4= i1 -.901(i2+i7) +.623(i3+i6) -.223(i4+i5)  -(.434(r2-r7) -.782(r3-r6) +.975(r4-r5))
-// I5= i1 -.901(i2+i7) +.623(i3+i6) -.223(i4+i5)  +(.434(r2-r7) -.782(r3-r6) +.975(r4-r5))
-
-void fft7(T2 *u) {
-  const double COS1 = 0.6234898018587335305;		// cos(tau/7)
-  const double COS2 = -0.2225209339563144043;		// cos(2*tau/7)
-  const double COS3 = -0.9009688679024191262;		// cos(3*tau/7)
-  const double SIN1 = 0.781831482468029809;		// sin(tau/7)
-  const double SIN2_SIN1 = 1.2469796037174670611;	// sin(2*tau/7) / sin(tau/7) = .975/.782
-  const double SIN3_SIN1 = 0.5549581320873711914;	// sin(3*tau/7) / sin(tau/7) = .434/.782
-
-  X2_mul_t4(u[1], u[6]);				// (r2+ i2+),  (i2- -r2-)
-  X2_mul_t4(u[2], u[5]);				// (r3+ i3+),  (i3- -r3-)
-  X2_mul_t4(u[3], u[4]);				// (r4+ i4+),  (i4- -r4-)
-
-  T2 tmp27a = fmaT2(COS1, u[1], u[0]);
-  T2 tmp36a = fmaT2(COS2, u[1], u[0]);
-  T2 tmp45a = fmaT2(COS3, u[1], u[0]);
-  u[0] = u[0] + u[1];
-
-  tmp27a = fmaT2(COS2, u[2], tmp27a);
-  tmp36a = fmaT2(COS3, u[2], tmp36a);
-  tmp45a = fmaT2(COS1, u[2], tmp45a);
-  u[0] = u[0] + u[2];
-
-  tmp27a = fmaT2(COS3, u[3], tmp27a);
-  tmp36a = fmaT2(COS1, u[3], tmp36a);
-  tmp45a = fmaT2(COS2, u[3], tmp45a);
-  u[0] = u[0] + u[3];
-
-  T2 tmp27b = fmaT2(SIN2_SIN1, u[5], u[6]);		// .975/.782
-  T2 tmp36b = fmaT2(SIN2_SIN1, u[6], -u[4]);
-  T2 tmp45b = fmaT2(SIN2_SIN1, u[4], -u[5]);
-
-  tmp27b = fmaT2(SIN3_SIN1, u[4], tmp27b);		// .434/.782
-  tmp36b = fmaT2(SIN3_SIN1, -u[5], tmp36b);
-  tmp45b = fmaT2(SIN3_SIN1, u[6], tmp45b);
-
-  fma_addsub(u[1], u[6], SIN1, tmp27a, tmp27b);
-  fma_addsub(u[2], u[5], SIN1, tmp36a, tmp36b);
-  fma_addsub(u[3], u[4], SIN1, tmp45a, tmp45b);
-}
-
-// Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.7 "9-Point DFT".
-void fft9(T2 *u) {
-  const double C0 = 0x1.8836fa2cf5039p-1; //   0.766044443118978013 (2*c(u) - c(2*u) - c(4*u))/3
-  const double C1 = 0x1.e11f642522d1cp-1; //   0.939692620785908428 (c(u) + c(2*u) - 2*c(4*u))/3
-  const double C2 = 0x1.63a1a7e0b738ap-3; //   0.173648177666930359 -(c(u) - 2*c(2*u) + c(4*u))/3
-  const double C3 = 0x1.bb67ae8584caap-1; //   0.866025403784438597 s(3*u)
-  const double C4 = 0x1.491b7523c161dp-1; //   0.642787609686539363 s(u)
-  const double C5 = 0x1.5e3a8748a0bf5p-2; //   0.342020143325668713 s(4*u)
-  const double C6 = 0x1.f838b8c811c17p-1; //   0.984807753012208020 s(2*u)
-
-  X2(u[1], u[8]);
-  X2(u[2], u[7]);
-  X2(u[3], u[6]);
-  X2(u[4], u[5]);
-
-  T2 m4 = (u[2] - u[4]) * C1;
-  T2 s0 = (u[2] - u[1]) * C0 - m4;
-
-  X2(u[1], u[4]);
-  
-  T2 t5 = u[1] + u[2];
-  
-  T2 m8  = mul_t4(u[7] + u[8]) * C4;
-  T2 m10 = mul_t4(u[5] - u[8]) * C6;
-
-  X2(u[5], u[7]);
-  
-  T2 m9  = mul_t4(u[5]) * C5;
-  T2 t10 = u[8] + u[7];
-  
-  T2 s2 = m8 + m9;
-  u[5] = m9 - m10;
-
-  u[2] = u[0] - u[3] / 2;
-  u[0] += u[3];
-  u[3] = u[0] - t5 / 2;
-  u[0] += t5;
-  
-  u[7] = mul_t4(u[6]) * C3;
-  u[8] = u[7] + s2;
-  u[6] = mul_t4(t10)  * C3;
-
-  u[1] = u[2] - s0;
-
-  u[4] = u[4] * C2 - m4;
-  
-  X2(u[2], u[4]);
-  
-  u[4] += s0;
-
-  X2(u[5], u[7]);
-  u[5] -= s2;
-  
-  X2(u[4], u[5]);
-  X2(u[3], u[6]);  
-  X2(u[2], u[7]);
-  X2(u[1], u[8]);
-}
 
 
 // See prime95's gwnum/zr11.mac file for more detailed explanation of the formulas below
@@ -2213,12 +2288,16 @@ KERNEL(G_W) k_fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
 void fft_MIDDLE(T2 *u) {
 #if   MIDDLE == 3
   fft3(u);
+#elif MIDDLE == 4
+  fft4mid(u);
 #elif MIDDLE == 5
   fft5(u);
 #elif MIDDLE == 6
   fft6(u);
 #elif MIDDLE == 7
   fft7(u);
+#elif MIDDLE == 8
+  fft8mid(u);
 #elif MIDDLE == 9
   fft9(u);
 #elif MIDDLE == 10
