@@ -80,17 +80,19 @@ Command line options:
   configs.push_back(FFTConfig{}); // dummy guard for the loop below.
   string variants;
   u32 activeSize = 0;
+  u32 activeMaxExp = 0;
   for (auto c : configs) {
     if (c.fftSize != activeSize) {
       if (!variants.empty()) {
         printf("FFT %5s [%6.2fM - %7.2fM] %s\n",
                numberK(activeSize).c_str(),
-               activeSize * 1.5 / 1'000'000, c.maxExp / 1'000'000.0,
+               activeSize * 1.5 / 1'000'000, activeMaxExp / 1'000'000.0,
                variants.c_str());
         variants.clear();
       }
     }
     activeSize = c.fftSize;
+    activeMaxExp = c.maxExp;
     variants += " "s + FFTConfig::configName(c.width, c.height, c.middle);
   }
 }
