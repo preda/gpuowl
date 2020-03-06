@@ -48,9 +48,6 @@ CARRY64 <nVidia default>
 ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
 
-VOLATILE_TRIG <AMD default>		// Force optimizer to not cache trig values
-NO_VOLATILE_TRIG <nVidia default>	// Let optimizer cache trig values if it wants to
-
 ---- P-1 below ----
 
 NO_P2_FUSED_TAIL                // Do not use the big kernel tailFusedMulDelta 
@@ -192,14 +189,6 @@ G_H        "group height"
 #endif
 #endif
 
-#if !VOLATILE_TRIG && !NO_VOLATILE_TRIG
-#if AMDGPU
-#define VOLATILE_TRIG 1
-#else
-#define NO_VOLATILE_TRIG 1
-#endif
-#endif
-
 // My 5M timings (in us).	WorkingOut0 is fftMiddleOut 128 + carryFused 372 (T2_SHUFFLE_MIDDLE)	133/369 (NO_T2_SHUFFLE)
 //				WorkingOut1 is fftMiddleOut 129 + carryFused 305			133/301
 //				WorkingOut1a is fftMiddleOut 128 + carryFused 305			128/305
@@ -253,12 +242,6 @@ G_H        "group height"
 #define UNROLL_HEIGHT_CONTROL
 #else
 #define UNROLL_HEIGHT_CONTROL	   __attribute__((opencl_unroll_hint(1)))
-#endif
-
-#if VOLATILE_TRIG
-#define VOLATILE_CONTROL       volatile
-#else
-#define VOLATILE_CONTROL
 #endif
 
 // A T2 shuffle requires twice as much local memory as a T shuffle.  This won't affect occupancy for MIDDLE shuffles
@@ -1400,7 +1383,7 @@ void shuflh(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
 #endif
 }
 
-void tabMul(u32 WG, VOLATILE_CONTROL const global T2 *trig, T2 *u, u32 n, u32 f) {
+void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   for (i32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
 }
