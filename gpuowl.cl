@@ -4147,7 +4147,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 #endif
 
 // equivalent to: fftHin, multiply, fftHout.
-KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
+KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig1, Trig smallTrig2) {
   local T2 lds[SMALL_HEIGHT / T2_SHUFFLE_TAILFUSED];
   T2 u[NH], v[NH];
 
@@ -4163,8 +4163,8 @@ KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
   readTailFusedLine(in, v, line2, memline2);
   ENABLE_MUL2();
 
-  fft_HEIGHT(lds, u, smallTrig);
-  fft_HEIGHT(lds, v, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, v, smallTrig1);
 
   u32 me = get_local_id(0);
   if (line1 == 0) {
@@ -4183,10 +4183,9 @@ KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig) {
     reverseLine(G_H, lds, v);
   }
 
-  fft_HEIGHT(lds, v, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig2);
+  fft_HEIGHT(lds, u, smallTrig2);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
-  
-  fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
 

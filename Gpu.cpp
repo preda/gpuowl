@@ -259,7 +259,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
   tailMulLowLow.setFixedArgs(2, bufTrigH);
   
-  k_tailFused.setFixedArgs(2, bufTrigH);
+  k_tailFused.setFixedArgs(2, bufTrigH, bufTrigH);
   tailSquareLow.setFixedArgs(2, bufTrigH);
   
   queue->zero(bufReady, BIG_H);
