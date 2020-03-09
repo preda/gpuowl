@@ -163,8 +163,12 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
 
   cl_device_id id = getDevice(args.device);
   if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
-  
-  for (const string& flag : args.flags) { defines.push_back(pair{flag, 1}); }
+
+  string clSource = CL_SOURCE;
+  for (const string& flag : args.flags) {
+    if (clSource.find(flag) == string::npos) { log("Warning: -use %s has no effect\n", flag.c_str()); }
+    defines.push_back(pair{flag, 1});
+  }
   
   cl_program program = compile({id}, context, CL_SOURCE, clArgs, defines);
   if (!program) { throw "OpenCL compilation"; }
