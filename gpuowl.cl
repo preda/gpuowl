@@ -350,7 +350,7 @@ u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 T2 mul(T2 a, T2 b) { return U2(MAD(a.x, b.x, -a.y * b.y), MAD(a.x, b.y, a.y * b.x)); }
 
 // complex mul * 4
-T2 mul4(T2 a, T2 b) {
+T2 mul_m4(T2 a, T2 b) {
 #if !NO_OMOD
   T axbx = a.x * b.x;
   T axby = a.x * b.y;
@@ -548,7 +548,7 @@ T2 foo2(T2 a, T2 b) {
   return addsub(U2(a.x * b.x, a.y * b.y));
 }
 
-T2 foo2_mul4(T2 a, T2 b) {
+T2 foo2_m4(T2 a, T2 b) {
   a = addsub_m2(a);
   b = addsub_m2(b);
   return addsub(U2(a.x * b.x, a.y * b.y));
@@ -556,7 +556,7 @@ T2 foo2_mul4(T2 a, T2 b) {
 
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 T2 foo(T2 a) { return foo2(a, a); }
-T2 foo_mul4(T2 a) { return foo2_mul4(a, a); }
+T2 foo_m4(T2 a) { return foo2_m4(a, a); }
 
 #if !ORIG_X2 && !INLINE_X2 && !FMA_X2
 #if HAS_ASM
@@ -3467,13 +3467,13 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
   // Wait until the previous group is ready with the carry.
   if (me == 0) {
     while(!atomic_load((atomic_uint *) &ready[gr - 1]));
-    atomic_store((atomic_uint *) &ready[gr - 1], 0);
+    ready[gr - 1] = 0; // atomic_store((atomic_uint *) &ready[gr - 1], 0);
   }
 
   acquire();
 
-// Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
-// The new carry layout lets the compiler generate global_load_dwordx4 instructions.
+  // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
+  // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
 
   assert(gr > 0 && gr <= H);
   
@@ -3507,7 +3507,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
   }
 #endif
 
-// Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
+  // Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
 
   T weight = weights.y;
   // __attribute__((opencl_unroll_hint(1)))
@@ -3649,7 +3649,7 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
   
   for (u32 i = 0; i < 4; ++i, base = mul(base, step)) {
     if (i == 0 && line1 == 0 && me == 0) {
-      out[0]     = foo_mul4(conjugate(in[0]));
+      out[0]     = foo_m4(conjugate(in[0]));
       out[W / 2] = 8 * sq(conjugate(in[W / 2]));
     } else {
       u32 k = g1 * W + i * (W / 8) + me;
@@ -3681,7 +3681,7 @@ KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   u32 me = get_local_id(0);
 
   if (line1 == 0 && me == 0) {
-    io[0]     = foo2_mul4(conjugate(io[0]), conjugate(in[0]));
+    io[0]     = foo2_m4(conjugate(io[0]), conjugate(in[0]));
     io[W / 2] = 8 * conjugate(mul(io[W / 2], in[W / 2]));
     return;
   }
@@ -3726,7 +3726,7 @@ KERNEL(SMALL_HEIGHT / 2) multiplyDelta(P(T2) io, CP(T2) inA, CP(T2) inB ) {
   u32 me = get_local_id(0);
 
   if (line1 == 0 && me == 0) {
-    io[0]     = foo2_mul4(cojugate(io[0]), conjugate(inA[0] - inB[0]));
+    io[0]     = foo2_m4(cojugate(io[0]), conjugate(inA[0] - inB[0]));
     io[W / 2] = 8 * conjugate(mul(io[W / 2], inA[W / 2] - inB[W / 2]));
     return;
   }
@@ -3845,7 +3845,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
     T2 b = conjugate(v[i]);
     T2 t = swap(base);    
     if (special && i == 0 && me == 0) {
-      a = foo_mul4(a);
+      a = foo_m4(a);
       b = 8 * sq(b);
     } else {
       X2(a, b);
@@ -3893,7 +3893,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
     T2 t = swap(base);    
     if (special && i == 0 && me == 0) {
       b = conjugate(b);
-      a = foo_mul4(a);
+      a = foo_m4(a);
       b = 8 * sq(b);
       a = conjugate(a);
     } else {
@@ -3956,8 +3956,8 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
       b = conjugate(b); \
       X2(a, b); \
       tmp = sq(b); \
-      b = mul4(a,b);					/* 4 * a * b */ \
-      a = add_m2(sq(a),mul(tmp,conjugate_t_squared));	/* 2 * (a^2 + b^2 * conjugate_t_squared) */ \
+      b = mul_m4(a,b);					/* 4 * a * b */ \
+      a = add_m2(sq(a), mul(tmp,conjugate_t_squared));	/* 2 * (a^2 + b^2 * conjugate_t_squared) */ \
       X2(a, b); \
       a = conjugate(a); \
 }
@@ -3973,7 +3973,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
     T2 b = v[i];
     if (special && i == 0 && me == 0) {
       b = conjugate(b);
-      a = foo_mul4(a);
+      a = foo_m4(a);
       b = 8 * sq(b);
       a = conjugate(a);
     } else {
@@ -4026,7 +4026,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
     T2 d = conjugate(q[i]);
     T2 t = swap(base);
     if (special && i == 0 && me == 0) {
-      a = foo2_mul4(a, c);
+      a = foo2_m4(a, c);
       b = 8 * mul(b, d);
     } else {
       X2(a, b);
@@ -4101,7 +4101,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
     if (special && i == 0 && me == 0) {
       b = conjugate(b);
       d = conjugate(d);
-      a = foo2_mul4(a, c);
+      a = foo2_m4(a, c);
       b = 8 * mul(b, d);
       a = conjugate(a);
     } else {
