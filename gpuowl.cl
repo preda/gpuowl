@@ -2766,240 +2766,72 @@ KERNEL(256) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
 #endif
 
 
-#if MIDDLE == 1 || !MERGED_MIDDLE
-
-KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
+#define WG 256
+KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
   T2 u[MIDDLE];
-  u32 N = SMALL_HEIGHT / 256;
+
+#if MIDDLE == 1 || !MERGED_MIDDLE
+  u32 SIZEX = WG;
+#elif WORKINGOUT
+  u32 SIZEX = 16;
+#elif WORKINGOUT3
+  u32 SIZEX = 8;
+#elif WORKINGOUT4
+  u32 SIZEX = 4;
+#elif WORKINGOUT5
+  u32 SIZEX = 32;
+#endif
+  
+  u32 SIZEY = WG / SIZEX;
+  
+  u32 N = SMALL_HEIGHT / SIZEX;
+  
   u32 g = get_group_id(0);
   u32 gx = g % N;
   u32 gy = g / N;
-  u32 me = get_local_id(0);
 
-  in += BIG_HEIGHT * gy + 256 * gx;
-  read(SMALL_HEIGHT, MIDDLE, u, in, 0);
-  ENABLE_MUL2();
-
-  middleMul(u, 256 * gx + me);
-
-  fft_MIDDLE(u);
-
-  out += BIG_HEIGHT * gy + 256 * gx;
-  write(SMALL_HEIGHT, MIDDLE, u, out, 0);
-}
-
-// This version outputs data in the exact same order as the non-merged transpose and middle.
-// It is slow, but it does work.
-
-#elif defined(WORKINGOUT)
-
-KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
-  local T2 lds[256];
-  T2 u[MIDDLE];
-  u32 g = get_group_id(0);
-  u32 me = get_local_id(0);
-
-// We are going to do the middle FFT and transpose in one kernel.
-
-// Kernels read 16 consecutive T2 values which is 1K bytes -- ought to be a good length for current AMD GPUs.
-
-// Each 256-thread kernel processes 16 columns from a needed SMALL_HEIGHT columns
-// Each 256-thread kernel processes 16 rows out of a needed WIDTH rows
-
-// Thread read layout (after adjusting input pointer):
-//		Memory address in matrix	FFT element
-// thread 0-15:		+0-15			+0,1,2...15
-// thread 16-31:	+BIG_HEIGHT		+BIG_HEIGHT
-// etc.
-// thread 240-255:	+15*BIG_HEIGHT		+15*BIG_HEIGHT
-
-  u32 start_col = (g % (SMALL_HEIGHT/16)) * 16;	// Each input column increases FFT element by one
-  u32 start_row = (g / (SMALL_HEIGHT/16)) * 16;	// Each input row increases FFT element by BIG_HEIGHT
-  in += start_row * BIG_HEIGHT + start_col;
-
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 16) * BIG_HEIGHT + (me % 16)]; }
-  ENABLE_MUL2();
-
-  middleMul(u, start_col + (me % 16));
-
-  fft_MIDDLE(u);
-
-  middleMul2(u, start_row + (me / 16), start_col + (me % 16));
-
-// Swizzle data so it is closer to the sequential order needed by carryFused.
-// If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
-// from:	0 1 2 ... 15 2560 2561...
-// to:		0 2560 ... 15*2560  1 2561 5121 ...
-//
-// thus lanes do this:  0->0, 1->16, 2->32, ..., 16->1, 17->17, 18->33, ...
-
-  middleShuffle(lds, u, 256, 16);
-
-  out += start_col * WIDTH + start_row;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * SMALL_HEIGHT*WIDTH + (me / 16) * WIDTH + (me % 16)] = u[i]; }
-}
-
-#elif WORKINGOUT3
-
-KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
-  local T2 lds[256];
-  T2 u[MIDDLE];
-  u32 g = get_group_id(0);
-  u32 me = get_local_id(0);
-
-// We are going to do the middle FFT and transpose in one kernel.
-
-// Kernels read 8 consecutive T2 values which is 512 bytes -- ought to be a good length for current AMD GPUs.
-
-// Each 256-thread kernel processes 8 columns from a needed SMALL_HEIGHT columns
-// Each 256-thread kernel processes 32 rows out of a needed WIDTH rows
-
-// Thread read layout (after adjusting input pointer):
-//		Memory address in matrix	FFT element
-// thread 0-7:		+0-7			+0,1,2...7
-// thread 8-15:		+BIG_HEIGHT		+BIG_HEIGHT
-// etc.
-// thread 248-255:	+31*BIG_HEIGHT		+31*BIG_HEIGHT
-
-  u32 start_col = (g % (SMALL_HEIGHT/8)) * 8;	// Each input column increases FFT element by one
-  u32 start_row = (g / (SMALL_HEIGHT/8)) * 32;	// Each input row increases FFT element by BIG_HEIGHT
-  in += start_row * BIG_HEIGHT + start_col;
-
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 8) * BIG_HEIGHT + (me % 8)]; }
-  ENABLE_MUL2();
-
-  middleMul(u, start_col + (me % 8));
-
-  fft_MIDDLE(u);
-
-  middleMul2(u, start_row + (me / 8), start_col + (me % 8));
-
-// Swizzle data so it is closer to the sequential order needed by carryFused.
-// If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
-// from:	0 1 2 ... 7 2560 2561...
-// to:		0 2560 ... 31*2560  1 2561 5121 ...
-//
-// thus lanes do this:  0->0, 1->32, 2->64, ..., 8->1, 9->33, 10->65, ...
-
-  middleShuffle(lds, u, 256, 8);
-
-// Radeon VII has poor performance if we do not write contiguous values.
-// For 5M FFT the memory layout will look like this
-//	0 2560 ... 31*2560  1 2561 5121 ...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	32*2560 ...				(next set of WIDTH/32 kernels)
-//	992*2560 ...				(last set of WIDTH/32 kernels)
-//	8 ...					(next set of SMALL_HEIGHT/8 kernels)
-//	248 ...					(last set of SMALL_HEIGHT/8 kernels)
-
-  out += (start_col/8) * (WIDTH/32)*MIDDLE*256 + (start_row/32) * MIDDLE*256;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * 256 + me] = u[i]; }
-}
-
-#elif WORKINGOUT4
-
-KERNEL(256) fftMiddleOut(P(T2) out, P(T2) in) {
-  local T2 lds[256];
-  T2 u[MIDDLE];
-  u32 g = get_group_id(0);
-  u32 me = get_local_id(0);
-
-// We are going to do the middle FFT and transpose in one kernel.
-
-// Kernels read 4 consecutive T2 values which is 256 bytes -- might not be a good length for current AMD GPUs.
-
-// Each 256-thread kernel processes 4 columns from a needed SMALL_HEIGHT columns
-// Each 256-thread kernel processes 64 rows out of a needed WIDTH rows
-
-// Thread read layout (after adjusting input pointer):
-//		Memory address in matrix	FFT element
-// thread 0-3:		+0-3			+0,1,2,3
-// thread 4-7:		+BIG_HEIGHT		+BIG_HEIGHT
-// etc.
-// thread 252-255:	+63*BIG_HEIGHT		+63*BIG_HEIGHT
-
-  u32 start_col = (g % (SMALL_HEIGHT/4)) * 4;	// Each input column increases FFT element by one
-  u32 start_row = (g / (SMALL_HEIGHT/4)) * 64;	// Each input row increases FFT element by BIG_HEIGHT
-  in += start_row * BIG_HEIGHT + start_col;
-
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + (me / 4) * BIG_HEIGHT + (me % 4)]; }
-  ENABLE_MUL2();
-
-  middleMul(u, start_col + (me % 4));
-
-  fft_MIDDLE(u);
-
-  middleMul2(u, start_row + (me / 4), start_col + (me % 4));
-
-// Swizzle data so it is closer to the sequential order needed by carryFused.
-// If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
-// from:	0 1 2 ... 3 2560 2561...
-// to:		0 2560 ... 63*2560  1 2561 5121 ...
-//
-// thus lanes do this:  0->0, 1->64, 2->128, ..., 4->1, 5->65, 6->129, ...
-
-  middleShuffle(lds, u, 256, 4);
-
-// Radeon VII has poor performance if we do not write contiguous values.
-// For 5M FFT the memory layout will look like this
-//	0 2560 ... 63*2560  1 2561 5121 ...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	64*2560 ...				(next set of WIDTH/64 kernels)
-//	960*2560 ...				(last set of WIDTH/64 kernels)
-//	4 ...					(next set of SMALL_HEIGHT/4 kernels)
-//	252 ...					(last set of SMALL_HEIGHT/4 kernels)
-
-  out += (start_col/4) * (WIDTH/64)*MIDDLE*256 + (start_row/64) * MIDDLE*256;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * 256 + me] = u[i]; }
-}
-
-#elif WORKINGOUT5
-
-#define WG 256
-KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
-  u32 SIZEX = 32;
-  u32 SIZEY = WG / SIZEX;
-  
-  local T2 lds[WG];
-  T2 u[MIDDLE];
-  
   u32 me = get_local_id(0);
   u32 mx = me % SIZEX;
   u32 my = me / SIZEX;
-  
-  u32 g = get_group_id(0);
-  u32 gx = g % (SMALL_HEIGHT / SIZEX);
-  u32 gy = g / (SMALL_HEIGHT / SIZEX);
 
-  
   // We are going to do the middle FFT and transpose in one kernel.
   // Kernels read SIZEX consecutive T2.
   // Each WG-thread kernel processes SIZEX columns from a needed SMALL_HEIGHT columns
   // Each WG-thread kernel processes SIZEY rows out of a needed WIDTH rows
 
-  u32 start_col = gx * SIZEX;  // Each input column increases FFT element by one
-  u32 start_row = gy * SIZEY;  // Each input row increases FFT element by BIG_HEIGHT
-  in += start_row * BIG_HEIGHT + start_col;
+  u32 startx = gx * SIZEX;  // Each input column increases FFT element by one
+  u32 starty = gy * SIZEY;  // Each input row increases FFT element by BIG_HEIGHT
+  in += starty * BIG_HEIGHT + startx;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
   ENABLE_MUL2();
 
-  middleMul(u, start_col + mx);
+  middleMul(u, startx + mx);
 
   fft_MIDDLE(u);
 
-  middleMul2(u, start_row + my, start_col + mx);
-
+#if MIDDLE == 1 || !MERGED_MIDDLE
+  
+  out += BIG_HEIGHT * gy + WG * gx;
+  write(SMALL_HEIGHT, MIDDLE, u, out, 0);
+  
+#else
+  
+  local T2 lds[WG];
+  middleMul2(u, starty + my, startx + mx);
   middleShuffle(lds, u, WG, SIZEX);
 
+#if WORKINGOUT
+  out += WIDTH * startx + starty;
+  for (i32 i = 0; i < MIDDLE; ++i) { out[SMALL_HEIGHT * WIDTH * i + WIDTH * my + mx] = u[i]; }
+#else
   out += gx * (WIDTH / SIZEY) * MIDDLE * WG + gy * MIDDLE * WG;
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * WG + me] = u[i]; }
+#endif // WORKINGOUT
+  
+#endif // merged middle
 }
 #undef WG
-
-#endif
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
