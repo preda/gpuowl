@@ -15,9 +15,8 @@ WORKINGINs  <AMD default is WORKINGIN5>  <nVidia default is WORKINGIN4>
 
 PREFER_LESS_FMA
 
-ORIG_X2
-INLINE_X2
-FMA_X2
+ORIG_X2   <nVidia default>
+INLINE_X2 <AMD default>
 
 UNROLL_ALL <nVidia default>
 UNROLL_NONE
@@ -324,16 +323,7 @@ typedef i32 Word;
 typedef int2 Word2;
 typedef i64 Carry;
 
-// x * y + z, "Multiply ADd"
-T MAD(T x, T y, T z) {
-#if !FMA
-  return x * y + z;
-#elif HAS_ASM
-  return __builtin_fma(x, y, z);
-#else
-  return fma(x, y, z);
-#endif
-}
+T mad1(T x, T y, T z) { return x * y + z; } // return __builtin_fma(x, y, z);
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
@@ -347,20 +337,20 @@ u32 bitlenx(bool b) { return EXP / NWORDS + b; }
 u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 
 // complex mul
-T2 mul(T2 a, T2 b) { return U2(MAD(a.x, b.x, -a.y * b.y), MAD(a.x, b.y, a.y * b.x)); }
+T2 mul(T2 a, T2 b) { return U2(mad1(a.x, b.x, -a.y * b.y), mad1(a.x, b.y, a.y * b.x)); }
 
-T fma1_m2(T a, T b, T c) {
+T mad1_m2(T a, T b, T c) {
 #if !NO_OMOD
   __asm("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (a) : "v" (a), "v" (b), "v" (c));
   return a;
 #else
-  return 2 * MAD(a, b, c);
+  return 2 * mad1(a, b, c);
 #endif
 }
 
 // complex fma * 2
-T2 fmac_m2(T2 a, T2 b, T2 c) {
-  return U2(fma1_m2(a.x, b.x, MAD(a.y, -b.y, c.x)), fma1_m2(a.x, b.y, MAD(a.y, b.x, c.y)));
+T2 mad_m2(T2 a, T2 b, T2 c) {
+  return U2(mad1_m2(a.x, b.x, mad1(a.y, -b.y, c.x)), mad1_m2(a.x, b.y, mad1(a.y, b.x, c.y)));
 }
 
 
@@ -394,7 +384,7 @@ T2 add_m2(T2 a, T2 b) {
 }
 
 // x^2 - y^2
-T diffsq(T x, T y) { return MAD(x, x, - y * y); } // worse: (x + y) * (x - y)
+T diffsq(T x, T y) { return mad1(x, x, - y * y); } // worse: (x + y) * (x - y)
 
 // x * y * 2
 T mul1_m2(T x, T y) {
@@ -588,12 +578,6 @@ T2 foo_m4(T2 a) { return foo2_m4(a, a); }
 
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
-
-#elif FMA_X2
-
-// Much worse latency, less parallellism, but seems to work around rocm bug where fft4 generates 18 float ops instead of 16
-#define X2(a, b) { a = a + b; b.x = fma(b.x, -2, a.x); b.y = fma(b.y, -2, a.y); }
-#define X2_mul_t4(a, b) { double ax = a.x; a = a + b; b.x = fma(b.y, -2, a.y); b.y = fma(ax, -2, a.x); }
 
 #elif INLINE_X2
 // Here's hoping the inline asm tricks rocm into not generating extra f64 ops.
@@ -3972,7 +3956,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
   X2(a, b); \
   T2 b2 = sq(b); \
   b = mul_m4(a, b); \
-  a = fmac_m2(b2, conjugate_t_squared, sq(a)); \
+  a = mad_m2(b2, conjugate_t_squared, sq(a)); \
   X2(a, b); \
   a = conjugate(a); \
 }
