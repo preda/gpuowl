@@ -349,6 +349,21 @@ u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 // complex mul
 T2 mul(T2 a, T2 b) { return U2(MAD(a.x, b.x, -a.y * b.y), MAD(a.x, b.y, a.y * b.x)); }
 
+T fma1_m2(T a, T b, T c) {
+#if !NO_OMOD
+  __asm("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (a) : "v" (a), "v" (b), "v" (c));
+  return a;
+#else
+  return 2 * MAD(a, b, c);
+#endif
+}
+
+// complex fma * 2
+T2 fmac_m2(T2 a, T2 b, T2 c) {
+  return U2(fma1_m2(a.x, b.x, MAD(a.y, -b.y, c.x)), fma1_m2(a.x, b.y, MAD(a.y, b.x, c.y)));
+}
+
+
 // complex mul * 4
 T2 mul_m4(T2 a, T2 b) {
 #if !NO_OMOD
@@ -3952,14 +3967,14 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
 // NOTE: the new code works just as well if the t value is squared already, but the code that calls onePairSq can
 // save a mul_t8 instruction by dealing with squared t values.
 
-#define onePairSq(a, b, conjugate_t_squared) { T2 tmp;\
-      b = conjugate(b); \
-      X2(a, b); \
-      tmp = sq(b); \
-      b = mul_m4(a,b);					/* 4 * a * b */ \
-      a = add_m2(sq(a), mul(tmp,conjugate_t_squared));	/* 2 * (a^2 + b^2 * conjugate_t_squared) */ \
-      X2(a, b); \
-      a = conjugate(a); \
+#define onePairSq(a, b, conjugate_t_squared) {\
+  b = conjugate(b); \
+  X2(a, b); \
+  T2 b2 = sq(b); \
+  b = mul_m4(a, b); \
+  a = fmac_m2(b2, conjugate_t_squared, sq(a)); \
+  X2(a, b); \
+  a = conjugate(a); \
 }
 
 // From original code t = swap(base) and we need sq(conjugate(t)).  This macro computes sq(conjugate(t)) from base^2.
@@ -3972,10 +3987,8 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
     T2 a = u[i];
     T2 b = v[i];
     if (special && i == 0 && me == 0) {
-      b = conjugate(b);
-      a = foo_m4(a);
-      b = 8 * sq(b);
-      a = conjugate(a);
+      a = foo_m4(conjugate(a));
+      b = 8 * sq(conjugate(b));
     } else {
       onePairSq(a, b, swap_squared(base_squared));
     }
