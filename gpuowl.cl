@@ -10,7 +10,7 @@ NO_ASM : request to not use any inline __asm()
 NO_OMOD: do not use GCN output modifiers in __asm()
 
 NO_MERGED_MIDDLE
-WORKINGOUTs <AMD default is WORKINGOUT3> <nVidia default is WORKINGOUT4>
+WORKINGOUTs <AMD default is WORKINGOUT5> <nVidia default is WORKINGOUT4>
 WORKINGINs  <AMD default is WORKINGIN5>  <nVidia default is WORKINGIN4>
 
 PREFER_LESS_FMA
@@ -188,26 +188,35 @@ G_H        "group height"
 #endif
 #endif
 
-// My 5M timings (in us).       T2_SHUFFLE_MIDDLE       NO_T2_SHUFFLE
-// WorkingOut3 is fftMiddleOut 130 + carryFused 291     127/287
-// WorkingOut4 is fftMiddleOut 167 + carryFused 285     169/280
-// WorkingOut5 is fftMiddleOut 120 + carryFused 311     111/309
+// 5M timings (in us), ROCm 2.10 T2_SHUFFLE_MIDDLE       NO_T2_SHUFFLE
+// WorkingOut3 is fftMiddleOut  130 + carryFused 291     127/287
+// WorkingOut4 is fftMiddleOut  167 + carryFused 285     169/280
+// WorkingOut5 is fftMiddleOut  120 + carryFused 311     111/309
 // For comparison non-merged carryFused is 297 us
+//
+// 5M timings, slower clock (thus not comparable to above) on ROCm 3.1, RadeonVII
+// WorkingOut3 : 141, 295
+// WorkingOut4 : much slower (but seemingly best on nVidia)
+// WorkingOut5 : 118, 313  <- best
+
 #if !WORKINGOUT && !WORKINGOUT3 && !WORKINGOUT4 && !WORKINGOUT5
+
 #if AMDGPU
-#if G_W >= 32
-#define WORKINGOUT3 1
-#elif G_W >= 8
+// #if G_W >= 32
+// #define WORKINGOUT3 1
+#if G_W >= 8
 #define WORKINGOUT5 1
 #endif
+  
 #else // AMDGPU
 #if G_W >= 64
 #define WORKINGOUT4 1
 #elif G_W >= 8
 #define WORKINGOUT5 1
 #endif
+
 #endif // AMDGPU
-#endif
+#endif // WORKINGOUT
 
 // My 5M timings (in us).	WorkingIn1 is fftMiddleIn 144 + tailFused 191 (T2_SHUFFLE_MIDDLE && T2_SHUFFLE_REVERSELINE)
 //				WorkingIn1a is fftMiddleIn 141 + tailFused 191
