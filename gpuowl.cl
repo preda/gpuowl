@@ -2340,11 +2340,11 @@ void middleShuffle(local T2 *lds, T2 *u, u32 kernel_width, u32 group_size) {
 #else
   for (i32 i = 0; i < MIDDLE; ++i) {
     bar();
-    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = ((T*)(u + i))[0];
-    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size) + kernel_width] = ((T*)(u + i))[1];
+    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i].x;
+    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size) + kernel_width] = u[i].y;
     bar();
-    ((T*)(u + i))[0] = ((local T*)lds)[me];
-    ((T*)(u + i))[1] = ((local T*)lds)[me + kernel_width];
+    u[i].x = ((local T*)lds)[me];
+    u[i].y = ((local T*)lds)[me + kernel_width];
   }
 #endif
 }
@@ -2794,7 +2794,6 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
   u32 mx = me % SIZEX;
   u32 my = me / SIZEX;
 
-  // We are going to do the middle FFT and transpose in one kernel.
   // Kernels read SIZEX consecutive T2.
   // Each WG-thread kernel processes SIZEX columns from a needed SMALL_HEIGHT columns
   // Each WG-thread kernel processes SIZEY rows out of a needed WIDTH rows
@@ -2813,7 +2812,7 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
 #if MIDDLE == 1 || !MERGED_MIDDLE
   
   out += BIG_HEIGHT * gy + WG * gx;
-  write(SMALL_HEIGHT, MIDDLE, u, out, 0);
+  for (i32 i = 0; i < MIDDLE; ++i) { out[SMALL_HEIGHT * i + me] = u[i]; }
   
 #else
   
@@ -2822,11 +2821,20 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
   middleShuffle(lds, u, WG, SIZEX);
 
 #if WORKINGOUT
+  
   out += WIDTH * startx + starty;
   for (i32 i = 0; i < MIDDLE; ++i) { out[SMALL_HEIGHT * WIDTH * i + WIDTH * my + mx] = u[i]; }
+  
 #else
-  out += gx * (WIDTH / SIZEY) * MIDDLE * WG + gy * MIDDLE * WG;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * WG + me] = u[i]; }
+
+#if ENABLE_ROCM_BUG
+  out += MIDDLE * (WIDTH * SIZEX * gx + WG * gy);
+#else
+  out += MIDDLE * WIDTH * SIZEX * gx + MIDDLE * WG * gy;
+#endif
+  
+  for (i32 i = 0; i < MIDDLE; ++i) { out[WG * i + me] = u[i]; }
+  
 #endif // WORKINGOUT
   
 #endif // merged middle
