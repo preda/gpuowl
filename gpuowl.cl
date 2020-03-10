@@ -1902,88 +1902,29 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
 
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
-
 #if MIDDLE == 1 || !MERGED_MIDDLE || WORKINGOUT
 
   read(G_W, NW, u, in, line * WIDTH);
 
-#elif defined(WORKINGOUT3)
-
-// fftMiddleOut produced this layout when using MERGED_MIDDLE option (for a 5M FFT):
-//	0 2560 ... 31*2560  1 2561 5121 ...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	32*2560 ...				(next set of WIDTH/32 kernels)
-//	992*2560 ...				(last set of WIDTH/32 kernels)
-//	8 ...					(next set of SMALL_HEIGHT/8 kernels)
-//	248 ...					(last set of SMALL_HEIGHT/8 kernels)
-
-  u32 me = get_local_id(0);
-
-  in += (line % 8) * 32;
-  in += ((line % SMALL_HEIGHT) / 8) * (WIDTH/32)*MIDDLE*256;
-  in += (line / SMALL_HEIGHT) * 256;
-
-#if G_W < 32
-#error WORKINGOUT3 not compatible with this FFT size
-#endif
-  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W/32*MIDDLE*256 + (me / 32) * MIDDLE*256 + (me % 32)]; }
-
-#elif defined(WORKINGOUT4)
-
-// fftMiddleOut produced this layout when using MERGED_MIDDLE option (for a 5M FFT):
-//	0 2560 ... 63*2560  1 2561 5121 ...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	64*2560 ...				(next set of WIDTH/64 kernels)
-//	960*2560 ...				(last set of WIDTH/64 kernels)
-//	4 ...					(next set of SMALL_HEIGHT/4 kernels)
-//	252 ...					(last set of SMALL_HEIGHT/4 kernels)
-
-  u32 me = get_local_id(0);
-
-  in += (line % 4) * 64;
-  in += ((line % SMALL_HEIGHT) / 4) * (WIDTH/64)*MIDDLE*256;
-  in += (line / SMALL_HEIGHT) * 256;
-
-#if G_W < 64
-#error WORKINGOUT4 not compatible with this FFT size
-#endif
-  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W/64*MIDDLE*256 + (me / 64) * MIDDLE*256 + (me % 64)]; }
-
-#elif defined(WORKINGOUT5)
-
-#if G_W < 32
-#error WORKINGOUT5 not compatible with this FFT size
-#endif
-
-  
-// fftMiddleOut produced this layout when using MERGED_MIDDLE option (for a 5M FFT):
-//	0 2560 ... 7*2560  1 2561 5121 ...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	8*2560 ...				(next set of WIDTH/8 kernels)
-//	1016*2560 ...				(last set of WIDTH/8 kernels)
-//	32 ...					(next set of SMALL_HEIGHT/32 kernels)
-//	224 ...					(last set of SMALL_HEIGHT/32 kernels)
-
-  u32 me = get_local_id(0);
-#if 1
-  in += (line % 32) * 8;
-  in += ((line % SMALL_HEIGHT) / 32) * (WIDTH / 8) * MIDDLE * 256;
-  in += (line / SMALL_HEIGHT) * 256;
-
-  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / 8 * MIDDLE * 256 + (me / 8) * MIDDLE * 256 + (me % 8)]; }
-  
 #else
+  
+  u32 me = get_local_id(0);
+  u32 WG = 256;
 
-  in += (line % 32) * 32;
-  in += ((line % SMALL_HEIGHT) / 32) * (WIDTH / 32) * MIDDLE * 1024;
-  in += (line / SMALL_HEIGHT) * 1024;
-
-  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / 32 * MIDDLE * 1024 + (me / 32) * MIDDLE * 1024 + (me % 32)]; }
+#if WORKINGOUT3
+  u32 SIZEX = 8;
+#elif WORKINGOUT4
+  u32 SIZEX = 4;
+#elif WORKINGOUT5
+  u32 SIZEX = 32;
 #endif
   
+  u32 SIZEY = WG / SIZEX;
+  
+  in += line % SIZEX * SIZEY + line % SMALL_HEIGHT / SIZEX * WIDTH / SIZEY * MIDDLE * WG + line / SMALL_HEIGHT * WG;
+
+  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / SIZEY * MIDDLE * WG + me / SIZEY * MIDDLE * WG + me % SIZEY]; }
+    
 #endif
 }
 
