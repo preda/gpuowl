@@ -2085,29 +2085,6 @@ void middleMul2(T2 *u, u32 g, u32 me) {
   }
 }
 
-#if MIDDLE == 1 || !MERGED_MIDDLE
-
-KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
-  T2 u[MIDDLE];
-  u32 N = SMALL_HEIGHT / 256;
-  u32 g = get_group_id(0);
-  u32 gx = g % N;
-  u32 gy = g / N;
-  u32 me = get_local_id(0);
-
-  read(SMALL_HEIGHT, MIDDLE, u, in, BIG_HEIGHT * gy + 256 * gx);
-  
-  ENABLE_MUL2();
-
-  fft_MIDDLE(u);
-
-  middleMul(u, 256 * gx + me);
-
-  write(SMALL_HEIGHT, MIDDLE, u, out, BIG_HEIGHT * gy + 256 * gx);
-}
-
-#else
-
 // Do a partial transpose during fftMiddleIn/Out
 // The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
 // than reading/writing T2 values.  This routine lets us try both versions.
@@ -2133,10 +2110,33 @@ void middleShuffle(local T2 *lds, T2 *u, u32 kernel_width, u32 group_size) {
 #endif
 }
 
+
 #define WG 256
 KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
-  local T2 lds[WG];
   T2 u[MIDDLE];
+  
+#if MIDDLE == 1 || !MERGED_MIDDLE
+
+  u32 N = SMALL_HEIGHT / WG;
+  u32 g = get_group_id(0);
+  u32 gx = g % N;
+  u32 gy = g / N;
+  u32 me = get_local_id(0);
+
+  in += BIG_HEIGHT * gy + WG * gx;
+  for (int i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + me]; }
+  
+  ENABLE_MUL2();
+
+  fft_MIDDLE(u);
+
+  middleMul(u, WG * gx + me);
+
+  write(SMALL_HEIGHT, MIDDLE, u, out, BIG_HEIGHT * gy + WG * gx);
+
+#else
+  
+  local T2 lds[WG];
 
 #if WORKINGIN1 || WORKINGIN
   u32 SIZEX = 16;
@@ -2162,8 +2162,8 @@ KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
 
   u32 startx = gx * SIZEX;
   u32 starty = gy * SIZEY;
+  
   in += starty * WIDTH + startx;
-
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
 
   ENABLE_MUL2();
@@ -2182,9 +2182,11 @@ KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   out += MIDDLE * (SMALL_HEIGHT * SIZEX * gx + WG * gy);
   for (i32 i = 0; i < MIDDLE; ++i) { out[WG * i + me] = u[i]; }
 #endif
+  
+#endif // MIDDLE == 1
 }
 #undef WG
-#endif
+
 
 #define WG 256
 KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
