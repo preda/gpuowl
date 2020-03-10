@@ -220,12 +220,11 @@ G_H        "group height"
 
 // My 5M timings (in us).	WorkingIn1 is fftMiddleIn 144 + tailFused 191 (T2_SHUFFLE_MIDDLE && T2_SHUFFLE_REVERSELINE)
 //				WorkingIn1a is fftMiddleIn 141 + tailFused 191
-//				WorkingIn2 is fftMiddleIn 133 + tailFused 217
 //				WorkingIn3 is fftMiddleIn 138 + tailFused 192
 //				WorkingIn4 is fftMiddleIn 207 + tailFused 189
 //				WorkingIn5 is fftMiddleIn 134 + tailFused 194
 // For comparison non-merged tailFused is 192 us
-#if !WORKINGIN && !WORKINGIN1 && !WORKINGIN1A && !WORKINGIN2 && !WORKINGIN3 && !WORKINGIN4 && !WORKINGIN5
+#if !WORKINGIN && !WORKINGIN1 && !WORKINGIN1A && !WORKINGIN3 && !WORKINGIN4 && !WORKINGIN5
 #if AMDGPU
 #define WORKINGIN5 1
 #else
@@ -1949,190 +1948,36 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 
   read(G_H, NH, u, in, memline * SMALL_HEIGHT);
 
-#elif defined(WORKINGIN1) || defined(WORKINGIN1A)
+#else
 
-// The memory layout from FFTMiddleIn for a 5M FFT is:
-//	0 1 ... 15 2560... 5120... 15*2560...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	16 ...					(next set of SMALL_HEIGHT/16 kernels)
-//	240 ...					(last set of SMALL_HEIGHT/16 kernels)
-//	16*2560 ...				(next set of WIDTH/16 kernels)
-//	1008*2560 ...				(last set of WIDTH/16 kernels)
-// Convert from FFT element numbers to memory line numbers (divide by SMALL_HEIGHT):
-//	0  10   20   30... 150	 		(256 values output by first kernel's u[0])
-//	1 ...					(256 values output by first kernel's u[1])
-//	9 ...					(256 values output by first kernel's u[MIDDLE-1])
-//	   more of line 0 ...			(next set of SMALL_HEIGHT/16 kernels)
-//	   more of line 0 ...			(last set of SMALL_HEIGHT/16 kernels)
-//	160 ...					(next set of WIDTH/16 kernels)
-//	10080 ...				(last set of WIDTH/16 kernels)
-
-// We go to some length here to avoid dividing by MIDDLE in address calculations.
-// The transPos converted logical line number into physical memory line numbers
-// using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
-// We can compute the 0..9 component of address calculations as line / WIDTH,
-// and the 0,10,20,30,..150 component as (line % WIDTH) % 16 = (line % 16),
-// and the multiple of 160 component as (line % WIDTH) / 16
+  // We go to some length here to avoid dividing by MIDDLE in address calculations.
+  // The transPos converted logical line number into physical memory line numbers
+  // using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
+  // We can compute the 0..9 component of address calculations as line / WIDTH,
+  // and the 0,10,20,30,..310 component as (line % WIDTH) % 32 = (line % 32),
+  // and the multiple of 320 component as (line % WIDTH) / 32
 
   u32 me = get_local_id(0);
+  u32 WG = 256;
 
-  in += (line / WIDTH) * 256;
-  in += (line % 16) * 16;
-  in += ((line % WIDTH) / 16) * (SMALL_HEIGHT/16)*MIDDLE*256;
-
-#if G_H < 16
-#error WORKINGIN1 not compatible with this FFT size
-#endif
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/16)*MIDDLE*256 + (me / 16) * MIDDLE*256 + (me % 16)]; }
-
-#elif WORKINGIN2
-
-// The memory layout from FFTMiddleIn for a 5M FFT is:
-//	0 1 ... 15 2560... 5120... 15*2560...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	16*2560 ...				(next set of WIDTH/16 kernels)
-//	1008*2560 ...				(last set of WIDTH/16 kernels)
-//	16 ...					(next set of SMALL_HEIGHT/16 kernels)
-//	240 ...					(last set of SMALL_HEIGHT/16 kernels)
-// Convert from FFT element numbers to memory line numbers (divide by SMALL_HEIGHT):
-//	0  10   20   30... 150			(256 values output by first kernel's u[0])
-//	1 ...					(256 values output by first kernel's u[1])
-//	9 ...					(256 values output by first kernel's u[MIDDLE-1])
-//	160 ...					(next set of WIDTH/16 kernels)
-//	10080 ...				(last set of WIDTH/16 kernels)
-//	   more of line 0 ...			(next set of SMALL_HEIGHT/16 kernels)
-//	   more of line 0 ...			(last set of SMALL_HEIGHT/16 kernels)
-
-// We go to some length here to avoid dividing by MIDDLE in address calculations.
-// The transPos converted logical line number into physical memory line numbers
-// using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
-// We can compute the 0..9 component of address calculations as line / WIDTH,
-// and the 0,10,20,30,..150 component as (line % WIDTH) % 16 = (line % 16),
-// and the multiple of 160 component as (line % WIDTH) / 16
-
-  u32 me = get_local_id(0);
-
-  in += (line / WIDTH) * 256;
-  in += (line % 16) * 16;
-  in += ((line % WIDTH) / 16) * MIDDLE*256;
-
-#if G_H < 16
-#error WORKINGIN2 not compatible with this FFT size
-#endif
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/16)*(WIDTH/16)*MIDDLE*256 + (me / 16) * (WIDTH/16)*MIDDLE*256 + (me % 16)]; }
-
+#if WORKINGIN1 || WORKINGIN1A
+  u32 SIZEX = 16;
 #elif WORKINGIN3
-
-// The memory layout from FFTMiddleIn for a 5M FFT is:
-//	0 1 ... 31 2560... 5120... 7*2560...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	32 ...					(next set of SMALL_HEIGHT/32 kernels)
-//	224 ...					(last set of SMALL_HEIGHT/32 kernels)
-//	8*2560 ...				(next set of WIDTH/8 kernels)
-//	1016*2560 ...				(last set of WIDTH/8 kernels)
-// Convert from FFT element numbers to memory line numbers (divide by SMALL_HEIGHT):
-//	0  10   20   30... 70			(256 values output by first kernel's u[0])
-//	1 ...					(256 values output by first kernel's u[1])
-//	9 ...					(256 values output by first kernel's u[MIDDLE-1])
-//	   more of line 0 ...			(next set of SMALL_HEIGHT/32 kernels)
-//	   more of line 0 ...			(last set of SMALL_HEIGHT/32 kernels)
-//	80 ...					(next set of WIDTH/8 kernels)
-//	10160 ...				(last set of WIDTH/8 kernels)
-
-// We go to some length here to avoid dividing by MIDDLE in address calculations.
-// The transPos converted logical line number into physical memory line numbers
-// using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
-// We can compute the 0..9 component of address calculations as line / WIDTH,
-// and the 0,10,20,30,..70 component as (line % WIDTH) % 8 = (line % 8),
-// and the multiple of 160 component as (line % WIDTH) / 8
-
-  u32 me = get_local_id(0);
-
-  in += (line / WIDTH) * 256;
-  in += (line % 8) * 32;
-  in += ((line % WIDTH) / 8) * (SMALL_HEIGHT/32)*MIDDLE*256;
-
-#if G_H < 32
-#error WORKINGIN3 not compatible with this FFT size
-#endif
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/32)*MIDDLE*256 + (me / 32) * MIDDLE*256 + (me % 32)]; }
-
+  u32 SIZEX = 8;
 #elif WORKINGIN4
-
-// The memory layout from FFTMiddleIn for a 5M FFT is:
-//	0 1 ... 63 2560... 5120... 3*2560...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	64 ...					(next set of SMALL_HEIGHT/64 kernels)
-//	192 ...					(last set of SMALL_HEIGHT/64 kernels)
-//	4*2560 ...				(next set of WIDTH/4 kernels)
-//	1020*2560 ...				(last set of WIDTH/4 kernels)
-// Convert from FFT element numbers to memory line numbers (divide by SMALL_HEIGHT):
-//	0  10   20   30				(256 values output by first kernel's u[0])
-//	1 ...					(256 values output by first kernel's u[1])
-//	9 ...					(256 values output by first kernel's u[MIDDLE-1])
-//	   more of line 0 ...			(next set of SMALL_HEIGHT/64 kernels)
-//	   more of line 0 ...			(last set of SMALL_HEIGHT/64 kernels)
-//	40 ...					(next set of WIDTH/4 kernels)
-//	10200 ...				(last set of WIDTH/4 kernels)
-
-// We go to some length here to avoid dividing by MIDDLE in address calculations.
-// The transPos converted logical line number into physical memory line numbers
-// using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
-// We can compute the 0..9 component of address calculations as line / WIDTH,
-// and the 0,10,20,30 component as (line % WIDTH) % 4 = (line % 4),
-// and the multiple of 40 component as (line % WIDTH) / 4
-
-  u32 me = get_local_id(0);
-
-  in += (line / WIDTH) * 256;
-  in += (line % 4) * 64;
-  in += ((line % WIDTH) / 4) * (SMALL_HEIGHT/64)*MIDDLE*256;
-
-#if G_H < 64
-#error WORKINGIN4 not compatible with this FFT size
-#endif
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/64)*MIDDLE*256 + (me / 64) * MIDDLE*256 + (me % 64)]; }
-
+  u32 SIZEX = 4;
 #elif WORKINGIN5
-
-// The memory layout from FFTMiddleIn for a 5M FFT is:
-//	0 1 ... 7 2560... 5120... 31*2560...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	8 ...					(next set of SMALL_HEIGHT/8 kernels)
-//	248 ...					(last set of SMALL_HEIGHT/8 kernels)
-//	32*2560 ...				(next set of WIDTH/32 kernels)
-//	992*2560 ...				(last set of WIDTH/32 kernels)
-// Convert from FFT element numbers to memory line numbers (divide by SMALL_HEIGHT):
-//	0  10   20   30... 310			(256 values output by first kernel's u[0])
-//	1 ...					(256 values output by first kernel's u[1])
-//	9 ...					(256 values output by first kernel's u[MIDDLE-1])
-//	   more of line 0 ...			(next set of SMALL_HEIGHT/8 kernels)
-//	   more of line 0 ...			(last set of SMALL_HEIGHT/8 kernels)
-//	320 ...					(next set of WIDTH/32 kernels)
-//	9920 ...				(last set of WIDTH/32 kernels)
-
-// We go to some length here to avoid dividing by MIDDLE in address calculations.
-// The transPos converted logical line number into physical memory line numbers
-// using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
-// We can compute the 0..9 component of address calculations as line / WIDTH,
-// and the 0,10,20,30,..310 component as (line % WIDTH) % 32 = (line % 32),
-// and the multiple of 320 component as (line % WIDTH) / 32
-
-  u32 me = get_local_id(0);
-
-  in += (line / WIDTH) * 256;
-  in += (line % 32) * 8;
-  in += ((line % WIDTH) / 32) * (SMALL_HEIGHT/8)*MIDDLE*256;
-
-#if G_H < 8
-#error WORKINGIN5 not compatible with this FFT size
+  u32 SIZEX = 32;
 #endif
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * (G_H/8)*MIDDLE*256 + (me / 8) * MIDDLE*256 + (me % 8)]; }
+  
+  u32 SIZEY = WG / SIZEX;
+  
+
+  in += line / WIDTH * WG;
+  in += line % SIZEX * SIZEY;
+  in += line % WIDTH / SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * WG;
+
+  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * WG + me / SIZEY * MIDDLE * WG + me % SIZEY]; }
 
 #endif
 }
@@ -2467,64 +2312,6 @@ KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
     ((T*)(&out[i * 256]))[me] = u[i].x;
     ((T*)(&out[i * 256]))[me + 256] = u[i].y;
   }
-}
-
-#elif WORKINGIN2
-
-KERNEL(256) fftMiddleIn(P(T2) out, CP(T2) in) {
-  local T2 lds[256];
-  T2 u[MIDDLE];
-  u32 g = get_group_id(0);
-  u32 me = get_local_id(0);
-
-// We are going to transpose and do the middle FFT in one kernel.
-
-// Kernels read 16 consecutive T2 values which is 1K bytes -- ought to be a good length for current AMD GPUs.
-
-// Each 256-thread kernel processes 16 columns from a needed WIDTH columns
-// Each 256-thread kernel processes 16 rows out of a needed SMALL_HEIGHT rows
-
-// Thread read layout (after adjusting input pointer):
-//		Memory address in matrix	FFT element
-// thread 0-15:		+0-15			+0,BIG_HEIGHT,2*BIG_HEIGHT,3*BIG_HEIGHT,...15*BIG_HEIGHT
-// thread 16-31:	+WIDTH			+1
-// etc.
-// thread 240-255:	+15*WIDTH		+15
-
-  u32 start_col = (g % (WIDTH/16)) * 16;	// Each input column increases FFT element by BIG_HEIGHT
-  u32 start_row = (g / (WIDTH/16)) * 16;	// Each input row increases FFT element by one
-  in += start_row * WIDTH + start_col;
-
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + (me / 16) * WIDTH + (me % 16)]; }
-  ENABLE_MUL2();
-
-  middleMul2(u, start_col + (me % 16), start_row + (me / 16));
-
-  fft_MIDDLE(u);
-
-  middleMul(u, start_row + (me / 16));
-
-// Swizzle data so it is closer to the sequential order needed by tailFused.
-// If BIG_HEIGHT is 2560, we want this transpose of our FFT elements:
-// from:	0 2560 ... 15*2560  1 2561 5121 ...
-// to:		0 1 2 ... 15 2560 2561...
-//
-// thus lanes do this:  0->0, 1->16, 2->32, ..., 16->1, 17->17, 18->33, ...
-
-  middleShuffle(lds, u, 256, 16);
-
-// Radeon VII has poor performance if we do not write contiguous values.
-// For 5M FFT the memory layout will look like this
-//	0 1 ... 15 2560... 5120... 15*2560...	(256 values output by first kernel's u[0])
-//	256 ...					(256 values output by first kernel's u[1])
-//	9*256 ...				(256 values output by first kernel's u[MIDDLE-1])
-//	16*2560 ...				(next set of WIDTH/16 kernels)
-//	1008*2560 ...				(last set of WIDTH/16 kernels)
-//	16 ...					(next set of SMALL_HEIGHT/16 kernels)
-//	240 ...					(last set of SMALL_HEIGHT/16 kernels)
-
-  out += (start_row/16) * (WIDTH/16)*MIDDLE*256 + (start_col/16) * MIDDLE*256;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * 256 + me] = u[i]; }
 }
 
 #elif WORKINGIN3
