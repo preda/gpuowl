@@ -197,15 +197,19 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW, isPm1)),
   queue(Queue::make(context, timeKernels, args.cudaYield)),
 
-#define LOAD(name, workGroups) name(program.get(), queue, device, workGroups, #name)
+  // Specifies size in number of workgroups
+#define LOAD(name, nGroups) name{program.get(), queue, device, nGroups, #name}
+  // Specifies size in "work size": workSize == nGroups * groupSize
+#define LOAD_WS(name, workSize) name{program.get(), queue, device, #name, workSize}
+  
   LOAD(carryFused,    BIG_H + 1),
   LOAD(carryFusedMul, BIG_H + 1),
   LOAD(k_fftP, BIG_H),
   LOAD(fftW,   BIG_H),
   LOAD(fftHin,  hN / SMALL_H),
   LOAD(fftHout, hN / SMALL_H),
-  LOAD(fftMiddleIn,  hN / (256 * (BIG_H / SMALL_H))),
-  LOAD(fftMiddleOut, hN / (256 * (BIG_H / SMALL_H))),
+  LOAD_WS(fftMiddleIn,  hN / (BIG_H / SMALL_H)),
+  LOAD_WS(fftMiddleOut, hN / (BIG_H / SMALL_H)),
   LOAD(carryA,   nW * (BIG_H/16)),
   LOAD(carryM,   nW * (BIG_H/16)),
   LOAD(carryB,   nW * (BIG_H/16)),
@@ -215,7 +219,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
   LOAD(multiply,      hN / SMALL_H),
   LOAD(multiplyDelta, hN / SMALL_H),
-  LOAD(square,        hN/SMALL_H),
+  LOAD(square,        hN / SMALL_H),
   LOAD(k_tailFused,       hN / SMALL_H / 2),
   LOAD(tailFusedMulDelta, hN / SMALL_H / 2),
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
@@ -226,6 +230,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
   LOAD(sum64, 256),
+#undef LOAD_WS
 #undef LOAD
 
   bufTrigW{genSmallTrig(context, W, nW)},
