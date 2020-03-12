@@ -24,9 +24,7 @@ UNROLL_WIDTH
 UNROLL_HEIGHT <AMD default>
 
 T2_SHUFFLE <nVidia default>
-NO_T2_SHUFFLE
-T2_SHUFFLE_MIDDLE
-T2_SHUFFLE_REVERSELINE <AMD default>
+NO_T2_SHUFFLE <AMD default>
 
 OLD_FFT8 <default>
 NEWEST_FFT8
@@ -54,7 +52,6 @@ NO_P2_FUSED_TAIL                // Do not use the big kernel tailFusedMulDelta
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
 AMDGPU  : set on AMD GPUs
 HAS_ASM : set if we believe __asm() can be used
-T2_SHUFFLE_TAILFUSED : set if either T2_SHUFFLE or T2_SHUFFLE_REVERSELINE is set
 MERGED_MIDDLE : set unless NO_MERGED_MIDDLE is set
  */
 
@@ -186,13 +183,7 @@ G_H        "group height"
 #endif
 #endif
 
-// 5M timings (in us), ROCm 2.10 T2_SHUFFLE_MIDDLE       NO_T2_SHUFFLE
-// WorkingOut3 is fftMiddleOut  130 + carryFused 291     127/287
-// WorkingOut4 is fftMiddleOut  167 + carryFused 285     169/280
-// WorkingOut5 is fftMiddleOut  120 + carryFused 311     111/309
-// For comparison non-merged carryFused is 297 us
-//
-// 5M timings, slower clock (thus not comparable to above) on ROCm 3.1, RadeonVII
+// 5M timings, ROCm 3.1, RadeonVII
 // WorkingOut3 : 141 + 295
 // WorkingOut4 : much slower (but seemingly best on nVidia)
 // WorkingOut5 : 118 + 313  <- best
@@ -216,11 +207,6 @@ G_H        "group height"
 #endif // AMDGPU
 #endif // WORKINGOUT
 
-// My 5M timings (in us).	WorkingIn1 is fftMiddleIn 144 + tailFused 191 (T2_SHUFFLE_MIDDLE && T2_SHUFFLE_REVERSELINE)
-//				WorkingIn3 is fftMiddleIn 138 + tailFused 192
-//				WorkingIn4 is fftMiddleIn 207 + tailFused 189
-//				WorkingIn5 is fftMiddleIn 134 + tailFused 194
-// For comparison non-merged tailFused is 192 us
 #if !WORKINGIN && !WORKINGIN1 && !WORKINGIN3 && !WORKINGIN4 && !WORKINGIN5
 #if AMDGPU
 #define WORKINGIN5 1
@@ -247,43 +233,13 @@ G_H        "group height"
 
 // A T2 shuffle requires twice as much local memory as a T shuffle.  This won't affect occupancy for MIDDLE shuffles
 // and small WIDTH and HEIGHT shuffles.  However, 4K and 2K widths and heights might be better off using less local memory.
-// Consequently, we have separate defines so we can selectively do T2 shuffling.  For now we assume the original code
-// that does 64x64 shuffles uses so much local memory that we'll not offer a T2 shuffle in there.
-//
-// For a 5M FFT on a Radeon VII, the best combination is T2_SHUFFLE_REVERSELINE, but not T2_SHUFFLE.
-// This may indicate that speed differences are due to vagaries of
-// the ROCm optimizer rather than an inherit benefit of T2 vs. T shuffles.  The AMD OpenCL optimization manual says
-// T shuffles should give the best performance.
-
-#if !T2_SHUFFLE && !NO_T2_SHUFFLE && !T2_SHUFFLE_MIDDLE && !T2_SHUFFLE_REVERSELINE
+#if !T2_SHUFFLE && !NO_T2_SHUFFLE
 #if AMDGPU
-#define T2_SHUFFLE_REVERSELINE 1
+#define NO_T2_SHUFFLE 1
 #else
 #define T2_SHUFFLE 1
 #endif
 #endif
-
-#if T2_SHUFFLE
-#define T2_SHUFFLE_MIDDLE 1
-#define T2_SHUFFLE_REVERSELINE 1
-#endif
-
-#if T2_SHUFFLE_MIDDLE
-#undef T2_SHUFFLE_MIDDLE
-#define T2_SHUFFLE_MIDDLE	1
-#else
-#define T2_SHUFFLE_MIDDLE	2
-#endif
-
-#if T2_SHUFFLE_REVERSELINE
-#undef T2_SHUFFLE_REVERSELINE
-#define T2_SHUFFLE_REVERSELINE	1
-#define T2_SHUFFLE_TAILFUSED	1
-#else
-#define T2_SHUFFLE_REVERSELINE	2
-#define T2_SHUFFLE_TAILFUSED	2
-#endif
-
 
 #if HAS_ASM && !NO_OMOD
 // turn IEEE mode and denormals off so that mul:2 and div:2 work
@@ -1351,12 +1307,7 @@ void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   for (i32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
 }
 
-void shuflAndMulw(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
-  shufl(WG, lds, u, n, f);
-  tabMul(WG, trig, u, n, f);
-}
-
-void shuflAndMulh(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
+void shuflAndMul(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
   shufl(WG, lds, u, n, f);
   tabMul(WG, trig, u, n, f);
 }
@@ -1364,12 +1315,12 @@ void shuflAndMulh(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u3
 // 8x8
 void fft64w(local T2 *lds, T2 *u, const global T2 *trig) {
   fft8(u);
-  shuflAndMulw(8, lds, trig, u, 8, 1);
+  shuflAndMul(8, lds, trig, u, 8, 1);
   fft8(u);
 }
 void fft64h(local T2 *lds, T2 *u, const global T2 *trig) {
   fft8(u);
-  shuflAndMulh(8, lds, trig, u, 8, 1);
+  shuflAndMul(8, lds, trig, u, 8, 1);
   fft8(u);
 }
 
@@ -1378,7 +1329,7 @@ void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
   for (i32 s = 4; s >= 0; s -= 2) {
     fft4(u);
-    shuflAndMulw(64, lds, trig, u, 4, 1 << s);
+    shuflAndMul(64, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
 }
@@ -1386,7 +1337,7 @@ void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_HEIGHT_CONTROL
   for (i32 s = 4; s >= 0; s -= 2) {
     fft4(u);
-    shuflAndMulh(64, lds, trig, u, 4, 1 << s);
+    shuflAndMul(64, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
 }
@@ -1396,7 +1347,7 @@ void fft512w(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
   for (i32 s = 3; s >= 0; s -= 3) {
     fft8(u);
-    shuflAndMulw(64, lds, trig, u, 8, 1 << s);
+    shuflAndMul(64, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 }
@@ -1404,7 +1355,7 @@ void fft512h(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_HEIGHT_CONTROL
   for (i32 s = 3; s >= 0; s -= 3) {
     fft8(u);
-    shuflAndMulh(64, lds, trig, u, 8, 1 << s);
+    shuflAndMul(64, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 }
@@ -1414,7 +1365,7 @@ void fft1Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
   for (i32 s = 6; s >= 0; s -= 2) {
     fft4(u);
-    shuflAndMulw(256, lds, trig, u, 4, 1 << s);
+    shuflAndMul(256, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
 }
@@ -1422,7 +1373,7 @@ void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_HEIGHT_CONTROL
   for (i32 s = 6; s >= 0; s -= 2) {
     fft4(u);
-    shuflAndMulh(256, lds, trig, u, 4, 1 << s);
+    shuflAndMul(256, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
 }
@@ -1432,7 +1383,7 @@ void fft4Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
   for (i32 s = 6; s >= 0; s -= 3) {
     fft8(u);
-    shuflAndMulw(512, lds, trig, u, 8, 1 << s);
+    shuflAndMul(512, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 }
@@ -1440,7 +1391,7 @@ void fft4Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_HEIGHT_CONTROL
   for (i32 s = 6; s >= 0; s -= 3) {
     fft8(u);
-    shuflAndMulh(512, lds, trig, u, 8, 1 << s);
+    shuflAndMul(512, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 }
@@ -1450,7 +1401,7 @@ void fft2Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
   for (i32 s = 5; s >= 2; s -= 3) {
     fft8(u);
-    shuflAndMulw(256, lds, trig, u, 8, 1 << s);
+    shuflAndMul(256, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 
@@ -1494,7 +1445,7 @@ void fft2Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_HEIGHT_CONTROL
   for (i32 s = 5; s >= 2; s -= 3) {
     fft8(u);
-    shuflAndMulh(256, lds, trig, u, 8, 1 << s);
+    shuflAndMul(256, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 
@@ -2067,23 +2018,24 @@ void middleMul2(T2 *u, u32 g, u32 me) {
 // The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
 // than reading/writing T2 values.  This routine lets us try both versions.
 
-void middleShuffle(local T2 *lds, T2 *u, u32 kernel_width, u32 group_size) {
+void middleShuffle(local T2 *lds2, T2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
-#if T2_SHUFFLE_MIDDLE == 1
+#if T2_SHUFFLE
   for (i32 i = 0; i < MIDDLE; ++i) {
     bar ();
-    lds[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i];
+    lds2[(me % blockSize) * (workgroupSize / blockSize) + (me / blockSize)] = u[i];
     bar ();
-    u[i] = lds[me];
+    u[i] = lds2[me];
   }
 #else
+  local T* lds = (local T*) lds2;
   for (i32 i = 0; i < MIDDLE; ++i) {
     bar();
-    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size)] = u[i].x;
-    ((local T*)lds)[(me % group_size) * (kernel_width / group_size) + (me / group_size) + kernel_width] = u[i].y;
+    lds[(me % blockSize) * (workgroupSize / blockSize) + (me / blockSize)] = u[i].x;
+    lds[(me % blockSize) * (workgroupSize / blockSize) + (me / blockSize) + workgroupSize] = u[i].y;
     bar();
-    u[i].x = ((local T*)lds)[me];
-    u[i].y = ((local T*)lds)[me + kernel_width];
+    u[i].x = lds[me];
+    u[i].y = lds[me + workgroupSize];
   }
 #endif
 }
@@ -2730,7 +2682,8 @@ void reverse(u32 WG, local T2 *lds, T2 *u, bool bump) {
 void reverseLine(u32 WG, local T2 *lds, T2 *u) {
   u32 me = get_local_id(0);
   u32 revMe = WG - 1 - me;
-#if T2_SHUFFLE_REVERSELINE == 1
+
+#if T2_SHUFFLE
   bar();
   for (i32 i = 0; i < NH; ++i) { lds[i * WG + revMe] = u[(NH - 1) - i]; }
   bar();
@@ -3060,7 +3013,11 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 
 // equivalent to: fftHin, multiply, fftHout.
 KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig1, Trig smallTrig2) {
-  local T2 lds[SMALL_HEIGHT / T2_SHUFFLE_TAILFUSED];
+#if T2_SHUFFLE
+  local T2 lds[SMALL_HEIGHT];
+#else
+  local T2 lds[SMALL_HEIGHT / 2];
+#endif
   T2 u[NH], v[NH];
 
   u32 W = SMALL_HEIGHT;
@@ -3103,7 +3060,12 @@ KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig1, Trig smallTrig2) 
 
 // equivalent to: square, fftHout.
 KERNEL(G_H) tailSquareLow(P(T2) out, CP(T2) in, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT / T2_SHUFFLE_TAILFUSED];
+  #if T2_SHUFFLE
+  local T2 lds[SMALL_HEIGHT];
+  #else
+  local T2 lds[SMALL_HEIGHT / 2];
+  #endif
+  
   T2 u[NH], v[NH];
 
   u32 W = SMALL_HEIGHT;
@@ -3147,8 +3109,13 @@ KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, Trig
   // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
+
+  #if T2_SHUFFLE
+  local T2 lds[SMALL_HEIGHT];
+  #else
+  local T2 lds[SMALL_HEIGHT / 2];
+  #endif
   
-  local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_TAILFUSED];
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];
 
@@ -3204,8 +3171,13 @@ KERNEL(G_H) tailFusedMulLow(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, T
   // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
-  
-  local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_TAILFUSED];
+
+  #if T2_SHUFFLE
+  local T2 lds[SMALL_HEIGHT];
+  #else
+  local T2 lds[SMALL_HEIGHT / 2];
+  #endif
+
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];
 
@@ -3256,7 +3228,12 @@ KERNEL(G_H) tailFusedMulLow(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, T
 }
 
 KERNEL(G_H) tailMulLowLow(P(T2) io, CP(T2) in, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_TAILFUSED];
+#if T2_SHUFFLE
+  local T2 lds[SMALL_HEIGHT];
+#else
+  local T2 lds[SMALL_HEIGHT / 2];
+#endif
+
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];
 
@@ -3311,8 +3288,13 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) out, CP(T2) in, CP(T2) a, CP(T2) b, Trig sma
   // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
-  
-  local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_TAILFUSED];
+
+#if T2_SHUFFLE
+  local T2 lds[SMALL_HEIGHT];
+#else
+  local T2 lds[SMALL_HEIGHT / 2];
+#endif
+
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];
 
