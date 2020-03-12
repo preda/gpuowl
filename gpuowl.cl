@@ -25,9 +25,7 @@ UNROLL_HEIGHT <AMD default>
 
 T2_SHUFFLE <nVidia default>
 NO_T2_SHUFFLE
-T2_SHUFFLE_WIDTH
 T2_SHUFFLE_MIDDLE
-T2_SHUFFLE_HEIGHT
 T2_SHUFFLE_REVERSELINE <AMD default>
 
 OLD_FFT8 <default>
@@ -56,7 +54,7 @@ NO_P2_FUSED_TAIL                // Do not use the big kernel tailFusedMulDelta
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
 AMDGPU  : set on AMD GPUs
 HAS_ASM : set if we believe __asm() can be used
-T2_SHUFFLE_TAILFUSED : set if either T2_SHUFFLE_HEIGHT or T2_SHUFFLE_REVERSELINE is set
+T2_SHUFFLE_TAILFUSED : set if either T2_SHUFFLE or T2_SHUFFLE_REVERSELINE is set
 MERGED_MIDDLE : set unless NO_MERGED_MIDDLE is set
  */
 
@@ -252,12 +250,12 @@ G_H        "group height"
 // Consequently, we have separate defines so we can selectively do T2 shuffling.  For now we assume the original code
 // that does 64x64 shuffles uses so much local memory that we'll not offer a T2 shuffle in there.
 //
-// For a 5M FFT on a Radeon VII, the best combination is T2_SHUFFLE_REVERSELINE, but not T2_SHUFFLE_MIDDLE,
-// T2_SHUFFLE_WIDTH,T2_SHUFFLE_HEIGHT.  This may indicate that speed differences are due to vagaries of
+// For a 5M FFT on a Radeon VII, the best combination is T2_SHUFFLE_REVERSELINE, but not T2_SHUFFLE.
+// This may indicate that speed differences are due to vagaries of
 // the ROCm optimizer rather than an inherit benefit of T2 vs. T shuffles.  The AMD OpenCL optimization manual says
 // T shuffles should give the best performance.
 
-#if !T2_SHUFFLE && !NO_T2_SHUFFLE && !T2_SHUFFLE_WIDTH && !T2_SHUFFLE_MIDDLE && !T2_SHUFFLE_HEIGHT && !T2_SHUFFLE_REVERSELINE
+#if !T2_SHUFFLE && !NO_T2_SHUFFLE && !T2_SHUFFLE_MIDDLE && !T2_SHUFFLE_REVERSELINE
 #if AMDGPU
 #define T2_SHUFFLE_REVERSELINE 1
 #else
@@ -266,17 +264,8 @@ G_H        "group height"
 #endif
 
 #if T2_SHUFFLE
-#define T2_SHUFFLE_WIDTH 1
 #define T2_SHUFFLE_MIDDLE 1
-#define T2_SHUFFLE_HEIGHT 1
 #define T2_SHUFFLE_REVERSELINE 1
-#endif
-
-#if T2_SHUFFLE_WIDTH
-#undef T2_SHUFFLE_WIDTH
-#define T2_SHUFFLE_WIDTH	1
-#else
-#define T2_SHUFFLE_WIDTH	2
 #endif
 
 #if T2_SHUFFLE_MIDDLE
@@ -286,23 +275,12 @@ G_H        "group height"
 #define T2_SHUFFLE_MIDDLE	2
 #endif
 
-#if T2_SHUFFLE_HEIGHT
-#undef T2_SHUFFLE_HEIGHT
-#define T2_SHUFFLE_HEIGHT	1
-#else
-#define T2_SHUFFLE_HEIGHT	2
-#endif
-
 #if T2_SHUFFLE_REVERSELINE
 #undef T2_SHUFFLE_REVERSELINE
 #define T2_SHUFFLE_REVERSELINE	1
-#else
-#define T2_SHUFFLE_REVERSELINE	2
-#endif
-
-#if T2_SHUFFLE_HEIGHT == 1 || T2_SHUFFLE_REVERSELINE == 1
 #define T2_SHUFFLE_TAILFUSED	1
 #else
+#define T2_SHUFFLE_REVERSELINE	2
 #define T2_SHUFFLE_TAILFUSED	2
 #endif
 
@@ -1344,45 +1322,27 @@ void fft12(T2 *u) {
   u[7] = tmp68a - tmp68b;
 }
 
-
-// NOTE: I tried merging shuflw and shuflh by passing in the appropriate T2_SHUFFLE flag as an argument
-// but the rocm compiler was not up to generating the most efficient code.
-
-void shuflw(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
+void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   u32 m = me / f;
-
-#if T2_SHUFFLE_WIDTH == 1
+  
+#if T2_SHUFFLE
+  
   bar();
-  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i]; }
+  for (u32 i = 0; i < n; ++i) { lds2[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i]; }
   bar();
-  for (u32 i = 0; i < n; ++i) { u[i] = lds[i * WG + me]; }
+  for (u32 i = 0; i < n; ++i) { u[i] = lds2[i * WG + me]; }
+  
 #else
+  
+  local T* lds = (local T*) lds2;
   for (i32 b = 0; b < 2; ++b) {
     bar();
-    for (u32 i = 0; i < n; ++i) { ((local T*)lds)[(m + i * WG / f) / n * f + m % n * WG + me % f] = ((T *) (u + i))[b]; }
+    for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = ((T *) (u + i))[b]; }
     bar();
-    for (u32 i = 0; i < n; ++i) { ((T *) (u + i))[b] = ((local T*)lds)[i * WG + me]; }
+    for (u32 i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
   }
-#endif
-}
-
-void shuflh(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
-  u32 me = get_local_id(0);
-  u32 m = me / f;
-
-#if T2_SHUFFLE_HEIGHT == 1
-  bar();
-  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i]; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { u[i] = lds[i * WG + me]; }
-#else
-  for (i32 b = 0; b < 2; ++b) {
-    bar();
-    for (u32 i = 0; i < n; ++i) { ((local T*)lds)[(m + i * WG / f) / n * f + m % n * WG + me % f] = ((T *) (u + i))[b]; }
-    bar();
-    for (u32 i = 0; i < n; ++i) { ((T *) (u + i))[b] = ((local T*)lds)[i * WG + me]; }
-  }
+  
 #endif
 }
 
@@ -1392,12 +1352,12 @@ void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
 }
 
 void shuflAndMulw(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
-  shuflw(WG, lds, u, n, f);
+  shufl(WG, lds, u, n, f);
   tabMul(WG, trig, u, n, f);
 }
 
 void shuflAndMulh(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
-  shuflh(WG, lds, u, n, f);
+  shufl(WG, lds, u, n, f);
   tabMul(WG, trig, u, n, f);
 }
 
@@ -1495,7 +1455,7 @@ void fft2Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   fft8(u);
 
   u32 me = get_local_id(0);
-#if T2_SHUFFLE_WIDTH == 1
+#if T2_SHUFFLE
   bar();
   for (i32 i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = u[i]; }
   bar();
@@ -1539,7 +1499,7 @@ void fft2Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   fft8(u);
 
   u32 me = get_local_id(0);
-#if T2_SHUFFLE_HEIGHT == 1
+#if T2_SHUFFLE
   bar();
   for (i32 i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = u[i]; }
   bar();
@@ -1926,20 +1886,6 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 #endif
 }
 
-// Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
-KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
-  local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
-  T2 u[NW];
-  u32 g = get_group_id(0);
-
-  readCarryFusedLine(in, u, g);
-  ENABLE_MUL2();
-  fft_WIDTH(lds, u, smallTrig);  
-  out += WIDTH * g;
-  write(G_W, NW, u, out, 0);
-}
-
-
 // Read a line for tailFused or fftHin
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 
@@ -1980,9 +1926,32 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 #endif
 }
 
+// Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
+KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
+#if T2_SHUFFLE
+  local T2 lds[WIDTH];
+#else
+  local T2 lds[WIDTH / 2];
+#endif
+  
+  T2 u[NW];
+  u32 g = get_group_id(0);
+
+  readCarryFusedLine(in, u, g);
+  ENABLE_MUL2();
+  fft_WIDTH(lds, u, smallTrig);  
+  out += WIDTH * g;
+  write(G_W, NW, u, out, 0);
+}
+
 // Do an FFT Height after a transposeW (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT/T2_SHUFFLE_HEIGHT];
+#if T2_SHUFFLE
+  local T2 lds[SMALL_HEIGHT];
+#else
+  local T2 lds[SMALL_HEIGHT / 2];
+#endif
+  
   T2 u[NH];
   u32 g = get_group_id(0);
 
@@ -1996,7 +1965,12 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
 
 // Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)
 KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT / T2_SHUFFLE_HEIGHT];
+#if T2_SHUFFLE
+  local T2 lds[SMALL_HEIGHT];
+#else
+  local T2 lds[SMALL_HEIGHT / 2];
+#endif
+  
   T2 u[NH];
   u32 g = get_group_id(0);
 
@@ -2010,7 +1984,11 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 KERNEL(G_W) k_fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
-  local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
+#if T2_SHUFFLE
+  local T2 lds[WIDTH];
+#else
+  local T2 lds[WIDTH / 2];
+#endif
   T2 u[NW];
   u32 g = get_group_id(0);
 
@@ -2342,7 +2320,12 @@ void acquire() {
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
-  local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
+#if T2_SHUFFLE
+  local T2 lds[WIDTH];
+#else
+  local T2 lds[WIDTH / 2];
+#endif
+  
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -2483,7 +2466,11 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready
 // copy of carryFused() above, with the only difference the mul-by-3 in unweightAndCarry().
 KERNEL(G_W) carryFusedMul(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                           CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
-  local T2 lds[WIDTH/T2_SHUFFLE_WIDTH];
+#if T2_SHUFFLE
+  local T2 lds[WIDTH];
+#else
+  local T2 lds[WIDTH / 2];
+#endif
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
