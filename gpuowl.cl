@@ -5,7 +5,6 @@
 
 DEBUG  : enable asserts. Slow, but allows to verify that all asserts hold.
    
-FMA    : use OpenCL fma(x, y, z) instead of x * y + z in MAD(x, y, z)
 NO_ASM : request to not use any inline __asm()
 NO_OMOD: do not use GCN output modifiers in __asm()
 
@@ -233,12 +232,9 @@ G_H        "group height"
 
 // A T2 shuffle requires twice as much local memory as a T shuffle.  This won't affect occupancy for MIDDLE shuffles
 // and small WIDTH and HEIGHT shuffles.  However, 4K and 2K widths and heights might be better off using less local memory.
-#if !T2_SHUFFLE && !NO_T2_SHUFFLE
-#if AMDGPU
-#define NO_T2_SHUFFLE 1
-#else
+#if !T2_SHUFFLE && !NO_T2_SHUFFLE && !AMDGPU
+// On nVidia default to T2-shuffle
 #define T2_SHUFFLE 1
-#endif
 #endif
 
 #if HAS_ASM && !NO_OMOD
@@ -312,7 +308,7 @@ T add1_m2(T x, T y) {
    __asm("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
    return tmp;
 #else
-   return 2 * (a + b);
+   return 2 * (x + y);
 #endif
 }
 
