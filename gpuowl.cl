@@ -2812,7 +2812,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 #endif
 
 // equivalent to: fftHin, multiply, fftHout.
-KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig1, Trig smallTrig2) {
+KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
 #if T2_SHUFFLE
   local T2 lds[SMALL_HEIGHT];
 #else

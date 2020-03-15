@@ -220,7 +220,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(multiply,      hN / SMALL_H),
   LOAD(multiplyDelta, hN / SMALL_H),
   LOAD(square,        hN / SMALL_H),
-  LOAD(k_tailFused,       hN / SMALL_H / 2),
+  LOAD(tailFusedSquare,   hN / SMALL_H / 2),
   LOAD(tailFusedMulDelta, hN / SMALL_H / 2),
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
   LOAD(tailFusedMul,      hN / SMALL_H / 2),
@@ -268,7 +268,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
   tailMulLowLow.setFixedArgs(2, bufTrigH);
   
-  k_tailFused.setFixedArgs(2, bufTrigH, bufTrigH);
+  tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrigH);
   tailSquareLow.setFixedArgs(2, bufTrigH);
   
   queue->zero(bufReady, BIG_H);
@@ -558,7 +558,7 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
 
     carryFused(tmp, out);
     tW(out, tmp);
-    tailFused(tmp, out);
+    tailFusedSquare(tmp, out);
     tH(out, tmp);
   }
 }
@@ -566,7 +566,7 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
 void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io) {
   if (leadIn) { fftP(buf1, io); }
   tW(bufTmp, buf1);
-  tailFused(buf1, bufTmp);
+  tailFusedSquare(buf1, bufTmp);
   tH(bufTmp, buf1);
 
   if (leadOut) {
@@ -984,7 +984,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   HostAccessBuffer<double> bufAcc{queue, "acc", N};
 
   tW(bufTmp, bufAux);
-  tailFused(bufAux, bufTmp);
+  tailFusedSquare(bufAux, bufTmp);
   tH(bufAcc, bufAux);			// Save bufAcc for later use as an accumulator
   fftW(bufAux, bufAcc);
   carryA(bufData, bufAux);

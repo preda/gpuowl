@@ -56,7 +56,7 @@ class Gpu {
   Kernel multiply;
   Kernel multiplyDelta;
   Kernel square;
-  Kernel k_tailFused;
+  Kernel tailFusedSquare;
   Kernel tailFusedMulDelta;
   Kernel tailFusedMulLow;
   Kernel tailFusedMul;
@@ -105,7 +105,7 @@ class Gpu {
   void tW(Buffer<double>& out, Buffer<double>& in);
   void tH(Buffer<double>& out, Buffer<double>& in);
   void fftP(Buffer<double>& out, const Buffer<int>& in) { k_fftP(in, out); }
-  void tailFused(Buffer<double>& out, Buffer<double>& in) { k_tailFused(in, out); }
+  void tailFused(Buffer<double>& out, Buffer<double>& in) { tailFusedSquare(out, in); }
   
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(const vector<u32> &words, Buffer<int>& buf);
