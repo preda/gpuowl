@@ -2266,7 +2266,9 @@ void acquire() {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-//{{ CARRY_FUSED
+
+#define CARRY_FUSED_NAME carryFused
+#define CF_MUL 0
 KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
 #if T2_SHUFFLE
@@ -2409,17 +2411,153 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 
   write(G_W, NW, u, out, WIDTH * line);
 }
-//}} CARRY_FUSED
-
-#define CARRY_FUSED_NAME carryFused
-#define CF_MUL 0
-//== CARRY_FUSED
 #undef CARRY_FUSED_NAME
 #undef CF_MUL
 
 #define CARRY_FUSED_NAME carryFusedMul
 #define CF_MUL 1
-//== CARRY_FUSED
+KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
+                       CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
+#if T2_SHUFFLE
+  local T2 lds[WIDTH];
+#else
+  local T2 lds[WIDTH / 2];
+#endif
+  
+  u32 gr = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  u32 H = BIG_HEIGHT;
+  u32 line = gr % H;
+
+  T2 u[NW];
+
+  readCarryFusedLine(in, u, line);
+  ENABLE_MUL2();
+
+  fft_WIDTH(lds, u, smallTrig);
+
+#if NW == 4
+  u32 b = bits[WIDTH*4/32 * line + me/2];
+  b = b >> ((me & 1) * 16);
+#else
+  u32 b = bits[WIDTH*4/32 * line + me];
+#endif
+
+// Convert each u value into 2 words and a 32 or 64 bit carry
+
+  P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
+  Word2 wu[NW];
+  T2 weights = groupWeights[line] * threadWeights[me];
+  T invWeight = weights.x;
+#if CF_MUL
+  CFMcarry carry[NW];
+#else
+  CFcarry carry[NW];
+#endif
+  
+  for (i32 i = 0; i < NW; ++i) {
+    optionalDouble(&invWeight, b, 2*i);
+    T invWeight2 = invWeight * IWEIGHT_STEP;
+    optionalDouble(&invWeight2, b, 2*i+1);
+#if CF_MUL
+    wu[i] = CFMunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+#else    
+    wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+#endif
+    invWeight *= IWEIGHT_BIGSTEP;
+  }
+
+  if (gr < H) {
+    for (i32 i = 0; i < NW; ++i) {
+#if OLD_CARRY_LAYOUT
+      carryShuttlePtr[gr * WIDTH + i * G_W + me] = carry[i];
+#else
+      // Write the carries to carry shuttle.  AMD GPUs are faster writing and reading 4 consecutive values at a time.
+      // However, seemingly innocuous code changes can affect VGPR usage which if it changes occupancy can be a
+      // more important consideration.
+      carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
+#endif
+    }
+  }
+    
+  release();
+
+  // Signal that this group is done writing the carry.
+  if (gr < H && me == 0) {
+#ifdef ATOMICALLY_CORRECT
+    atomic_store((atomic_uint *) &ready[gr], 1);
+#else
+    ready[gr] = 1;
+#endif
+  }
+
+  if (gr == 0) { return; }
+
+  // Wait until the previous group is ready with the carry.
+  if (me == 0) {
+    while(!atomic_load((atomic_uint *) &ready[gr - 1]));
+    ready[gr - 1] = 0; // atomic_store((atomic_uint *) &ready[gr - 1], 0);
+  }
+
+  acquire();
+
+  // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
+  // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
+
+  assert(gr > 0 && gr <= H);
+  
+#if OLD_CARRY_LAYOUT
+  if (gr == H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((i * G_W + (WIDTH - 1) + me) % WIDTH)];
+    }
+  } else {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + i * G_W + me];
+    }
+  }
+#else
+  if (gr < H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
+    }
+  } else if (gr == H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
+    }
+    if (me == 0) {
+      CFcarry tmp = carry[NW-1];
+      for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
+      carry[0] = tmp;
+    }
+  } else {
+    // This is unreachable because 'gr' is in range [1 .. H], so one of the previous branches must have been taken
+    // assert(gr <= H);
+  }
+#endif
+
+  // Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
+
+  T weight = weights.y;
+  // __attribute__((opencl_unroll_hint(1)))
+  for (i32 i = 0; i < NW; ++i) {
+    optionalHalve(&weight, b, 2*i);
+    T weight2 = weight * WEIGHT_STEP;
+    optionalHalve(&weight2, b, 2*i+1);
+
+#if CF_MUL
+    u[i] = CFMcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*(NW+i)));
+#else
+    u[i] = CFcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*(NW+i)));
+#endif
+    weight *= WEIGHT_BIGSTEP;
+  }
+
+  fft_WIDTH(lds, u, smallTrig);
+
+  write(G_W, NW, u, out, WIDTH * line);
+}
 #undef CARRY_FUSED_NAME
 #undef CF_MUL
 

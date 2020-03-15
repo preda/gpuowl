@@ -38,8 +38,11 @@ version.inc: FORCE
 	diff -q -N version.new version.inc >/dev/null || mv version.new version.inc
 	echo Version: `cat version.inc`
 
-gpuowl-wrap.cpp: gpuowl.cl head.txt tail.txt
-	cat head.txt gpuowl.cl tail.txt > gpuowl-wrap.cpp
+gpuowl-expanded.cl: gpuowl.cl
+	./tools/expand.py < gpuowl.cl > gpuowl-expanded.cl
+
+gpuowl-wrap.cpp: gpuowl-expanded.cl head.txt tail.txt
+	cat head.txt gpuowl-expanded.cl tail.txt > gpuowl-wrap.cpp
 
 FORCE:
 
