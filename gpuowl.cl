@@ -2266,9 +2266,10 @@ void acquire() {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
+// See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
 //{{ CARRY_FUSED
 KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
-                       CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
+                             CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
 #if T2_SHUFFLE
   local T2 lds[WIDTH];
 #else
@@ -2391,7 +2392,6 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
   // Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
 
   T weight = weights.y;
-  // __attribute__((opencl_unroll_hint(1)))
   for (i32 i = 0; i < NW; ++i) {
     optionalHalve(&weight, b, 2*i);
     T weight2 = weight * WEIGHT_STEP;
@@ -2488,7 +2488,8 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
   }
 }
 
-KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
+//{{ MULTIPLY
+KERNEL(SMALL_HEIGHT / 2) MULTIPLY_NAME(P(T2) io, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
@@ -2498,53 +2499,13 @@ KERNEL(SMALL_HEIGHT / 2) multiply(P(T2) io, CP(T2) in) {
   u32 me = get_local_id(0);
 
   if (line1 == 0 && me == 0) {
-    io[0]     = foo2_m4(conjugate(io[0]), conjugate(in[0]));
-    io[W / 2] = 8 * conjugate(mul(io[W / 2], in[W / 2]));
-    return;
-  }
-
-  u32 line2 = (H - line1) % H;
-  u32 g1 = transPos(line1, MIDDLE, WIDTH);
-  u32 g2 = transPos(line2, MIDDLE, WIDTH);
-  u32 k = g1 * W + me;
-  u32 v = g2 * W + (W - 1) - me + (line1 == 0);
-  T2 a = io[k];
-  T2 b = conjugate(io[v]);
-  T2 t = swap(slowTrig(me * H + line1, W * H));
-  X2(a, b);
-  b = mul(b, conjugate(t));
-  X2(a, b);
-
-  T2 c = in[k];
-  T2 d = conjugate(in[v]);
-  X2(c, d);
-  d = mul(d, conjugate(t));
-  X2(c, d);
-
-  a = mul(a, c);
-  b = mul(b, d);
-
-  X2(a, b);
-  b = mul(b, t);
-  X2(a, b);
-
-  io[k] = conjugate(a);
-  io[v] = b;
-}
-
-#if NO_P2_FUSED_TAIL
-KERNEL(SMALL_HEIGHT / 2) multiplyDelta(P(T2) io, CP(T2) inA, CP(T2) inB ) {
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
-
-  ENABLE_MUL2();
-
-  u32 line1 = get_group_id(0);
-  u32 me = get_local_id(0);
-
-  if (line1 == 0 && me == 0) {
+#if MULTIPLY_DELTA
     io[0]     = foo2_m4(cojugate(io[0]), conjugate(inA[0] - inB[0]));
     io[W / 2] = 8 * conjugate(mul(io[W / 2], inA[W / 2] - inB[W / 2]));
+#else
+    io[0]     = foo2_m4(conjugate(io[0]), conjugate(in[0]));
+    io[W / 2] = 8 * conjugate(mul(io[W / 2], in[W / 2]));
+#endif
     return;
   }
 
@@ -2560,8 +2521,14 @@ KERNEL(SMALL_HEIGHT / 2) multiplyDelta(P(T2) io, CP(T2) inA, CP(T2) inB ) {
   b = mul(b, conjugate(t));
   X2(a, b);
 
+#if MULTIPLY_DELTA
   T2 c = inA[k] - inB[k];
   T2 d = conjugate(inA[v] - inB[v]);
+#else
+  T2 c = in[k];
+  T2 d = conjugate(in[v]);
+#endif
+  
   X2(c, d);
   d = mul(d, conjugate(t));
   X2(c, d);
@@ -2576,7 +2543,22 @@ KERNEL(SMALL_HEIGHT / 2) multiplyDelta(P(T2) io, CP(T2) inA, CP(T2) inB ) {
   io[k] = conjugate(a);
   io[v] = b;
 }
+//}} MULTIPLY
+
+#define MULTIPLY_NAME multiply
+#define MULTIPLY_DELTA 0
+//== MULTIPLY
+#undef MULTIPLY_NAME
+#undef MULTIPLY_DELTA
+
+#if NO_P2_FUSED_TAIL
+#define MULTIPLY_NAME multiplyDelta
+#define MULTIPLY_DELTA 1
+//== MULTIPLY
+#undef MULTIPLY_NAME
+#undef MULTIPLY_DELTA
 #endif
+
 
 // tailFused below
 
