@@ -436,6 +436,7 @@ T2 CFcarryAndWeightFinal(Word2 u, CFcarry carry, T2 w, bool b1) {
 typedef i64 CFMcarry;
 
 Word2 CFMunweightAndCarry(T2 u, CFMcarry *carry, T2 weight, bool b1, bool b2) {
+  *carry = 0;
   Word a = carryStep(3 * unweight(u.x, weight.x), carry, bitlenx(b1));
   Word b = carryStep(3 * unweight(u.y, weight.y), carry, bitlenx(b2));
   return (Word2) (a, b);
