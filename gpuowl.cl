@@ -2812,7 +2812,8 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 #endif
 
 // equivalent to: fftHin, multiply, fftHout.
-KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
+//{{ TAIL_FUSED
+KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
 #if T2_SHUFFLE
   local T2 lds[SMALL_HEIGHT];
 #else
@@ -2828,12 +2829,17 @@ KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTri
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
 
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
   ENABLE_MUL2();
 
+#if TAIL_FUSED_LOW
+  read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, v, in, memline2 * SMALL_HEIGHT);
+#else
+  readTailFusedLine(in, u, line1, memline1);
+  readTailFusedLine(in, v, line2, memline2);
   fft_HEIGHT(lds, u, smallTrig1);
   fft_HEIGHT(lds, v, smallTrig1);
+#endif
 
   u32 me = get_local_id(0);
   if (line1 == 0) {
@@ -2857,52 +2863,20 @@ KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTri
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
+//}} TAIL_FUSED
 
-// equivalent to: square, fftHout.
-KERNEL(G_H) tailSquareLow(P(T2) out, CP(T2) in, Trig smallTrig) {
-  #if T2_SHUFFLE
-  local T2 lds[SMALL_HEIGHT];
-  #else
-  local T2 lds[SMALL_HEIGHT / 2];
-  #endif
-  
-  T2 u[NH], v[NH];
+#define TAIL_FUSED_NAME tailFusedSquare
+#define TAIL_FUSED_LOW 0
+//== TAIL_FUSED
+#undef TAIL_FUSED_NAME
+#undef TAIL_FUSED_LOW
 
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
+#define TAIL_FUSED_NAME tailSquareLow
+#define TAIL_FUSED_LOW 1
+//== TAIL_FUSED
+#undef TAIL_FUSED_NAME
+#undef TAIL_FUSED_LOW
 
-  u32 line1 = get_group_id(0);
-  u32 line2 = line1 ? H - line1 : (H / 2);
-  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
-  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-
-  read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, v, in, memline2 * SMALL_HEIGHT);
-  ENABLE_MUL2();
-  
-  u32 me = get_local_id(0);
-  if (line1 == 0) {
-    // Line 0 is special: it pairs with itself, offseted by 1.
-    reverse(G_H, lds, u + NH/2, true);
-    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W/2), true);		// GW 12/18/19: Use squared trig value
-    reverse(G_H, lds, u + NH/2, true);
-
-    // Line H/2 also pairs with itself (but without offset).
-    reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W), false);	// GW 12/18/19: Use squared trig value
-    reverse(G_H, lds, v + NH/2, false);
-  } else {    
-    reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, slowTrig(line1 + me * H, ND/2), false);		// GW 12/18/19: Use squared trig value
-    reverseLine(G_H, lds, v);
-  }
-
-  fft_HEIGHT(lds, v, smallTrig);
-  write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
-  
-  fft_HEIGHT(lds, u, smallTrig);
-  write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
-}
 
 // equivalent to: fftHin(io, out), fftHin(base, tmp), multiply(out, tmp), fftH(out)
 KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, Trig smallTrig2) {
