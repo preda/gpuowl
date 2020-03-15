@@ -2740,7 +2740,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
 void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   u32 me = get_local_id(0);
 
-  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8 (base_squared)) {
+  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     T2 a = u[i];
     T2 b = v[i];
     if (special && i == 0 && me == 0) {
@@ -2762,15 +2762,15 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
 
     a = u[i+NH/4];
     b = v[i+NH/4];
-    T2 new_base_squared = mul (base_squared, U2(0, -1));
-    onePairSq(a, b, swap_squared (new_base_squared));
+    T2 new_base_squared = mul(base_squared, U2(0, -1));
+    onePairSq(a, b, swap_squared(new_base_squared));
     u[i+NH/4] = a;
     v[i+NH/4] = b;
 
     if (N == NH) {
 	a = u[i+3*NH/4];
 	b = v[i+3*NH/4];
-	onePairSq(a, b, swap_squared (-new_base_squared));
+	onePairSq(a, b, swap_squared(-new_base_squared));
 	u[i+3*NH/4] = a;
 	v[i+3*NH/4] = b;
     }
@@ -2944,16 +2944,30 @@ KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig1, Trig smallTrig2) 
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);
-    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W/2), true);		// GW 12/18/19: Use squared trig value
+    
+#if ORIG_PAIRSQ
+    pairSq(NH/2, u,   u + NH/2, slowTrig1(me, W), true);
+#else
+    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W/2), true);
+#endif
+    
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W), false);	// GW 12/18/19: Use squared trig value
+#if ORIG_PAIRSQ
+    pairSq(NH/2, v,   v + NH/2, slowTrig1(1 + 2 * me, 2*W), false);
+#else
+    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W), false);
+#endif
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, slowTrig(line1 + me * H, ND/2), false);		// GW 12/18/19: Use squared trig value
+#if ORIG_PAIRSQ
+    pairSq(NH, u, v, slowTrig1(line1 + me * H, ND), false);
+#else
+    pairSq(NH, u, v, slowTrig(line1 + me * H, ND/2), false);
+#endif
     reverseLine(G_H, lds, v);
   }
 
