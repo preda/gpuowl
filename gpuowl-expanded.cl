@@ -2790,110 +2790,7 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
 #endif
 }
 
-// Original pairSq implementation
-
-#ifdef ORIG_PAIRSQ
-
-void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
-  u32 me = get_local_id(0);
-
-  T2 step = slowTrig1(1, NH);
-  
-  for (i32 i = 0; i < N; ++i, base = mul(base, step)) {
-    T2 a = u[i];
-    T2 b = conjugate(v[i]);
-    T2 t = swap(base);    
-    if (special && i == 0 && me == 0) {
-      a = foo_m4(a);
-      b = 8 * sq(b);
-    } else {
-      X2(a, b);
-      b = mul(b, conjugate(t));
-      X2(a, b);
-      a = sq(a);
-      b = sq(b);
-      X2(a, b);
-      b = mul(b, t);
-      X2(a, b);
-    }
-    u[i] = conjugate(a);
-    v[i] = b;
-  }
-}
-
-// Better pairSq.  Reduces complex muls in base calculations and improves roundoff error
-// This can be done with 30 float ops
-
-#elif 0
-
-#define onePairSq(a, b, t) { \
-      b = conjugate(b); \
-      X2(a, b); \
-      b = mul_by_conjugate(b, t); \
-      X2(a, b); \
-      a = sq(a); \
-      b = sq(b); \
-      X2(a, b); \
-      b = mul(b, t); \
-      X2(a, b); \
-      a = conjugate(a); \
-}
-
-void pairSq(u32 N, T2 *u, T2 *v, T2 base, bool special) {
-  u32 me = get_local_id(0);
-
-  assert(N == NH / 2 || N == NH);
-
-  T2 step = slowTrig1(1, NH);
-
-  for (i32 i = 0; i < NH / 4; ++i, base = mul(base, step)) {
-    T2 a = u[i];
-    T2 b = v[i];
-    T2 t = swap(base);    
-    if (special && i == 0 && me == 0) {
-      b = conjugate(b);
-      a = foo_m4(a);
-      b = 8 * sq(b);
-      a = conjugate(a);
-    } else {
-      onePairSq(a, b, t);
-    }
-    u[i] = a;
-    v[i] = b;
-
-    if (N == NH) {
-	a = u[i+NH/2];
-	b = v[i+NH/2];
-	t = swap(mul (base, U2(0, -1)));    
-	onePairSq(a, b, t);
-	u[i+NH/2] = a;
-	v[i+NH/2] = b;
-    }
-
-    a = u[i+NH/4];
-    b = v[i+NH/4];
-    T2 new_base = mul_t8 (base);
-    t = swap (new_base);
-    onePairSq(a, b, t);
-    u[i+NH/4] = a;
-    v[i+NH/4] = b;
-
-    if (N == NH) {
-	a = u[i+3*NH/4];
-	b = v[i+3*NH/4];
-	t = swap(mul (new_base, U2(0, -1)));
-	onePairSq(a, b, t);
-	u[i+3*NH/4] = a;
-	v[i+3*NH/4] = b;
-    }
-  }
-}
-
-// Best pairSq
-
-#else
-
-// This alternate implementation takes better advantage of the AMD OMOD (output modifier) feature.
+// This implementation takes better advantage of the AMD OMOD (output modifier) feature.
 // NOTE:  For other GPUs we should change this routine and onePairMul and the special line 0 cases to
 // return the proper result divided by 2.  This saves a multiply or two.  It requires a small adjustment
 // in the inverse weights at set up.
@@ -2963,8 +2860,6 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
     }
   }
 }
-
-#endif
 
 
 // Original pairMul implementation
@@ -3130,31 +3025,17 @@ KERNEL(G_H) k_tailFused(CP(T2) in, P(T2) out, Trig smallTrig1, Trig smallTrig2) 
   u32 me = get_local_id(0);
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
-    reverse(G_H, lds, u + NH/2, true);
-    
-#if ORIG_PAIRSQ
-    pairSq(NH/2, u,   u + NH/2, slowTrig1(me, W), true);
-#else
-    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W/2), true);
-#endif
-    
+    reverse(G_H, lds, u + NH/2, true);    
+    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W/2), true);    
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, lds, v + NH/2, false);
-#if ORIG_PAIRSQ
-    pairSq(NH/2, v,   v + NH/2, slowTrig1(1 + 2 * me, 2*W), false);
-#else
     pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W), false);
-#endif
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-#if ORIG_PAIRSQ
-    pairSq(NH, u, v, slowTrig1(line1 + me * H, ND), false);
-#else
     pairSq(NH, u, v, slowTrig(line1 + me * H, ND/2), false);
-#endif
     reverseLine(G_H, lds, v);
   }
 
