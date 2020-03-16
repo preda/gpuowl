@@ -204,7 +204,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   LOAD(carryFused,    BIG_H + 1),
   LOAD(carryFusedMul, BIG_H + 1),
-  LOAD(k_fftP, BIG_H),
+  LOAD(fftP, BIG_H),
   LOAD(fftW,   BIG_H),
   LOAD(fftHin,  hN / SMALL_H),
   LOAD(fftHout, hN / SMALL_H),
@@ -254,7 +254,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   program.reset();
   carryFused.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
-  k_fftP.setFixedArgs(2, bufWeightA, bufTrigW);
+  fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);

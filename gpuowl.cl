@@ -1309,18 +1309,6 @@ void shuflAndMul(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32
   tabMul(WG, trig, u, n, f);
 }
 
-// 8x8
-void fft64w(local T2 *lds, T2 *u, const global T2 *trig) {
-  fft8(u);
-  shuflAndMul(8, lds, trig, u, 8, 1);
-  fft8(u);
-}
-void fft64h(local T2 *lds, T2 *u, const global T2 *trig) {
-  fft8(u);
-  shuflAndMul(8, lds, trig, u, 8, 1);
-  fft8(u);
-}
-
 // 64x4
 void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
@@ -1773,9 +1761,7 @@ KERNEL(256) isNotZero(P(bool) outNotZero, u32 sizeBytes, global i64 *in) {
 }
 
 void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
-#if   WIDTH == 64
-  fft64w(lds, u, trig);
-#elif WIDTH == 256
+#if WIDTH == 256
   fft256w(lds, u, trig);
 #elif WIDTH == 512
   fft512w(lds, u, trig);
@@ -1791,9 +1777,7 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
 }
 
 void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
-#if SMALL_HEIGHT == 64
-  fft64h(lds, u, trig);
-#elif SMALL_HEIGHT == 256
+#if SMALL_HEIGHT == 256
   fft256h(lds, u, trig);
 #elif SMALL_HEIGHT == 512
   fft512h(lds, u, trig);
@@ -1931,7 +1915,7 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-KERNEL(G_W) k_fftP(CP(Word2) in, P(T2) out, CP(T2) A, Trig smallTrig) {
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) A, Trig smallTrig) {
 #if T2_SHUFFLE
   local T2 lds[WIDTH];
 #else
@@ -2813,7 +2797,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 #endif
 
 // equivalent to: fftHin, multiply, fftHout.
-//{{ TAIL_FUSED
+//{{ TAIL_SQUARE
 KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
 #if T2_SHUFFLE
   local T2 lds[SMALL_HEIGHT];
@@ -2864,145 +2848,35 @@ KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTri
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
-//}} TAIL_FUSED
+//}} TAIL_SQUARE
 
 #define TAIL_FUSED_NAME tailFusedSquare
 #define TAIL_FUSED_LOW 0
-//== TAIL_FUSED
+//== TAIL_SQUARE
 #undef TAIL_FUSED_NAME
 #undef TAIL_FUSED_LOW
 
 #define TAIL_FUSED_NAME tailSquareLow
 #define TAIL_FUSED_LOW 1
-//== TAIL_FUSED
+//== TAIL_SQUARE
 #undef TAIL_FUSED_NAME
 #undef TAIL_FUSED_LOW
 
 
-// equivalent to: fftHin(io, out), fftHin(base, tmp), multiply(out, tmp), fftH(out)
-KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, Trig smallTrig2) {
-  // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
+//{{ TAIL_FUSED_MUL
+#if MUL_LOW_LOW
+KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, Trig smallTrig2) {
+#else
+KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, CP(T2) a,
+                            #if MUL_DELTA
+                            CP(T2) b,
+                            #endif
+                            Trig smallTrig1, Trig smallTrig2) {
+  // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
-
-  #if T2_SHUFFLE
-  local T2 lds[SMALL_HEIGHT];
-  #else
-  local T2 lds[SMALL_HEIGHT / 2];
-  #endif
+#endif
   
-  T2 u[NH], v[NH];
-  T2 p[NH], q[NH];
-
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
-
-  u32 line1 = get_group_id(0);
-  u32 line2 = line1 ? H - line1 : (H / 2);
-  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
-  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
-  readTailFusedLine(base, p, line1, memline1);
-  readTailFusedLine(base, q, line2, memline2);
-
-  ENABLE_MUL2();
-  fft_HEIGHT(lds, u, smallTrig);
-  fft_HEIGHT(lds, v, smallTrig);
-  fft_HEIGHT(lds, p, smallTrig);
-  fft_HEIGHT(lds, q, smallTrig);
-  
-  u32 me = get_local_id(0);
-  if (line1 == 0) {
-    reverse(G_H, lds, u + NH/2, true);
-    reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W), true);
-    reverse(G_H, lds, u + NH/2, true);
-    reverse(G_H, lds, p + NH/2, true);
-
-    reverse(G_H, lds, v + NH/2, false);
-    reverse(G_H, lds, q + NH/2, false);
-    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
-    reverse(G_H, lds, v + NH/2, false);
-    reverse(G_H, lds, q + NH/2, false);
-  } else {    
-    reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
-    reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
-  }
-
-  fft_HEIGHT(lds, v, smallTrig2);
-  write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
-  
-  fft_HEIGHT(lds, u, smallTrig2);
-  write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
-}
-
-// equivalent to: fftHin(out, in), multiply(out, base), fftH(out)
-KERNEL(G_H) tailFusedMulLow(P(T2) out, CP(T2) in, CP(T2) base, Trig smallTrig, Trig smallTrig2) {
-  // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
-  // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
-  // to poor occupancy.
-
-  #if T2_SHUFFLE
-  local T2 lds[SMALL_HEIGHT];
-  #else
-  local T2 lds[SMALL_HEIGHT / 2];
-  #endif
-
-  T2 u[NH], v[NH];
-  T2 p[NH], q[NH];
-
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
-
-  u32 line1 = get_group_id(0);
-  u32 line2 = line1 ? H - line1 : (H / 2);
-  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
-  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
-  
-  read(G_H, NH, p, base, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, q, base, memline2 * SMALL_HEIGHT);
-
-  ENABLE_MUL2();
-  fft_HEIGHT(lds, u, smallTrig);
-  fft_HEIGHT(lds, v, smallTrig);
-
-  u32 me = get_local_id(0);
-  if (line1 == 0) {
-    reverse(G_H, lds, u + NH/2, true);
-    reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W), true);
-    reverse(G_H, lds, u + NH/2, true);
-    reverse(G_H, lds, p + NH/2, true);
-
-    reverse(G_H, lds, v + NH/2, false);
-    reverse(G_H, lds, q + NH/2, false);
-    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
-    reverse(G_H, lds, v + NH/2, false);
-    reverse(G_H, lds, q + NH/2, false);
-  } else {    
-    reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
-    reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
-  }
-
-  fft_HEIGHT(lds, v, smallTrig2);
-  write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
-  
-  fft_HEIGHT(lds, u, smallTrig2);
-  write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
-}
-
-KERNEL(G_H) tailMulLowLow(P(T2) io, CP(T2) in, Trig smallTrig) {
 #if T2_SHUFFLE
   local T2 lds[SMALL_HEIGHT];
 #else
@@ -3019,76 +2893,38 @@ KERNEL(G_H) tailMulLowLow(P(T2) io, CP(T2) in, Trig smallTrig) {
   u32 line2 = line1 ? H - line1 : (H / 2);
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-
-  read(G_H, NH, u, io, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, v, io, memline2 * SMALL_HEIGHT);
   
-  read(G_H, NH, p, in, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, q, in, memline2 * SMALL_HEIGHT);
   ENABLE_MUL2();
-
-  u32 me = get_local_id(0);
-  if (line1 == 0) {
-    reverse(G_H, lds, u + NH/2, true);
-    reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W), true);
-    reverse(G_H, lds, u + NH/2, true);
-    reverse(G_H, lds, p + NH/2, true);
-
-    reverse(G_H, lds, v + NH/2, false);
-    reverse(G_H, lds, q + NH/2, false);
-    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
-    reverse(G_H, lds, v + NH/2, false);
-    reverse(G_H, lds, q + NH/2, false);
-  } else {    
-    reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
-    reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
-  }
-
-  fft_HEIGHT(lds, v, smallTrig);
-  write(G_H, NH, v, io, memline2 * SMALL_HEIGHT);
   
-  fft_HEIGHT(lds, u, smallTrig);
-  write(G_H, NH, u, io, memline1 * SMALL_HEIGHT);
-}
-
-#if !NO_P2_FUSED_TAIL
-
-// equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
-// __attribute__((amdgpu_num_vgpr(128)))
-KERNEL(G_H) tailFusedMulDelta(P(T2) out, CP(T2) in, CP(T2) a, CP(T2) b, Trig smallTrig, Trig smallTrig2) {
-  // The arguments smallTrig, smallTrig2 point to the same data; they are passed in as two buffers instead of one
-  // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
-  // to poor occupancy.
-
-#if T2_SHUFFLE
-  local T2 lds[SMALL_HEIGHT];
-#else
-  local T2 lds[SMALL_HEIGHT / 2];
-#endif
-
-  T2 u[NH], v[NH];
-  T2 p[NH], q[NH];
-
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
-
-  u32 line1 = get_group_id(0);
-  u32 line2 = line1 ? H - line1 : (H / 2);
-  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
-  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-
+#if MUL_DELTA
   readTailFusedLine(in, u, line1, memline1);
   readTailFusedLine(in, v, line2, memline2);
   readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
-
-  ENABLE_MUL2();
-  fft_HEIGHT(lds, u, smallTrig);
-  fft_HEIGHT(lds, v, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, v, smallTrig1);
+#elif MUL_LOW
+  readTailFusedLine(in, u, line1, memline1);
+  readTailFusedLine(in, v, line2, memline2);
+  read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
+  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, v, smallTrig1);
+#elif MUL_LOW_LOW
+  read(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
+  read(G_H, NH, p, in, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, q, in, memline2 * SMALL_HEIGHT);
+#else
+  readTailFusedLine(in, u, line1, memline1);
+  readTailFusedLine(in, v, line2, memline2);
+  readTailFusedLine(a, p, line1, memline1);
+  readTailFusedLine(a, q, line2, memline2);
+  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, v, smallTrig1);
+  fft_HEIGHT(lds, p, smallTrig1);
+  fft_HEIGHT(lds, q, smallTrig1);
+#endif
 
   u32 me = get_local_id(0);
   if (line1 == 0) {
@@ -3117,7 +2953,39 @@ KERNEL(G_H) tailFusedMulDelta(P(T2) out, CP(T2) in, CP(T2) a, CP(T2) b, Trig sma
   fft_HEIGHT(lds, u, smallTrig2);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
+//}} TAIL_FUSED_MUL
 
+#define TAIL_FUSED_NAME tailMulLowLow
+#define MUL_LOW_LOW 1
+//== TAIL_FUSED_MUL
+#undef TAIL_FUSED_NAME
+#undef MUL_LOW_LOW
+ 
+// equivalent to: fftHin(out, in), multiply(out, a), fftH(out)
+#define TAIL_FUSED_NAME tailFusedMulLow
+#define MUL_DELTA 0
+#define MUL_LOW 1
+//== TAIL_FUSED_MUL
+#undef TAIL_FUSED_NAME
+#undef MUL_DELTA
+#undef MUL_LOW
+
+// equivalent to: fftHin(io, out), fftHin(a, tmp), multiply(out, tmp), fftH(out)
+#define TAIL_FUSED_NAME tailFusedMul
+#define MUL_DELTA 0
+#define MUL_LOW 0
+//== TAIL_FUSED_MUL
+#undef TAIL_FUSED_NAME
+#undef MUL_DELTA
+#undef MUL_LOW
+
+#if !NO_P2_FUSED_TAIL
+// equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
+#define TAIL_FUSED_NAME tailFusedMulDelta
+#define MUL_DELTA 1
+//== TAIL_FUSED_MUL
+#undef TAIL_FUSED_NAME
+#undef MUL_DELTA
 #endif
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
