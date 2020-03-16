@@ -1646,7 +1646,7 @@ void transposeLDS(local T *lds, T2 *u) {
 }
 
 // Transpose the matrix of WxH, and MUL with FFT twiddles; by blocks of 64x64.
-void transpose(u32 W, u32 H, local T *lds, const T2 *in, T2 *out) {
+void transpose(u32 W, u32 H, local T *lds, const T2 *in, T2 *out, double factor) {
   u32 GPW = W / 64, GPH = H / 64;
   
   u32 g = get_group_id(0);
@@ -1662,7 +1662,7 @@ void transpose(u32 W, u32 H, local T *lds, const T2 *in, T2 *out) {
   transposeLDS(lds, u);
 
   u32 col = 64 * gy + mx;
-  T2 base = slowTrig(col * (64 * gx + my),  W * H / 2);
+  T2 base = slowTrig(col * (64 * gx + my),  W * H / 2) * factor;
   T2 step = slowTrig(col, W * H / 8);
                      
   for (i32 i = 0; i < 16; ++i) {
@@ -1984,10 +1984,10 @@ void middleMul(T2 *u, u32 s) {
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
 // Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
-void middleMul2(T2 *u, u32 g, u32 me) {
+void middleMul2(T2 *u, u32 g, u32 me, double factor) {
   assert(g < WIDTH);
   assert(me < SMALL_HEIGHT);
-  T2 base = slowTrigMid8(g * me,           BIG_HEIGHT * WIDTH / 2);
+  T2 base = slowTrigMid8(g * me,           BIG_HEIGHT * WIDTH / 2) * factor;
   T2 step = slowTrigMid8(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
@@ -2079,7 +2079,7 @@ KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
 
   ENABLE_MUL2();
 
-  middleMul2(u, startx + mx, starty + my);
+  middleMul2(u, startx + mx, starty + my, 1);
 
   fft_MIDDLE(u);
 
@@ -2150,7 +2150,7 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
 #else
   
   local T2 lds[WG];
-  middleMul2(u, starty + my, startx + mx);
+  middleMul2(u, starty + my, startx + mx, 1.0 / (4 * NWORDS));
   middleShuffle(lds, u, WG, SIZEX);
 
 #if WORKINGOUT
@@ -2411,13 +2411,13 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 KERNEL(256) transposeW(P(T2) out, CP(T2) in) {
   local T lds[4096];
   ENABLE_MUL2();
-  transpose(WIDTH, BIG_HEIGHT, lds, in, out);
+  transpose(WIDTH, BIG_HEIGHT, lds, in, out, 1);
 }
 
 KERNEL(256) transposeH(P(T2) out, CP(T2) in) {
   local T lds[4096];
   ENABLE_MUL2();
-  transpose(BIG_HEIGHT, WIDTH, lds, in, out);
+  transpose(BIG_HEIGHT, WIDTH, lds, in, out, 1.0 / (4 * NWORDS));
 }
 
 // from transposed to sequential.
