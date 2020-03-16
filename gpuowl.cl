@@ -2294,16 +2294,17 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
   T2 u[NW];
 
   readCarryFusedLine(in, u, line);
-  ENABLE_MUL2();
-
-  fft_WIDTH(lds, u, smallTrig);
 
 #if NW == 4
-  u32 b = bits[WIDTH*4/32 * line + me/2];
-  b = b >> ((me & 1) * 16);
+  u32 b = bits[G_W / 4 * line + me / 4];
+  b = b >> ((me & 3) * 8);
 #else
-  u32 b = bits[WIDTH*4/32 * line + me];
+  u32 b = bits[G_W / 2 * line + me / 2];
+  b = b >> ((me & 1) * 16);
 #endif
+  
+  ENABLE_MUL2();
+  fft_WIDTH(lds, u, smallTrig);
 
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
@@ -2321,9 +2322,9 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
     invWeight = optionalDouble(invWeight);
     T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
 #if CF_MUL
-    wu[i] = CFMunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+    wu[i] = CFMunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2 * i), test(b, 2 * i + 1));
 #else    
-    wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+    wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2 * i), test(b, 2 * i + 1));
 #endif
     invWeight *= IWEIGHT_BIGSTEP;
   }
@@ -2405,9 +2406,9 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
     T weight2 = optionalHalve(weight * WEIGHT_STEP);
 
 #if CF_MUL
-    u[i] = CFMcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*(NW+i)));
+    u[i] = CFMcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2 * i));
 #else
-    u[i] = CFcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*(NW+i)));
+    u[i] = CFcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2 * i));
 #endif
     weight *= WEIGHT_BIGSTEP;
   }

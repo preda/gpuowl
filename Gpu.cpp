@@ -120,20 +120,14 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
 
   vector<u32> bits;
-  double WEIGHT_STEP = weight(N, E, H, 0, 0, 1);
-  double WEIGHT_BIGSTEP = weight(N, E, H, 0, groupWidth, 0);
   
   for (u32 line = 0; line < H; ++line) {
     for (u32 thread = 0; thread < groupWidth; ) {
       std::bitset<32> b;
-      for (u32 bitoffset = 0; bitoffset < 32; bitoffset += nW*4, ++thread) {
-        double w = groupWeights[2*line+1] * threadWeights[2*thread+1];
-        for (u32 block = 0; block < nW; ++block, w *= WEIGHT_BIGSTEP) {
-          double w2 = w;
-          if (w >= 2) { w *= 0.5; }
-          for (u32 rep = 0; rep < 2; ++rep, w2 *= WEIGHT_STEP) {
-            if (w2 >= 2) { b.set(bitoffset + block * 2 + rep); w2 *= 0.5; }
-            if (isBigWord(N, E, kAt(H, line, block * groupWidth + thread, rep))) { b.set(bitoffset + (nW + block) * 2 + rep); }
+      for (u32 bitoffset = 0; bitoffset < 32; bitoffset += nW*2, ++thread) {
+        for (u32 block = 0; block < nW; ++block) {
+          for (u32 rep = 0; rep < 2; ++rep) {
+            if (isBigWord(N, E, kAt(H, line, block * groupWidth + thread, rep))) { b.set(bitoffset + block * 2 + rep); }
           }        
 	}
       }
