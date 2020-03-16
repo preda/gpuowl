@@ -77,7 +77,6 @@ struct Weights {
 
 static long double weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   long double iN = 1 / (long double) N;
-  // u32 k = (line + col * H) * 2 + rep;
   return exp2l(extra(N, E, kAt(H, line, col, rep)) * iN);
 }
 
@@ -97,7 +96,8 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
     for (u32 col = 0; col < W; ++col) {
       for (u32 rep = 0; rep < 2; ++rep) {
         auto a = weight(N, E, H, line, col, rep);
-        auto ia = 1 / (4 * N * a);
+	auto ia = 1 / a;
+	if (ia == 1.0) ia = 0x1.fffffffffffffp-1;
         aTab.push_back(a);
         iTab.push_back(ia);
       }
@@ -109,7 +109,10 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
   vector<double> groupWeights;
   for (u32 group = 0; group < H; ++group) {
-    groupWeights.push_back(invWeight(N, E, H, group, 0, 0) / (4 * N));
+    long double iW = invWeight(N, E, H, group, 0, 0);
+    double iWd = (double) iW;
+    if (iWd == 1.0) iWd = 0x1.fffffffffffffp-1;
+    groupWeights.push_back(iWd);
     groupWeights.push_back(weight(N, E, H, group, 0, 0));
   }
   
@@ -120,20 +123,14 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
 
   vector<u32> bits;
-  double WEIGHT_STEP = weight(N, E, H, 0, 0, 1);
-  double WEIGHT_BIGSTEP = weight(N, E, H, 0, groupWidth, 0);
-  
+
   for (u32 line = 0; line < H; ++line) {
     for (u32 thread = 0; thread < groupWidth; ) {
       std::bitset<32> b;
-      for (u32 bitoffset = 0; bitoffset < 32; bitoffset += nW*4, ++thread) {
-        double w = groupWeights[2*line+1] * threadWeights[2*thread+1];
-        for (u32 block = 0; block < nW; ++block, w *= WEIGHT_BIGSTEP) {
-          double w2 = w;
-          if (w >= 2) { w *= 0.5; }
-          for (u32 rep = 0; rep < 2; ++rep, w2 *= WEIGHT_STEP) {
-            if (w2 >= 2) { b.set(bitoffset + block * 2 + rep); w2 *= 0.5; }
-            if (isBigWord(N, E, kAt(H, line, block * groupWidth + thread, rep))) { b.set(bitoffset + (nW + block) * 2 + rep); }
+      for (u32 bitoffset = 0; bitoffset < 32; bitoffset += nW*2, ++thread) {
+        for (u32 block = 0; block < nW; ++block) {
+          for (u32 rep = 0; rep < 2; ++rep) {
+            if (isBigWord(N, E, kAt(H, line, block * groupWidth + thread, rep))) { b.set(bitoffset + block * 2 + rep); }
           }        
 	}
       }

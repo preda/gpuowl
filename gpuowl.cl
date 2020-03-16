@@ -187,7 +187,7 @@ G_H        "group height"
 // WorkingOut4 : much slower (but seemingly best on nVidia)
 // WorkingOut5 : 118 + 313  <- best
 
-#if !WORKINGOUT && !WORKINGOUT3 && !WORKINGOUT4 && !WORKINGOUT5
+#if !WORKINGOUT && !WORKINGOUT3 && !WORKINGOUT4 && !WORKINGOUT5 && !WORKINGOUT6
 
 #if AMDGPU
 // #if G_W >= 32
@@ -216,6 +216,12 @@ G_H        "group height"
 #define WORKINGIN5 1
 #endif
 #endif
+#endif
+
+#if OUTWG1
+#define OUT_WG 64
+#else
+#define OUT_WG 256
 #endif
 
 #if UNROLL_WIDTH
@@ -352,6 +358,12 @@ i32 lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 #endif
 
+#if HAS_ASM
+u32 insertBits(u32 u, u32 mask, u32 bits) { i32 tmp; __asm("v_bfi_b32 %0, %1, %2, %3" : "=v" (tmp) : "v" (mask), "v" (u), "v" (bits)); return tmp; }
+#else
+u32 insertBits(u32 u, u32 mask, u32 bits) { return ((u & mask) | bits); }
+#endif
+
 //
 // Macros used in carry propagation
 //
@@ -366,9 +378,8 @@ Word carryStep(Carry x, Carry *carry, i32 bits) {
 i64 unweight(T x, T weight) { return rint(x * weight); }
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
-//void optionalDouble(T *iw, u32 bits, u32 off) { union { double d; int2 i; } tmp; tmp.d = *iw; tmp.i.y += (((bits >> off) & 1) << 20); *iw = tmp.d; }
-void optionalDouble(T *iw, u32 bits, u32 off) { if (test(bits, off)) *iw *= 2; }
-void optionalHalve(T *w, u32 bits, u32 off)   { if (test(bits, off)) *w  *= 0.5; }
+void optionalDouble(T *iw) { union { double d; int2 i; } tmp; tmp.d = *iw; tmp.i.y = insertBits (tmp.i.y, 0x800FFFFF, 0x3FE00000); *iw = tmp.d; }
+void optionalHalve(T *iw) { union { double d; int2 i; } tmp; tmp.d = *iw; tmp.i.y = insertBits (tmp.i.y, 0x800FFFFF, 0x3FF00000); *iw = tmp.d; }
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
@@ -1658,7 +1669,7 @@ void transposeLDS(local T *lds, T2 *u) {
 }
 
 // Transpose the matrix of WxH, and MUL with FFT twiddles; by blocks of 64x64.
-void transpose(u32 W, u32 H, local T *lds, const T2 *in, T2 *out) {
+void transposeWIn(u32 W, u32 H, local T *lds, const T2 *in, T2 *out) {
   u32 GPW = W / 64, GPH = H / 64;
   
   u32 g = get_group_id(0);
@@ -1675,6 +1686,32 @@ void transpose(u32 W, u32 H, local T *lds, const T2 *in, T2 *out) {
 
   u32 col = 64 * gy + mx;
   T2 base = slowTrig(col * (64 * gx + my),  W * H / 2);
+  T2 step = slowTrig(col, W * H / 8);
+                     
+  for (i32 i = 0; i < 16; ++i) {
+    out[64 * gy + 64 * H * gx + 4 * i * H + H * my + mx] = mul(u[i], base);
+    base = mul(base, step);
+  }
+}
+
+// Transpose the matrix of WxH, and MUL with FFT twiddles; by blocks of 64x64.
+void transposeHOut(u32 W, u32 H, local T *lds, const T2 *in, T2 *out) {
+  u32 GPW = W / 64, GPH = H / 64;
+  
+  u32 g = get_group_id(0);
+  u32 gy = g % GPH;
+  u32 gx = g / GPH;
+  gx = (gy + gx) % GPW;
+
+  u32 me = get_local_id(0), mx = me % 64, my = me / 64;
+  T2 u[16];
+
+  for (i32 i = 0; i < 16; ++i) { u[i] = in[64 * W * gy + 64 * gx + 4 * i * W + W * my + mx]; }
+
+  transposeLDS(lds, u);
+
+  u32 col = 64 * gy + mx;
+  T2 base = slowTrig(col * (64 * gx + my),  W * H / 2) * (1.0 / (4.0 * NWORDS));
   T2 step = slowTrig(col, W * H / 8);
                      
   for (i32 i = 0; i < 16; ++i) {
@@ -1815,7 +1852,6 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 #else
   
   u32 me = get_local_id(0);
-  u32 WG = 256;
 
 #if WORKINGOUT3
   u32 SIZEX = 8;
@@ -1823,13 +1859,15 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 SIZEX = 4;
 #elif WORKINGOUT5
   u32 SIZEX = 32;
+#elif WORKINGOUT6
+  u32 SIZEX = 16;
 #endif
   
-  u32 SIZEY = WG / SIZEX;
+  u32 SIZEY = OUT_WG / SIZEX;
   
-  in += line % SIZEX * SIZEY + line % SMALL_HEIGHT / SIZEX * WIDTH / SIZEY * MIDDLE * WG + line / SMALL_HEIGHT * WG;
+  in += line % SIZEX * SIZEY + line % SMALL_HEIGHT / SIZEX * WIDTH / SIZEY * MIDDLE * OUT_WG + line / SMALL_HEIGHT * OUT_WG;
 
-  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / SIZEY * MIDDLE * WG + me / SIZEY * MIDDLE * WG + me % SIZEY]; }
+  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / SIZEY * MIDDLE * OUT_WG + me / SIZEY * MIDDLE * OUT_WG + me % SIZEY]; }
     
 #endif
 }
@@ -1999,11 +2037,23 @@ void middleMul(T2 *u, u32 s) {
 }
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
-// Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
-void middleMul2(T2 *u, u32 g, u32 me) {
+void middleMul2In(T2 *u, u32 g, u32 me) {
   assert(g < WIDTH);
   assert(me < SMALL_HEIGHT);
   T2 base = slowTrigMid8(g * me,           BIG_HEIGHT * WIDTH / 2);
+  T2 step = slowTrigMid8(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
+  for (i32 i = 0; i < MIDDLE; ++i) {
+    u[i] = mul(u[i], base);
+    base = mul(base, step);
+  }
+}
+
+// Apply the twiddles needed after fft_MIDDLE and before fft_WIDTH in inverse FFT.
+// Apply the 4 / FFTLEN multiplier here.
+void middleMul2Out(T2 *u, u32 g, u32 me) {
+  assert(g < WIDTH);
+  assert(me < SMALL_HEIGHT);
+  T2 base = slowTrigMid8(g * me,           BIG_HEIGHT * WIDTH / 2) * (1.0 / (4.0 * NWORDS));
   T2 step = slowTrigMid8(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
@@ -2095,7 +2145,7 @@ KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
 
   ENABLE_MUL2();
 
-  middleMul2(u, startx + mx, starty + my);
+  middleMul2In(u, startx + mx, starty + my);
 
   fft_MIDDLE(u);
 
@@ -2115,12 +2165,11 @@ KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
 #undef WG
 
 
-#define WG 256
-KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
+KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
   T2 u[MIDDLE];
 
 #if MIDDLE == 1 || !MERGED_MIDDLE
-  u32 SIZEX = WG;
+  u32 SIZEX = OUT_WG;
 #elif WORKINGOUT
   u32 SIZEX = 16;
 #elif WORKINGOUT3
@@ -2129,9 +2178,11 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
   u32 SIZEX = 4;
 #elif WORKINGOUT5
   u32 SIZEX = 32;
+#elif WORKINGOUT6
+  u32 SIZEX = 16;
 #endif
   
-  u32 SIZEY = WG / SIZEX;
+  u32 SIZEY = OUT_WG / SIZEX;
   
   u32 N = SMALL_HEIGHT / SIZEX;
   
@@ -2160,14 +2211,14 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
 
 #if MIDDLE == 1 || !MERGED_MIDDLE
   
-  out += BIG_HEIGHT * gy + WG * gx;
+  out += BIG_HEIGHT * gy + OUT_WG * gx;
   for (i32 i = 0; i < MIDDLE; ++i) { out[SMALL_HEIGHT * i + me] = u[i]; }
   
 #else
   
-  local T2 lds[WG];
-  middleMul2(u, starty + my, startx + mx);
-  middleShuffle(lds, u, WG, SIZEX);
+  local T2 lds[OUT_WG];
+  middleMul2Out(u, starty + my, startx + mx);
+  middleShuffle(lds, u, OUT_WG, SIZEX);
 
 #if WORKINGOUT
   
@@ -2177,18 +2228,18 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
 #else
 
 #if ENABLE_ROCM_BUG
-  out += MIDDLE * (WIDTH * SIZEX * gx + WG * gy);
+  out += MIDDLE * (WIDTH * SIZEX * gx + OUT_WG * gy);
 #else
-  out += MIDDLE * WIDTH * SIZEX * gx + MIDDLE * WG * gy;
+  out += MIDDLE * WIDTH * SIZEX * gx + MIDDLE * OUT_WG * gy;
 #endif
   
-  for (i32 i = 0; i < MIDDLE; ++i) { out[WG * i + me] = u[i]; }
+  for (i32 i = 0; i < MIDDLE; ++i) { out[OUT_WG * i + me] = u[i]; }
   
 #endif // WORKINGOUT
   
 #endif // merged middle
 }
-#undef WG
+
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
@@ -2291,10 +2342,11 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
   fft_WIDTH(lds, u, smallTrig);
 
 #if NW == 4
-  u32 b = bits[WIDTH*4/32 * line + me/2];
-  b = b >> ((me & 1) * 16);
+  u32 b = bits[WIDTH*2/32 * line + me/4];
+  b = b >> ((me & 3) * 8);
 #else
-  u32 b = bits[WIDTH*4/32 * line + me];
+  u32 b = bits[WIDTH*2/32 * line + me/2];
+  b = b >> ((me & 1) * 16);
 #endif
 
 // Convert each u value into 2 words and a 32 or 64 bit carry
@@ -2310,13 +2362,13 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 #endif
   
   for (i32 i = 0; i < NW; ++i) {
-    optionalDouble(&invWeight, b, 2*i);
+    optionalDouble(&invWeight);
     T invWeight2 = invWeight * IWEIGHT_STEP;
-    optionalDouble(&invWeight2, b, 2*i+1);
+    optionalDouble(&invWeight2);
 #if CF_MUL
-    wu[i] = CFMunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+    wu[i] = CFMunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*i), test(b, 2*i+1));
 #else    
-    wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
+    wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*i), test(b, 2*i+1));
 #endif
     invWeight *= IWEIGHT_BIGSTEP;
   }
@@ -2333,7 +2385,7 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 #endif
     }
   }
-    
+
   release();
 
   // Signal that this group is done writing the carry.
@@ -2394,14 +2446,14 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 
   T weight = weights.y;
   for (i32 i = 0; i < NW; ++i) {
-    optionalHalve(&weight, b, 2*i);
+    optionalHalve(&weight);
     T weight2 = weight * WEIGHT_STEP;
-    optionalHalve(&weight2, b, 2*i+1);
+    optionalHalve(&weight2);
 
 #if CF_MUL
-    u[i] = CFMcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*(NW+i)));
+    u[i] = CFMcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*i));
 #else
-    u[i] = CFcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*(NW+i)));
+    u[i] = CFcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*i));
 #endif
     weight *= WEIGHT_BIGSTEP;
   }
@@ -2427,13 +2479,13 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 KERNEL(256) transposeW(P(T2) out, CP(T2) in) {
   local T lds[4096];
   ENABLE_MUL2();
-  transpose(WIDTH, BIG_HEIGHT, lds, in, out);
+  transposeWIn(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
 KERNEL(256) transposeH(P(T2) out, CP(T2) in) {
   local T lds[4096];
   ENABLE_MUL2();
-  transpose(BIG_HEIGHT, WIDTH, lds, in, out);
+  transposeHOut(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
 // from transposed to sequential.
