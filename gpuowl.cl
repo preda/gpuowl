@@ -366,9 +366,33 @@ Word carryStep(Carry x, Carry *carry, i32 bits) {
 i64 unweight(T x, T weight) { return rint(x * weight); }
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
-//void optionalDouble(T *iw, u32 bits, u32 off) { union { double d; int2 i; } tmp; tmp.d = *iw; tmp.i.y += (((bits >> off) & 1) << 20); *iw = tmp.d; }
-void optionalDouble(T *iw, u32 bits, u32 off) { if (test(bits, off)) *iw *= 2; }
-void optionalHalve(T *w, u32 bits, u32 off)   { if (test(bits, off)) *w  *= 0.5; }
+u32 bfi(u32 u, u32 mask, u32 bits) {
+#if HAS_ASM
+  u32 out;
+  __asm("v_bfi_b32 %0, %1, %2, %3" : "=v"(out) : "v"(mask), "v"(u), "v"(bits));
+  return out;
+#else
+  return (u & mask) | bits;
+#endif
+}
+
+double optionalDouble(double iw) {
+  // return iw <= 0.5 ? iw * 2 : iw;
+  
+  assert(iw > 0.25 && iw < 1);
+  uint2 u = as_uint2(iw);
+  u.y = bfi(u.y, 0x800FFFFF, 0x3FE00000);
+  return as_double(u);
+}
+
+T optionalHalve(T w) {
+  // return w >= 2 ? w / 2 : w;
+
+  assert(w >= 1 && w < 2);
+  uint2 u = as_uint2(w);
+  u.y = bfi(u.y, 0x800FFFFF, 0x3FF00000);
+  return as_double(u);
+}
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
@@ -2294,9 +2318,8 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 #endif
   
   for (i32 i = 0; i < NW; ++i) {
-    optionalDouble(&invWeight, b, 2*i);
-    T invWeight2 = invWeight * IWEIGHT_STEP;
-    optionalDouble(&invWeight2, b, 2*i+1);
+    invWeight = optionalDouble(invWeight);
+    T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
 #if CF_MUL
     wu[i] = CFMunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2*(NW+i)), test(b, 2*(NW+i)+1));
 #else    
@@ -2378,9 +2401,8 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 
   T weight = weights.y;
   for (i32 i = 0; i < NW; ++i) {
-    optionalHalve(&weight, b, 2*i);
-    T weight2 = weight * WEIGHT_STEP;
-    optionalHalve(&weight2, b, 2*i+1);
+    weight = optionalHalve(weight);
+    T weight2 = optionalHalve(weight * WEIGHT_STEP);
 
 #if CF_MUL
     u[i] = CFMcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2*(NW+i)));

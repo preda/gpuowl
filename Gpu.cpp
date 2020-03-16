@@ -85,6 +85,8 @@ static long double invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   return exp2l(- (extra(N, E, kAt(H, line, col, rep)) * iN));
 }
 
+static double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
+
 static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
 
@@ -95,10 +97,9 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   for (u32 line = 0; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
       for (u32 rep = 0; rep < 2; ++rep) {
-        auto a = weight(N, E, H, line, col, rep);
-        auto ia = 1 / a;
+        long double a = weight(N, E, H, line, col, rep);
         aTab.push_back(a);
-        iTab.push_back(ia);
+        iTab.push_back(boundUnderOne(1 / a));
       }
     }
   }
@@ -108,7 +109,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
   vector<double> groupWeights;
   for (u32 group = 0; group < H; ++group) {
-    groupWeights.push_back(invWeight(N, E, H, group, 0, 0));
+    groupWeights.push_back(boundUnderOne(invWeight(N, E, H, group, 0, 0)));
     groupWeights.push_back(weight(N, E, H, group, 0, 0));
   }
   
