@@ -11,8 +11,6 @@ NO_OMOD: do not use GCN output modifiers in __asm()
 WORKINGOUTs <AMD default is WORKINGOUT5> <nVidia default is WORKINGOUT4>
 WORKINGINs  <AMD default is WORKINGIN5>  <nVidia default is WORKINGIN4>
 
-PREFER_LESS_FMA
-
 ORIG_X2   <nVidia default>
 INLINE_X2 <AMD default>
 
@@ -547,21 +545,11 @@ T2 foo_m4(T2 a) { return foo2_m4(a, a); }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
-// T2 fmaT2(T a, T2 b, T2 c) { return U2(__builtin_fma(a, b.x, c.x), __builtin_fma(a, b.y, c.y)); }
 T2 fmaT2(T a, T2 b, T2 c) { return U2(fma(a, b.x, c.x), fma(a, b.y, c.y)); }
+// T2 fmaT2(T a, T2 b, T2 c) { return U2(__builtin_fma(a, b.x, c.x), __builtin_fma(a, b.y, c.y)); }
 
-// Promote 2 multiplies and 4 add/sub instructions into 4 FMA instructions.
-#if !PREFER_LESS_FMA
-#define fma_addsub(a, b, sin, c, d) { a = fmaT2(sin, d, c); b = fmaT2(sin, -d, c); }
-#else
-// Force rocm to NOT promote 2 multiplies and 4 add/sub instructions into 4 FMA instructions.  FMA has higher latency.
-#define fma_addsub(a, b, sin, c, d) { d = sin * d; \
-    __asm( "v_add_f64 %0, %1, %2" : "=v" (a.x) : "v" (c.x), "v" (d.x));  \
-    __asm( "v_add_f64 %0, %1, %2" : "=v" (a.y) : "v" (c.y), "v" (d.y));  \
-    __asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (c.x), "v" (d.x)); \
-    __asm( "v_add_f64 %0, %1, -%2" : "=v" (b.y) : "v" (c.y), "v" (d.y)); \
-  }
-#endif
+#define fma_addsub(a, b, sin, c, d) { d = sin * d; a = d + c; b = -d + c; }
+// #define fma_addsub(a, b, sin, c, d) { a = fmaT2(sin, d, c); b = fmaT2(sin, -d, c); }
 
 // a * conjugate(b)
 // saves one negation
