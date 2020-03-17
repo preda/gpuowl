@@ -160,6 +160,14 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
 
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
+
+	  // Mihai, clean this up!!
+	  char str[80], val[80], *p;
+	  strcpy (str, flag.c_str());
+//	  printf ("%s\n", str);
+	  p = strchr (str, '=');
+	  if (p != NULL) { *p = 0; defines.push_back(pair{str, atoi(p+1)}); continue; }
+
     if (clSource.find(flag) == string::npos) { log("Warning: -use %s has no effect\n", flag.c_str()); }
     defines.push_back(pair{flag, 1});
   }

@@ -9,8 +9,8 @@ NO_ASM : request to not use any inline __asm()
 NO_OMOD: do not use GCN output modifiers in __asm()
 
 NO_MERGED_MIDDLE
-WORKINGOUTs <AMD default is WORKINGOUT5> <nVidia default is WORKINGOUT4>
-WORKINGINs  <AMD default is WORKINGIN5>  <nVidia default is WORKINGIN4>
+OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
+IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 but needs testing>
 
 PREFER_LESS_FMA
 
@@ -182,41 +182,71 @@ G_H        "group height"
 #endif
 #endif
 
-// 5M timings, ROCm 3.1, RadeonVII
-// WorkingOut3 : 141 + 295
-// WorkingOut4 : much slower (but seemingly best on nVidia)
-// WorkingOut5 : 118 + 313  <- best
+// 5M timings for MiddleOut & carryFused, ROCm 2.10, RadeonVII, sclk4, mem 1200
+// OUT_WG=256, OUT_SIZEX=4, OUT_SPACING=1 (old WorkingOut4) : 154 + 252 = 406 (but may be best on nVidia)
+// OUT_WG=256, OUT_SIZEX=8, OUT_SPACING=1 (old WorkingOut3): 124 + 260 = 384
+// OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=1 (old WorkingOut5): 105 + 281 = 386
+// OUT_WG=256, OUT_SIZEX=8, OUT_SPACING=2: 122 + 249 = 371
+// OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=4: 108 + 257 = 365  <- best
 
-#if !WORKINGOUT && !WORKINGOUT3 && !WORKINGOUT4 && !WORKINGOUT5
-
-#if AMDGPU
-// #if G_W >= 32
-// #define WORKINGOUT3 1
-#if G_W >= 8
-#define WORKINGOUT5 1
+#if !OUT_WG
+#define OUT_WG 256
 #endif
-  
+
+#if !OUT_SIZEX
+#if AMDGPU
+#define OUT_SIZEX 32
 #else // AMDGPU
 #if G_W >= 64
-#define WORKINGOUT4 1
-#elif G_W >= 8
-#define WORKINGOUT5 1
+#define OUT_SIZEX 4
+#else
+#define OUT_SIZEX 32
+#endif
+#endif
 #endif
 
-#endif // AMDGPU
-#endif // WORKINGOUT
-
-#if !WORKINGIN && !WORKINGIN1 && !WORKINGIN3 && !WORKINGIN4 && !WORKINGIN5
+#if !OUT_SPACING
 #if AMDGPU
-#define WORKINGIN5 1
+#define OUT_SPACING 4
 #else
-#if G_H >= 64
-#define WORKINGIN4 1
+#define OUT_SPACING 1
+#endif
+#endif
+
+
+// 5M timings for MiddleIn & tailFused, ROCm 2.10, RadeonVII, sclk4, mem 1200
+// IN_WG=256, IN_SIZEX=4, IN_SPACING=1 (old WorkingIn4) : 177 + 164 (but may be best on nVidia)
+// IN_WG=256, IN_SIZEX=8, IN_SPACING=1 (old WorkingIn3): 129 + 166 = 295
+// IN_WG=256, IN_SIZEX=32, IN_SPACING=1 (old WorkingIn5): 107 + 171 = 278  <- best
+// IN_WG=256, IN_SIZEX=8, IN_SPACING=2: 139 + 166 = 305
+// IN_WG=256, IN_SIZEX=32, IN_SPACING=4: 121 + 161 = 282
+
+#if !IN_WG
+#define IN_WG 256
+#endif
+
+#if !IN_SIZEX
+#if AMDGPU
+#define IN_SIZEX 32
+#else // !AMDGPU
+#if G_W >= 64
+#define IN_SIZEX 4
 #else
-#define WORKINGIN5 1
+#define IN_SIZEX 32
 #endif
 #endif
 #endif
+
+#if !IN_SPACING
+#if AMDGPU
+#define IN_SPACING 1
+#else
+#define IN_SPACING 1
+#endif
+#endif
+
+
+
 
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
@@ -1816,40 +1846,17 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
 
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
-#if MIDDLE == 1 || !MERGED_MIDDLE || WORKINGOUT
-
-  read(G_W, NW, u, in, line * WIDTH);
-
-#else
-  
   u32 me = get_local_id(0);
-  u32 WG = 256;
+  u32 WG = OUT_WG * OUT_SPACING;
+  u32 SIZEY = WG / OUT_SIZEX;
 
-#if WORKINGOUT3
-  u32 SIZEX = 8;
-#elif WORKINGOUT4
-  u32 SIZEX = 4;
-#elif WORKINGOUT5
-  u32 SIZEX = 32;
-#endif
-  
-  u32 SIZEY = WG / SIZEX;
-  
-  in += line % SIZEX * SIZEY + line % SMALL_HEIGHT / SIZEX * WIDTH / SIZEY * MIDDLE * WG + line / SMALL_HEIGHT * WG;
-
-  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / SIZEY * MIDDLE * WG + me / SIZEY * MIDDLE * WG + me % SIZEY]; }
-    
-#endif
+  in += line % OUT_SIZEX * SIZEY + line % SMALL_HEIGHT / OUT_SIZEX * WIDTH / SIZEY * MIDDLE * WG + line / SMALL_HEIGHT * WG;
+  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
+  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / SIZEY * MIDDLE * WG]; }
 }
 
 // Read a line for tailFused or fftHin
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
-
-#if MIDDLE == 1 || !MERGED_MIDDLE || WORKINGIN
-
-  read(G_H, NH, u, in, memline * SMALL_HEIGHT);
-
-#else
 
   // We go to some length here to avoid dividing by MIDDLE in address calculations.
   // The transPos converted logical line number into physical memory line numbers
@@ -1859,27 +1866,14 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
   // and the multiple of 320 component as (line % WIDTH) / 32
 
   u32 me = get_local_id(0);
-  u32 WG = 256;
-
-#if WORKINGIN1
-  u32 SIZEX = 16;
-#elif WORKINGIN3
-  u32 SIZEX = 8;
-#elif WORKINGIN4
-  u32 SIZEX = 4;
-#elif WORKINGIN5
-  u32 SIZEX = 32;
-#endif
-  
-  u32 SIZEY = WG / SIZEX;
+  u32 WG = IN_WG * IN_SPACING;
+  u32 SIZEY = WG / IN_SIZEX;
 
   in += line / WIDTH * WG;
-  in += line % SIZEX * SIZEY;
-  in += line % WIDTH / SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * WG;
-
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * WG + me / SIZEY * MIDDLE * WG + me % SIZEY]; }
-
-#endif
+  in += line % IN_SIZEX * SIZEY;
+  in += line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * WG;
+  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
+  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * WG]; }
 }
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
@@ -1968,7 +1962,9 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) A, Trig smallTrig) {
 }
 
 void fft_MIDDLE(T2 *u) {
-#if   MIDDLE == 3
+#if MIDDLE == 1
+  // Do nothing
+#elif MIDDLE == 3
   fft3(u);
 #elif MIDDLE == 4
   fft4mid(u);
@@ -1988,7 +1984,7 @@ void fft_MIDDLE(T2 *u) {
   fft11(u);
 #elif MIDDLE == 12
   fft12(u);
-#elif MIDDLE != 1
+#else
 #error
 #endif
 }
@@ -2046,58 +2042,25 @@ void middleShuffle(local T2 *lds2, T2 *u, u32 workgroupSize, u32 blockSize) {
 }
 
 
-#define WG 256
-KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
+KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
+  local T2 lds[IN_WG];
   T2 u[MIDDLE];
   
-#if MIDDLE == 1 || !MERGED_MIDDLE
+  u32 SIZEY = IN_WG / IN_SIZEX;
 
-  u32 N = SMALL_HEIGHT / WG;
-  u32 g = get_group_id(0);
-  u32 gx = g % N;
-  u32 gy = g / N;
-  u32 me = get_local_id(0);
-
-  in += BIG_HEIGHT * gy + WG * gx;
-  for (int i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + me]; }
-  
-  ENABLE_MUL2();
-
-  fft_MIDDLE(u);
-
-  middleMul(u, WG * gx + me);
-
-  write(SMALL_HEIGHT, MIDDLE, u, out, BIG_HEIGHT * gy + WG * gx);
-
-#else
-  
-  local T2 lds[WG];
-
-#if WORKINGIN1 || WORKINGIN
-  u32 SIZEX = 16;
-#elif WORKINGIN3
-  u32 SIZEX = 8;
-#elif WORKINGIN4
-  u32 SIZEX = 4;
-#elif WORKINGIN5  
-  u32 SIZEX = 32;
-#endif
-  
-  u32 SIZEY = WG / SIZEX;
-
-  u32 N = WIDTH / SIZEX;
+  u32 N = WIDTH / IN_SIZEX;
   
   u32 g = get_group_id(0);
   u32 gx = g % N;
   u32 gy = g / N;
-  
-  u32 me = get_local_id(0);
-  u32 mx = me % SIZEX;
-  u32 my = me / SIZEX;
 
-  u32 startx = gx * SIZEX;
+  u32 me = get_local_id(0);
+  u32 mx = me % IN_SIZEX;
+  u32 my = me / IN_SIZEX;
+
+  u32 startx = gx * IN_SIZEX;
   u32 starty = gy * SIZEY;
-  
+
   in += starty * WIDTH + startx;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
 
@@ -2108,54 +2071,35 @@ KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   fft_MIDDLE(u);
 
   middleMul(u, starty + my);
-  middleShuffle(lds, u, WG, SIZEX);
+  middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
-#if WORKINGIN
-  out += MIDDLE * SMALL_HEIGHT * startx + starty;
-  for (int i = 0; i < MIDDLE; ++i) { out[SMALL_HEIGHT * i + my * MIDDLE * SMALL_HEIGHT + mx] = u[i]; }
-#else
-  out += MIDDLE * (SMALL_HEIGHT * SIZEX * gx + WG * gy);
-  for (i32 i = 0; i < MIDDLE; ++i) { out[WG * i + me] = u[i]; }
-#endif
-  
-#endif // MIDDLE == 1
+  out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + (gy / IN_SPACING) * (MIDDLE * IN_WG * IN_SPACING) + (gy % IN_SPACING) * SIZEY;
+  out += (me / SIZEY) * (IN_SPACING * SIZEY) + (me % SIZEY);
+
+  for (i32 i = 0; i < MIDDLE; ++i) { out[i * (IN_WG * IN_SPACING)] = u[i]; }
 }
-#undef WG
 
-
-#define WG 256
-KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
+KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
+  local T2 lds[OUT_WG];
   T2 u[MIDDLE];
 
-#if MIDDLE == 1 || !MERGED_MIDDLE
-  u32 SIZEX = WG;
-#elif WORKINGOUT
-  u32 SIZEX = 16;
-#elif WORKINGOUT3
-  u32 SIZEX = 8;
-#elif WORKINGOUT4
-  u32 SIZEX = 4;
-#elif WORKINGOUT5
-  u32 SIZEX = 32;
-#endif
-  
-  u32 SIZEY = WG / SIZEX;
-  
-  u32 N = SMALL_HEIGHT / SIZEX;
-  
+  u32 SIZEY = OUT_WG / OUT_SIZEX;
+
+  u32 N = SMALL_HEIGHT / OUT_SIZEX;
+
   u32 g = get_group_id(0);
   u32 gx = g % N;
   u32 gy = g / N;
 
   u32 me = get_local_id(0);
-  u32 mx = me % SIZEX;
-  u32 my = me / SIZEX;
+  u32 mx = me % OUT_SIZEX;
+  u32 my = me / OUT_SIZEX;
 
-  // Kernels read SIZEX consecutive T2.
-  // Each WG-thread kernel processes SIZEX columns from a needed SMALL_HEIGHT columns
+  // Kernels read OUT_SIZEX consecutive T2.
+  // Each WG-thread kernel processes OUT_SIZEX columns from a needed SMALL_HEIGHT columns
   // Each WG-thread kernel processes SIZEY rows out of a needed WIDTH rows
 
-  u32 startx = gx * SIZEX;  // Each input column increases FFT element by one
+  u32 startx = gx * OUT_SIZEX;  // Each input column increases FFT element by one
   u32 starty = gy * SIZEY;  // Each input row increases FFT element by BIG_HEIGHT
   in += starty * BIG_HEIGHT + startx;
 
@@ -2166,37 +2110,23 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
 
   fft_MIDDLE(u);
 
-#if MIDDLE == 1 || !MERGED_MIDDLE
-  
-  out += BIG_HEIGHT * gy + WG * gx;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[SMALL_HEIGHT * i + me] = u[i]; }
-  
-#else
-  
-  local T2 lds[WG];
   middleMul2(u, starty + my, startx + mx, 1.0 / (4 * NWORDS));
-  middleShuffle(lds, u, WG, SIZEX);
-
-#if WORKINGOUT
-  
-  out += WIDTH * startx + starty;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[SMALL_HEIGHT * WIDTH * i + WIDTH * my + mx] = u[i]; }
-  
-#else
+  middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
 #if ENABLE_ROCM_BUG
-  out += MIDDLE * (WIDTH * SIZEX * gx + WG * gy);
+  out += gx * (MIDDLE * WIDTH * OUT_SIZEX) + (gy / OUT_SPACING) * (MIDDLE * OUT_WG * OUT_SPACING) + (gy % OUT_SPACING) * SIZEY;
+  out += (me / SIZEY) * (OUT_SPACING * SIZEY) + (me % SIZEY);
 #else
-  out += MIDDLE * WIDTH * SIZEX * gx + MIDDLE * WG * gy;
+  out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
+  out += (gy / OUT_SPACING) * (MIDDLE * (OUT_WG * OUT_SPACING));
+  out += (gy % OUT_SPACING) * SIZEY;
+  out += (me / SIZEY) * (OUT_SPACING * SIZEY);
+  out += (me % SIZEY);
 #endif
-  
-  for (i32 i = 0; i < MIDDLE; ++i) { out[WG * i + me] = u[i]; }
-  
-#endif // WORKINGOUT
-  
-#endif // merged middle
+
+  for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
+
 }
-#undef WG
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
