@@ -170,12 +170,12 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
 }
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, bool isPm1)
-  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, useMergedMiddle, genWeights(E, W, BIG_H, nW), isPm1}
+         cl_device_id device, bool timeKernels, bool useLongCarry, bool isPm1)
+  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, genWeights(E, W, BIG_H, nW), isPm1}
 {}
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, Weights&& weights, bool isPm1) :
+         cl_device_id device, bool timeKernels, bool useLongCarry, Weights&& weights, bool isPm1) :
   E(E),
   N(W * BIG_H * 2),
   hN(N / 2),
@@ -184,7 +184,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufSize(N * sizeof(double)),
   useLongCarry(useLongCarry),
   useMiddle(BIG_H != SMALL_H),
-  useMergedMiddle(BIG_H != SMALL_H && useMergedMiddle),
   timeKernels(timeKernels),
   device(device),
   context{device},
@@ -316,14 +315,12 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {
     || (args.carry == Args::CARRY_LONG)
     || (args.carry == Args::CARRY_AUTO && WIDTH >= 2048);
 
-  bool useMergedMiddle = (std::find(args.flags.begin(), args.flags.end(), "NO_MERGED_MIDDLE") == args.flags.end());
-
   if (useLongCarry) { log("using long carry kernels\n"); }
 
   bool timeKernels = args.timeKernels;
 
   return make_unique<Gpu>(args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
-                          getDevice(args.device), timeKernels, useLongCarry, useMergedMiddle, isPm1);
+                          getDevice(args.device), timeKernels, useLongCarry, isPm1);
 }
 
 vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
@@ -441,21 +438,11 @@ void Gpu::logTimeKernels() {
 }
 
 void Gpu::tW(Buffer<double>& out, Buffer<double>& in) {
-  if (useMergedMiddle) {
-    fftMiddleIn(out, in);
-  } else {
-    transposeW(out, in);
-    if (useMiddle) { fftMiddleIn(out, out); }
-  }
+  fftMiddleIn(out, in);
 }
 
 void Gpu::tH(Buffer<double>& out, Buffer<double>& in) {
-  if (useMergedMiddle) {
-    fftMiddleOut(out, in);
-  } else {
-    if (useMiddle) { fftMiddleOut(in, in); }
-    transposeH(out, in);
-  }
+  fftMiddleOut(out, in);
 }
 
 void Gpu::tailMulDelta(Buffer<double>& out, Buffer<double>& in, Buffer<double>& bufA, Buffer<double>& bufB) {

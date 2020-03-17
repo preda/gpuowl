@@ -136,7 +136,7 @@ class Gpu {
   
 
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, struct Weights&& weights, bool isPm1);
+      cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights, bool isPm1);
 
   vector<u32> readAndCompress(ConstBuffer<int>& buf);
   
@@ -144,7 +144,7 @@ public:
   static unique_ptr<Gpu> make(u32 E, const Args &args, bool isPm1);
   
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry, bool useMergedMiddle, bool isPm1);
+      cl_device_id device, bool timeKernels, bool useLongCarry, bool isPm1);
 
   vector<u32> roundtripData()  { return readData(); }
   vector<u32> roundtripCheck() { return readCheck(); }

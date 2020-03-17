@@ -8,7 +8,6 @@ DEBUG  : enable asserts. Slow, but allows to verify that all asserts hold.
 NO_ASM : request to not use any inline __asm()
 NO_OMOD: do not use GCN output modifiers in __asm()
 
-NO_MERGED_MIDDLE
 WORKINGOUTs <AMD default is WORKINGOUT5> <nVidia default is WORKINGOUT4>
 WORKINGINs  <AMD default is WORKINGIN5>  <nVidia default is WORKINGIN4>
 
@@ -51,7 +50,6 @@ NO_P2_FUSED_TAIL                // Do not use the big kernel tailFusedMulDelta
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
 AMDGPU  : set on AMD GPUs
 HAS_ASM : set if we believe __asm() can be used
-MERGED_MIDDLE : set unless NO_MERGED_MIDDLE is set
  */
 
 /* List of code-specific macros. These are set by the C++ host code or derived
@@ -138,10 +136,6 @@ G_H        "group height"
 #endif
 #endif
 
-#if !NO_MERGED_MIDDLE
-#define MERGED_MIDDLE 1
-#endif
-
 // Expected defines: EXP the exponent.
 // WIDTH, SMALL_HEIGHT, MIDDLE.
 
@@ -167,11 +161,6 @@ G_H        "group height"
 #if UNROLL_ALL
 #define UNROLL_WIDTH 1
 #define UNROLL_HEIGHT 1
-#endif
-
-#if MIDDLE == 1			// Transpose routine want trig values outside the 0 to pi/2 range.
-#define ORIG_SLOWTRIG 1
-#undef NEW_SLOWTRIG
 #endif
 
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
@@ -1669,31 +1658,6 @@ void transposeLDS(local T *lds, T2 *u) {
   }
 }
 
-// Transpose the matrix of WxH, and MUL with FFT twiddles; by blocks of 64x64.
-void transpose(u32 W, u32 H, local T *lds, const T2 *in, T2 *out, double factor) {
-  u32 GPW = W / 64, GPH = H / 64;
-  
-  u32 g = get_group_id(0);
-  u32 gy = g % GPH;
-  u32 gx = g / GPH;
-  gx = (gy + gx) % GPW;
-
-  u32 me = get_local_id(0), mx = me % 64, my = me / 64;
-  T2 u[16];
-
-  for (i32 i = 0; i < 16; ++i) { u[i] = in[64 * W * gy + 64 * gx + 4 * i * W + W * my + mx]; }
-
-  transposeLDS(lds, u);
-
-  u32 col = 64 * gy + mx;
-  T2 base = slowTrig(col * (64 * gx + my),  W * H / 2) * factor;
-  T2 step = slowTrig(col, W * H / 8);
-                     
-  for (i32 i = 0; i < 16; ++i) {
-    out[64 * gy + 64 * H * gx + 4 * i * H + H * my + mx] = mul(u[i], base);
-    base = mul(base, step);
-  }
-}
 
 void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out) {
   u32 GPW = W / 64, GPH = H / 64;
@@ -1816,7 +1780,7 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
 
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
-#if MIDDLE == 1 || !MERGED_MIDDLE || WORKINGOUT
+#if WORKINGOUT
 
   read(G_W, NW, u, in, line * WIDTH);
 
@@ -1845,7 +1809,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 // Read a line for tailFused or fftHin
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 
-#if MIDDLE == 1 || !MERGED_MIDDLE || WORKINGIN
+#if WORKINGIN
 
   read(G_H, NH, u, in, memline * SMALL_HEIGHT);
 
@@ -1988,7 +1952,7 @@ void fft_MIDDLE(T2 *u) {
   fft11(u);
 #elif MIDDLE == 12
   fft12(u);
-#elif MIDDLE != 1
+#else
 #error
 #endif
 }
@@ -2048,29 +2012,7 @@ void middleShuffle(local T2 *lds2, T2 *u, u32 workgroupSize, u32 blockSize) {
 
 #define WG 256
 KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
-  T2 u[MIDDLE];
-  
-#if MIDDLE == 1 || !MERGED_MIDDLE
-
-  u32 N = SMALL_HEIGHT / WG;
-  u32 g = get_group_id(0);
-  u32 gx = g % N;
-  u32 gy = g / N;
-  u32 me = get_local_id(0);
-
-  in += BIG_HEIGHT * gy + WG * gx;
-  for (int i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + me]; }
-  
-  ENABLE_MUL2();
-
-  fft_MIDDLE(u);
-
-  middleMul(u, WG * gx + me);
-
-  write(SMALL_HEIGHT, MIDDLE, u, out, BIG_HEIGHT * gy + WG * gx);
-
-#else
-  
+  T2 u[MIDDLE];    
   local T2 lds[WG];
 
 #if WORKINGIN1 || WORKINGIN
@@ -2117,8 +2059,6 @@ KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   out += MIDDLE * (SMALL_HEIGHT * SIZEX * gx + WG * gy);
   for (i32 i = 0; i < MIDDLE; ++i) { out[WG * i + me] = u[i]; }
 #endif
-  
-#endif // MIDDLE == 1
 }
 #undef WG
 
@@ -2127,9 +2067,7 @@ KERNEL(WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
 KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
   T2 u[MIDDLE];
 
-#if MIDDLE == 1 || !MERGED_MIDDLE
-  u32 SIZEX = WG;
-#elif WORKINGOUT
+#if WORKINGOUT
   u32 SIZEX = 16;
 #elif WORKINGOUT3
   u32 SIZEX = 8;
@@ -2166,13 +2104,6 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
 
   fft_MIDDLE(u);
 
-#if MIDDLE == 1 || !MERGED_MIDDLE
-  
-  out += BIG_HEIGHT * gy + WG * gx;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[SMALL_HEIGHT * i + me] = u[i]; }
-  
-#else
-  
   local T2 lds[WG];
   middleMul2(u, starty + my, startx + mx, 1.0 / (4 * NWORDS));
   middleShuffle(lds, u, WG, SIZEX);
@@ -2193,8 +2124,6 @@ KERNEL(WG) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { out[WG * i + me] = u[i]; }
   
 #endif // WORKINGOUT
-  
-#endif // merged middle
 }
 #undef WG
 
@@ -2430,18 +2359,6 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 //== CARRY_FUSED
 #undef CARRY_FUSED_NAME
 #undef CF_MUL
-
-KERNEL(256) transposeW(P(T2) out, CP(T2) in) {
-  local T lds[4096];
-  ENABLE_MUL2();
-  transpose(WIDTH, BIG_HEIGHT, lds, in, out, 1);
-}
-
-KERNEL(256) transposeH(P(T2) out, CP(T2) in) {
-  local T lds[4096];
-  ENABLE_MUL2();
-  transpose(BIG_HEIGHT, WIDTH, lds, in, out, 1.0 / (4 * NWORDS));
-}
 
 // from transposed to sequential.
 KERNEL(256) transposeOut(P(Word2) out, CP(Word2) in) {
