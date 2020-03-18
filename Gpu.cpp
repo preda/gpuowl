@@ -140,10 +140,36 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
 extern const char *CL_SOURCE;
 
-static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW, bool isPm1) {
+namespace {
+
+string toLiteral(u32 value) { return to_string(value) + 'u'; }
+string toLiteral(i32 value) { return to_string(value); }
+[[maybe_unused]] string toLiteral(u64 value) { return to_string(value) + "ul"; }
+string toLiteral(double value) {
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%a", value);
+  return buf;
+}
+
+struct Define {
+  const string str;
+
+  template<typename T> Define(const string& label, T value) : str{label + '=' + toLiteral(value)} {
+    assert(label.find('=') == string::npos);
+  }
+
+  Define(const string& labelAndVal) : str{labelAndVal} {
+    assert(labelAndVal.find('=') != string::npos);
+  }
+  
+
+  operator string() const { return str; }
+};
+
+cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW, bool isPm1) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
 
-  vector<pair<string, std::any>> defines =
+  vector<Define> defines =
     {{"EXP", E},
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
@@ -160,13 +186,23 @@ static cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u3
 
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
-    if (clSource.find(flag) == string::npos) { log("Warning: -use %s has no effect\n", flag.c_str()); }
-    defines.push_back(pair{flag, 1});
+    auto pos = flag.find('=');
+    string label = (pos == string::npos) ? flag : flag.substr(0, pos);
+    if (clSource.find(label) == string::npos) { log("%s not used\n", label.c_str()); }
+    if (pos == string::npos) {
+      defines.push_back({label, 1});
+    } else {
+      defines.push_back(flag);
+    }
   }
-  
-  cl_program program = compile({id}, context, CL_SOURCE, clArgs, defines);
+
+  vector<string> strDefines;
+  strDefines.insert(strDefines.begin(), defines.begin(), defines.end());
+  cl_program program = compile({id}, context, CL_SOURCE, clArgs, strDefines);
   if (!program) { throw "OpenCL compilation"; }
   return program;
+}
+
 }
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,

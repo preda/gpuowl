@@ -248,30 +248,10 @@ static void build(cl_program program, cl_device_id device, string args) {
   }
 }
 
-std::string toLiteral(const std::any& v) {
-  if (auto *p = std::any_cast<u32>(&v)) {
-    return to_string(*p) + "u";
-  } else if (auto *p = std::any_cast<i32>(&v)) {
-    return to_string(*p);
-  } else if (auto *p = std::any_cast<u64>(&v)) {
-    return to_string(*p) + "ul";
-  } else if (auto *p = std::any_cast<double>(&v)) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%a", *p);
-    return buf;
-  } else {
-    log("No literal formatting defined for type %s\n", v.type().name());
-  }
-  assert(false);
-  return "";
-}
-
 cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
-                   const vector<pair<string, std::any>> &defines) {
+                   const vector<string> &defines) {
   string strDefines;
-  for (auto d : defines) {
-    strDefines = strDefines + "-D" + d.first + "=" + toLiteral(d.second) + ' ';
-  }
+  for (const string& d : defines) { strDefines += "-D" + d + ' '; }
   string args = strDefines + extraArgs + " -cl-fast-relaxed-math -cl-std=CL2.0 ";
   log("OpenCL args \"%s\"\n", args.c_str());
   
