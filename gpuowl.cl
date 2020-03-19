@@ -416,22 +416,22 @@ typedef i32 CFcarry;
 #define RNDVAL  3.0 * 131072.0 * 131072.0 * 131072.0	// Rounding constant: 3 * 2^51
 
 Word2 CFunweightAndCarry(T2 u, CFcarry *carry, T2 weight, bool b1, bool b2) {
-  union { double d; int2 i; i64 li; } tmp;
-  tmp.d = u.x * weight.x + RNDVAL;			// Unweight and round u.x
-  i32 bits1 = bitlenx(b1);				// Desired number of bits in u.x
-  Word a = ulowBits(tmp.i.x, bits1);			// Extract lower bits unsigned, assumes least significant bits in i.x
-  tmp.i.x -= a;						// Clear extracted bits
-  tmp.d -= RNDVAL;					// Undo the rndval constant
-  tmp.d = ldexp (tmp.d, -bits1);			// carry!
+  int2 i = as_int2(u.x * weight.x + RNDVAL); // Unweight and round u.x
 
-  tmp.d = u.y * weight.y + tmp.d + RNDVAL;		// Unweight, add carry, and round u.y
+  i32 bits1 = bitlenx(b1); // Desired number of bits in u.x
+  Word a = ulowBits(i.x, bits1); // Extract lower bits unsigned
+
+  i.x -= a; // Clear extracted bits
+
+  double d = ldexp(as_double(i) - RNDVAL, -bits1); // Undo the rndval constant, carry
+  d += u.y * weight.y + RNDVAL; // Unweight, add carry, and round u.y
+  
   i32 bits2 = bitlenx(b2);
-  Word b = lowBits(tmp.i.x, bits2);		        // Grab lower bits signed
-  tmp.li -= b;						// Subtract the lower bits -- which may affect upper word of double
-  tmp.d -= RNDVAL;					// Undo the rndval constant
-  tmp.d = ldexp (tmp.d, -bits2);			// carry!
+  Word b = lowBits(as_int2(d).x, bits2); // Grab lower bits signed
 
-  *carry = tmp.d;					// Convert carry to 32-bit int
+  // Subtract the lower bits -- which may affect upper word of double; Undo the rndval constant; carry!; Convert carry to 32-bit int
+  *carry = ldexp(as_double(as_long(d) - b) - RNDVAL, -bits2);
+  
   return (Word2) (a, b);
 }
 
