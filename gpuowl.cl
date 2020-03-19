@@ -84,28 +84,18 @@ G_H        "group height"
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
-// ROCm generates warning on this: #pragma OPENCL EXTENSION all : enable
-
-
-
 #if DEBUG
 #define assert(condition) if (!(condition)) { printf("assert(%s) failed at line %d\n", STR(condition), __LINE__ - 1); }
 // __builtin_trap();
 #else
-
-#if AMDGPU
 #define assert(condition)
 //__builtin_assume(condition)
-#else
-#define assert(condition)    
-#endif // AMDGPU
 #endif // DEBUG
 
 #if AMDGPU
 // On AMDGPU the default is HAS_ASM
 #if !NO_ASM
 #define HAS_ASM 1
-// #warning ASM is enabled (pass '-use NO_ASM' to disable it)
 #endif
 #endif // AMDGPU
 
@@ -389,6 +379,7 @@ u32 bfi(u32 u, u32 mask, u32 bits) {
   __asm("v_bfi_b32 %0, %1, %2, %3" : "=v"(out) : "v"(mask), "v"(u), "v"(bits));
   return out;
 #else
+  // return (u & mask) | (bits & ~mask);
   return (u & mask) | bits;
 #endif
 }
@@ -398,7 +389,7 @@ double optionalDouble(double iw) {
   
   assert(iw > 0.25 && iw < 1);
   uint2 u = as_uint2(iw);
-  u.y = bfi(u.y, 0x800FFFFF, 0x3FE00000);
+  u.y = bfi(u.y, 0x000FFFFF, 0x3FE00000);
   return as_double(u);
 }
 
@@ -407,7 +398,7 @@ T optionalHalve(T w) {
 
   assert(w >= 1 && w < 2);
   uint2 u = as_uint2(w);
-  u.y = bfi(u.y, 0x800FFFFF, 0x3FF00000);
+  u.y = bfi(u.y, 0x000FFFFF, 0x3FF00000);
   return as_double(u);
 }
 
