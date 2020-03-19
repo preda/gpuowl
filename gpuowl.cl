@@ -2143,7 +2143,7 @@ void acquire() {
 // It uses "stairway" carry data forwarding from one group to the next.
 // See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
 //{{ CARRY_FUSED
-KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
+KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
                              CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
 #if T2_SHUFFLE
   local T2 lds[WIDTH];
@@ -2283,19 +2283,10 @@ KERNEL(G_W) CARRY_FUSED_NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32)
 
   write(G_W, NW, u, out, WIDTH * line);
 }
-//}} CARRY_FUSED
+//}}
 
-#define CARRY_FUSED_NAME carryFused
-#define CF_MUL 0
-//== CARRY_FUSED
-#undef CARRY_FUSED_NAME
-#undef CF_MUL
-
-#define CARRY_FUSED_NAME carryFusedMul
-#define CF_MUL 1
-//== CARRY_FUSED
-#undef CARRY_FUSED_NAME
-#undef CF_MUL
+//== CARRY_FUSED NAME=carryFused,    CF_MUL=0
+//== CARRY_FUSED NAME=carryFusedMul, CF_MUL=1
 
 // from transposed to sequential.
 KERNEL(256) transposeOut(P(Word2) out, CP(Word2) in) {
@@ -2351,7 +2342,7 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
 }
 
 //{{ MULTIPLY
-KERNEL(SMALL_HEIGHT / 2) MULTIPLY_NAME(P(T2) io, CP(T2) in) {
+KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
@@ -2405,20 +2396,12 @@ KERNEL(SMALL_HEIGHT / 2) MULTIPLY_NAME(P(T2) io, CP(T2) in) {
   io[k] = conjugate(a);
   io[v] = b;
 }
-//}} MULTIPLY
+//}}
 
-#define MULTIPLY_NAME multiply
-#define MULTIPLY_DELTA 0
-//== MULTIPLY
-#undef MULTIPLY_NAME
-#undef MULTIPLY_DELTA
+//== MULTIPLY NAME=multiply, MULTIPLY_DELTA=0
 
 #if NO_P2_FUSED_TAIL
-#define MULTIPLY_NAME multiplyDelta
-#define MULTIPLY_DELTA 1
-//== MULTIPLY
-#undef MULTIPLY_NAME
-#undef MULTIPLY_DELTA
+//== MULTIPLY NAME=multiplyDelta, MULTIPLY_DELTA=1
 #endif
 
 
@@ -2673,9 +2656,8 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 
 #endif
 
-// equivalent to: fftHin, multiply, fftHout.
 //{{ TAIL_SQUARE
-KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
+KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
 #if T2_SHUFFLE
   local T2 lds[SMALL_HEIGHT];
 #else
@@ -2725,30 +2707,21 @@ KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTri
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
-//}} TAIL_SQUARE
+//}}
 
-#define TAIL_FUSED_NAME tailFusedSquare
-#define TAIL_FUSED_LOW 0
-//== TAIL_SQUARE
-#undef TAIL_FUSED_NAME
-#undef TAIL_FUSED_LOW
-
-#define TAIL_FUSED_NAME tailSquareLow
-#define TAIL_FUSED_LOW 1
-//== TAIL_SQUARE
-#undef TAIL_FUSED_NAME
-#undef TAIL_FUSED_LOW
+//== TAIL_SQUARE NAME=tailFusedSquare, TAIL_FUSED_LOW=0
+//== TAIL_SQUARE NAME=tailSquareLow,   TAIL_FUSED_LOW=1
 
 
 //{{ TAIL_FUSED_MUL
-#if MUL_LOW_LOW
-KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, Trig smallTrig2) {
+#if MUL_2LOW
+KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig2) {
 #else
-KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, CP(T2) a,
-                            #if MUL_DELTA
-                            CP(T2) b,
-                            #endif
-                            Trig smallTrig1, Trig smallTrig2) {
+KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
+#if MUL_DELTA
+                 CP(T2) b,
+#endif
+                 Trig smallTrig1, Trig smallTrig2) {
   // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
@@ -2787,7 +2760,7 @@ KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, CP(T2) a,
   read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig1);
   fft_HEIGHT(lds, v, smallTrig1);
-#elif MUL_LOW_LOW
+#elif MUL_2LOW
   read(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
   read(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   read(G_H, NH, p, in, memline1 * SMALL_HEIGHT);
@@ -2830,40 +2803,16 @@ KERNEL(G_H) TAIL_FUSED_NAME(P(T2) out, CP(T2) in, CP(T2) a,
   fft_HEIGHT(lds, u, smallTrig2);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
-//}} TAIL_FUSED_MUL
+//}}
 
-#define TAIL_FUSED_NAME tailMulLowLow
-#define MUL_LOW_LOW 1
-//== TAIL_FUSED_MUL
-#undef TAIL_FUSED_NAME
-#undef MUL_LOW_LOW
- 
-// equivalent to: fftHin(out, in), multiply(out, a), fftH(out)
-#define TAIL_FUSED_NAME tailFusedMulLow
-#define MUL_DELTA 0
-#define MUL_LOW 1
-//== TAIL_FUSED_MUL
-#undef TAIL_FUSED_NAME
-#undef MUL_DELTA
-#undef MUL_LOW
-
-// equivalent to: fftHin(io, out), fftHin(a, tmp), multiply(out, tmp), fftH(out)
-#define TAIL_FUSED_NAME tailFusedMul
-#define MUL_DELTA 0
-#define MUL_LOW 0
-//== TAIL_FUSED_MUL
-#undef TAIL_FUSED_NAME
-#undef MUL_DELTA
-#undef MUL_LOW
+//== TAIL_FUSED_MUL NAME=tailMulLowLow,   MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=1
+//== TAIL_FUSED_MUL NAME=tailFusedMulLow, MUL_DELTA=0, MUL_LOW=1, MUL_2LOW=0
+//== TAIL_FUSED_MUL NAME=tailFusedMul,    MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=0
 
 #if !NO_P2_FUSED_TAIL
 // equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
-#define TAIL_FUSED_NAME tailFusedMulDelta
-#define MUL_DELTA 1
-//== TAIL_FUSED_MUL
-#undef TAIL_FUSED_NAME
-#undef MUL_DELTA
-#endif
+//== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
+#endif // NO_P2_FUSED_TAIL
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL

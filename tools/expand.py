@@ -14,33 +14,33 @@ def err(text):
 for line in sys.stdin:
     lineNo += 1
 
-    isBegin = line.startswith('//{{')
-    isEnd   = line.startswith('//}}')
-    isInline = line.startswith('//==')
-    name = line[4:].strip()
-    if isBegin:
+    if line.startswith('//{{ '):
+        name = line[5:].strip()
         if current:
-            err(f'starting {name} while {current} is active')
-        elif name in macros:
-            err(f'{name} already defined')
+            err(f'starting template {name} while {current} is active')
         else:
             current = name
-            body = ''    
-    elif isEnd:
-        if name != current:
-            err(f'closing {name} while {current} is active')
+            body = ''
+    elif line.startswith('//}}'):
+        if not current:
+            err(f'template end without begin')
         else:
             macros[current] = body
             current = None
     else:
-        if isInline:
-            if name in macros:
-                line = macros[name]
-            else:
-                err(f'macro {name} not found')
+        if line.startswith('//== '):
+            name, _, tail = line[5:].partition(' ')
+            if name not in macros:
+                err(f'template {name} not defined')
+
+            body = macros[name]
+            args = map(str.strip, tail.split(','))
+            for arg in args:
+                key, value = map(str.strip, arg.split('='))
+                body = body.replace(key, value)
+                line = body        
 
         if current:
             body += line
         else:
             print(line,end='')
-            
