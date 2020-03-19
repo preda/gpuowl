@@ -435,11 +435,19 @@ typedef i32 CFcarry;
 typedef i64 CFcarry;
 #endif
 
-CFcarry doCarry(i64 data, u32 nBits, Word a) {
-#if 1
-  return ((CFcarry) (data >> nBits)) + (a < 0);
+CFcarry doCarry64(i64 data, u32 nBits, Word a) {
+#if CARRY32
+  return ((CFcarry) (data >> nBits)) + (a < 0); // on CARRY32 avoid the 64-bit addition
 #else
-  return (CFcarry) ((data - a) >> nBits);  // with CARRY32, this alternative seems a tiny bit slower
+  return (CFcarry) ((data - a) >> nBits);       // on CARRY64 the addition is 64-bit anyway
+#endif
+}
+
+i32 doCarry32(i32 data, u32 nBits, Word a) {
+#if 0
+  return (data >> nBits) + (a < 0);
+#else
+  return (data - a) >> nBits;
 #endif
 }
 
@@ -447,19 +455,18 @@ Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, T2 weight, bool b1, bool b2) {
   i64 data = doubleToLong(u.x * weight.x);
   u32 bits1 = bitlenx(b1);
   Word a = lowBits(data, bits1);
-  data = doubleToLong(u.y * weight.y) + doCarry(data, bits1, a);
+  data = doubleToLong(u.y * weight.y) + doCarry64(data, bits1, a);
   u32 bits2 = bitlenx(b2);
   Word b = lowBits(data, bits2);
-  *outCarry = doCarry(data, bits2, b);
+  *outCarry = doCarry64(data, bits2, b);
   return (Word2) (a, b);
 }
 
 T2 CFcarryAndWeightFinal(Word2 u, CFcarry inCarry, T2 w, bool b1) {
-  // In a hacky way we assume the addition below won't overflow 32bits (when CARRY32).
-  inCarry += u.x;
+  inCarry += u.x; // We hope this addition won't overflow 32bits (when CARRY32).
   u32 bits1 = bitlenx(b1);
   u.x = lowBits(inCarry, bits1);
-  u.y += (inCarry - u.x) >> bits1;
+  u.y += doCarry32(inCarry, bits1, u.x);
   return weight(u, w);
 }
 
