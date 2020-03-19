@@ -396,7 +396,7 @@ double optionalDouble(double iw) {
 T optionalHalve(T w) {
   // return w >= 2 ? w / 2 : w;
 
-  assert(w >= 1 && w < 2);
+  assert(w >= 1 && w < 4);
   uint2 u = as_uint2(w);
   u.y = bfi(u.y, 0x000FFFFF, 0x3FF00000);
   return as_double(u);
