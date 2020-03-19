@@ -365,6 +365,7 @@ Word carryStep(Carry x, Carry *carry, bool bigWord) {
   u32 bits = bitlenx(bigWord);
   Word w = lowBits(x, bits);
   *carry = (x - w) >> bits;
+  // *carry = (x >> bits) + (w < 0);
   return w;
 }
 
@@ -400,8 +401,6 @@ T optionalHalve(T w) {
   return as_double(u);
 }
 
-// Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
-#define RNDVAL (3.0 * (1l << 51))
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
@@ -409,72 +408,60 @@ T optionalHalve(T w) {
 // just over 1 billion.  Max(abs(carry)) was 0x637225E9 which is OK (0x80000000 or more is fatal).  P-1 testing is more
 // problematic as the mul-by-3 triples the carry too.
 
+// Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
+#define RNDVAL (3.0 * (1l << 51))
+
+i64 doubleToLong(double x) {
 #if CARRY32
-
-typedef i32 CFcarry;
-
-i32 carry(u64 data, u32 nBits, bool wasNegative) { return as_int2(data >> nBits).x + wasNegative; }
-
-// The long returned here represents correctly *only* the lower 52bits (it is polluted with the exponent bits)
-long doubleToLong(double x) { return as_long(x + RNDVAL); }
-
-Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, T2 weight, bool b1, bool b2) {
-  long data = doubleToLong(u.x * weight.x);
-  i32 bits1 = bitlenx(b1);
-  Word a = lowBits(data, bits1);
-  data = doubleToLong(u.y * weight.y) + carry(data, bits1, (a < 0));
-  i32 bits2 = bitlenx(b2);
-  Word b = lowBits(data, bits2);
-  *outCarry = carry(data, bits2, (b < 0));
-  return (Word2) (a, b);
-}
-
-T2 CFcarryAndWeightFinal(Word2 u, CFcarry carry, T2 w, bool b1) {
-  u32 bits1 = bitlenx(b1);				// Desired number of bits in u.x
-  u.x += carry;						// Add the carry
-  Word lo = lowBits(u.x, bits1);			// Extract signed lower bits
-  carry = (u.x - lo) >> bits1;				// Next carry
-  u.y += carry;						// Apply the carry
-  return weight((Word2) (lo, u.y), w);			// Weight the final result
-}
-
+  // For CARRY32 we don't mind pollution of this value with the double exponent bits
+  return as_long(x + RNDVAL);
 #else
-
-typedef i64 CFcarry;
-
-// Extend the sign from the lower 50-bits. (mantissa bits 51 and 52 are set by RNDVAL)
-long doubleToLong(double x) {
+  
+#if SLOW_DOUBLE_TO_LONG
+  return rint(x);
+#else
+  // Extend the sign from the lower 50-bits. (mantissa bits 51 and 52 are affected by RNDVAL)
   int2 data = as_int2(x + RNDVAL);
-  data.y = lowBits(data.y, 50);
-  return as_long(data);
+  data.y = lowBits(data.y, 50 - 32);
+  return as_long(data);  
+#endif
+  
+#endif // CARRY32
 }
 
-i64 carry(i64 data, u32 nBits, bool wasNegative) { return (data >> nBits) + wasNegative; }
+#if CARRY32
+typedef i32 CFcarry;
+#else
+typedef i64 CFcarry;
+#endif
+
+CFcarry doCarry(i64 data, u32 nBits, Word a) {
+#if 1
+  return ((CFcarry) (data >> nBits)) + (a < 0);
+#else
+  return (CFcarry) ((data - a) >> nBits);  // with CARRY32, this alternative seems a tiny bit slower
+#endif
+}
 
 Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, T2 weight, bool b1, bool b2) {
-#if NEW_CARRY64
-  long data = doubleToLong(u.x * weight.x);
-  i32 bits1 = bitlenx(b1);
+  i64 data = doubleToLong(u.x * weight.x);
+  u32 bits1 = bitlenx(b1);
   Word a = lowBits(data, bits1);
-  data = doubleToLong(u.y * weight.y) + carry(data, bits1, (a < 0));
-  i32 bits2 = bitlenx(b2);
+  data = doubleToLong(u.y * weight.y) + doCarry(data, bits1, a);
+  u32 bits2 = bitlenx(b2);
   Word b = lowBits(data, bits2);
-  *outCarry = carry(data, bits2, (b < 0));
-#else
-  *outCarry = 0;
-  Word a = carryStep(unweight(u.x, weight.x), outCarry, b1);
-  Word b = carryStep(unweight(u.y, weight.y), outCarry, b2);
-#endif
+  *outCarry = doCarry(data, bits2, b);
   return (Word2) (a, b);
 }
 
-T2 CFcarryAndWeightFinal(Word2 u, CFcarry carry, T2 w, bool b1) {
-  Word x = carryStep(u.x, &carry, b1);
-  Word y = u.y + carry;
-  return weight((Word2) (x, y), w);
+T2 CFcarryAndWeightFinal(Word2 u, CFcarry inCarry, T2 w, bool b1) {
+  // In a hacky way we assume the addition below won't overflow 32bits (when CARRY32).
+  inCarry += u.x;
+  u32 bits1 = bitlenx(b1);
+  u.x = lowBits(inCarry, bits1);
+  u.y += (inCarry - u.x) >> bits1;
+  return weight(u, w);
 }
-
-#endif
 
 // These are the carry macros used in carryFusedMul.  They are separate macros to later allow us to support
 // CARRY32 in carryFused and CARRY64 in carryFusedMul.
