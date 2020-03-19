@@ -363,8 +363,9 @@ u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 // Macros used in carry propagation
 //
 
-Word carryStep(Carry x, Carry *carry, i32 bits) {
+Word carryStep(Carry x, Carry *carry, bool bigWord) {
   x += *carry;
+  u32 bits = bitlenx(bigWord);
   Word w = lowBits(x, bits);
   *carry = (x - w) >> bits;
   return w;
@@ -449,13 +450,13 @@ typedef i64 CFcarry;
 
 Word2 CFunweightAndCarry(T2 u, CFcarry *carry, T2 weight, bool b1, bool b2) {
   *carry = 0;
-  Word a = carryStep(unweight(u.x, weight.x), carry, bitlenx(b1));
-  Word b = carryStep(unweight(u.y, weight.y), carry, bitlenx(b2));
+  Word a = carryStep(unweight(u.x, weight.x), carry, b1);
+  Word b = carryStep(unweight(u.y, weight.y), carry, b2);
   return (Word2) (a, b);
 }
 
 T2 CFcarryAndWeightFinal(Word2 u, CFcarry carry, T2 w, bool b1) {
-  Word x = carryStep(u.x, &carry, bitlenx(b1));
+  Word x = carryStep(u.x, &carry, b1);
   Word y = u.y + carry;
   return weight((Word2) (x, y), w);
 }
@@ -469,13 +470,13 @@ typedef i64 CFMcarry;
 
 Word2 CFMunweightAndCarry(T2 u, CFMcarry *carry, T2 weight, bool b1, bool b2) {
   *carry = 0;
-  Word a = carryStep(3 * unweight(u.x, weight.x), carry, bitlenx(b1));
-  Word b = carryStep(3 * unweight(u.y, weight.y), carry, bitlenx(b2));
+  Word a = carryStep(3 * unweight(u.x, weight.x), carry, b1);
+  Word b = carryStep(3 * unweight(u.y, weight.y), carry, b2);
   return (Word2) (a, b);
 }
 
 T2 CFMcarryAndWeightFinal(Word2 u, CFMcarry carry, T2 w, bool b1) {
-  Word x = carryStep(u.x, &carry, bitlenx(b1));
+  Word x = carryStep(u.x, &carry, b1);
   Word y = u.y + carry;
   return weight((Word2) (x, y), w);
 }
@@ -487,22 +488,22 @@ T2 CFMcarryAndWeightFinal(Word2 u, CFMcarry carry, T2 w, bool b1) {
 #define CARRY_LEN 16
 
 Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
-  Word a = carryStep(mul * unweight(u.x, weight.x), carry, bitlen(extra));
-  Word b = carryStep(mul * unweight(u.y, weight.y), carry, bitlen(reduce(extra + STEP)));
+  Word a = carryStep(mul * unweight(u.x, weight.x), carry, isBigWord(extra));
+  Word b = carryStep(mul * unweight(u.y, weight.y), carry, isBigWord(reduce(extra + STEP)));
   return (Word2) (a, b);
 }
 
 // No carry out. The final carry is "absorbed" in the last word.
 T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w, u32 extra) {
-  Word x = carryStep(u.x, &carry, bitlen(extra));
+  Word x = carryStep(u.x, &carry, isBigWord(extra));
   Word y = u.y + carry;
   return weight((Word2) (x, y), w);
 }
 
 // Carry propagation from word and carry.
 Word2 carryWord(Word2 a, Carry *carry, u32 extra) {
-  a.x = carryStep(a.x, carry, bitlen(extra));
-  a.y = carryStep(a.y, carry, bitlen(reduce(extra + STEP)));
+  a.x = carryStep(a.x, carry, isBigWord(extra));
+  a.y = carryStep(a.y, carry, isBigWord(reduce(extra + STEP)));
   return a;
 }
 
