@@ -413,25 +413,23 @@ T optionalHalve(T w) {
 
 typedef i32 CFcarry;
 
-#define RNDVAL  3.0 * 131072.0 * 131072.0 * 131072.0	// Rounding constant: 3 * 2^51
+int carry(u64 data, u32 nBits, bool wasNegative) { return as_int2(data >> nBits).x + wasNegative; }
 
-Word2 CFunweightAndCarry(T2 u, CFcarry *carry, T2 weight, bool b1, bool b2) {
-  int2 i = as_int2(u.x * weight.x + RNDVAL); // Unweight and round u.x
+i32 lowBits64(i64 data, u32 nBits) { return lowBits(as_int2(data).x, nBits); }
 
-  i32 bits1 = bitlenx(b1); // Desired number of bits in u.x
-  Word a = ulowBits(i.x, bits1); // Extract lower bits unsigned
+// Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
+#define RNDVAL (3.0 * (1l << 51))
+// The long returned here represents correctly *only* the sign and the lower 52bits.
+long doubleToLong(double x) { return as_long(x + RNDVAL); }
 
-  i.x -= a; // Clear extracted bits
-
-  double d = ldexp(as_double(i) - RNDVAL, -bits1); // Undo the rndval constant, carry
-  d += u.y * weight.y + RNDVAL; // Unweight, add carry, and round u.y
-  
+Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, T2 weight, bool b1, bool b2) {
+  long data = doubleToLong(u.x * weight.x);
+  i32 bits1 = bitlenx(b1);
+  Word a = lowBits64(data, bits1);
+  data = doubleToLong(u.y * weight.y) + carry(data, bits1, (a < 0));
   i32 bits2 = bitlenx(b2);
-  Word b = lowBits(as_int2(d).x, bits2); // Grab lower bits signed
-
-  // Subtract the lower bits -- which may affect upper word of double; Undo the rndval constant; carry!; Convert carry to 32-bit int
-  *carry = ldexp(as_double(as_long(d) - b) - RNDVAL, -bits2);
-  
+  Word b = lowBits64(data, bits2);
+  *outCarry = carry(data, bits2, (b < 0));
   return (Word2) (a, b);
 }
 
