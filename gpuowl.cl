@@ -349,14 +349,11 @@ T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
 void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
 
-// Signed and unsigned bit field extract with bit offset 0
-
 #if HAS_ASM
+// Signed bit field extract with bit offset 0
 i32 lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
-u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
 #else
 i32 lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
-u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 #endif
 
 //
@@ -403,6 +400,9 @@ T optionalHalve(T w) {
   return as_double(u);
 }
 
+// Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
+#define RNDVAL (3.0 * (1l << 51))
+
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
 // that the carry will not fit in 32-bits -- corrupting results.  That said, I did test 2000 iterations of an exponent
@@ -413,22 +413,18 @@ T optionalHalve(T w) {
 
 typedef i32 CFcarry;
 
-int carry(u64 data, u32 nBits, bool wasNegative) { return as_int2(data >> nBits).x + wasNegative; }
+i32 carry(u64 data, u32 nBits, bool wasNegative) { return as_int2(data >> nBits).x + wasNegative; }
 
-i32 lowBits64(i64 data, u32 nBits) { return lowBits(as_int2(data).x, nBits); }
-
-// Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
-#define RNDVAL (3.0 * (1l << 51))
-// The long returned here represents correctly *only* the sign and the lower 52bits.
+// The long returned here represents correctly *only* the lower 52bits (it is polluted with the exponent bits)
 long doubleToLong(double x) { return as_long(x + RNDVAL); }
 
 Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, T2 weight, bool b1, bool b2) {
   long data = doubleToLong(u.x * weight.x);
   i32 bits1 = bitlenx(b1);
-  Word a = lowBits64(data, bits1);
+  Word a = lowBits(data, bits1);
   data = doubleToLong(u.y * weight.y) + carry(data, bits1, (a < 0));
   i32 bits2 = bitlenx(b2);
-  Word b = lowBits64(data, bits2);
+  Word b = lowBits(data, bits2);
   *outCarry = carry(data, bits2, (b < 0));
   return (Word2) (a, b);
 }
@@ -446,10 +442,29 @@ T2 CFcarryAndWeightFinal(Word2 u, CFcarry carry, T2 w, bool b1) {
 
 typedef i64 CFcarry;
 
-Word2 CFunweightAndCarry(T2 u, CFcarry *carry, T2 weight, bool b1, bool b2) {
-  *carry = 0;
-  Word a = carryStep(unweight(u.x, weight.x), carry, b1);
-  Word b = carryStep(unweight(u.y, weight.y), carry, b2);
+// Extend the sign from the lower 50-bits. (mantissa bits 51 and 52 are set by RNDVAL)
+long doubleToLong(double x) {
+  int2 data = as_int2(x + RNDVAL);
+  data.y = lowBits(data.y, 50);
+  return as_long(data);
+}
+
+i64 carry(i64 data, u32 nBits, bool wasNegative) { return (data >> nBits) + wasNegative; }
+
+Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, T2 weight, bool b1, bool b2) {
+#if NEW_CARRY64
+  long data = doubleToLong(u.x * weight.x);
+  i32 bits1 = bitlenx(b1);
+  Word a = lowBits(data, bits1);
+  data = doubleToLong(u.y * weight.y) + carry(data, bits1, (a < 0));
+  i32 bits2 = bitlenx(b2);
+  Word b = lowBits(data, bits2);
+  *outCarry = carry(data, bits2, (b < 0));
+#else
+  *outCarry = 0;
+  Word a = carryStep(unweight(u.x, weight.x), outCarry, b1);
+  Word b = carryStep(unweight(u.y, weight.y), outCarry, b2);
+#endif
   return (Word2) (a, b);
 }
 
