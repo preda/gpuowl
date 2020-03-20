@@ -350,10 +350,11 @@ T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
 
 #if HAS_ASM
-// Signed bit field extract with bit offset 0
-i32 lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
 #else
-i32 lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
+i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
+u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 #endif
 
 //
@@ -420,9 +421,12 @@ i64 doubleToLong(double x) {
 #if SLOW_DOUBLE_TO_LONG
   return rint(x);
 #else
-  // Extend the sign from the lower 50-bits. (mantissa bits 51 and 52 are affected by RNDVAL)
+  // Extend the sign from the lower 51-bits.
+  // 51 bits (0 to 50) are clean. Bit 51 is affected by RNDVAL. Bit 52 of RNDVAL is not stored.
+  // Note: if needed, we can extend the range to 52 bits instead of 51 by taking the sign from the negation
+  // of bit 51 (i.e. bit 51==1 means positive, bit 51==0 means negative).
   int2 data = as_int2(x + RNDVAL);
-  data.y = lowBits(data.y, 50 - 32);
+  data.y = lowBits(data.y, 51 - 32);
   return as_long(data);  
 #endif
   
@@ -443,6 +447,8 @@ CFcarry doCarry64(i64 data, u32 nBits, Word a) {
 #endif
 }
 
+CFcarry unsignedCarry64(i64 data, u32 nBits) { return data >> nBits; }
+
 i32 doCarry32(i32 data, u32 nBits, Word a) {
 #if 0
   return (data >> nBits) + (a < 0);
@@ -454,8 +460,16 @@ i32 doCarry32(i32 data, u32 nBits, Word a) {
 Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, T2 weight, bool b1, bool b2) {
   i64 data = doubleToLong(u.x * weight.x);
   u32 bits1 = bitlenx(b1);
+  
+#if 0
+  // Surprisingly, on ROCm 3.1 with CARRY64, although this branch should be faster, it is the other way around.
+  Word a = ulowBits(data, bits1);
+  data = doubleToLong(u.y * weight.y) + unsignedCarry64(data, bits1);
+#else
   Word a = lowBits(data, bits1);
   data = doubleToLong(u.y * weight.y) + doCarry64(data, bits1, a);
+#endif
+  
   u32 bits2 = bitlenx(b2);
   Word b = lowBits(data, bits2);
   *outCarry = doCarry64(data, bits2, b);
