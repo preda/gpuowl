@@ -370,7 +370,6 @@ Word carryStep(Carry x, Carry *carry, bool bigWord) {
   return w;
 }
 
-i64 unweight(T x, T weight) { return rint(x * weight); }
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
 u32 bfi(u32 u, u32 mask, u32 bits) {
@@ -413,11 +412,6 @@ T optionalHalve(T w) {
 #define RNDVAL (3.0 * (1l << 51))
 
 i64 doubleToLong(double x) {
-#if CARRY32
-  // For CARRY32 we don't mind pollution of this value with the double exponent bits
-  return as_long(x + RNDVAL);
-#else
-  
 #if SLOW_DOUBLE_TO_LONG
   return rint(x);
 #else
@@ -429,8 +423,15 @@ i64 doubleToLong(double x) {
   data.y = lowBits(data.y, 51 - 32);
   return as_long(data);  
 #endif
-  
-#endif // CARRY32
+}
+
+// For CARRY32 we don't mind pollution of this value with the double exponent bits
+i64 fastDoubleToLong(double x) {
+#if CARRY32
+  return as_long(x + RNDVAL);
+#else
+  return doubleToLong(x);
+#endif
 }
 
 #if CARRY32
@@ -458,16 +459,16 @@ i32 doCarry32(i32 data, u32 nBits, Word a) {
 }
 
 Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, T2 weight, bool b1, bool b2) {
-  i64 data = doubleToLong(u.x * weight.x);
+  i64 data = fastDoubleToLong(u.x * weight.x);
   u32 bits1 = bitlenx(b1);
   
 #if 0
   // Surprisingly, on ROCm 3.1 with CARRY64, although this branch should be faster, it is the other way around.
   Word a = ulowBits(data, bits1);
-  data = doubleToLong(u.y * weight.y) + unsignedCarry64(data, bits1);
+  data = fastDoubleToLong(u.y * weight.y) + unsignedCarry64(data, bits1);
 #else
   Word a = lowBits(data, bits1);
-  data = doubleToLong(u.y * weight.y) + doCarry64(data, bits1, a);
+  data = fastDoubleToLong(u.y * weight.y) + doCarry64(data, bits1, a);
 #endif
   
   u32 bits2 = bitlenx(b2);
@@ -491,8 +492,8 @@ typedef i64 CFMcarry;
 
 Word2 CFMunweightAndCarry(T2 u, CFMcarry *carry, T2 weight, bool b1, bool b2) {
   *carry = 0;
-  Word a = carryStep(3 * unweight(u.x, weight.x), carry, b1);
-  Word b = carryStep(3 * unweight(u.y, weight.y), carry, b2);
+  Word a = carryStep(3 * doubleToLong(u.x * weight.x), carry, b1);
+  Word b = carryStep(3 * doubleToLong(u.y * weight.y), carry, b2);
   return (Word2) (a, b);
 }
 
@@ -509,8 +510,8 @@ T2 CFMcarryAndWeightFinal(Word2 u, CFMcarry carry, T2 w, bool b1) {
 #define CARRY_LEN 16
 
 Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
-  Word a = carryStep(mul * unweight(u.x, weight.x), carry, isBigWord(extra));
-  Word b = carryStep(mul * unweight(u.y, weight.y), carry, isBigWord(reduce(extra + STEP)));
+  Word a = carryStep(mul * doubleToLong(u.x * weight.x), carry, isBigWord(extra));
+  Word b = carryStep(mul * doubleToLong(u.y * weight.y), carry, isBigWord(reduce(extra + STEP)));
   return (Word2) (a, b);
 }
 
@@ -552,7 +553,7 @@ T2 foo2_m4(T2 a, T2 b) {
 T2 foo(T2 a) { return foo2(a, a); }
 T2 foo_m4(T2 a) { return foo2_m4(a, a); }
 
-#if !ORIG_X2 && !INLINE_X2 && !FMA_X2
+#if !ORIG_X2 && !INLINE_X2
 #if HAS_ASM
 #define INLINE_X2 1
 #else
@@ -583,7 +584,7 @@ T2 foo_m4(T2 a) { return foo2_m4(a, a); }
 	b.y = t.x; \
 	}
 #else
-#error None of ORIG_X2, FMA_X2, INLINE_X2 defined
+#error None of ORIG_X2, INLINE_X2 defined
 #endif
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
