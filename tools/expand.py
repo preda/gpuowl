@@ -13,7 +13,8 @@ def err(text):
 
 for line in sys.stdin:
     lineNo += 1
-
+    line = line.lstrip()
+    
     if line.startswith('//{{ '):
         name = line[5:].strip()
         if current:

@@ -273,12 +273,11 @@ T mad1(T x, T y, T z) { return x * y + z; } // return __builtin_fma(x, y, z);
 T2 U2(T a, T b) { return (T2)(a, b); }
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
+// bool test(u32 bits, u32 pos) { return bits & (1 << pos); }
 
 #define STEP (NWORDS - (EXP % NWORDS))
-// u32 extraAtWord(u32 k) { return ((u64) STEP) * k % NWORDS; }
 bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
-u32 bitlen(u32 extra) { return EXP / NWORDS + isBigWord(extra); }
-u32 bitlenx(bool b) { return EXP / NWORDS + b; }
+u32 bitlen(bool b) { return EXP / NWORDS + b; }
 u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 
 // complex mul
@@ -353,35 +352,6 @@ T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
 void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
 
-#if HAS_ASM
-i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
-u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
-#else
-i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
-u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
-#endif
-
-Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
-  u32 nBits = bitlenx(isBigWord);
-  Word w = lowBits(x, nBits);
-  *outCarry = (x - w) >> nBits;
-  return w;
-}
-
-Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord) {
-  u32 nBits = bitlenx(isBigWord);
-  Word w = lowBits(x, nBits);
-  *outCarry = (x - w) >> nBits;
-  return w;
-}
-
-Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
-  u32 nBits = bitlenx(isBigWord);
-  Word w = lowBits(x, nBits);
-  *outCarry = ((i32) (x >> nBits)) + (w < 0);
-  return w;
-}
-
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
 u32 bfi(u32 u, u32 mask, u32 bits) {
@@ -413,6 +383,13 @@ T optionalHalve(T w) {
   return as_double(u);
 }
 
+#if HAS_ASM
+i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+#else
+i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
+u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
+#endif
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
@@ -422,24 +399,56 @@ T optionalHalve(T w) {
 
 // Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
 #define RNDVAL (3.0 * (1l << 51))
+// Top 32-bits of RNDVAL
+#define TOPVAL (0x43380000)
 
-i64 OVERLOAD doubleToLong(double x) {
-#if SLOW_DOUBLE_TO_LONG
-  return rint(x);
-#else
+// For CARRY32 we don't mind pollution of this value with the double exponent bits
+i64 OVERLOAD doubleToLong(double x, i32 inCarry) {
+  return as_long(x + as_double((int2) (inCarry, TOPVAL - (inCarry < 0))));
+  // as_long(RNDVAL) + inCarry
+}
+
+i64 OVERLOAD doubleToLong(double x, i64 inCarry) {
+  int2 tmp = as_int2(inCarry);
+  tmp.y += TOPVAL;
+  double d = x + as_double(tmp);
+  // as_long(RNDVAL) + inCarry
+
   // Extend the sign from the lower 51-bits.
   // The first 51 bits (0 to 50) are clean. Bit 51 is affected by RNDVAL. Bit 52 of RNDVAL is not stored.
   // Note: if needed, we can extend the range to 52 bits instead of 51 by taking the sign from the negation
   // of bit 51 (i.e. bit 51==1 means positive, bit 51==0 means negative).
-  int2 data = as_int2(x + RNDVAL);
+  int2 data = as_int2(d);
   data.y = lowBits(data.y, 51 - 32);
-  return as_long(data);  
-#endif
+  return as_long(data);
 }
 
-// For CARRY32 we don't mind pollution of this value with the double exponent bits
-i64 OVERLOAD doubleToLong(double x, i32* carryType) { return as_long(x + RNDVAL); }
-i64 OVERLOAD doubleToLong(double x, i64* carryType) { return doubleToLong(x); }
+Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
+  u32 nBits = bitlen(isBigWord);
+  Word w = lowBits(x, nBits);
+  *outCarry = (x - w) >> nBits;
+  return w;
+}
+
+Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord) {
+  u32 nBits = bitlen(isBigWord);
+  Word w = lowBits(x, nBits);
+  *outCarry = (x - w) >> nBits;
+  return w;
+}
+
+Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
+  u32 nBits = bitlen(isBigWord);
+  Word w = lowBits(x, nBits);
+#if 0
+  i32 out;
+  __asm("v_alignbit_b32 %0, %1, %2, %3" : "=v"(out) : "v"(as_int2(x).y), "v"(as_int2(x).x), "v"(nBits));
+  *outCarry = out + (w < 0);
+#else
+  *outCarry = ((i32) (x >> nBits)) + (w < 0);
+#endif
+  return w;
+}
 
 #if CARRY32
 typedef i32 CFcarry;
@@ -454,9 +463,15 @@ typedef i64 CFMcarry;
 #endif
 
 //{{ carries
-Word2 OVERLOAD unweightAndCarry(T2 u, CARRY *outCarry, bool b1, bool b2, u32 mul, CARRY inCarry) {
-  Word a = carryStep(mul * doubleToLong(u.x, outCarry) + inCarry, outCarry, b1);
-  Word b = carryStep(mul * doubleToLong(u.y, outCarry) + *outCarry, outCarry, b2);
+Word2 OVERLOAD unweightAndCarry(T2 u, CARRY *outCarry, bool b1, bool b2, CARRY inCarry) {
+  Word a = carryStep(doubleToLong(u.x, inCarry), outCarry, b1);
+  Word b = carryStep(doubleToLong(u.y, *outCarry), outCarry, b2);
+  return (Word2) (a, b);
+}
+
+Word2 OVERLOAD unweightAndCarryMul(T2 u, CARRY *outCarry, bool b1, bool b2, CARRY inCarry) {
+  Word a = carryStep(3 * doubleToLong(u.x, (CARRY) 0) + inCarry, outCarry, b1);
+  Word b = carryStep(3 * doubleToLong(u.y, (CARRY) 0) + *outCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
@@ -2041,7 +2056,10 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
-void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *out, global Carry *carryOut, const global u32 *extras) {
+
+//{{ CARRYA
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
+  ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
@@ -2054,21 +2072,19 @@ void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
     bool b1 = isBigWord(extra);
     bool b2 = isBigWord(reduce(extra + STEP));
-    out[p] = unweightAndCarry(conjugate(in[p]) * A[p], &carry, b1, b2, mul, carry);
+#if DO_MUL3
+    out[p] = unweightAndCarryMul(conjugate(in[p]) * A[p], &carry, b1, b2, carry);
+#else
+    out[p] = unweightAndCarry(conjugate(in[p]) * A[p], &carry, b1, b2, carry);
+#endif
     extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
   carryOut[G_W * g + me] = carry;
 }
+//}}
 
-KERNEL(G_W) carryA(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
-  ENABLE_MUL2();
-  carryACore(1, in, A, out, carryOut, extras);
-}
-
-KERNEL(G_W) carryM(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
-  ENABLE_MUL2();
-  carryACore(3, in, A, out, carryOut, extras);
-}
+//== CARRYA NAME=carryA,DO_MUL3=0
+//== CARRYA NAME=carryM,DO_MUL3=1
 
 KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) extras) {
   u32 g  = get_group_id(0);
@@ -2164,13 +2180,11 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   for (i32 i = 0; i < NW; ++i) {
     invWeight = optionalDouble(invWeight);
     T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
-    wu[i] = unweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1),
-#if CF_MUL
-                             3,
+#if CF_MUL    
+    wu[i] = unweightAndCarryMul(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
 #else
-                             1,
+    wu[i] = unweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
 #endif
-                             0);
     invWeight *= IWEIGHT_BIGSTEP;
   }
 
