@@ -36,6 +36,9 @@ OLD_FFT10
 CARRY32	<AMD default>		// This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
 CARRY64 <nVidia default>
 
+CARRYM32 default to CARRY32
+CARRYM64 default to CARRY32
+
 ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
 
@@ -110,9 +113,11 @@ G_H        "group height"
 #if !CARRY32 && !CARRY64
 #if AMDGPU
 #define CARRY32 1
-#else
-#define CARRY64 1
 #endif
+#endif
+
+#if !CARRYM32 && !CARRYM64 && CARRY32
+#define CARRYM32 1
 #endif
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
@@ -418,7 +423,7 @@ T optionalHalve(T w) {
 // Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
 #define RNDVAL (3.0 * (1l << 51))
 
-i64 doubleToLong(double x) {
+i64 OVERLOAD doubleToLong(double x) {
 #if SLOW_DOUBLE_TO_LONG
   return rint(x);
 #else
@@ -433,13 +438,8 @@ i64 doubleToLong(double x) {
 }
 
 // For CARRY32 we don't mind pollution of this value with the double exponent bits
-i64 fastDoubleToLong(double x) {
-#if CARRY32
-  return as_long(x + RNDVAL);
-#else
-  return doubleToLong(x);
-#endif
-}
+i64 OVERLOAD doubleToLong(double x, i32* carryType) { return as_long(x + RNDVAL); }
+i64 OVERLOAD doubleToLong(double x, i64* carryType) { return doubleToLong(x); }
 
 #if CARRY32
 typedef i32 CFcarry;
@@ -447,62 +447,39 @@ typedef i32 CFcarry;
 typedef i64 CFcarry;
 #endif
 
-i32 OVERLOAD doCarrySmallOutput(i32 data, u32 nBits, Word a) { return (data - a) >> nBits; }
-i32 OVERLOAD doCarrySmallOutput(i64 data, u32 nBits, Word a) { return ((i32) (data >> nBits)) + (a < 0); }
+#if CARRYM32
+typedef i32 CFMcarry;
+#else
+typedef i64 CFMcarry;
+#endif
 
-Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, bool b1, bool b2) {
-  Word a = carryStep(fastDoubleToLong(u.x), outCarry, b1);
-  Word b = carryStep(fastDoubleToLong(u.y) + *outCarry, outCarry, b2);
+//{{ carries
+Word2 OVERLOAD unweightAndCarry(T2 u, CARRY *outCarry, bool b1, bool b2, u32 mul, CARRY inCarry) {
+  Word a = carryStep(mul * doubleToLong(u.x, outCarry) + inCarry, outCarry, b1);
+  Word b = carryStep(mul * doubleToLong(u.y, outCarry) + *outCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
-T2 CFcarryAndWeightFinal(Word2 u, CFcarry inCarry, T2 w, bool b1) {
-  // We hope the addition below won't overflow 32bits (on CARRY32).
+T2 OVERLOAD carryAndWeightFinal(Word2 u, CARRY inCarry, T2 w, bool b1) {
   i32 tmpCarry;
   u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
   u.y += tmpCarry;
   return U2(u.x, u.y) * w;
 }
+//}}
 
-typedef i64 CFMcarry;
+//== carries CARRY=i32
+//== carries CARRY=i64
 
-Word2 CFMunweightAndCarry(T2 u, CFMcarry *outCarry, bool b1, bool b2) {
-  Word a = carryStep(3 * doubleToLong(u.x), outCarry, b1);
-  Word b = carryStep(3 * doubleToLong(u.y) + *outCarry, outCarry, b2);
-  return (Word2) (a, b);
+// Carry propagation from word and carry.
+Word2 carryWord(Word2 a, i64* carry, bool b1, bool b2) {
+  a.x = carryStep(a.x + *carry, carry, b1);
+  a.y = carryStep(a.y + *carry, carry, b2);
+  return a;
 }
-
-T2 CFMcarryAndWeightFinal(Word2 u, CFMcarry carry, T2 w, bool b1) {
-  Word x = carryStep(u.x + carry, &carry, b1);
-  Word y = u.y + carry;
-  return U2(x, y) * w;
-}
-
-// These are the carry macros used in carryA / carryB.  These kernels should be upgraded to use
-// the more efficient carryFused macros above.
 
 // Propagate carry this many pairs of words.
 #define CARRY_LEN 16
-
-Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
-  Word a = carryStep(mul * doubleToLong(u.x * weight.x) + *carry, carry, isBigWord(extra));
-  Word b = carryStep(mul * doubleToLong(u.y * weight.y) + *carry, carry, isBigWord(reduce(extra + STEP)));
-  return (Word2) (a, b);
-}
-
-// No carry out. The final carry is "absorbed" in the last word.
-T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w, u32 extra) {
-  Word x = carryStep(u.x + carry, &carry, isBigWord(extra));
-  Word y = u.y + carry;
-  return U2(x, y) * w;
-}
-
-// Carry propagation from word and carry.
-Word2 carryWord(Word2 a, Carry *carry, u32 extra) {
-  a.x = carryStep(a.x + *carry, carry, isBigWord(extra));
-  a.y = carryStep(a.y + *carry, carry, isBigWord(reduce(extra + STEP)));
-  return a;
-}
 
 //
 // More miscellaneous macros
@@ -2075,7 +2052,9 @@ void carryACore(u32 mul, const global T2 *in, const global T2 *A, global Word2 *
   u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    out[p] = unweightAndCarryMul(mul, conjugate(in[p]), &carry, A[p], extra);
+    bool b1 = isBigWord(extra);
+    bool b2 = isBigWord(reduce(extra + STEP));
+    out[p] = unweightAndCarry(conjugate(in[p]) * A[p], &carry, b1, b2, mul, carry);
     extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
   carryOut[G_W * g + me] = carry;
@@ -2113,7 +2092,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) extras) {
   
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = i * WIDTH + me;
-    io[p] = carryWord(io[p], &carry, extra);
+    io[p] = carryWord(io[p], &carry, isBigWord(extra), isBigWord(reduce(extra + STEP)));
     if (!carry) { return; }
     extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
@@ -2185,11 +2164,13 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   for (i32 i = 0; i < NW; ++i) {
     invWeight = optionalDouble(invWeight);
     T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
+    wu[i] = unweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1),
 #if CF_MUL
-    wu[i] = CFMunweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1));
-#else    
-    wu[i] = CFunweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1));
+                             3,
+#else
+                             1,
 #endif
+                             0);
     invWeight *= IWEIGHT_BIGSTEP;
   }
 
@@ -2269,11 +2250,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
     weight = optionalHalve(weight);
     T weight2 = optionalHalve(weight * WEIGHT_STEP);
 
-#if CF_MUL
-    u[i] = CFMcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2 * i));
-#else
-    u[i] = CFcarryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2 * i));
-#endif
+    u[i] = carryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2 * i));
     weight *= WEIGHT_BIGSTEP;
   }
 
