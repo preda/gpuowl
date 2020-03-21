@@ -70,6 +70,8 @@ G_H        "group height"
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
 
+#define OVERLOAD __attribute__((overloadable))
+
 #if __OPENCL_VERSION__ < 200
 #pragma message "GpuOwl requires OpenCL 200, found " STR(__OPENCL_VERSION__)
 // #error OpenCL >= 2.0 required
@@ -222,9 +224,6 @@ G_H        "group height"
 #endif
 #endif
 
-
-
-
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
 #else
@@ -357,16 +356,24 @@ i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 #endif
 
-//
-// Macros used in carry propagation
-//
+Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
+  u32 nBits = bitlenx(isBigWord);
+  Word w = lowBits(x, nBits);
+  *outCarry = (x - w) >> nBits;
+  return w;
+}
 
-Word carryStep(Carry x, Carry *carry, bool bigWord) {
-  x += *carry;
-  u32 bits = bitlenx(bigWord);
-  Word w = lowBits(x, bits);
-  *carry = (x - w) >> bits;
-  // *carry = (x >> bits) + (w < 0);
+Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord) {
+  u32 nBits = bitlenx(isBigWord);
+  Word w = lowBits(x, nBits);
+  *outCarry = (x - w) >> nBits;
+  return w;
+}
+
+Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
+  u32 nBits = bitlenx(isBigWord);
+  Word w = lowBits(x, nBits);
+  *outCarry = ((i32) (x >> nBits)) + (w < 0);
   return w;
 }
 
@@ -416,7 +423,7 @@ i64 doubleToLong(double x) {
   return rint(x);
 #else
   // Extend the sign from the lower 51-bits.
-  // 51 bits (0 to 50) are clean. Bit 51 is affected by RNDVAL. Bit 52 of RNDVAL is not stored.
+  // The first 51 bits (0 to 50) are clean. Bit 51 is affected by RNDVAL. Bit 52 of RNDVAL is not stored.
   // Note: if needed, we can extend the range to 52 bits instead of 51 by taking the sign from the negation
   // of bit 51 (i.e. bit 51==1 means positive, bit 51==0 means negative).
   int2 data = as_int2(x + RNDVAL);
@@ -440,67 +447,35 @@ typedef i32 CFcarry;
 typedef i64 CFcarry;
 #endif
 
-CFcarry doCarry64(i64 data, u32 nBits, Word a) {
-#if CARRY32
-  return ((CFcarry) (data >> nBits)) + (a < 0); // on CARRY32 avoid the 64-bit addition
-#else
-  return (CFcarry) ((data - a) >> nBits);       // on CARRY64 the addition is 64-bit anyway
-#endif
-}
+i32 OVERLOAD doCarrySmallOutput(i32 data, u32 nBits, Word a) { return (data - a) >> nBits; }
+i32 OVERLOAD doCarrySmallOutput(i64 data, u32 nBits, Word a) { return ((i32) (data >> nBits)) + (a < 0); }
 
-CFcarry unsignedCarry64(i64 data, u32 nBits) { return data >> nBits; }
-
-i32 doCarry32(i32 data, u32 nBits, Word a) {
-#if 0
-  return (data >> nBits) + (a < 0);
-#else
-  return (data - a) >> nBits;
-#endif
-}
-
-Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, T2 weight, bool b1, bool b2) {
-  i64 data = fastDoubleToLong(u.x * weight.x);
-  u32 bits1 = bitlenx(b1);
-  
-#if 0
-  // Surprisingly, on ROCm 3.1 with CARRY64, although this branch should be faster, it is the other way around.
-  Word a = ulowBits(data, bits1);
-  data = fastDoubleToLong(u.y * weight.y) + unsignedCarry64(data, bits1);
-#else
-  Word a = lowBits(data, bits1);
-  data = fastDoubleToLong(u.y * weight.y) + doCarry64(data, bits1, a);
-#endif
-  
-  u32 bits2 = bitlenx(b2);
-  Word b = lowBits(data, bits2);
-  *outCarry = doCarry64(data, bits2, b);
+Word2 CFunweightAndCarry(T2 u, CFcarry *outCarry, bool b1, bool b2) {
+  Word a = carryStep(fastDoubleToLong(u.x), outCarry, b1);
+  Word b = carryStep(fastDoubleToLong(u.y) + *outCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
 T2 CFcarryAndWeightFinal(Word2 u, CFcarry inCarry, T2 w, bool b1) {
-  inCarry += u.x; // We hope this addition won't overflow 32bits (when CARRY32).
-  u32 bits1 = bitlenx(b1);
-  u.x = lowBits(inCarry, bits1);
-  u.y += doCarry32(inCarry, bits1, u.x);
-  return weight(u, w);
+  // We hope the addition below won't overflow 32bits (on CARRY32).
+  i32 tmpCarry;
+  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
+  u.y += tmpCarry;
+  return U2(u.x, u.y) * w;
 }
-
-// These are the carry macros used in carryFusedMul.  They are separate macros to later allow us to support
-// CARRY32 in carryFused and CARRY64 in carryFusedMul.
 
 typedef i64 CFMcarry;
 
-Word2 CFMunweightAndCarry(T2 u, CFMcarry *carry, T2 weight, bool b1, bool b2) {
-  *carry = 0;
-  Word a = carryStep(3 * doubleToLong(u.x * weight.x), carry, b1);
-  Word b = carryStep(3 * doubleToLong(u.y * weight.y), carry, b2);
+Word2 CFMunweightAndCarry(T2 u, CFMcarry *outCarry, bool b1, bool b2) {
+  Word a = carryStep(3 * doubleToLong(u.x), outCarry, b1);
+  Word b = carryStep(3 * doubleToLong(u.y) + *outCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
 T2 CFMcarryAndWeightFinal(Word2 u, CFMcarry carry, T2 w, bool b1) {
-  Word x = carryStep(u.x, &carry, b1);
+  Word x = carryStep(u.x + carry, &carry, b1);
   Word y = u.y + carry;
-  return weight((Word2) (x, y), w);
+  return U2(x, y) * w;
 }
 
 // These are the carry macros used in carryA / carryB.  These kernels should be upgraded to use
@@ -510,22 +485,22 @@ T2 CFMcarryAndWeightFinal(Word2 u, CFMcarry carry, T2 w, bool b1) {
 #define CARRY_LEN 16
 
 Word2 unweightAndCarryMul(u32 mul, T2 u, Carry *carry, T2 weight, u32 extra) {
-  Word a = carryStep(mul * doubleToLong(u.x * weight.x), carry, isBigWord(extra));
-  Word b = carryStep(mul * doubleToLong(u.y * weight.y), carry, isBigWord(reduce(extra + STEP)));
+  Word a = carryStep(mul * doubleToLong(u.x * weight.x) + *carry, carry, isBigWord(extra));
+  Word b = carryStep(mul * doubleToLong(u.y * weight.y) + *carry, carry, isBigWord(reduce(extra + STEP)));
   return (Word2) (a, b);
 }
 
 // No carry out. The final carry is "absorbed" in the last word.
 T2 carryAndWeightFinal(Word2 u, Carry carry, T2 w, u32 extra) {
-  Word x = carryStep(u.x, &carry, isBigWord(extra));
+  Word x = carryStep(u.x + carry, &carry, isBigWord(extra));
   Word y = u.y + carry;
-  return weight((Word2) (x, y), w);
+  return U2(x, y) * w;
 }
 
 // Carry propagation from word and carry.
 Word2 carryWord(Word2 a, Carry *carry, u32 extra) {
-  a.x = carryStep(a.x, carry, isBigWord(extra));
-  a.y = carryStep(a.y, carry, isBigWord(reduce(extra + STEP)));
+  a.x = carryStep(a.x + *carry, carry, isBigWord(extra));
+  a.y = carryStep(a.y + *carry, carry, isBigWord(reduce(extra + STEP)));
   return a;
 }
 
@@ -2211,9 +2186,9 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
     invWeight = optionalDouble(invWeight);
     T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
 #if CF_MUL
-    wu[i] = CFMunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2 * i), test(b, 2 * i + 1));
+    wu[i] = CFMunweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1));
 #else    
-    wu[i] = CFunweightAndCarry(conjugate(u[i]), &carry[i], U2(invWeight, invWeight2), test(b, 2 * i), test(b, 2 * i + 1));
+    wu[i] = CFunweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1));
 #endif
     invWeight *= IWEIGHT_BIGSTEP;
   }
