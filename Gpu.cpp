@@ -98,8 +98,9 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
     for (u32 col = 0; col < W; ++col) {
       for (u32 rep = 0; rep < 2; ++rep) {
         long double a = weight(N, E, H, line, col, rep);
-        aTab.push_back(a);
-        iTab.push_back(boundUnderOne(1 / a));
+        // Double the weight and inverse weight so that optionalHalve and optionalDouble can save one instruction
+        aTab.push_back(2.0 * a);
+        iTab.push_back(2.0 * boundUnderOne(1 / a));
       }
     }
   }
@@ -109,8 +110,10 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
   vector<double> groupWeights;
   for (u32 group = 0; group < H; ++group) {
-    groupWeights.push_back(boundUnderOne(invWeight(N, E, H, group, 0, 0)));
-    groupWeights.push_back(weight(N, E, H, group, 0, 0));
+    long double w = weight(N, E, H, group, 0, 0);
+    // Double the weight and inverse weight so that optionalHalve and optionalDouble can save one instruction
+    groupWeights.push_back(2.0 * boundUnderOne(1.0 / w));
+    groupWeights.push_back(2.0 * w);
   }
   
   vector<double> threadWeights;

@@ -366,20 +366,23 @@ u32 bfi(u32 u, u32 mask, u32 bits) {
 }
 
 double optionalDouble(double iw) {
-  // return iw <= 0.5 ? iw * 2 : iw;
-  
-  assert(iw > 0.25 && iw < 1);
+  // In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
+  // because it allows us to implement this routine with a single OR instruction on the exponent.   The original implementation
+  // where this routine took as input values from 0.25 to 1.0 required both an AND and an OR instruction on the exponent.
+  // return iw <= 1.0 ? iw * 2 : iw;
+  assert(iw > 0.5 && iw < 2);
   uint2 u = as_uint2(iw);
-  u.y = bfi(u.y, 0x000FFFFF, 0x3FE00000);
+  u.y |= 0x00100000;
   return as_double(u);
 }
 
-T optionalHalve(T w) {
-  // return w >= 2 ? w / 2 : w;
-
-  assert(w >= 1 && w < 4);
+T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
+  // In a straightforward implementation, weights are between 1.0 and 2.0.  We use weights between 2.0 and 4.0 because
+  // it allows us to implement this routine with a single AND instruction on the exponent.   The original implementation
+  // where this routine took as input values from 1.0 to 4.0 required both an AND and an OR instruction on the exponent.
+  assert(w >= 2 && w < 8);
   uint2 u = as_uint2(w);
-  u.y = bfi(u.y, 0x000FFFFF, 0x3FF00000);
+  u.y &= 0xFFEFFFFF;
   return as_double(u);
 }
 
@@ -2042,7 +2045,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul2(u, starty + my, startx + mx, 1.0 / (4 * NWORDS));
+  middleMul2(u, starty + my, startx + mx, 1.0 / (8 * (4 * NWORDS)));	// Compensate for weight and invweight being doubled
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
@@ -2808,8 +2811,29 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 KERNEL(256) testKernel(global double* io) {
   u32 me = get_local_id(0);
   double a = io[me];
-  double b = me;
-  double c = 4 * (a * a);
-  io[me] = c;
+
+
+  u32 b = me;
+  T2 u[NW];
+  Word2 wu[NW];
+  T2 weights;
+  u[0].x = io[132+me];
+  u[0].y = io[252+me];
+  weights.x = io[32+me];
+  weights.y = io[96+me];
+  T invWeight = weights.x;
+  CFcarry carry[NW];
+
+  invWeight = optionalDouble(invWeight);
+  T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
+  u32 i = 0;
+  wu[i] = unweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
+//    invWeight *= IWEIGHT_BIGSTEP;
+
+  io[me] = wu[i].x;
+  io[me+96] = wu[i].y;
+  io[me+196] = u[i].x;
+  io[me+296] = u[i].y;
+  io[me+396] = carry[i];
 }
 #endif
