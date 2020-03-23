@@ -365,6 +365,15 @@ u32 bfi(u32 u, u32 mask, u32 bits) {
 #endif
 }
 
+/*
+u32 and(u32 a, u32 b) {
+  // funky: use bfi with a zero
+  u32 out;
+  __asm("v_bfi_b32 %0, %1, %2, 0" : "=v"(out) : "v"(a), "v"(b));
+  return out;
+}
+*/
+
 double optionalDouble(double iw) {
   // In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
   // because it allows us to implement this routine with a single OR instruction on the exponent.   The original implementation
@@ -372,7 +381,8 @@ double optionalDouble(double iw) {
   // return iw <= 1.0 ? iw * 2 : iw;
   assert(iw > 0.5 && iw < 2);
   uint2 u = as_uint2(iw);
-  u.y |= 0x00100000;
+  // u.y |= 0x00100000;
+  u.y = bfi(u.y, 0xffefffff, 0x00100000);
   return as_double(u);
 }
 
@@ -382,7 +392,9 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
   // where this routine took as input values from 1.0 to 4.0 required both an AND and an OR instruction on the exponent.
   assert(w >= 2 && w < 8);
   uint2 u = as_uint2(w);
-  u.y &= 0xFFEFFFFF;
+  // u.y &= 0xFFEFFFFF;
+  // u.y = and(u.y, 0xffefffff);
+  u.y = bfi(u.y, 0xffefffff, 0);
   return as_double(u);
 }
 
