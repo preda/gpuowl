@@ -350,7 +350,7 @@ T2 mul_3t8(T2 a) { return U2(a.x - a.y, a.x + a.y) * - M_SQRT1_2; } // mul(a, U2
 T2 swap(T2 a) { return U2(a.y, a.x); }
 T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
-void bar() { barrier(CLK_LOCAL_MEM_FENCE); }
+void bar() { barrier(0); }
 
 T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
 
@@ -364,15 +364,6 @@ u32 bfi(u32 u, u32 mask, u32 bits) {
   return (u & mask) | bits;
 #endif
 }
-
-/*
-u32 and(u32 a, u32 b) {
-  // funky: use bfi with a zero
-  u32 out;
-  __asm("v_bfi_b32 %0, %1, %2, 0" : "=v"(out) : "v"(a), "v"(b));
-  return out;
-}
-*/
 
 double optionalDouble(double iw) {
   // In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
@@ -393,7 +384,6 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
   assert(w >= 2 && w < 8);
   uint2 u = as_uint2(w);
   // u.y &= 0xFFEFFFFF;
-  // u.y = and(u.y, 0xffefffff);
   u.y = bfi(u.y, 0xffefffff, 0);
   return as_double(u);
 }
