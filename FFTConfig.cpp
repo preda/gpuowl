@@ -20,7 +20,6 @@ FFTConfig::FFTConfig(u32 width, u32 height, u32 middle, bool isPm1) :
   maxExp(getMaxExp(fftSize, isPm1)) {
   assert(width == 256 || width  == 512 || width == 1024 || width == 2048 || width == 4096);
   assert(height == 256 || height == 512 || height == 1024 || height == 2048);
-  assert(middle == 3 || middle == 4 || middle == 5 || middle == 6 || middle == 7 || middle == 8 || middle == 9 || middle == 10 || middle == 11 || middle == 12);
 }
 
 u32 FFTConfig::getMaxExp(u32 fftSize, bool isPm1) {
@@ -33,7 +32,7 @@ vector<FFTConfig> FFTConfig::genConfigs(bool isPm1) {
   vector<FFTConfig> configs;
   for (u32 width : {256, 512, 1024, 2048, 4096}) {
     for (u32 height : {256, 512, 1024, 2048}) {
-      for (u32 middle : {/*3,*/ 4, /*5,*/ 6, 7, 8, 9, 10, 11, 12}) {
+      for (u32 middle : {1, /*3,*/ 4, /*5,*/ 6, 7, 8, 9, 10, 11, 12}) {
         configs.push_back(FFTConfig(width, height, middle, isPm1));
       }
     }

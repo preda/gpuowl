@@ -679,28 +679,6 @@ void fft3(T2 *u) {
   X2(u[1], u[2]);
 }
 
-// Operations needed to do a length 4 middle step
-// R1 = (r1+r3) +(r2+r4)
-// R3 = (r1+r3) -(r2+r4)
-// R2 = (r1-r3)           +(i2-i4)
-// R4 = (r1-r3)           -(i2-i4)
-
-// I1 = (i1+i3) +(i2+i4)
-// I3 = (i1+i3) -(i2+i4)
-// I2 = (i1-i3)           -(r2-r4)
-// I4 = (i1-i3)           +(r2-r4)
-
-void fft4mid(T2 *u) {
-  X2(u[0], u[2]);				// (r1+ i1+), (r1-  i1-)
-  X2_mul_t4(u[1], u[3]);			// (r2+ i2+), (i2- -r2-)
-
-  T2 tmp = u[0] - u[1];
-  u[0] = u[0] + u[1];
-  u[1] = u[2] + u[3];
-  u[3] = u[2] - u[3];
-  u[2] = tmp;
-}
-
 #if !NEWEST_FFT5 && !NEW_FFT5 && !OLD_FFT5
 #define NEW_FFT5 1
 #endif
@@ -1504,13 +1482,17 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
 }
 
 
+double2 origSlowTrig(i32 k, i32 n) {
+  double c;
+  double s = sincos(M_PI / n * k, &c);
+  return U2(c, -s);
+}
+
 #if ORIG_SLOWTRIG
 
 // Returns e^(-i * pi * k/n)
 double2 slowTrig(i32 k, i32 n) {
-  double c;
-  double s = sincos(M_PI / n * k, &c);
-  return U2(c, -s);
+  return origSlowTrig(k, n);
 }
 
 // Caller can use this version if caller knows that k/n <= 0.25
@@ -1638,11 +1620,15 @@ double2 slowTrig1(i32 k, i32 n) {
 
 // Macros that call slowTrig1 or slowTrig based on MIDDLE.  Larger MIDDLE values can lead to smaller k/n values.
 
-#if MIDDLE < 8
-#define slowTrigMid8	slowTrig
+double2 slowTrigMid8(i32 k, i32 n) {
+#if MIDDLE < 3
+  return origSlowTrig(k, n);
+#elif MIDDLE < 8
+  return slowTrig(k, n);
 #else
-#define slowTrigMid8	slowTrig1
+  return slowTrig1(k, n);
 #endif
+}
 
 // transpose LDS 64 x 64.
 void transposeLDS(local T *lds, T2 *u) {
@@ -1904,7 +1890,7 @@ void fft_MIDDLE(T2 *u) {
 #elif MIDDLE == 3
   fft3(u);
 #elif MIDDLE == 4
-  fft4mid(u);
+  fft4(u);
 #elif MIDDLE == 5
   fft5(u);
 #elif MIDDLE == 6
@@ -1930,6 +1916,7 @@ void fft_MIDDLE(T2 *u) {
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 void middleMul(T2 *u, u32 s) {
   assert(s < SMALL_HEIGHT);
+#if MIDDLE > 1
   T2 step = slowTrigMid8(s, BIG_HEIGHT / 2);
   u[1] = mul(u[1], step);
   T2 base = sq(step);
@@ -1937,6 +1924,7 @@ void middleMul(T2 *u, u32 s) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
+#endif
 }
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
