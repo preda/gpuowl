@@ -33,8 +33,8 @@ OLD_FFT10
 CARRY32	<AMD default>		// This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
 CARRY64 <nVidia default>
 
-CARRYM32 default to CARRY32
-CARRYM64 default to CARRY32
+CARRYM32
+CARRYM64 <default>
 
 ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
@@ -113,8 +113,8 @@ G_H        "group height"
 #endif
 #endif
 
-#if !CARRYM32 && !CARRYM64 && CARRY32
-#define CARRYM32 1
+#if !CARRYM32 && !CARRYM64
+#define CARRYM64 1
 #endif
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
@@ -1658,8 +1658,7 @@ double2 slowTrig1(i32 k, i32 n) {
 #error No slowTrig defined  
 #endif
 
-// Macros that call slowTrig1 or slowTrig based on MIDDLE.  Larger MIDDLE values can lead to smaller k/n values.
-
+// call slowTrig1 or slowTrig based on MIDDLE. Larger MIDDLE values can lead to smaller k/n values.
 double2 slowTrigMid8(i32 k, i32 n) {
 #if MIDDLE < 3
   return origSlowTrig(k, n);
