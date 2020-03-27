@@ -159,11 +159,9 @@ G_H        "group height"
 #endif
 
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
-#if PM1
-#define ORIG_SLOWTRIG 1
-#else
 #define NEW_SLOWTRIG 1
-#endif
+#else
+#define ORIG_SLOWTRIG 1
 #endif
 
 // 5M timings for MiddleOut & carryFused, ROCm 2.10, RadeonVII, sclk4, mem 1200
@@ -268,49 +266,14 @@ typedef i32 Word;
 typedef int2 Word2;
 typedef i64 Carry;
 
-T mad1(T x, T y, T z) { return x * y + z; } // return __builtin_fma(x, y, z);
-
 T2 U2(T a, T b) { return (T2)(a, b); }
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
-// bool test(u32 bits, u32 pos) { return bits & (1 << pos); }
 
 #define STEP (NWORDS - (EXP % NWORDS))
 bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
 u32 bitlen(bool b) { return EXP / NWORDS + b; }
 u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
-
-// complex mul
-T2 mul(T2 a, T2 b) { return U2(mad1(a.x, b.x, -a.y * b.y), mad1(a.x, b.y, a.y * b.x)); }
-
-T mad1_m2(T a, T b, T c) {
-#if !NO_OMOD
-  __asm("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (a) : "v" (a), "v" (b), "v" (c));
-  return a;
-#else
-  return 2 * mad1(a, b, c);
-#endif
-}
-
-// complex fma * 2
-T2 mad_m2(T2 a, T2 b, T2 c) {
-  return U2(mad1_m2(a.x, b.x, mad1(a.y, -b.y, c.x)), mad1_m2(a.x, b.y, mad1(a.y, b.x, c.y)));
-}
-
-
-// complex mul * 4
-T2 mul_m4(T2 a, T2 b) {
-#if !NO_OMOD
-  T axbx = a.x * b.x;
-  T axby = a.x * b.y;
-  T2 tmp;
-  __asm("v_fma_f64 %0, %1, -%2, %3 mul:4" : "=v" (tmp.x) : "v" (a.y), "v" (b.y), "v" (axbx));
-  __asm("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (tmp.y) : "v" (a.y), "v" (b.x), "v" (axby));
-  return tmp;
-#else
-  return 4 * mul(a, b);
-#endif
-}
 
 T add1_m2(T x, T y) {
 #if !NO_OMOD
@@ -322,13 +285,15 @@ T add1_m2(T x, T y) {
 #endif
 }
 
-// complex add * 2
-T2 add_m2(T2 a, T2 b) {
-  return U2(add1_m2(a.x, b.x), add1_m2(a.y, b.y));
+T sub1_m2(T x, T y) {
+#if !NO_OMOD
+  T tmp;
+   __asm("v_add_f64 %0, %1, -%2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
+   return tmp;
+#else
+   return 2 * (x - y);
+#endif
 }
-
-// x^2 - y^2
-T diffsq(T x, T y) { return mad1(x, x, - y * y); } // worse: (x + y) * (x - y)
 
 // x * y * 2
 T mul1_m2(T x, T y) {
@@ -341,7 +306,67 @@ T mul1_m2(T x, T y) {
 #endif
 }
 
-T2 sq(T2 a) { return U2(diffsq(a.x, a.y), mul1_m2(a.x, a.y)); }
+T mad1(T x, T y, T z) { return x * y + z; } // return __builtin_fma(x, y, z);
+T msb1(T x, T y, T z) { return x * y - z; } // return __builtin_fma(x, y, -z);
+
+T mad1_m2(T a, T b, T c) {
+#if !NO_OMOD
+  __asm("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (a) : "v" (a), "v" (b), "v" (c));
+  return a;
+#else
+  return 2 * mad1(a, b, c);
+#endif
+}
+
+T msb1_m2(T a, T b, T c) {
+#if !NO_OMOD
+  __asm("v_fma_f64 %0, %1, %2, -%3 mul:2" : "=v" (a) : "v" (a), "v" (b), "v" (c));
+  return a;
+#else
+  return 2 * mad1(a, b, -c);
+#endif
+}
+
+T mad1_m4(T a, T b, T c) {
+#if !NO_OMOD
+  __asm("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (a) : "v" (a), "v" (b), "v" (c));
+  return a;
+#else
+  return 4 * mad1(a, b, c);
+#endif
+}
+
+T msb1_m4(T a, T b, T c) {
+#if !NO_OMOD
+  __asm("v_fma_f64 %0, %1, %2, -%3 mul:4" : "=v" (a) : "v" (a), "v" (b), "v" (c));
+  return a;
+#else
+  return 4 * mad1(a, b, -c);
+#endif
+}
+
+
+// complex add * 2
+T2 add_m2(T2 a, T2 b) { return U2(add1_m2(a.x, b.x), add1_m2(a.y, b.y)); }
+
+// complex square
+T2 sq(T2 a) { return U2(msb1(a.x, a.x, a.y * a.y), mul1_m2(a.x, a.y)); }
+
+// complex mul
+T2 mul(T2 a, T2 b) { return U2(msb1(a.x, b.x, a.y * b.y), mad1(a.x, b.y, a.y * b.x)); }
+
+// complex mul * 2
+T2 mul_m2(T2 a, T2 b) { return U2(msb1_m2(a.x, b.x, a.y * b.y), mad1_m2(a.x, b.y, a.y * b.x)); }
+
+// complex mul * 4
+T2 mul_m4(T2 a, T2 b) { return U2(msb1_m4(a.x, b.x, a.y * b.y), mad1_m4(a.x, b.y, a.y * b.x)); }
+
+// complex fma
+T2 mad_m1(T2 a, T2 b, T2 c) { return U2(mad1(a.x, b.x, mad1(a.y, -b.y, c.x)), mad1(a.x, b.y, mad1(a.y, b.x, c.y))); }
+
+// complex fma * 2
+T2 mad_m2(T2 a, T2 b, T2 c) { return U2(mad1_m2(a.x, b.x, mad1(a.y, -b.y, c.x)), mad1_m2(a.x, b.y, mad1(a.y, b.x, c.y))); }
+
 
 T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
 T2 mul_t8(T2 a)  { return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
@@ -407,13 +432,36 @@ u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 // Top 32-bits of RNDVAL
 #define TOPVAL (0x43380000)
 
+// Check for round off errors above a threshold (default is 0.43)
+void ROUNDOFF_CHECK(double x) {
+#if DEBUG
+#ifndef ROUNDOFF_LIMIT
+#define ROUNDOFF_LIMIT 0.43
+#endif
+  double error = fabs(x - rint(x));
+  if (error > ROUNDOFF_LIMIT) printf("Roundoff: %g\n", error);
+#endif
+}
+
+// Check for 32-bit carry nearing the limit (default is 0x7C000000)
+void CARRY32_CHECK(i32 x) {
+#if DEBUG
+#ifndef CARRY32_LIMIT
+#define CARRY32_LIMIT 0x7C000000
+#endif
+  if (abs(x) > CARRY32_LIMIT) printf("Carry32: %X\n", abs(x));
+#endif
+}
+
 // For CARRY32 we don't mind pollution of this value with the double exponent bits
 i64 OVERLOAD doubleToLong(double x, i32 inCarry) {
+  ROUNDOFF_CHECK(x);
   return as_long(x + as_double((int2) (inCarry, TOPVAL - (inCarry < 0))));
   // as_long(RNDVAL) + inCarry
 }
 
 i64 OVERLOAD doubleToLong(double x, i64 inCarry) {
+  ROUNDOFF_CHECK(x);
   int2 tmp = as_int2(inCarry);
   tmp.y += TOPVAL;
   double d = x + as_double(tmp);
@@ -439,6 +487,7 @@ Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
   Word w = lowBits(x, nBits);
   *outCarry = (x - w) >> nBits;
+  CARRY32_CHECK(*outCarry);
   return w;
 }
 
@@ -452,6 +501,7 @@ Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
 #else
   *outCarry = ((i32) (x >> nBits)) + (w < 0);
 #endif
+  CARRY32_CHECK(*outCarry);
   return w;
 }
 
@@ -506,7 +556,7 @@ Word2 carryWord(Word2 a, i64* carry, bool b1, bool b2) {
 //
 
 T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
-T2 addsub_m2(T2 a) { return U2(add1_m2(a.x, a.y), add1_m2(a.x, -a.y)); }
+T2 addsub_m2(T2 a) { return U2(add1_m2(a.x, a.y), sub1_m2(a.x, a.y)); }
 
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 T2 foo2(T2 a, T2 b) {
@@ -515,15 +565,15 @@ T2 foo2(T2 a, T2 b) {
   return addsub(U2(a.x * b.x, a.y * b.y));
 }
 
-T2 foo2_m4(T2 a, T2 b) {
-  a = addsub_m2(a);
-  b = addsub_m2(b);
-  return addsub(U2(a.x * b.x, a.y * b.y));
+T2 foo2_m2(T2 a, T2 b) {
+  a = addsub(a);
+  b = addsub(b);
+  return addsub_m2(U2(a.x * b.x, a.y * b.y));
 }
 
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 T2 foo(T2 a) { return foo2(a, a); }
-T2 foo_m4(T2 a) { return foo2_m4(a, a); }
+T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
 #if !ORIG_X2 && !INLINE_X2
 #if HAS_ASM
@@ -538,6 +588,12 @@ T2 foo_m4(T2 a) { return foo2_m4(a, a); }
 // definition rather than the alternate definition.
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
 
+// Same as X2conjb(a, conjugate(b))
+#define X2conjb(a, b) { T2 t = a; a.x = a.x + b.x; a.y = a.y - b.y; b.x = t.x - b.x; b.y = t.y + b.y; }
+
+// Same as X2conja(a, b), a = conjugate(a)
+#define X2conja(a, b) { T2 t = a; a.x = a.x + b.x; a.y = -a.y - b.y; b = t - b; }
+
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
 
@@ -545,6 +601,19 @@ T2 foo_m4(T2 a) { return foo2_m4(a, a); }
 // Here's hoping the inline asm tricks rocm into not generating extra f64 ops.
 #define X2(a, b) { \
 	T2 t = a; a = t + b; \
+	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
+	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
+	}
+
+#define X2conjb(a, b) { \
+	T2 t = a; a.x = a.x + b.x; a.y = a.y - b.y; \
+	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
+	__asm( "v_add_f64 %0, %1, %2" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
+	}
+
+#define X2conja(a, b) { \
+	T2 t = a; a.x = a.x + b.x; \
+	__asm( "v_add_f64 %0, -%1, -%2" : "=v" (a.y) : "v" (a.y), "v" (b.y)); \
 	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
 	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
 	}
@@ -2035,7 +2104,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul2(u, starty + my, startx + mx, 1.0 / (8 * (4 * NWORDS)));	// Compensate for weight and invweight being doubled
+  middleMul2(u, starty + my, startx + mx, 1.0 / (4 * (4 * NWORDS)));	// Compensate for weight and invweight being doubled
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
@@ -2154,22 +2223,23 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   u32 b = bits[G_W / 2 * line + me / 2];
   b = b >> ((me & 1) * 16);
 #endif
-  
+
   ENABLE_MUL2();
   fft_WIDTH(lds, u, smallTrig);
 
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
-  P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
   Word2 wu[NW];
   T2 weights = groupWeights[line] * threadWeights[me];
   T invWeight = weights.x;
 #if CF_MUL
-  CFMcarry carry[NW];
+  P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
+  CFMcarry carry[NW+1];
 #else
-  CFcarry carry[NW];
+  P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
+  CFcarry carry[NW+1];
 #endif
-  
+
   for (i32 i = 0; i < NW; ++i) {
     invWeight = optionalDouble(invWeight);
     T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
@@ -2240,9 +2310,9 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
     }
     if (me == 0) {
-      CFcarry tmp = carry[NW-1];
+      carry[NW] = carry[NW-1];
       for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
-      carry[0] = tmp;
+      carry[0] = carry[NW];
     }
   } else {
     // This is unreachable because 'gr' is in range [1 .. H], so one of the previous branches must have been taken
@@ -2284,110 +2354,7 @@ KERNEL(256) transposeIn(P(Word2) out, CP(Word2) in) {
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
-KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
-
-  ENABLE_MUL2();
-
-  u32 me = get_local_id(0);
-  u32 line1 = get_group_id(0);
-  u32 line2 = (H - line1) % H;
-  u32 g1 = transPos(line1, MIDDLE, WIDTH);
-  u32 g2 = transPos(line2, MIDDLE, WIDTH);
-
-  T2 base = slowTrig(me * H + line1, W * H);
-  T2 step = slowTrig1(1, 8);
-  
-  for (u32 i = 0; i < 4; ++i, base = mul(base, step)) {
-    if (i == 0 && line1 == 0 && me == 0) {
-      out[0]     = foo_m4(conjugate(in[0]));
-      out[W / 2] = 8 * sq(conjugate(in[W / 2]));
-    } else {
-      u32 k = g1 * W + i * (W / 8) + me;
-      u32 v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
-      T2 a = in[k];
-      T2 b = conjugate(in[v]);
-      T2 t = swap(base);
-      X2(a, b);
-      b = mul(b, conjugate(t));
-      X2(a, b);
-      a = sq(a);
-      b = sq(b);
-      X2(a, b);
-      b = mul(b, t);
-      X2(a, b);
-      out[k] = conjugate(a);
-      out[v] = b;
-    }
-  }
-}
-
-//{{ MULTIPLY
-KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
-
-  ENABLE_MUL2();
-
-  u32 line1 = get_group_id(0);
-  u32 me = get_local_id(0);
-
-  if (line1 == 0 && me == 0) {
-#if MULTIPLY_DELTA
-    io[0]     = foo2_m4(cojugate(io[0]), conjugate(inA[0] - inB[0]));
-    io[W / 2] = 8 * conjugate(mul(io[W / 2], inA[W / 2] - inB[W / 2]));
-#else
-    io[0]     = foo2_m4(conjugate(io[0]), conjugate(in[0]));
-    io[W / 2] = 8 * conjugate(mul(io[W / 2], in[W / 2]));
-#endif
-    return;
-  }
-
-  u32 line2 = (H - line1) % H;
-  u32 g1 = transPos(line1, MIDDLE, WIDTH);
-  u32 g2 = transPos(line2, MIDDLE, WIDTH);
-  u32 k = g1 * W + me;
-  u32 v = g2 * W + (W - 1) - me + (line1 == 0);
-  T2 a = io[k];
-  T2 b = conjugate(io[v]);
-  T2 t = swap(slowTrig(me * H + line1, W * H));
-  X2(a, b);
-  b = mul(b, conjugate(t));
-  X2(a, b);
-
-#if MULTIPLY_DELTA
-  T2 c = inA[k] - inB[k];
-  T2 d = conjugate(inA[v] - inB[v]);
-#else
-  T2 c = in[k];
-  T2 d = conjugate(in[v]);
-#endif
-  
-  X2(c, d);
-  d = mul(d, conjugate(t));
-  X2(c, d);
-
-  a = mul(a, c);
-  b = mul(b, d);
-
-  X2(a, b);
-  b = mul(b, t);
-  X2(a, b);
-
-  io[k] = conjugate(a);
-  io[v] = b;
-}
-//}}
-
-//== MULTIPLY NAME=multiply, MULTIPLY_DELTA=0
-
-#if NO_P2_FUSED_TAIL
-//== MULTIPLY NAME=multiplyDelta, MULTIPLY_DELTA=1
-#endif
-
-
-// tailFused below
+// For use in tailFused below
 
 void reverse(u32 WG, local T2 *lds, T2 *u, bool bump) {
   u32 me = get_local_id(0);
@@ -2430,13 +2397,11 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
 #endif
 }
 
-// This implementation takes better advantage of the AMD OMOD (output modifier) feature.
-// NOTE:  For other GPUs we should change this routine and onePairMul and the special line 0 cases to
-// return the proper result divided by 2.  This saves a multiply or two.  It requires a small adjustment
-// in the inverse weights at set up.
+// This implementation compared to the original version that is no longer included in this file takes
+// better advantage of the AMD OMOD (output modifier) feature.
 //
 // Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
-// Now consider these lines from the implementation above (comments appear alongside):
+// Now consider these lines from the original implementation (comments appear alongside):
 //      b = mul_by_conjugate(b, t); 			bt'
 //      X2(a, b);					a + bt', a - bt'
 //      a = sq(a);					a^2 + 2abt' + (bt')^2
@@ -2444,18 +2409,18 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
 //      X2(a, b);					2a^2 + 2(bt')^2, 4abt'
 //      b = mul(b, t);					                 4ab
 // Original code is 2 complex muls, 2 complex squares, 4 complex adds
-// New code is 2 complex squares, 2 complex muls, 1 complex adds PLUS a complex-mul-by-2 and a complex-mul-by-4
-// NOTE: the new code works just as well if the t value is squared already, but the code that calls onePairSq can
-// save a mul_t8 instruction by dealing with squared t values.
+// New code is 2 complex squares, 2 complex muls, 1 complex add PLUS a complex-mul-by-2 and a complex-mul-by-4
+// NOTE:  We actually, return the result divided by 2 so that our cost for the above is
+// reduced to 2 complex squares, 2 complex muls, 1 complex add PLUS a complex-mul-by-2
+// ALSO NOTE: the new code works just as well if the input t value is pre-squared, but the code that calls
+// onePairSq can save a mul_t8 instruction by dealing with squared t values.
 
 #define onePairSq(a, b, conjugate_t_squared) {\
-  b = conjugate(b); \
-  X2(a, b); \
+  X2conjb(a, b); \
   T2 b2 = sq(b); \
-  b = mul_m4(a, b); \
-  a = mad_m2(b2, conjugate_t_squared, sq(a)); \
-  X2(a, b); \
-  a = conjugate(a); \
+  b = mul_m2(a, b); \
+  a = mad_m1(b2, conjugate_t_squared, sq(a)); \
+  X2conja(a, b); \
 }
 
 // From original code t = swap(base) and we need sq(conjugate(t)).  This macro computes sq(conjugate(t)) from base^2.
@@ -2465,107 +2430,32 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   u32 me = get_local_id(0);
 
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
-    T2 a = u[i];
-    T2 b = v[i];
     if (special && i == 0 && me == 0) {
-      a = foo_m4(conjugate(a));
-      b = 8 * sq(conjugate(b));
+      u[i] = foo_m2(conjugate(u[i]));
+      v[i] = 4 * sq(conjugate(v[i]));
     } else {
-      onePairSq(a, b, swap_squared(base_squared));
+      onePairSq(u[i], v[i], swap_squared(base_squared));
     }
-    u[i] = a;
-    v[i] = b;
 
     if (N == NH) {
-	a = u[i+NH/2];
-	b = v[i+NH/2];
-	onePairSq(a, b, swap_squared(-base_squared));
-	u[i+NH/2] = a;
-	v[i+NH/2] = b;
+      onePairSq(u[i+NH/2], v[i+NH/2], swap_squared(-base_squared));
     }
 
-    a = u[i+NH/4];
-    b = v[i+NH/4];
     T2 new_base_squared = mul(base_squared, U2(0, -1));
-    onePairSq(a, b, swap_squared(new_base_squared));
-    u[i+NH/4] = a;
-    v[i+NH/4] = b;
+    onePairSq(u[i+NH/4], v[i+NH/4], swap_squared(new_base_squared));
 
     if (N == NH) {
-	a = u[i+3*NH/4];
-	b = v[i+3*NH/4];
-	onePairSq(a, b, swap_squared(-new_base_squared));
-	u[i+3*NH/4] = a;
-	v[i+3*NH/4] = b;
+      onePairSq(u[i+3*NH/4], v[i+3*NH/4], swap_squared(-new_base_squared));
     }
   }
 }
 
 
-// Original pairMul implementation
-
-#ifdef ORIG_PAIRMUL
-
-void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
-  u32 me = get_local_id(0);
-
-  T2 step = slowTrig1(1, NH);
-  
-  for (i32 i = 0; i < N; ++i, base = mul(base, step)) {
-    T2 a = u[i];
-    T2 b = conjugate(v[i]);
-    T2 c = p[i];
-    T2 d = conjugate(q[i]);
-    T2 t = swap(base);
-    if (special && i == 0 && me == 0) {
-      a = foo2_m4(a, c);
-      b = 8 * mul(b, d);
-    } else {
-      X2(a, b);
-      b = mul(b, conjugate(t));
-      X2(a, b);
-      X2(c, d);
-      d = mul(d, conjugate(t));
-      X2(c, d);
-      a = mul(a, c);
-      b = mul(b, d);
-      X2(a, b);
-      b = mul(b, t);
-      X2(a, b);
-    }
-    u[i] = conjugate(a);
-    v[i] = b;
-  }
-}
-
-#else
-
-// Better pairMul.  Reduces complex muls in base calculations and improves roundoff error
-
-#define onePairMul(a, b, c, d, t) { \
-      b = conjugate(b); \
-      X2(a, b); \
-      b = mul_by_conjugate(b, t); \
-      X2(a, b); \
-      d = conjugate(d); \
-      X2(c, d); \
-      d = mul_by_conjugate(d, t); \
-      X2(c, d); \
-      a = mul(a, c); \
-      b = mul(b, d); \
-      X2(a, b); \
-      b = mul(b, t); \
-      X2(a, b); \
-      a = conjugate(a); \
-}
-
-// *********** IMPLEMENT THIS! ***************
-// An alternate implementation takes better advantage of the AMD OMOD (output modifier) feature.
-// NOTE:  For other GPUs we should change this routine to return the proper result divided by 2.
-// This saves a multiply or two.  It requires a small adjustment in the inverse weights at set up.
+// This implementation compared to the original version that is no longer included in this file takes
+// better advantage of the AMD OMOD (output modifier) feature.
 //
 // Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
-// Now consider these lines from the implementation above (comments appear alongside):
+// Now consider these lines from the original implementation (comments appear alongside):
 //      b = mul_by_conjugate(b, t); 
 //      X2(a, b);					a + bt', a - bt'
 //      d = mul_by_conjugate(d, t); 
@@ -2576,67 +2466,122 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
 //      b = mul(b, t);					                2bc + 2ad
 // Original code is 5 complex muls, 6 complex adds
 // New code is 5 complex muls, 1 complex square, 2 complex adds PLUS two complex-mul-by-2
-// NOTE: the new code can be improved further (saves a complex squaring) if the t value is squared already, plus the
-// caller saves a mul_t8 instruction by dealing with squared t values!!!
+// NOTE:  We actually, return the original result divided by 2 so that our cost for the above is
+// reduced to 5 complex muls, 1 complex square, 2 complex adds
+// ALSO NOTE: the new code can be improved further (saves a complex squaring) if the t value is squared already,
+// plus the caller saves a mul_t8 instruction by dealing with squared t values!
 
-void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base, bool special) {
+#define onePairMul(a, b, c, d, conjugate_t_squared) { \
+      X2conjb(a, b); \
+      X2conjb(c, d); \
+      { T2 tmp = mad_m1(a, c, mul(mul(b, d), conjugate_t_squared)); \
+        b = mad_m1(b, c, mul(a, d)); \
+        a = tmp; } \
+      X2conja(a, b); \
+}
+
+void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   u32 me = get_local_id(0);
 
-  T2 step = slowTrig1(1, NH);
-  
-  for (i32 i = 0; i < NH / 4; ++i, base = mul(base, step)) {
-    T2 a = u[i];
-    T2 b = v[i];
-    T2 c = p[i];
-    T2 d = q[i];
-    T2 t = swap(base);
+  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
-      b = conjugate(b);
-      d = conjugate(d);
-      a = foo2_m4(a, c);
-      b = 8 * mul(b, d);
-      a = conjugate(a);
+      u[i] = conjugate(foo2_m2(u[i], p[i]));
+      v[i] = mul_m4(conjugate(v[i]), conjugate(q[i]));
     } else {
-      onePairMul(a, b, c, d, t);
-    }
-    u[i] = a;
-    v[i] = b;
-
-    if (N == NH) {
-	a = u[i+NH/2];
-	b = v[i+NH/2];
-	c = p[i+NH/2];
-	d = q[i+NH/2];
-	t = swap(mul (base, U2(0, -1)));    
-	onePairMul(a, b, c, d, t);
-	u[i+NH/2] = a;
-	v[i+NH/2] = b;
+      onePairMul(u[i], v[i], p[i], q[i], swap_squared(base_squared));
     }
 
-    a = u[i+NH/4];
-    b = v[i+NH/4];
-    c = p[i+NH/4];
-    d = q[i+NH/4];
-    T2 new_base = mul_t8 (base);
-    t = swap (new_base);
-    onePairMul(a, b, c, d, t);
-    u[i+NH/4] = a;
-    v[i+NH/4] = b;
+    if (N == NH) {
+      onePairMul(u[i+NH/2], v[i+NH/2], p[i+NH/2], q[i+NH/2], swap_squared(-base_squared));
+    }
+
+    T2 new_base_squared = mul(base_squared, U2(0, -1));
+    onePairMul(u[i+NH/4], v[i+NH/4], p[i+NH/4], q[i+NH/4], swap_squared(new_base_squared));
 
     if (N == NH) {
-	a = u[i+3*NH/4];
-	b = v[i+3*NH/4];
-	c = p[i+3*NH/4];
-	d = q[i+3*NH/4];
-	t = swap(mul (new_base, U2(0, -1)));
-	onePairMul(a, b, c, d, t);
-	u[i+3*NH/4] = a;
-	v[i+3*NH/4] = b;
+      onePairMul(u[i+3*NH/4], v[i+3*NH/4], p[i+3*NH/4], q[i+3*NH/4], swap_squared(-new_base_squared));
     }
   }
 }
 
+KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
+  u32 W = SMALL_HEIGHT;
+  u32 H = ND / W;
+
+  ENABLE_MUL2();
+
+  u32 me = get_local_id(0);
+  u32 line1 = get_group_id(0);
+  u32 line2 = (H - line1) % H;
+  u32 g1 = transPos(line1, MIDDLE, WIDTH);
+  u32 g2 = transPos(line2, MIDDLE, WIDTH);
+
+  T2 base_squared = slowTrig(me * H + line1, W * H / 2);
+  T2 step = slowTrig1(1, 4);
+  
+  for (u32 i = 0; i < 4; ++i, base_squared = mul(base_squared, step)) {
+    if (i == 0 && line1 == 0 && me == 0) {
+      out[0]     = foo_m2(conjugate(in[0]));
+      out[W / 2] = 4 * sq(conjugate(in[W / 2]));
+    } else {
+      u32 k = g1 * W + i * (W / 8) + me;
+      u32 v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
+      T2 a = in[k];
+      T2 b = in[v];
+      onePairSq(a, b, swap_squared(base_squared));
+      out[k] = a;
+      out[v] = b;
+    }
+  }
+}
+
+//{{ MULTIPLY
+KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
+  u32 W = SMALL_HEIGHT;
+  u32 H = ND / W;
+
+  ENABLE_MUL2();
+
+  u32 line1 = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  if (line1 == 0 && me == 0) {
+#if MULTIPLY_DELTA
+    io[0]     = foo2_m2(conjugate(io[0]), conjugate(inA[0] - inB[0]));
+    io[W / 2] = conjugate(mul_m4(io[W / 2], inA[W / 2] - inB[W / 2]));
+#else
+    io[0]     = foo2_m2(conjugate(io[0]), conjugate(in[0]));
+    io[W / 2] = conjugate(mul_m4(io[W / 2], in[W / 2]));
 #endif
+    return;
+  }
+
+  u32 line2 = (H - line1) % H;
+  u32 g1 = transPos(line1, MIDDLE, WIDTH);
+  u32 g2 = transPos(line2, MIDDLE, WIDTH);
+  u32 k = g1 * W + me;
+  u32 v = g2 * W + (W - 1) - me + (line1 == 0);
+  T2 a = io[k];
+  T2 b = io[v];
+#if MULTIPLY_DELTA
+  T2 c = inA[k] - inB[k];
+  T2 d = inA[v] - inB[v];
+#else
+  T2 c = in[k];
+  T2 d = in[v];
+#endif
+  onePairMul(a, b, c, d, swap_squared(slowTrig(me * H + line1, W * H / 2)));
+  io[k] = a;
+  io[v] = b;
+}
+//}}
+
+//== MULTIPLY NAME=multiply, MULTIPLY_DELTA=0
+
+#if NO_P2_FUSED_TAIL
+//== MULTIPLY NAME=multiplyDelta, MULTIPLY_DELTA=1
+#endif
+
 
 //{{ TAIL_SQUARE
 KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
@@ -2762,19 +2707,19 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   if (line1 == 0) {
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W), true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W / 2), true);
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
 
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
-    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, 2 * W), false);
+    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, W), false);
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H), false);
+    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H / 2), false);
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }
