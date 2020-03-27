@@ -11,9 +11,6 @@ NO_OMOD: do not use GCN output modifiers in __asm()
 OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
 IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 but needs testing>
 
-ORIG_X2   <nVidia default>
-INLINE_X2 <AMD default>
-
 UNROLL_ALL <nVidia default>
 UNROLL_NONE
 UNROLL_WIDTH
@@ -160,8 +157,6 @@ G_H        "group height"
 
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
 #define NEW_SLOWTRIG 1
-#else
-#define ORIG_SLOWTRIG 1
 #endif
 
 // 5M timings for MiddleOut & carryFused, ROCm 2.10, RadeonVII, sclk4, mem 1200
@@ -285,6 +280,16 @@ T add1_m2(T x, T y) {
 #endif
 }
 
+T sub1(T x, T y) {
+#if !NO_OMOD
+  T tmp;
+   __asm("v_add_f64 %0, %1, -%2" : "=v" (tmp) : "v" (x), "v" (y));
+   return tmp;
+#else
+   return x - y;
+#endif  
+}
+
 T sub1_m2(T x, T y) {
 #if !NO_OMOD
   T tmp;
@@ -302,12 +307,11 @@ T mul1_m2(T x, T y) {
   __asm("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
   return tmp;
 #else
-  return 2 * x * y;
+  return x * y * 2;
 #endif
 }
 
-T mad1(T x, T y, T z) { return x * y + z; } // return __builtin_fma(x, y, z);
-T msb1(T x, T y, T z) { return x * y - z; } // return __builtin_fma(x, y, -z);
+T mad1(T x, T y, T z) { return x * y + z; }
 
 T mad1_m2(T a, T b, T c) {
 #if !NO_OMOD
@@ -350,10 +354,10 @@ T msb1_m4(T a, T b, T c) {
 T2 add_m2(T2 a, T2 b) { return U2(add1_m2(a.x, b.x), add1_m2(a.y, b.y)); }
 
 // complex square
-T2 sq(T2 a) { return U2(msb1(a.x, a.x, a.y * a.y), mul1_m2(a.x, a.y)); }
+T2 sq(T2 a) { return U2(mad1(a.x, a.x, - a.y * a.y), mul1_m2(a.x, a.y)); }
 
 // complex mul
-T2 mul(T2 a, T2 b) { return U2(msb1(a.x, b.x, a.y * b.y), mad1(a.x, b.y, a.y * b.x)); }
+T2 mul(T2 a, T2 b) { return U2(mad1(a.x, b.x, - a.y * b.y), mad1(a.x, b.y, a.y * b.x)); }
 
 // complex mul * 2
 T2 mul_m2(T2 a, T2 b) { return U2(msb1_m2(a.x, b.x, a.y * b.y), mad1_m2(a.x, b.y, a.y * b.x)); }
@@ -583,50 +587,17 @@ T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 #endif
 #endif
 
-#if ORIG_X2
-// Rocm 2.4 is not generating good code with this simple original X2.  Should rocm ever be fixed, we should use this X2
-// definition rather than the alternate definition.
-#define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
+// Same as X2(a, b), b = mul_t4(b)
+#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = sub1(b.x, t.x); b.x = sub1(t.y, b.y); b.y = t.x; }
 
-// Same as X2conjb(a, conjugate(b))
+#define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
+// { T2 t = a; a = t + b; b.x = sub1(t.x, b.x); b.y = sub1(t.y, b.y); }
+
+// Same as X2(a, conjugate(b))
 #define X2conjb(a, b) { T2 t = a; a.x = a.x + b.x; a.y = a.y - b.y; b.x = t.x - b.x; b.y = t.y + b.y; }
 
-// Same as X2conja(a, b), a = conjugate(a)
+// Same as X2(a, b), a = conjugate(a)
 #define X2conja(a, b) { T2 t = a; a.x = a.x + b.x; a.y = -a.y - b.y; b = t - b; }
-
-// Same as X2(a, b), b = mul_t4(b)
-#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
-
-#elif INLINE_X2
-// Here's hoping the inline asm tricks rocm into not generating extra f64 ops.
-#define X2(a, b) { \
-	T2 t = a; a = t + b; \
-	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
-	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
-	}
-
-#define X2conjb(a, b) { \
-	T2 t = a; a.x = a.x + b.x; a.y = a.y - b.y; \
-	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
-	__asm( "v_add_f64 %0, %1, %2" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
-	}
-
-#define X2conja(a, b) { \
-	T2 t = a; a.x = a.x + b.x; \
-	__asm( "v_add_f64 %0, -%1, -%2" : "=v" (a.y) : "v" (a.y), "v" (b.y)); \
-	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (t.x), "v" (b.x)); \
-	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.y) : "v" (t.y), "v" (b.y)); \
-	}
-
-#define X2_mul_t4(a, b) { \
-	T2 t = a; a = t + b; \
-	__asm( "v_add_f64 %0, %1, -%2" : "=v" (t.x) : "v" (b.x), "v" (t.x)); \
-	__asm( "v_add_f64 %0, %1, -%2" : "=v" (b.x) : "v" (t.y), "v" (b.y)); \
-	b.y = t.x; \
-	}
-#else
-#error None of ORIG_X2, INLINE_X2 defined
-#endif
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
@@ -2472,12 +2443,12 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
 // plus the caller saves a mul_t8 instruction by dealing with squared t values!
 
 #define onePairMul(a, b, c, d, conjugate_t_squared) { \
-      X2conjb(a, b); \
-      X2conjb(c, d); \
-      { T2 tmp = mad_m1(a, c, mul(mul(b, d), conjugate_t_squared)); \
-        b = mad_m1(b, c, mul(a, d)); \
-        a = tmp; } \
-      X2conja(a, b); \
+  X2conjb(a, b); \
+  X2conjb(c, d); \
+  T2 tmp = mad_m1(a, c, mul(mul(b, d), conjugate_t_squared)); \
+  b = mad_m1(b, c, mul(a, d)); \
+  a = tmp; \
+  X2conja(a, b); \
 }
 
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
