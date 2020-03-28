@@ -2214,10 +2214,9 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
 #endif
 
 #if ROUNDOFF
-  u32 roundSum = 0;
   u32 roundMax = 0;
 #endif
-  
+
   for (i32 i = 0; i < NW; ++i) {
     invWeight = optionalDouble(invWeight);
     T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
@@ -2226,9 +2225,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
 #if ROUNDOFF
     uint2 r = roundoff(x);
     roundMax = max(roundMax, max(r.x, r.y));
-    roundSum += r.x + r.y;
 #endif
-    
+
 #if CF_MUL    
     wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
 #else
@@ -2265,18 +2263,27 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
 
 #if ROUNDOFF
   local uint *p = (local uint *) lds;
-  if (me < 2) { p[me] = 0; }
+  if (me < 1) { p[me] = 0; }
   bar();
   
-  atomic_add(&p[0], roundSum);
-  atomic_max(&p[1], roundMax);
+  atomic_max(&p[0], roundMax);
   // u32 res = work_group_reduce_max((uint) (roundMax & 0x7fffffffu));
   bar();
-  
+
+  // Roundout 0/1 = sum(iteration_maxerr)
+  // Roundout 2 = max(iteration_maxerr)
+  // Roundout 3 = count(iterations)
+  // Roundout 4 = max(this iteration's maxerr)
+  // Roundout 5 = count(this iteration's maxerr)
   if (me == 0) {
-    atom_add((global ulong *) &roundOut[0], p[0]);
-    atomic_max(&roundOut[2], p[1]);
-    atomic_add(&roundOut[3], 1);    
+    atomic_max(&roundOut[4], p[0]);
+    if (atomic_add(&roundOut[5], 1) == BIG_HEIGHT) {
+      * (global ulong *) &roundOut[0] += roundOut[4];
+      if (roundOut[4] > roundOut[2]) roundOut[2] = roundOut[4];
+      roundOut[3]++;
+      roundOut[4] = 0;
+      roundOut[5] = 0;
+    }
   }
   bar();
 #endif // ROUNDOFF
