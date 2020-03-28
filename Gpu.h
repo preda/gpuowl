@@ -27,6 +27,7 @@ class Gpu {
   u32 N;
 
   u32 hN, nW, nH, bufSize;
+  u32 WIDTH;
   bool useLongCarry;
   bool useMergedMiddle;
   bool timeKernels;
@@ -89,6 +90,7 @@ class Gpu {
   Buffer<i64> bufCarry;  // Carry shuttle.
   
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
+  HostAccessBuffer<u32> bufRoundoff;
 
   // Small aux buffer used to read res64.
   HostAccessBuffer<int> bufSmallOut;

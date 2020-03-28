@@ -453,15 +453,18 @@ void CARRY32_CHECK(i32 x) {
 #ifndef CARRY32_LIMIT
 #define CARRY32_LIMIT 0x7C000000
 #endif
-  if (abs(x) > CARRY32_LIMIT) printf("Carry32: %X\n", abs(x));
+  if (abs(x) > CARRY32_LIMIT) { printf("Carry32: %X\n", abs(x)); }
 #endif
 }
+
+uint OVERLOAD roundoff(double x) { return rint(ldexp(fabs((float) (x - rint(x))), 16)); }
+
+uint2 OVERLOAD roundoff(double2 x) { return (uint2) (roundoff(x.x), roundoff(x.y)); }
 
 // For CARRY32 we don't mind pollution of this value with the double exponent bits
 i64 OVERLOAD doubleToLong(double x, i32 inCarry) {
   ROUNDOFF_CHECK(x);
   return as_long(x + as_double((int2) (inCarry, TOPVAL - (inCarry < 0))));
-  // as_long(RNDVAL) + inCarry
 }
 
 i64 OVERLOAD doubleToLong(double x, i64 inCarry) {
@@ -469,7 +472,6 @@ i64 OVERLOAD doubleToLong(double x, i64 inCarry) {
   int2 tmp = as_int2(inCarry);
   tmp.y += TOPVAL;
   double d = x + as_double(tmp);
-  // as_long(RNDVAL) + inCarry
 
   // Extend the sign from the lower 51-bits.
   // The first 51 bits (0 to 50) are clean. Bit 51 is affected by RNDVAL. Bit 52 of RNDVAL is not stored.
@@ -2104,10 +2106,11 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(T2) A, CP(u32) e
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
     bool b1 = isBigWord(extra);
     bool b2 = isBigWord(reduce(extra + STEP));
+    T2 x = conjugate(in[p]) * A[p];
 #if DO_MUL3
-    out[p] = unweightAndCarryMul(conjugate(in[p]) * A[p], &carry, b1, b2, carry);
+    out[p] = unweightAndCarryMul(x, &carry, b1, b2, carry);
 #else
-    out[p] = unweightAndCarry(conjugate(in[p]) * A[p], &carry, b1, b2, carry);
+    out[p] = unweightAndCarry(x, &carry, b1, b2, carry);
 #endif
     extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
@@ -2169,7 +2172,7 @@ void acquire() {
 // See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
 //{{ CARRY_FUSED
 KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
-                             CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights) {
+                 CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights, P(u32) roundOut) {
 #if T2_SHUFFLE
   local T2 lds[WIDTH];
 #else
@@ -2183,7 +2186,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   u32 line = gr % H;
 
   T2 u[NW];
-
+  
   readCarryFusedLine(in, u, line);
 
 #if NW == 4
@@ -2210,13 +2213,26 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   CFcarry carry[NW+1];
 #endif
 
+#if ROUNDOFF
+  u32 roundSum = 0;
+  u32 roundMax = 0;
+#endif
+  
   for (i32 i = 0; i < NW; ++i) {
     invWeight = optionalDouble(invWeight);
     T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
+    T2 x = conjugate(u[i]) * U2(invWeight, invWeight2);
+
+#if ROUNDOFF
+    uint2 r = roundoff(x);
+    roundMax = max(roundMax, max(r.x, r.y));
+    roundSum += r.x + r.y;
+#endif
+    
 #if CF_MUL    
-    wu[i] = unweightAndCarryMul(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
+    wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
 #else
-    wu[i] = unweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
+    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
 #endif
     invWeight *= IWEIGHT_BIGSTEP;
   }
@@ -2246,6 +2262,24 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   }
 
   if (gr == 0) { return; }
+
+#if ROUNDOFF
+  local uint *p = (local uint *) lds;
+  if (me < 2) { p[me] = 0; }
+  bar();
+  
+  atomic_add(&p[0], roundSum);
+  atomic_max(&p[1], roundMax);
+  // u32 res = work_group_reduce_max((uint) (roundMax & 0x7fffffffu));
+  bar();
+  
+  if (me == 0) {
+    atom_add((global ulong *) &roundOut[0], p[0]);
+    atomic_max(&roundOut[2], p[1]);
+    atomic_add(&roundOut[3], 1);    
+  }
+  bar();
+#endif // ROUNDOFF
 
   // Wait until the previous group is ready with the carry.
   if (me == 0) {

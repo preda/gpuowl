@@ -221,6 +221,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   nW(nW),
   nH(nH),
   bufSize(N * sizeof(double)),
+  WIDTH(W),
   useLongCarry(useLongCarry),
   timeKernels(timeKernels),
   device(device),
@@ -277,14 +278,15 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCheck{queue, "check", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
+  bufRoundoff{queue, "roundoff", 4},
   bufSmallOut{queue, "smallOut", 256},
   bufSumOut{queue, "sumOut", 1},
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
-  carryFused.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
-  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights);
+  carryFused.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff);
+  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
@@ -303,6 +305,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
   
   queue->zero(bufReady, BIG_H);
+  queue->zero(bufRoundoff, 4);
 }
 
 static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsFftSize) {
@@ -795,6 +798,8 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
 
   string spinner = "-\\|/";
   size_t spinPos = 0;
+
+  bool displayRoundoff = args.flags.count("ROUNDOFF");
   
   // future<void> saveFuture;
   while (true) {
@@ -831,13 +836,14 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
 
     bool doCheck = doStop || persistProof || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
     if (!doCheck) { this->updateCheck(buf1, buf2, buf3); }
-
+    
     if (!args.noSpin) {
       printf("\r%c", spinner[spinPos++]);
       fflush(stdout);
       if (spinPos >= spinner.size()) { spinPos = 0; }
     }
     queue->finish();
+    
     if (factorFoundForExp == E) {
       log("Aborting the PRP test because a factor was found\n");
       factorFoundForExp = 0;
@@ -846,6 +852,18 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
     
     if (doCheck) {
       double timeExcludingCheck = itTimer.reset(k);
+
+      if (displayRoundoff) {
+        vector<u32> roundoff;
+        bufRoundoff.readAsync(roundoff);
+        bufRoundoff = vector<u32>({0, 0, 0, 0});
+        u64 sum = roundoff[0] + (u64(roundoff[1]) << 32);
+        u32 n = roundoff[3];
+        float average = float(sum) * (0.5f / WIDTH / (1 << 16)) / n;
+        float maxRound = roundoff[2] * (1.0f / (1 << 16));
+        log("Roundoff: N=%" PRIu64 ", max %f, avg %f\n", u64(n) * WIDTH * 2, maxRound, average);
+      }
+      
       u64 res64 = dataResidue();
       PRPState prpState{E, k, blockSize, res64, this->roundtripCheck(), nErrors};
       bool ok = this->doCheck(blockSize, buf1, buf2, buf3);

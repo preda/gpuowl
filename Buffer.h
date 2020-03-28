@@ -111,12 +111,6 @@ public:
     write(this->queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
   }
 
-  // async write
-  void operator<<(const vector<T>& vect) {
-    assert(this->size == vect.size());
-    write(this->queue->get(), false, this->get(), this->size * sizeof(T), vect.data());
-  }
-  
   operator vector<T>() const { return read(); }
 
   // async read
