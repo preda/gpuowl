@@ -2213,10 +2213,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   CFcarry carry[NW+1];
 #endif
 
-#if ROUNDOFF
   u32 roundSum = 0;
   u32 roundMax = 0;
-#endif
   
   for (i32 i = 0; i < NW; ++i) {
     invWeight = optionalDouble(invWeight);
@@ -2264,21 +2262,13 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   if (gr == 0) { return; }
 
 #if ROUNDOFF
-  local uint *p = (local uint *) lds;
-  if (me < 2) { p[me] = 0; }
-  bar();
-  
-  atomic_add(&p[0], roundSum);
-  atomic_max(&p[1], roundMax);
-  // u32 res = work_group_reduce_max((uint) (roundMax & 0x7fffffffu));
-  bar();
-  
+  roundSum = work_group_reduce_add(roundSum);
+  roundMax = work_group_reduce_max(roundMax);
   if (me == 0) {
-    atom_add((global ulong *) &roundOut[0], p[0]);
-    atomic_max(&roundOut[2], p[1]);
+    atom_add((global ulong *) &roundOut[0], roundSum);
+    atomic_max(&roundOut[2], roundMax);
     atomic_add(&roundOut[3], 1);    
   }
-  bar();
 #endif // ROUNDOFF
 
   // Wait until the previous group is ready with the carry.
