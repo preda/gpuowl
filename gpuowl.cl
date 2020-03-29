@@ -1541,8 +1541,7 @@ double2 slowTrig(i32 k, i32 n) {
 
 #elif NEW_SLOWTRIG
 
-double ksin(double x)
-{
+
 /* ====================================================
  * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
  *
@@ -1553,6 +1552,8 @@ double ksin(double x)
  * ====================================================
  */
 
+double ksin(double x)
+{
   // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
   // Excellent accuracy in [-pi/4, pi/4]
   const double
@@ -1563,63 +1564,38 @@ double ksin(double x)
   S5 = -0x1.ae600b42fdfa7p-26, // -2.50511320680216983368e-08 be5ae600'b42fdfa7
   S6 = +0x1.5e0b2f9a43bb8p-33; // +1.59181443044859141215e-10 3de5e0b2'f9a43bb8
 
-  // Alternative coefficients from https://github.com/RadeonOpenCompute/ROCm-Device-Libs/blob/master/ocml/src/sincosredD.cl
-  // Seem to be a tiny bit worse than the fdlibm ones.
-  /*
-  const double
-  S1 = -0x1.5555555555549p-3,  // -1.66666666666666324348e-01 bfc55555'55555549
-  S2 = +0x1.111111110f8a6p-7,  // +8.33333333332248946124e-03 3f811111'1110f8a6
-  S3 = -0x1.a01a019c161d5p-13, // -1.98412698298579493134e-04 bf2a01a0'19c161d5
-  S4 = +0x1.71de357b1fe7dp-19, // +2.75573137070700676789e-06 3ec71de3'57b1fe7d
-  S5 = -0x1.ae5e68a2b9cebp-26, // -2.50507602534068634195e-08 be5ae5e6'8a2b9ceb
-  S6 = +0x1.5d93a5acfd57cp-33; // +1.58969099521155010221e-10 3de5d93a'5acfd57c
-  */
- 
   double z = x * x;
   double v = z * x;
   return (((((S6 * z + S5) * z + S4) * z + S3) * z + S2) * z + S1) * v + x;
 }
 
 double kcos(double x) {
-#if SIMPLE_COS
-  double s = ksin(x * 0.5);
-  double c;
-  return 1 - 2 * s * s;
-#else
-  // Coefficients from https://github.com/RadeonOpenCompute/ROCm-Device-Libs/blob/master/ocml/src/sincosredD.cl
-  
-  const double
-    C1 = +0x1.5555555555555p-5,  // +4.16666666666666643537e-02 3fa55555'55555555
-    C2 = -0x1.6c16c16c16967p-10, // -1.38888888888873975568e-03 bf56c16c'16c16967
-    C3 = +0x1.a01a019f4ec90p-16, // +2.48015872987670409934e-05 3efa01a0'19f4ec90
-    C4 = -0x1.27e4fa17f65f6p-22, // -2.75573172723441884136e-07 be927e4f'a17f65f6
-    C5 = +0x1.1eeb69037ab78p-29, // +2.08761463822329626149e-09 3e21eeb6'9037ab78
-    C6 = -0x1.907db46cc5e42p-37; // -1.13826398067944865324e-11 bda907db'46cc5e42
-
-  double z = x * x;
-  double r = 0.5 * z;
-  double t = 1 - r;
-  double u = 1 - t;
-  double v = u - r;
-
-#if AMDGPU
-#define _FMA __builtin_fma
-#else
-#define _FMA fma
-// Alternatives for _FMA: mad(), or a * b + c.
-#endif
-  
-  double c = _FMA(z, C6, C5);
-  c = _FMA(z, c, C4);
-  c = _FMA(z, c, C3);
-  c = _FMA(z, c, C2);
-  c = _FMA(z, c, C1);
-  c = _FMA((z * z), c, v);
-  
-#undef _FMA
-
-  return t + c;  
-#endif // SIMPLE_COS
+  const double 
+  C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
+  C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
+  C3  =  2.48015872894767294178e-05, /* 0x3EFA01A0, 0x19CB1590 */
+  C4  = -2.75573143513906633035e-07, /* 0xBE927E4F, 0x809C52AD */
+  C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
+  C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
+  double z;
+  z  = x * x;
+  return ((((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5) * z + 1.0;
+// This is Sun's idea for a more accurate cosine.  The problem is the
+// rocm optimizer completely eliminates the qx variable.  Thus, I have
+// no idea how much more accurate this code would be.
+//  double a,hz,qx;
+//  int2 qxi;
+//  int ix;
+//  r  = z * (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1);
+//  ix = as_int2(x).y & 0x7fffffff;	/* ix = |x|'s high word */
+//  if (ix < 0x3FD33333) 		/* if |x| < 0.3 */ 
+//    return 1.0 - (0.5 * z - (z * r));
+//  qxi.y = ix - 0x00200000;		/* x/4 */
+//  qxi.x = 0;
+//  qx = as_double(qxi);
+//  hz = 0.5 * z - qx;
+//  a  = 1.0 - qx;
+//  return a - (hz - (z * r));
 }
 
 // This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
@@ -2747,30 +2723,13 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 #ifdef TEST_KERNEL
 KERNEL(256) testKernel(global double* io) {
   u32 me = get_local_id(0);
-  double a = io[me];
-
-
-  u32 b = me;
   T2 u[NW];
   Word2 wu[NW];
-  T2 weights;
-  u[0].x = io[132+me];
-  u[0].y = io[252+me];
-  weights.x = io[32+me];
-  weights.y = io[96+me];
-  T invWeight = weights.x;
-  CFcarry carry[NW];
 
-  invWeight = optionalDouble(invWeight);
-  T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
-  u32 i = 0;
-  wu[i] = unweightAndCarry(conjugate(u[i]) * U2(invWeight, invWeight2), &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
-//    invWeight *= IWEIGHT_BIGSTEP;
+  for (i32 i = 0; i < 10; i++) { u[i].x = io[i*64+me]; u[i].y = io[20480+i*64+me]; }
 
-  io[me] = wu[i].x;
-  io[me+96] = wu[i].y;
-  io[me+196] = u[i].x;
-  io[me+296] = u[i].y;
-  io[me+396] = carry[i];
+  u[0] = slowTrig((int) u[1].x, WIDTH);
+
+  for (i32 i = 0; i < 10; i++) { io[i*64+me] = u[i].x; io[20480+i*64+me] = u[i].y; }
 }
 #endif
