@@ -30,8 +30,8 @@ NEWEST_FFT5
 NEW_FFT10 <default>
 OLD_FFT10
 
-CARRY32	<AMD default>		// This is potentially dangerous option for large FFTs.  Carry may not fit in 31 bits.
-CARRY64 <nVidia default>
+CARRY32 <AMD default for PRP>
+CARRY64 <nVidia default>, <AMD default for PM1>
 
 CARRYM32
 CARRYM64 <default>
@@ -108,7 +108,7 @@ G_H        "group height"
 #endif
 
 #if !CARRY32 && !CARRY64
-#if AMDGPU
+#if AMDGPU && !PM1
 #define CARRY32 1
 #endif
 #endif
