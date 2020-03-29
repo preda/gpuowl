@@ -1552,8 +1552,7 @@ double2 slowTrig(i32 k, i32 n) {
  * ====================================================
  */
 
-double ksin(double x)
-{
+double ksin(double x) {
   // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
   // Excellent accuracy in [-pi/4, pi/4]
   const double
@@ -1570,6 +1569,12 @@ double ksin(double x)
 }
 
 double kcos(double x) {
+#if 0
+  // The compact form below has good accuracy, but on ROCm 3.1 it has lower performance.
+  double s = ksin(x * 0.5);
+  return 1 - s * s * 2;
+#endif
+
   const double 
   C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
   C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
@@ -1577,25 +1582,16 @@ double kcos(double x) {
   C4  = -2.75573143513906633035e-07, /* 0xBE927E4F, 0x809C52AD */
   C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
   C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
-  double z;
-  z  = x * x;
-  return ((((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5) * z + 1.0;
-// This is Sun's idea for a more accurate cosine.  The problem is the
-// rocm optimizer completely eliminates the qx variable.  Thus, I have
-// no idea how much more accurate this code would be.
-//  double a,hz,qx;
-//  int2 qxi;
-//  int ix;
-//  r  = z * (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1);
-//  ix = as_int2(x).y & 0x7fffffff;	/* ix = |x|'s high word */
-//  if (ix < 0x3FD33333) 		/* if |x| < 0.3 */ 
-//    return 1.0 - (0.5 * z - (z * r));
-//  qxi.y = ix - 0x00200000;		/* x/4 */
-//  qxi.x = 0;
-//  qx = as_double(qxi);
-//  hz = 0.5 * z - qx;
-//  a  = 1.0 - qx;
-//  return a - (hz - (z * r));
+
+  double z = x * x;
+  double r  = z * (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1);
+  int ix = as_int2(x).y & 0x7fffffff; // ix = |x|'s high word  
+  if (ix < 0x3FD33333) { // if |x| < 0.3
+    return 1.0 - (0.5 * z - (z * r));
+  }
+  double qx = as_double((int2)(0, ix - 0x00200000)); // approx x/4
+  double hz = 0.5 * z - qx;
+  return (1.0 - qx) - (hz - (z * r));
 }
 
 // This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
