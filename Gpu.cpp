@@ -278,7 +278,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCheck{queue, "check", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
-  bufRoundoff{queue, "roundoff", 4},
+  bufRoundoff{queue, "roundoff", 8},
   bufSmallOut{queue, "smallOut", 256},
   bufSumOut{queue, "sumOut", 1},
   args{args}
@@ -305,7 +305,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
   
   queue->zero(bufReady, BIG_H);
-  queue->zero(bufRoundoff, 4);
+  queue->zero(bufRoundoff, 8);
 }
 
 static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsFftSize) {
@@ -855,13 +855,13 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
 
       if (displayRoundoff) {
         vector<u32> roundoff;
-        bufRoundoff.readAsync(roundoff);
+        bufRoundoff.readAsync(roundoff, 4);
         bufRoundoff = vector<u32>({0, 0, 0, 0});
         u64 sum = roundoff[0] + (u64(roundoff[1]) << 32);
         u32 n = roundoff[3];
-        float average = float(sum) * (0.5f / WIDTH / (1 << 16)) / n;
-        float maxRound = roundoff[2] * (1.0f / (1 << 16));
-        log("Roundoff: N=%" PRIu64 ", max %f, avg %f\n", u64(n) * WIDTH * 2, maxRound, average);
+        float average = float(sum) * (1.0f / (1L << 32)) / n;
+        float maxRound = roundoff[2] * (1.0f / (1L << 32));
+        log("Roundoff: N=%u, max %f, avg %f\n", n, maxRound, average);
       }
       
       u64 res64 = dataResidue();

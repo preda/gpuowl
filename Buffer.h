@@ -107,7 +107,7 @@ public:
 
   // sync write
   void operator=(const vector<T>& vect) {
-    assert(this->size == vect.size());
+    assert(this->size >= vect.size());
     write(this->queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
   }
 

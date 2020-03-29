@@ -457,9 +457,8 @@ void CARRY32_CHECK(i32 x) {
 #endif
 }
 
-uint OVERLOAD roundoff(double x) { return rint(ldexp(fabs((float) (x - rint(x))), 16)); }
-
-uint2 OVERLOAD roundoff(double2 x) { return (uint2) (roundoff(x.x), roundoff(x.y)); }
+uint OVERLOAD roundoff(double x) { return rint(ldexp(fabs((float) (x - rint(x))), 32)); }
+uint OVERLOAD roundoff(double2 x) { return max(roundoff(x.x), roundoff(x.y)); }
 
 // For CARRY32 we don't mind pollution of this value with the double exponent bits
 i64 OVERLOAD doubleToLong(double x, i32 inCarry) {
@@ -2213,7 +2212,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   CFcarry carry[NW+1];
 #endif
 
-  u32 roundSum = 0;
   u32 roundMax = 0;
   
   for (i32 i = 0; i < NW; ++i) {
@@ -2222,9 +2220,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
     T2 x = conjugate(u[i]) * U2(invWeight, invWeight2);
 
 #if ROUNDOFF
-    uint2 r = roundoff(x);
-    roundMax = max(roundMax, max(r.x, r.y));
-    roundSum += r.x + r.y;
+    roundMax = max(roundMax, roundoff(x));
 #endif
     
 #if CF_MUL    
@@ -2262,12 +2258,24 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
   if (gr == 0) { return; }
 
 #if ROUNDOFF
-  roundSum = work_group_reduce_add(roundSum);
   roundMax = work_group_reduce_max(roundMax);
   if (me == 0) {
-    atom_add((global ulong *) &roundOut[0], roundSum);
-    atomic_max(&roundOut[2], roundMax);
-    atomic_add(&roundOut[3], 1);    
+    // Roundout 0/1 = sum(iteration_maxerr)
+    // Roundout 2   = max(iteration_maxerr)
+    // Roundout 3   = count(iteration)
+    // Roundout 4   = max(workgroup maxerr)
+    // Roundout 5   = count(workgroup)
+    atomic_max(&roundOut[4], roundMax);    
+    u32 oldCount = atomic_inc(&roundOut[5]);
+    assert(oldCount < BIG_HEIGHT);
+    if (oldCount == BIG_HEIGHT - 1) {
+      roundMax = atomic_xchg(&roundOut[4], 0);
+      roundOut[5] = 0;
+      
+      atom_add((global ulong *) &roundOut[0], roundMax);
+      atomic_max(&roundOut[2], roundMax);
+      atomic_inc(&roundOut[3]);
+    }
   }
 #endif // ROUNDOFF
 
