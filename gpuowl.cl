@@ -1951,31 +1951,20 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
 // The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
 // than reading/writing T2 values.  This routine lets us try both versions.
 
-void middleShuffle(local T2 *lds2, T2 *u, u32 workgroupSize, u32 blockSize) {
+void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
-#if T2_SHUFFLE
-  for (i32 i = 0; i < MIDDLE; ++i) {
-    bar ();
-    lds2[(me % blockSize) * (workgroupSize / blockSize) + (me / blockSize)] = u[i];
-    bar ();
-    u[i] = lds2[me];
-  }
-#else
-  local T* lds = (local T*) lds2;
-  for (i32 i = 0; i < MIDDLE; ++i) {
-    bar();
-    lds[(me % blockSize) * (workgroupSize / blockSize) + (me / blockSize)] = u[i].x;
-    lds[(me % blockSize) * (workgroupSize / blockSize) + (me / blockSize) + workgroupSize] = u[i].y;
-    bar();
-    u[i].x = lds[me];
-    u[i].y = lds[me + workgroupSize];
-  }
-#endif
+  local T *p = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+  for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].x; }
+  bar();
+  for (int i = 0; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * i]; }
+  bar();
+  for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].y; }
+  bar();
+  for (int i = 0; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * i]; }
 }
 
 
 KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
-  local T2 lds[IN_WG];
   T2 u[MIDDLE];
   
   u32 SIZEY = IN_WG / IN_SIZEX;
@@ -2003,6 +1992,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   fft_MIDDLE(u);
 
   middleMul(u, starty + my);
+  local T lds[IN_WG * MIDDLE];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
   out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + (gy / IN_SPACING) * (MIDDLE * IN_WG * IN_SPACING) + (gy % IN_SPACING) * SIZEY;
@@ -2012,7 +2002,6 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
 }
 
 KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
-  local T2 lds[OUT_WG];
   T2 u[MIDDLE];
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
@@ -2043,6 +2032,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
   fft_MIDDLE(u);
 
   middleMul2(u, starty + my, startx + mx, 1.0 / (4 * (4 * NWORDS)));	// Compensate for weight and invweight being doubled
+  local T lds[OUT_WG * MIDDLE];
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
