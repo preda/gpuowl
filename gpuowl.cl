@@ -1583,15 +1583,16 @@ double kcos(double x) {
   C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
   C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
 
-  double z = x * x;
-  double r  = z * (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1);
-  int ix = as_int2(x).y & 0x7fffffff; // ix = |x|'s high word  
-  if (ix < 0x3FD33333) { // if |x| < 0.3
-    return 1.0 - (0.5 * z - (z * r));
-  }
-  double qx = as_double((int2)(0, ix - 0x00200000)); // approx x/4
-  double hz = 0.5 * z - qx;
-  return (1.0 - qx) - (hz - (z * r));
+  double z = x * x;  
+  double r = (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5;
+  
+#if AMDGPU && !ENABLE_ROCM_BUG2
+  // The condition below is never hit,
+  // it is here just to workaround a ROCm 3.1 maddening codegen bug.
+  if (as_int2(x).y == -1) { return x; }
+#endif
+  
+  return r * z + 1;
 }
 
 // This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
