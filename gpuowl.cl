@@ -1720,14 +1720,8 @@ KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
   for (i32 p = get_global_id(0); p < sizeBytes / sizeof(u64); p += get_global_size(0)) {
     sum += in[p];
   }
-  local ulong localSum;
-  if (get_local_id(0) == 0) { localSum = 0; }
-  bar();
-  atom_add(&localSum, sum);
-  // *(local atomic_long *)&localSum += sum;
-  bar();
-  if (get_local_id(0) == 0) { atom_add(&out[0], localSum); }
-  // out[get_group_id(0)] = localSum; }
+  sum = work_group_reduce_add(sum);
+  if (get_local_id(0) == 0) { atom_add(&out[0], sum); }
 }
 
 // outEqual must be "true" on entry.
