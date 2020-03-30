@@ -352,9 +352,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {
     throw "FFT size too large";
   }
     
-  bool useLongCarry = (bitsPerWord < 14.5f)
-    || (args.carry == Args::CARRY_LONG)
-    || (args.carry == Args::CARRY_AUTO && WIDTH >= 2048);
+  bool useLongCarry = (bitsPerWord < 14.5f) || (args.carry == Args::CARRY_LONG);
 
   if (useLongCarry) { log("using long carry kernels\n"); }
 
