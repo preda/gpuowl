@@ -1917,15 +1917,23 @@ void fft_MIDDLE(T2 *u) {
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 void middleMul(T2 *u, u32 s) {
   assert(s < SMALL_HEIGHT);
-#if MIDDLE > 1
+  if (MIDDLE == 1) { return; }
+  
   T2 step = slowTrigMid8(s, BIG_HEIGHT / 2);
   u[1] = mul(u[1], step);
-  T2 base = sq(step);
-  for (i32 i = 2; i < MIDDLE; ++i) {
+  
+  T2 step2 = sq(step);
+  u[2] = mul(u[2], step2);
+  if (MIDDLE == 3) { return; }
+
+  u[3] = mul(u[3], mul(step2, step));
+  if (MIDDLE == 4) { return; }
+  
+  T2 base = sq(step2);
+  for (i32 i = 4; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
-#endif
 }
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
