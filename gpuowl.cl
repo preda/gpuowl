@@ -1582,16 +1582,17 @@ double kcos(double x) {
   C4  = -2.75573143513906633035e-07, /* 0xBE927E4F, 0x809C52AD */
   C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
   C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
-
-  double z = x * x;
-  double r  = z * (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1);
-  int ix = as_int2(x).y & 0x7fffffff; // ix = |x|'s high word  
-  if (ix < 0x3FD33333) { // if |x| < 0.3
-    return 1.0 - (0.5 * z - (z * r));
-  }
-  double qx = as_double((int2)(0, ix - 0x00200000)); // approx x/4
-  double hz = 0.5 * z - qx;
-  return (1.0 - qx) - (hz - (z * r));
+  double z;
+  z  = x * x;
+// ROCM 3.1 has a bug where the preferred formula below does not work unless -use DEBUG is turned on
+// Throwing in a dummy if statement "cures" the bug.
+#if !AMDGPU
+  return ((((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5) * z + 1.0;
+#else
+  double r = (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5;
+  if (as_int2(r).y == 0x8000FFFF) return r;
+  return r * z + 1.0;
+#endif
 }
 
 // This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
@@ -1928,15 +1929,20 @@ void fft_MIDDLE(T2 *u) {
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 void middleMul(T2 *u, u32 s) {
   assert(s < SMALL_HEIGHT);
-#if MIDDLE > 1
+  if (MIDDLE == 1) return;
   T2 step = slowTrigMid8(s, BIG_HEIGHT / 2);
   u[1] = mul(u[1], step);
-  T2 base = sq(step);
-  for (i32 i = 2; i < MIDDLE; ++i) {
+  T2 step2 = sq(step);
+  u[2] = mul(u[2], step2);
+  if (MIDDLE == 3) return;
+  T2 base = mul(step2, step);
+  u[3] = mul(u[3], base);
+  if (MIDDLE == 4) return;
+  base = sq(step2);
+  for (i32 i = 4; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
-#endif
 }
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
@@ -1960,7 +1966,7 @@ void middleShuffle(local T2 *lds2, T2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
 #if T2_SHUFFLE
   for (i32 i = 0; i < MIDDLE; ++i) {
-    bar ();
+    if (i) bar ();
     lds2[(me % blockSize) * (workgroupSize / blockSize) + (me / blockSize)] = u[i];
     bar ();
     u[i] = lds2[me];
@@ -1968,7 +1974,7 @@ void middleShuffle(local T2 *lds2, T2 *u, u32 workgroupSize, u32 blockSize) {
 #else
   local T* lds = (local T*) lds2;
   for (i32 i = 0; i < MIDDLE; ++i) {
-    bar();
+    if (i) bar();
     lds[(me % blockSize) * (workgroupSize / blockSize) + (me / blockSize)] = u[i].x;
     lds[(me % blockSize) * (workgroupSize / blockSize) + (me / blockSize) + workgroupSize] = u[i].y;
     bar();
