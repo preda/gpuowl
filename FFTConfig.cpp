@@ -22,17 +22,30 @@ FFTConfig::FFTConfig(u32 width, u32 height, u32 middle, bool isPm1) :
   assert(height == 256 || height == 512 || height == 1024 || height == 2048);
 }
 
+// On 2020-03-30, I examined the middle=10 FFTs from 1.25M to 80M.
+// On this date, exponent 95460001 had an average roundoff error of 0.2441.
+// This should be periodically tested to make sure rocm optimizer hasn't made accuracy worse.
+//
+// I'm targetting an average max roundoff of 0.262, which ought to give us some roundoff
+// errors above 0.4 and I hope none above 0.5.  The 1.25M FFT ended up with 18.814 bits-per-word
+// and the 80M FFT ended up with 17.141 bits-per-word.  This gives a simple formula of
+//		bits-per-word = 18.814 - 0.279 * log2 (FFTsize / 1.25M)
+// At a later date, we might should create a different formula for each Middle value as
+// the multiplication chains in MiddleIn/Out may have a big affect on the roundoff error.
+//
+// Also note, that I did not see any evidence that we need to be more conservative during P-1.
+// However, P-1 does not output average max roundoff error, so I'm not 100% confident.
+
 u32 FFTConfig::getMaxExp(u32 fftSize, bool isPm1) {
-  return fftSize * ((isPm1 ? 18.0 : 18.257) - 0.33 * log2(fftSize * (1.0 / (9 * 512 * 1024))));
+  return fftSize * (18.814 - 0.279 * log2(fftSize / (1.25 * 1024 * 1024)));
 }
-// { return fftSize * (17.77 + 0.33 * (24 - log2(fftSize))); }
-// 17.88 + 0.36 * (24 - log2(n)); Update after feedback on 86700001, FFT 4608 (18.37b/w) being insufficient.
 
 vector<FFTConfig> FFTConfig::genConfigs(bool isPm1) {
   vector<FFTConfig> configs;
   for (u32 width : {256, 512, 1024, 2048, 4096}) {
     for (u32 height : {256, 512, 1024, 2048}) {
       for (u32 middle : {1, /*3,*/ 4, /*5,*/ 6, 7, 8, 9, 10, 11, 12}) {
+        if (middle == 1 && width * height >= 512 * 512) continue;
         configs.push_back(FFTConfig(width, height, middle, isPm1));
       }
     }
