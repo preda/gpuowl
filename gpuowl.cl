@@ -1956,13 +1956,31 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
 void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
   local T *p = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
-  for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].x; }
-  bar();
-  for (int i = 0; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * i]; }
-  bar();
-  for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].y; }
-  bar();
-  for (int i = 0; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * i]; }
+  if (MIDDLE <= 8) {
+    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].x; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].y; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * i]; }
+  } else {
+    for (int i = 0; i < MIDDLE/2; ++i) { p[i * workgroupSize] = u[i].x; }
+    bar();
+    for (int i = 0; i < MIDDLE/2; ++i) { u[i].x = lds[me + workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE/2; ++i) { p[i * workgroupSize] = u[i].y; }
+    bar();
+    for (int i = 0; i < MIDDLE/2; ++i) { u[i].y = lds[me + workgroupSize * i]; }
+    bar();
+    for (int i = MIDDLE/2; i < MIDDLE; ++i) { p[(i - MIDDLE/2) * workgroupSize] = u[i].x; }
+    bar();
+    for (int i = MIDDLE/2; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * (i - MIDDLE/2)]; }
+    bar();
+    for (int i = MIDDLE/2; i < MIDDLE; ++i) { p[(i - MIDDLE/2) * workgroupSize] = u[i].y; }
+    bar();
+    for (int i = MIDDLE/2; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * (i - MIDDLE/2)]; }
+  }
 }
 
 
@@ -1994,7 +2012,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   fft_MIDDLE(u);
 
   middleMul(u, starty + my);
-  local T lds[IN_WG * MIDDLE];
+  local T lds[IN_WG * (MIDDLE <= 8 ? MIDDLE : ((MIDDLE + 1) / 2))];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
   out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + (gy / IN_SPACING) * (MIDDLE * IN_WG * IN_SPACING) + (gy % IN_SPACING) * SIZEY;
@@ -2034,7 +2052,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
   fft_MIDDLE(u);
 
   middleMul2(u, starty + my, startx + mx, 1.0 / (4 * (4 * NWORDS)));	// Compensate for weight and invweight being doubled
-  local T lds[OUT_WG * MIDDLE];
+  local T lds[OUT_WG * (MIDDLE <= 8 ? MIDDLE : ((MIDDLE + 1) / 2))];
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
