@@ -1569,12 +1569,6 @@ double ksin(double x) {
 }
 
 double kcos(double x) {
-#if 0
-  // The compact form below has good accuracy, but on ROCm 3.1 it has lower performance.
-  double s = ksin(x * 0.5);
-  return 1 - s * s * 2;
-#endif
-
   const double 
   C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
   C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
@@ -1583,8 +1577,8 @@ double kcos(double x) {
   C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
   C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
 
-  double z = x * x;  
-  double r = (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5;
+  double z = x * x;
+  double r = ((((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5) * z + 1;
   
 #if AMDGPU && !ENABLE_ROCM_BUG2
   // The condition below is never hit,
@@ -1592,7 +1586,7 @@ double kcos(double x) {
   if (as_int2(x).y == -1) { return x; }
 #endif
   
-  return r * z + 1;
+  return r;
 }
 
 // This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
