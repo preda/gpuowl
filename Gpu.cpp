@@ -187,6 +187,12 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
   cl_device_id id = getDevice(args.device);
   if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
 
+  // if PRP force carry64 when carry32 might exceed 0x70000000
+  // if P-1 force carry64 when carry32 might exceed a very conservative 0x6C000000
+  // when using carryFusedMul during P-1 mul-by-3, force carry64 when carry32 might exceed 0x6C000000 / 3.
+  if (FFTConfig::getMaxCarry32(N, E) > (isPm1 ? 0x6C00 : 0x7000)) { defines.push_back({"CARRY64", 1}); }
+  if (isPm1 && FFTConfig::getMaxCarry32(N, E) > 0x6C00 / 3) { defines.push_back({"CARRYM64", 1}); }
+
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
     auto pos = flag.find('=');
@@ -351,7 +357,9 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {
     log("FFT size too large for exponent (%.2f bits/word).\n", bitsPerWord);
     throw "FFT size too large";
   }
-    
+
+  log("Expected maximum carry32: %X0000\n", config.getMaxCarry32(N, E));
+
   bool useLongCarry = (bitsPerWord < 14.5f) || (args.carry == Args::CARRY_LONG);
 
   if (useLongCarry) { log("using long carry kernels\n"); }
