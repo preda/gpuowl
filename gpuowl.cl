@@ -30,8 +30,8 @@ NEWEST_FFT5
 NEW_FFT10 <default>
 OLD_FFT10
 
-CARRY32 <AMD default for PRP>
-CARRY64 <nVidia default>, <AMD default for PM1>
+CARRY32 <AMD default for PRP when appropriate>
+CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
 
 CARRYM32
 CARRYM64 <default>
@@ -108,7 +108,7 @@ G_H        "group height"
 #endif
 
 #if !CARRY32 && !CARRY64
-#if AMDGPU && !PM1
+#if AMDGPU
 #define CARRY32 1
 #endif
 #endif

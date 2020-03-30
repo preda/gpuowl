@@ -18,6 +18,7 @@ struct FFTConfig {
   u32 maxExp = 0;
 
   static u32 getMaxExp(u32 fftSize, bool isPm1);
+  static u32 getMaxCarry32(u32 fftSize, u32 exponent);
 
   static std::vector<FFTConfig> genConfigs(bool isPm1);
 

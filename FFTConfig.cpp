@@ -40,6 +40,21 @@ u32 FFTConfig::getMaxExp(u32 fftSize, bool isPm1) {
   return fftSize * (18.814 - 0.279 * log2(fftSize / (1.25 * 1024 * 1024)));
 }
 
+// This routine predicts the maximum carry32 we might see.  This was based on 500,000 iterations
+// of 24518003 using a 1.25M FFT.  The maximum carry32 value observed was 0x32420000.
+// As FFT length grows, so does the expected max carry32.  As we store fewer bits-per-word in
+// an FFT size, the expected max carry32 decreases.  Our formula is:
+//		max carry32 = 0x32420000 * 2^(BPW - 18.706) * 2 ^ (2 * 0.279 * log2(FFTSize / 1.25M))
+//
+// Note that the mul-by-3 carryFusedMul kernel, triples the expected max carry32 value.
+// As of now, I have limited data on the carryFusedMulDelta kernel.
+//
+// Note: This routine returns the top 16 bits of the expected max carry32.
+
+u32 FFTConfig::getMaxCarry32(u32 fftSize, u32 exponent) {
+  return (u32) (0x3242 * pow (2.0, 0.558 * log2(fftSize / (1.25 * 1024 * 1024)) + double(exponent) / double(fftSize) - 18.706));
+}
+
 vector<FFTConfig> FFTConfig::genConfigs(bool isPm1) {
   vector<FFTConfig> configs;
   for (u32 width : {256, 512, 1024, 2048, 4096}) {
