@@ -36,13 +36,19 @@ CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
 CARRYM32
 CARRYM64 <default>
 
-ORIG_SLOWTRIG			// Use the compliler's implementation of sin/cos functions
+ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
 
 ---- P-1 below ----
 
 NO_P2_FUSED_TAIL                // Do not use the big kernel tailFusedMulDelta 
 
+*/
+
+/* Proposed:
+TRIG_ORIG           // Use OpenCL sincos() -- slow on AMD, maybe fast on Nvidia?
+TRIG_NEW <default>  // Use our own sin/cos -- fast on AMD
+TRIG_ROCM           // Use ROCm OCML sincosred2 -- fast, only available on AMD
 */
 
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
@@ -1578,52 +1584,57 @@ double kcos(double x) {
   C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
 
   double z = x * x;
-  double r = ((((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5) * z + 1;
-  
+  return ((((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5) * z + 1;  
+}
+
+// Named "mistify" because its goal is to confuse the ROCm optimizer about the returned value
+// to workaround some broken optimization.
+double kcosMistify(double x) {
 #if AMDGPU && !ENABLE_ROCM_BUG2
   // The condition below is never hit,
   // it is here just to workaround a ROCm 3.1 maddening codegen bug.
   if (as_int2(x).y == -1) { return x; }
 #endif
   
-  return r;
+  return kcos(x);
 }
 
-// This version of slowTrig assumes k is positive and k/n <= 0.5 which means we want cos and sin values in the range [0, pi/2]
+double2 kCosSin(double x) { return U2(kcos(x), ksin(x)); }
+double2 kCosSinMistify(double x) { return U2(kcosMistify(x), ksin(x)); }
+
+struct scret { double s; double c; };
+extern struct scret __ocmlpriv_sincosred2_f64(double x, double y);
+double2 ocmlCosSin(double x) {
+  // This has very similar accuracy and performance to our kCosSin(), and is affected by the same "mistify" bug.
+  struct scret r = __ocmlpriv_sincosred2_f64(x, 0);
+  return U2(r.c, r.s);
+}
+  
 double2 slowTrig(i32 k, i32 n) {
   assert(n % 2 == 0); // n even
   assert(2 * k <= n); // angle <= pi/2
+  assert(k >= 0);
   
   bool flip = k * 4 > n;
-  if (flip) {
-    k = n / 2 - k;
-  }
+  if (flip) { k = n / 2 - k; }
   
   double x = M_PI / n * k;
 
-  double c = kcos(x);
-  double s = ksin(x);
-  
-  if (flip) {
-    double tmp = c;
-    c = s;
-    s = tmp;
-  }
-  return U2(c, -s);
+  // We don't need the "mistify" variant of kCosSin() because the "if (flip)" is enough.
+  double2 r = kCosSin(x);
+  if (flip) { r = swap(r); }
+  return U2(r.x, -r.y);
+  // return flip ? U2(r.y, - r.x) : U2(r.x, - r.y);
 }
 
 // Caller can use this version if caller knows that k/n <= 0.25
 double2 slowTrig1(i32 k, i32 n) {  
-  assert(k * 4 <= n); // angle <= pi/4
-  
+  assert(4 * k <= n); // angle <= pi/4
   double x = M_PI / n * k;
-  double c = kcos(x);
-  double s = ksin(x);
-  return U2(c, -s);
+  double2 r = kCosSinMistify(x);
+  return U2(r.x, -r.y);
 }
 
-#else
-#error No slowTrig defined  
 #endif
 
 // call slowTrig1 or slowTrig based on MIDDLE. Larger MIDDLE values can lead to smaller k/n values.
@@ -2496,7 +2507,7 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
   u32 g2 = transPos(line2, MIDDLE, WIDTH);
 
   T2 base_squared = slowTrig(me * H + line1, W * H / 2);
-  T2 step = slowTrig1(1, 4);
+  T2 step = U2(M_SQRT1_2, -M_SQRT1_2); // slowTrig1(1, 4);
   
   for (u32 i = 0; i < 4; ++i, base_squared = mul(base_squared, step)) {
     if (i == 0 && line1 == 0 && me == 0) {
