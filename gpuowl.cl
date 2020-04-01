@@ -110,7 +110,6 @@ G_H        "group height"
 #if !HAS_ASM
 // disable everything that depends on ASM
 #define NO_OMOD 1
-#define INLINE_X2 0
 #endif
 
 #if CARRY32 && CARRY64
@@ -610,14 +609,6 @@ T2 foo2_m2(T2 a, T2 b) {
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
 T2 foo(T2 a) { return foo2(a, a); }
 T2 foo_m2(T2 a) { return foo2_m2(a, a); }
-
-#if !ORIG_X2 && !INLINE_X2
-#if HAS_ASM
-#define INLINE_X2 1
-#else
-#define ORIG_X2 1
-#endif
-#endif
 
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = sub1(b.x, t.x); b.x = sub1(t.y, b.y); b.y = t.x; }
