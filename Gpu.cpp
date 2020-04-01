@@ -878,7 +878,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
         bufCarryMax    = zero;
         bufCarryMulMax = zero;
 
-        constexpr float roundScale = 1.0 / (1L << 32);
+        constexpr float roundScale = 1.0 / (u64(1) << 32);
         u32 roundN = roundoff[3];
         float roundAvg = roundN ? read64(&roundoff[0]) * roundScale / roundN : 0;
         float roundMax = roundoff[2] * roundScale;
