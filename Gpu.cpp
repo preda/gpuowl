@@ -248,9 +248,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(fftHout, hN / SMALL_H),
   LOAD_WS(fftMiddleIn,  hN / (BIG_H / SMALL_H)),
   LOAD_WS(fftMiddleOut, hN / (BIG_H / SMALL_H)),
-  LOAD(carryA,   nW * (BIG_H/16)),
-  LOAD(carryM,   nW * (BIG_H/16)),
-  LOAD(carryB,   nW * (BIG_H/16)),
+  LOAD_WS(carryA, hN / 16),
+  LOAD_WS(carryM, hN / 16),
+  LOAD_WS(carryB, hN / 16),
   LOAD(transposeW,   (W/64) * (BIG_H/64)),
   LOAD(transposeH,   (W/64) * (BIG_H/64)),
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
@@ -285,21 +285,23 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
   bufRoundoff{queue, "roundoff", 8},
+  bufCarryMax{queue, "carryMax", 8},
+  bufCarryMulMax{queue, "carryMulMax", 8},
   bufSmallOut{queue, "smallOut", 256},
   bufSumOut{queue, "sumOut", 1},
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
-  carryFused.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff);
-  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff);
+  carryFused.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
+  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
     
-  carryA.setFixedArgs(2, bufCarry, bufWeightI, bufExtras);
-  carryM.setFixedArgs(2, bufCarry, bufWeightI, bufExtras);
+  carryA.setFixedArgs(2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMax);
+  carryM.setFixedArgs(2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufExtras);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
@@ -312,6 +314,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   queue->zero(bufReady, BIG_H);
   queue->zero(bufRoundoff, 8);
+  queue->zero(bufCarryMax, 8);
+  queue->zero(bufCarryMulMax, 8);
 }
 
 static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsFftSize) {
@@ -765,6 +769,8 @@ int nFitBufs(cl_device_id device, size_t bufSize) {
   return n;
 }
 
+u64 read64(u32 *p) { return p[0] + (u64(p[1]) << 32); }
+
 }
 
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
@@ -861,13 +867,35 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
 
       if (displayRoundoff) {
         vector<u32> roundoff;
+        vector<u32> carry;
+        vector<u32> carryMul;
         bufRoundoff.readAsync(roundoff, 4);
-        bufRoundoff = vector<u32>({0, 0, 0, 0});
-        u64 sum = roundoff[0] + (u64(roundoff[1]) << 32);
-        u32 n = roundoff[3];
-        float average = float(sum) * (1.0f / (1L << 32)) / n;
-        float maxRound = roundoff[2] * (1.0f / (1L << 32));
-        log("Roundoff: N=%u, max %f, avg %f\n", n, maxRound, average);
+        bufCarryMax.readAsync(carry, 4);
+        bufCarryMulMax.readAsync(carryMul, 4);
+
+        vector<u32> zero{0, 0, 0, 0};
+        bufRoundoff    = zero;
+        bufCarryMax    = zero;
+        bufCarryMulMax = zero;
+
+        constexpr float roundScale = 1.0 / (1L << 32);
+        u32 roundN = roundoff[3];
+        float roundAvg = roundN ? read64(&roundoff[0]) * roundScale / roundN : 0;
+        float roundMax = roundoff[2] * roundScale;
+
+        u32 carryN = carry[3];
+        u32 carryAvg = carryN ? read64(&carry[0]) / carryN : 0;
+        u32 carryMax = carry[2];
+
+        u32 carryMulN = carryMul[3];
+        u32 carryMulAvg = carryMulN ? read64(&carryMul[0]) / carryMulN : 0;
+        u32 carryMulMax = carryMul[2];
+                
+        log("Roundoff: N=%u, max %f, avg %f; carry32: N=%u, max %x, avg %x; carryM32: N=%u, max %x, avg %x\n",
+            roundN, roundMax, roundAvg,
+            carryN, carryMax, carryAvg,
+            carryMulN, carryMulMax, carryMulAvg
+            );
       }
       
       u64 res64 = dataResidue();

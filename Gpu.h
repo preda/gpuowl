@@ -91,6 +91,8 @@ class Gpu {
   
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
   HostAccessBuffer<u32> bufRoundoff;
+  HostAccessBuffer<u32> bufCarryMax;
+  HostAccessBuffer<u32> bufCarryMulMax;
 
   // Small aux buffer used to read res64.
   HostAccessBuffer<int> bufSmallOut;

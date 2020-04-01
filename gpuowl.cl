@@ -113,6 +113,14 @@ G_H        "group height"
 #define INLINE_X2 0
 #endif
 
+#if CARRY32 && CARRY64
+#error Conflict: both CARRY32 and CARRY64 requested
+#endif
+
+#if CARRYM32 && CARRYM64
+#error Conflict: both CARRYM32 and CARRYM64 requested
+#endif
+
 #if !CARRY32 && !CARRY64
 #if AMDGPU
 #define CARRY32 1
@@ -265,7 +273,14 @@ typedef double T;
 typedef double2 T2;
 typedef i32 Word;
 typedef int2 Word2;
-typedef i64 Carry;
+
+// Because the carry output of both carryA and carryM is consummed by carryB,
+// we can use 32-bit in carry A/B/M only when carryA and carryM agree.
+#if CARRY32 && CARRYM32
+typedef i32 CarryABM;
+#else
+typedef i64 CarryABM;
+#endif
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
@@ -528,20 +543,30 @@ typedef i32 CFMcarry;
 typedef i64 CFMcarry;
 #endif
 
+u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
+
 //{{ carries
-Word2 OVERLOAD unweightAndCarry(T2 u, CARRY *outCarry, bool b1, bool b2, CARRY inCarry) {
-  Word a = carryStep(doubleToLong(u.x, inCarry), outCarry, b1);
-  Word b = carryStep(doubleToLong(u.y, *outCarry), outCarry, b2);
+Word2 OVERLOAD unweightAndCarry(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax) {
+  iCARRY midCarry;
+  Word a = carryStep(doubleToLong(u.x, inCarry), &midCarry, b1);
+  Word b = carryStep(doubleToLong(u.y, midCarry), outCarry, b2);
+#if ROUNDOFF
+  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
+#endif
   return (Word2) (a, b);
 }
 
-Word2 OVERLOAD unweightAndCarryMul(T2 u, CARRY *outCarry, bool b1, bool b2, CARRY inCarry) {
-  Word a = carryStep(3 * doubleToLong(u.x, (CARRY) 0) + inCarry, outCarry, b1);
-  Word b = carryStep(3 * doubleToLong(u.y, (CARRY) 0) + *outCarry, outCarry, b2);
+Word2 OVERLOAD unweightAndCarryMul(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax) {
+  iCARRY midCarry;
+  Word a = carryStep(3 * doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1);
+  Word b = carryStep(3 * doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2);
+#if ROUNDOFF
+  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
+#endif
   return (Word2) (a, b);
 }
 
-T2 OVERLOAD carryAndWeightFinal(Word2 u, CARRY inCarry, T2 w, bool b1) {
+T2 OVERLOAD carryAndWeightFinal(Word2 u, iCARRY inCarry, T2 w, bool b1) {
   i32 tmpCarry;
   u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
   u.y += tmpCarry;
@@ -549,11 +574,11 @@ T2 OVERLOAD carryAndWeightFinal(Word2 u, CARRY inCarry, T2 w, bool b1) {
 }
 //}}
 
-//== carries CARRY=i32
-//== carries CARRY=i64
+//== carries CARRY=32
+//== carries CARRY=64
 
 // Carry propagation from word and carry.
-Word2 carryWord(Word2 a, i64* carry, bool b1, bool b2) {
+Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
   a.x = carryStep(a.x + *carry, carry, b1);
   a.y = carryStep(a.y + *carry, carry, b2);
   return a;
@@ -1570,8 +1595,7 @@ double ksin(double x) {
   S6 = +0x1.5e0b2f9a43bb8p-33; // +1.59181443044859141215e-10 3de5e0b2'f9a43bb8
 
   double z = x * x;
-  double v = z * x;
-  return (((((S6 * z + S5) * z + S4) * z + S3) * z + S2) * z + S1) * v + x;
+  return (((((S6 * z + S5) * z + S4) * z + S3) * z + S2) * z + S1) * z * x + x;
 }
 
 double kcos(double x) {
@@ -2079,36 +2103,68 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
 // Input is conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(T2) A, CP(u32) extras) {
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32) extras, P(u32) roundOut, P(u32) carryStats) {
   ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
   u32 gy = g / NW;
 
-  Carry carry = 0;
-
+  CarryABM carry = 0;
+  
+  u32 roundMax = 0;
+  u32 carryMax = 0;
+  
   u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
     bool b1 = isBigWord(extra);
     bool b2 = isBigWord(reduce(extra + STEP));
     T2 x = conjugate(in[p]) * A[p];
+    
+#if ROUNDOFF
+    roundMax = max(roundMax, roundoff(x));
+#endif
+    
 #if DO_MUL3
-    out[p] = unweightAndCarryMul(x, &carry, b1, b2, carry);
+    out[p] = unweightAndCarryMul(x, &carry, b1, b2, carry, &carryMax);
 #else
-    out[p] = unweightAndCarry(x, &carry, b1, b2, carry);
+    out[p] = unweightAndCarry(x, &carry, b1, b2, carry, &carryMax);
 #endif
     extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
   carryOut[G_W * g + me] = carry;
+
+#if ROUNDOFF
+  roundMax = work_group_reduce_max(roundMax);
+  carryMax = work_group_reduce_max(carryMax);
+  if (me == 0) {
+    atomic_max(&roundOut[4], roundMax);
+    atomic_max(&carryStats[4], carryMax);
+    u32 oldCount = atomic_inc(&roundOut[5]);
+    assert(oldCount < get_num_groups(0));
+    if (oldCount == get_num_groups(0) - 1) {
+      roundMax = atomic_xchg(&roundOut[4], 0);
+      carryMax = atomic_xchg(&carryStats[4], 0);
+      roundOut[5] = 0;
+      
+      atom_add((global ulong *) &roundOut[0], roundMax);
+      atomic_max(&roundOut[2], roundMax);
+      atomic_inc(&roundOut[3]);
+      
+      atom_add((global ulong *) &carryStats[0], carryMax);
+      atomic_max(&carryStats[2], carryMax);
+      atomic_inc(&carryStats[3]);
+    }
+  }
+#endif
 }
 //}}
 
 //== CARRYA NAME=carryA,DO_MUL3=0
 //== CARRYA NAME=carryM,DO_MUL3=1
 
-KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) extras) {
+KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) extras) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);  
   u32 gx = g % NW;
@@ -2126,8 +2182,9 @@ KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) extras) {
   u32 prev = (gy + HB * G_W * gx + HB * me + (HB * WIDTH - 1)) % (HB * WIDTH);
   u32 prevLine = prev % HB;
   u32 prevCol  = prev / HB;
-  Carry carry = carryIn[WIDTH * prevLine + prevCol];
-  
+
+  CarryABM carry = carryIn[WIDTH * prevLine + prevCol];
+
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = i * WIDTH + me;
     io[p] = carryWord(io[p], &carry, isBigWord(extra), isBigWord(reduce(extra + STEP)));
@@ -2158,8 +2215,8 @@ void acquire() {
 // It uses "stairway" carry data forwarding from one group to the next.
 // See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
 //{{ CARRY_FUSED
-KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights, P(u32) roundOut) {
+KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
+                 CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights, P(u32) roundOut, P(u32) carryStats) {
 #if T2_SHUFFLE
   local T2 lds[WIDTH];
 #else
@@ -2201,6 +2258,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
 #endif
 
   u32 roundMax = 0;
+  u32 carryMax = 0;
   
   for (i32 i = 0; i < NW; ++i) {
     invWeight = optionalDouble(invWeight);
@@ -2212,9 +2270,9 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
 #endif
     
 #if CF_MUL    
-    wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
+    wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
 #else
-    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
+    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
 #endif
     invWeight *= IWEIGHT_BIGSTEP;
   }
@@ -2247,22 +2305,29 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig
 
 #if ROUNDOFF
   roundMax = work_group_reduce_max(roundMax);
+  carryMax = work_group_reduce_max(carryMax);
   if (me == 0) {
     // Roundout 0/1 = sum(iteration_maxerr)
     // Roundout 2   = max(iteration_maxerr)
     // Roundout 3   = count(iteration)
     // Roundout 4   = max(workgroup maxerr)
     // Roundout 5   = count(workgroup)
-    atomic_max(&roundOut[4], roundMax);    
+    atomic_max(&roundOut[4], roundMax);
+    atomic_max(&carryStats[4], carryMax);
     u32 oldCount = atomic_inc(&roundOut[5]);
     assert(oldCount < BIG_HEIGHT);
     if (oldCount == BIG_HEIGHT - 1) {
       roundMax = atomic_xchg(&roundOut[4], 0);
+      carryMax = atomic_xchg(&carryStats[4], 0);
       roundOut[5] = 0;
       
       atom_add((global ulong *) &roundOut[0], roundMax);
       atomic_max(&roundOut[2], roundMax);
       atomic_inc(&roundOut[3]);
+      
+      atom_add((global ulong *) &carryStats[0], carryMax);
+      atomic_max(&carryStats[2], carryMax);
+      atomic_inc(&carryStats[3]);
     }
   }
 #endif // ROUNDOFF
