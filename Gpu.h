@@ -142,6 +142,7 @@ class Gpu {
       cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights, bool isPm1);
 
   vector<u32> readAndCompress(ConstBuffer<int>& buf);
+  void printRoundoff();
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args, bool isPm1);

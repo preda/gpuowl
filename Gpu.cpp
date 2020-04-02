@@ -682,8 +682,9 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<doub
   bool ok = (res64 == loaded.res64);
   updateCheck(buf1, buf2, buf3);
 
-  std::string expected = " (expected "s + hex(loaded.res64) + ")";
+  // printRoundoff();
   
+  std::string expected = " (expected "s + hex(loaded.res64) + ")";
   log("%u %2s %8d loaded: blockSize %d, %s%s\n",
       E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
 
@@ -771,6 +772,39 @@ int nFitBufs(cl_device_id device, size_t bufSize) {
 
 u64 read64(u32 *p) { return p[0] + (u64(p[1]) << 32); }
 
+}
+
+void Gpu::printRoundoff() {
+  vector<u32> roundoff;
+  vector<u32> carry;
+  vector<u32> carryMul;
+  bufRoundoff.readAsync(roundoff, 4);
+  bufCarryMax.readAsync(carry, 4);
+  bufCarryMulMax.readAsync(carryMul, 4);
+  
+  vector<u32> zero{0, 0, 0, 0};
+  bufRoundoff    = zero;
+  bufCarryMax    = zero;
+  bufCarryMulMax = zero;
+
+  constexpr float roundScale = 1.0 / (u64(1) << 32);
+  u32 roundN = roundoff[3];
+  float roundAvg = roundN ? read64(&roundoff[0]) * roundScale / roundN : 0;
+  float roundMax = roundoff[2] * roundScale;
+
+  u32 carryN = carry[3];
+  u32 carryAvg = carryN ? read64(&carry[0]) / carryN : 0;
+  u32 carryMax = carry[2];
+  
+  u32 carryMulN = carryMul[3];
+  u32 carryMulAvg = carryMulN ? read64(&carryMul[0]) / carryMulN : 0;
+  u32 carryMulMax = carryMul[2];
+                
+  log("Roundoff: N=%u, max %f, avg %f; carry32: N=%u, max %x, avg %x; carryM32: N=%u, max %x, avg %x\n",
+      roundN, roundMax, roundAvg,
+      carryN, carryMax, carryAvg,
+      carryMulN, carryMulMax, carryMulAvg
+      );
 }
 
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
@@ -865,38 +899,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
     if (doCheck) {
       double timeExcludingCheck = itTimer.reset(k);
 
-      if (displayRoundoff) {
-        vector<u32> roundoff;
-        vector<u32> carry;
-        vector<u32> carryMul;
-        bufRoundoff.readAsync(roundoff, 4);
-        bufCarryMax.readAsync(carry, 4);
-        bufCarryMulMax.readAsync(carryMul, 4);
-
-        vector<u32> zero{0, 0, 0, 0};
-        bufRoundoff    = zero;
-        bufCarryMax    = zero;
-        bufCarryMulMax = zero;
-
-        constexpr float roundScale = 1.0 / (u64(1) << 32);
-        u32 roundN = roundoff[3];
-        float roundAvg = roundN ? read64(&roundoff[0]) * roundScale / roundN : 0;
-        float roundMax = roundoff[2] * roundScale;
-
-        u32 carryN = carry[3];
-        u32 carryAvg = carryN ? read64(&carry[0]) / carryN : 0;
-        u32 carryMax = carry[2];
-
-        u32 carryMulN = carryMul[3];
-        u32 carryMulAvg = carryMulN ? read64(&carryMul[0]) / carryMulN : 0;
-        u32 carryMulMax = carryMul[2];
-                
-        log("Roundoff: N=%u, max %f, avg %f; carry32: N=%u, max %x, avg %x; carryM32: N=%u, max %x, avg %x\n",
-            roundN, roundMax, roundAvg,
-            carryN, carryMax, carryAvg,
-            carryMulN, carryMulMax, carryMulAvg
-            );
-      }
+      if (displayRoundoff) { printRoundoff(); }
       
       u64 res64 = dataResidue();
       PRPState prpState{E, k, blockSize, res64, this->roundtripCheck(), nErrors};

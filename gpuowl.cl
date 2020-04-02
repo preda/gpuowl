@@ -45,12 +45,6 @@ NO_P2_FUSED_TAIL                // Do not use the big kernel tailFusedMulDelta
 
 */
 
-/* Proposed:
-TRIG_ORIG           // Use OpenCL sincos() -- slow on AMD, maybe fast on Nvidia?
-TRIG_NEW <default>  // Use our own sin/cos -- fast on AMD
-TRIG_ROCM           // Use ROCm OCML sincosred2 -- fast, only available on AMD
-*/
-
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
 AMDGPU  : set on AMD GPUs
 HAS_ASM : set if we believe __asm() can be used
@@ -624,8 +618,7 @@ T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
-T2 fmaT2(T a, T2 b, T2 c) { return U2(fma(a, b.x, c.x), fma(a, b.y, c.y)); }
-// T2 fmaT2(T a, T2 b, T2 c) { return U2(__builtin_fma(a, b.x, c.x), __builtin_fma(a, b.y, c.y)); }
+T2 fmaT2(T a, T2 b, T2 c) { return U2(a * b.x + c.x, a * b.y + c.y); }
 
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; a = d + c; b = -d + c; }
 // #define fma_addsub(a, b, sin, c, d) { a = fmaT2(sin, d, c); b = fmaT2(sin, -d, c); }
@@ -1544,26 +1537,27 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
   }
 }
 
-
-double2 origSlowTrig(i32 k, i32 n) {
+double2 openclSlowTrig(i32 k, i32 n) {
   double c;
   double s = sincos(M_PI / n * k, &c);
   return U2(c, -s);
 }
 
-#if ORIG_SLOWTRIG
-
-// Returns e^(-i * pi * k/n)
-double2 slowTrig(i32 k, i32 n) {
-  return origSlowTrig(k, n);
+// ROCm OCML sin/cos which assume reduced argument.
+// These are faster than openclSlowTrig() because they skip the argument reduction,
+// OTOH they suffer from exactly the same problem as our own sin/cos with the ROCm 3.1 codegen.
+// As our own sin/cos is slightly simpler, these aren't used by default.
+struct scret { double s; double c; };
+extern struct scret __ocmlpriv_sincosred2_f64(double x, double y);
+extern struct scret __ocmlpriv_sincosred_f64(double x);
+double2 ocmlCosSin(double x) {
+  // This has very similar accuracy and performance to our kCosSin(), and is affected by the same "mistify" bug.
+  // struct scret r = __ocmlpriv_sincosred2_f64(x, 0);
+  struct scret r = __ocmlpriv_sincosred_f64(x);
+  return U2(r.c, r.s);
 }
 
-// Caller can use this version if caller knows that k/n <= 0.25
-#define slowTrig1	slowTrig
-
-#elif NEW_SLOWTRIG
-
-
+// Copyright notice of original k_cos, k_sin from which our ksin/kcos evolved:
 /* ====================================================
  * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
  *
@@ -1573,7 +1567,6 @@ double2 slowTrig(i32 k, i32 n) {
  * is preserved.
  * ====================================================
  */
-
 double ksin(double x) {
   // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
   // Excellent accuracy in [-pi/4, pi/4]
@@ -1590,6 +1583,7 @@ double ksin(double x) {
 }
 
 double kcos(double x) {
+  // Coefficients from http://www.netlib.org/fdlibm/k_cos.c
   const double 
   C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
   C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
@@ -1610,56 +1604,50 @@ double kcosMistify(double x) {
   // it is here just to workaround a ROCm 3.1 maddening codegen bug.
   if (as_int2(x).y == -1) { return x; }
 #endif
-  
+  // int2 r = as_int2(kcos(x));
+  // return as_double((int2)(r.x, r.y));
   return kcos(x);
 }
 
-double2 kCosSin(double x) { return U2(kcos(x), ksin(x)); }
+double2 kCosSin(double x) {
+  // return ocmlCosSin(x);
+  return U2(kcos(x), ksin(x));
+}
+
 double2 kCosSinMistify(double x) { return U2(kcosMistify(x), ksin(x)); }
 
-struct scret { double s; double c; };
-extern struct scret __ocmlpriv_sincosred2_f64(double x, double y);
-double2 ocmlCosSin(double x) {
-  // This has very similar accuracy and performance to our kCosSin(), and is affected by the same "mistify" bug.
-  struct scret r = __ocmlpriv_sincosred2_f64(x, 0);
-  return U2(r.c, r.s);
-}
-  
-double2 slowTrig(i32 k, i32 n) {
-  assert(n % 2 == 0); // n even
-  assert(2 * k <= n); // angle <= pi/2
+// Returns e^(-i * pi * k/n)
+double2 slowTrig(i32 k, i32 n, i32 kBound) {
+  assert(n % 2 == 0);
   assert(k >= 0);
-  
-  bool flip = k * 4 > n;
-  if (flip) { k = n / 2 - k; }
-  
-  double x = M_PI / n * k;
+  assert(k <= kBound);          // kBound actually bounds k
+  assert(kBound <= 2 * n);      // angle <= 2*pi
 
-  // We don't need the "mistify" variant of kCosSin() because the "if (flip)" is enough.
-  double2 r = kCosSin(x);
-  if (flip) { r = swap(r); }
-  return U2(r.x, -r.y);
-  // return flip ? U2(r.y, - r.x) : U2(r.x, - r.y);
-}
-
-// Caller can use this version if caller knows that k/n <= 0.25
-double2 slowTrig1(i32 k, i32 n) {  
-  assert(4 * k <= n); // angle <= pi/4
-  double x = M_PI / n * k;
-  double2 r = kCosSinMistify(x);
-  return U2(r.x, -r.y);
-}
-
-#endif
-
-// call slowTrig1 or slowTrig based on MIDDLE. Larger MIDDLE values can lead to smaller k/n values.
-double2 slowTrigMid8(i32 k, i32 n) {
-#if MIDDLE < 3
-  return origSlowTrig(k, n);
-#elif MIDDLE < 8
-  return slowTrig(k, n);
+#if ORIG_SLOWTRIG
+  return openclSlowTrig(k, n);
 #else
-  return slowTrig1(k, n);
+  if (kBound * 4 <= n) {        // angle <= pi/4
+    double x = M_PI / n * k;
+    double2 r = kCosSinMistify(x);
+    return U2(r.x, -r.y);
+  } else if (kBound * 2 <= n) { // angle <= pi/2
+    bool flip = kBound * 4 > n && k * 4 > n;
+    if (flip) { k = n / 2 - k; }
+    double x = M_PI / n * k;
+    double2 r = kCosSin(x);
+    
+    if (flip
+        #if AMDGPU && !AGGRESSIVE
+        // Again, this comparison is needed just to coerce the ROCm 3.1 optimizer into not messing up.
+        // If attempting to remove, verify with: gpuowl -prp 131500093
+        || (as_int2(r.x).y == -1)
+        #endif
+        ) { r = swap(r); }
+    return U2(r.x, -r.y);
+    // return flip ? U2(r.y, - r.x) : U2(r.x, - r.y);
+  } else {
+    return openclSlowTrig(k, n);
+  }
 #endif
 }
 
@@ -1945,7 +1933,7 @@ void middleMul(T2 *u, u32 s) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
   
-  T2 step = slowTrigMid8(s, BIG_HEIGHT / 2);
+  T2 step = slowTrig(s, BIG_HEIGHT / 2, BIG_HEIGHT / MIDDLE);
   u[1] = mul(u[1], step);
   
   T2 step2 = sq(step);
@@ -1967,8 +1955,8 @@ void middleMul(T2 *u, u32 s) {
 void middleMul2(T2 *u, u32 g, u32 me, double factor) {
   assert(g < WIDTH);
   assert(me < SMALL_HEIGHT);
-  T2 base = slowTrigMid8(g * me,           BIG_HEIGHT * WIDTH / 2) * factor;
-  T2 step = slowTrigMid8(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2);
+  T2 base = slowTrig(g * me,           BIG_HEIGHT * WIDTH / 2, BIG_HEIGHT * WIDTH / MIDDLE) * factor;
+  T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, BIG_HEIGHT * WIDTH / MIDDLE);
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
@@ -2562,8 +2550,8 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
   u32 g1 = transPos(line1, MIDDLE, WIDTH);
   u32 g2 = transPos(line2, MIDDLE, WIDTH);
 
-  T2 base_squared = slowTrig(me * H + line1, W * H / 2);
-  T2 step = U2(M_SQRT1_2, -M_SQRT1_2); // slowTrig1(1, 4);
+  T2 base_squared = slowTrig(me * H + line1, W * H / 2, W * H / 4);
+  T2 step = U2(M_SQRT1_2, -M_SQRT1_2); // trig(pi/4)
   
   for (u32 i = 0; i < 4; ++i, base_squared = mul(base_squared, step)) {
     if (i == 0 && line1 == 0 && me == 0) {
@@ -2616,7 +2604,7 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
   T2 c = in[k];
   T2 d = in[v];
 #endif
-  onePairMul(a, b, c, d, swap_squared(slowTrig(me * H + line1, W * H / 2)));
+  onePairMul(a, b, c, d, swap_squared(slowTrig(me * H + line1, W * H / 2, W * H / 4)));
   io[k] = a;
   io[v] = b;
 }
@@ -2662,16 +2650,16 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);    
-    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W/2), true);    
+    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W / 2, W / 4), true);
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W), false);
+    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W, W / 2), false);
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, slowTrig(line1 + me * H, ND/2), false);
+    pairSq(NH, u, v, slowTrig(line1 + me * H, ND / 2, ND / 4), false);
     reverseLine(G_H, lds, v);
   }
 
@@ -2753,19 +2741,19 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   if (line1 == 0) {
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W / 2), true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W / 2, W / 4), true);
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
 
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
-    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, W), false);
+    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, W, W / 2), false);
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H / 2), false);
+    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H / 2, W * H / 4), false);
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }
@@ -2796,7 +2784,7 @@ KERNEL(256) testKernel(global double* io) {
 
   for (i32 i = 0; i < 10; i++) { u[i].x = io[i*64+me]; u[i].y = io[20480+i*64+me]; }
 
-  u[0] = slowTrig((int) u[1].x, WIDTH);
+  u[0] = slowTrig((int) u[1].x, WIDTH, WIDTH / 2);
 
   for (i32 i = 0; i < 10; i++) { io[i*64+me] = u[i].x; io[20480+i*64+me] = u[i].y; }
 }
