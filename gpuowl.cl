@@ -40,8 +40,8 @@ ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>          // Our own sin/cos implementation
 ROCM_SLOWTRIG                   // Use ROCm's private reduced-argument sin/cos
 
-ROCM31 <default>                // Enable workarounds for ROCm 3.1 bug
-NO_ROCM31
+ROCM31    <AMD default>         // Enable workaround for ROCm 3.1 bug affecting kcos()
+NO_ROCM31 <nVidia default>
 
 ---- P-1 below ----
 
@@ -128,7 +128,7 @@ G_H        "group height"
 #define CARRYM64 1
 #endif
 
-#if !ROCM31 && !NO_ROCM31
+#if !ROCM31 && !NO_ROCM31 && AMDGPU
 #define ROCM31 1
 #endif
 
