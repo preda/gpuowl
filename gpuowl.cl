@@ -1444,96 +1444,6 @@ void fft4Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   fft8(u);
 }
 
-// 256x8
-void fft2Kw(local T2 *lds, T2 *u, const global T2 *trig) {
-  UNROLL_WIDTH_CONTROL
-  for (i32 s = 5; s >= 2; s -= 3) {
-    fft8(u);
-    shuflAndMul(256, lds, trig, u, 8, 1 << s);
-  }
-  fft8(u);
-
-  u32 me = get_local_id(0);
-#if T2_SHUFFLE
-  bar();
-  for (i32 i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = u[i]; }
-  bar();
-  for (i32 i = 0; i < 4; ++i) {
-    u[i]   = lds[i * 512       + me];
-    u[i+4] = lds[i * 512 + 256 + me];
-  }
-#else
-  for (i32 b = 0; b < 2; ++b) {
-    bar();
-    for (i32 i = 0; i < 8; ++i) { ((local T*)lds)[(me + i * 256) / 4 + me % 4 * 512] = ((T *) (u + i))[b]; }
-    bar();
-    for (i32 i = 0; i < 4; ++i) {
-      ((T *) (u + i))[b]     = ((local T*)lds)[i * 512       + me];
-      ((T *) (u + i + 4))[b] = ((local T*)lds)[i * 512 + 256 + me];
-    }
-  }
-#endif
-
-  for (i32 i = 1; i < 4; ++i) {
-    u[i]     = mul(u[i],     trig[i * 512       + me]);
-    u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
-  }
-
-  fft4(u);
-  fft4(u + 4);
-
-  // fix order: interleave u[0:3] and u[4:7], like (u.even, u.odd) = (u.lo, u.hi).
-  SWAP(u[1], u[2]);
-  SWAP(u[1], u[4]);
-  SWAP(u[5], u[6]);
-  SWAP(u[3], u[6]);
-}
-
-void fft2Kh(local T2 *lds, T2 *u, const global T2 *trig) {
-  UNROLL_HEIGHT_CONTROL
-  for (i32 s = 5; s >= 2; s -= 3) {
-    fft8(u);
-    shuflAndMul(256, lds, trig, u, 8, 1 << s);
-  }
-  fft8(u);
-
-  u32 me = get_local_id(0);
-#if T2_SHUFFLE
-  bar();
-  for (i32 i = 0; i < 8; ++i) { lds[(me + i * 256) / 4 + me % 4 * 512] = u[i]; }
-  bar();
-  for (i32 i = 0; i < 4; ++i) {
-    u[i]   = lds[i * 512       + me];
-    u[i+4] = lds[i * 512 + 256 + me];
-  }
-#else
-  for (i32 b = 0; b < 2; ++b) {
-    bar();
-    for (i32 i = 0; i < 8; ++i) { ((local T*)lds)[(me + i * 256) / 4 + me % 4 * 512] = ((T *) (u + i))[b]; }
-    bar();
-    for (i32 i = 0; i < 4; ++i) {
-      ((T *) (u + i))[b]     = ((local T*)lds)[i * 512       + me];
-      ((T *) (u + i + 4))[b] = ((local T*)lds)[i * 512 + 256 + me];
-    }
-  }
-#endif
-
-  for (i32 i = 1; i < 4; ++i) {
-    u[i]     = mul(u[i],     trig[i * 512       + me]);
-    u[i + 4] = mul(u[i + 4], trig[i * 512 + 256 + me]);
-  }
-
-  fft4(u);
-  fft4(u + 4);
-
-  // fix order: interleave u[0:3] and u[4:7], like (u.even, u.odd) = (u.lo, u.hi).
-  SWAP(u[1], u[2]);
-  SWAP(u[1], u[4]);
-  SWAP(u[5], u[6]);
-  SWAP(u[3], u[6]);
-}
-
-
 void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
   for (i32 i = 0; i < N; ++i) { u[i] = in[base + i * WG + (u32) get_local_id(0)]; }
 }
@@ -1769,8 +1679,6 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
   fft512w(lds, u, trig);
 #elif WIDTH == 1024
   fft1Kw(lds, u, trig);
-#elif WIDTH == 2048
-  fft2Kw(lds, u, trig);
 #elif WIDTH == 4096
   fft4Kw(lds, u, trig);
 #else
@@ -1785,8 +1693,6 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
   fft512h(lds, u, trig);
 #elif SMALL_HEIGHT == 1024
   fft1Kh(lds, u, trig);
-#elif SMALL_HEIGHT == 2048
-  fft2Kh(lds, u, trig);
 #else
 #error unexpected SMALL_HEIGHT.
 #endif

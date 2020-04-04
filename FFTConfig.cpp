@@ -18,8 +18,8 @@ FFTConfig::FFTConfig(u32 width, u32 height, u32 middle, bool isPm1) :
   fftSize(width * height * middle * 2),
 
   maxExp(getMaxExp(fftSize, isPm1)) {
-  assert(width == 256 || width  == 512 || width == 1024 || width == 2048 || width == 4096);
-  assert(height == 256 || height == 512 || height == 1024 || height == 2048);
+  assert(width == 256 || width  == 512 || width == 1024 || width == 4096);
+  assert(height == 256 || height == 512 || height == 1024);
 }
 
 // On 2020-03-30, I examined the middle=10 FFTs from 1.25M to 80M.
@@ -57,8 +57,8 @@ u32 FFTConfig::getMaxCarry32(u32 fftSize, u32 exponent) {
 
 vector<FFTConfig> FFTConfig::genConfigs(bool isPm1) {
   vector<FFTConfig> configs;
-  for (u32 width : {256, 512, 1024, 2048, 4096}) {
-    for (u32 height : {256, 512, 1024, 2048}) {
+  for (u32 width : {256, 512, 1024, 4096}) {
+    for (u32 height : {256, 512, 1024}) {
       for (u32 middle : {1, /*3,*/ 4, /*5,*/ 6, 7, 8, 9, 10, 11, 12}) {
         if (middle == 1 && width * height >= 512 * 512) continue;
         configs.push_back(FFTConfig(width, height, middle, isPm1));
