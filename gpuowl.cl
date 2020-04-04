@@ -11,10 +11,8 @@ NO_OMOD: do not use GCN output modifiers in __asm()
 OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
 IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 but needs testing>
 
-UNROLL_ALL <nVidia default>
-UNROLL_NONE
-UNROLL_WIDTH
-UNROLL_HEIGHT <AMD default>
+UNROLL_WIDTH <nVidia default>
+NO_UNROLL_WIDTH <AMD default>
 
 T2_SHUFFLE <nVidia default>
 NO_T2_SHUFFLE <AMD default>
@@ -134,13 +132,9 @@ G_H        "group height"
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
 // which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
-// For AMD GPUs we default to unrolling fft_HEIGHT but not fft_WIDTH loops.  For nVidia GPUs, we unroll everything.
-#if !UNROLL_ALL && !UNROLL_NONE && !UNROLL_WIDTH && !UNROLL_HEIGHT
-#if AMDGPU
-#define UNROLL_HEIGHT 1
-#else
-#define UNROLL_ALL 1
-#endif
+// For AMD GPUs we do not unroll fft_WIDTH loops. For nVidia GPUs, we unroll everything.
+#if !UNROLL_WIDTH && !NO_UNROLL_WIDTH && !AMDGPU
+#define UNROLL_WIDTH 1
 #endif
 
 // Expected defines: EXP the exponent.
@@ -164,11 +158,6 @@ G_H        "group height"
 
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
-
-#if UNROLL_ALL
-#define UNROLL_WIDTH 1
-#define UNROLL_HEIGHT 1
-#endif
 
 #if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
 #define NEW_SLOWTRIG 1
@@ -241,12 +230,6 @@ G_H        "group height"
 #define UNROLL_WIDTH_CONTROL
 #else
 #define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
-#endif
-
-#if UNROLL_HEIGHT
-#define UNROLL_HEIGHT_CONTROL
-#else
-#define UNROLL_HEIGHT_CONTROL	   __attribute__((opencl_unroll_hint(1)))
 #endif
 
 // A T2 shuffle requires twice as much local memory as a T shuffle.  This won't affect occupancy for MIDDLE shuffles
@@ -1342,18 +1325,15 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   u32 m = me / f;
   
-#if T2_SHUFFLE
-  
-  bar();
+#if T2_SHUFFLE  
   for (u32 i = 0; i < n; ++i) { lds2[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i]; }
   bar();
   for (u32 i = 0; i < n; ++i) { u[i] = lds2[i * WG + me]; }
-  
 #else
   
   local T* lds = (local T*) lds2;
   for (i32 b = 0; b < 2; ++b) {
-    bar();
+    if (b) { bar(); }
     for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = ((T *) (u + i))[b]; }
     bar();
     for (u32 i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
@@ -1381,12 +1361,14 @@ void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
   }
   fft4(u);
 }
+
 void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
-  UNROLL_HEIGHT_CONTROL
-  for (i32 s = 4; s >= 0; s -= 2) {
-    fft4(u);
-    shuflAndMul(64, lds, trig, u, 4, 1 << s);
-  }
+  fft4(u);
+  shuflAndMul(64, lds, trig, u, 4, 16);
+  fft4(u);
+  shuflAndMul(64, lds, trig, u, 4, 4);
+  fft4(u);
+  shuflAndMul(64, lds, trig, u, 4, 1);
   fft4(u);
 }
 
@@ -1399,12 +1381,12 @@ void fft512w(local T2 *lds, T2 *u, const global T2 *trig) {
   }
   fft8(u);
 }
+
 void fft512h(local T2 *lds, T2 *u, const global T2 *trig) {
-  UNROLL_HEIGHT_CONTROL
-  for (i32 s = 3; s >= 0; s -= 3) {
-    fft8(u);
-    shuflAndMul(64, lds, trig, u, 8, 1 << s);
-  }
+  fft8(u);
+  shuflAndMul(64, lds, trig, u, 8, 8);
+  fft8(u);
+  shuflAndMul(64, lds, trig, u, 8, 1);
   fft8(u);
 }
 
@@ -1412,17 +1394,24 @@ void fft512h(local T2 *lds, T2 *u, const global T2 *trig) {
 void fft1Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
   for (i32 s = 6; s >= 0; s -= 2) {
+    if (s != 6) { bar(); }
     fft4(u);
     shuflAndMul(256, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
 }
 void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
-  UNROLL_HEIGHT_CONTROL
-  for (i32 s = 6; s >= 0; s -= 2) {
-    fft4(u);
-    shuflAndMul(256, lds, trig, u, 4, 1 << s);
-  }
+  fft4(u);
+  shuflAndMul(256, lds, trig, u, 4, 64);
+  fft4(u);
+  bar();
+  shuflAndMul(256, lds, trig, u, 4, 16);
+  fft4(u);
+  bar();
+  shuflAndMul(256, lds, trig, u, 4, 4);
+  fft4(u);
+  bar();
+  shuflAndMul(256, lds, trig, u, 4, 1);
   fft4(u);
 }
 
@@ -1430,17 +1419,21 @@ void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
 void fft4Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
   for (i32 s = 6; s >= 0; s -= 3) {
+    if (s != 6) { bar(); }
     fft8(u);
     shuflAndMul(512, lds, trig, u, 8, 1 << s);
   }
   fft8(u);
 }
 void fft4Kh(local T2 *lds, T2 *u, const global T2 *trig) {
-  UNROLL_HEIGHT_CONTROL
-  for (i32 s = 6; s >= 0; s -= 3) {
-    fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, 1 << s);
-  }
+  fft8(u);
+  shuflAndMul(512, lds, trig, u, 8, 64);
+  fft8(u);
+  bar();
+  shuflAndMul(512, lds, trig, u, 8, 8);
+  fft8(u);
+  bar();
+  shuflAndMul(512, lds, trig, u, 8, 1);
   fft8(u);
 }
 
@@ -2280,6 +2273,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     weight *= WEIGHT_BIGSTEP;
   }
 
+  bar();
   fft_WIDTH(lds, u, smallTrig);
 
   write(G_W, NW, u, out, WIDTH * line);
@@ -2558,6 +2552,7 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   readTailFusedLine(in, u, line1, memline1);
   readTailFusedLine(in, v, line2, memline2);
   fft_HEIGHT(lds, u, smallTrig1);
+  bar();
   fft_HEIGHT(lds, v, smallTrig1);
 #endif
 
@@ -2578,7 +2573,9 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
     reverseLine(G_H, lds, v);
   }
 
+  bar();
   fft_HEIGHT(lds, v, smallTrig2);
+  bar();
   fft_HEIGHT(lds, u, smallTrig2);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
@@ -2628,6 +2625,7 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig1);
+  bar();
   fft_HEIGHT(lds, v, smallTrig1);
 #elif MUL_LOW
   readTailFusedLine(in, u, line1, memline1);
@@ -2635,6 +2633,7 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
   read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig1);
+  bar();
   fft_HEIGHT(lds, v, smallTrig1);
 #elif MUL_2LOW
   read(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
@@ -2647,8 +2646,11 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   readTailFusedLine(a, p, line1, memline1);
   readTailFusedLine(a, q, line2, memline2);
   fft_HEIGHT(lds, u, smallTrig1);
+  bar();
   fft_HEIGHT(lds, v, smallTrig1);
+  bar();
   fft_HEIGHT(lds, p, smallTrig1);
+  bar();
   fft_HEIGHT(lds, q, smallTrig1);
 #endif
 
@@ -2673,9 +2675,11 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
     reverseLine(G_H, lds, q);
   }
 
+  bar();
   fft_HEIGHT(lds, v, smallTrig2);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
-  
+
+  bar();
   fft_HEIGHT(lds, u, smallTrig2);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
