@@ -38,6 +38,9 @@ CARRYM64 <default>
 
 ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>		// Our own sin/cos implementation
+ROCM_SLOWTRIG                   // Use ROCm's private reduced-argument sin/cos
+
+ROCM31                          // Enable workarounds for ROCm 3.1 bugs
 
 ---- P-1 below ----
 
@@ -1547,9 +1550,9 @@ double2 openclSlowTrig(i32 k, i32 n) {
   return U2(c, -s);
 }
 
-// ROCm OCML sin/cos which assume reduced argument.
-// These are faster than openclSlowTrig() because they skip the argument reduction,
-// OTOH they suffer from exactly the same problem as our own sin/cos with the ROCm 3.1 codegen.
+#if ROCM_SLOWTRIG
+// ROCm OCML sin/cos which expect reduced argument.
+// These are faster than openclSlowTrig() because they skip the argument reduction.
 struct scret { double s; double c; };
 extern struct scret __ocmlpriv_sincosred2_f64(double x, double y);
 extern struct scret __ocmlpriv_sincosred_f64(double x);
@@ -1559,6 +1562,7 @@ double2 ocmlCosSin(double x) {
   struct scret r = __ocmlpriv_sincosred_f64(x);
   return U2(r.c, r.s);
 }
+#endif
 
 // Copyright notice of original k_cos, k_sin from which our ksin/kcos evolved:
 /* ====================================================
@@ -1616,7 +1620,7 @@ double kcos(double x) {
 
 double2 reducedCosSin(double x) {
   assert(x <= M_PI / 4);
-#if OCML_SLOWTRIG
+#if ROCM_SLOWTRIG
   return ocmlCosSin(x);
 #else
   return U2(kcos(x), ksin(x));
