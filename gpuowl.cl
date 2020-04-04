@@ -37,10 +37,11 @@ CARRYM32
 CARRYM64 <default>
 
 ORIG_SLOWTRIG
-NEW_SLOWTRIG <default>		// Our own sin/cos implementation
+NEW_SLOWTRIG <default>          // Our own sin/cos implementation
 ROCM_SLOWTRIG                   // Use ROCm's private reduced-argument sin/cos
 
-ROCM31                          // Enable workarounds for ROCm 3.1 bugs
+ROCM31 <default>                // Enable workarounds for ROCm 3.1 bug
+NO_ROCM31
 
 ---- P-1 below ----
 
@@ -125,6 +126,10 @@ G_H        "group height"
 
 #if !CARRYM32 && !CARRYM64
 #define CARRYM64 1
+#endif
+
+#if !ROCM31 && !NO_ROCM31
+#define ROCM31 1
 #endif
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
