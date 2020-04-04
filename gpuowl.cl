@@ -252,7 +252,7 @@ G_H        "group height"
 // turn IEEE mode and denormals off so that mul:2 and div:2 work
 #define ENABLE_MUL2() {\
     __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0");\
-    __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 5");\
+    __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 7");\
 }
 #else
 #define ENABLE_MUL2()
@@ -297,20 +297,20 @@ T add1_m2(T x, T y) {
 T sub1(T x, T y) {
 #if !NO_OMOD
   T tmp;
-   __asm("v_add_f64 %0, %1, -%2" : "=v" (tmp) : "v" (x), "v" (y));
-   return tmp;
+  __asm("v_add_f64 %0, %1, -%2" : "=v" (tmp) : "v" (x), "v" (y));
+  return tmp;
 #else
-   return x - y;
+  return x - y;
 #endif  
 }
 
 T sub1_m2(T x, T y) {
 #if !NO_OMOD
   T tmp;
-   __asm("v_add_f64 %0, %1, -%2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
-   return tmp;
+  __asm("v_add_f64 %0, %1, -%2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
+  return tmp;
 #else
-   return 2 * (x - y);
+  return 2 * (x - y);
 #endif
 }
 
@@ -329,8 +329,9 @@ T mad1(T x, T y, T z) { return x * y + z; }
 
 T mad1_m2(T a, T b, T c) {
 #if !NO_OMOD
-  __asm("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (a) : "v" (a), "v" (b), "v" (c));
-  return a;
+  double out;
+  __asm("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
+  return out;
 #else
   return 2 * mad1(a, b, c);
 #endif
@@ -338,8 +339,9 @@ T mad1_m2(T a, T b, T c) {
 
 T msb1_m2(T a, T b, T c) {
 #if !NO_OMOD
-  __asm("v_fma_f64 %0, %1, %2, -%3 mul:2" : "=v" (a) : "v" (a), "v" (b), "v" (c));
-  return a;
+  double out;
+  __asm("v_fma_f64 %0, %1, %2, -%3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
+  return out;
 #else
   return 2 * mad1(a, b, -c);
 #endif
@@ -347,8 +349,9 @@ T msb1_m2(T a, T b, T c) {
 
 T mad1_m4(T a, T b, T c) {
 #if !NO_OMOD
-  __asm("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (a) : "v" (a), "v" (b), "v" (c));
-  return a;
+  double out;
+  __asm("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
+  return out;
 #else
   return 4 * mad1(a, b, c);
 #endif
@@ -356,8 +359,9 @@ T mad1_m4(T a, T b, T c) {
 
 T msb1_m4(T a, T b, T c) {
 #if !NO_OMOD
-  __asm("v_fma_f64 %0, %1, %2, -%3 mul:4" : "=v" (a) : "v" (a), "v" (b), "v" (c));
-  return a;
+  double out;
+  __asm("v_fma_f64 %0, %1, %2, -%3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
+  return out;
 #else
   return 4 * mad1(a, b, -c);
 #endif
@@ -456,8 +460,8 @@ void ROUNDOFF_CHECK(double x) {
 #ifndef ROUNDOFF_LIMIT
 #define ROUNDOFF_LIMIT 0.43
 #endif
-  double error = fabs(x - rint(x));
-  if (error > ROUNDOFF_LIMIT) printf("Roundoff: %g\n", error);
+  float error = fabs(x - rint(x));
+  if (error > ROUNDOFF_LIMIT) printf("Roundoff: %g %30.2f\n", error, x);
 #endif
 }
 
@@ -1546,7 +1550,6 @@ double2 openclSlowTrig(i32 k, i32 n) {
 // ROCm OCML sin/cos which assume reduced argument.
 // These are faster than openclSlowTrig() because they skip the argument reduction,
 // OTOH they suffer from exactly the same problem as our own sin/cos with the ROCm 3.1 codegen.
-// As our own sin/cos is slightly simpler, these aren't used by default.
 struct scret { double s; double c; };
 extern struct scret __ocmlpriv_sincosred2_f64(double x, double y);
 extern struct scret __ocmlpriv_sincosred_f64(double x);
@@ -1593,28 +1596,32 @@ double kcos(double x) {
   C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
 
   double z = x * x;
-  return ((((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5) * z + 1;  
-}
+  double r = (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5;
 
-// Named "mistify" because its goal is to confuse the ROCm optimizer about the returned value
-// to workaround some broken optimization.
-double kcosMistify(double x) {
-#if AMDGPU && !ENABLE_ROCM_BUG2
+#if ROCM31
   // The condition below is never hit,
   // it is here just to workaround a ROCm 3.1 maddening codegen bug.
-  if (as_int2(x).y == -1) { return x; }
+  if (as_int2(x).y == -1) { return x; }  
 #endif
-  // int2 r = as_int2(kcos(x));
-  // return as_double((int2)(r.x, r.y));
-  return kcos(x);
+
+#if HAS_ASM
+  // the raw v_fma_f64 below seems to improve VGPR allocation on ROCm 3.3.0
+  double out;
+  __asm("v_fma_f64 %0, %1, %2, 1.0" : "=v"(out) : "v"(r), "v"(z));
+  return out;
+#else
+  return r * z + 1;
+#endif
 }
 
-double2 kCosSin(double x) {
-  // return ocmlCosSin(x);
+double2 reducedCosSin(double x) {
+  assert(x <= M_PI / 4);
+#if OCML_SLOWTRIG
+  return ocmlCosSin(x);
+#else
   return U2(kcos(x), ksin(x));
+#endif
 }
-
-double2 kCosSinMistify(double x) { return U2(kcosMistify(x), ksin(x)); }
 
 // Returns e^(-i * pi * k/n)
 double2 slowTrig(i32 k, i32 n, i32 kBound) {
@@ -1628,21 +1635,14 @@ double2 slowTrig(i32 k, i32 n, i32 kBound) {
 #else
   if (kBound * 4 <= n) {        // angle <= pi/4
     double x = M_PI / n * k;
-    double2 r = kCosSinMistify(x);
+    double2 r = reducedCosSin(x);
     return U2(r.x, -r.y);
   } else if (kBound * 2 <= n) { // angle <= pi/2
     bool flip = kBound * 4 > n && k * 4 > n;
     if (flip) { k = n / 2 - k; }
     double x = M_PI / n * k;
-    double2 r = kCosSin(x);
-    
-    if (flip
-        #if AMDGPU && !AGGRESSIVE
-        // Again, this comparison is needed just to coerce the ROCm 3.1 optimizer into not messing up.
-        // If attempting to remove, verify with: gpuowl -prp 131500093
-        || (as_int2(r.x).y == -1)
-        #endif
-        ) { r = swap(r); }
+    double2 r = reducedCosSin(x);
+    if (flip) { r = swap(r); }
     return U2(r.x, -r.y);
     // return flip ? U2(r.y, - r.x) : U2(r.x, - r.y);
   } else {
@@ -2779,13 +2779,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 #ifdef TEST_KERNEL
 KERNEL(256) testKernel(global double* io) {
   u32 me = get_local_id(0);
-  T2 u[NW];
-  Word2 wu[NW];
-
-  for (i32 i = 0; i < 10; i++) { u[i].x = io[i*64+me]; u[i].y = io[20480+i*64+me]; }
-
-  u[0] = slowTrig((int) u[1].x, WIDTH, WIDTH / 2);
-
-  for (i32 i = 0; i < 10; i++) { io[i*64+me] = u[i].x; io[20480+i*64+me] = u[i].y; }
+  io[me] = kcos(io[me]);
 }
 #endif
