@@ -14,9 +14,6 @@ IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 
 UNROLL_WIDTH <nVidia default>
 NO_UNROLL_WIDTH <AMD default>
 
-T2_SHUFFLE <nVidia default>
-NO_T2_SHUFFLE <AMD default>
-
 OLD_FFT8 <default>
 NEWEST_FFT8
 NEW_FFT8
@@ -230,13 +227,6 @@ G_H        "group height"
 #define UNROLL_WIDTH_CONTROL
 #else
 #define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
-#endif
-
-// A T2 shuffle requires twice as much local memory as a T shuffle.  This won't affect occupancy for MIDDLE shuffles
-// and small WIDTH and HEIGHT shuffles.  However, 4K and 2K widths and heights might be better off using less local memory.
-#if !T2_SHUFFLE && !NO_T2_SHUFFLE && !AMDGPU
-// On nVidia default to T2-shuffle
-#define T2_SHUFFLE 1
 #endif
 
 #if HAS_ASM && !NO_OMOD
@@ -1324,32 +1314,45 @@ void fft12(T2 *u) {
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   u32 m = me / f;
-  
-#if T2_SHUFFLE  
-  for (u32 i = 0; i < n; ++i) { lds2[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i]; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { u[i] = lds2[i * WG + me]; }
-#else
-  
+    
   local T* lds = (local T*) lds2;
-  for (i32 b = 0; b < 2; ++b) {
-    if (b) { bar(); }
-    for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = ((T *) (u + i))[b]; }
-    bar();
-    for (u32 i = 0; i < n; ++i) { ((T *) (u + i))[b] = lds[i * WG + me]; }
-  }
-  
-#endif
+
+  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i].x; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i].y; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+}
+
+void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+  local T* lds = (local T*) lds2;
+
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~(f-1)) * n + me % f] = u[i].x; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~(f-1)) * n + me % f] = u[i].y; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
 }
 
 void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   for (i32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
+  // for (i32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f * f + i * WG]); }
 }
 
 void shuflAndMul(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
   shufl(WG, lds, u, n, f);
   tabMul(WG, trig, u, n, f);
+}
+
+void shuflAndMul2(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
+  tabMul(WG, trig, u, n, f);
+  shufl2(WG, lds, u, n, f);
 }
 
 // 64x4
@@ -1363,12 +1366,21 @@ void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
 }
 
 void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
+  /*
+  UNROLL_WIDTH_CONTROL
+  for (i32 s = 0; s <= 4; s += 2) {
+    fft4(u);
+    shuflAndMul2(64, lds, trig, u, 4, 1 << s);
+  }
   fft4(u);
-  shuflAndMul(64, lds, trig, u, 4, 16);
+  */
+
   fft4(u);
-  shuflAndMul(64, lds, trig, u, 4, 4);
+  shuflAndMul2(64, lds, trig, u, 4, 1);
   fft4(u);
-  shuflAndMul(64, lds, trig, u, 4, 1);
+  shuflAndMul2(64, lds, trig, u, 4, 4);
+  fft4(u);
+  shuflAndMul2(64, lds, trig, u, 4, 16);
   fft4(u);
 }
 
@@ -1393,10 +1405,10 @@ void fft512h(local T2 *lds, T2 *u, const global T2 *trig) {
 // 256x4
 void fft1Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
-  for (i32 s = 6; s >= 0; s -= 2) {
-    if (s != 6) { bar(); }
+  for (i32 s = 0; s <= 6; s += 2) {
+    if (s) { bar(); }
     fft4(u);
-    shuflAndMul(256, lds, trig, u, 4, 1 << s);
+    shuflAndMul2(256, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
 }
@@ -1724,11 +1736,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
-#if T2_SHUFFLE
-  local T2 lds[WIDTH];
-#else
   local T2 lds[WIDTH / 2];
-#endif
   
   T2 u[NW];
   u32 g = get_group_id(0);
@@ -1742,11 +1750,7 @@ KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
 
 // Do an FFT Height after a transposeW (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
-#if T2_SHUFFLE
-  local T2 lds[SMALL_HEIGHT];
-#else
   local T2 lds[SMALL_HEIGHT / 2];
-#endif
   
   T2 u[NH];
   u32 g = get_group_id(0);
@@ -1761,11 +1765,7 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
 
 // Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)
 KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
-#if T2_SHUFFLE
-  local T2 lds[SMALL_HEIGHT];
-#else
   local T2 lds[SMALL_HEIGHT / 2];
-#endif
   
   T2 u[NH];
   u32 g = get_group_id(0);
@@ -1780,11 +1780,8 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
 KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) A, Trig smallTrig) {
-#if T2_SHUFFLE
-  local T2 lds[WIDTH];
-#else
   local T2 lds[WIDTH / 2];
-#endif
+
   T2 u[NW];
   u32 g = get_group_id(0);
 
@@ -2104,11 +2101,7 @@ void acquire() {
 //{{ CARRY_FUSED
 KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
                  CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights, P(u32) roundOut, P(u32) carryStats) {
-#if T2_SHUFFLE
-  local T2 lds[WIDTH];
-#else
   local T2 lds[WIDTH / 2];
-#endif
   
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2325,19 +2318,12 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
   u32 me = get_local_id(0);
   u32 revMe = WG - 1 - me;
 
-#if T2_SHUFFLE
-  bar();
-  for (i32 i = 0; i < NH; ++i) { lds[i * WG + revMe] = u[(NH - 1) - i]; }
-  bar();
-  for (i32 i = 0; i < NH; ++i) { u[i] = lds[i * WG + me]; }
-#else
   for (i32 b = 0; b < 2; ++b) {
     bar();
     for (i32 i = 0; i < NH; ++i) { ((local T*)lds)[i * WG + revMe] = ((T *) (u + ((NH - 1) - i)))[b]; }  
     bar();
     for (i32 i = 0; i < NH; ++i) { ((T *) (u + i))[b] = ((local T*)lds)[i * WG + me]; }
   }
-#endif
 }
 
 // This implementation compared to the original version that is no longer included in this file takes
@@ -2528,11 +2514,8 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
 
 //{{ TAIL_SQUARE
 KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
-#if T2_SHUFFLE
-  local T2 lds[SMALL_HEIGHT];
-#else
   local T2 lds[SMALL_HEIGHT / 2];
-#endif
+
   T2 u[NH], v[NH];
 
   u32 W = SMALL_HEIGHT;
@@ -2600,11 +2583,7 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   // to poor occupancy.
 #endif
   
-#if T2_SHUFFLE
-  local T2 lds[SMALL_HEIGHT];
-#else
   local T2 lds[SMALL_HEIGHT / 2];
-#endif
 
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];

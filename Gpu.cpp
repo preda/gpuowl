@@ -45,8 +45,7 @@ static double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
 static ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
   vector<double2> tab(size);
   auto *p = tab.data() + radix;
-  u32 w = 0;
-  for (w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
+  for (u32 w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
   assert(p - tab.data() == size);
   return {context, "smallTrig", tab};
 }
