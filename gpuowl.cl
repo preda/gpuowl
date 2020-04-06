@@ -603,7 +603,7 @@ T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
-T2 fmaT2(T a, T2 b, T2 c) { return U2(a * b.x + c.x, a * b.y + c.y); }
+T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; a = d + c; b = -d + c; }
 // #define fma_addsub(a, b, sin, c, d) { a = fmaT2(sin, d, c); b = fmaT2(sin, -d, c); }

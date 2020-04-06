@@ -39,7 +39,7 @@ public:
   int carry = CARRY_AUTO;
   u32 blockSize = 400;
   u32 logStep = 200000;
-  int fftSize = 0;
+  string fftSpec;
 
   u32 B1 = 1000000;
   u32 B2 = 0;

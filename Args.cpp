@@ -51,7 +51,7 @@ Command line options:
 -user <name>       : specify the user name.
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
--fft <size>        : specify FFT size, such as: 5000K, 4M, +2.
+-fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
 -block <value>     : PRP GEC block size. Default %u. Smaller block is slower but detects errors sooner.
 -log <step>        : log every <step> iterations, default %u. Multiple of 10000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
@@ -76,13 +76,13 @@ Command line options:
   }
   printf("\nFFT Configurations:\n");
   
-  vector<FFTConfig> configs = FFTConfig::genConfigs(false);
+  vector<FFTConfig> configs = FFTConfig::genConfigs();
   configs.push_back(FFTConfig{}); // dummy guard for the loop below.
   string variants;
   u32 activeSize = 0;
   u32 activeMaxExp = 0;
   for (auto c : configs) {
-    if (c.fftSize != activeSize) {
+    if (c.fftSize() != activeSize) {
       if (!variants.empty()) {
         printf("FFT %5s [%6.2fM - %7.2fM] %s\n",
                numberK(activeSize).c_str(),
@@ -91,9 +91,9 @@ Command line options:
         variants.clear();
       }
     }
-    activeSize = c.fftSize;
-    activeMaxExp = c.maxExp;
-    variants += " "s + FFTConfig::configName(c.width, c.height, c.middle);
+    activeSize = c.fftSize();
+    activeMaxExp = c.maxExp();
+    variants += " "s + c.spec();
   }
 }
 
@@ -131,7 +131,8 @@ void Args::parse(string line) {
     else if (key == "-B1") { B1 = stoi(s); }
     else if (key == "-B2") { B2 = stoi(s); }
     else if (key == "-rB2") { B2_B1_ratio = stoi(s); }
-    else if (key == "-fft") { fftSize = stoi(s) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1)); }
+    else if (key == "-fft") { fftSpec = s; }
+      // fftSize = stoi(s) * ((s.back() == 'K') ? 1024 : ((s.back() == 'M') ? 1024 * 1024 : 1)); }
     else if (key == "-dump") { dump = s; }
     else if (key == "-user") { user = s; }
     else if (key == "-cpu") { cpu = s; }

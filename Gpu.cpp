@@ -317,16 +317,14 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   queue->zero(bufCarryMulMax, 8);
 }
 
-static FFTConfig getFFTConfig(const vector<FFTConfig> &configs, u32 E, int argsFftSize) {
-  int i = 0;
-  int n = int(configs.size());
-  if (argsFftSize < 10) { // fft delta or not specified.
-    while (i < n - 1 && configs[i].maxExp < E) { ++i; }      
-    i = max(0, min(i + argsFftSize, n - 1));
-  } else { // user-specified fft size.
-    while (i < n - 1 && u32(argsFftSize) > configs[i].fftSize) { ++i; }      
+static FFTConfig getFFTConfig(u32 E, string fftSpec) {
+  if (fftSpec.empty()) {
+    vector<FFTConfig> configs = FFTConfig::genConfigs();
+    for (FFTConfig c : configs) { if (c.maxExp() >= E) { return c; } }
+    log("No FFT for exponent %u\n", E);
+    throw "No FFT for exponent";
   }
-  return configs[i];
+  return FFTConfig::fromSpec(fftSpec);
 }
 
 vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
@@ -334,10 +332,8 @@ vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   return bufSmallOut.read(128);
 }
 
-unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {
-  vector<FFTConfig> configs = FFTConfig::genConfigs(isPm1);
-        
-  FFTConfig config = getFFTConfig(configs, E, args.fftSize);
+unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {        
+  FFTConfig config = getFFTConfig(E, args.fftSpec);
   u32 WIDTH        = config.width;
   u32 SMALL_HEIGHT = config.height;
   u32 MIDDLE       = config.middle;
