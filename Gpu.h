@@ -39,6 +39,7 @@ class Gpu {
   
   Kernel carryFused;
   Kernel carryFusedMul;
+  Kernel carryFusedLL;
   Kernel fftP;
   Kernel fftW;
   Kernel fftHin;
@@ -49,6 +50,7 @@ class Gpu {
   Kernel carryA;
   Kernel carryM;
   Kernel carryB;
+  Kernel carryLL;
   
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
@@ -112,9 +114,19 @@ class Gpu {
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(const vector<u32> &words, Buffer<int>& buf);
   void writeIn(const vector<int> &words, Buffer<int>& buf);
+
+  void modSqLoopRaw(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io, bool mul3, bool sub2);
   
-  void modSqLoop(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io, bool mul3 = false);
-  
+  void modSqLoop(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
+    modSqLoopRaw(reps, buf1, buf2, io, false, false);
+  }
+  void modSqLoopMul(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
+    modSqLoopRaw(reps, buf1, buf2, io, true, false);
+  }
+  void modSqLoopLL(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
+    modSqLoopRaw(reps, buf1, buf2, io, false, true);
+  }
+
   void modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3 = false);
   bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
   u64 bufResidue(Buffer<int>& buf);
@@ -123,7 +135,7 @@ class Gpu {
 
   PRPState loadPRP(u32 E, u32 iniBlockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
 
-  void coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io);
+  void coreStep(bool leadIn, bool leadOut, bool mul3, bool sub2, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io);
 
   void multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
 
@@ -150,8 +162,8 @@ public:
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, bool isPm1);
 
-  vector<u32> roundtripData()  { return readData(); }
-  vector<u32> roundtripCheck() { return readCheck(); }
+  // vector<u32> roundtripData()  { return readData(); }
+  // vector<u32> roundtripCheck() { return readCheck(); }
 
   vector<u32> writeData(const vector<u32> &v);
   vector<u32> writeCheck(const vector<u32> &v);
@@ -170,6 +182,7 @@ public:
   vector<u32> readData() { return readAndCompress(bufData); }
 
   std::tuple<bool, u64, u32> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp);
+  std::tuple<bool, u64> isPrimeLL(u32 E, const Args& args);
 
   void buildProof(u32 E, const Args& args);
   

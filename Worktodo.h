@@ -1,5 +1,5 @@
 // gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
-// Copyright (C) 2017-2018 Mihai Preda.
+// Copyright (C) Mihai Preda.
 
 #pragma once
 
@@ -21,4 +21,6 @@ public:
     task.adjustBounds(args);
     return task;
   }
+
+  static Task makeLL(Args& args, u32 exponent) { return Task{Task::LL, exponent}; }
 };

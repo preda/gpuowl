@@ -1351,6 +1351,12 @@ void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   for (i32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
 }
 
+void tabMul2(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+  u32 mask = f - 1;
+  for (i32 i = 0; i < n - 1; ++i) { u[i + 1] = mul(u[i + 1], trig[WG + (me & ~mask) + i * WG]); }
+}
+
 void shuflAndMul(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
   shufl(WG, lds, u, n, f);
   tabMul(WG, trig, u, n, f);
@@ -2000,6 +2006,9 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
   u32 gy = g / NW;
 
   CarryABM carry = 0;
+#if SUB2
+  if (g == 0 && me == 0) { carry = -2; }
+#endif
   
   u32 roundMax = 0;
   u32 carryMax = 0;
@@ -2050,8 +2059,9 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
 }
 //}}
 
-//== CARRYA NAME=carryA,DO_MUL3=0
-//== CARRYA NAME=carryM,DO_MUL3=1
+//== CARRYA NAME=carryA,DO_MUL3=0,SUB2=0
+//== CARRYA NAME=carryM,DO_MUL3=1,SUB2=0
+//== CARRYA NAME=carryLL,DO_MUL3=0,SUB2=1
 
 KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) extras) {
   u32 g  = get_group_id(0);
@@ -2157,7 +2167,15 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 #if CF_MUL    
     wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
 #else
+    
+#if SUB2
+    CFcarry inCarry = 0;
+    if (i == 0 && line == 0 && me == 0) { inCarry = -2; }
+    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), inCarry, &carryMax);
+#else    
     wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
+#endif
+    
 #endif
     invWeight *= IWEIGHT_BIGSTEP;
   }
@@ -2278,8 +2296,9 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 }
 //}}
 
-//== CARRY_FUSED NAME=carryFused,    CF_MUL=0
-//== CARRY_FUSED NAME=carryFusedMul, CF_MUL=1
+//== CARRY_FUSED NAME=carryFused,    CF_MUL=0,SUB2=0
+//== CARRY_FUSED NAME=carryFusedMul, CF_MUL=1,SUB2=0
+//== CARRY_FUSED NAME=carryFusedLL,  CF_MUL=0,SUB2=1
 
 // from transposed to sequential.
 KERNEL(256) transposeOut(P(Word2) out, CP(Word2) in) {

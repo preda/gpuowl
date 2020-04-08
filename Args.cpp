@@ -41,8 +41,6 @@ vector<pair<string, string>> splitArgLine(const string& line) {
 
 void Args::printHelp() {
   printf(R"(
-Command line options:
-
 -dir <folder>      : specify local work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
 -pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
                      Multiple GpuOwl instances, each in its own directory, can share a pool of assignments and report
@@ -52,8 +50,8 @@ Command line options:
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
 -fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
--block <value>     : PRP GEC block size. Default %u. Smaller block is slower but detects errors sooner.
--log <step>        : log every <step> iterations, default %u. Multiple of 10000.
+-block <value>     : PRP GEC block size, or LL iteration-block size. Must divide 10'000.
+-log <step>        : log every <step> iterations. Multiple of 10'000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -B1                : P-1 B1 bound, default %u
 -B2                : P-1 B2 bound, default B1 * 30
@@ -61,6 +59,7 @@ Command line options:
 -cleanup           : delete save files at end of run
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
+-ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
@@ -68,13 +67,13 @@ Command line options:
 -nospin            : disable progress spinner
 -use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
 -device <N>        : select a specific device:
-)", blockSize, logStep, B1, B2_B1_ratio);
+)", B1, B2_B1_ratio);
   // -proof [<power>]   : enable experimental PRP proof generation. Default <power> is 7.
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
     printf("%2u %s : %s %s\n", i, getUUID(i).c_str(), getLongInfo(deviceIds[i]).c_str(), isAmdGpu(deviceIds[i]) ? "AMD" : "not-AMD");
   }
-  printf("\nFFT Configurations:\n");
+  printf("\nFFT Configurations (specify with -fft <width>:<middle>:<height> from the set below):\n");
   
   vector<FFTConfig> configs = FFTConfig::genConfigs();
   configs.push_back(FFTConfig{}); // dummy guard for the loop below.
@@ -128,6 +127,7 @@ void Args::parse(string line) {
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp") { prpExp = stoll(s); }
     else if (key == "-pm1") { pm1Exp = stoll(s); }
+    else if (key == "-ll") { llExp = stoll(s); }
     else if (key == "-B1") { B1 = stoi(s); }
     else if (key == "-B2") { B2 = stoi(s); }
     else if (key == "-rB2") { B2_B1_ratio = stoi(s); }
@@ -153,8 +153,8 @@ void Args::parse(string line) {
     } else if (key == "-block") {
       blockSize = stoi(s);
       if (blockSize <= 0 || 10000 % blockSize) {
-        log("Invalid blockSize %u, must divide 10000\n", blockSize);
-        throw "-block size";
+        log("BlockSize %u must divide 10'000\n", blockSize);
+        throw "invalid block size";
       }
     } else if (key == "-use") {
       string ss = s;
@@ -167,10 +167,11 @@ void Args::parse(string line) {
     }
   }
 
-  if (logStep % blockSize) {
-    log("blockSize (%u) must divide logStep (%u)\n", blockSize, logStep);
-    throw "args: blockSize, logStep";
+  if (logStep % 10000) {
+    log("log step (%u) must be a multiple of 10'000\n", logStep);
+    throw "invalid log step";
   }
+  
   if (!masterDir.empty()) {
     if (resultsFile.find_first_of('/') == std::string::npos) {
       resultsFile = masterDir + '/' + resultsFile;

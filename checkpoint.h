@@ -31,6 +31,29 @@ protected:
   }
 };
 
+class LLState : private StateLoader {
+  // Exponent, iteration, 0, hash
+  static constexpr const char *HEADER_v1 = "OWL LL 1 %u %u 0 %" SCNx64 "\n";
+  static constexpr const char *EXT = "ll.owl";
+  
+protected:
+  bool doLoad(const char* headerLine, FILE *fi) override;
+  void doSave(FILE* fo) override;
+  u32 getK() override { return k; }
+  
+public:  
+  static void cleanup(u32 E);
+
+  LLState(u32 E);
+  LLState(u32 E, u32 k, vector<u32> data) : E{E}, k{k}, data{std::move(data)} {}
+
+  void save() { StateLoader::save(E, EXT, 0); }
+
+  const u32 E{};
+  u32 k{};
+  vector<u32> data;
+};
+
 class PRPState : private StateLoader {
   // Exponent, iteration, block-size, res64, nErrors
   static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";

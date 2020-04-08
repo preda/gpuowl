@@ -241,15 +241,17 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   LOAD(carryFused,    BIG_H + 1),
   LOAD(carryFusedMul, BIG_H + 1),
+  LOAD(carryFusedLL,  BIG_H + 1),
   LOAD(fftP, BIG_H),
   LOAD(fftW,   BIG_H),
   LOAD(fftHin,  hN / SMALL_H),
   LOAD(fftHout, hN / SMALL_H),
   LOAD_WS(fftMiddleIn,  hN / (BIG_H / SMALL_H)),
   LOAD_WS(fftMiddleOut, hN / (BIG_H / SMALL_H)),
-  LOAD_WS(carryA, hN / 16),
-  LOAD_WS(carryM, hN / 16),
-  LOAD_WS(carryB, hN / 16),
+  LOAD_WS(carryA,  hN / 16),
+  LOAD_WS(carryM,  hN / 16),
+  LOAD_WS(carryB,  hN / 16),
+  LOAD_WS(carryLL, hN / 16),
   LOAD(transposeW,   (W/64) * (BIG_H/64)),
   LOAD(transposeH,   (W/64) * (BIG_H/64)),
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
@@ -292,14 +294,16 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 {
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
-  carryFused.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
+  carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
+  carryFusedLL.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
     
-  carryA.setFixedArgs(2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMax);
+  carryA.setFixedArgs( 2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMax);
+  carryLL.setFixedArgs(2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMax);
   carryM.setFixedArgs(2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufExtras);
 
@@ -343,9 +347,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {
   u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
 
   float bitsPerWord = E / float(N);
-  string strMiddle = (MIDDLE == 1) ? "" : (string(", Middle ") + std::to_string(MIDDLE));
-  log("%u FFT %dK: Width %dx%d, Height %dx%d%s; %.2f bits/word\n",
-      E, N / 1024, WIDTH / nW, nW, SMALL_HEIGHT / nH, nH, strMiddle.c_str(), bitsPerWord);
+  log("%u FFT: %s %s (%.2f bpw)\n", E, numberK(N).c_str(), config.spec().c_str(), bitsPerWord);
 
   if (bitsPerWord > 20) {
     log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
@@ -359,7 +361,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {
 
   log("Expected maximum carry32: %X0000\n", config.getMaxCarry32(N, E));
 
-  bool useLongCarry = (bitsPerWord < 14.5f) || (args.carry == Args::CARRY_LONG);
+  bool useLongCarry = (bitsPerWord < 10.5f) || (args.carry == Args::CARRY_LONG);
 
   if (useLongCarry) { log("using long carry kernels\n"); }
 
@@ -370,8 +372,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args, bool isPm1) {
 }
 
 vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
-  // queue->zero(bufSumOut);
-  while (true) {
+  for (int nRetry = 0; nRetry < 3; ++nRetry) {
     sum64(bufSumOut, u32(buf.size * sizeof(int)), buf);
     vector<u64> expectedVect(1);
     bufSumOut >> expectedVect;
@@ -382,11 +383,12 @@ vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
       sum += u32(*it) | (u64(*(it + 1)) << 32);
     }
     if (sum != expectedSum) {
-      log("GPU->host read failed (check %x vs %x)\n", unsigned(sum), unsigned(expectedSum));
+      log("GPU -> Host read #%d failed (check %x vs %x)\n", nRetry, unsigned(sum), unsigned(expectedSum));
     } else {
       return compactBits(std::move(data),  E);
     }
   }
+  throw "GPU -> Host persistent read errors";
 }
 
 vector<u32> Gpu::writeData(const vector<u32> &v) {
@@ -460,7 +462,7 @@ void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   bufAux << bufCheck;
-  modSqLoop(blockSize, buf1, buf2, bufAux, true);
+  modSqLoopMul(blockSize, buf1, buf2, bufAux);
   updateCheck(buf1, buf2, buf3);
   return equalNotZero(bufCheck, bufAux);
 }
@@ -590,7 +592,7 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
   }
 }
 
-void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io) {
+void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, bool sub2, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io) {
   if (leadIn) { fftP(buf1, io); }
   tW(bufTmp, buf1);
   tailFusedSquare(buf1, bufTmp);
@@ -598,18 +600,32 @@ void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, Buffer<double>& buf1, B
 
   if (leadOut) {
     fftW(buf1, bufTmp);
-    mul3 ? carryM(io, buf1) : carryA(io, buf1);
+    
+    if (mul3) {
+      carryM(io, buf1);
+    } else if (sub2) {
+      carryLL(io, buf1);
+    } else {
+      carryA(io, buf1);
+    }
+    
     carryB(io);
   } else {
-    mul3 ? carryFusedMul(buf1, bufTmp) : carryFused(buf1, bufTmp);
+    if (mul3) {
+      carryFusedMul(buf1, bufTmp);
+    } else if (sub2) {
+      carryFusedLL(buf1, bufTmp);
+    } else {
+      carryFused(buf1, bufTmp);
+    }
   }  
 }
 
-void Gpu::modSqLoop(u32 reps, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io, bool mul3) {
+void Gpu::modSqLoopRaw(u32 reps, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io, bool mul3, bool sub2) {
   bool leadIn = true;
   for (u32 i = 0; i < reps; ++i) {
     bool leadOut = useLongCarry || (i == reps - 1);
-    coreStep(leadIn, leadOut, mul3 && (i == reps - 1), buf1, bufTmp, io);
+    coreStep(leadIn, leadOut, mul3 && (i == reps - 1), sub2, buf1, bufTmp, io);
     leadIn = leadOut;
   }
 }
@@ -654,6 +670,10 @@ static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 
       checkTime, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
+static void logLL(u32 E, u32 k, u64 res, double secsPerIt, u32 nIters) {
+  log("%s\n", makeLogStr(E, "LL", k, res, secsPerIt, nIters).c_str());
+}
+
 static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
   log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters).c_str());
 }
@@ -670,6 +690,7 @@ static bool equals9(const vector<u32> &a) {
 }
 
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+  if (iniBlockSize == 0) { iniBlockSize = 400; } // default PRP block size
   PRPState loaded(E, iniBlockSize);
   writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
 
@@ -736,14 +757,13 @@ public:
   }
 };
 
-static u32 checkStepForErrors(u32 baseCheckStep, u32 nErrors) {
-  if (baseCheckStep != 200'000) { return baseCheckStep; }
-  
+static u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
+  if (argsCheckStep) { return argsCheckStep; }  
   switch (nErrors) {
-    case 0: return 200'000;
-    case 1: return 100'000;
-    case 2: return  50'000;
-    default: return 20'000;
+    case 0:  return 200'000;
+    case 1:  return 120'000;
+    case 2:  return  80'000;
+    default: return  40'000;
   }
 }
 
@@ -766,6 +786,14 @@ int nFitBufs(cl_device_id device, size_t bufSize) {
 }
 
 u64 read64(u32 *p) { return p[0] + (u64(p[1]) << 32); }
+
+void spin() {
+  static size_t spinPos = 0;
+  const char spinner[] = "-\\|/";
+  printf("\r%c", spinner[spinPos]);
+  fflush(stdout);
+  if (++spinPos >= sizeof(spinner) - 1) { spinPos = 0; }
+}
 
 }
 
@@ -802,6 +830,65 @@ void Gpu::printRoundoff() {
       );
 }
 
+tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
+  Buffer<double> buf1{queue, "buf1", N};
+  Buffer<double> buf2{queue, "buf2", N};
+
+  LLState loaded(E);
+  writeData(loaded.data);
+  u64 res64 = dataResidue();
+  u64 expectedRes = residue(loaded.data);
+  bool ok = res64 == expectedRes;
+  string expected = " (expected "s + hex(expectedRes) + ")";
+  log("%u %2s %8d loaded: %s%s\n", E, ok ? "LL" : "EE", loaded.k, hex(res64).c_str(), ok ? "" : expected.c_str());
+
+  u32 k = loaded.k;
+  const u32 kEnd = E - 2;
+
+  u32 startK = k;
+  Signal signal;
+  IterationTimer itTimer{startK};
+
+  bool displayRoundoff = args.flags.count("ROUNDOFF");
+
+  u32 blockSize = args.blockSize ? args.blockSize : 1000; // default LL block size
+  u32 logStep = args.logStep ? args.logStep : 100000;
+  
+  while (true) {
+    assert(k < kEnd);    
+    u32 nextK = std::min(kEnd, k + blockSize);
+    modSqLoopLL(nextK - k, buf1, buf2, bufData);
+    k = nextK;
+    
+    if (!args.noSpin) { spin(); }
+    
+    queue->finish();
+
+    bool doStop = (args.iters && k - startK == args.iters);
+    if (signal.stopRequested()) {
+      doStop = true;
+      log("Stopping, please wait..\n");
+      signal.release();
+    }
+    
+    if (doStop || (k % logStep == 0) || (k >= kEnd)) {
+      if (displayRoundoff) { printRoundoff(); }
+      vector<u32> data = readData();
+      u64 res64 = residue(data);
+      double time = itTimer.reset(k);
+      logLL(E, k, res64, time, kEnd);
+      if (k >= kEnd) {
+        assert(k == kEnd);
+        bool allZero = std::all_of(data.begin(), data.end(), [](u32 x) { return (x == 0); } );
+        return {allZero, res64};
+      } else {
+        LLState{E, k, std::move(data)}.save();
+      }
+      if (doStop) { throw "stop requested"; }
+    }
+  }
+}
+
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
@@ -835,25 +922,19 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
 
   u64 finalRes64 = 0;
   u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
-  Timer timer;
-
-  string spinner = "-\\|/";
-  size_t spinPos = 0;
 
   bool displayRoundoff = args.flags.count("ROUNDOFF");
   
-  // future<void> saveFuture;
   while (true) {
     assert(k % blockSize == 0);
     assert(k < kEnd);
     
     u32 nextK = k + blockSize;
-    timer.reset();
         
     if (nextK >= kEnd) {
       assert(kEnd > k);
       modSqLoop(kEnd - k, buf1, buf2, bufData);
-      auto words = roundtripData();
+      auto words = readData();
       isPrime = equals9(words);
       doDiv9(E, words);
       finalRes64 = residue(words);
@@ -878,11 +959,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
     bool doCheck = doStop || persistProof || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
     if (!doCheck) { this->updateCheck(buf1, buf2, buf3); }
     
-    if (!args.noSpin) {
-      printf("\r%c", spinner[spinPos++]);
-      fflush(stdout);
-      if (spinPos >= spinner.size()) { spinPos = 0; }
-    }
+    if (!args.noSpin) { spin(); }
     queue->finish();
     
     if (factorFoundForExp == E) {
@@ -897,7 +974,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
       if (displayRoundoff) { printRoundoff(); }
       
       u64 res64 = dataResidue();
-      PRPState prpState{E, k, blockSize, res64, this->roundtripCheck(), nErrors};
+      PRPState prpState{E, k, blockSize, res64, readCheck(), nErrors};
       bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
       
       if (ok) {
@@ -1027,7 +1104,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     if (doStop) { log("Stopping, please wait..\n"); }
     bool doSave = doStop || saveTimer.elapsedSecs() > 300 || isAtEnd;
     bool leadOut = useLongCarry || doLog || doSave;
-    coreStep(leadIn, leadOut, bits[k], bufAux, bufTmp, bufData);
+    coreStep(leadIn, leadOut, bits[k], false, bufAux, bufTmp, bufData);
     leadIn = leadOut;
 
     if ((k + 1) % 100 == 0 || doLog || doSave) {

@@ -90,10 +90,13 @@ void Task::adjustBounds(Args& args) {
 
 void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const {
   assert(B1 == 0 && B2 == 0);
-
-  string status = isPrime ? "P" : "C";
   writeResult(fftStr(fftSize) + resStr(res64) + ", \"residue-type\":1, \"errors\":{\"gerbicz\":" + to_string(nErrors) + "}",
-              exponent, "PRP-3", status, AID, args);
+              exponent, "PRP-3", isPrime ? "P" : "C", AID, args);
+}
+
+void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
+  assert(B1 == 0 && B2 == 0);
+  writeResult(fftStr(fftSize) + resStr(res64) + ", \"offset\":0", exponent, "LL", isPrime ? "P" : "C", AID, args);
 }
 
 void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, bool didStage2) const {
@@ -104,7 +107,7 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, b
 }
 
 void Task::execute(const Args& args, Background& background, std::atomic<u32>& factorFoundForExp) {
-  assert(kind == PRP || kind == PM1);
+  assert(kind == PRP || kind == PM1 || kind == LL);
   auto gpu = Gpu::make(exponent, args, kind == PM1);
   auto fftSize = gpu->getFFTSize();
   
@@ -119,6 +122,11 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
       Worktodo::deletePRP(exponent);
       factorFoundForExp = 0;
     }
+    if (args.cleanup && !isPrime) { PRPState::cleanup(exponent); }
+  } else if (kind == LL) {
+    auto [isPrime, res64] = gpu->isPrimeLL(exponent, args);
+    writeResultLL(args, isPrime, res64, fftSize);
+    Worktodo::deleteTask(*this);
     if (args.cleanup && !isPrime) { PRPState::cleanup(exponent); }
   } else if (kind == PM1) {
     auto result = gpu->factorPM1(exponent, args, B1, B2);

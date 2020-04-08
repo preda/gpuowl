@@ -29,16 +29,17 @@ std::optional<Task> parse(const std::string& line) {
   }
 
   char kindStr[32] = {0};
-  if(sscanf(tail, "%7[a-zA-Z]=%n", kindStr, &pos) == 1) {
+  if(sscanf(tail, "%11[a-zA-Z]=%n", kindStr, &pos) == 1) {
     string kind = kindStr;
     tail += pos;
-    if (kind == "PRP" || kind == "PFactor" || kind == "Pfactor") {
+    if (kind == "PRP" || kind == "PFactor" || kind == "Pfactor" || kind == "DoubleCheck") {
       char AIDStr[64] = {0};
       if (sscanf(tail, "%32[0-9a-fA-FN/],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
+          || sscanf(tail, "%32[0-9a-fA-FN/],%u", AIDStr, &exp) == 2
           || (AIDStr[0]=0, sscanf(tail, "%u", &exp)) == 1) {
         string AID = AIDStr;
         if (AID == "N/A" || AID == "0") { AID = ""; }
-        return {{kind == "PRP" ? Task::PRP : Task::PM1, exp, AID, line, B1, B2, bitLo, wantsPm1}};
+        return {{kind == "PRP" ? Task::PRP : (kind == "DoubleCheck" ? Task::LL : Task::PM1), exp, AID, line, B1, B2, bitLo, wantsPm1}};
       }
     }
   }

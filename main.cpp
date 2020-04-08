@@ -77,6 +77,8 @@ int main(int argc, char **argv) {
       Worktodo::makePRP(args, args.prpExp).execute(args, background, factorFoundForExp);
     } else if (args.pm1Exp) {
       Worktodo::makePM1(args, args.pm1Exp).execute(args, background, factorFoundForExp);
+    } else if (args.llExp) {
+      Worktodo::makeLL(args, args.llExp).execute(args, background, factorFoundForExp);
     } else {
       while (auto task = Worktodo::getTask(args)) { task->execute(args, background, factorFoundForExp); }
     }

@@ -8,22 +8,31 @@ class Blake2 {
   struct Data {
     const char* begin;
     const char* end;
-
+    union {
+      u32 data32;
+      u64 data64;
+    };
+    
     Data(const char* ptr, size_t size) : begin(ptr), end(ptr + size) {}
     Data(const void* ptr, size_t size) : Data{static_cast<const char*>(ptr), size} {}
 
-    Data(u32 x) : Data{&x, sizeof(x)} {}
-    Data(u64 x) : Data{&x, sizeof(x)} {}
+    Data(u32 x) : Data{&data32, sizeof(x)} { data32 = x; }
+    Data(u64 x) : Data{&data64, sizeof(x)} { data64 = x; }
     
     template<typename T>
     Data(const std::vector<T>& v) : Data{v.data(), v.size() * sizeof(T)} {}
+
+    size_t size() const { return end - begin; }
   };
 
   
 public:
   static u64 hash(std::initializer_list<Data> datas) {
     Blake2 hasher{};
-    for (Data data : datas) { hasher << data; }
+    for (Data data : datas) {
+      // printf("data of size %lu\n", data.size());
+      hasher << data;
+    }
     return std::move(hasher).finish();
   }
   
