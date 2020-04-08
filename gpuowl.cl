@@ -1839,39 +1839,1192 @@ void fft_MIDDLE(T2 *u) {
 
 // Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
+
+// This version is used when we are worried about round off errors.
+// Multiply chains are limited to length 4 to reduce roundoff error.
+// MIDDLE=1-6	Use the straightforward implementation
+// MIDDLE=7-12	Use the chain length 3 implementation
+// MIDDLE=13	first 5,mid from 9 length 3
+// MIDDLE=14	first 4,mid from 9 length 4
+// MIDDLE=15	first 5,mid from 10 length 4
+#if MM_CHAIN4 && MIDDLE >= 13
+void middleMul(T2 *u, u32 s) {
+  assert(s < SMALL_HEIGHT);
+  T2 step = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  u[1] = mul(u[1], step);
+  T2 step2 = sq(step);
+  u[2] = mul(u[2], step2);
+  u[3] = mul(u[3], mul(step2, step));
+  T2 step4 = sq(step2);
+  u[4] = mul(u[4], step4);
+  if (MIDDLE == 13 | MIDDLE == 15) {
+    u[5] = mul(u[4], mul(step4,step));
+  }
+  i32 midpoint = (MIDDLE <= 14) ? 9 : 10;
+  i32 length = (MIDDLE == 13) ? 3 : 4;
+  T2 base = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+  T2 base2 = base;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+}
+
+// This version is used when we are more worried about round off errors.
+// Multiply chains are limited to length 3 to reduce roundoff error.
+// MIDDLE=1-5	Use the straightforward implementation
+// MIDDLE=6	first 4,midpt 5 length 0
+// MIDDLE=7	first 3,midpt 5 length 1 (same as chain=2)
+// MIDDLE=8	first 4,midpt 6 length 1
+// MIDDLE=9	first 3,midpt 6 length 2 (same as chain=2)
+// MIDDLE=10	first 4,midpt 7 length 2
+// MIDDLE=11	first 3,midpt 7 length 3
+// MIDDLE=12	first 4,midpt 8 length 3
+// MIDDLE=13	first 4,midpt 7 length 2,midpt 11 length 1
+// MIDDLE=14	first 3,midpt 6 length 2,midpt 11 length 2
+// MIDDLE=15	first 4,midpt 7 length 2,midpt 12 length 2
+#elif (MM_CHAIN3 && MIDDLE >= 6) || (MM_CHAIN4 && MIDDLE >= 7)
+void middleMul(T2 *u, u32 s) {
+  assert(s < SMALL_HEIGHT);
+  T2 step = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  u[1] = mul(u[1], step);
+  T2 step2 = sq(step);
+  u[2] = mul(u[2], step2);
+  u[3] = mul(u[3], mul(step2, step));
+  if (MIDDLE == 6 | MIDDLE == 8 | MIDDLE == 10 | MIDDLE == 12 | MIDDLE == 13 | MIDDLE == 15) {
+    u[4] = mul(u[4], sq(step2));
+  }
+  i32 midpoint, length;
+  if (MIDDLE <= 12) midpoint = (MIDDLE + 4) / 2, length = (MIDDLE - 5) / 2;
+  else midpoint = (MIDDLE & 1) + 6, length = 2;
+  T2 base = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+  T2 base2 = base;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE >= 13) {
+    midpoint = (MIDDLE + 9 / 2);
+    length = (MIDDLE - 10) / 2;
+    base = base2 = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are extremely worried about round off errors.
+// Multiply chains are limited to length 2 to reduce roundoff error.
+// MIDDLE=1-4	Use the straightforward implementation
+// MIDDLE=5	first 3,midpt 4 length 0
+// MIDDLE=6	first 2,midpt 4 length 1
+// MIDDLE=7	first 3,midpt 5 length 1
+// MIDDLE=8	first 2,midpt 5 length 2
+// MIDDLE=9	first 3,midpt 6 length 2
+// MIDDLE=10	first 3,midpt 5 length 1,midpt 8 length 1
+// MIDDLE=11	first 2,midpt 5 length 2,midpt 9 length 1
+// MIDDLE=12	first 3,midpt 6 length 2,midpt 10 length 1
+// MIDDLE=13	first 2,midpt 5 length 2,midpt 10 length 2
+// MIDDLE=14	first 3,midpt 6 length 2,midpt 11 length 2
+// MIDDLE=15	first 3,midpt 6 length 2,midpt 10 length 1,midpt 13 length 1
+#elif MM_CHAIN2 && MIDDLE >= 5
+void middleMul(T2 *u, u32 s) {
+  assert(s < SMALL_HEIGHT);
+  T2 step = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  u[1] = mul(u[1], step);
+  T2 step2 = sq(step);
+  u[2] = mul(u[2], step2);
+  if (MIDDLE == 5 | MIDDLE == 7 | MIDDLE == 9 | MIDDLE == 10 | MIDDLE == 12 | MIDDLE >= 14) {
+    u[3] = mul(u[3], mul(step2, step));
+  }
+  i32 midpoint, length;
+  if (MIDDLE <= 9) {
+    midpoint = (MIDDLE + 3) / 2;
+    length = (MIDDLE - 4) / 2;
+  } else {
+    midpoint = (MIDDLE <= 11 | MIDDLE == 13) ? 5 : 6;
+    length = (MIDDLE == 10) ? 1 : 2;
+  }
+  T2 base = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+  T2 base2 = base;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE >= 10) {
+    midpoint = (MIDDLE <= 12) ? MIDDLE - 2 : 11 - (MIDDLE & 1);
+    length = (MIDDLE <= 12 | MIDDLE == 15) ? 1 : 2;
+    base = base2 = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+  if (MIDDLE == 15) {
+    midpoint = 13;
+    length = 1;
+    base = base2 = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are not worried about the round off error.
+// Long multiply chains are a major source of roundoff error.
+#else
 void middleMul(T2 *u, u32 s) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
-  
   T2 step = slowTrig(s, BIG_HEIGHT / 2, BIG_HEIGHT / MIDDLE);
   u[1] = mul(u[1], step);
-  
   T2 step2 = sq(step);
   u[2] = mul(u[2], step2);
   if (MIDDLE == 3) { return; }
-
   u[3] = mul(u[3], mul(step2, step));
   if (MIDDLE == 4) { return; }
-  
   T2 base = sq(step2);
   for (i32 i = 4; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
 }
+#endif
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
 // Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
+
+// This version is used when we are worried about round off errors.
+// Multiply chains are limited to length 4 to reduce roundoff error.
+// MIDDLE=1-5	Use the straightforward implementation
+// MIDDLE=6-7	Use the chain length 3 implementation
+// MIDDLE=8	midpt base=4 length 4or3
+// MIDDLE=9	midpt base=4 length 4
+// MIDDLE=10-11	Use the chain length 3 implementation
+// MIDDLE=12	base=0 length 4, midpt base=8 length 3
+// MIDDLE=13	base=0 length 3, midpt base=8 length 4
+// MIDDLE=14	base=0 length 4, midpt base=9 length 4
+// MIDDLE=15	midpt base=3 length 3, midpt base=11 length 4or3
+#if MM2_CHAIN4 && ((MIDDLE >= 8 && MIDDLE <= 9) || MIDDLE >= 12)
 void middleMul2(T2 *u, u32 g, u32 me, double factor) {
   assert(g < WIDTH);
   assert(me < SMALL_HEIGHT);
-  T2 base = slowTrig(g * me,           BIG_HEIGHT * WIDTH / 2, BIG_HEIGHT * WIDTH / MIDDLE) * factor;
-  T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, BIG_HEIGHT * WIDTH / MIDDLE);
+  T2 base, base2, step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  i32 midpoint, length;
+  if (MIDDLE >= 12 & MIDDLE <= 14) {
+    length = 4 - (MIDDLE & 1);
+    base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+    u[0] = mul(u[0], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul(base, step);
+      u[i] = mul(u[i], base);
+    }
+  }
+  midpoint = (MIDDLE <= 9) ? 4 : ((MIDDLE <= 14) ? (MIDDLE + 4) / 2 : 3);
+  length = (MIDDLE == 12 | MIDDLE == 15) ? 3 : 4;
+  base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    if ((MIDDLE == 8 | MIDDLE == 15) && i == length) continue;
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE == 15) {
+    midpoint = 11;
+    length = 4;
+    base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      if (MIDDLE == 15 && i == length) continue;
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are more worried about round off errors.
+// Multiply chains are limited to length 3 to reduce roundoff error.
+// MIDDLE=1-4	Use the straightforward implementation
+// MIDDLE=5	Use the chain length 2 implementation
+// MIDDLE=6	midpt base=3 length 3or2
+// MIDDLE=7	midpt base=3 length 3
+// MIDDLE=8	base=0 length 2, midpt base=5 length 2 (same as chain length 2)
+// MIDDLE=9	base=0 length 3, midpt base=6 length 2
+// MIDDLE=10	base=0 length 2, midpt base=6 length 3
+// MIDDLE=11	base=0 length 3, midpt base=7 length 3
+// MIDDLE=12	midpt base=3 length 3,midpt base=9 length 2
+// MIDDLE=13	midpt base=3 length 3,midpt base=10 length 3or2
+// MIDDLE=14	midpt base=3 length 3,midpt base=11 length 3
+// MIDDLE=15	Use the chain length 2 implementation
+#elif (MM2_CHAIN3 && (MIDDLE >= 6 && MIDDLE <= 14)) || (MM2_CHAIN4 && MIDDLE >= 6)
+void middleMul2(T2 *u, u32 g, u32 me, double factor) {
+  assert(g < WIDTH);
+  assert(me < SMALL_HEIGHT);
+  T2 base, base2, step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  i32 midpoint, length;
+  if (MIDDLE >= 8 & MIDDLE <= 11) {
+    length = 2 + (MIDDLE & 1);
+    base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+    u[0] = mul(u[0], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul(base, step);
+      u[i] = mul(u[i], base);
+    }
+  }
+  midpoint = (MIDDLE <= 7 | MIDDLE >= 12) ? 3 : (MIDDLE + 3) / 2;
+  length = (MIDDLE == 8 | MIDDLE == 9) ? 2 : 3;
+  base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    if (MIDDLE == 6 && i == length) continue;
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE >= 12) {
+    midpoint = MIDDLE - 3;
+    length = (MIDDLE - 7) / 2;
+    base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      if (MIDDLE == 13 && i == length) continue;
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are extremely worried about round off errors.
+// Multiply chains are limited to length 2 to reduce roundoff error.
+// MIDDLE=1-3	Use the straightforward implementation
+// MIDDLE=4	midpt base=2 length 2or1
+// MIDDLE=5	midpt base=2 length 2
+// MIDDLE=6	base=0 length 2,midpt base=4 length 1
+// MIDDLE=7	base=0 length 1,midpt base=4 length 2
+// MIDDLE=8	base=0 length 2,midpt base=5 length 2
+// MIDDLE=9	midpt base=2 length 2,midpt base=7 length 2or1
+// MIDDLE=10	midpt base=2 length 2,midpt base=7 length 2
+// MIDDLE=11	base=0 length 2,midpt base=5 length 2,midpt base=9 length 1
+// MIDDLE=12	base=0 length 1,midpt base=4 length 2,midpt base=9 length 2
+// MIDDLE=13	base=0 length 2,midpt base=5 length 2,midpt base=10 length 2
+// MIDDLE=14	midpt base=2 length 2,midpt base=7 length 2,midpt base=12 length 2or1
+// MIDDLE=15	midpt base=2 length 2,midpt base=7 length 2,midpt base=12 length 2
+#elif (MM2_CHAIN2 && MIDDLE >= 4) || (MM2_CHAIN3 && MIDDLE >= 5)
+void middleMul2(T2 *u, u32 g, u32 me, double factor) {
+  assert(g < WIDTH);
+  assert(me < SMALL_HEIGHT);
+  T2 base, base2, step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  i32 midpoint, length;
+  if ((MIDDLE >= 6 & MIDDLE <= 8) | (MIDDLE >= 11 & MIDDLE <= 13)) {
+    length = (MIDDLE == 7 | MIDDLE == 12) ? 1 : 2;
+    base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+    u[0] = mul(u[0], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul(base, step);
+      u[i] = mul(u[i], base);
+    }
+  }
+  midpoint = (MIDDLE <= 5 | MIDDLE == 9 | MIDDLE == 10 | MIDDLE >= 14) ? 2 : ((MIDDLE <= 7 | MIDDLE == 12) ? 4 : 5);
+  length = (MIDDLE == 6) ? 1 : 2;
+  base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    if (MIDDLE == 4 && i == length) continue;
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE >= 9) {
+    midpoint = (MIDDLE <= 10 | MIDDLE >= 14) ? 7 : (MIDDLE + 7) / 2;
+    length = (MIDDLE == 11) ? 1 : 2;
+    base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      if (MIDDLE == 9 && i == length) continue;
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+  if (MIDDLE >= 14) {
+    midpoint = 12;
+    length = 2;
+    base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      if (MIDDLE == 14 && i == length) continue;
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are not worried about the round off error.
+// Long multiply chains are a major source of roundoff error.
+#else
+void middleMul2(T2 *u, u32 g, u32 me, double factor) {
+  assert(g < WIDTH);
+  assert(me < SMALL_HEIGHT);
+  T2 base = slowTrig(g * me,           BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+  T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
 }
+#endif
+
+// Do a partial transpose during fftMiddleIn/Out
+// The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
+// than reading/writing T2 values.  This routine lets us try both versions.
+
+void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
+  u32 me = get_local_id(0);
+  local T *p = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+  if (MIDDLE <= 8) {
+    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].x; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].y; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * i]; }
+  } else {
+    for (int i = 0; i < MIDDLE/2; ++i) { p[i * workgroupSize] = u[i].x; }
+    bar();
+    for (int i = 0; i < MIDDLE/2; ++i) { u[i].x = lds[me + workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE/2; ++i) { p[i * workgroupSize] = u[i].y; }
+    bar();
+    for (int i = 0; i < MIDDLE/2; ++i) { u[i].y = lds[me + workgroupSize * i]; }
+    bar();
+    for (int i = MIDDLE/2; i < MIDDLE; ++i) { p[(i - MIDDLE/2) * workgroupSize] = u[i].x; }
+    bar();
+    for (int i = MIDDLE/2; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * (i - MIDDLE/2)]; }
+    bar();
+    for (int i = MIDDLE/2; i < MIDDLE; ++i) { p[(i - MIDDLE/2) * workgroupSize] = u[i].y; }
+    bar();
+    for (int i = MIDDLE/2; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * (i - MIDDLE/2)]; }
+  }
+}
+
+
+KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
+  T2 u[MIDDLE];
+  
+  u32 SIZEY = IN_WG / IN_SIZEX;
+
+  u32 N = WIDTH / IN_SIZEX;
+  
+  u32 g = get_group_id(0);
+  u32 gx = g % N;
+  u32 gy = g / N;
+
+  u32 me = get_local_id(0);
+  u32 mx = me % IN_SIZEX;
+  u32 my = me / IN_SIZEX;
+
+  u32 startx = gx * IN_SIZEX;
+  u32 starty = gy * SIZEY;
+
+  in += starty * WIDTH + startx;
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
+
+  ENABLE_MUL2();
+
+  middleMul2(u, startx + mx, starty + my, 1);
+
+  fft_MIDDLE(u);
+
+  middleMul(u, starty + my);
+  local T lds[IN_WG * (MIDDLE <= 8 ? MIDDLE : ((MIDDLE + 1) / 2))];
+  middleShuffle(lds, u, IN_WG, IN_SIZEX);
+
+  out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + (gy / IN_SPACING) * (MIDDLE * IN_WG * IN_SPACING) + (gy % IN_SPACING) * SIZEY;
+  out += (me / SIZEY) * (IN_SPACING * SIZEY) + (me % SIZEY);
+
+  for (i32 i = 0; i < MIDDLE; ++i) { out[i * (IN_WG * IN_SPACING)] = u[i]; }
+}
+
+KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
+  T2 u[MIDDLE];
+
+  u32 SIZEY = OUT_WG / OUT_SIZEX;
+
+  u32 N = SMALL_HEIGHT / OUT_SIZEX;
+
+  u32 g = get_group_id(0);
+  u32 gx = g % N;
+  u32 gy = g / N;
+
+  u32 me = get_local_id(0);
+  u32 mx = me % OUT_SIZEX;
+  u32 my = me / OUT_SIZEX;
+
+  // Kernels read OUT_SIZEX consecutive T2.
+  // Each WG-thread kernel processes OUT_SIZEX columns from a needed SMALL_HEIGHT columns
+  // Each WG-thread kernel processes SIZEY rows out of a needed WIDTH rows
+
+  u32 startx = gx * OUT_SIZEX;  // Each input column increases FFT element by one
+  u32 starty = gy * SIZEY;  // Each input row increases FFT element by BIG_HEIGHT
+  in += starty * BIG_HEIGHT + startx;
+
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
+  ENABLE_MUL2();
+
+  middleMul(u, startx + mx);
+
+  fft_MIDDLE(u);
+
+  middleMul2(u, starty + my, startx + mx, 1.0 / (4 * (4 * NWORDS)));	// Compensate for weight and invweight being doubled
+  local T lds[OUT_WG * (MIDDLE <= 8 ? MIDDLE : ((MIDDLE + 1) / 2))];
+  middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
+
+  out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
+  out += (gy / OUT_SPACING) * (MIDDLE * (OUT_WG * OUT_SPACING));
+  out += (gy % OUT_SPACING) * SIZEY;
+  out += (me / SIZEY) * (OUT_SPACING * SIZEY);
+  out += (me % SIZEY);
+
+  for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
+}
+
+// Carry propagation with optional MUL-3, over CARRY_LEN words.
+// Input is conjugated and inverse-weighted.
+
+//{{ CARRYA
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32) extras, P(u32) roundOut, P(u32) carryStats) {
+  ENABLE_MUL2();
+  u32 g  = get_group_id(0);
+  u32 me = get_local_id(0);
+  u32 gx = g % NW;
+  u32 gy = g / NW;
+
+  CarryABM carry = 0;
+  
+  u32 roundMax = 0;
+  u32 carryMax = 0;
+  
+  u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
+  for (i32 i = 0; i < CARRY_LEN; ++i) {
+    u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
+    bool b1 = isBigWord(extra);
+    bool b2 = isBigWord(reduce(extra + STEP));
+    T2 x = conjugate(in[p]) * A[p];
+    
+#if ROUNDOFF
+    roundMax = max(roundMax, roundoff(x));
+#endif
+    
+#if DO_MUL3
+    out[p] = unweightAndCarryMul(x, &carry, b1, b2, carry, &carryMax);
+#else
+    out[p] = unweightAndCarry(x, &carry, b1, b2, carry, &carryMax);
+#endif
+    extra = reduce(extra + (u32) (2u * STEP % NWORDS));
+  }
+  carryOut[G_W * g + me] = carry;
+
+#if ROUNDOFF
+  roundMax = work_group_reduce_max(roundMax);
+  carryMax = work_group_reduce_max(carryMax);
+  if (me == 0) {
+    atomic_max(&roundOut[4], roundMax);
+    atomic_max(&carryStats[4], carryMax);
+    u32 oldCount = atomic_inc(&roundOut[5]);
+    assert(oldCount < get_num_groups(0));
+    if (oldCount == get_num_groups(0) - 1) {
+      roundMax = atomic_xchg(&roundOut[4], 0);
+      carryMax = atomic_xchg(&carryStats[4], 0);
+      roundOut[5] = 0;
+      
+      atom_add((global ulong *) &roundOut[0], roundMax);
+      atomic_max(&roundOut[2], roundMax);
+      atomic_inc(&roundOut[3]);
+      
+      atom_add((global ulong *) &carryStats[0], carryMax);
+      atomic_max(&carryStats[2], carryMax);
+      atomic_inc(&carryStats[3]);
+    }
+  }
+#endif
+}
+//}}
+
+//== CARRYA NAME=carryA,DO_MUL3=0
+//== CARRYA NAME=carryM,DO_MUL3=1
+
+KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) extras) {
+  u32 g  = get_group_id(0);
+  u32 me = get_local_id(0);  
+  u32 gx = g % NW;
+  u32 gy = g / NW;
+
+  ENABLE_MUL2();
+
+  u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
+  
+  u32 step = G_W * gx + WIDTH * CARRY_LEN * gy;
+  io += step;
+
+  u32 HB = BIG_HEIGHT / CARRY_LEN;
+
+  u32 prev = (gy + HB * G_W * gx + HB * me + (HB * WIDTH - 1)) % (HB * WIDTH);
+  u32 prevLine = prev % HB;
+  u32 prevCol  = prev / HB;
+
+  CarryABM carry = carryIn[WIDTH * prevLine + prevCol];
+
+  for (i32 i = 0; i < CARRY_LEN; ++i) {
+    u32 p = i * WIDTH + me;
+    io[p] = carryWord(io[p], &carry, isBigWord(extra), isBigWord(reduce(extra + STEP)));
+    if (!carry) { return; }
+    extra = reduce(extra + (u32) (2u * STEP % NWORDS));
+  }
+}
+
+void release() {
+#if 0
+  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_order_release, memory_scope_device);
+  work_group_barrier(0);
+#else
+  work_group_barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_scope_device);
+#endif
+}
+
+void acquire() {
+#if 0
+  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_order_acquire, memory_scope_device);
+  work_group_barrier(0);
+#else
+  work_group_barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_scope_device);
+#endif
+}
+
+// The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
+// It uses "stairway" carry data forwarding from one group to the next.
+// See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
+//{{ CARRY_FUSED
+KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
+                 CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights, P(u32) roundOut, P(u32) carryStats) {
+  local T2 lds[WIDTH / 2];
+  
+  u32 gr = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  u32 H = BIG_HEIGHT;
+  u32 line = gr % H;
+
+  T2 u[NW];
+  
+  readCarryFusedLine(in, u, line);
+
+#if NW == 4
+  u32 b = bits[G_W / 4 * line + me / 4];
+  b = b >> ((me & 3) * 8);
+#else
+  u32 b = bits[G_W / 2 * line + me / 2];
+  b = b >> ((me & 1) * 16);
+#endif
+
+  ENABLE_MUL2();
+  fft_WIDTH(lds, u, smallTrig);
+
+// Convert each u value into 2 words and a 32 or 64 bit carry
+
+  Word2 wu[NW];
+  T2 weights = groupWeights[line] * threadWeights[me];
+  T invWeight = weights.x;
+#if CF_MUL
+  P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
+  CFMcarry carry[NW+1];
+#else
+  P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
+  CFcarry carry[NW+1];
+#endif
+
+  u32 roundMax = 0;
+  u32 carryMax = 0;
+  
+  for (i32 i = 0; i < NW; ++i) {
+    invWeight = optionalDouble(invWeight);
+    T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
+    T2 x = conjugate(u[i]) * U2(invWeight, invWeight2);
+
+#if ROUNDOFF
+    roundMax = max(roundMax, roundoff(x));
+#endif
+    
+#if CF_MUL    
+    wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
+#else
+    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
+#endif
+    invWeight *= IWEIGHT_BIGSTEP;
+  }
+
+  if (gr < H) {
+    for (i32 i = 0; i < NW; ++i) {
+#if OLD_CARRY_LAYOUT
+      carryShuttlePtr[gr * WIDTH + i * G_W + me] = carry[i];
+#else
+      // Write the carries to carry shuttle.  AMD GPUs are faster writing and reading 4 consecutive values at a time.
+      // However, seemingly innocuous code changes can affect VGPR usage which if it changes occupancy can be a
+      // more important consideration.
+      carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
+#endif
+    }
+  }
+    
+  release();
+
+  // Signal that this group is done writing the carry.
+  if (gr < H && me == 0) {
+#ifdef ATOMICALLY_CORRECT
+    atomic_store((atomic_uint *) &ready[gr], 1);
+#else
+    ready[gr] = 1;
+#endif
+  }
+
+  if (gr == 0) { return; }
+
+#if ROUNDOFF
+  roundMax = work_group_reduce_max(roundMax);
+  carryMax = work_group_reduce_max(carryMax);
+  if (me == 0) {
+    // Roundout 0/1 = sum(iteration_maxerr)
+    // Roundout 2   = max(iteration_maxerr)
+    // Roundout 3   = count(iteration)
+    // Roundout 4   = max(workgroup maxerr)
+    // Roundout 5   = count(workgroup)
+    atomic_max(&roundOut[4], roundMax);
+    atomic_max(&carryStats[4], carryMax);
+    u32 oldCount = atomic_inc(&roundOut[5]);
+    assert(oldCount < BIG_HEIGHT);
+    if (oldCount == BIG_HEIGHT - 1) {
+      roundMax = atomic_xchg(&roundOut[4], 0);
+      carryMax = atomic_xchg(&carryStats[4], 0);
+      roundOut[5] = 0;
+      
+      atom_add((global ulong *) &roundOut[0], roundMax);
+      atomic_max(&roundOut[2], roundMax);
+      atomic_inc(&roundOut[3]);
+      
+      atom_add((global ulong *) &carryStats[0], carryMax);
+      atomic_max(&carryStats[2], carryMax);
+      atomic_inc(&carryStats[3]);
+    }
+  }
+#endif // ROUNDOFF
+
+  // Wait until the previous group is ready with the carry.
+  if (me == 0) {
+    while(!atomic_load((atomic_uint *) &ready[gr - 1]));
+    ready[gr - 1] = 0; // atomic_store((atomic_uint *) &ready[gr - 1], 0);
+  }
+
+  acquire();
+
+  // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
+  // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
+
+  assert(gr > 0 && gr <= H);
+  
+#if OLD_CARRY_LAYOUT
+  if (gr == H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((i * G_W + (WIDTH - 1) + me) % WIDTH)];
+    }
+  } else {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + i * G_W + me];
+    }
+  }
+#else
+  if (gr < H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
+    }
+  } else if (gr == H) {
+    for (i32 i = 0; i < NW; ++i) {
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
+    }
+    if (me == 0) {
+      carry[NW] = carry[NW-1];
+      for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
+      carry[0] = carry[NW];
+    }
+  } else {
+    // This is unreachable because 'gr' is in range [1 .. H], so one of the previous branches must have been taken
+    // assert(gr <= H);
+  }
+#endif
+
+  // Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
+
+  T weight = weights.y;
+  for (i32 i = 0; i < NW; ++i) {
+    weight = optionalHalve(weight);
+    T weight2 = optionalHalve(weight * WEIGHT_STEP);
+
+    u[i] = carryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2 * i));
+    weight *= WEIGHT_BIGSTEP;
+  }
+
+  bar();
+  fft_WIDTH(lds, u, smallTrig);
+
+  write(G_W, NW, u, out, WIDTH * line);
+}
+//}}
+
+//== CARRY_FUSED NAME=carryFused,    CF_MUL=0
+//== CARRY_FUSED NAME=carryFusedMul, CF_MUL=1
+
+// from transposed to sequential.
+KERNEL(256) transposeOut(P(Word2) out, CP(Word2) in) {
+  local Word2 lds[4096];
+  ENABLE_MUL2();
+  transposeWords(WIDTH, BIG_HEIGHT, lds, in, out);
+}
+
+// from sequential to transposed.
+KERNEL(256) transposeIn(P(Word2) out, CP(Word2) in) {
+  local Word2 lds[4096];
+  ENABLE_MUL2();
+  transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
+}
+
+// For use in tailFused below
+
+void reverse(u32 WG, local T2 *lds, T2 *u, bool bump) {
+  u32 me = get_local_id(0);
+  u32 revMe = WG - 1 - me + bump;
+  
+  bar();
+
+#if NH == 8
+  lds[revMe + 0 * WG] = u[3];
+  lds[revMe + 1 * WG] = u[2];
+  lds[revMe + 2 * WG] = u[1];  
+  lds[bump ? ((revMe + 3 * WG) % (4 * WG)) : (revMe + 3 * WG)] = u[0];
+#elif NH == 4
+  lds[revMe + 0 * WG] = u[1];
+  lds[bump ? ((revMe + WG) % (2 * WG)) : (revMe + WG)] = u[0];  
+#else
+#error
+#endif
+  
+  bar();
+  for (i32 i = 0; i < NH/2; ++i) { u[i] = lds[i * WG + me]; }
+}
+
+void reverseLine(u32 WG, local T2 *lds, T2 *u) {
+  u32 me = get_local_id(0);
+  u32 revMe = WG - 1 - me;
+
+  for (i32 b = 0; b < 2; ++b) {
+    bar();
+    for (i32 i = 0; i < NH; ++i) { ((local T*)lds)[i * WG + revMe] = ((T *) (u + ((NH - 1) - i)))[b]; }  
+    bar();
+    for (i32 i = 0; i < NH; ++i) { ((T *) (u + i))[b] = ((local T*)lds)[i * WG + me]; }
+  }
+}
+
+// This implementation compared to the original version that is no longer included in this file takes
+// better advantage of the AMD OMOD (output modifier) feature.
+//
+// Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
+// Now consider these lines from the original implementation (comments appear alongside):
+//      b = mul_by_conjugate(b, t); 			bt'
+//      X2(a, b);					a + bt', a - bt'
+//      a = sq(a);					a^2 + 2abt' + (bt')^2
+//      b = sq(b);					a^2 - 2abt' + (bt')^2
+//      X2(a, b);					2a^2 + 2(bt')^2, 4abt'
+//      b = mul(b, t);					                 4ab
+// Original code is 2 complex muls, 2 complex squares, 4 complex adds
+// New code is 2 complex squares, 2 complex muls, 1 complex add PLUS a complex-mul-by-2 and a complex-mul-by-4
+// NOTE:  We actually, return the result divided by 2 so that our cost for the above is
+// reduced to 2 complex squares, 2 complex muls, 1 complex add PLUS a complex-mul-by-2
+// ALSO NOTE: the new code works just as well if the input t value is pre-squared, but the code that calls
+// onePairSq can save a mul_t8 instruction by dealing with squared t values.
+
+#define onePairSq(a, b, conjugate_t_squared) {\
+  X2conjb(a, b); \
+  T2 b2 = sq(b); \
+  b = mul_m2(a, b); \
+  a = mad_m1(b2, conjugate_t_squared, sq(a)); \
+  X2conja(a, b); \
+}
+
+// From original code t = swap(base) and we need sq(conjugate(t)).  This macro computes sq(conjugate(t)) from base^2.
+#define swap_squared(a) (-a)
+
+void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
+  u32 me = get_local_id(0);
+
+  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
+    if (special && i == 0 && me == 0) {
+      u[i] = foo_m2(conjugate(u[i]));
+      v[i] = 4 * sq(conjugate(v[i]));
+    } else {
+      onePairSq(u[i], v[i], swap_squared(base_squared));
+    }
+
+    if (N == NH) {
+      onePairSq(u[i+NH/2], v[i+NH/2], swap_squared(-base_squared));
+    }
+
+    T2 new_base_squared = mul(base_squared, U2(0, -1));
+    onePairSq(u[i+NH/4], v[i+NH/4], swap_squared(new_base_squared));
+
+    if (N == NH) {
+      onePairSq(u[i+3*NH/4], v[i+3*NH/4], swap_squared(-new_base_squared));
+    }
+  }
+}
+
+
+// This implementation compared to the original version that is no longer included in this file takes
+// better advantage of the AMD OMOD (output modifier) feature.
+//
+// Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
+// Now consider these lines from the original implementation (comments appear alongside):
+//      b = mul_by_conjugate(b, t); 
+//      X2(a, b);					a + bt', a - bt'
+//      d = mul_by_conjugate(d, t); 
+//      X2(c, d);					c + dt', c - dt'
+//      a = mul(a, c);					(a+bt')(c+dt') = ac + bct' + adt' + bdt'^2
+//      b = mul(b, d);					(a-bt')(c-dt') = ac - bct' - adt' + bdt'^2
+//      X2(a, b);					2ac + 2bdt'^2,  2bct' + 2adt'
+//      b = mul(b, t);					                2bc + 2ad
+// Original code is 5 complex muls, 6 complex adds
+// New code is 5 complex muls, 1 complex square, 2 complex adds PLUS two complex-mul-by-2
+// NOTE:  We actually, return the original result divided by 2 so that our cost for the above is
+// reduced to 5 complex muls, 1 complex square, 2 complex adds
+// ALSO NOTE: the new code can be improved further (saves a complex squaring) if the t value is squared already,
+// plus the caller saves a mul_t8 instruction by dealing with squared t values!
+
+#define onePairMul(a, b, c, d, conjugate_t_squared) { \
+  X2conjb(a, b); \
+  X2conjb(c, d); \
+  T2 tmp = mad_m1(a, c, mul(mul(b, d), conjugate_t_squared)); \
+  b = mad_m1(b, c, mul(a, d)); \
+  a = tmp; \
+  X2conja(a, b); \
+}
+
+void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
+  u32 me = get_local_id(0);
+
+  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
+    if (special && i == 0 && me == 0) {
+      u[i] = conjugate(foo2_m2(u[i], p[i]));
+      v[i] = mul_m4(conjugate(v[i]), conjugate(q[i]));
+    } else {
+      onePairMul(u[i], v[i], p[i], q[i], swap_squared(base_squared));
+    }
+
+    if (N == NH) {
+      onePairMul(u[i+NH/2], v[i+NH/2], p[i+NH/2], q[i+NH/2], swap_squared(-base_squared));
+    }
+
+    T2 new_base_squared = mul(base_squared, U2(0, -1));
+    onePairMul(u[i+NH/4], v[i+NH/4], p[i+NH/4], q[i+NH/4], swap_squared(new_base_squared));
+
+    if (N == NH) {
+      onePairMul(u[i+3*NH/4], v[i+3*NH/4], p[i+3*NH/4], q[i+3*NH/4], swap_squared(-new_base_squared));
+    }
+  }
+}
+
+KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
+  u32 W = SMALL_HEIGHT;
+  u32 H = ND / W;
+
+  ENABLE_MUL2();
+
+  u32 me = get_local_id(0);
+  u32 line1 = get_group_id(0);
+  u32 line2 = (H - line1) % H;
+  u32 g1 = transPos(line1, MIDDLE, WIDTH);
+  u32 g2 = transPos(line2, MIDDLE, WIDTH);
+
+  T2 base_squared = slowTrig(me * H + line1, W * H / 2, W * H / 4);
+  T2 step = U2(M_SQRT1_2, -M_SQRT1_2); // trig(pi/4)
+  
+  for (u32 i = 0; i < 4; ++i, base_squared = mul(base_squared, step)) {
+    if (i == 0 && line1 == 0 && me == 0) {
+      out[0]     = foo_m2(conjugate(in[0]));
+      out[W / 2] = 4 * sq(conjugate(in[W / 2]));
+    } else {
+      u32 k = g1 * W + i * (W / 8) + me;
+      u32 v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
+      T2 a = in[k];
+      T2 b = in[v];
+      onePairSq(a, b, swap_squared(base_squared));
+      out[k] = a;
+      out[v] = b;
+    }
+  }
+}
+
+//{{ MULTIPLY
+KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
+  u32 W = SMALL_HEIGHT;
+  u32 H = ND / W;
+
+  ENABLE_MUL2();
+
+  u32 line1 = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  if (line1 == 0 && me == 0) {
+#if MULTIPLY_DELTA
+    io[0]     = foo2_m2(conjugate(io[0]), conjugate(inA[0] - inB[0]));
+    io[W / 2] = conjugate(mul_m4(io[W / 2], inA[W / 2] - inB[W / 2]));
+#else
+    io[0]     = foo2_m2(conjugate(io[0]), conjugate(in[0]));
+    io[W / 2] = conjugate(mul_m4(io[W / 2], in[W / 2]));
+#endif
+    return;
+  }
+
+  u32 line2 = (H - line1) % H;
+  u32 g1 = transPos(line1, MIDDLE, WIDTH);
+  u32 g2 = transPos(line2, MIDDLE, WIDTH);
+  u32 k = g1 * W + me;
+  u32 v = g2 * W + (W - 1) - me + (line1 == 0);
+  T2 a = io[k];
+  T2 b = io[v];
+#if MULTIPLY_DELTA
+  T2 c = inA[k] - inB[k];
+  T2 d = inA[v] - inB[v];
+#else
+  T2 c = in[k];
+  T2 d = in[v];
+#endif
+  onePairMul(a, b, c, d, swap_squared(slowTrig(me * H + line1, W * H / 2, W * H / 4)));
+  io[k] = a;
+  io[v] = b;
+}
+//}}
+
+//== MULTIPLY NAME=multiply, MULTIPLY_DELTA=0
+
+#if NO_P2_FUSED_TAIL
+//== MULTIPLY NAME=multiplyDelta, MULTIPLY_DELTA=1
+#endif
+
+
+//{{ TAIL_SQUARE
+KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
+  local T2 lds[SMALL_HEIGHT / 2];
+
+  T2 u[NH], v[NH];
+
+  u32 W = SMALL_HEIGHT;
+  u32 H = ND / W;
+
+  u32 line1 = get_group_id(0);
+  u32 line2 = line1 ? H - line1 : (H / 2);
+  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
+  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
+
+  ENABLE_MUL2();
+
+#if TAIL_FUSED_LOW
+  read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, v, in, memline2 * SMALL_HEIGHT);
+#else
+  readTailFusedLine(in, u, line1, memline1);
+  readTailFusedLine(in, v, line2, memline2);
+  fft_HEIGHT(lds, u, smallTrig1);
+  bar();
+  fft_HEIGHT(lds, v, smallTrig1);
+#endif
+
+  u32 me = get_local_id(0);
+  if (line1 == 0) {
+    // Line 0 is special: it pairs with itself, offseted by 1.
+    reverse(G_H, lds, u + NH/2, true);    
+    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W / 2, W / 4), true);
+    reverse(G_H, lds, u + NH/2, true);
+
+    // Line H/2 also pairs with itself (but without offset).
+    reverse(G_H, lds, v + NH/2, false);
+    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W, W / 2), false);
+    reverse(G_H, lds, v + NH/2, false);
+  } else {    
+    reverseLine(G_H, lds, v);
+    pairSq(NH, u, v, slowTrig(line1 + me * H, ND / 2, ND / 4), false);
+    reverseLine(G_H, lds, v);
+  }
+
+  bar();
+  fft_HEIGHT(lds, v, smallTrig2);
+  bar();
+  fft_HEIGHT(lds, u, smallTrig2);
+  write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
+  write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
+}
+//}}
+
+//== TAIL_SQUARE NAME=tailFusedSquare, TAIL_FUSED_LOW=0
+//== TAIL_SQUARE NAME=tailSquareLow,   TAIL_FUSED_LOW=1
+
+
+//{{ TAIL_FUSED_MUL
+#if MUL_2LOW
+KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig2) {
+#else
+KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
+#if MUL_DELTA
+                 CP(T2) b,
+#endif
+                 Trig smallTrig1, Trig smallTrig2) {
+  // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
+  // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
+  // to poor occupancy.
+#endif
+  
+  local T2 lds[SMALL_HEIGHT / 2];
+
+  T2 u[NH], v[NH];
+  T2 p[NH], q[NH];
+
+  u32 W = SMALL_HEIGHT;
+  u32 H = ND / W;
+
+  u32 line1 = get_group_id(0);
+  u32 line2 = line1 ? H - line1 : (H / 2);
+  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
+  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
+  
+  ENABLE_MUL2();
+  
+#if MUL_DELTA
+  readTailFusedLine(in, u, line1, memline1);
+  readTailFusedLine(in, v, line2, memline2);
+  readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
+  readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
+  fft_HEIGHT(lds, u, smallTrig1);
+  bar();
+  fft_HEIGHT(lds, v, smallTrig1);
+#elif MUL_LOW
+  readTailFusedLine(in, u, line1, memline1);
+  readTailFusedLine(in, v, line2, memline2);
+  read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
+  fft_HEIGHT(lds, u, smallTrig1);
+  bar();
+  fft_HEIGHT(lds, v, smallTrig1);
+#elif MUL_2LOW
+  read(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
+  read(G_H, NH, p, in, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, q, in, memline2 * SMALL_HEIGHT);
+#else
+  readTailFusedLine(in, u, line1, memline1);
+  readTailFusedLine(in, v, line2, memline2);
+  readTailFusedLine(a, p, line1, memline1);
+  readTailFusedLine(a, q, line2, memline2);
+  fft_HEIGHT(lds, u, smallTrig1);
+  bar();
+  fft_HEIGHT(lds, v, smallTrig1);
+  bar();
+  fft_HEIGHT(lds, p, smallTrig1);
+  bar();
+  fft_HEIGHT(lds, q, smallTrig1);
+#endif
+
+  u32 me = get_local_id(0);
+  if (line1 == 0) {
+    reverse(G_H, lds, u + NH/2, true);
+    reverse(G_H, lds, p + NH/2, true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W / 2, W / 4), true);
+    reverse(G_H, lds, u + NH/2, true);
+    reverse(G_H, lds, p + NH/2, true);
+
+    reverse(G_H, lds, v + NH/2, false);
+    reverse(G_H, lds, q + NH/2, false);
+    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, W, W / 2), false);
+    reverse(G_H, lds, v + NH/2, false);
+    reverse(G_H, lds, q + NH/2, false);
+  } else {    
+    reverseLine(G_H, lds, v);
+    reverseLine(G_H, lds, q);
+    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H / 2, W * H / 4), false);
+    reverseLine(G_H, lds, v);
+    reverseLine(G_H, lds, q);
+  }
+
+  bar();
+  fft_HEIGHT(lds, v, smallTrig2);
+  write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
+
+  bar();
+  fft_HEIGHT(lds, u, smallTrig2);
+  write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
+}
+//}}
+
+//== TAIL_FUSED_MUL NAME=tailMulLowLow,   MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=1
+//== TAIL_FUSED_MUL NAME=tailFusedMulLow, MUL_DELTA=0, MUL_LOW=1, MUL_2LOW=0
+//== TAIL_FUSED_MUL NAME=tailFusedMul,    MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=0
+
+#if !NO_P2_FUSED_TAIL
+// equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
+//== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
+#endif // NO_P2_FUSED_TAIL
+
+// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
+#ifdef TEST_KERNEL
+KERNEL(256) testKernel(global double* io) {
+  u32 me = get_local_id(0);
+  io[me] = kcos(io[me]);
+}
+#endif
+
+
+
+
+
+
+
+
 
 // Do a partial transpose during fftMiddleIn/Out
 // The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
