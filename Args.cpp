@@ -125,9 +125,9 @@ void Args::parse(string line) {
     else if (key == "-maxAlloc") { maxAlloc = size_t(stoi(s)) << 20; }
     else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
-    else if (key == "-prp") { prpExp = stoll(s); }
-    else if (key == "-pm1") { pm1Exp = stoll(s); }
-    else if (key == "-ll") { llExp = stoll(s); }
+    else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
+    else if (key == "-pm1" || key == "-PM1") { pm1Exp = stoll(s); }
+    else if (key == "-ll" || key == "-LL") { llExp = stoll(s); }
     else if (key == "-B1") { B1 = stoi(s); }
     else if (key == "-B2") { B2 = stoi(s); }
     else if (key == "-rB2") { B2_B1_ratio = stoi(s); }
