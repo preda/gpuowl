@@ -1560,29 +1560,34 @@ double2 reducedCosSin(double x) {
 
 // Returns e^(-i * pi * k/n)
 double2 slowTrig(i32 k, i32 n, i32 kBound) {
-  assert(n % 2 == 0);
+  assert(n % 4 == 0);
   assert(k >= 0);
-  assert(k <= kBound);          // kBound actually bounds k
-  assert(kBound <= 2 * n);      // angle <= 2*pi
+  assert(k < kBound);           // kBound actually bounds k
+  assert(kBound <= 4 * n);      // angle <= 4*pi
 
 #if ORIG_SLOWTRIG
   return openclSlowTrig(k, n);
 #else
-  if (kBound * 4 <= n) {        // angle <= pi/4
-    double x = M_PI / n * k;
-    double2 r = reducedCosSin(x);
-    return U2(r.x, -r.y);
-  } else if (kBound * 2 <= n) { // angle <= pi/2
-    bool flip = kBound * 4 > n && k * 4 > n;
-    if (flip) { k = n / 2 - k; }
-    double x = M_PI / n * k;
-    double2 r = reducedCosSin(x);
-    if (flip) { r = swap(r); }
-    return U2(r.x, -r.y);
-    // return flip ? U2(r.y, - r.x) : U2(r.x, - r.y);
-  } else {
-    return openclSlowTrig(k, n);
-  }
+
+  if (kBound > 2 * n && k >= 2 * n) { k -= 2 * n; }
+  assert(k < 2 * n);
+
+  bool negate = kBound > n && k >= n;
+  if (negate) { k -= n; }
+  
+  bool negateCos = kBound > n / 2 && k >= n / 2;
+  if (negateCos) { k = n - k; }
+  
+  bool flip = kBound > n / 4 && k > n / 4;
+  if (flip) { k = n / 2 - k; }
+
+  assert(k <= n / 4);
+  double2 r = reducedCosSin(M_PI / n * k);
+
+  if (flip) { r = swap(r); }
+  if (negateCos) { r.x = -r.x; }
+  if (negate) { r = -r; }
+  return U2(r.x, -r.y);  
 #endif
 }
 
