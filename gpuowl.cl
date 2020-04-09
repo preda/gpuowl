@@ -1560,29 +1560,48 @@ double2 reducedCosSin(double x) {
 
 // Returns e^(-i * pi * k/n)
 double2 slowTrig(i32 k, i32 n, i32 kBound) {
-  assert(n % 2 == 0);
+  assert(n % 4 == 0);
   assert(k >= 0);
-  assert(k <= kBound);          // kBound actually bounds k
-  assert(kBound <= 2 * n);      // angle <= 2*pi
+  assert(k < kBound);          // kBound actually bounds k
+
+  // Reduce k/n to interval 0 to 2*pi while in integer space (we suffer roundoffs in float space)
+
+  if (kBound > 4 * n) {		// angle could be greater than 4*pi (I don't think this can happen presently)
+    k = k % (2 * n);
+  } else if (kBound > 2 * n) {	// angle could be greater than 2*pi but not more than 4*pi
+    if (k >= 2 * n) k = k - 2 * n;
+  }
 
 #if ORIG_SLOWTRIG
   return openclSlowTrig(k, n);
 #else
-  if (kBound * 4 <= n) {        // angle <= pi/4
-    double x = M_PI / n * k;
-    double2 r = reducedCosSin(x);
-    return U2(r.x, -r.y);
-  } else if (kBound * 2 <= n) { // angle <= pi/2
-    bool flip = kBound * 4 > n && k * 4 > n;
-    if (flip) { k = n / 2 - k; }
-    double x = M_PI / n * k;
-    double2 r = reducedCosSin(x);
-    if (flip) { r = swap(r); }
-    return U2(r.x, -r.y);
-    // return flip ? U2(r.y, - r.x) : U2(r.x, - r.y);
-  } else {
-    return openclSlowTrig(k, n);
-  }
+  bool flip, negate, negateCos;
+
+  if (kBound > n) {		// angle could be greater than pi
+    negate = (k >= n);
+    if (negate) k = k - n;
+  } else
+    negate = 0;
+
+  if (kBound > n / 2) {		// angle could be greater than pi / 2
+    negateCos = (k >= n / 2);
+    if (negateCos) k = n - k;
+  } else
+    negateCos = 0;
+
+  if (kBound > n / 4) {		// angle could be greater than pi / 4
+    flip = (k > n / 4);
+    if (flip) k = n / 2 - k;
+  } else
+    flip = 0;
+
+  double x = M_PI / n * k;
+  double2 r = reducedCosSin(x);
+
+  if (flip) { r = swap(r); }
+  if (negateCos) { r.x = -r.x; }
+  if (negate) { r = -r; }
+  return U2(r.x, -r.y);
 #endif
 }
 
@@ -1845,39 +1864,371 @@ void fft_MIDDLE(T2 *u) {
 
 // Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
+
+// This version is used when we are worried about round off errors.
+// Multiply chains are limited to length 4 to reduce roundoff error.
+// MIDDLE=1-6	Use the straightforward implementation
+// MIDDLE=7-12	Use the chain length 3 implementation
+// MIDDLE=13	first 5,mid from 9 length 3
+// MIDDLE=14	first 4,mid from 9 length 4
+// MIDDLE=15	first 5,mid from 10 length 4
+#if MM_CHAIN == 4 && MIDDLE >= 13
+void middleMul(T2 *u, u32 s) {
+  assert(s < SMALL_HEIGHT);
+  T2 step = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  u[1] = mul(u[1], step);
+  T2 step2 = sq(step);
+  u[2] = mul(u[2], step2);
+  u[3] = mul(u[3], mul(step2, step));
+  T2 step4 = sq(step2);
+  u[4] = mul(u[4], step4);
+  if (MIDDLE == 13 | MIDDLE == 15) {
+    u[5] = mul(u[4], mul(step4,step));
+  }
+  i32 midpoint = (MIDDLE <= 14) ? 9 : 10;
+  i32 length = (MIDDLE == 13) ? 3 : 4;
+  T2 base = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+  T2 base2 = base;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+}
+
+// This version is used when we are more worried about round off errors.
+// Multiply chains are limited to length 3 to reduce roundoff error.
+// MIDDLE=1-5	Use the straightforward implementation
+// MIDDLE=6	first 4,midpt 5 length 0
+// MIDDLE=7	first 3,midpt 5 length 1 (same as chain=2)
+// MIDDLE=8	first 4,midpt 6 length 1
+// MIDDLE=9	first 3,midpt 6 length 2 (same as chain=2)
+// MIDDLE=10	first 4,midpt 7 length 2
+// MIDDLE=11	first 3,midpt 7 length 3
+// MIDDLE=12	first 4,midpt 8 length 3
+// MIDDLE=13	first 4,midpt 7 length 2,midpt 11 length 1
+// MIDDLE=14	first 3,midpt 6 length 2,midpt 11 length 2
+// MIDDLE=15	first 4,midpt 7 length 2,midpt 12 length 2
+#elif (MM_CHAIN == 3 && MIDDLE >= 6) || (MM_CHAIN == 4 && MIDDLE >= 7)
+void middleMul(T2 *u, u32 s) {
+  assert(s < SMALL_HEIGHT);
+  T2 step = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  u[1] = mul(u[1], step);
+  T2 step2 = sq(step);
+  u[2] = mul(u[2], step2);
+  u[3] = mul(u[3], mul(step2, step));
+  if (MIDDLE == 6 | MIDDLE == 8 | MIDDLE == 10 | MIDDLE == 12 | MIDDLE == 13 | MIDDLE == 15) {
+    u[4] = mul(u[4], sq(step2));
+  }
+  i32 midpoint, length;
+  if (MIDDLE <= 12) midpoint = (MIDDLE + 4) / 2, length = (MIDDLE - 5) / 2;
+  else midpoint = (MIDDLE & 1) + 6, length = 2;
+  T2 base = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+  T2 base2 = base;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE >= 13) {
+    midpoint = (MIDDLE + 9 / 2);
+    length = (MIDDLE - 10) / 2;
+    base = base2 = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are extremely worried about round off errors.
+// Multiply chains are limited to length 2 to reduce roundoff error.
+// MIDDLE=1-4	Use the straightforward implementation
+// MIDDLE=5	first 3,midpt 4 length 0
+// MIDDLE=6	first 2,midpt 4 length 1
+// MIDDLE=7	first 3,midpt 5 length 1
+// MIDDLE=8	first 2,midpt 5 length 2
+// MIDDLE=9	first 3,midpt 6 length 2
+// MIDDLE=10	first 3,midpt 5 length 1,midpt 8 length 1
+// MIDDLE=11	first 2,midpt 5 length 2,midpt 9 length 1
+// MIDDLE=12	first 3,midpt 6 length 2,midpt 10 length 1
+// MIDDLE=13	first 2,midpt 5 length 2,midpt 10 length 2
+// MIDDLE=14	first 3,midpt 6 length 2,midpt 11 length 2
+// MIDDLE=15	first 3,midpt 6 length 2,midpt 10 length 1,midpt 13 length 1
+#elif MM_CHAIN == 2 && MIDDLE >= 5
+void middleMul(T2 *u, u32 s) {
+  assert(s < SMALL_HEIGHT);
+  T2 step = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  u[1] = mul(u[1], step);
+  T2 step2 = sq(step);
+  u[2] = mul(u[2], step2);
+  if (MIDDLE == 5 | MIDDLE == 7 | MIDDLE == 9 | MIDDLE == 10 | MIDDLE == 12 | MIDDLE >= 14) {
+    u[3] = mul(u[3], mul(step2, step));
+  }
+  i32 midpoint, length;
+  if (MIDDLE <= 9) {
+    midpoint = (MIDDLE + 3) / 2;
+    length = (MIDDLE - 4) / 2;
+  } else {
+    midpoint = (MIDDLE <= 11 | MIDDLE == 13) ? 5 : 6;
+    length = (MIDDLE == 10) ? 1 : 2;
+  }
+  T2 base = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+  T2 base2 = base;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE >= 10) {
+    midpoint = (MIDDLE <= 12) ? MIDDLE - 2 : 11 - (MIDDLE & 1);
+    length = (MIDDLE <= 12 | MIDDLE == 15) ? 1 : 2;
+    base = base2 = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+  if (MIDDLE == 15) {
+    midpoint = 13;
+    length = 1;
+    base = base2 = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are not worried about the round off error.
+// Long multiply chains are a major source of roundoff error.
+#else
 void middleMul(T2 *u, u32 s) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
-  
   T2 step = slowTrig(s, BIG_HEIGHT / 2, BIG_HEIGHT / MIDDLE);
   u[1] = mul(u[1], step);
-  
   T2 step2 = sq(step);
   u[2] = mul(u[2], step2);
   if (MIDDLE == 3) { return; }
-
   u[3] = mul(u[3], mul(step2, step));
   if (MIDDLE == 4) { return; }
-  
   T2 base = sq(step2);
   for (i32 i = 4; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
 }
+#endif
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
 // Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
+
+// This version is used when we are worried about round off errors.
+// Multiply chains are limited to length 4 to reduce roundoff error.
+// MIDDLE=1-5	Use the straightforward implementation
+// MIDDLE=6-7	Use the chain length 3 implementation
+// MIDDLE=8	midpt base=4 length 4or3
+// MIDDLE=9	midpt base=4 length 4
+// MIDDLE=10-11	Use the chain length 3 implementation
+// MIDDLE=12	base=0 length 4, midpt base=8 length 3
+// MIDDLE=13	base=0 length 3, midpt base=8 length 4
+// MIDDLE=14	base=0 length 4, midpt base=9 length 4
+// MIDDLE=15	midpt base=3 length 3, midpt base=11 length 4or3
+#if MM2_CHAIN == 4 && ((MIDDLE >= 8 && MIDDLE <= 9) || MIDDLE >= 12)
 void middleMul2(T2 *u, u32 g, u32 me, double factor) {
   assert(g < WIDTH);
   assert(me < SMALL_HEIGHT);
-  T2 base = slowTrig(g * me,           BIG_HEIGHT * WIDTH / 2, BIG_HEIGHT * WIDTH / MIDDLE) * factor;
-  T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, BIG_HEIGHT * WIDTH / MIDDLE);
+  T2 base, base2, step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  i32 midpoint, length;
+  if (MIDDLE >= 12 & MIDDLE <= 14) {
+    length = 4 - (MIDDLE & 1);
+    base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+    u[0] = mul(u[0], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul(base, step);
+      u[i] = mul(u[i], base);
+    }
+  }
+  midpoint = (MIDDLE <= 9) ? 4 : ((MIDDLE <= 14) ? (MIDDLE + 4) / 2 : 3);
+  length = (MIDDLE == 12 | MIDDLE == 15) ? 3 : 4;
+  base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    if ((MIDDLE == 8 | MIDDLE == 15) && i == length) continue;
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE == 15) {
+    midpoint = 11;
+    length = 4;
+    base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      if (MIDDLE == 15 && i == length) continue;
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are more worried about round off errors.
+// Multiply chains are limited to length 3 to reduce roundoff error.
+// MIDDLE=1-4	Use the straightforward implementation
+// MIDDLE=5	Use the chain length 2 implementation
+// MIDDLE=6	midpt base=3 length 3or2
+// MIDDLE=7	midpt base=3 length 3
+// MIDDLE=8	base=0 length 2, midpt base=5 length 2 (same as chain length 2)
+// MIDDLE=9	base=0 length 3, midpt base=6 length 2
+// MIDDLE=10	base=0 length 2, midpt base=6 length 3
+// MIDDLE=11	base=0 length 3, midpt base=7 length 3
+// MIDDLE=12	midpt base=3 length 3,midpt base=9 length 2
+// MIDDLE=13	midpt base=3 length 3,midpt base=10 length 3or2
+// MIDDLE=14	midpt base=3 length 3,midpt base=11 length 3
+// MIDDLE=15	Use the chain length 2 implementation
+#elif (MM2_CHAIN == 3 && (MIDDLE >= 6 && MIDDLE <= 14)) || (MM2_CHAIN == 4 && MIDDLE >= 6)
+void middleMul2(T2 *u, u32 g, u32 me, double factor) {
+  assert(g < WIDTH);
+  assert(me < SMALL_HEIGHT);
+  T2 base, base2, step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  i32 midpoint, length;
+  if (MIDDLE >= 8 & MIDDLE <= 11) {
+    length = 2 + (MIDDLE & 1);
+    base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+    u[0] = mul(u[0], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul(base, step);
+      u[i] = mul(u[i], base);
+    }
+  }
+  midpoint = (MIDDLE <= 7 | MIDDLE >= 12) ? 3 : (MIDDLE + 3) / 2;
+  length = (MIDDLE == 8 | MIDDLE == 9) ? 2 : 3;
+  base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    if (MIDDLE == 6 && i == length) continue;
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE >= 12) {
+    midpoint = MIDDLE - 3;
+    length = (MIDDLE - 7) / 2;
+    base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      if (MIDDLE == 13 && i == length) continue;
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are extremely worried about round off errors.
+// Multiply chains are limited to length 2 to reduce roundoff error.
+// MIDDLE=1-3	Use the straightforward implementation
+// MIDDLE=4	midpt base=2 length 2or1
+// MIDDLE=5	midpt base=2 length 2
+// MIDDLE=6	base=0 length 2,midpt base=4 length 1
+// MIDDLE=7	base=0 length 1,midpt base=4 length 2
+// MIDDLE=8	base=0 length 2,midpt base=5 length 2
+// MIDDLE=9	midpt base=2 length 2,midpt base=7 length 2or1
+// MIDDLE=10	midpt base=2 length 2,midpt base=7 length 2
+// MIDDLE=11	base=0 length 2,midpt base=5 length 2,midpt base=9 length 1
+// MIDDLE=12	base=0 length 1,midpt base=4 length 2,midpt base=9 length 2
+// MIDDLE=13	base=0 length 2,midpt base=5 length 2,midpt base=10 length 2
+// MIDDLE=14	midpt base=2 length 2,midpt base=7 length 2,midpt base=12 length 2or1
+// MIDDLE=15	midpt base=2 length 2,midpt base=7 length 2,midpt base=12 length 2
+#elif (MM2_CHAIN == 2 && MIDDLE >= 4) || (MM2_CHAIN == 3 && MIDDLE >= 5)
+void middleMul2(T2 *u, u32 g, u32 me, double factor) {
+  assert(g < WIDTH);
+  assert(me < SMALL_HEIGHT);
+  T2 base, base2, step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  i32 midpoint, length;
+  if ((MIDDLE >= 6 & MIDDLE <= 8) | (MIDDLE >= 11 & MIDDLE <= 13)) {
+    length = (MIDDLE == 7 | MIDDLE == 12) ? 1 : 2;
+    base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+    u[0] = mul(u[0], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul(base, step);
+      u[i] = mul(u[i], base);
+    }
+  }
+  midpoint = (MIDDLE <= 5 | MIDDLE == 9 | MIDDLE == 10 | MIDDLE >= 14) ? 2 : ((MIDDLE <= 7 | MIDDLE == 12) ? 4 : 5);
+  length = (MIDDLE == 6) ? 1 : 2;
+  base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+  u[midpoint] = mul(u[midpoint], base);
+  for (i32 i = 1; i <= length; ++i) {
+    base = mul_by_conjugate(base, step);
+    u[midpoint - i] = mul(u[midpoint - i], base);
+    if (MIDDLE == 4 && i == length) continue;
+    base2 = mul(base2, step);
+    u[midpoint + i] = mul(u[midpoint + i], base2);
+  }
+  if (MIDDLE >= 9) {
+    midpoint = (MIDDLE <= 10 | MIDDLE >= 14) ? 7 : (MIDDLE + 7) / 2;
+    length = (MIDDLE == 11) ? 1 : 2;
+    base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      if (MIDDLE == 9 && i == length) continue;
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+  if (MIDDLE >= 14) {
+    midpoint = 12;
+    length = 2;
+    base = base2 = slowTrig(g * me + midpoint * g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, (midpoint + 1) * WIDTH * SMALL_HEIGHT) * factor;
+    u[midpoint] = mul(u[midpoint], base);
+    for (i32 i = 1; i <= length; ++i) {
+      base = mul_by_conjugate(base, step);
+      u[midpoint - i] = mul(u[midpoint - i], base);
+      if (MIDDLE == 14 && i == length) continue;
+      base2 = mul(base2, step);
+      u[midpoint + i] = mul(u[midpoint + i], base2);
+    }
+  }
+}
+
+// This version is used when we are not worried about the round off error.
+// Long multiply chains are a major source of roundoff error.
+#else
+void middleMul2(T2 *u, u32 g, u32 me, double factor) {
+  assert(g < WIDTH);
+  assert(me < SMALL_HEIGHT);
+  T2 base = slowTrig(g * me,           BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+  T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
 }
+#endif
 
 // Do a partial transpose during fftMiddleIn/Out
 // The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
