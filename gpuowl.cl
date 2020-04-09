@@ -1852,6 +1852,44 @@ void fft_MIDDLE(T2 *u) {
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 void middleMul(T2 *u, u32 s) {
   assert(s < SMALL_HEIGHT);
+  
+#if MIDDLE == 10 && ACCURATE
+#define WADD(i, w) u[i] = mul(u[i], w)
+#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
+  // 1
+  T2 w = slowTrig(s, BIG_HEIGHT / 2, BIG_HEIGHT / MIDDLE);
+  WADD(1, w);
+  WSUB(3, w);
+  WADD(5, w);
+  WSUB(7, w);
+  WADD(9, w);
+
+  // 2
+  w = sq(w);
+  WADD(2, w);
+  WADD(6, w);
+
+  // 4
+  w = slowTrig(s, BIG_HEIGHT / 8, BIG_HEIGHT / MIDDLE);
+  // w = sq(w);
+  WADD(3, w);
+  WADD(4, w);
+  WADD(5, w);
+  WADD(6, w);
+
+  // 8
+#if ACCURATE >= 2
+  w = slowTrig(s, BIG_HEIGHT / 16, BIG_HEIGHT / MIDDLE);
+#else
+  w = sq(w);
+#endif
+  WADD(7, w);
+  WADD(8, w);
+  WADD(9, w);
+#undef WADD
+#undef WSUB
+  
+#else
   if (MIDDLE == 1) { return; }
   
   T2 step = slowTrig(s, BIG_HEIGHT / 2, BIG_HEIGHT / MIDDLE);
@@ -1869,6 +1907,7 @@ void middleMul(T2 *u, u32 s) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
+#endif
 }
 
 // Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
@@ -1876,12 +1915,52 @@ void middleMul(T2 *u, u32 s) {
 void middleMul2(T2 *u, u32 g, u32 me, double factor) {
   assert(g < WIDTH);
   assert(me < SMALL_HEIGHT);
-  T2 base = slowTrig(g * me,           BIG_HEIGHT * WIDTH / 2, BIG_HEIGHT * WIDTH / MIDDLE) * factor;
-  T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, BIG_HEIGHT * WIDTH / MIDDLE);
+
+#if MIDDLE == 10 && ACCURATE
+#define WADD(i, w) u[i] = mul(u[i], w)
+#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
+  T2 base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+  WADD(0, base);
+  WADD(1, base);
+  WADD(2, base);
+
+  // 1
+  T2 w = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  WADD(1, w);
+  WSUB(3, w);
+  WADD(5, w);
+  WSUB(7, w);
+  WADD(9, w);
+
+  // 2
+  w = sq(w);
+  WADD(2, w);
+  WADD(6, w);
+
+  // 4
+  w = slowTrig(g * SMALL_HEIGHT * 4 + g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT * 5) * factor;
+  // w = mul(base, sq(w));
+  WADD(3, w);
+  WADD(4, w);
+  WADD(5, w);
+  WADD(6, w);
+
+  // 8
+  w = slowTrig(g * SMALL_HEIGHT * 8 + g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT * 9) * factor;
+  WADD(7, w);
+  WADD(8, w);
+  WADD(9, w);
+#undef WADD
+#undef WSUB
+
+#else
+  T2 base = slowTrig(g * me,           BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+  T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, step);
   }
+#endif
 }
 
 // Do a partial transpose during fftMiddleIn/Out
