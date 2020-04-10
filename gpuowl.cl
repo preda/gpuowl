@@ -1852,12 +1852,12 @@ void fft_MIDDLE(T2 *u) {
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 void middleMul(T2 *u, u32 s) {
   assert(s < SMALL_HEIGHT);
+  T2 w = slowTrig(s, BIG_HEIGHT / 2, BIG_HEIGHT / MIDDLE);
   
 #if MIDDLE == 10 && ACCURATE
 #define WADD(i, w) u[i] = mul(u[i], w)
 #define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
   // 1
-  T2 w = slowTrig(s, BIG_HEIGHT / 2, BIG_HEIGHT / MIDDLE);
   WADD(1, w);
   WSUB(3, w);
   WADD(5, w);
@@ -1891,21 +1891,19 @@ void middleMul(T2 *u, u32 s) {
   
 #else
   if (MIDDLE == 1) { return; }
+  u[1] = mul(u[1], w);
   
-  T2 step = slowTrig(s, BIG_HEIGHT / 2, BIG_HEIGHT / MIDDLE);
-  u[1] = mul(u[1], step);
-  
-  T2 step2 = sq(step);
-  u[2] = mul(u[2], step2);
+  T2 w2 = sq(w);
+  u[2] = mul(u[2], w2);
   if (MIDDLE == 3) { return; }
 
-  u[3] = mul(u[3], mul(step2, step));
+  u[3] = mul(u[3], mul(w2, w));
   if (MIDDLE == 4) { return; }
   
-  T2 base = sq(step2);
+  T2 base = sq(w2);
   for (i32 i = 4; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
-    base = mul(base, step);
+    base = mul(base, w);
   }
 #endif
 }
@@ -1916,16 +1914,17 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
   assert(g < WIDTH);
   assert(me < SMALL_HEIGHT);
 
+  T2 base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+  T2 w = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+
 #if MIDDLE == 10 && ACCURATE
 #define WADD(i, w) u[i] = mul(u[i], w)
 #define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
-  T2 base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
   WADD(0, base);
   WADD(1, base);
   WADD(2, base);
 
   // 1
-  T2 w = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
   WADD(1, w);
   WSUB(3, w);
   WADD(5, w);
@@ -1954,11 +1953,9 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
 #undef WSUB
 
 #else
-  T2 base = slowTrig(g * me,           BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
-  T2 step = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
-    base = mul(base, step);
+    base = mul(base, w);
   }
 #endif
 }
