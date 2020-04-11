@@ -136,3 +136,4 @@ Device numbers start at zero.
 --dirs DIR \[DIR ...\]  GpuOwl directories to scan\
 --tasks NTASKS        Number of tasks to fetch ahead\
 -w \{PF,PRP_FIRST,PRP_100M,PRP_WORLD_RECORD,PRP_DC,PM1,PRP,150,151,152,153,4\}  GIMPS work type
+-w \{PF/4,PRP_FIRST/150,PRP_100M/153,PRP_WORLD_RECORD/152,PRP_DC/151,PM1/4,PRP/150\}  GIMPS work type
