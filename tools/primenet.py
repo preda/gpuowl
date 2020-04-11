@@ -68,7 +68,7 @@ def fetch(what):
     print(datetime.now(), " New assignment: ", line)
     return line
 
-workTypes = dict(PRP=150, PRP_FIRST=150, PRP_DC=151, PRP_WORLD_RECORD=152, PRP_100M=153, PF=4, PM1=4)
+workTypes = dict(PRP=150, PM1=4, LL_DC=101, PRP_DC=151, PRP_WORLD_RECORD=152, PRP_100M=153)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-u', dest='username', default='', help="Primenet user name")
@@ -77,7 +77,7 @@ parser.add_argument('-t', dest='timeout',  type=int, default=3600, help="Seconds
 parser.add_argument('--dirs', metavar='DIR', nargs='+', help="GpuOwl directories to scan", default=".")
 parser.add_argument('--tasks', dest='nTasks', type=int, default=None, help='Number of tasks to fetch ahead')
 
-choices=list(workTypes.keys()) + sorted(list(set(map(str, set(workTypes.values())))))
+choices=list(workTypes.keys())
 parser.add_argument('-w', dest='work', choices=choices, help="GIMPS work type", default="PRP")
 
 options = parser.parse_args()

@@ -18,7 +18,7 @@
 
 namespace {
 
-std::string to_string(const std::vector<std::string>& v) {
+string json(const vector<string>& v) {
   bool isFirst = true;
   string s = "{";
   for (const std::string& e : v) {
@@ -29,48 +29,78 @@ std::string to_string(const std::vector<std::string>& v) {
   return {isFirst ? ""s : (s + '}')};
 }
 
-std::string json(const std::string& s) { return '"' + s + '"'; }
+struct Hex {
+  explicit Hex(u64 value) : value{value} {}
+  u64 value;
+};
 
-template<typename T>
-std::string json(const std::optional<T>& opt) { return opt ? json(*opt) : ""s; }
+string json(Hex x) { return '"' + hex(x.value) + '"'; }
+string json(const string& s) { return '"' + s + '"'; }
+string json(u32 x) { return json(to_string(x)); }
 
-std::string json(const std::string& key, const std::string& value) { return json(key) + ':' + json(value); }
-std::string json(const std::string& key, const char* value) { return json(key) + ':' + json(value); }
-std::string json(const std::string& key, const std::optional<std::string>& v) { return v ? json(key, *v) : ""s; }
-std::string json(const std::string& key, const std::vector<std::string>& v) { return json(key) + ':' + to_string(v); }
+template<typename T> string json(const string& key, const T& value) { return json(key) + ':' + json(value); }
 
+string maybe(const string& key, const string& value) { return value.empty() ? ""s : json(key, value); }
 
-std::optional<std::string> optStr(const std::string& s) { return s.empty() ? std::optional<std::string>{} : s; }
+template<typename T> void operator+=(vector<T>& a, const vector<T>& b) { a.insert(a.end(), b.begin(), b.end()); }
 
-void writeResult(const string &part, u32 E, const char *workType, const string &status,
-                        const std::string &AID, const Args &args) {
-  std::string s = to_string({
-                             json("exponent", std::to_string(E)),
-                             json("worktype", workType),
-                             json("status", status),
-                             json("program", {json("name", "gpuowl"), json("version", VERSION)}),
-                             json("timestamp", timeStr()),
-                             json("user", optStr(args.user)),
-                             json("computer", optStr(args.cpu)),
-                             json("uid", optStr(args.uid)),
-                             json("aid", optStr(AID)),
-                             part
-    });
-               
+vector<string> commonFields(u32 E, const char *worktype, const string &status) {
+  return {json("status", status),
+          json("exponent", E),
+          json("worktype", worktype)
+  };
+}
+
+vector<string> tailFields(const std::string &AID, const Args &args) {
+  return {json("program", vector<string>{json("name", "gpuowl"), json("version", VERSION)}),
+          maybe("user", args.user),
+          maybe("computer", args.cpu),
+          maybe("aid", AID),
+          maybe("uid", args.uid),
+          json("timestamp", timeStr())
+  };
+}
+
+void writeResult(u32 E, const char *workType, const string &status, const std::string &AID, const Args &args,
+                 const vector<string>& extras) {
+  vector<string> fields = commonFields(E, workType, status);
+  fields += extras;
+  fields += tailFields(AID, args);
+  string s = json(std::move(fields));
   log("%s\n", s.c_str());
   File::append(args.resultsFile, s + '\n');
 }
 
-string factorStr(const string &factor) { return factor.empty() ? "" : (", \"factors\":[\"" + factor + "\"]"); }
-
-string fftStr(u32 fftSize) { return string("\"fft-length\":") + std::to_string(fftSize); }
-
-string resStr(u64 res64) {
-  char buf[64];
-  snprintf(buf, sizeof(buf), ", \"res64\":\"%s\"", hex(res64).c_str());
-  return buf;
 }
 
+void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const {
+  assert(B1 == 0 && B2 == 0);
+  writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, 
+              {json("res64", Hex{res64}),
+               json("residue-type", 1),
+               json("errors", vector<string>{json("gerbicz", nErrors)}),
+               json("fft-length", fftSize)
+              });
+}
+
+void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
+  assert(B1 == 0 && B2 == 0);
+  writeResult(exponent, "LL", isPrime ? "P" : "C", AID, args,
+              {json("res64", Hex{res64}),
+               json("fft-length", fftSize),
+               json("shift-count", 0)
+              });
+}
+
+void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, bool didStage2) const {
+  bool hasFactor = !factor.empty();
+  string bounds = "\"B1\":"s + to_string(B1) + (didStage2 ? ", \"B2\":"s + to_string(B2) : "");
+  writeResult(exponent, "PM1", hasFactor ? "F" : "NF", AID, args,
+              {json("B1", B1),
+               didStage2 ? json("B2", B2) : "",
+               json("fft-length", fftSize),
+               factor.empty() ? "" : json("factors", "[\""s + factor + "\"]")
+              });
 }
 
 void Task::adjustBounds(Args& args) {
@@ -86,24 +116,6 @@ void Task::adjustBounds(Args& args) {
       B2 = B1 * 10;
     }
   }
-}
-
-void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const {
-  assert(B1 == 0 && B2 == 0);
-  writeResult(fftStr(fftSize) + resStr(res64) + ", \"residue-type\":1, \"errors\":{\"gerbicz\":" + to_string(nErrors) + "}",
-              exponent, "PRP-3", isPrime ? "P" : "C", AID, args);
-}
-
-void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
-  assert(B1 == 0 && B2 == 0);
-  writeResult(fftStr(fftSize) + resStr(res64) + ", \"shift-count\":0", exponent, "LL", isPrime ? "P" : "C", AID, args);
-}
-
-void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, bool didStage2) const {
-  bool hasFactor = !factor.empty();
-  string status = hasFactor ? "F" : "NF";
-  string bounds = ", \"B1\":"s + to_string(B1) + (didStage2 ? ", \"B2\":"s + to_string(B2) : "");
-  writeResult(fftStr(fftSize) + bounds + factorStr(factor), exponent, "PM1", status, AID, args);
 }
 
 void Task::execute(const Args& args, Background& background, std::atomic<u32>& factorFoundForExp) {
