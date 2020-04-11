@@ -96,7 +96,7 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
 
 void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
   assert(B1 == 0 && B2 == 0);
-  writeResult(fftStr(fftSize) + resStr(res64) + ", \"offset\":0", exponent, "LL", isPrime ? "P" : "C", AID, args);
+  writeResult(fftStr(fftSize) + resStr(res64) + ", \"shift-count\":0", exponent, "LL", isPrime ? "P" : "C", AID, args);
 }
 
 void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, bool didStage2) const {
