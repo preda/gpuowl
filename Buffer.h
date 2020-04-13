@@ -98,11 +98,11 @@ public:
     return ret;
   }
 
-  void readAsync(vector<T>& out, size_t sizeOrFull = 0) const {
+  void readAsync(vector<T>& out, size_t sizeOrFull = 0, size_t start = 0) const {
     auto readSize = sizeOrFull ? sizeOrFull : this->size;
     assert(readSize <= this->size);
     out.resize(readSize);
-    ::read(this->queue->get(), false, this->get(), readSize * sizeof(T), out.data());
+    ::read(this->queue->get(), false, this->get(), readSize * sizeof(T), out.data(), start * sizeof(T));
   }
 
   // sync write

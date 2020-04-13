@@ -285,7 +285,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCheck{queue, "check", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
-  bufRoundoff{queue, "roundoff", 8},
+  bufRoundoff{queue, "roundoff", 8 + 1024 * 1024},
   bufCarryMax{queue, "carryMax", 8},
   bufCarryMulMax{queue, "carryMulMax", 8},
   bufSmallOut{queue, "smallOut", 256},
@@ -797,23 +797,56 @@ void spin() {
 
 }
 
-void Gpu::printRoundoff() {
-  vector<u32> roundoff;
+void Gpu::printRoundoff(u32 E) {
+  vector<u32> roundoff = bufRoundoff.read(4);
+  u32 roundN = roundoff[3];
+
   vector<u32> carry;
   vector<u32> carryMul;
-  bufRoundoff.readAsync(roundoff, 4);
   bufCarryMax.readAsync(carry, 4);
   bufCarryMulMax.readAsync(carryMul, 4);
   
+  vector<u32> maxVect;
+  bufRoundoff.readAsync(maxVect, roundN, 8);
+    
   vector<u32> zero{0, 0, 0, 0};
   bufRoundoff    = zero;
   bufCarryMax    = zero;
   bufCarryMulMax = zero;
 
-  constexpr float roundScale = 1.0 / (u64(1) << 32);
-  u32 roundN = roundoff[3];
-  float roundAvg = roundN ? read64(&roundoff[0]) * roundScale / roundN : 0;
-  float roundMax = roundoff[2] * roundScale;
+  if (roundN < 10000) { return; }
+  
+  // std::sort(maxVect.begin(), maxVect.end());
+
+  constexpr double scale = 1.0 / (u64(1) << 32);
+#if DUMP_STATS
+  {
+    File fo = File::openAppend("roundoff.txt");
+    if (fo) { for (u32 x : maxVect) { fprintf(fo.get(), "%f\n", x * scale); } }
+  }
+#endif
+
+  u64 isum = 0;
+  for (u32 x : maxVect) { isum += x; }
+  double sum = isum * scale;
+  double avg = sum / roundN;
+  double variance = 0;
+  double m = 0;
+  for (u32 u : maxVect) {
+    double x = u * scale;
+    m = max(m, x);
+    double d = x - avg;
+    variance += d * d;
+  }
+  variance /= roundN;
+  double sdev = sqrt(variance);
+  // See Gumbel distribution https://en.wikipedia.org/wiki/Gumbel_distribution
+  double beta = sdev * (sqrt(6) / M_PI);
+  double gamma = 0.577215665; // Euler-Mascheroni
+  double u1 = avg - beta * gamma;
+  
+  // float roundAvg = read64(&roundoff[0]) * scale / roundN;
+  float roundMax = roundoff[2] * scale;
 
   u32 carryN = carry[3];
   u32 carryAvg = carryN ? read64(&carry[0]) / carryN : 0;
@@ -822,12 +855,12 @@ void Gpu::printRoundoff() {
   u32 carryMulN = carryMul[3];
   u32 carryMulAvg = carryMulN ? read64(&carryMul[0]) / carryMulN : 0;
   u32 carryMulMax = carryMul[2];
-                
-  log("Roundoff: N=%u, max %f, avg %f; carry32: N=%u, max %x, avg %x; carryM32: N=%u, max %x, avg %x\n",
-      roundN, roundMax, roundAvg,
-      carryN, carryMax, carryAvg,
-      carryMulN, carryMulMax, carryMulAvg
-      );
+
+  log("Roundoff: N=%u, max %f, avg %f, sdev %f (%f, %f), max-round %f\n",
+      roundN, roundMax, avg, sdev, sdev / avg, sdev / u1, avg + 16 * sdev);
+  
+  log("Carry: N=%u, max %x, avg %x; CarryM: N=%u, max %x, avg %x\n",
+      carryN, carryMax, carryAvg, carryMulN, carryMulMax, carryMulAvg);
 }
 
 tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
@@ -849,7 +882,7 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
   Signal signal;
   IterationTimer itTimer{startK};
 
-  bool displayRoundoff = args.flags.count("ROUNDOFF");
+  bool displayRoundoff = args.flags.count("STATS");
 
   u32 blockSize = args.blockSize ? args.blockSize : 1000; // default LL block size
   u32 logStep = args.logStep ? args.logStep : 100000;
@@ -872,7 +905,7 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
     }
     
     if (doStop || (k % logStep == 0) || (k >= kEnd)) {
-      if (displayRoundoff) { printRoundoff(); }
+      if (displayRoundoff) { printRoundoff(E); }
       vector<u32> data = readData();
       u64 res64 = residue(data);
       double time = itTimer.reset(k);
@@ -923,7 +956,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
   u64 finalRes64 = 0;
   u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
 
-  bool displayRoundoff = args.flags.count("ROUNDOFF");
+  bool displayRoundoff = args.flags.count("STATS");
   
   while (true) {
     assert(k % blockSize == 0);
@@ -971,7 +1004,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
     if (doCheck) {
       double timeExcludingCheck = itTimer.reset(k);
 
-      if (displayRoundoff) { printRoundoff(); }
+      if (displayRoundoff) { printRoundoff(E); }
       
       u64 res64 = dataResidue();
       PRPState prpState{E, k, blockSize, res64, readCheck(), nErrors};
