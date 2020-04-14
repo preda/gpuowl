@@ -135,4 +135,4 @@ Device numbers start at zero.
 -t TIMEOUT            Seconds to sleep between updates\
 --dirs DIR \[DIR ...\]  GpuOwl directories to scan\
 --tasks NTASKS        Number of tasks to fetch ahead\
--w \{PF,PRP_FIRST,PRP_100M,PRP_WORLD_RECORD,PRP_DC,PM1,PRP,150,151,152,153,4\}  GIMPS work type
+-w \{PRP,PM1,LL_DC,PRP_DC,PRP_WORLD_RECORD,PRP_100M\}   GIMPS work type
