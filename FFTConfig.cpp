@@ -35,7 +35,7 @@ static double chain_savings[16][6] = {
 	{0, 0, 0, 0, 0, 0},					// MIDDLE=0
 	{0, 0, 0, 0, 0, 0},					// MIDDLE=1
 	{0, 0, 0, 0, 0, 0},					// MIDDLE=2
-	{0, 0, 0, 0, 0, 0},					// MIDDLE=3
+	{0.00867, 0, 0.00780, 0, 0, 0.014456},			// MIDDLE=3
 	{0.01545, 0.02604, 0.01494, 0, 0, 0.00652},		// MIDDLE=4
 	{0.02697, 0.05978, 0.02128, 0.00336, 0, 0},		// MIDDLE=5
 	{0.04394, 0.13471, 0.03398, 0.00179, 0, 0.00701},	// MIDDLE=6
@@ -65,6 +65,7 @@ void FFTConfig::getChainLengths(u32 fftSize, u32 exponent, u32 middle, u32 *mm_c
   if (i == 1) *mm_chain = 1, *mm2_chain = 1;
   if (i == 0) *mm_chain = 0, *mm2_chain = 1;
   if (i == -1) *mm_chain = 0, *mm2_chain = 0;
+  if (middle == 3 && *mm2_chain == 3) *mm2_chain = 2;		// For MIDDLE=3, mm2_chain=2 if better than mm2_chain=3
 }
 
 namespace {

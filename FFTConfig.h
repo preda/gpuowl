@@ -30,7 +30,7 @@ struct FFTConfig {
   // This allows more bits-per-FFT-word.  We also gathered roundoff data for each MIDDLE length
   // so that for use in the calculations below.
   static u32 getMaxExp(u32 fftSize, u32 middle) { return
-                middle == 3 ? fftSize * (18.895 - 0.279 * log2(fftSize / (1.5 * 1024 * 1024))) :	//BUG - middle=3 not working, I have no data
+                middle == 3 ? fftSize * (18.973 - 0.279 * log2(fftSize / (1.5 * 1024 * 1024))) :
                 middle == 4 ? fftSize * (18.943 - 0.279 * log2(fftSize / (2 * 1024 * 1024))) :
                 middle == 5 ? fftSize * (18.860 - 0.279 * log2(fftSize / (2.5 * 1024 * 1024))) :
                 middle == 6 ? fftSize * (18.719 - 0.279 * log2(fftSize / (3.0 * 1024 * 1024))) :
