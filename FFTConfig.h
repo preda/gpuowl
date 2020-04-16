@@ -25,10 +25,26 @@ struct FFTConfig {
   //
   // Also note, that I did not see any evidence that we need to be more conservative during P-1.
   // However, P-1 does not output average max roundoff error, so I'm not 100% confident.
-  static u32 getMaxExp(u32 fftSize) { return fftSize * (18.814 - 0.279 * log2(fftSize / (1.25 * 1024 * 1024))); }
+  //
+  // On 2020-04-12 we implemented options to minimize multiply chain lengths in MiddleMul kernels.
+  // This allows more bits-per-FFT-word.  We also gathered roundoff data for each MIDDLE length
+  // so that for use in the calculations below.
+  static u32 getMaxExp(u32 fftSize, u32 middle) { return
+                middle == 3 ? fftSize * (18.895 - 0.279 * log2(fftSize / (1.5 * 1024 * 1024))) :	//BUG - middle=3 not working, I have no data
+                middle == 4 ? fftSize * (18.943 - 0.279 * log2(fftSize / (2 * 1024 * 1024))) :
+                middle == 5 ? fftSize * (18.860 - 0.279 * log2(fftSize / (2.5 * 1024 * 1024))) :
+                middle == 6 ? fftSize * (18.719 - 0.279 * log2(fftSize / (3.0 * 1024 * 1024))) :
+                middle == 7 ? fftSize * (18.687 - 0.279 * log2(fftSize / (3.5 * 1024 * 1024))) :
+                middle == 8 ? fftSize * (18.659 - 0.279 * log2(fftSize / (4.0 * 1024 * 1024))) :
+                middle == 9 ? fftSize * (18.484 - 0.279 * log2(fftSize / (4.5 * 1024 * 1024))) :
+                middle == 10 ? fftSize * (18.567 - 0.279 * log2(fftSize / (5.0 * 1024 * 1024))) :
+                middle == 11 ? fftSize * (18.489 - 0.279 * log2(fftSize / (5.5 * 1024 * 1024))) :
+			       fftSize * (18.403 - 0.279 * log2(fftSize / (6.0 * 1024 * 1024))); }
   
   static u32 getMaxCarry32(u32 fftSize, u32 exponent);
   static std::vector<FFTConfig> genConfigs();
+
+  static void getChainLengths(u32 fftSize, u32 exponent, u32 middle, u32 *mm_chain, u32 *mm2_chain);
 
   // FFTConfig(u32 w, u32 m, u32 h) : width(w), middle(m), height(h) {}
   static FFTConfig fromSpec(const string& spec);
@@ -38,6 +54,6 @@ struct FFTConfig {
   u32 height = 0;
     
   u32 fftSize() const { return width * height * middle * 2; }
-  u32 maxExp() const { return getMaxExp(fftSize()); }
+  u32 maxExp() const { return getMaxExp(fftSize(), middle); }
   std::string spec() const { return numberK(width) + ':' + numberK(middle) + ':' + numberK(height); }
 };

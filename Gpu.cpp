@@ -192,6 +192,13 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
   if (FFTConfig::getMaxCarry32(N, E) > (isPm1 ? 0x6C00 : 0x7000)) { defines.push_back({"CARRY64", 1}); }
   if (isPm1 && FFTConfig::getMaxCarry32(N, E) > 0x6C00 / 3) { defines.push_back({"CARRYM64", 1}); }
 
+  // If we are near the maximum exponent for this FFT, then we may need to set some chain #defines
+  // to reduce the round off errors.
+  u32 mm_chain, mm2_chain;
+  FFTConfig::getChainLengths(N, E, MIDDLE, &mm_chain, &mm2_chain);
+  if (mm_chain) { defines.push_back({"MM_CHAIN", mm_chain}); }
+  if (mm2_chain) { defines.push_back({"MM2_CHAIN", mm2_chain}); }
+
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
     auto pos = flag.find('=');

@@ -1856,115 +1856,148 @@ void fft_MIDDLE(T2 *u) {
 
 // Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
-void middleMul(T2 *u, u32 s) {
-  assert(s < SMALL_HEIGHT);
-  T2 w = slowTrig(s, BIG_HEIGHT / 2, BIG_HEIGHT / MIDDLE);
-  
-#if MIDDLE == 10 && ACCURATE
+
 #define WADD(i, w) u[i] = mul(u[i], w)
 #define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
-  // 1
-  WADD(1, w);
-  WSUB(3, w);
-  WADD(5, w);
-  WSUB(7, w);
-  WADD(9, w);
 
-  // 2
-  w = sq(w);
-  WADD(2, w);
-  WADD(6, w);
-
-  // 4
-  w = slowTrig(s, BIG_HEIGHT / 8, BIG_HEIGHT / MIDDLE);
-  // w = sq(w);
-  WADD(3, w);
-  WADD(4, w);
-  WADD(5, w);
-  WADD(6, w);
-
-  // 8
-#if ACCURATE >= 2
-  w = slowTrig(s, BIG_HEIGHT / 16, BIG_HEIGHT / MIDDLE);
-#else
-  w = sq(w);
-#endif
-  WADD(7, w);
-  WADD(8, w);
-  WADD(9, w);
-#undef WADD
-#undef WSUB
-  
-#else
+void middleMul(T2 *u, u32 s) {
+  assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
-  u[1] = mul(u[1], w);
-  
-  T2 w2 = sq(w);
-  u[2] = mul(u[2], w2);
-  if (MIDDLE == 3) { return; }
 
-  u[3] = mul(u[3], mul(w2, w));
-  if (MIDDLE == 4) { return; }
-  
-  T2 base = sq(w2);
-  for (i32 i = 4; i < MIDDLE; ++i) {
-    u[i] = mul(u[i], base);
+#if MM_CHAIN == 3
+
+// This is our slowest version - used when we are extremely worried about round off error.
+// Maximum multiply chain length is 1.
+  T2 w = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  WADD(1, w);
+  if ((MIDDLE - 2) % 3) {
+    T2 base = slowTrig(s * 2, BIG_HEIGHT / 2, SMALL_HEIGHT * 2);
+    WADD(2, base);
+    if ((MIDDLE - 2) % 3 == 2) {
+      WADD(3, base);
+      WADD(3, w);
+    }
+  }
+  for (i32 i = (MIDDLE - 2) % 3 + 3; i < MIDDLE; i += 3) {
+    T2 base = slowTrig(s * i, BIG_HEIGHT / 2, SMALL_HEIGHT * i);
+    WADD(i - 1, base);
+    WADD(i, base);
+    WADD(i + 1, base);
+    WSUB(i - 1, w);
+    WADD(i + 1, w);
+  }
+
+#elif MM_CHAIN == 1 || MM_CHAIN == 2
+
+// This is our second and third fastest versions - used when we are somewhat worried about round off error.
+// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
+  T2 w = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  WADD(1, w);
+  WADD(2, sq(w));
+  i32 group_start, group_size;
+  for (group_start = 3; group_start < MIDDLE; group_start += group_size) {
+#if MM_CHAIN == 2 && MIDDLE > 4
+    group_size = (group_start == 3 ? (MIDDLE - 3) / 2 : MIDDLE - group_start);
+#else
+    group_size = MIDDLE - 3;
+#endif
+    i32 midpoint = group_start + group_size / 2;
+    T2 base = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+    T2 base2 = base;
+    WADD(midpoint, base);
+    for (i32 i = 1; i <= group_size / 2; ++i) {
+      base = mul_by_conjugate(base, w);
+      WADD(midpoint - i, base);
+      if (i == group_size / 2 && (group_size & 1) == 0) break;
+      base2 = mul(base2, w);
+      WADD(midpoint + i, base2);
+    }
+  }
+
+#else
+
+// This is our fastest version - used when we are not worried about round off error.
+// Maximum multiply chain length is MIDDLE.
+  T2 w = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  WADD(1, w);
+  T2 base = sq(w);
+  for (i32 i = 2; i < MIDDLE; ++i) {
+    WADD(i, base);
     base = mul(base, w);
   }
+
 #endif
+
 }
 
-// Apply the twiddles needed after fft_WIDTH and before fft_MIDDLE in forward FFT.
-// Also used after fft_MIDDLE and before fft_WIDTH in inverse FFT.
 void middleMul2(T2 *u, u32 g, u32 me, double factor) {
   assert(g < WIDTH);
   assert(me < SMALL_HEIGHT);
 
-  T2 base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+#if MM2_CHAIN == 3
+
+// This is our slowest version - used when we are extremely worried about round off error.
+// Maximum multiply chain length is 1.
   T2 w = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  if (MIDDLE % 3) {
+    T2 base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+    WADD(0, base);
+    if (MIDDLE % 3 == 2) {
+      WADD(1, base);
+      WADD(1, w);
+    }
+  }
+  for (i32 i = MIDDLE % 3 + 1; i < MIDDLE; i += 3) {
+    T2 base = slowTrig(g * SMALL_HEIGHT * i + g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT * (i + 1)) * factor;
+    WADD(i - 1, base);
+    WADD(i, base);
+    WADD(i + 1, base);
+    WSUB(i - 1, w);
+    WADD(i + 1, w);
+  }
 
-#if MIDDLE == 10 && ACCURATE
-#define WADD(i, w) u[i] = mul(u[i], w)
-#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
-  WADD(0, base);
-  WADD(1, base);
-  WADD(2, base);
+#elif MM2_CHAIN == 1 || MM2_CHAIN == 2
 
-  // 1
-  WADD(1, w);
-  WSUB(3, w);
-  WADD(5, w);
-  WSUB(7, w);
-  WADD(9, w);
-
-  // 2
-  w = sq(w);
-  WADD(2, w);
-  WADD(6, w);
-
-  // 4
-  w = slowTrig(g * SMALL_HEIGHT * 4 + g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT * 5) * factor;
-  // w = mul(base, sq(w));
-  WADD(3, w);
-  WADD(4, w);
-  WADD(5, w);
-  WADD(6, w);
-
-  // 8
-  w = slowTrig(g * SMALL_HEIGHT * 8 + g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT * 9) * factor;
-  WADD(7, w);
-  WADD(8, w);
-  WADD(9, w);
-#undef WADD
-#undef WSUB
+// This is our second and third fastest versions - used when we are somewhat worried about round off error.
+// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
+  T2 w = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  i32 group_start, group_size;
+  for (group_start = 0; group_start < MIDDLE; group_start += group_size) {
+#if MM2_CHAIN == 2
+    group_size = (group_start == 0 ? MIDDLE / 2 : MIDDLE - group_start);
+#else
+    group_size = MIDDLE;
+#endif
+    i32 midpoint = group_start + group_size / 2;
+    T2 base = slowTrig(g * SMALL_HEIGHT * midpoint + g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT * (midpoint + 1)) * factor;
+    T2 base2 = base;
+    WADD(midpoint, base);
+    for (i32 i = 1; i <= group_size / 2; ++i) {
+      base = mul_by_conjugate(base, w);
+      WADD(midpoint - i, base);
+      if (i == group_size / 2 && (group_size & 1) == 0) break;
+      base2 = mul(base2, w);
+      WADD(midpoint + i, base2);
+    }
+  }
 
 #else
+
+// This is our fastest version - used when we are not worried about round off error.
+// Maximum multiply chain length equals MIDDLE.
+  T2 w = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  T2 base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, w);
   }
+
 #endif
+
 }
+
+#undef WADD
+#undef WSUB
 
 // Do a partial transpose during fftMiddleIn/Out
 // The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
