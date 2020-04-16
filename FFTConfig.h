@@ -31,7 +31,7 @@ struct FFTConfig {
   // so that for use in the calculations below.
   static u32 getMaxExp(u32 fftSize, u32 middle) { return
                 middle == 3 ? fftSize * (18.973 - 0.279 * log2(fftSize / (1.5 * 1024 * 1024))) :
-                middle == 4 ? fftSize * (18.943 - 0.279 * log2(fftSize / (2 * 1024 * 1024))) :
+                middle == 4 ? fftSize * (18.943 - 0.279 * log2(fftSize / (2.0 * 1024 * 1024))) :
                 middle == 5 ? fftSize * (18.860 - 0.279 * log2(fftSize / (2.5 * 1024 * 1024))) :
                 middle == 6 ? fftSize * (18.719 - 0.279 * log2(fftSize / (3.0 * 1024 * 1024))) :
                 middle == 7 ? fftSize * (18.687 - 0.279 * log2(fftSize / (3.5 * 1024 * 1024))) :
