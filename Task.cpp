@@ -99,7 +99,7 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize, b
               {json("B1", B1),
                didStage2 ? json("B2", B2) : "",
                json("fft-length", fftSize),
-               factor.empty() ? "" : json("factors", "[\""s + factor + "\"]")
+               factor.empty() ? "" : (json("factors") + ':' + "[\""s + factor + "\"]")
               });
 }
 
