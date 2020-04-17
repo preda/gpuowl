@@ -1512,15 +1512,16 @@ double2 ocmlCosSin(double x) {
  * ====================================================
  */
 double ksin(double x) {
-  // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
+  // Coefficients from Ernst's qfcheb.c program.  Superior accuracy compared to Sun's 
+  // coefficients at http://www.netlib.org/fdlibm/k_sin.c
   // Excellent accuracy in [-pi/4, pi/4]
   const double
-  S1 = -0x1.5555555555555p-3,  // -1.66666666666666657415e-01 bfc55555'55555555
-  S2 = +0x1.1111111110bb3p-7,  // +8.33333333333094970763e-03 3f811111'11110bb3
-  S3 = -0x1.a01a019e83e5cp-13, // -1.98412698367611268872e-04 bf2a01a0'19e83e5c
-  S4 = +0x1.71de3796cde01p-19, // +2.75573161037288024585e-06 3ec71de3'796cde01
-  S5 = -0x1.ae600b42fdfa7p-26, // -2.50511320680216983368e-08 be5ae600'b42fdfa7
-  S6 = +0x1.5e0b2f9a43bb8p-33; // +1.59181443044859141215e-10 3de5e0b2'f9a43bb8
+  S1 = -1.6666666666666616e-01,
+  S2 = +8.3333333333203627e-03,
+  S3 = -1.9841269828650300e-04,
+  S4 = +2.7557313376400128e-06,
+  S5 = -2.5050716974102745e-08,
+  S6 = +1.5894736651849094e-10;
 
   double z = x * x;
   return (((((S6 * z + S5) * z + S4) * z + S3) * z + S2) * z + S1) * z * x + x;
