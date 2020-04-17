@@ -12,6 +12,7 @@
 #include "AllocTrac.h"
 #include "Queue.h"
 
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstring>
 #include <algorithm>
@@ -20,6 +21,10 @@
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
+#endif
+
+#ifndef M_PI
+#define M_PI 3.141592653589793238462643383279502884
 #endif
 
 #define TAU (2 * M_PIl)

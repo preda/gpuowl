@@ -3,8 +3,6 @@
 
 /* List of user-serviceable -use flags and their effects
 
-DEBUG  : enable asserts. Slow, but allows to verify that all asserts hold.
-   
 NO_ASM : request to not use any inline __asm()
 NO_OMOD: do not use GCN output modifiers in __asm()
 
@@ -35,8 +33,10 @@ ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>          // Our own sin/cos implementation
 ROCM_SLOWTRIG                   // Use ROCm's private reduced-argument sin/cos
 
-ROCM31    <AMD default>         // Enable workaround for ROCm 3.1 bug affecting kcos()
-NO_ROCM31 <nVidia default>
+NO_KCOS_ROCM_BUG <nVidia default> // Disable workaround for ROCm 3.1,3.3 bug affecting kcos()
+
+DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
+STATS      enable stats about roundoff distribution and carry magnitude
 
 ---- P-1 below ----
 
@@ -123,8 +123,8 @@ G_H        "group height"
 #define CARRYM64 1
 #endif
 
-#if !ROCM31 && !NO_ROCM31 && AMDGPU
-#define ROCM31 1
+#if !AMDGPU
+#define NO_KCOS_ROCM_BUG 1
 #endif
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
@@ -1539,9 +1539,9 @@ double kcos(double x) {
   double z = x * x;
   double r = (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5;
 
-#if ROCM31
+#if !NO_KCOS_ROCM_BUG
   // The condition below is never hit,
-  // it is here just to workaround a ROCm 3.1 maddening codegen bug.
+  // it is here just to workaround a ROCm 3.1, 3.3 optimizer bug.
   if (as_int2(x).y == -1) { return x; }  
 #endif
 

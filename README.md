@@ -38,7 +38,7 @@ candidates, proving them composite by finding a factor.
 ### Lucas-Lehmer (LL)
 This is a test that proves whether a Mersenne number is prime or not, but without providing a factor in the case where it's not prime.
 The Lucas-Lehmer test is very simple to describe: iterate the function f(x)=(x^2 - 2) modulo M(p) starting with the number 4. If
-after p-1 iterations the result is 0, then M(p) is certainly prime, otherwise M(p) is certainly not prime.
+after p-2 iterations the result is 0, then M(p) is certainly prime, otherwise M(p) is certainly not prime.
 
 Lucas-Lehmer, while a very efficient primality test, still takes a rather long time for large Mersenne numbers
 (on the order of weeks of intense compute), thus it is only applied to the Mersenne candidates that survived the cheaper preliminary
