@@ -850,16 +850,23 @@ void Gpu::printRoundoff(u32 E) {
     double d = x - avg;
     variance += d * d;
   }
+  
   variance /= roundN;
   double sdev = sqrt(variance);
-  // See Gumbel distribution https://en.wikipedia.org/wiki/Gumbel_distribution
-  double beta = sdev * (sqrt(6) / M_PI);
+  
   double gamma = 0.577215665; // Euler-Mascheroni
-  double u1 = avg - beta * gamma;
   
   // float roundAvg = read64(&roundoff[0]) * scale / roundN;
   float roundMax = roundoff[2] * scale;
 
+  double z = (0.5 - avg) / sdev;
+
+  // See Gumbel distribution https://en.wikipedia.org/wiki/Gumbel_distribution
+  double p = -expm1(-exp(-z * (M_PI / sqrt(6))) * (E * exp(-gamma))); 
+  
+  log("Roundoff: N=%u, mean %f, SD %f, CV %f, max %f, p err %f\n",
+      roundN, avg, sdev, sdev / avg, m, p);
+    
   u32 carryN = carry[3];
   u32 carryAvg = carryN ? read64(&carry[0]) / carryN : 0;
   u32 carryMax = carry[2];
@@ -868,9 +875,6 @@ void Gpu::printRoundoff(u32 E) {
   u32 carryMulAvg = carryMulN ? read64(&carryMul[0]) / carryMulN : 0;
   u32 carryMulMax = carryMul[2];
 
-  log("Roundoff: N=%u, max %f, avg %f, sdev %f (%f, %f), max-round %f\n",
-      roundN, roundMax, avg, sdev, sdev / avg, sdev / u1, avg + 16 * sdev);
-  
   log("Carry: N=%u, max %x, avg %x; CarryM: N=%u, max %x, avg %x\n",
       carryN, carryMax, carryAvg, carryMulN, carryMulMax, carryMulAvg);
 }
