@@ -808,17 +808,29 @@ void spin() {
 
 }
 
+template<typename To, typename From> To pun(From x) {
+  static_assert(sizeof(To) == sizeof(From));
+  union {
+    From from;
+    To to;
+  } u;
+  u.from = x;
+  return u.to;
+}
+
+template<typename T> float asFloat(T x) { return pun<float>(x); }
+
 void Gpu::printRoundoff(u32 E) {
-  vector<u32> roundoff = bufRoundoff.read(4);
-  u32 roundN = roundoff[3];
+  u32 roundN = bufRoundoff.read(1)[0];
+  // fprintf(stderr, "roundN %u\n", roundN);
 
   vector<u32> carry;
   vector<u32> carryMul;
   bufCarryMax.readAsync(carry, 4);
   bufCarryMulMax.readAsync(carryMul, 4);
   
-  vector<u32> maxVect;
-  bufRoundoff.readAsync(maxVect, roundN, 8);
+  vector<u32> roundVect;
+  bufRoundoff.readAsync(roundVect, roundN, 8);
     
   vector<u32> zero{0, 0, 0, 0};
   bufRoundoff    = zero;
@@ -827,24 +839,20 @@ void Gpu::printRoundoff(u32 E) {
 
   if (roundN < 10000) { return; }
   
-  // std::sort(maxVect.begin(), maxVect.end());
-
-  constexpr double scale = 1.0 / (u64(1) << 32);
 #if DUMP_STATS
   {
     File fo = File::openAppend("roundoff.txt");
-    if (fo) { for (u32 x : maxVect) { fprintf(fo.get(), "%f\n", x * scale); } }
+    if (fo) { for (u32 x : roundVect) { fprintf(fo.get(), "%f\n", asFloat(x)); } }
   }
 #endif
 
-  u64 isum = 0;
-  for (u32 x : maxVect) { isum += x; }
-  double sum = isum * scale;
+  double sum = 0;
+  for (u32 x : roundVect) { sum += asFloat(x); }
   double avg = sum / roundN;
   double variance = 0;
   double m = 0;
-  for (u32 u : maxVect) {
-    double x = u * scale;
+  for (u32 u : roundVect) {
+    double x = asFloat(u);
     m = max(m, x);
     double d = x - avg;
     variance += d * d;
@@ -854,16 +862,12 @@ void Gpu::printRoundoff(u32 E) {
   double sdev = sqrt(variance);
   
   double gamma = 0.577215665; // Euler-Mascheroni
-  
-  // float roundAvg = read64(&roundoff[0]) * scale / roundN;
-  // float roundMax = roundoff[2] * scale;
-
   double z = (0.5 - avg) / sdev;
 
   // See Gumbel distribution https://en.wikipedia.org/wiki/Gumbel_distribution
   double p = -expm1(-exp(-z * (M_PI / sqrt(6))) * (E * exp(-gamma))); 
   
-  log("Roundoff: N=%u, mean %f, SD %f, CV %f, max %f, p err %f\n",
+  log("Roundoff: N=%u, mean %f, SD %f, CV %f, max %f, pErr %f\n",
       roundN, avg, sdev, sdev / avg, m, p);
     
   u32 carryN = carry[3];

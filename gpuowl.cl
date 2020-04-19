@@ -456,14 +456,14 @@ void CARRY32_CHECK(i32 x) {
 #endif
 }
 
-u32 OVERLOAD roundoff(double u, double w) {
+float OVERLOAD roundoff(double u, double w) {
   double x = u * w;
   // The FMA below increases the number of significant bits in the roundoff error
   double err = fma(u, w, -rint(x));
-  return rint(ldexp(fabs((float) err), 32));
+  return fabs((float) err);
 }
 
-u32 OVERLOAD roundoff(double2 u, double2 w) { return max(roundoff(u.x, w.x), roundoff(u.y, w.y)); }
+float OVERLOAD roundoff(double2 u, double2 w) { return max(roundoff(u.x, w.x), roundoff(u.y, w.y)); }
 
 // For CARRY32 we don't mind pollution of this value with the double exponent bits
 i64 OVERLOAD doubleToLong(double x, i32 inCarry) {
@@ -2114,6 +2114,33 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
 }
 
+void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32* carryStats) {
+  roundMax = work_group_reduce_max(roundMax);
+  carryMax = work_group_reduce_max(carryMax);
+  if (get_local_id(0) == 0) {
+    // Roundout 0   = count(iteration)
+    // Roundout 1   = max(workgroup maxerr)
+    // Roundout 2   = count(workgroup)
+    // Roundout 8.. = vector of iteration_maxerr
+
+    atomic_max(&roundOut[1], as_uint(roundMax));
+    atomic_max(&carryStats[4], carryMax);
+    u32 oldCount = atomic_inc(&roundOut[2]);
+    assert(oldCount < get_num_groups(0));
+    if (oldCount == get_num_groups(0) - 1) {
+      u32 roundTmp = atomic_xchg(&roundOut[1], 0);
+      carryMax = atomic_xchg(&carryStats[4], 0);
+      roundOut[2] = 0;
+      int nPrevIt = atomic_inc(&roundOut[0]);
+      if (nPrevIt < 1024 * 1024) { roundOut[8 + nPrevIt] = roundTmp; }
+      
+      atom_add((global ulong *) &carryStats[0], carryMax);
+      atomic_max(&carryStats[2], carryMax);
+      atomic_inc(&carryStats[3]);
+    }
+  }
+}
+
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input is conjugated and inverse-weighted.
 
@@ -2130,7 +2157,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
   if (g == 0 && me == 0) { carry = -2; }
 #endif
   
-  u32 roundMax = 0;
+  float roundMax = 0;
   u32 carryMax = 0;
   
   u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
@@ -2154,28 +2181,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
   carryOut[G_W * g + me] = carry;
 
 #if STATS
-  roundMax = work_group_reduce_max(roundMax);
-  carryMax = work_group_reduce_max(carryMax);
-  if (me == 0) {
-    atomic_max(&roundOut[4], roundMax);
-    atomic_max(&carryStats[4], carryMax);
-    u32 oldCount = atomic_inc(&roundOut[5]);
-    assert(oldCount < get_num_groups(0));
-    if (oldCount == get_num_groups(0) - 1) {
-      roundMax = atomic_xchg(&roundOut[4], 0);
-      carryMax = atomic_xchg(&carryStats[4], 0);
-      roundOut[5] = 0;
-      
-      atom_add((global ulong *) &roundOut[0], roundMax);
-      atomic_max(&roundOut[2], roundMax);
-      int nPrevIt = atomic_inc(&roundOut[3]);
-      if (nPrevIt < 1024 * 1024) { roundOut[8 + nPrevIt] = roundMax; }
-      
-      atom_add((global ulong *) &carryStats[0], carryMax);
-      atomic_max(&carryStats[2], carryMax);
-      atomic_inc(&carryStats[3]);
-    }
-  }
+  updateStats(roundMax, carryMax, roundOut, carryStats);
 #endif
 }
 //}}
@@ -2273,7 +2279,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   CFcarry carry[NW+1];
 #endif
 
-  u32 roundMax = 0;
+  float roundMax = 0;
   u32 carryMax = 0;
   
   for (i32 i = 0; i < NW; ++i) {
@@ -2325,39 +2331,12 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 #endif
   }
 
-  if (gr == 0) { return; }
-
 #if STATS
-  roundMax = work_group_reduce_max(roundMax);
-  carryMax = work_group_reduce_max(carryMax);
-  if (me == 0) {
-    // Roundout 0/1 = sum(iteration_maxerr)
-    // Roundout 2   = max(iteration_maxerr)
-    // Roundout 3   = count(iteration)
-    // Roundout 4   = max(workgroup maxerr)
-    // Roundout 5   = count(workgroup)
-    // Roundout 8.. = vector of iteration_maxerr
-    atomic_max(&roundOut[4], roundMax);
-    atomic_max(&carryStats[4], carryMax);
-    u32 oldCount = atomic_inc(&roundOut[5]);
-    assert(oldCount < BIG_HEIGHT);
-    if (oldCount == BIG_HEIGHT - 1) {
-      roundMax = atomic_xchg(&roundOut[4], 0);
-      carryMax = atomic_xchg(&carryStats[4], 0);
-      roundOut[5] = 0;
-      
-      atom_add((global ulong *) &roundOut[0], roundMax);
-      atomic_max(&roundOut[2], roundMax);
-      int nPrevIt = atomic_inc(&roundOut[3]);
-      if (nPrevIt < 1024 * 1024) { roundOut[8 + nPrevIt] = roundMax; }
-      
-      atom_add((global ulong *) &carryStats[0], carryMax);
-      atomic_max(&carryStats[2], carryMax);
-      atomic_inc(&carryStats[3]);
-    }
-  }
-#endif // STATS
+  updateStats(roundMax, carryMax, roundOut, carryStats);
+#endif
 
+  if (gr == 0) { return; }
+  
   // Wait until the previous group is ready with the carry.
   if (me == 0) {
     while(!atomic_load((atomic_uint *) &ready[gr - 1]));
