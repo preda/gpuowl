@@ -773,9 +773,8 @@ static u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
   if (argsCheckStep) { return argsCheckStep; }  
   switch (nErrors) {
     case 0:  return 200'000;
-    case 1:  return 120'000;
-    case 2:  return  80'000;
-    default: return  40'000;
+    case 1:  return 100'000;
+    default: return  50'000;
   }
 }
 
@@ -857,7 +856,7 @@ void Gpu::printRoundoff(u32 E) {
   double gamma = 0.577215665; // Euler-Mascheroni
   
   // float roundAvg = read64(&roundoff[0]) * scale / roundN;
-  float roundMax = roundoff[2] * scale;
+  // float roundMax = roundoff[2] * scale;
 
   double z = (0.5 - avg) / sdev;
 
