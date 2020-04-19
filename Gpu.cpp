@@ -806,8 +806,6 @@ void spin() {
   if (++spinPos >= sizeof(spinner) - 1) { spinPos = 0; }
 }
 
-}
-
 template<typename To, typename From> To pun(From x) {
   static_assert(sizeof(To) == sizeof(From));
   union {
@@ -819,6 +817,8 @@ template<typename To, typename From> To pun(From x) {
 }
 
 template<typename T> float asFloat(T x) { return pun<float>(x); }
+
+}
 
 void Gpu::printRoundoff(u32 E) {
   u32 roundN = bufRoundoff.read(1)[0];
@@ -837,7 +837,8 @@ void Gpu::printRoundoff(u32 E) {
   bufCarryMax    = zero;
   bufCarryMulMax = zero;
 
-  if (roundN < 10000) { return; }
+  if (!roundN) { return; }
+  if (roundN < 2000) { return; }
   
 #if DUMP_STATS
   {
@@ -867,9 +868,10 @@ void Gpu::printRoundoff(u32 E) {
   // See Gumbel distribution https://en.wikipedia.org/wiki/Gumbel_distribution
   double p = -expm1(-exp(-z * (M_PI / sqrt(6))) * (E * exp(-gamma))); 
   
-  log("Roundoff: N=%u, mean %f, SD %f, CV %f, max %f, pErr %f\n",
-      roundN, avg, sdev, sdev / avg, m, p);
-    
+  log("Roundoff: N=%u, mean %f, SD %f, CV %f, max %f, z %.1f (pErr %f%%)\n",
+      roundN, avg, sdev, sdev / avg, m, z, p * 100);
+
+#if 0
   u32 carryN = carry[3];
   u32 carryAvg = carryN ? read64(&carry[0]) / carryN : 0;
   u32 carryMax = carry[2];
@@ -880,6 +882,7 @@ void Gpu::printRoundoff(u32 E) {
 
   log("Carry: N=%u, max %x, avg %x; CarryM: N=%u, max %x, avg %x\n",
       carryN, carryMax, carryAvg, carryMulN, carryMulMax, carryMulAvg);
+#endif
 }
 
 tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
