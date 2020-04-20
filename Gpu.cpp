@@ -55,6 +55,14 @@ static ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 r
   return {context, "smallTrig", tab};
 }
 
+static ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
+  u32 size = smallH * (middle - 1);
+  vector<double2> tab(size);
+  auto *p = smallTrigBlock(smallH, middle, tab.data());
+  assert(p - tab.data() == size);
+  return {context, "middleTrig", tab};
+}
+
 static u32 kAt(u32 H, u32 line, u32 col, u32 rep) {
   return (line + col * H) * 2 + rep;
 }
@@ -286,6 +294,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
   bufTrigW{genSmallTrig(context, W, nW)},
   bufTrigH{genSmallTrig(context, SMALL_H, nH)},
+  bufTrigM{genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
   bufWeightA{context, "weightA", weights.aTab},
   bufWeightI{context, "weightI", weights.iTab},
   bufBits{context, "bits", weights.bits},
@@ -313,6 +322,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
+  fftMiddleIn.setFixedArgs(2, bufTrigM);
+  fftMiddleOut.setFixedArgs(2, bufTrigM);
     
   carryA.setFixedArgs( 2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMax);
   carryLL.setFixedArgs(2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMax);

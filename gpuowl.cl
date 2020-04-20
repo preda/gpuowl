@@ -1860,7 +1860,7 @@ void fft_MIDDLE(T2 *u) {
 #define WADD(i, w) u[i] = mul(u[i], w)
 #define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
 
-void middleMul(T2 *u, u32 s) {
+void middleMul(T2 *u, u32 s, Trig trig) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
 
@@ -1914,10 +1914,14 @@ void middleMul(T2 *u, u32 s) {
     }
   }
 
-#else
+#elif MM_CHAIN == 4
 
-// This is our fastest version - used when we are not worried about round off error.
-// Maximum multiply chain length is MIDDLE.
+  for (int i = 1; i < MIDDLE; ++i) {
+    WADD(i, trig[s + (i - 1) * SMALL_HEIGHT]);
+  }
+  
+#else
+  
   T2 w = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
   WADD(1, w);
   T2 base = sq(w);
@@ -1925,9 +1929,7 @@ void middleMul(T2 *u, u32 s) {
     WADD(i, base);
     base = mul(base, w);
   }
-
 #endif
-
 }
 
 void middleMul2(T2 *u, u32 g, u32 me, double factor) {
@@ -2034,7 +2036,7 @@ void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
 }
 
 
-KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
+KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
   T2 u[MIDDLE];
   
   u32 SIZEY = IN_WG / IN_SIZEX;
@@ -2061,7 +2063,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
 
   fft_MIDDLE(u);
 
-  middleMul(u, starty + my);
+  middleMul(u, starty + my, trig);
   local T lds[IN_WG * (MIDDLE <= 8 ? MIDDLE : ((MIDDLE + 1) / 2))];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
@@ -2071,7 +2073,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (IN_WG * IN_SPACING)] = u[i]; }
 }
 
-KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
+KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   T2 u[MIDDLE];
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
@@ -2097,7 +2099,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
   ENABLE_MUL2();
 
-  middleMul(u, startx + mx);
+  middleMul(u, startx + mx, trig);
 
   fft_MIDDLE(u);
 

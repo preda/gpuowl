@@ -72,7 +72,8 @@ class Gpu {
 
   // Trigonometry constant buffers, used in FFTs.
   ConstBuffer<double2> bufTrigW;
-  ConstBuffer<double2> bufTrigH; 
+  ConstBuffer<double2> bufTrigH;
+  ConstBuffer<double2> bufTrigM;
 
   // Weight constant buffers, with the direct and inverse weights. N x double.
   ConstBuffer<double> bufWeightA;      // Direct weights.
@@ -161,9 +162,6 @@ public:
   
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, bool isPm1);
-
-  // vector<u32> roundtripData()  { return readData(); }
-  // vector<u32> roundtripCheck() { return readCheck(); }
 
   vector<u32> writeData(const vector<u32> &v);
   vector<u32> writeCheck(const vector<u32> &v);
