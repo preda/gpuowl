@@ -38,7 +38,7 @@ struct FFTConfig {
                 middle == 8 ? fftSize * (18.661 - 0.279 * log2(fftSize / (4.0 * 1024 * 1024))) :
                 middle == 9 ? fftSize * (18.530 - 0.279 * log2(fftSize / (4.5 * 1024 * 1024))) :
                 middle == 10 ? fftSize * (18.579 - 0.279 * log2(fftSize / (5.0 * 1024 * 1024))) :
-                middle == 11 ? fftSize * (18.520 - 0.279 * log2(fftSize / (5.5 * 1024 * 1024))) :
+                middle == 11 ? fftSize * (18.549 - 0.279 * log2(fftSize / (5.5 * 1024 * 1024))) :
 			       fftSize * (18.435 - 0.279 * log2(fftSize / (6.0 * 1024 * 1024))); }
   
   static u32 getMaxCarry32(u32 fftSize, u32 exponent);
