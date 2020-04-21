@@ -1501,50 +1501,17 @@ double2 ocmlCosSin(double x) {
 }
 #endif
 
-// Copyright notice of original k_cos, k_sin from which our ksin/kcos evolved:
-/* ====================================================
- * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
- *
- * Developed at SunSoft, a Sun Microsystems, Inc. business.
- * Permission to use, copy, modify, and distribute this
- * software is freely granted, provided that this notice 
- * is preserved.
- * ====================================================
- */
-double ksin(double x) {
-  // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
-  // Excellent accuracy in [-pi/4, pi/4]
-  const double
-  S1 = -0x1.5555555555555p-3,  // -1.66666666666666657415e-01 bfc55555'55555555
-  S2 = +0x1.1111111110bb3p-7,  // +8.33333333333094970763e-03 3f811111'11110bb3
-  S3 = -0x1.a01a019e83e5cp-13, // -1.98412698367611268872e-04 bf2a01a0'19e83e5c
-  S4 = +0x1.71de3796cde01p-19, // +2.75573161037288024585e-06 3ec71de3'796cde01
-  S5 = -0x1.ae600b42fdfa7p-26, // -2.50511320680216983368e-08 be5ae600'b42fdfa7
-  S6 = +0x1.5e0b2f9a43bb8p-33; // +1.59181443044859141215e-10 3de5e0b2'f9a43bb8
 
-  double z = x * x;
-  return (((((S6 * z + S5) * z + S4) * z + S3) * z + S2) * z + S1) * z * x + x;
-}
 
-double kcos(double x) {
-  // Coefficients from http://www.netlib.org/fdlibm/k_cos.c
-  const double 
-  C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
-  C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
-  C3  =  2.48015872894767294178e-05, /* 0x3EFA01A0, 0x19CB1590 */
-  C4  = -2.75573143513906633035e-07, /* 0xBE927E4F, 0x809C52AD */
-  C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
-  C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
+// Crappy little routine to centralize the workaround to a ROCM 3.1 optimizer bug
 
-  double z = x * x;
-  double r = (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z - 0.5;
-
+double internal_kcos(double x, double z, double C0, const double C1, const double C2, const double C3, const double C4, const double C5, const double C6) {
+  double r = (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z + C0;
 #if !NO_KCOS_ROCM_BUG
   // The condition below is never hit,
-  // it is here just to workaround a ROCm 3.1, 3.3 optimizer bug.
+  // it is here just to workaround a ROCm 3.1 maddening codegen bug.
   if (as_int2(x).y == -1) { return x; }  
 #endif
-
 #if HAS_ASM
   // the raw v_fma_f64 below seems to improve VGPR allocation on ROCm 3.3.0
   double out;
@@ -1555,14 +1522,304 @@ double kcos(double x) {
 #endif
 }
 
-double2 reducedCosSin(double x) {
-  assert(x <= M_PI / 4);
-#if ROCM_SLOWTRIG
-  return ocmlCosSin(x);
+#if ULTRA_TRIG
+
+// These are ultra accurate routines.  We modified Ernst's qfcheb program and selected a multiplier such that
+// a) k * multipler / n can be represented exactly as a double, and
+// b) x * x can be represented exactly as a double, and
+// c) the difference between S0 and C0 represented as a double vs infinite precision is minimized.
+// Note that condition (a) requires different multipliers for different MIDDLE values.
+
+#if MIDDLE <= 4 || MIDDLE == 6 || MIDDLE == 8 || MIDDLE == 12
+
+double ksinpi(double k, const double n) {
+  const double multiplier = 237.0,
+  S0 = 1.325566520502022459314555213709951536931E-2,
+  S1 = -3.881980322681974392559426158793087648153E-7,
+  S2 = 3.410565443360642222391010526688094345781E-12,
+  S3 = -1.426856013978167821403568696371527705655E-17,
+  S4 = 3.482175175702066575984872170356555509080E-23,
+  S5 = -5.562076448925268647148782667169020676259E-29,
+  S6 = 6.201163522609890673061715308768999454610E-35;
+  double x = k * (multiplier / n);
+  double z = x * x;
+  double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
+  return fma(S0, x, r);
+}
+
+double kcospi(double k, double n) {
+  const double multiplier = 237.0,
+//C00 = +9.99999999999999999969670443201471068399669429945726867342133369e-01,
+  C0 = -8.785633001379193589526844702043122509847E-5,
+  C1 = 1.286455787248713040382538175061927139984E-9,
+  C2 = -7.534885612829989493540399241312576130893E-15,
+  C3 = 2.364240701948887617426067478686109151734E-20,
+  C4 = -4.615854784766675986940567196848517238962E-26,
+  C5 = 6.144080827417059071970326571730045899816E-32,
+  C6 = -5.871465775800262490003096772250454332761E-38;
+  double x = k * (multiplier / n);
+  double z = x * x;
+//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1.0);
+  return internal_kcos(x, z, C0, C1, C2, C3, C4, C5, C6);
+}
+
+#elif MIDDLE == 11
+
+double ksinpi(double k, const double n) {
+  const double multiplier = 539.0,
+  S0 = 5.828557798867890962106671347852646585212E-3,
+  S1 = -3.300137781417411531540293347302792710111E-8,
+  S2 = 5.605628228532181378177505648548736745005E-14,
+  S3 = -4.534163910132042597715347205657402108321E-20,
+  S4 = 2.139374635723981645104361937982862431407E-26,
+  S5 = -6.606817992842764145822571551568922079087E-33,
+  S6 = 1.424123767080045593573893583992121444025E-39;
+  double x = k * (multiplier / n);
+  double z = x * x;
+  double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
+  return fma(S0, x, r);
+}
+
+double kcospi(double k, double n) {
+  const double multiplier = 539.0,
+//C00 = +9.99999999999999999969670443201471068399669429945726867342133369e-01,
+  C0 = -1.698604300737185693048465825427633266769E-5,
+  C1 = 4.808760950804748019121160356966644623911E-11,
+  C2 = -5.445454688158452834881141960218009821120E-17,
+  C3 = 3.303454552210884737625467277247980235463E-23,
+  C4 = -1.246946859168030175920542131923003412512E-29,
+  C5 = 3.209016057314560700103210242948787629348E-36,
+  C6 = -5.928989282444938427562078649290929437781E-43;
+  double x = k * (multiplier / n);
+  double z = x * x;
+//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1.0);
+  return internal_kcos(x, z, C0, C1, C2, C3, C4, C5, C6);
+}
+
+// This should be the best choice for MIDDLE=11.  For reasons I cannot explain, the Sun coefficients beat this
+// code.  We know this code works as it gives great results for MIDDLE=5 and MIDDLEE=10.
+#elif MIDDLE == 5 || MIDDLE == 10 || MIDDLE == 11
+
+double ksinpi(double k, const double n) {
+  const double multiplier = 935.0,
+  S0 = 3.359992142876784201685022306409177725743E-3,
+  S1 = -6.322131648214566240979995473508278740838E-9,
+  S2 = 3.568700182412300594922117535549453349134E-15,
+  S3 = -9.592621220743218859188828943012321657143E-22,
+  S4 = 1.504115654636920482511097706291165478487E-28,
+  S5 = -1.543622286925744278152254064494080552013E-35,
+  S6 = 1.105734195160535436277498021504043747290E-42;
+  double x = k * (multiplier / n);
+  double z = x * x;
+  double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
+  return fma(S0, x, r);
+}
+
+double kcospi(double k, double n) {
+  const double multiplier = 935.0,
+//C00 = +9.99999999999999999969670443201471068399669429945726867342133369e-01,
+  C0 = -5.644773600096862074753448369344907563149E-6,
+  C1 = 5.310578166058387650603356635481169158812E-12,
+  C2 = -1.998467428863824077287054491897967126953E-18,
+  C3 = 4.028891491097491801975430166858494454344E-25,
+  C4 = -5.053816730462908034014422555093418935881E-32,
+  C5 = 4.322129170492321319484123344308625661310E-39,
+  C6 = -2.653755001540736767899877604062356879092E-46;
+  double x = k * (multiplier / n);
+  double z = x * x;
+//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1.0);
+  return internal_kcos(x, z, C0, C1, C2, C3, C4, C5, C6);
+}
+
+#elif MIDDLE == 7 || MIDDLE == 14
+
+double ksinpi(double k, const double n) {
+  const double multiplier = 1043.0,
+  S0 = 3.012073493374681906592038213319818382791E-3,
+  S1 = -4.554549667373454484118965385271077510052E-9,
+  S2 = 2.066077343547647155425316306036265959843E-15,
+  S3 = -4.463015685066233648828620325094686456434E-22,
+  S4 = 5.623762265485488284324269237766831663603E-29,
+  S5 = -4.638113447715051799380265707890692020682E-36,
+  S6 = 2.669965639105020177304365715995828727563E-43;
+  double x = k * (multiplier / n);
+  double z = x * x;
+  double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
+  return fma(S0, x, r);
+}
+
+double kcospi(double k, double n) {
+  const double multiplier = 1043.0,
+//C00 = +9.99999999999999999969670443201471068399669429945726867342133369e-01,
+  C0 = -4.536293364745179935176052375550823743968E-6,
+  C1 = 3.429659581838506796461487812352703967505E-12,
+  C2 = -1.037196133626512841792809974516402146359E-18,
+  C3 = 1.680366405557052447567491325381242290412E-25,
+  C4 = -1.693918508165098205043530180241447147489E-32,
+  C5 = 1.164194039285697587121448734875988367798E-39,
+  C6 = -5.744378657071286229592196711808608232758E-47;
+  double x = k * (multiplier / n);
+  double z = x * x;
+//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1.0);
+  return internal_kcos(x, z, C0, C1, C2, C3, C4, C5, C6);
+}
+
+#elif MIDDLE == 9
+
+double ksinpi(double k, const double n) {
+  const double multiplier = 981.0,
+  S0 = 3.202438994485008387946478956669279224093E-3,
+  S1 = -5.473830505425255234619247376514291694548E-9,
+  S2 = 2.806875052453204149514320566066822784590E-15,
+  S3 = -6.853864598534613743118360049991491957638E-22,
+  S4 = 9.762581282319523093974361997952150328213E-29,
+  S5 = -9.101430953568596716259191049990613857680E-36,
+  S6 = 5.922493406424074785215515667593752685075E-43;
+  double x = k * (multiplier / n);
+  double z = x * x;
+  double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
+  return fma(S0, x, r);
+}
+
+double kcospi(double k, double n) {
+  const double multiplier = 981.0,
+//C00 = +9.99999999999999999969670443201471068399669429945726867342133369e-01,
+  C0 = -5.127807756699075759825401695092101356307E-6,
+  C1 = 4.382402064943845530239958152571810850923E-12,
+  C2 = -1.498141020103216184377101881256929587994E-18,
+  C3 = 2.743635406444754407232944627368393860182E-25,
+  C4 = -3.126407066924338126563165160393687605755E-32,
+  C5 = 2.428896359303454357272837966136800881482E-39,
+  C6 = -1.354744119588740776724212453287202037305E-46;
+  double x = k * (multiplier / n);
+  double z = x * x;
+//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1.0);
+  return internal_kcos(x, z, C0, C1, C2, C3, C4, C5, C6);
+}
+
+#elif MIDDLE == 13
+
+double ksinpi(double k, const double n) {
+  const double multiplier = 923.0,
+  S0 = 3.403675681029028416658175359146907710509E-3,
+  S1 = -6.571935079363972457955630336200617293561E-9,
+  S2 = 3.806796070028338149229279388481272072627E-15,
+  S3 = -1.050041986590861856087113520034519750880E-21,
+  S4 = 1.689547554183218061124244760815615740737E-28,
+  S5 = -1.779303563885440884174553907658593820872E-35,
+  S6 = 1.307915144322256815583011923237009760880E-42;
+  double x = k * (multiplier / n);
+  double z = x * x;
+  double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
+  return fma(S0, x, r);
+}
+
+double kcospi(double k, double n) {
+  const double multiplier = 923.0,
+//C00 = +9.99999999999999999969670443201471068399669429945726867342133369e-01,
+  C0 = -5.792504070814210159885780858135579575118E-6,
+  C1 = 5.592183901733170753783845770538338625048E-12,
+  C2 = -2.159516534364428504895010735856121267620E-18,
+  C3 = 4.467502966925446535115481019961481417179E-25,
+  C4 = -5.750671863975031333900672672679951208984E-32,
+  C5 = 5.046806574658059441221620787550422493234E-39,
+  C6 = -3.179798232062197939290472157402348930741E-46;
+  double x = k * (multiplier / n);
+  double z = x * x;
+//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1.0);
+  return internal_kcos(x, z, C0, C1, C2, C3, C4, C5, C6);
+}
+
+#elif MIDDLE == 15
+
+double ksinpi(double k, const double n) {
+  const double multiplier = 975.0,
+  S0 = 3.222146311374146901103072673325722946853E-3,
+  S1 = -5.575508992450936287761440258986348934202E-9,
+  S2 = 2.894309958717768308134445890908542332781E-15,
+  S3 = -7.154614893348014483717812998123625991310E-22,
+  S4 = 1.031678043691607404439682102496944831882E-28,
+  S5 = -9.736838961591582918655541750116575020564E-36,
+  S6 = 6.414187893489001604271672397223891418084E-43;
+  double x = k * (multiplier / n);
+  double z = x * x;
+  double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
+  return fma(S0, x, r);
+}
+
+double kcospi(double k, double n) {
+  const double multiplier = 975.0,
+//C00 = +9.99999999999999999969670443201471068399669429945726867342133369e-01,
+  C0 = -5.191113425951010385063861565486451746842E-6,
+  C1 = 4.491276433514783045963366136861124931294E-12,
+  C2 = -1.554315026241961583726723552729380565810E-18,
+  C3 = 2.881651998263536726141085786655261845469E-25,
+  C4 = -3.324217569398092725646230913789448367578E-32,
+  C5 = 2.614458087868421285302095471981686976401E-39,
+  C6 = -1.476246082455034225017096329476943879497E-46;
+  double x = k * (multiplier / n);
+  double z = x * x;
+//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1.0);
+  return internal_kcos(x, z, C0, C1, C2, C3, C4, C5, C6);
+}
+
+#endif
+
 #else
-  return U2(kcos(x), ksin(x));
+
+// Copyright notice of original k_cos, k_sin from which our ksin/kcos evolved:
+/* ====================================================
+ * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+ *
+ * Developed at SunSoft, a Sun Microsystems, Inc. business.
+ * Permission to use, copy, modify, and distribute this
+ * software is freely granted, provided that this notice 
+ * is preserved.
+ * ====================================================
+ */
+double ksinpi(double k, const double n) {
+  // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
+  // Excellent accuracy in [-pi/4, pi/4]
+  const double
+  S1 = -0x1.5555555555555p-3,  // -1.66666666666666657415e-01 bfc55555'55555555
+  S2 = +0x1.1111111110bb3p-7,  // +8.33333333333094970763e-03 3f811111'11110bb3
+  S3 = -0x1.a01a019e83e5cp-13, // -1.98412698367611268872e-04 bf2a01a0'19e83e5c
+  S4 = +0x1.71de3796cde01p-19, // +2.75573161037288024585e-06 3ec71de3'796cde01
+  S5 = -0x1.ae600b42fdfa7p-26, // -2.50511320680216983368e-08 be5ae600'b42fdfa7
+  S6 = +0x1.5e0b2f9a43bb8p-33; // +1.59181443044859141215e-10 3de5e0b2'f9a43bb8
+  double x = k * M_PI / n;
+  double z = x * x;
+  return (((((S6 * z + S5) * z + S4) * z + S3) * z + S2) * z + S1) * z * x + x;
+}
+
+double kcospi(double k, double n) {
+  // Coefficients from http://www.netlib.org/fdlibm/k_cos.c
+  const double 
+  C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
+  C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
+  C3  =  2.48015872894767294178e-05, /* 0x3EFA01A0, 0x19CB1590 */
+  C4  = -2.75573143513906633035e-07, /* 0xBE927E4F, 0x809C52AD */
+  C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
+  C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
+  double x = k * M_PI / n;
+  double z = x * x;
+//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, -0.5), z, 1.0);
+  return internal_kcos(x, z, -0.5, C1, C2, C3, C4, C5, C6);
+}
+
+#endif
+
+double2 reducedCosSin(i32 k, i32 n) {
+  assert(k <= n / 4);
+#if ROCM_SLOWTRIG
+  return ocmlCosSin((double)k * (M_PI / (double)n));
+#else
+  return U2(kcospi((double)k, (double)n), ksinpi((double)k, (double)n));
 #endif
 }
+
+
+
 
 // Returns e^(-i * pi * k/n)
 double2 slowTrig(i32 k, i32 n, i32 kBound) {
@@ -1588,7 +1845,7 @@ double2 slowTrig(i32 k, i32 n, i32 kBound) {
   if (flip) { k = n / 2 - k; }
 
   assert(k <= n / 4);
-  double2 r = reducedCosSin(M_PI / n * k);
+  double2 r = reducedCosSin(k, n);
 
   if (flip) { r = swap(r); }
   if (negateCos) { r.x = -r.x; }
