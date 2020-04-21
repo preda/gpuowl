@@ -30,21 +30,21 @@ struct FFTConfig {
   // This allows more bits-per-FFT-word.  We also gathered roundoff data for each MIDDLE length
   // so that for use in the calculations below.
   static u32 getMaxExp(u32 fftSize, u32 middle) { return
-                middle == 3 ? fftSize * (18.973 - 0.279 * log2(fftSize / (1.5 * 1024 * 1024))) :
-                middle == 4 ? fftSize * (18.943 - 0.279 * log2(fftSize / (2.0 * 1024 * 1024))) :
-                middle == 5 ? fftSize * (18.860 - 0.279 * log2(fftSize / (2.5 * 1024 * 1024))) :
-                middle == 6 ? fftSize * (18.719 - 0.279 * log2(fftSize / (3.0 * 1024 * 1024))) :
-                middle == 7 ? fftSize * (18.687 - 0.279 * log2(fftSize / (3.5 * 1024 * 1024))) :
-                middle == 8 ? fftSize * (18.659 - 0.279 * log2(fftSize / (4.0 * 1024 * 1024))) :
-                middle == 9 ? fftSize * (18.484 - 0.279 * log2(fftSize / (4.5 * 1024 * 1024))) :
-                middle == 10 ? fftSize * (18.567 - 0.279 * log2(fftSize / (5.0 * 1024 * 1024))) :
-                middle == 11 ? fftSize * (18.489 - 0.279 * log2(fftSize / (5.5 * 1024 * 1024))) :
-			       fftSize * (18.403 - 0.279 * log2(fftSize / (6.0 * 1024 * 1024))); }
+                middle == 3 ? fftSize * (18.978 - 0.279 * log2(fftSize / (1.5 * 1024 * 1024))) :
+                middle == 4 ? fftSize * (18.955 - 0.279 * log2(fftSize / (2.0 * 1024 * 1024))) :
+                middle == 5 ? fftSize * (18.872 - 0.279 * log2(fftSize / (2.5 * 1024 * 1024))) :
+                middle == 6 ? fftSize * (18.760 - 0.279 * log2(fftSize / (3.0 * 1024 * 1024))) :
+                middle == 7 ? fftSize * (18.707 - 0.279 * log2(fftSize / (3.5 * 1024 * 1024))) :
+                middle == 8 ? fftSize * (18.661 - 0.279 * log2(fftSize / (4.0 * 1024 * 1024))) :
+                middle == 9 ? fftSize * (18.530 - 0.279 * log2(fftSize / (4.5 * 1024 * 1024))) :
+                middle == 10 ? fftSize * (18.579 - 0.279 * log2(fftSize / (5.0 * 1024 * 1024))) :
+                middle == 11 ? fftSize * (18.520 - 0.279 * log2(fftSize / (5.5 * 1024 * 1024))) :
+			       fftSize * (18.435 - 0.279 * log2(fftSize / (6.0 * 1024 * 1024))); }
   
   static u32 getMaxCarry32(u32 fftSize, u32 exponent);
   static std::vector<FFTConfig> genConfigs();
 
-  static void getChainLengths(u32 fftSize, u32 exponent, u32 middle, u32 *mm_chain, u32 *mm2_chain);
+  static void getChainLengths(u32 fftSize, u32 exponent, u32 middle, u32 *ultra_trig, u32 *mm_chain, u32 *mm2_chain);
 
   // FFTConfig(u32 w, u32 m, u32 h) : width(w), middle(m), height(h) {}
   static FFTConfig fromSpec(const string& spec);

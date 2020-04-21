@@ -207,8 +207,9 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
 
   // If we are near the maximum exponent for this FFT, then we may need to set some chain #defines
   // to reduce the round off errors.
-  u32 mm_chain, mm2_chain;
-  FFTConfig::getChainLengths(N, E, MIDDLE, &mm_chain, &mm2_chain);
+  u32 mm_chain, mm2_chain, ultra_trig;
+  FFTConfig::getChainLengths(N, E, MIDDLE, &ultra_trig, &mm_chain, &mm2_chain);
+  if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }
   if (mm_chain) { defines.push_back({"MM_CHAIN", mm_chain}); }
   if (mm2_chain) { defines.push_back({"MM2_CHAIN", mm2_chain}); }
 
