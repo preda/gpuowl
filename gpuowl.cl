@@ -232,8 +232,8 @@ G_H        "group height"
 #if HAS_ASM && !NO_OMOD
 // turn IEEE mode and denormals off so that mul:2 and div:2 work
 #define ENABLE_MUL2() {\
-    __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0");\
-    __asm("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 7");\
+    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0");\
+    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 7");\
 }
 #else
 #define ENABLE_MUL2()
