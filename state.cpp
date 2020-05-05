@@ -19,6 +19,7 @@ static u32 unbalance(int w, int nBits, int *carry) {
     w += (1 << nBits);
     *carry = -1;
   }
+  if (!(0 <= w && w < (1 << nBits))) { log("w=%d, nBits=%d\n", w, nBits); }
   assert(0 <= w && w < (1 << nBits));
   return w;
 }
