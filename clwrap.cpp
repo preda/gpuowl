@@ -252,7 +252,11 @@ cl_program compile(cl_device_id device, cl_context context, const string &source
                    const vector<string> &defines) {
   string strDefines;
   for (const string& d : defines) { strDefines += "-D" + d + ' '; }
-  string args = strDefines + extraArgs + " -cl-fast-relaxed-math -cl-std=CL2.0 ";
+#ifdef RELAXED_MATH
+  string args = strDefines + extraArgs + " -cl-fast-relaxed-math -cl-std=CL2.0 -cl-uniform-work-group-size ";
+#else
+  string args = strDefines + extraArgs + " -cl-std=CL2.0 -cl-uniform-work-group-size -cl-no-signed-zeros -cl-finite-math-only -cl-denorms-are-zero ";
+#endif
   log("OpenCL args \"%s\"\n", args.c_str());
   
   cl_program program = 0;
