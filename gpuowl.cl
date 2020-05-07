@@ -229,9 +229,9 @@ G_H        "group height"
 #define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
 #endif
 
-#if HAS_ASM && !NO_OMOD
+#if HAS_ASM && !NO_OMOD && !NO_SETMODE
 // turn IEEE mode and denormals off so that mul:2 and div:2 work
-#define ENABLE_MUL2() {\
+#define ENABLE_MUL2() { \
     __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0");\
     __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 7");\
 }
@@ -3062,6 +3062,8 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 #ifdef TEST_KERNEL
 KERNEL(256) testKernel(global double* io) {
   u32 me = get_local_id(0);
-  io[me] = kcos(io[me]);
+  double2 sc = slowTrig(me, 10240, 2560);
+  io[me] = sc.x;
+  io[me + 256] = sc.y;
 }
 #endif
