@@ -807,7 +807,7 @@ int nFitBufs(cl_device_id device, size_t bufSize) {
   return n;
 }
 
-u64 read64(u32 *p) { return p[0] + (u64(p[1]) << 32); }
+// u64 read64(u32 *p) { return p[0] + (u64(p[1]) << 32); }
 
 void spin() {
   static size_t spinPos = 0;

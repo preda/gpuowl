@@ -2568,14 +2568,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
-#if OLD_CARRY_LAYOUT
-      carryShuttlePtr[gr * WIDTH + i * G_W + me] = carry[i];
-#else
-      // Write the carries to carry shuttle.  AMD GPUs are faster writing and reading 4 consecutive values at a time.
-      // However, seemingly innocuous code changes can affect VGPR usage which if it changes occupancy can be a
-      // more important consideration.
       carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
-#endif
     }
   }
     
@@ -2609,17 +2602,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
   assert(gr > 0 && gr <= H);
   
-#if OLD_CARRY_LAYOUT
-  if (gr == H) {
-    for (i32 i = 0; i < NW; ++i) {
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + ((i * G_W + (WIDTH - 1) + me) % WIDTH)];
-    }
-  } else {
-    for (i32 i = 0; i < NW; ++i) {
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + i * G_W + me];
-    }
-  }
-#else
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
@@ -2637,10 +2619,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     // This is unreachable because 'gr' is in range [1 .. H], so one of the previous branches must have been taken
     // assert(gr <= H);
   }
-#endif
 
   // Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
-
   T weight = weights.y;
   for (i32 i = 0; i < NW; ++i) {
     weight = optionalHalve(weight);
