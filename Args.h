@@ -24,6 +24,7 @@ public:
   string resultsFile = "results.txt";
   string masterDir;
   string uid;
+  string binaryFile;
   std::set<std::string> flags;
   
   int device = 0;

@@ -62,8 +62,12 @@ bool isAmdGpu(cl_device_id id);
 
 cl_context createContext(cl_device_id id);
 
-cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
+cl_program compile(cl_context context, cl_device_id device, const string &source, const string &extraArgs,
                    const std::vector<string>& defines);
+
+cl_program loadBinary(cl_context, cl_device_id, const string& fileName);
+
+string getBinary(cl_program program);
 
 void dumpBinary(cl_program program, const string& fileName);
 

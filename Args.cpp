@@ -66,6 +66,7 @@ void Args::printHelp() {
 -yield             : enable work-around for CUDA busy wait taking up one CPU core
 -nospin            : disable progress spinner
 -use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
+-binary <file>     : specify a file containing the compiled kernels binary
 -device <N>        : select a specific device:
 )", B1, B2_B1_ratio);
   // -proof [<power>]   : enable experimental PRP proof generation. Default <power> is 7.
@@ -161,6 +162,8 @@ void Args::parse(string line) {
       std::replace(ss.begin(), ss.end(), ',', ' ');
       std::istringstream iss{ss};
       flags.insert(std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{});
+    } else if (key == "-binary") {
+      binaryFile = s;
     } else {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";

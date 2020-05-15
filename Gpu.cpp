@@ -226,8 +226,15 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
 
   vector<string> strDefines;
   strDefines.insert(strDefines.begin(), defines.begin(), defines.end());
-  cl_program program = compile({id}, context, CL_SOURCE, clArgs, strDefines);
+
+  cl_program program{};
+  if (args.binaryFile.empty()) {
+    program = compile(context, id, CL_SOURCE, clArgs, strDefines);
+  } else {
+    program = loadBinary(context, id, args.binaryFile);
+  }
   if (!program) { throw "OpenCL compilation"; }
+  // dumpBinary(program, "dump.bin");
   return program;
 }
 

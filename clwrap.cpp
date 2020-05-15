@@ -196,24 +196,23 @@ void release(cl_queue queue)     { CHECK1(clReleaseCommandQueue(queue)); }
 void release(cl_kernel k)        { CHECK1(clReleaseKernel(k)); }
 void release(cl_event event)     { CHECK1(clReleaseEvent(event)); }
 
+string getBinary(cl_program program) {
+  size_t size;
+  CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
+  auto buf = make_unique<char[]>(size + 1);
+  char *ptr = buf.get();
+  CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &ptr, NULL));
+  return {buf.get(), size};
+}
+
 void dumpBinary(cl_program program, const string &fileName) {
-  if (auto fo = File::openWrite(fileName)) {
-    size_t size;
-    CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
-    char *buf = new char[size + 1];
-    CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &buf, NULL));
-    auto nWrote = fwrite(buf, size, 1, fo.get());
-    assert(nWrote == 1);
-    delete[] buf;
-  } else {
-    throw "dump "s + fileName;
-  }
+  File::openWrite(fileName).write(getBinary(program));
 }
 
 static cl_program loadSource(cl_context context, const string &source) {
   const char *ptr = source.c_str();
   size_t size = source.size();
-  int err;
+  int err = 0;
   cl_program program = clCreateProgramWithSource(context, 1, &ptr, &size, &err);
   CHECK2(err, "clCreateProgramWithSource");
   return program;
@@ -248,7 +247,19 @@ static void build(cl_program program, cl_device_id device, string args) {
   }
 }
 
-cl_program compile(cl_device_id device, cl_context context, const string &source, const string &extraArgs,
+cl_program loadBinary(cl_context context, cl_device_id id, const string &fileName) {
+  string bytes = File::openRead(fileName).readAll();
+  size_t size = bytes.size();
+  const unsigned char *ptr = reinterpret_cast<const unsigned char *>(bytes.c_str());
+  int err = 0;
+  cl_program program = clCreateProgramWithBinary(context, 1, &id, &size, &ptr, NULL, &err);
+  CHECK2(err, "clCreateProgramWithBinary");
+  assert(program);
+  build(program, id, "");
+  return program;
+}
+
+cl_program compile(cl_context context, cl_device_id device, const string &source, const string &extraArgs,
                    const vector<string> &defines) {
   string strDefines;
   for (const string& d : defines) { strDefines += "-D" + d + ' '; }

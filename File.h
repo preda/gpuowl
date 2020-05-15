@@ -55,7 +55,6 @@ public:
   private:
     File *file{};
     optional<string> line;
-    // optional<string> next;
   };
 
   It begin() { return It{*this}; }
@@ -148,5 +147,10 @@ public:
       throw(std::ios_base::failure(name + ": can't read"));
     }
     return ret;
+  }
+
+  string readAll() {
+    size_t sz = size();
+    return {read<char>(sz).data(), sz};
   }
 };
