@@ -231,12 +231,16 @@ G_H        "group height"
 
 #if HAS_ASM && !NO_OMOD && !NO_SETMODE
 // turn IEEE mode and denormals off so that mul:2 and div:2 work
-#define ENABLE_MUL2() { \
-    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0");\
-    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 7");\
+// NOTE: volatile does not prevent the optimizer from moving actual mul:2 instructions
+// ahead of these instructions.  There is good evidence that if both these asm instructions
+// and the mul:2 instructions are marked volatile then we will be safe.  GCC documentation
+// suggests using a false dependency to trick the optimizer.  Thus, the solution below.
+#define ENABLE_MUL2(x) { \
+    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0" : "+v" (x));\
+    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 7" : "+v" (x));\
 }
 #else
-#define ENABLE_MUL2()
+#define ENABLE_MUL2(x)
 #endif
 
 typedef int i32;
@@ -2019,9 +2023,9 @@ KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
   
   T2 u[NW];
   u32 g = get_group_id(0);
+  ENABLE_MUL2(g);
 
   readCarryFusedLine(in, u, g);
-  ENABLE_MUL2();
   fft_WIDTH(lds, u, smallTrig);  
   out += WIDTH * g;
   write(G_W, NW, u, out, 0);
@@ -2033,9 +2037,9 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   
   T2 u[NH];
   u32 g = get_group_id(0);
+  ENABLE_MUL2(g);
 
   readTailFusedLine(in, u, g, transPos(g, MIDDLE, WIDTH));
-  ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
 
   out += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
@@ -2048,11 +2052,11 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   
   T2 u[NH];
   u32 g = get_group_id(0);
+  ENABLE_MUL2(g);
 
   io += g * SMALL_HEIGHT;
 
   read(G_H, NH, u, io, 0);
-  ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, 0);
 }
@@ -2063,6 +2067,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) A, Trig smallTrig) {
 
   T2 u[NW];
   u32 g = get_group_id(0);
+  ENABLE_MUL2(g);
 
   u32 step = WIDTH * g;
   A   += step;
@@ -2076,7 +2081,6 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) A, Trig smallTrig) {
     // u32 hk = g + BIG_HEIGHT * p;
     u[i] = weight(in[p], A[p]);
   }
-  ENABLE_MUL2();
 
   fft_WIDTH(lds, u, smallTrig);
   
@@ -2297,10 +2301,10 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
   T2 u[MIDDLE];
   
   u32 SIZEY = IN_WG / IN_SIZEX;
-
   u32 N = WIDTH / IN_SIZEX;
   
   u32 g = get_group_id(0);
+  ENABLE_MUL2(g);
   u32 gx = g % N;
   u32 gy = g / N;
 
@@ -2313,8 +2317,6 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
 
   in += starty * WIDTH + startx;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
-
-  ENABLE_MUL2();
 
   middleMul2(u, startx + mx, starty + my, 1);
 
@@ -2334,10 +2336,10 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   T2 u[MIDDLE];
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
-
   u32 N = SMALL_HEIGHT / OUT_SIZEX;
 
   u32 g = get_group_id(0);
+  ENABLE_MUL2(g);
   u32 gx = g % N;
   u32 gy = g / N;
 
@@ -2354,7 +2356,6 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   in += starty * BIG_HEIGHT + startx;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
-  ENABLE_MUL2();
 
   middleMul(u, startx + mx, trig);
 
@@ -2405,9 +2406,9 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
 
 //{{ CARRYA
 KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32) extras, P(u32) roundOut, P(u32) carryStats) {
-  ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
+  ENABLE_MUL2(g);
   u32 gx = g % NW;
   u32 gy = g / NW;
 
@@ -2452,10 +2453,9 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
 KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) extras) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);  
+  ENABLE_MUL2(g);
   u32 gx = g % NW;
   u32 gy = g / NW;
-
-  ENABLE_MUL2();
 
   u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
   
@@ -2506,6 +2506,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
+  ENABLE_MUL2(gr);
 
   u32 H = BIG_HEIGHT;
   u32 line = gr % H;
@@ -2522,7 +2523,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   b = b >> ((me & 1) * 16);
 #endif
 
-  ENABLE_MUL2();
   fft_WIDTH(lds, u, smallTrig);
 
 // Convert each u value into 2 words and a 32 or 64 bit carry
@@ -2664,14 +2664,12 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 // from transposed to sequential.
 KERNEL(256) transposeOut(P(Word2) out, CP(Word2) in) {
   local Word2 lds[4096];
-  ENABLE_MUL2();
   transposeWords(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
 // from sequential to transposed.
 KERNEL(256) transposeIn(P(Word2) out, CP(Word2) in) {
   local Word2 lds[4096];
-  ENABLE_MUL2();
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
@@ -2822,9 +2820,8 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
-  ENABLE_MUL2();
-
   u32 me = get_local_id(0);
+  ENABLE_MUL2(me);
   u32 line1 = get_group_id(0);
   u32 line2 = (H - line1) % H;
   u32 g1 = transPos(line1, MIDDLE, WIDTH);
@@ -2854,10 +2851,9 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
-  ENABLE_MUL2();
-
   u32 line1 = get_group_id(0);
   u32 me = get_local_id(0);
+  ENABLE_MUL2(me);
 
   if (line1 == 0 && me == 0) {
 #if MULTIPLY_DELTA
@@ -2906,12 +2902,12 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
+  u32 me = get_local_id(0);
   u32 line1 = get_group_id(0);
+  ENABLE_MUL2(line1);
   u32 line2 = line1 ? H - line1 : (H / 2);
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-
-  ENABLE_MUL2();
 
 #if TAIL_FUSED_LOW
   read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
@@ -2924,7 +2920,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   fft_HEIGHT(lds, v, smallTrig1);
 #endif
 
-  u32 me = get_local_id(0);
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);    
@@ -2976,13 +2971,13 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
+  u32 me = get_local_id(0);
   u32 line1 = get_group_id(0);
+  ENABLE_MUL2(line1);
   u32 line2 = line1 ? H - line1 : (H / 2);
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-  
-  ENABLE_MUL2();
-  
+
 #if MUL_DELTA
   readTailFusedLine(in, u, line1, memline1);
   readTailFusedLine(in, v, line2, memline2);
@@ -3018,7 +3013,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   fft_HEIGHT(lds, q, smallTrig1);
 #endif
 
-  u32 me = get_local_id(0);
   if (line1 == 0) {
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
@@ -3067,3 +3061,4 @@ KERNEL(256) testKernel(global double* io) {
   io[me + 256] = sc.y;
 }
 #endif
+
