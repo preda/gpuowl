@@ -268,7 +268,7 @@ u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 T add1_m2(T x, T y) {
 #if !NO_OMOD
   T tmp;
-   __asm("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
+   __asm volatile("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
    return tmp;
 #else
    return 2 * (x + y);
@@ -288,7 +288,7 @@ T sub1(T x, T y) {
 T sub1_m2(T x, T y) {
 #if !NO_OMOD
   T tmp;
-  __asm("v_add_f64 %0, %1, -%2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
+  __asm volatile("v_add_f64 %0, %1, -%2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
   return tmp;
 #else
   return 2 * (x - y);
@@ -299,7 +299,7 @@ T sub1_m2(T x, T y) {
 T mul1_m2(T x, T y) {
 #if !NO_OMOD
   T tmp;
-  __asm("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
+  __asm volatile("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
   return tmp;
 #else
   return x * y * 2;
@@ -311,7 +311,7 @@ T mad1(T x, T y, T z) { return x * y + z; }
 T mad1_m2(T a, T b, T c) {
 #if !NO_OMOD
   double out;
-  __asm("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
+  __asm volatile("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
 #else
   return 2 * mad1(a, b, c);
@@ -321,7 +321,7 @@ T mad1_m2(T a, T b, T c) {
 T msb1_m2(T a, T b, T c) {
 #if !NO_OMOD
   double out;
-  __asm("v_fma_f64 %0, %1, %2, -%3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
+  __asm volatile("v_fma_f64 %0, %1, %2, -%3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
 #else
   return 2 * mad1(a, b, -c);
@@ -331,7 +331,7 @@ T msb1_m2(T a, T b, T c) {
 T mad1_m4(T a, T b, T c) {
 #if !NO_OMOD
   double out;
-  __asm("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
+  __asm volatile("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
 #else
   return 4 * mad1(a, b, c);
@@ -341,7 +341,7 @@ T mad1_m4(T a, T b, T c) {
 T msb1_m4(T a, T b, T c) {
 #if !NO_OMOD
   double out;
-  __asm("v_fma_f64 %0, %1, %2, -%3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
+  __asm volatile("v_fma_f64 %0, %1, %2, -%3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
 #else
   return 4 * mad1(a, b, -c);
@@ -2644,14 +2644,12 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 // from transposed to sequential.
 KERNEL(256) transposeOut(P(Word2) out, CP(Word2) in) {
   local Word2 lds[4096];
-  ENABLE_MUL2();
   transposeWords(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
 // from sequential to transposed.
 KERNEL(256) transposeIn(P(Word2) out, CP(Word2) in) {
   local Word2 lds[4096];
-  ENABLE_MUL2();
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
@@ -3047,3 +3045,4 @@ KERNEL(256) testKernel(global double* io) {
   io[me + 256] = sc.y;
 }
 #endif
+
