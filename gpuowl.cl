@@ -611,8 +611,16 @@ T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
 T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
-#define fma_addsub(a, b, sin, c, d) { d = sin * d; a = d + c; b = -d + c; }
-// #define fma_addsub(a, b, sin, c, d) { a = fmaT2(sin, d, c); b = fmaT2(sin, -d, c); }
+// Partial complex multiplies:  the mul by sin is delayed so that it can be later propagated to an FMA instruction
+// complex mul by cos-i*sin given cos/sin, sin
+T2 partial_cmul(T2 a, T c_over_s) { return U2(mad1(a.x, c_over_s, a.y), mad1(a.y, c_over_s, -a.x)); }
+// complex mul by cos+i*sin given cos/sin, sin
+T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(a.x, c_over_s, -a.y), mad1(a.y, c_over_s, a.x)); }
+
+// a = c + sin * d; b = c - sin * d;
+#define fma_addsub(a, b, sin, c, d) { d = sin * d; T2 t = c + d; b = c - d; a = t; }
+// Like fma_addsub but muls result by -i.
+#define fma_addsub_mul_t4(a, b, sin, c, d) { fma_addsub (a, b, sin, c, d); b = mul_t4 (b); }
 
 // a * conjugate(b)
 // saves one negation
@@ -719,15 +727,17 @@ void fft8(T2 *u) {
 
 // FFT routines to implement the middle step
 
+void fft3by(T2 *u, u32 incr) {
+  const double COS1 = -0.5;					// cos(tau/3), -0.5
+  const double SIN1 = 0.86602540378443864676372317075294;	// sin(tau/3), sqrt(3)/2, 0.86602540378443864676372317075294
+  X2_mul_t4(u[1*incr], u[2*incr]);				// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))
+  T2 tmp23 = u[0*incr] + COS1 * u[1*incr];
+  u[0*incr] = u[0*incr] + u[1*incr];
+  fma_addsub(u[1*incr], u[2*incr], SIN1, tmp23, u[2*incr]);
+}
+
 void fft3(T2 *u) {
-  const double SQRT3_2 = 0x1.bb67ae8584caap-1; // sin(tau/3), sqrt(3)/2, 0.86602540378443859659;
-  
-  X2(u[1], u[2]);
-  T2 u0 = u[0];
-  u[0] += u[1];
-  u[1] = u0 - u[1] / 2;
-  u[2] = mul_t4(u[2] * SQRT3_2);
-  X2(u[1], u[2]);
+  fft3by(u, 1);
 }
 
 #if !NEWEST_FFT5 && !NEW_FFT5 && !OLD_FFT5
@@ -849,17 +859,29 @@ void fft5(T2 *u) {
 #endif
 
 
+// 3 complex FFT where second and third input needs to be multiplied by SIN1
+void fft3delayedSIN1(T2 *u) {
+  const double COS1SIN1 = -0.4330127018922193233818616;	// cos(tau/3) * sin(tau/6) = -.5 * .866
+  const double SIN1SIN1 = 0.75;				// sin(tau/3) * sin(tau/6) = .866 * .866
+  const double SIN1 = 0.8660254037844386467637232;	// sin(tau/6) = .866 
+  X2_mul_t4(u[1], u[2]);				// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))	we owe results a mul by SIN1
+  T2 tmp23 = u[0] + COS1SIN1 * u[1];
+  u[0] = u[0] + SIN1 * u[1];
+  fma_addsub (u[1], u[2], SIN1SIN1, tmp23, u[2]);
+}
+
 void fft6(T2 *u) {
-  const double SQRT3_2 = 0x1.bb67ae8584caap-1; // sin(tau/3), sqrt(3)/2, 0.86602540378443859659;
+  const double COS1_SIN1 = 0.5773502691896257645091488;	// cos(tau/6) / sin(tau/6) = .5/.866
+  const double COS2_SIN2 = -0.5773502691896257645091488;// cos(2*tau/6) / sin(2*tau/6) = -.5/.866
 
   for (i32 i = 0; i < 3; ++i) { X2(u[i], u[i + 3]); }
   
-  u[4] = mul(u[4], U2( 0.5, -SQRT3_2));
-  u[5] = mul(u[5], U2(-0.5, -SQRT3_2));
-  
+  u[4] = partial_cmul(u[4], COS1_SIN1);			// mul u[4] by w^1, we owe result a mul by SIN1
+  u[5] = partial_cmul(u[5], COS2_SIN2);			// mul u[5] by w^2, we owe result a mul by SIN2 which is the same as SIN1
+
   fft3(u);
-  fft3(u + 3);
-  
+  fft3delayedSIN1(u + 3);
+
   // fix order [0, 2, 4, 1, 3, 5]
   T2 tmp = u[1];
   u[1] = u[3];
@@ -867,6 +889,7 @@ void fft6(T2 *u) {
   u[4] = u[2];
   u[2] = tmp;
 }
+
 
 // See prime95's gwnum/zr7.mac file for more detailed explanation of the formulas below
 // R1= r1     +(r2+r7)     +(r3+r6)     +(r4+r5)
@@ -971,6 +994,11 @@ void fft8mid(T2 *u) {
 }
 
 
+#if !NEW_FFT9 && !OLD_FFT9
+#define NEW_FFT9 1
+#endif
+
+#if OLD_FFT9
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.7 "9-Point DFT".
 void fft9(T2 *u) {
   const double C0 = 0x1.8836fa2cf5039p-1; //   0.766044443118978013 (2*c(u) - c(2*u) - c(4*u))/3
@@ -1029,6 +1057,53 @@ void fft9(T2 *u) {
   X2(u[2], u[7]);
   X2(u[1], u[8]);
 }
+
+#elif NEW_FFT9
+
+// 3 complex FFT where second input needs to be multiplied by SIN1 and third input needs to multiplied by SIN2
+void fft3delayedSIN12(T2 *u) {
+  const double SIN2_SIN1 = 1.5320888862379560704047853011108;	// sin(2*tau/9) / sin(tau/9) = .985/.643
+  const double COS1SIN1 = -0.32139380484326966316132170495363;	// cos(tau/3) * sin(tau/9) = -.5 * .643
+  const double SIN1SIN1 = 0.55667039922641936645291295204702;	// sin(tau/3) * sin(tau/9) = .866 * .643
+  const double SIN1 = 0.64278760968653932632264340990726;	// sin(tau/9) = .643 
+  fma_addsub_mul_t4(u[1], u[2], SIN2_SIN1, u[1], u[2]);		// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))	we owe results a mul by SIN1
+  T2 tmp23 = u[0] + COS1SIN1 * u[1];
+  u[0] = u[0] + SIN1 * u[1];
+  fma_addsub (u[1], u[2], SIN1SIN1, tmp23, u[2]);
+}
+
+// This version is faster (fewer F64 ops), but slightly less accurate
+void fft9(T2 *u) {
+  const double COS1_SIN1 = 1.1917535925942099587053080718604;	// cos(tau/9) / sin(tau/9) = .766/.643
+  const double COS2_SIN2 = 0.17632698070846497347109038686862;	// cos(2*tau/9) / sin(2*tau/9) = .174/.985
+
+  fft3by(u, 3);
+  fft3by(u+1, 3);
+  fft3by(u+2, 3);
+
+  u[4] = partial_cmul(u[4], COS1_SIN1);			// mul u[4] by w^1, we owe result a mul by SIN1
+  u[7] = partial_cmul_conjugate(u[7], COS1_SIN1);	// mul u[7] by w^-1, we owe result a mul by SIN1
+  u[5] = partial_cmul(u[5], COS2_SIN2);			// mul u[5] by w^2, we owe result a mul by SIN2
+  u[8] = partial_cmul_conjugate(u[8], COS2_SIN2);	// mul u[8] by w^-2, we owe result a mul by SIN2
+
+  fft3(u);
+  fft3delayedSIN12(u+3);
+  fft3delayedSIN12(u+6);
+
+  // fix order [0, 3, 6, 1, 4, 7, 8, 2, 5]
+
+  T2 tmp = u[1];
+  u[1] = u[3];
+  u[3] = tmp;
+  tmp = u[2];
+  u[2] = u[7];
+  u[7] = u[5];
+  u[5] = u[8];
+  u[8] = u[6];
+  u[6] = tmp;
+}
+#endif
+
 
 #if !NEW_FFT10 && !OLD_FFT10
 #define NEW_FFT10 1
