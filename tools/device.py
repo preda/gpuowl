@@ -14,8 +14,12 @@ def deviceList():
     return sorted([int(d[4:]) for d in os.listdir(drm) if re.match(r'^card\d+$', d)])
 
 def read(path):
-    with open(path) as f:
-        return f.read().strip()
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ''
+    
 
 def device(d):
     return drm + f'card{d}/device/'

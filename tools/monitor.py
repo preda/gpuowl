@@ -15,7 +15,10 @@ def deviceList():
 
 def hwmonPath(device):
     hwmonBase = device + 'hwmon/'
-    return hwmonBase + os.listdir(hwmonBase)[0] + '/'
+    try:
+        return hwmonBase + os.listdir(hwmonBase)[0] + '/'
+    except FileNotFoundError:
+        return None
     
 def read(path):
     with open(path) as f:
@@ -55,12 +58,20 @@ def readGpu(d: int, readSlow = False):
     memUsedGB = memUsed * (1.0 / (1024 * 1024 * 1024))
     
     hwmon = hwmonPath(device)
-    temps = [(int(read(hwmon + f'temp{i}_input')) + 500) // 1000 for i in range(1, 4)]
-    fan = readInt(hwmon + 'fan1_input', 1)
-    power = readInt(hwmon + 'power1_average')
-    sclk = readInt(hwmon + 'freq1_input')
-    mclk = readInt(hwmon + 'freq2_input')
-    voltage = readInt(hwmon + 'in0_input', 1)
+    if hwmon:
+        temps = [(int(read(hwmon + f'temp{i}_input')) + 500) // 1000 for i in range(1, 4)]
+        fan = readInt(hwmon + 'fan1_input', 1)
+        power = readInt(hwmon + 'power1_average')
+        sclk = readInt(hwmon + 'freq1_input')
+        mclk = readInt(hwmon + 'freq2_input')
+        voltage = readInt(hwmon + 'in0_input', 1)
+    else:
+        temps = [0, 0, 0]
+        fan = 0
+        power = 0
+        sclk = 0
+        mclk = 0
+        voltage = 0
     return Gpu(uid=uid, temps=temps, fan=fan, power=power, sclk=sclk, mclk=mclk, voltage=voltage,
                pcieRead=pcieRead, pcieWrite=pcieWrite, pcieErr=pcieErr, memBusy=memBusy, memUsedGB=memUsedGB)
 
