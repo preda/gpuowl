@@ -52,5 +52,11 @@ std::string GCD(u32 exp, const std::vector<u32>& words, u32 sub) {
   return (resultGcd == 1) ? ""s : resultGcd.get_str();
 }
 
-// "Rev" means: most significant bit first (at index 0).
+// MSB: Most Significant Bit first (at index 0).
 vector<bool> powerSmoothMSB(u32 exp, u32 B1) { return bitsMSB(powerSmooth(exp, B1)); }
+
+int jacobi(u32 exp, const std::vector<u32>& words) {
+  mpz_class w = mpz(words) - 2;
+  mpz_class m = (mpz_class{1} << exp) - 1;
+  return mpz_jacobi(w.get_mpz_t(), m.get_mpz_t());
+}

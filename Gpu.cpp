@@ -903,10 +903,18 @@ void Gpu::printRoundoff(u32 E) {
 #endif
 }
 
+namespace {
+  struct JacobiData {
+    vector<u32> words;
+    u32 k;
+  };
+}
+
 tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
   Buffer<double> buf1{queue, "buf1", N};
   Buffer<double> buf2{queue, "buf2", N};
 
+ reload:
   LLState loaded(E);
   writeData(loaded.data);
   u64 res64 = dataResidue();
@@ -925,7 +933,11 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
   bool displayRoundoff = args.flags.count("STATS");
 
   u32 blockSize = args.blockSize ? args.blockSize : 1000; // default LL block size
-  u32 logStep = args.logStep ? args.logStep : 100000;
+  u32 logStep = args.logStep ? args.logStep : 100'000;
+  u32 jacobiStep = args.jacobiStep ? args.jacobiStep : 1'000'000;
+
+  future<int> jacobiFuture;
+  JacobiData jacobiData;
   
   while (true) {
     assert(k < kEnd);    
@@ -933,10 +945,10 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
     modSqLoopLL(nextK - k, buf1, buf2, bufData);
     k = nextK;
     
-    if (!args.noSpin) { spin(); }
-    
     queue->finish();
 
+    if (!args.noSpin) { spin(); }
+    
     bool doStop = (args.iters && k - startK == args.iters);
     if (signal.stopRequested()) {
       doStop = true;
@@ -944,18 +956,55 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
       signal.release();
     }
     
-    if (doStop || (k % logStep == 0) || (k >= kEnd)) {
+    bool atEnd = k >= kEnd;
+    
+    if (doStop || (k % logStep == 0) || atEnd) {
       if (displayRoundoff) { printRoundoff(E); }
+
       vector<u32> data = readData();
       u64 res64 = residue(data);
       double time = itTimer.reset(k);
       logLL(E, k, res64, time, kEnd);
-      if (k >= kEnd) {
+
+      if (!jacobiFuture.valid() && doStop) {
+        // log("starting Jacobi check\n");
+        jacobiData.words = data; // copy the vector
+        jacobiData.k = k;
+        jacobiFuture = async(launch::async, jacobi, E, std::cref(jacobiData.words));
+      }
+
+      if (jacobiFuture.valid()) {
+        if (atEnd || doStop) {
+          log("waiting for the Jacobi check to finish..\n");
+          jacobiFuture.wait();
+        }
+      
+        if (jacobiFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
+          int jacobi = jacobiFuture.get();
+          bool jacobiOK = (jacobi == -1);
+          log("%u %2s %8d (jacobi == %d)\n", E, jacobiOK ? "OK" : "EE", jacobiData.k, jacobi);
+          
+          if (jacobiOK) {          
+            LLState{E, jacobiData.k, std::move(jacobiData.words)}.save();
+          }
+
+          if (doStop) { throw "stop requested"; }
+
+          if (!jacobiOK) { goto reload; }
+        }
+      }
+
+      if (!jacobiFuture.valid() && (k % jacobiStep == 0)) {
+        // log("starting Jacobi check\n");
+        jacobiData.words = data; // copy the vector
+        jacobiData.k = k;
+        jacobiFuture = async(launch::async, jacobi, E, std::cref(jacobiData.words));
+      }
+              
+      if (atEnd) {
         assert(k == kEnd);
         bool allZero = std::all_of(data.begin(), data.end(), [](u32 x) { return (x == 0); } );
         return {allZero, res64};
-      } else {
-        LLState{E, k, std::move(data)}.save();
       }
       if (doStop) { throw "stop requested"; }
     }
