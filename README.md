@@ -113,8 +113,8 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 -time              : display kernel profiling information.\
 -fft \<size\>        : specify FFT size, such as: 5000K, 4M, +2, -1.\
 -block \<value\>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.\
--log \<step\>        : log every \<step\> iterations. Multiple of 10'000.
--jacobi \<step\>     : (LL-only): do Jacobi check every \<step\> iterations. Default 1'000'000.
+-log \<step\>        : log every \<step\> iterations. Multiple of 10'000.\
+-jacobi \<step\>     : (LL-only): do Jacobi check every \<step\> iterations. Default 1'000'000.\
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.\
 -B1                : P-1 B1, default 500000\
 -B2                : P-1 B2 bound, default B1 * 30\
