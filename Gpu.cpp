@@ -934,7 +934,7 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
 
   u32 blockSize = args.blockSize ? args.blockSize : 1000; // default LL block size
   u32 logStep = args.logStep ? args.logStep : 100'000;
-  u32 jacobiStep = args.jacobiStep ? args.jacobiStep : 1'000'000;
+  u32 jacobiStep = args.jacobiStep ? args.jacobiStep : 500'000;
 
   future<int> jacobiFuture;
   JacobiData jacobiData;
