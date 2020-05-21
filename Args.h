@@ -30,7 +30,6 @@ public:
   int device = 0;
   
   bool timeKernels = false;
-  bool enableTF = false;
   bool cudaYield = false;
   bool cleanup = false;
   bool noSpin = false;

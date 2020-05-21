@@ -89,7 +89,7 @@ FFTConfig FFTConfig::fromSpec(const string& spec) {
       log("FFT spec must be of the form width:middle:height , found '%s'\n", spec.c_str());
       throw "Invalid FFT spec";
     }
-    u32 middle = parseInt(spec.substr(p1+1, p2));
+    u32 middle = parseInt(spec.substr(p1+1, p2 - (p1 + 1)));
     u32 height = parseInt(spec.substr(p2+1));
     return {width, middle, height};
   } else {

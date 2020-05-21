@@ -1,4 +1,4 @@
-// Copyright (C) Mihai Preda.
+// Copyright Mihai Preda and George Woltman.
 
 #include "Gpu.h"
 #include "ProofSet.h"

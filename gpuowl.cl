@@ -1,4 +1,3 @@
-// gpuOwl, an OpenCL Mersenne primality test.
 // Copyright Mihai Preda and George Woltman.
 
 /* List of user-serviceable -use flags and their effects
