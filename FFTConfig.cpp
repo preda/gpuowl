@@ -49,23 +49,18 @@ static double chain_savings[16][6] = {
 	{0, 0, 0, 0, 0, 0},					// MIDDLE=14
 	{0, 0, 0, 0, 0, 0}};					// MIDDLE=15
 
-void FFTConfig::getChainLengths(u32 fftSize, u32 exponent, u32 middle, u32 *mm_chain, u32 *mm2_chain) {
+pair<u32,u32> FFTConfig::getChainLengths(u32 fftSize, u32 exponent, u32 middle) {
   i32 i;
   u32 maxExp = getMaxExp(fftSize, middle);
   double max_bits_per_word = double(maxExp) / double(fftSize);
   double bits_per_word = double(exponent) / double(fftSize);
   for (i = 5; i >= 0; i--) {
     max_bits_per_word -= chain_savings[middle][i];
-    if (bits_per_word >= max_bits_per_word) break;
+    if (bits_per_word >= max_bits_per_word) { break; }
   }
-  if (i == 5) *mm_chain = 3, *mm2_chain = 3;
-  if (i == 4) *mm_chain = 2, *mm2_chain = 3;
-  if (i == 3) *mm_chain = 2, *mm2_chain = 2;
-  if (i == 2) *mm_chain = 1, *mm2_chain = 2;
-  if (i == 1) *mm_chain = 1, *mm2_chain = 1;
-  if (i == 0) *mm_chain = 0, *mm2_chain = 1;
-  if (i == -1) *mm_chain = 0, *mm2_chain = 0;
-  if (middle == 3 && *mm2_chain == 3) *mm2_chain = 2;		// For MIDDLE=3, mm2_chain=2 if better than mm2_chain=3
+  auto [mm_chain, mm2_chain] = vector<pair<u32,u32>>{{0, 0}, {0, 1}, {1, 1}, {1, 2}, {2, 2}, {2, 3}, {3, 3}}[i + 1];
+  if (middle == 3 && mm2_chain == 3) { mm2_chain = 2; } // For MIDDLE=3, mm2_chain=2 if better than mm2_chain=3
+  return {mm_chain, mm2_chain};
 }
 
 namespace {
