@@ -1031,7 +1031,11 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
   u32 checkStep = checkStepForErrors(args.logStep, nErrors);
   
   u32 startK = k;
-  ProofSet proofSet{E, blockSize, args.proofPow};
+  ProofSet proofSet{E, args.proofPow};
+  if (!proofSet.isValidTo(startK)) {
+    log("Some proof files are missing or invalid\n");
+    throw "Some proof files are missing or invalid";
+  }
   
   Signal signal;
 
@@ -1051,7 +1055,9 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
     assert(k < kEnd);
     
     u32 nextK = k + blockSize;
-        
+
+    u32 persistK = proofSet.firstPersistAfter(k);
+    
     if (nextK >= kEnd) {
       assert(kEnd > k);
       modSqLoop(kEnd - k, buf1, buf2, bufData);
@@ -1061,23 +1067,23 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
       finalRes64 = residue(words);
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
       k = kEnd;
+    } else if (persistK >= k && persistK < nextK) {
+      modSqLoop(persistK - k, buf1, buf2, bufData);
+      k = persistK;
+      proofSet.save(k, readData());
     }
-    
+
     assert(nextK >= k);
     modSqLoop(nextK - k, buf1, buf2, bufData);
     k = nextK;
 
-    // if (saveFuture.valid()) { saveFuture.get(); }
-
-    bool persistProof = proofSet.shouldPersist(k);
-    
     bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
     if (doStop) {
       log("Stopping, please wait..\n");
       signal.release();
     }
 
-    bool doCheck = doStop || persistProof || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
+    bool doCheck = doStop || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
     if (!doCheck) { this->updateCheck(buf1, buf2, buf3); }
     
     if (!args.noSpin) { spin(); }
@@ -1100,7 +1106,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
       
       if (ok) {
         if (k < kEnd) {          
-          prpState.save(persistProof);
+          prpState.save(false);
           doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, itTimer.reset(k));
         }
         assert(!isPrime || k >= kEnd);
