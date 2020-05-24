@@ -458,7 +458,7 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
-    modSqLoop(n, buf1, buf2, bufData);
+    modSqLoop(bufData, n, buf1, buf2);
     modMul(bufData, bufAux, buf1, buf2, buf3);
     bufAux << bufData;
   }
@@ -470,11 +470,11 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize >= 2);
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
-    modSqLoop(n, buf1, buf2, bufData);
+    modSqLoop(bufData, n, buf1, buf2);
     modMul(bufData, bufAux, buf1, buf2, buf3);
   }
   
-  modSqLoop(n, buf1, buf2, bufData);
+  modSqLoop(bufData, n, buf1, buf2);
   modMul(bufData, bufAux, buf1, buf2, buf3, true);
 }
 
@@ -484,7 +484,7 @@ void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   bufAux << bufCheck;
-  modSqLoopMul(blockSize, buf1, buf2, bufAux);
+  modSqLoopMul(bufAux, blockSize, buf1, buf2);
   updateCheck(buf1, buf2, buf3);
   return equalNotZero(bufCheck, bufAux);
 }
@@ -545,6 +545,12 @@ void Gpu::multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<doubl
   carryFused(io, tmp);
   tW(tmp, io);
   fftHin(io, tmp);
+}
+
+Words Gpu::expExp2(const Words& A, u32 n) {
+  writeData(A);
+  modSqLoop(bufData, n, buf1, buf2);
+  return readData();
 }
 
 // return A^x * B
@@ -650,7 +656,7 @@ void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, bool sub2, Buffer<doubl
   }  
 }
 
-void Gpu::modSqLoopRaw(u32 reps, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io, bool mul3, bool sub2) {
+void Gpu::modSqLoopRaw(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& bufTmp, bool mul3, bool sub2) {
   bool leadIn = true;
   for (u32 i = 0; i < reps; ++i) {
     bool leadOut = useLongCarry || (i == reps - 1);
@@ -932,7 +938,7 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
   while (true) {
     assert(k < kEnd);    
     u32 nextK = std::min(kEnd, k + blockSize);
-    modSqLoopLL(nextK - k, buf1, buf2, bufData);
+    modSqLoopLL(bufData, nextK - k, buf1, buf2);
     k = nextK;
     
     queue->finish();
@@ -1050,7 +1056,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
     if (nextK >= kEnd) {
       assert(kEnd > k);
       assert(!persistInThisBlock);
-      modSqLoop(kEnd - k, buf1, buf2, bufData);
+      modSqLoop(bufData, kEnd - k, buf1, buf2);
       auto words = readData();
       isPrime = equals9(words);
       doDiv9(E, words);
@@ -1058,13 +1064,13 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
       k = kEnd;
     } else if (persistInThisBlock) {
-      modSqLoop(persistK - k, buf1, buf2, bufData);
+      modSqLoop(bufData, persistK - k, buf1, buf2);
       k = persistK;
       proofSet.save(k, readData());
     }
 
     assert(nextK >= k);
-    modSqLoop(nextK - k, buf1, buf2, bufData);
+    modSqLoop(bufData, nextK - k, buf1, buf2);
     k = nextK;
 
     bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);

@@ -121,16 +121,16 @@ class Gpu {
   void writeIn(const vector<u32> &words, Buffer<int>& buf);
   void writeIn(const vector<int> &words, Buffer<int>& buf);
 
-  void modSqLoopRaw(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io, bool mul3, bool sub2);
+  void modSqLoopRaw(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, bool mul3, bool sub2);
   
-  void modSqLoop(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
-    modSqLoopRaw(reps, buf1, buf2, io, false, false);
+  void modSqLoop(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
+    modSqLoopRaw(io, reps, buf1, buf2, false, false);
   }
-  void modSqLoopMul(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
-    modSqLoopRaw(reps, buf1, buf2, io, true, false);
+  void modSqLoopMul(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
+    modSqLoopRaw(io, reps, buf1, buf2, true, false);
   }
-  void modSqLoopLL(u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io) {
-    modSqLoopRaw(reps, buf1, buf2, io, false, true);
+  void modSqLoopLL(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
+    modSqLoopRaw(io, reps, buf1, buf2, false, true);
   }
 
   void modMul(Buffer<int>& io, Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
@@ -192,4 +192,6 @@ public:
 
   // return A^x * M
   Words expMul(const Words& A, u64 x, const Words& M);
+  // return A^(2^n)
+  Words expExp2(const Words& A, u32 n);
 };

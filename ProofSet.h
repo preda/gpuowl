@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "Gpu.h"
 #include "GmpUtil.h"
 #include "File.h"
 #include "common.h"
@@ -16,33 +17,23 @@ struct Proof {
   Words B;
   vector<Words> middles;
 
-  bool verify() {
+  bool verify(Gpu *gpu) {
     u32 power = middles.size();
     assert(power > 0);
     assert(topK % (1 << power) == 0);
-    u32 step = topK / (1 << power);
+    // u32 step = topK / (1 << power);
     Words A{makeWords3(E)};
+    
     u64 h = Blake2::hash({E, topK, power, B});
-
+    
     for (u32 i = 0; i < power; ++i) {
       Words& M = middles[i];
       h = Blake2::hash({h, M});
-      
-      
+      A = gpu->expMul(A, h, M);
+      B = gpu->expMul(M, h, B);      
     }
-    
-    /*
-    for (const Words& u : middles) {
-      hash = Blake2::hash({hash, x, y, u});
-      x = powMul(x, hash, u);
-      y = powMul(u, hash, y);
-      assert(distanceXY && ((distanceXY & 1) == 0));
-      distanceXY /= 2;
-    }
-    */
 
-    // return exp2exp(x, distanceXY) == y;
-    return true;
+    return gpu->expExp2(A, topK / (1 << power)) == B;
   }
 
 private:
