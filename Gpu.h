@@ -101,6 +101,11 @@ class Gpu {
   HostAccessBuffer<int> bufSmallOut;
   HostAccessBuffer<u64> bufSumOut;
 
+  // Auxilliary big buffers
+  Buffer<double> buf1;
+  Buffer<double> buf2;
+  Buffer<double> buf3;
+  
   const Args& args;
   
   vector<u32> computeBase(u32 E, u32 B1);
@@ -128,7 +133,7 @@ class Gpu {
     modSqLoopRaw(reps, buf1, buf2, io, false, true);
   }
 
-  void modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3 = false);
+  void modMul(Buffer<int>& io, Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
   bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
   u64 bufResidue(Buffer<int>& buf);
   
@@ -142,8 +147,7 @@ class Gpu {
 
   void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
   void exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& tmp2);
-  void exponentiateHigh(Buffer<int>& bufOut, const Buffer<int>& bufBaseHi, u64 exp,
-                        Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2);
+  void exponentiateHigh(Buffer<int>& bufInOut, u64 exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2);
   
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
@@ -163,8 +167,8 @@ public:
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, bool isPm1);
 
-  vector<u32> writeData(const vector<u32> &v);
-  vector<u32> writeCheck(const vector<u32> &v);
+  void writeData(const vector<u32> &v) { writeIn(v, bufData); }
+  void writeCheck(const vector<u32> &v) { writeIn(v, bufCheck); }
   
   u64 dataResidue()  { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }
@@ -182,9 +186,10 @@ public:
   std::tuple<bool, u64, u32> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp);
   std::tuple<bool, u64> isPrimeLL(u32 E, const Args& args);
 
-  void buildProof(u32 E, const Args& args);
-  
   std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
   
   u32 getFFTSize() { return N; }
+
+  // return A^x * M
+  Words expMul(const Words& A, u64 x, const Words& M);
 };

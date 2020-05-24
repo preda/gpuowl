@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 using u8  = uint8_t;
 using i32 = int32_t;
@@ -31,3 +32,5 @@ namespace fs = std::filesystem;
 string hex(u64 x);
 
 string rstripNewline(string s);
+
+using Words = vector<u32>;

@@ -11,6 +11,50 @@
 #include <cassert>
 #include <filesystem>
 
+struct Proof {
+  u32 E, topK;
+  Words B;
+  vector<Words> middles;
+
+  bool verify() {
+    u32 power = middles.size();
+    assert(power > 0);
+    assert(topK % (1 << power) == 0);
+    u32 step = topK / (1 << power);
+    Words A{makeWords3(E)};
+    u64 h = Blake2::hash({E, topK, power, B});
+
+    for (u32 i = 0; i < power; ++i) {
+      Words& M = middles[i];
+      h = Blake2::hash({h, M});
+      
+      
+    }
+    
+    /*
+    for (const Words& u : middles) {
+      hash = Blake2::hash({hash, x, y, u});
+      x = powMul(x, hash, u);
+      y = powMul(u, hash, y);
+      assert(distanceXY && ((distanceXY & 1) == 0));
+      distanceXY /= 2;
+    }
+    */
+
+    // return exp2exp(x, distanceXY) == y;
+    return true;
+  }
+
+private:
+  
+  static Words makeWords3(u32 E) {
+    u32 nWords = (E - 1) / 32 + 1;
+    Words x(nWords);
+    x[0] = 3;
+    return x;
+  }
+};
+
 class ProofSet {
 public:
   static const u32 MAX_POWER = 10;
@@ -27,7 +71,7 @@ public:
     assert(topK / step == (1u << power));
   }
 
-  u32 firstPersistAfter(u32 k) const { return power ? k / step * step + step : -1; }
+  u32 firstPersistAfter(u32 k) const { return (power && k <= topK) ? k / step * step + step : -1; }
 
   void save(u32 k, const vector<u32>& words) {
     assert(k > 0 && k <= topK);
@@ -38,7 +82,7 @@ public:
     f.write<u32>({crc32(words)});
   }
 
-  vector<u32> load(u32 k) {
+  vector<u32> load(u32 k) const {
     assert(k > 0 && k <= topK);
     assert(k % step == 0);
     
@@ -53,7 +97,7 @@ public:
     return words;
   }
 
-  bool isValidTo(u32 limitK) {
+  bool isValidTo(u32 limitK) const {
     if (!power) { return true; }
     
     try {
@@ -64,6 +108,9 @@ public:
     return true;
   }
 
+  Proof computeProof(); // {}
+
+  bool verifyProof() const { return true; }
   
 private:
   static u32 crc32(const void *data, size_t size) {
@@ -86,50 +133,10 @@ private:
   fs::path proofPath{fs::current_path() / to_string(E) / "proof"};
 };
 
-using Words = std::vector<u32>;
-
-Words makeWords3(u32 E) {
-  u32 nWords = (E - 1) / 32 + 1;
-  Words x(nWords);
-  x[0] = 3;
-  return x;
-}
-
 struct Level {
   Words x, y, u;
   u64 hash;
   vector<mpz_class> exponents;
-};
-
-struct Proof {
-  u32 E, kEnd;
-  Words yEnd;
-  vector<Words> middles;
-
-  bool checks() {
-    u32 power = middles.size();
-    assert(power);
-    assert((kEnd & ((u32(1) << power) - 1)) == 0);
-
-    Words x{makeWords3(E)};
-    Words y = yEnd;
-    [[maybe_unused]] u64 hash = Blake2::hash({E, kEnd, power});
-    u32 distanceXY = kEnd;
-
-    /*
-    for (const Words& u : middles) {
-      hash = Blake2::hash({hash, x, y, u});
-      x = powMul(x, hash, u);
-      y = powMul(u, hash, y);
-      assert(distanceXY && ((distanceXY & 1) == 0));
-      distanceXY /= 2;
-    }
-    */
-
-    assert(distanceXY);
-    // return exp2exp(x, distanceXY) == y;
-    return true;
-  }
 };
 
 class ProofBuilder {

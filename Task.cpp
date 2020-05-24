@@ -128,7 +128,8 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
     bool abortedFactorFound = (!isPrime && !res64 && nErrors == u32(-1));
     if (!abortedFactorFound) {
       writeResultPRP(args, isPrime, res64, fftSize, nErrors);
-      if (args.proofPow) { gpu->buildProof(exponent, args); }
+      // if (args.proofPow) { gpu->buildProof(exponent, args); }
+      
       Worktodo::deleteTask(*this);
     } else {
       Worktodo::deletePRP(exponent);

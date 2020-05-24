@@ -317,6 +317,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarryMulMax{queue, "carryMulMax", 8},
   bufSmallOut{queue, "smallOut", 256},
   bufSumOut{queue, "sumOut", 1},
+  buf1{queue, "buf1", N},
+  buf2{queue, "buf2", N},
+  buf3{queue, "buf3", N},
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
@@ -420,16 +423,6 @@ vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
   throw "GPU -> Host persistent read errors";
 }
 
-vector<u32> Gpu::writeData(const vector<u32> &v) {
-  writeIn(v, bufData);
-  return v;
-}
-
-vector<u32> Gpu::writeCheck(const vector<u32> &v) {
-  writeIn(v, bufCheck);
-  return v;
-}
-
 void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp) {
   if (true) {
     tailFusedMul(out, in, inTmp);
@@ -442,7 +435,7 @@ void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp
 }
 
 // The modular multiplication io *= in.
-void Gpu::modMul(Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, Buffer<int>& io, bool mul3) {
+void Gpu::modMul(Buffer<int>& io, Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
   fftP(buf2, in);
   tW(buf1, buf2);
 
@@ -466,7 +459,7 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     modSqLoop(n, buf1, buf2, bufData);
-    modMul(bufAux, buf1, buf2, buf3, bufData);
+    modMul(bufData, bufAux, buf1, buf2, buf3);
     bufAux << bufData;
   }
 
@@ -478,15 +471,15 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
     modSqLoop(n, buf1, buf2, bufData);
-    modMul(bufAux, buf1, buf2, buf3, bufData);
+    modMul(bufData, bufAux, buf1, buf2, buf3);
   }
   
   modSqLoop(n, buf1, buf2, bufData);
-  modMul(bufAux, buf1, buf2, buf3, bufData, true);
+  modMul(bufData, bufAux, buf1, buf2, buf3, true);
 }
 
 void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  modMul(bufData, buf1, buf2, buf3, bufCheck);
+  modMul(bufCheck, bufData, buf1, buf2, buf3);
 }
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
@@ -554,23 +547,30 @@ void Gpu::multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<doubl
   fftHin(io, tmp);
 }
 
-void Gpu::exponentiateHigh(Buffer<int>& bufOut, const Buffer<int>& bufBaseHi, u64 exp,
-                           Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2) {
+// return A^x * B
+Words Gpu::expMul(const Words& A, u64 x, const Words& B) {
+  assert(x != 0);
   
+  writeData(A);
+  exponentiateHigh(bufData, x, buf1, buf2, buf3);
   
+  writeCheck(B);
+  modMul(bufData, bufCheck, buf1, buf2, buf3);
+  return readData();
+}
+
+void Gpu::exponentiateHigh(Buffer<int>& bufInOut, u64 exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2) {
   if (exp == 0) {
-    queue->zero(bufOut, N);
+    queue->zero(bufInOut, N);
     u32 data = 1;
-    fillBuf(queue->get(), bufOut.get(), &data, sizeof(data));
-  } else if (exp == 1) {
-    bufOut << bufBaseHi;
-  } else {
-    fftP(buf1, bufBaseHi);
+    fillBuf(queue->get(), bufInOut.get(), &data, sizeof(data));
+  } else if (exp > 1) {
+    fftP(buf1, bufInOut);
     tW(buf2, buf1);
     fftHin(bufBaseLow, buf2);
     exponentiateCore(buf1, bufBaseLow, exp, buf2);
-    carryA(bufOut, buf1);
-    carryB(bufOut);
+    carryA(bufInOut, buf1);
+    carryB(bufInOut);
   }
 }
 
@@ -795,12 +795,6 @@ static u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
   }
 }
 
-void Gpu::buildProof(u32 E, const Args& args) {
-  u32 power = args.proofPow;
-  assert(power);
-  
-}
-
 namespace {
 int nFitBufs(cl_device_id device, size_t bufSize) {
   // log("availableBytes %lu\n", AllocTrac::availableBytes());
@@ -910,9 +904,6 @@ namespace {
 }
 
 tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
-  Buffer<double> buf1{queue, "buf1", N};
-  Buffer<double> buf2{queue, "buf2", N};
-
  reload:
   LLState loaded(E);
   writeData(loaded.data);
@@ -1011,10 +1002,6 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
 }
 
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
-  Buffer<double> buf1{queue, "buf1", N};
-  Buffer<double> buf2{queue, "buf2", N};
-  Buffer<double> buf3{queue, "buf3", N};
-  
   u32 k = 0, blockSize = 0, nErrors = 0;
 
   {
@@ -1057,9 +1044,12 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
     u32 nextK = k + blockSize;
 
     u32 persistK = proofSet.firstPersistAfter(k);
+    assert(persistK >= k);
+    bool persistInThisBlock = persistK < nextK;
     
     if (nextK >= kEnd) {
       assert(kEnd > k);
+      assert(!persistInThisBlock);
       modSqLoop(kEnd - k, buf1, buf2, bufData);
       auto words = readData();
       isPrime = equals9(words);
@@ -1067,7 +1057,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
       finalRes64 = residue(words);
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
       k = kEnd;
-    } else if (persistK >= k && persistK < nextK) {
+    } else if (persistInThisBlock) {
       modSqLoop(persistK - k, buf1, buf2, bufData);
       k = persistK;
       proofSet.save(k, readData());
@@ -1196,10 +1186,6 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   
   vector<bool> bits = powerSmoothMSB(E, B1);
 
-  // Buffers used in both stages.
-  Buffer<double> bufTmp{queue, "tmp", N};
-  Buffer<double> bufAux{queue, "aux", N};
-
   // --- Stage 1 ---
 
   u32 kBegin = 0;
@@ -1231,7 +1217,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     if (doStop) { log("Stopping, please wait..\n"); }
     bool doSave = doStop || saveTimer.elapsedSecs() > 300 || isAtEnd;
     bool leadOut = useLongCarry || doLog || doSave;
-    coreStep(leadIn, leadOut, bits[k], false, bufAux, bufTmp, bufData);
+    coreStep(leadIn, leadOut, bits[k], false, buf2, buf1, bufData);
     leadIn = leadOut;
 
     if ((k + 1) % 100 == 0 || doLog || doSave) {
@@ -1252,15 +1238,15 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   }
 
   // See coreStep().
-  if (leadIn) { fftP(bufAux, bufData); }
+  if (leadIn) { fftP(buf2, bufData); }
 
   HostAccessBuffer<double> bufAcc{queue, "acc", N};
 
-  tW(bufTmp, bufAux);
-  tailFusedSquare(bufAux, bufTmp);
-  tH(bufAcc, bufAux);			// Save bufAcc for later use as an accumulator
-  fftW(bufAux, bufAcc);
-  carryA(bufData, bufAux);
+  tW(buf1, buf2);
+  tailFusedSquare(buf2, buf1);
+  tH(bufAcc, buf2);			// Save bufAcc for later use as an accumulator
+  fftW(buf2, bufAcc);
+  carryA(bufData, buf2);
   carryB(bufData);
 
   u32 beginPos = 0;
@@ -1289,30 +1275,28 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   
   // --- Stage 2 ---
 
-  Buffer<double> bufTmp2{queue, "tmp2", N};
-  
   // Take bufData to "low" state stored in bufBase
   Buffer<double> bufBase{queue, "base", N};
   fftP(bufBase, bufData);
-  tW(bufTmp, bufBase);
-  fftHin(bufBase, bufTmp);
+  tW(buf1, bufBase);
+  fftHin(bufBase, buf1);
   
   auto [startBlock, nPrimes, allSelected] = makePm1Plan(B1, B2);
   assert(startBlock > 0);  
   u32 nBlocks = allSelected.size();
   log("%u P2 using blocks [%u - %u] to cover %u primes\n", E, startBlock, startBlock + nBlocks - 1, nPrimes);
   
-  exponentiateLow(bufAux, bufBase, 30030*30030, bufTmp, bufTmp2); // Aux := base^(D^2)
+  exponentiateLow(buf2, bufBase, 30030*30030, buf1, buf3); // Aux := base^(D^2)
 
   constexpr auto jset = getJset();
   static_assert(jset[0] == 1);
   static_assert(jset[2880 - 1] == 15013);
 
   u32 beginJ = jset[beginPos];
-  SquaringSet little{*this, N, bufBase, bufTmp, bufTmp2, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
-  SquaringSet bigStart{*this, N, bufAux, bufTmp, bufTmp2, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "bigStart"};
+  SquaringSet little{*this, N, bufBase, buf1, buf3, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
+  SquaringSet bigStart{*this, N, buf2, buf1, buf3, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "bigStart"};
   bufBase.reset();
-  bufAux.reset();
+  buf2.reset();
   SquaringSet big{*this, N, "big"};
   
 
@@ -1344,7 +1328,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
       int delta = jset[pos + i] - prevJ;
       prevJ = jset[pos + i];
       assert((delta & 1) == 0);
-      for (int steps = delta / 2; steps > 0; --steps) { little.step(bufTmp); }
+      for (int steps = delta / 2; steps > 0; --steps) { little.step(buf1); }
       blockBufs[i] << little.C;
     }
 
@@ -1359,15 +1343,15 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
         big = bigStart;
         first = false;
       } else {
-        big.step(bufTmp);
+        big.step(buf1);
       }
       for (u32 i = 0; i < nUsedBufs; ++i) {
         if (selected[pos + i]) {
           ++nSelected;
-          carryFused(bufTmp, bufAcc);
-          tW(bufAcc, bufTmp);
-          tailMulDelta(bufTmp, bufAcc, big.C, blockBufs[i]);
-          tH(bufAcc, bufTmp);
+          carryFused(buf1, bufAcc);
+          tW(bufAcc, buf1);
+          tailMulDelta(buf1, bufAcc, big.C, blockBufs[i]);
+          tH(bufAcc, buf1);
         }
       }
       queue->finish();
@@ -1383,8 +1367,8 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     logTimeKernels();
   }
 
-  fftW(bufTmp, bufAcc);
-  carryA(bufData, bufTmp);
+  fftW(buf1, bufAcc);
+  carryA(bufData, buf1);
   carryB(bufData);
   stage2Data = readData();
   }
