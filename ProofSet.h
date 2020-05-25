@@ -11,18 +11,36 @@
 #include <string>
 #include <cassert>
 #include <filesystem>
+#include <cinttypes>
 
-struct Proof {
+struct ProofUtil {
+  static Words makeWords(u32 E, u32 init) {
+    u32 nWords = (E - 1) / 32 + 1;
+    Words x(nWords);
+    x[0] = init;
+    return x;
+  }
+
+  static u32 revbin(int nBits, u32 k) {
+    u32 r = 0;    
+    for (u32 bit = 1 << (nBits - 1); bit; bit>>=1, k>>=1) { if (k & 1) { r |= bit; }}
+    return r;
+  }
+};
+
+class Proof {
+public:
   u32 E, topK;
   Words B;
   vector<Words> middles;
 
+  // Proof(u32 E) : 
+  
   bool verify(Gpu *gpu) {
     u32 power = middles.size();
     assert(power > 0);
     assert(topK % (1 << power) == 0);
-    // u32 step = topK / (1 << power);
-    Words A{makeWords3(E)};
+    Words A{ProofUtil::makeWords(E, 3)};
     
     u64 h = Blake2::hash({E, topK, power, B});
     
@@ -30,19 +48,15 @@ struct Proof {
       Words& M = middles[i];
       h = Blake2::hash({h, M});
       A = gpu->expMul(A, h, M);
-      B = gpu->expMul(M, h, B);      
+      B = gpu->expMul(M, h, B);
     }
 
-    return gpu->expExp2(A, topK / (1 << power)) == B;
-  }
-
-private:
-  
-  static Words makeWords3(u32 E) {
-    u32 nWords = (E - 1) / 32 + 1;
-    Words x(nWords);
-    x[0] = 3;
-    return x;
+    u32 step = topK / (1 << power);
+    log("proof verification: doing %d iterations\n", step);
+    Words C = gpu->expExp2(A, step);
+    // log("A %08x B %08x C %08x\n", A[0], B[0], C[0]);
+    
+    return C == B;
   }
 };
 
@@ -78,11 +92,11 @@ public:
     assert(k % step == 0);
     
     File f = File::openRead(proofPath / to_string(k), true);
-    vector<u32> words = f.read<u32>(E / 32 + 1);
+    vector<u32> words = f.read<u32>(E / 32 + 2);
     u32 checksum = words.back();
     words.pop_back();
     if (checksum != crc32(words)) {
-      log("checksum %x (expected %x) in '%s'", crc32(words), checksum, f.name.c_str());
+      log("checksum %x (expected %x) in '%s'\n", crc32(words), checksum, f.name.c_str());
       throw fs::filesystem_error{"checksum mismatch", {}};
     }
     return words;
@@ -90,6 +104,8 @@ public:
 
   bool isValidTo(u32 limitK) const {
     if (!power) { return true; }
+
+    fs::create_directory(proofPath);
     
     try {
       for (u32 k = step; k <= limitK; k += step) { load(k); }
@@ -99,11 +115,39 @@ public:
     return true;
   }
 
-  Proof computeProof(); // {}
+  bool isComplete() const { return isValidTo(topK); }
 
-  bool verifyProof() const { return true; }
-  
-private:
+  Proof computeProof(Gpu *gpu) {
+    assert(power > 0);
+    
+    Words B = load(topK);
+    Words A = ProofUtil::makeWords(E, 3);
+
+    vector<Words> middles;
+    
+    vector<mpz_class> hashes;
+    hashes.emplace_back(1);
+    middles.push_back(load(topK / 2));
+
+    u64 h = Blake2::hash({E, topK, power, B});
+    
+    for (u32 p = 1; p < power; ++p) {
+      h = Blake2::hash({h, middles.back()});
+      log("proof: building level %d, hash %016" PRIx64 "\n", (p + 1), h);
+      for (int i = 0; i < (1 << (p - 1)); ++i) { hashes.push_back(hashes[i] * h); }
+      Words M = ProofUtil::makeWords(E, 1);
+      u32 s = topK / (1 << (p + 1));
+      for (int i = 0; i < (1 << p); ++i) {
+        Words w = load(s * (2 * i + 1));
+        u32 pos = ProofUtil::revbin(p, (1<<p) - 1 - i);
+        M = gpu->expMul(w, bitsMSB(hashes[pos]), M);
+      }
+      middles.push_back(std::move(M));
+    }
+    return Proof{E, topK, std::move(B), std::move(middles)};
+  }
+
+private:  
   static u32 crc32(const void *data, size_t size) {
     u32 tab[16] = {
                    0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC,

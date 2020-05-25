@@ -56,10 +56,15 @@ static ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 r
 }
 
 static ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
-  u32 size = smallH * (middle - 1);
-  vector<double2> tab(size);
-  auto *p = smallTrigBlock(smallH, middle, tab.data());
-  assert(p - tab.data() == size);
+  vector<double2> tab;
+  if (middle == 1) {
+    tab.resize(1);
+  } else {  
+    u32 size = smallH * (middle - 1);
+    tab.resize(size);
+    auto *p = smallTrigBlock(smallH, middle, tab.data());
+    assert(p - tab.data() == size);
+  }
   return {context, "middleTrig", tab};
 }
 
@@ -553,9 +558,21 @@ Words Gpu::expExp2(const Words& A, u32 n) {
   return readData();
 }
 
+static vector<bool> toBits(u64 x) {
+  vector<bool> r;
+  while (x) {
+    r.push_back(x & 1u);
+    x >>= 1;
+  }
+  reverse(r.begin(), r.end());
+  return r;
+}
+
 // return A^x * B
-Words Gpu::expMul(const Words& A, u64 x, const Words& B) {
-  assert(x != 0);
+Words Gpu::expMul(const Words& A, u64 x, const Words& B) { return expMul(A, toBits(x), B); }
+
+Words Gpu::expMul(const Words& A, const vector<bool>& x, const Words& B) {
+  assert(!x.empty() && x.front());
   
   writeData(A);
   exponentiateHigh(bufData, x, buf1, buf2, buf3);
@@ -565,17 +582,19 @@ Words Gpu::expMul(const Words& A, u64 x, const Words& B) {
   return readData();
 }
 
-void Gpu::exponentiateHigh(Buffer<int>& bufInOut, u64 exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2) {
-  if (exp == 0) {
+void Gpu::exponentiateHigh(Buffer<int>& bufInOut, const vector<bool>& exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2) {
+  assert(exp.empty() || exp.front());
+  if (exp.empty()) {
     queue->zero(bufInOut, N);
     u32 data = 1;
     fillBuf(queue->get(), bufInOut.get(), &data, sizeof(data));
-  } else if (exp > 1) {
+  } else if (exp.size() > 1) {
     fftP(buf1, bufInOut);
     tW(buf2, buf1);
     fftHin(bufBaseLow, buf2);
     exponentiateCore(buf1, bufBaseLow, exp, buf2);
-    carryA(bufInOut, buf1);
+    fftW(buf2, buf1);
+    carryA(bufInOut, buf2);
     carryB(bufInOut);
   }
 }
@@ -587,7 +606,7 @@ void Gpu::exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 e
   if (exp == 1) {
     out << base;    
   } else {
-    exponentiateCore(out, base, exp, tmp);
+    exponentiateCore(out, base, toBits(exp), tmp);
     carryFused(tmp, out);
     tW(tmp2, tmp);
     fftHin(out, tmp2);
@@ -595,20 +614,16 @@ void Gpu::exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 e
 }
 
 // See "left-to-right binary exponentiation" on wikipedia
-void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp) {
-  assert(exp >= 2);
-
-  int p = 63;
-  while ((exp >> p) == 0) { --p; }
-  assert(p > 0);
+void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, const vector<bool>& exp, Buffer<double>& tmp) {
+  assert(exp.size() >= 2);
+  assert(exp.front());
 
   // square(tmp, base); fftHout(tmp);
   tailSquareLow(tmp, base);
   tH(out, tmp);
-
-  while (true) {
-    --p;
-    if ((exp >> p) & 1) {
+  
+  for (int p = 1, sz = exp.size();; ++p) {
+    if (exp[p]) {
       carryFused(tmp, out);
       tW(out, tmp);
 
@@ -618,7 +633,8 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
       tailFusedMulLow(tmp, out, base);
       tH(out, tmp);
     }
-    if (p <= 0) { break; }
+    
+    if (p == sz - 1) { break; }
 
     carryFused(tmp, out);
     tW(out, tmp);
@@ -1042,20 +1058,27 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
   u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
 
   bool displayRoundoff = args.flags.count("STATS");
-  
+
+  u32 persistK = proofSet.firstPersistAfter(k);
+      
   while (true) {
     assert(k % blockSize == 0);
     assert(k < kEnd);
     
     u32 nextK = k + blockSize;
 
-    u32 persistK = proofSet.firstPersistAfter(k);
     assert(persistK >= k);
-    bool persistInThisBlock = persistK < nextK;
+
+    if (persistK < nextK) {
+      assert(persistK <= kEnd);
+      modSqLoop(bufData, persistK - k, buf1, buf2);
+      k = persistK;
+      proofSet.save(k, readData());
+      persistK = proofSet.firstPersistAfter(k);
+    }
     
     if (nextK >= kEnd) {
       assert(kEnd > k);
-      assert(!persistInThisBlock);
       modSqLoop(bufData, kEnd - k, buf1, buf2);
       auto words = readData();
       isPrime = equals9(words);
@@ -1063,10 +1086,6 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
       finalRes64 = residue(words);
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
       k = kEnd;
-    } else if (persistInThisBlock) {
-      modSqLoop(bufData, persistK - k, buf1, buf2);
-      k = persistK;
-      proofSet.save(k, readData());
     }
 
     assert(nextK >= k);

@@ -145,9 +145,9 @@ class Gpu {
 
   void multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
 
-  void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
+  void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, const vector<bool>& exp, Buffer<double>& tmp);
   void exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& tmp2);
-  void exponentiateHigh(Buffer<int>& bufInOut, u64 exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2);
+  void exponentiateHigh(Buffer<int>& bufInOut, const vector<bool>& exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2);
   
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
@@ -192,6 +192,8 @@ public:
 
   // return A^x * M
   Words expMul(const Words& A, u64 x, const Words& M);
+  Words expMul(const Words& A, const vector<bool>& x, const Words& M);
+  
   // return A^(2^n)
   Words expExp2(const Words& A, u32 n);
 };

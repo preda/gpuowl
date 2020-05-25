@@ -115,11 +115,7 @@ void Args::parse(string line) {
   for (const auto& [key, s] : args) {
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
     else if (key == "-proof") {
-      proofPow = s.empty() ? 7 : stoi(s);
-      if (proofPow < 7 || proofPow > 9) {
-        log("-proofPow <power>: power must be between 7 and 9 (got %d); using 7\n", proofPow);
-        proofPow = 7;
-      }
+      proofPow = s.empty() ? 8 : stoi(s);
     }
     else if (key == "-pool") { masterDir = s; }
     else if (key == "-results") { resultsFile = s; }

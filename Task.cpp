@@ -10,6 +10,7 @@
 #include "Worktodo.h"
 #include "checkpoint.h"
 #include "version.h"
+#include "ProofSet.h"
 
 #include <cstdio>
 #include <cmath>
@@ -128,7 +129,12 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
     bool abortedFactorFound = (!isPrime && !res64 && nErrors == u32(-1));
     if (!abortedFactorFound) {
       writeResultPRP(args, isPrime, res64, fftSize, nErrors);
-      // if (args.proofPow) { gpu->buildProof(exponent, args); }
+      if (args.proofPow) {
+        ProofSet proofSet{exponent, args.proofPow};
+        assert(proofSet.isComplete());
+        Proof proof = proofSet.computeProof(gpu.get());
+        log("Proof %d\n", int(proof.verify(gpu.get())));
+      }
       
       Worktodo::deleteTask(*this);
     } else {

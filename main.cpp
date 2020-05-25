@@ -8,6 +8,7 @@
 #include "File.h"
 #include "version.h"
 #include "AllocTrac.h"
+#include "ProofSet.h"
 #include "typeName.h"
 
 #include <cstdio>

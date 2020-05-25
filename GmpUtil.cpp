@@ -33,7 +33,7 @@ u32 sizeBits(mpz_class a) { return mpz_sizeinbase(a.get_mpz_t(), 2); }
 
 }
 
-vector<bool> bitsMSB(mpz_class a) {
+vector<bool> bitsMSB(const mpz_class& a) {
   vector<bool> bits;
   int nBits = sizeBits(a);
   bits.reserve(nBits);
