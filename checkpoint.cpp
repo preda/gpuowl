@@ -37,8 +37,6 @@ void PRPState::cleanup(u32 E) { ::cleanup(E, EXT); }
 void  P1State::cleanup(u32 E) { ::cleanup(E, EXT); }
 void  P2State::cleanup(u32 E) { ::cleanup(E, EXT); }
 
-// Residue from compacted words.
-u64 residue(const vector<u32> &words) { return (u64(words[1]) << 32) | words[0]; }
 
 template<typename T>
 static void write(FILE *fo, const vector<T> &v) {

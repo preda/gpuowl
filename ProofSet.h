@@ -35,6 +35,35 @@ public:
   vector<Words> middles;
   u64 finalHash; // a data check
 
+  // version(1), E, topK, power, finalHash
+  static const constexpr char* HEADER = "PROOF 1 %u %u %u %" SCNx64 "\n";
+  
+  fs::path save() {
+    string strE = to_string(E);
+    fs::path fileName = fs::current_path() / strE / (strE + '-' + hex(finalHash).substr(0, 4) + ".proof");
+    File fo = File::openWrite(fileName);
+    fo.printf(HEADER, E, topK, u32(middles.size()), finalHash);
+    fo.write(B);
+    for (const Words& w : middles) { fo.write(w); }
+    return fileName;
+  }
+
+  static Proof load(fs::path path) {
+    File fi = File::openRead(path, true);
+    string headerLine = fi.readLine();
+    u32 E = 0, topK = 0, power = 0;
+    u64 finalHash = 0;
+    if (sscanf(headerLine.c_str(), HEADER, &E, &topK, &power, &finalHash) != 4) {
+      log("Proof file '%s' has invalid header '%s'\n", path.string().c_str(), headerLine.c_str());
+      throw "Invalid proof header";
+    }
+    u32 nWords = (E - 1) / 32 + 1;
+    Words B = fi.read<u32>(nWords);
+    vector<Words> middles;
+    for (u32 i = 0; i < power; ++i) { middles.push_back(fi.read<u32>(nWords)); }
+    return {E, topK, B, middles, finalHash};
+  }
+  
   bool verify(Gpu *gpu) {
     u32 power = middles.size();
     assert(power > 0);
@@ -48,7 +77,7 @@ public:
     
     for (u32 i = 0; i < power; ++i) {
       Words& M = middles[i];      
-      h = Blake2::hash({h, M}); // for the final step any random value would do
+      h = Blake2::hash({h, M});
       A = gpu->expMul(A, h, M);
       B = gpu->expMul(M, h, B);
     }
@@ -72,7 +101,7 @@ public:
     u64 resType4 = res64(A);
 
     Gpu::doDiv9(E, A);
-    log("proof: %u %s, res type1 %016" PRIx64 " type4 %016" PRIx64 "\n", E, isPrime ? "likely prime" : "proved composite", res64(A), resType4);    
+    log("proof: %u proved %s, res type1 %016" PRIx64 " type4 %016" PRIx64 "\n", E, isPrime ? "probable prime" : "composite", res64(A), resType4);    
     return true;
   }
 

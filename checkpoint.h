@@ -9,8 +9,6 @@
 #include <string>
 #include <cinttypes>
 
-u64 residue(const vector<u32> &words);
-
 void deleteSaveFiles(u32 E);
 
 class StateLoader {

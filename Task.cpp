@@ -131,9 +131,10 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
       writeResultPRP(args, isPrime, res64, fftSize, nErrors);
       if (args.proofPow) {
         ProofSet proofSet{exponent, args.proofPow};
-        // assert(proofSet.isComplete());
-        Proof proof = proofSet.computeProof(gpu.get());
-        log("Proof %d\n", int(proof.verify(gpu.get())));
+        fs::path name = proofSet.computeProof(gpu.get()).save();
+        Proof proof = Proof::load(name);
+        bool ok = proof.verify(gpu.get());
+        log("proof '%s' %s\n", name.string().c_str(), ok ? "verified" : "failed");
       }
       
       Worktodo::deleteTask(*this);

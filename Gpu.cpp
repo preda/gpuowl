@@ -740,6 +740,7 @@ bool Gpu::equals9(const Words& a) {
   return true;
 }
 
+
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   if (iniBlockSize == 0) { iniBlockSize = 400; } // default PRP block size
   PRPState loaded(E, iniBlockSize);
