@@ -734,7 +734,7 @@ static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
   snprintf(buf, sizeof(buf), "%u %2s %5.2f%%\n", E, "P2", ratioComplete * 100);
 }
 
-static bool equals9(const vector<u32> &a) {
+bool Gpu::equals9(const Words& a) {
   if (a[0] != 9) { return false; }
   for (auto it = next(a.begin()); it != a.end(); ++it) { if (*it) { return false; }}
   return true;
@@ -767,7 +767,7 @@ static u32 mod3(const std::vector<u32> &words) {
   return r % 3;
 }
 
-static void doDiv3(int E, std::vector<u32> &words) {
+static void doDiv3(u32 E, Words& words) {
   u32 r = (3 - mod3(words)) % 3;
   assert(0 <= r && r < 3);
   int topBits = E % 32;
@@ -784,7 +784,7 @@ static void doDiv3(int E, std::vector<u32> &words) {
   }
 }
 
-void doDiv9(int E, std::vector<u32> &words) {
+void Gpu::doDiv9(u32 E, Words& words) {
   doDiv3(E, words);
   doDiv3(E, words);
 }

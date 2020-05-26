@@ -163,6 +163,8 @@ class Gpu {
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args, bool isPm1);
+  static void doDiv9(u32 E, Words& words);
+  static bool equals9(const Words& words);
   
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, bool isPm1);

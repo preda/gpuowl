@@ -33,31 +33,51 @@ public:
   u32 E, topK;
   Words B;
   vector<Words> middles;
+  u64 finalHash; // a data check
 
-  // Proof(u32 E) : 
-  
   bool verify(Gpu *gpu) {
     u32 power = middles.size();
     assert(power > 0);
     assert(topK % (1 << power) == 0);
+    assert(topK <= E);
+    Words saveB = B;
+    
     Words A{ProofUtil::makeWords(E, 3)};
     
-    u64 h = Blake2::hash({E, topK, power, B});
+    u64 h = Blake2::hash({E, topK, B});
     
     for (u32 i = 0; i < power; ++i) {
-      Words& M = middles[i];
-      h = Blake2::hash({h, M});
+      Words& M = middles[i];      
+      h = Blake2::hash({h, M}); // for the final step any random value would do
       A = gpu->expMul(A, h, M);
       B = gpu->expMul(M, h, B);
+    }
+    
+    if (h != finalHash) {
+      log("proof: hash %016" PRIx64 " expected %016" PRIx64 "\n", h, finalHash);
+      return false;
     }
 
     u32 step = topK / (1 << power);
     log("proof verification: doing %d iterations\n", step);
-    Words C = gpu->expExp2(A, step);
-    // log("A %08x B %08x C %08x\n", A[0], B[0], C[0]);
-    
-    return C == B;
+    A = gpu->expExp2(A, step);
+    if (A != B) {
+      log("proof: failed to validate: %016" PRIx64 " expected %016" PRIx64 "\n", res64(A), res64(B));
+      return false;
+    }
+
+    log("proof: doing %d tail iterations\n", E - topK);
+    A = gpu->expExp2(saveB, E - topK);
+    bool isPrime = Gpu::equals9(A);
+    u64 resType4 = res64(A);
+
+    Gpu::doDiv9(E, A);
+    log("proof: %u %s, res type1 %016" PRIx64 " type4 %016" PRIx64 "\n", E, isPrime ? "likely prime" : "proved composite", res64(A), resType4);    
+    return true;
   }
+
+private:
+  static u64 res64(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
 };
 
 class ProofSet {
@@ -129,10 +149,10 @@ public:
     hashes.emplace_back(1);
     middles.push_back(load(topK / 2));
 
-    u64 h = Blake2::hash({E, topK, power, B});
+    u64 h = Blake2::hash({E, topK, B});
+    h = Blake2::hash({h, middles.back()});
     
     for (u32 p = 1; p < power; ++p) {
-      h = Blake2::hash({h, middles.back()});
       log("proof: building level %d, hash %016" PRIx64 "\n", (p + 1), h);
       for (int i = 0; i < (1 << (p - 1)); ++i) { hashes.push_back(hashes[i] * h); }
       Words M = ProofUtil::makeWords(E, 1);
@@ -143,8 +163,9 @@ public:
         M = gpu->expMul(w, bitsMSB(hashes[pos]), M);
       }
       middles.push_back(std::move(M));
+      h = Blake2::hash({h, middles.back()});
     }
-    return Proof{E, topK, std::move(B), std::move(middles)};
+    return Proof{E, topK, std::move(B), std::move(middles), h};
   }
 
 private:  
@@ -166,49 +187,4 @@ private:
   static u32 crc32(const std::vector<u32>& words) { return crc32(words.data(), sizeof(words[0]) * words.size()); }
 
   fs::path proofPath{fs::current_path() / to_string(E) / "proof"};
-};
-
-struct Level {
-  Words x, y, u;
-  u64 hash;
-  vector<mpz_class> exponents;
-};
-
-class ProofBuilder {
-public:
-  ProofBuilder(u32 E, u32 kEnd, u32 power, Words y, Words u) : E{E}, kEnd{kEnd}, power{power} {
-    Words x(nWords);
-    x[0] = 3;
-    vector<mpz_class> exponents{{1}};
-    u64 hash = Blake2::hash({Blake2::hash({E, kEnd, power}), x, y, u});
-    levels.push_back({std::move(x), std::move(y), std::move(u), hash, {{1}}});
-  }
-
-  void addLevel(Words x, Words y, Words u, const vector<mpz_class> exponents) {
-    u64 hash = Blake2::hash({levels.back().hash, x, y, u});
-    levels.push_back({std::move(x), std::move(y), std::move(u), hash, std::move(exponents)});
-  }
-
-  Proof getProof() {
-    return {};
-  }
-  
-  const u32 E;
-  const u32 kEnd;
-  const u32 power;
-  const u32 nWords{(E-1) / 32 + 1};
-
-private:
-  vector<Level> levels{};
-
-  /*
-
-  void addNextLevel() {
-    Level& prev = levels.back();
-    Words x = powerMul(prev.x, prev.hash, prev.u);
-    Words y = powerMul(prev.u, prev.hash, prev.y);
-    // Words u = ;
-  }
-  */
-  
 };
