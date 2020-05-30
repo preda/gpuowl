@@ -135,8 +135,8 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   
   vector<double> threadWeights;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
-    threadWeights.push_back(invWeight(N, E, H, 0, thread, 0));
-    threadWeights.push_back(weight(N, E, H, 0, thread, 0));
+    threadWeights.push_back(invWeight(N, E, H, 0, thread, 0) - 1.0);
+    threadWeights.push_back(weight(N, E, H, 0, thread, 0) - 1.0);
   }
 
   vector<u32> bits;
@@ -195,10 +195,8 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
      {"MIDDLE", MIDDLE},
-     {"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1))},
-     {"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1))},
-     {"WEIGHT_BIGSTEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, WIDTH / nW, 0))},
-     {"IWEIGHT_BIGSTEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, WIDTH / nW, 0))},
+     {"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1.0)},
+     {"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1.0)},
      {"PM1", (isPm1 ? 1 : 0)},
     };
 
