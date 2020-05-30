@@ -220,7 +220,10 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
   for (const string& flag : args.flags) {
     auto pos = flag.find('=');
     string label = (pos == string::npos) ? flag : flag.substr(0, pos);
-    if (clSource.find(label) == string::npos) { log("%s not used\n", label.c_str()); }
+    if (clSource.find(label) == string::npos) {
+      log("%s not used\n", label.c_str());
+      throw "-use with unknown key";
+    }
     if (pos == string::npos) {
       defines.push_back({label, 1});
     } else {

@@ -29,8 +29,6 @@ ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>          // Our own sin/cos implementation
 ROCM_SLOWTRIG                   // Use ROCm's private reduced-argument sin/cos
 
-NO_KCOS_ROCM_BUG <nVidia default> // Disable workaround for ROCm 3.1,3.3 bug affecting kcos()
-
 DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
 STATS      enable stats about roundoff distribution and carry magnitude
 
@@ -117,10 +115,6 @@ G_H        "group height"
 
 #if !CARRYM32 && !CARRYM64
 #define CARRYM64 1
-#endif
-
-#if !AMDGPU
-#define NO_KCOS_ROCM_BUG 1
 #endif
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
@@ -1836,7 +1830,7 @@ double2 ocmlCosSin(double x) {
 
 double internal_kcos(double x, double z, double C0, const double C1, const double C2, const double C3, const double C4, const double C5, const double C6) {
   double r = (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z + C0;
-#if !NO_KCOS_ROCM_BUG
+#if WORKAROUND
   // The condition below is never hit,
   // it is here just to workaround a ROCm 3.1 maddening codegen bug.
   if (as_int2(x).y == -1) { return x; }  
