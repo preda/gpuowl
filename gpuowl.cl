@@ -296,6 +296,22 @@ T mul1_m2(T x, T y) {
 #endif
 }
 
+T OVERLOAD forced_fma(T x, T y, T z) {
+#if HAS_ASM
+  double out;
+  __asm("v_fma_f64 %0, %1, %2, %3" : "=v"(out) : "v"(x), "v"(y), "v"(z));
+  return out;
+#else
+  return fma(x, y, z);
+#endif
+}
+T2 OVERLOAD forced_fma(T2 x, T2 y, T2 z) {
+  T2 out;
+  out.x = forced_fma(x.x, y.x, z.x);
+  out.y = forced_fma(x.y, y.y, z.y);
+  return out;
+}
+
 T mad1(T x, T y, T z) { return x * y + z; }
 
 T mad1_m2(T a, T b, T c) {
@@ -2857,8 +2873,9 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   Word2 wu[NW];
-  T2 weights = groupWeights[line] * threadWeights[me];
-  T invWeight = weights.x;
+  // For one (or more) bits of precision, Gpu.cpp subtract 1.0 from thread weights and we use fma here rather than a multiply
+  T2 weights = fma(groupWeights[line], threadWeights[me], groupWeights[line]);
+
 #if CF_MUL
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
   CFMcarry carry[NW+1];
@@ -2869,20 +2886,48 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
   float roundMax = 0;
   u32 carryMax = 0;
-  
+
+  const double TWO_TO_MINUS_1_8TH = -0.08299595679532876825645840520586; // 2^-0.125 - 1.0
+  const double TWO_TO_MINUS_2_8TH = -0.15910358474628545696887452376679; // 2^-0.25 - 1.0
+  const double TWO_TO_MINUS_3_8TH = -0.22889458729602958819385406895463; // 2^-0.375 - 1.0
+  const double TWO_TO_MINUS_4_8TH = -0.29289321881345247559915563789515; // 2^-0.5 - 1.0
+  const double TWO_TO_MINUS_5_8TH = -0.35158022267449516703312294110377; // 2^-0.625 - 1.0
+  const double TWO_TO_MINUS_6_8TH = -0.40539644249863946664125001471976; // 2^-0.75 - 1.0
+  const double TWO_TO_MINUS_7_8TH = -0.45474613366737117039649467211965; // 2^-0.875 - 1.0
+
   for (i32 i = 0; i < NW; ++i) {
-    invWeight = optionalDouble(invWeight);
-    T invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
+    T baseInvWeight, invWeight, invWeight2;
+    if (i == 0) invWeight = baseInvWeight = optionalDouble(weights.x);
+#if MAX_ACCURACY
+    else if (((i * STEP) % NW) * (8 / NW) == 1) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_1_8TH, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 2) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_2_8TH, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 3) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_3_8TH, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 4) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_4_8TH, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 5) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_5_8TH, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 6) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_6_8TH, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 7) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_7_8TH, baseInvWeight));
+    invWeight2 = optionalDouble(forced_fma(invWeight, IWEIGHT_STEP, invWeight));
+#else
+    else if ((STEP % NW) * (8 / NW) == 1) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_1_8TH));
+    else if ((STEP % NW) * (8 / NW) == 2) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_2_8TH));
+    else if ((STEP % NW) * (8 / NW) == 3) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_3_8TH));
+    else if ((STEP % NW) * (8 / NW) == 4) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_4_8TH));
+    else if ((STEP % NW) * (8 / NW) == 5) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_5_8TH));
+    else if ((STEP % NW) * (8 / NW) == 6) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_6_8TH));
+    else if ((STEP % NW) * (8 / NW) == 7) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_7_8TH));
+    invWeight2 = optionalDouble(invWeight * (1.0 + IWEIGHT_STEP));
+#endif
+
     T2 x = conjugate(u[i]) * U2(invWeight, invWeight2);
 
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight, invWeight2)));
 #endif
-    
+
 #if CF_MUL    
     wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
 #else
-    
+
 #if SUB2
     CFcarry inCarry = 0;
     if (i == 0 && line == 0 && me == 0) { inCarry = -2; }
@@ -2890,9 +2935,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 #else    
     wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
 #endif
-    
+
 #endif
-    invWeight *= IWEIGHT_BIGSTEP;
   }
 
   if (gr < H) {
@@ -2900,7 +2944,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
       carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
     }
   }
-    
+
   release();
 
   // Signal that this group is done writing the carry.
@@ -2917,7 +2961,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 #endif
 
   if (gr == 0) { return; }
-  
+
   // Wait until the previous group is ready with the carry.
   if (me == 0) {
     while(!atomic_load((atomic_uint *) &ready[gr - 1]));
@@ -2930,7 +2974,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
 
   assert(gr > 0 && gr <= H);
-  
+
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
@@ -2949,14 +2993,39 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     // assert(gr <= H);
   }
 
+  const double TWO_TO_1_8TH = 0.0905077326652576592070106557607; // 2^0.125 - 1.0
+  const double TWO_TO_2_8TH = 0.1892071150027210667174999705605; // 2^0.25 - 1.0
+  const double TWO_TO_3_8TH = 0.2968395546510096659337541177925; // 2^0.375 - 1.0
+  const double TWO_TO_4_8TH = 0.4142135623730950488016887242097; // 2^0.5 - 1.0
+  const double TWO_TO_5_8TH = 0.5422108254079408236122918620907; // 2^0.625 - 1.0
+  const double TWO_TO_6_8TH = 0.6817928305074290860622509524664; // 2^0.75 - 1.0
+  const double TWO_TO_7_8TH = 0.8340080864093424634870831895883; // 2^0.875 - 1.0
+
   // Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
-  T weight = weights.y;
   for (i32 i = 0; i < NW; ++i) {
-    weight = optionalHalve(weight);
-    T weight2 = optionalHalve(weight * WEIGHT_STEP);
+    T baseWeight, weight, weight2;
+    if (i == 0) weight = baseWeight = optionalHalve(weights.y);
+#if MAX_ACCURACY
+    else if (((i * STEP) % NW) * (8 / NW) == 1) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_1_8TH, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 2) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_2_8TH, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 3) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_3_8TH, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 4) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_4_8TH, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 5) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_5_8TH, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 6) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_6_8TH, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 7) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_7_8TH, baseWeight));
+    weight2 = optionalHalve(forced_fma(weight, WEIGHT_STEP, weight));
+#else
+    else if ((STEP % NW) * (8 / NW) == 1) weight = optionalHalve(weight * (1.0 + TWO_TO_1_8TH));
+    else if ((STEP % NW) * (8 / NW) == 2) weight = optionalHalve(weight * (1.0 + TWO_TO_2_8TH));
+    else if ((STEP % NW) * (8 / NW) == 3) weight = optionalHalve(weight * (1.0 + TWO_TO_3_8TH));
+    else if ((STEP % NW) * (8 / NW) == 4) weight = optionalHalve(weight * (1.0 + TWO_TO_4_8TH));
+    else if ((STEP % NW) * (8 / NW) == 5) weight = optionalHalve(weight * (1.0 + TWO_TO_5_8TH));
+    else if ((STEP % NW) * (8 / NW) == 6) weight = optionalHalve(weight * (1.0 + TWO_TO_6_8TH));
+    else if ((STEP % NW) * (8 / NW) == 7) weight = optionalHalve(weight * (1.0 + TWO_TO_7_8TH));
+    weight2 = optionalHalve(weight * (1.0 + WEIGHT_STEP));
+#endif
 
     u[i] = carryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2 * i));
-    weight *= WEIGHT_BIGSTEP;
   }
 
   bar();
