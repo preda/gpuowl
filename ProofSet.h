@@ -34,15 +34,16 @@ public:
   Words B;
   vector<Words> middles;
   u64 finalHash; // a data check
+  u64 prpRes64;
 
   // version(1), E, topK, power, finalHash
-  static const constexpr char* HEADER = "PROOF 1 %u %u %u %" SCNx64 "\n";
+  static const constexpr char* HEADER = "PROOF 1 %u %u %u %" SCNx64 " %" SCNx64 "\n";
   
   fs::path save() {
     string strE = to_string(E);
     fs::path fileName = fs::current_path() / strE / (strE + '-' + hex(finalHash).substr(0, 4) + ".proof");
     File fo = File::openWrite(fileName);
-    fo.printf(HEADER, E, topK, u32(middles.size()), finalHash);
+    fo.printf(HEADER, E, topK, u32(middles.size()), finalHash, prpRes64);
     fo.write(B);
     for (const Words& w : middles) { fo.write(w); }
     return fileName;
@@ -52,8 +53,8 @@ public:
     File fi = File::openRead(path, true);
     string headerLine = fi.readLine();
     u32 E = 0, topK = 0, power = 0;
-    u64 finalHash = 0;
-    if (sscanf(headerLine.c_str(), HEADER, &E, &topK, &power, &finalHash) != 4) {
+    u64 finalHash = 0, prpRes64 = 0;
+    if (sscanf(headerLine.c_str(), HEADER, &E, &topK, &power, &finalHash, &prpRes64) != 5) {
       log("Proof file '%s' has invalid header '%s'\n", path.string().c_str(), headerLine.c_str());
       throw "Invalid proof header";
     }
@@ -61,7 +62,7 @@ public:
     Words B = fi.read<u32>(nWords);
     vector<Words> middles;
     for (u32 i = 0; i < power; ++i) { middles.push_back(fi.read<u32>(nWords)); }
-    return {E, topK, B, middles, finalHash};
+    return {E, topK, B, middles, finalHash, prpRes64};
   }
   
   bool verify(Gpu *gpu) {
@@ -101,7 +102,15 @@ public:
     u64 resType4 = res64(A);
 
     Gpu::doDiv9(E, A);
-    log("proof: %u proved %s, res type1 %016" PRIx64 " type4 %016" PRIx64 "\n", E, isPrime ? "probable prime" : "composite", res64(A), resType4);    
+    u64 resType1 = res64(A);
+    log("proof: %u proved %s, res type1 %016" PRIx64 " type4 %016" PRIx64 "\n",
+        E, isPrime ? "probable prime" : "composite", resType1, resType4);
+
+    if (resType1 != prpRes64) {
+      log("proof: res64 %016" PRIx64 " expected %016" PRIx64 "\n", resType1, prpRes64);
+      return false;
+    }
+    
     return true;
   }
 
@@ -166,7 +175,7 @@ public:
 
   bool isComplete() const { return isValidTo(topK); }
 
-  Proof computeProof(Gpu *gpu) {
+  Proof computeProof(Gpu *gpu, u64 prpRes64) {
     assert(power > 0);
     
     Words B = load(topK);
@@ -194,7 +203,7 @@ public:
       middles.push_back(std::move(M));
       h = Blake2::hash({h, middles.back()});
     }
-    return Proof{E, topK, std::move(B), std::move(middles), h};
+    return Proof{E, topK, std::move(B), std::move(middles), h, prpRes64};
   }
 
 private:  

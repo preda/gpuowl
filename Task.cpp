@@ -131,7 +131,7 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
       writeResultPRP(args, isPrime, res64, fftSize, nErrors);
       if (args.proofPow) {
         ProofSet proofSet{exponent, args.proofPow};
-        fs::path name = proofSet.computeProof(gpu.get()).save();
+        fs::path name = proofSet.computeProof(gpu.get(), res64).save();
         Proof proof = Proof::load(name);
         bool ok = proof.verify(gpu.get());
         log("proof '%s' %s\n", name.string().c_str(), ok ? "verified" : "failed");
