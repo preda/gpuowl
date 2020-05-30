@@ -126,6 +126,7 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 -maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)\
 -yield             : enable work-around for CUDA busy wait taking up one CPU core\
 -use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning).\
+-safeMath          : do not use -cl-unsafe-math-optimizations (OpenCL)\
 -device \<N\>        : select a specific device:\
  \
 Device numbers start at zero.
