@@ -33,6 +33,7 @@ public:
   bool cudaYield = false;
   bool cleanup = false;
   bool noSpin = false;
+  bool safeMath = false;
   
   u32 proofPow = 0;
   

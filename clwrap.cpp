@@ -263,8 +263,11 @@ cl_program compile(cl_context context, cl_device_id device, const string &source
                    const vector<string> &defines) {
   string strDefines;
   for (const string& d : defines) { strDefines += "-D" + d + ' '; }
-  string args = strDefines + extraArgs + " -cl-std=CL2.0 -cl-denorms-are-zero -cl-no-signed-zeros -cl-finite-math-only ";
-  // -cl-fast-relaxed-math  -cl-unsafe-math-optimizations
+  
+  // Note: Gpu.cpp also sets -cl-unfasafe-math-optimizations unless -safeMath is specified.
+  string args = strDefines + extraArgs + " -cl-std=CL2.0 -cl-finite-math-only ";
+
+  // -cl-fast-relaxed-math  -cl-unsafe-math-optimizations -cl-denorms-are-zero -cl-mad-enable 
   log("OpenCL args \"%s\"\n", args.c_str());
   
   cl_program program = 0;
