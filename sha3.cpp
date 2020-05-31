@@ -17,7 +17,8 @@
 **
 ** This file contains an implementation of SHA3 (Keccak) hashing.
 */
-#include "common.h"
+
+#include "sha3.h"
 #include <cstring>
 #include <cassert>
 
@@ -42,21 +43,6 @@
 #   define SHA3_BYTEORDER 0
 # endif
 #endif
-
-
-/*
-** State structure for a SHA3 hash in progress
-*/
-typedef struct SHA3Context SHA3Context;
-struct SHA3Context {
-  union {
-    u64 s[25];                /* Keccak state. 5x5 lines of 64 bits each */
-    unsigned char x[1600];    /* ... or 1600 bytes */
-  } u;
-  unsigned nRate;        /* Bytes of input accepted per Keccak iteration */
-  unsigned nLoaded;      /* Input bytes loaded into u.x[] so far this cycle */
-  unsigned ixMask;       /* Insert next input into u.x[nLoaded^ixMask]. */
-};
 
 /*
 ** A single step of the Keccak mixing function for a 1600-bit state
@@ -378,12 +364,7 @@ static void KeccakF1600Step(SHA3Context *p){
   }
 }
 
-/*
-** Initialize a new hash.  iSize determines the size of the hash
-** in bits and should be one of 224, 256, 384, or 512.  Or iSize
-** can be zero to use the default hash size of 256 bits.
-*/
-static void SHA3Init(SHA3Context *p, int iSize){
+void SHA3Init(SHA3Context *p, int iSize) {
   memset(p, 0, sizeof(*p));
   if( iSize>=128 && iSize<=512 ){
     p->nRate = (1600 - ((iSize + 31)&~31)*2)/8;
@@ -408,11 +389,7 @@ static void SHA3Init(SHA3Context *p, int iSize){
 #endif
 }
 
-/*
-** Make consecutive calls to the SHA3Update function to add new content
-** to the hash
-*/
-static void SHA3Update(
+void SHA3Update(
   SHA3Context *p,
   const unsigned char *aData,
   unsigned int nData
@@ -446,12 +423,7 @@ static void SHA3Update(
   }
 }
 
-/*
-** After all content has been added, invoke SHA3Final() to compute
-** the final hash.  The function returns a pointer to the binary
-** hash value.
-*/
-static unsigned char *SHA3Final(SHA3Context *p){
+unsigned char *SHA3Final(SHA3Context *p){
   unsigned int i;
   if( p->nLoaded==p->nRate-1 ){
     const unsigned char c1 = 0x86;
@@ -468,37 +440,3 @@ static unsigned char *SHA3Final(SHA3Context *p){
   }
   return &p->u.x[p->nRate];
 }
-
-/*
-** Convert a digest into base-16.  digest should be declared as
-** "unsigned char digest[20]" in the calling function.  The SHA3
-** digest is stored in the first 20 bytes.  zBuf should
-** be "char zBuf[41]".
-*/
-static void DigestToBase16(unsigned char *digest, char *zBuf, int nByte){
-  static const char zEncode[] = "0123456789abcdef";
-  int ix;
-
-  for(ix=0; ix<nByte; ix++){
-    *zBuf++ = zEncode[(*digest>>4)&0xf];
-    *zBuf++ = zEncode[*digest++ & 0xf];
-  }
-  *zBuf = '\0';
-}
-
-
-#if 0 /* NOT USED */
-/*
-** Compute the SHA3 checksum of a zero-terminated string.  The
-** result is held in memory obtained from mprintf().
-*/
-char *sha3sum(const char *zIn, int iSize){
-  SHA3Context ctx;
-  char zDigest[132];
-
-  SHA3Init(&ctx, iSize);
-  SHA3Update(&ctx, (unsigned const char*)zIn, strlen(zIn));
-  DigestToBase16(SHA3Final(&ctx), zDigest, iSize/8);
-  return mprintf("%s", zDigest);
-}
-#endif

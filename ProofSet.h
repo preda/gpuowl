@@ -6,12 +6,16 @@
 #include "GmpUtil.h"
 #include "File.h"
 #include "common.h"
-#include "Blake2.h"
+#include "Hash.h"
+#include "Sha3Hash.h"
+
 #include <vector>
 #include <string>
 #include <cassert>
 #include <filesystem>
 #include <cinttypes>
+
+using SHA3 = Hash<Sha3Hash>;
 
 struct ProofUtil {
   static Words makeWords(u32 E, u32 init) {
@@ -73,18 +77,18 @@ public:
     Words saveB = B;
     
     Words A{ProofUtil::makeWords(E, 3)};
-    
-    u64 h = Blake2::hash({E, topK, B});
+
+    auto hash = SHA3::hash({E, topK, B});
     
     for (u32 i = 0; i < power; ++i) {
       Words& M = middles[i];      
-      h = Blake2::hash({h, M});
-      A = gpu->expMul(A, h, M);
-      B = gpu->expMul(M, h, B);
+      hash = SHA3::hash({hash, M});
+      A = gpu->expMul(A, hash[0], M);
+      B = gpu->expMul(M, hash[0], B);
     }
     
-    if (h != finalHash) {
-      log("proof: hash %016" PRIx64 " expected %016" PRIx64 "\n", h, finalHash);
+    if (hash[0] != finalHash) {
+      log("proof: hash %016" PRIx64 " expected %016" PRIx64 "\n", hash[0], finalHash);
       return false;
     }
 
@@ -187,12 +191,12 @@ public:
     hashes.emplace_back(1);
     middles.push_back(load(topK / 2));
 
-    u64 h = Blake2::hash({E, topK, B});
-    h = Blake2::hash({h, middles.back()});
+    auto hash = SHA3::hash({E, topK, B});
+    hash = SHA3::hash({hash, middles.back()});
     
     for (u32 p = 1; p < power; ++p) {
-      log("proof: building level %d, hash %016" PRIx64 "\n", (p + 1), h);
-      for (int i = 0; i < (1 << (p - 1)); ++i) { hashes.push_back(hashes[i] * h); }
+      log("proof: building level %d, hash %016" PRIx64 "\n", (p + 1), hash[0]);
+      for (int i = 0; i < (1 << (p - 1)); ++i) { hashes.push_back(hashes[i] * hash[0]); }
       Words M = ProofUtil::makeWords(E, 1);
       u32 s = topK / (1 << (p + 1));
       for (int i = 0; i < (1 << p); ++i) {
@@ -201,9 +205,9 @@ public:
         M = gpu->expMul(w, bitsMSB(hashes[pos]), M);
       }
       middles.push_back(std::move(M));
-      h = Blake2::hash({h, middles.back()});
+      hash = SHA3::hash({hash, middles.back()});
     }
-    return Proof{E, topK, std::move(B), std::move(middles), h, prpRes64};
+    return Proof{E, topK, std::move(B), std::move(middles), hash[0], prpRes64};
   }
 
 private:  
