@@ -11,7 +11,7 @@ class Sha3Hash {
 public:
   Sha3Hash() { clear(); }
 
-  void update(const unsigned char *data, u32 size) { SHA3Update(&context, data, size); }
+  void update(const void *data, u32 size) { SHA3Update(&context, reinterpret_cast<const unsigned char*>(data), size); }
   
   array<u64, 4> finish() && {
     u64 *p = reinterpret_cast<u64 *>(SHA3Final(&context));

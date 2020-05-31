@@ -3,36 +3,29 @@
 #pragma once
 
 #include "common.h"
-#include <initializer_list>
-
-struct HashData {
-  const unsigned char* begin;
-  const size_t size;
-  union {
-    u32 data32;
-    u64 data64;
-  };
-    
-  HashData(const unsigned char* ptr, size_t size) : begin{ptr}, size{size} {}
-  HashData(const void* ptr, size_t size) : HashData{static_cast<const unsigned char*>(ptr), size} {}
-  
-  HashData(u32 x) : HashData{&data32, sizeof(x)} { data32 = x; }
-  HashData(u64 x) : HashData{&data64, sizeof(x)} { data64 = x; }
-    
-  template<typename T>
-  HashData(const std::vector<T>& v) : HashData{v.data(), v.size() * sizeof(T)} {}
-  
-  template<typename T, std::size_t N>
-  HashData(const array<T, N>& v) : HashData(v.data(), N * sizeof(T)) {}
-};
-
 
 template <typename H>
-class Hash {  
+class Hash {
+  H h;
+  
 public:
-  static array<u64, 4> hash(std::initializer_list<HashData> datas) {
-    H h;
-    for (HashData data : datas) { h.update(data.begin, data.size); }
-    return std::move(h).finish();
+  template <typename... Ts>
+  static array<u64, 4> hash(Ts... data) {
+    Hash hash;
+    (hash.update(data),...);
+    return std::move(hash).finish();
   }
+
+  void update(u32 x) { h.update(&x, sizeof(x)); }
+  void update(u64 x) { h.update(&x, sizeof(x)); }
+  
+  template<typename T>
+  void update(const vector<T>& v) { h.update(v.data(), v.size() * sizeof(T)); }
+
+  template<typename T, std::size_t N>
+  void update(const array<T, N>& v) { h.update(v.data(), N * sizeof(T)); }
+
+  void update(const string& s) {h.update(s.c_str(), s.size()); }
+  
+  array<u64, 4> finish() && { return std::move(h).finish(); }
 };

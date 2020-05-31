@@ -78,11 +78,11 @@ public:
     
     Words A{ProofUtil::makeWords(E, 3)};
 
-    auto hash = SHA3::hash({E, topK, B});
+    auto hash = SHA3::hash(E, topK, B);
     
     for (u32 i = 0; i < power; ++i) {
       Words& M = middles[i];      
-      hash = SHA3::hash({hash, M});
+      hash = SHA3::hash(hash, M);
       A = gpu->expMul(A, hash[0], M);
       B = gpu->expMul(M, hash[0], B);
     }
@@ -191,8 +191,8 @@ public:
     hashes.emplace_back(1);
     middles.push_back(load(topK / 2));
 
-    auto hash = SHA3::hash({E, topK, B});
-    hash = SHA3::hash({hash, middles.back()});
+    auto hash = SHA3::hash(E, topK, B);
+    hash = SHA3::hash(hash, middles.back());
     
     for (u32 p = 1; p < power; ++p) {
       log("proof: building level %d, hash %016" PRIx64 "\n", (p + 1), hash[0]);
@@ -205,7 +205,7 @@ public:
         M = gpu->expMul(w, bitsMSB(hashes[pos]), M);
       }
       middles.push_back(std::move(M));
-      hash = SHA3::hash({hash, middles.back()});
+      hash = SHA3::hash(hash, middles.back());
     }
     return Proof{E, topK, std::move(B), std::move(middles), hash[0], prpRes64};
   }
