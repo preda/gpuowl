@@ -120,10 +120,28 @@ void Task::adjustBounds(Args& args) {
 }
 
 void Task::execute(const Args& args, Background& background, std::atomic<u32>& factorFoundForExp) {
+  if (kind == VERIFY) {
+    fs::path path{verifyPath};
+    if (fs::status(path).type() == fs::file_type::directory) {
+      for (auto& entry : fs::directory_iterator(path)) {
+        log("- %s\n", entry.path().string().c_str());
+        if (entry.is_regular_file() && entry.path().extension().string() == ".proof"s) {
+          path = entry.path();
+          break;
+        }
+      }
+    }    
+    Proof proof = Proof::load(path);
+    auto gpu = Gpu::make(proof.E, args, false);
+    bool ok = proof.verify(gpu.get());
+    log("proof '%s' %s\n", path.string().c_str(), ok ? "verified" : "failed");
+    return;
+  }
+
   assert(kind == PRP || kind == PM1 || kind == LL);
   auto gpu = Gpu::make(exponent, args, kind == PM1);
   auto fftSize = gpu->getFFTSize();
-  
+
   if (kind == PRP) {
     auto [isPrime, res64, nErrors] = gpu->isPrimePRP(exponent, args, factorFoundForExp);
     bool abortedFactorFound = (!isPrime && !res64 && nErrors == u32(-1));

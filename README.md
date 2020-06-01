@@ -107,27 +107,39 @@ To build simply invoke "make" (or look inside the Makefile for a manual build).
 Simply start GpuOwl with any valid exponent, and the built-in error checking kicks in, validating the computation. If you start seeing output lines with "OK", than it's working correctly. "EE" lines indicate computation errors.
 
 ## Command-line Arguments
--dir \<folder\>      : specify work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)\
--user \<name\>       : specify the user name.\
--cpu  \<name\>       : specify the hardware name.\
--time              : display kernel profiling information.\
--fft \<size\>        : specify FFT size, such as: 5000K, 4M, +2, -1.\
--block \<value\>     : PRP GEC block size. Default 400. Smaller block is slower but detects errors sooner.\
--log \<step\>        : log every \<step\> iterations. Multiple of 10'000.\
--jacobi \<step\>     : (LL-only): do Jacobi check every \<step\> iterations. Default 1'000'000.\
--carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.\
--B1                : P-1 B1, default 500000\
--B2                : P-1 B2 bound, default B1 * 30\
--rB2               : ratio of B2 to B1, default 30\
--prp \<exponent\>    : run a single PRP test and exit, ignoring worktodo.txt\
--pm1 \<exponent\>    : run a single P-1 test and exit, ignoring worktodo.txt\
--results \<file\>    : name of results file, default 'results.txt'\
--iters \<N\>         : run next PRP test for \<N\> iterations and exit. Multiple of 10000.\
--maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)\
--yield             : enable work-around for CUDA busy wait taking up one CPU core\
--use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning).\
--device \<N\>        : select a specific device:\
- \
+```
+-dir <folder>      : specify local work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
+-pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
+                     Multiple GpuOwl instances, each in its own directory, can share a pool of assignments and report
+                     the results back to the common pool.
+-uid <unique_id>   : specifies to use the GPU with the given unique_id (only on ROCm/Linux)
+-user <name>       : specify the user name.
+-cpu  <name>       : specify the hardware name.
+-time              : display kernel profiling information.
+-fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
+-block <value>     : PRP GEC block size, or LL iteration-block size. Must divide 10'000.
+-log <step>        : log every <step> iterations. Multiple of 10'000.
+-jacobi <step>     : (LL-only): do Jacobi check every <step> iterations. Default 1'000'000.
+-carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
+-B1                : P-1 B1 bound, default 1000000
+-B2                : P-1 B2 bound, default B1 * 30
+-rB2               : ratio of B2 to B1. Default 30, used only if B2 is not explicitly set
+-cleanup           : delete save files at end of run
+-prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
+-pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
+-ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
+-verify <file>|<exponent> : verify PRP-proof contained in <file> or in the folder <exponent>/
+-proof [<power>]   : enable PRP proof generation. Default <power> is 9.
+-results <file>    : name of results file, default 'results.txt'
+-iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
+-maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
+-yield             : enable work-around for CUDA busy wait taking up one CPU core
+-nospin            : disable progress spinner
+-use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
+-safeMath          : do not use -cl-unsafe-math-optimizations (OpenCL)
+-binary <file>     : specify a file containing the compiled kernels binary
+-device <N>        : select a specific device:
+```
 Device numbers start at zero.
 
 ## Primenet.py Arguments

@@ -23,4 +23,5 @@ public:
   }
 
   static Task makeLL(Args& args, u32 exponent) { return Task{Task::LL, exponent}; }
+  static Task makeVerify(Args& args, string path) { return Task{Task::VERIFY, .verifyPath=path}; }
 };

@@ -14,7 +14,7 @@ class Result;
 class Background;
 
 struct Task {
-  enum Kind {PRP, PM1, LL};
+  enum Kind {PRP, PM1, LL, VERIFY};
 
   Kind kind;
   u32 exponent;
@@ -27,6 +27,8 @@ struct Task {
 
   u32 bitLo = 0;
   u32 wantsPm1 = 0; // An indication of how much P-1 is desired before PRP
+
+  string verifyPath; // For Verify
   
   void adjustBounds(Args& args);
   

@@ -61,6 +61,8 @@ void Args::printHelp() {
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
+-verify <file>|<exponent> : verify PRP-proof contained in <file> or in the folder <exponent>/
+-proof [<power>]   : enable PRP proof generation. Default <power> is 9.
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
@@ -71,7 +73,7 @@ void Args::printHelp() {
 -binary <file>     : specify a file containing the compiled kernels binary
 -device <N>        : select a specific device:
 )", B1, B2_B1_ratio);
-  // -proof [<power>]   : enable experimental PRP proof generation. Default <power> is 7.
+
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
     printf("%2u %s : %s %s\n", i, getUUID(i).c_str(), getLongInfo(deviceIds[i]).c_str(), isAmdGpu(deviceIds[i]) ? "AMD" : "not-AMD");
@@ -115,8 +117,13 @@ void Args::parse(string line) {
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
-    else if (key == "-proof") {
-      proofPow = s.empty() ? 8 : stoi(s);
+    else if (key == "-proof") { proofPow = s.empty() ? 9 : stoi(s); }
+    else if (key == "-verify") {
+      if (s.empty()) {
+        log("-verify needs <proof-file> or <exponent>\n");
+        throw "-verify without proof-file";
+      }
+      verifyPath = s;
     }
     else if (key == "-pool") { masterDir = s; }
     else if (key == "-results") { resultsFile = s; }

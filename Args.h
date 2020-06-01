@@ -25,6 +25,7 @@ public:
   string masterDir;
   string uid;
   string binaryFile;
+  string verifyPath;
   std::set<std::string> flags;
   
   int device = 0;
