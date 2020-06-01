@@ -37,7 +37,7 @@ public:
   u64 finalHash; // a data check
   u64 prpRes64;
 
-  // version(1), E, topK, power, finalHash
+  // version(1), E, topK, power, finalHash, res64
   static const constexpr char* HEADER = "PROOF 1 %u %u %u %" SCNx64 " %" SCNx64 "\n";
   
   fs::path save() {
