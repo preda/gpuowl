@@ -119,7 +119,7 @@ bool LLState::doLoad(const char* headerLine, FILE *fi) {
     log("can't read data\n");
     return false;
   }
-  u64 hash = Blake2::hash({E, k, data});
+  u64 hash = Blake2::hash(E, k, data);
   bool hashOK = (hash == fileHash);
   if (!hashOK) {
     // log("Hash %u %u %lu\n", E, k, data.size());
@@ -130,7 +130,7 @@ bool LLState::doLoad(const char* headerLine, FILE *fi) {
 
 void LLState::doSave(FILE* fo) {
   assert(data.size() == nWords(E));
-  u64 hash = Blake2::hash({E, k, data});
+  u64 hash = Blake2::hash(E, k, data);
   // log("Hash %u %u %lu %lx %lx\n", E, k, data.size(), hash, h2);
   if (fprintf(fo, HEADER_v1, E, k, hash) <= 0) { throw(ios_base::failure("can't write header")); }
   write(fo, data);

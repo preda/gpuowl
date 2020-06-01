@@ -7,6 +7,8 @@
 class Sha3Hash {
   SHA3Context context;
   static const constexpr int SIZE_BITS = 256;
+
+  void clear() { SHA3Init(&context, SIZE_BITS); }
   
 public:
   Sha3Hash() { clear(); }
@@ -17,6 +19,7 @@ public:
     u64 *p = reinterpret_cast<u64 *>(SHA3Final(&context));
     return {p[0], p[1], p[2], p[3]};
   }
-
-  void clear() { SHA3Init(&context, SIZE_BITS); }
 };
+
+#include "Hash.h"
+using SHA3 = Hash<Sha3Hash>;

@@ -6,7 +6,6 @@
 #include "GmpUtil.h"
 #include "File.h"
 #include "common.h"
-#include "Hash.h"
 #include "Sha3Hash.h"
 
 #include <vector>
@@ -14,8 +13,6 @@
 #include <cassert>
 #include <filesystem>
 #include <cinttypes>
-
-using SHA3 = Hash<Sha3Hash>;
 
 struct ProofUtil {
   static Words makeWords(u32 E, u32 init) {

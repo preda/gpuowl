@@ -10,7 +10,7 @@ class Hash {
   
 public:
   template <typename... Ts>
-  static array<u64, 4> hash(Ts... data) {
+  static auto hash(Ts... data) {
     Hash hash;
     (hash.update(data),...);
     return std::move(hash).finish();
@@ -27,5 +27,5 @@ public:
 
   void update(const string& s) {h.update(s.c_str(), s.size()); }
   
-  array<u64, 4> finish() && { return std::move(h).finish(); }
+  auto finish() && { return std::move(h).finish(); }
 };
