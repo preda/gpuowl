@@ -124,10 +124,10 @@ public:
   static const u32 MAX_POWER = 10;
   static const u32 MULTIPLE = (1 << MAX_POWER);
   
-  const u32 E;
-  const u32 power;
-  const u32 topK{E / MULTIPLE * MULTIPLE};
-  const u32 step{topK / (1 << power)};
+  u32 E;
+  u32 power;
+  u32 topK{E / MULTIPLE * MULTIPLE};
+  u32 step{topK / (1 << power)};
 
   ProofSet(u32 E, u32 power) : E{E}, power{power} {
     assert(power <= MAX_POWER);

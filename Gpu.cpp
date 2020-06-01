@@ -1047,8 +1047,9 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
   u32 startK = k;
   ProofSet proofSet{E, args.proofPow};
   if (!proofSet.isValidTo(startK)) {
-    log("Some proof files are missing or invalid\n");
-    throw "Some proof files are missing or invalid";
+    log("Proof generation at power %d is disabled because of missing checkpoints\n", args.proofPow);
+    log("If the proof is desired, you may either restart the PRP test or reduce the power\n");
+    proofSet = ProofSet{E, 0};
   }
   
   Signal signal;
