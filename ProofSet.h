@@ -193,7 +193,8 @@ public:
     
     for (u32 p = 1; p < power; ++p) {
       log("proof: building level %d, hash %016" PRIx64 "\n", (p + 1), hash[0]);
-      for (int i = 0; i < (1 << (p - 1)); ++i) { hashes.push_back(hashes[i] * hash[0]); }
+      u64 h = hash[0];
+      for (int i = 0; i < (1 << (p - 1)); ++i) { hashes.push_back(hashes[i] * h); }
       Words M = ProofUtil::makeWords(E, 1);
       u32 s = topK / (1 << (p + 1));
       for (int i = 0; i < (1 << p); ++i) {
