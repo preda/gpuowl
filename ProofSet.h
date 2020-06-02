@@ -38,7 +38,7 @@ public:
   u64 prpRes64;
 
   // version(1), E, topK, power, finalHash, res64
-  static const constexpr char* HEADER = "PROOF 1 %u %u %u %" SCNx64 " %" SCNx64 "\n";
+  static const constexpr char* HEADER = "PRProof 1 %u %u %u 0x%" SCNx64 " 0x%" SCNx64 "\n";
   
   fs::path save() {
     string strE = to_string(E);
@@ -75,7 +75,7 @@ public:
     
     Words A{ProofUtil::makeWords(E, 3)};
 
-    auto hash = SHA3::hash(E, topK, B);
+    auto hash = SHA3::hash(u64(E), u64(topK), B);
     
     for (u32 i = 0; i < power; ++i) {
       Words& M = middles[i];      
@@ -188,7 +188,7 @@ public:
     hashes.emplace_back(1);
     middles.push_back(load(topK / 2));
 
-    auto hash = SHA3::hash(E, topK, B);
+    auto hash = SHA3::hash(u64(E), u64(topK), B);
     hash = SHA3::hash(hash, middles.back());
     
     for (u32 p = 1; p < power; ++p) {
