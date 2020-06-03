@@ -5,6 +5,7 @@
 #include "common.h"
 
 #include <string>
+#include <tuple>
 #include <vector>
 #include <cmath>
 
@@ -28,23 +29,30 @@ struct FFTConfig {
   //
   // On 2020-04-12 we implemented options to minimize multiply chain lengths in MiddleMul kernels.
   // This allows more bits-per-FFT-word.  We also gathered roundoff data for each MIDDLE length
-  // so that for use in the calculations below.
+  // for use in the calculations below.
+  //
+  // On 2020-06-01 we implemented MAX_ACCURACY and changed our target.  For max exponent we want a
+  // pErr around 0.2%.  For the MM_CHAIN crossovers we target an even more conservative pErr since
+  // the penalty for passing these "mini-crossovers" is quite small.
   static u32 getMaxExp(u32 fftSize, u32 middle) { return
-                middle == 3 ? fftSize * (18.973 - 0.279 * log2(fftSize / (1.5 * 1024 * 1024))) :
-                middle == 4 ? fftSize * (18.943 - 0.279 * log2(fftSize / (2.0 * 1024 * 1024))) :
-                middle == 5 ? fftSize * (18.860 - 0.279 * log2(fftSize / (2.5 * 1024 * 1024))) :
-                middle == 6 ? fftSize * (18.719 - 0.279 * log2(fftSize / (3.0 * 1024 * 1024))) :
-                middle == 7 ? fftSize * (18.687 - 0.279 * log2(fftSize / (3.5 * 1024 * 1024))) :
-                middle == 8 ? fftSize * (18.659 - 0.279 * log2(fftSize / (4.0 * 1024 * 1024))) :
-                middle == 9 ? fftSize * (18.484 - 0.279 * log2(fftSize / (4.5 * 1024 * 1024))) :
-                middle == 10 ? fftSize * (18.567 - 0.279 * log2(fftSize / (5.0 * 1024 * 1024))) :
-                middle == 11 ? fftSize * (18.489 - 0.279 * log2(fftSize / (5.5 * 1024 * 1024))) :
-			       fftSize * (18.403 - 0.279 * log2(fftSize / (6.0 * 1024 * 1024))); }
+                middle == 3 ? fftSize * (19.0766 - 0.279 * log2(fftSize / (1.5 * 1024 * 1024))) :
+                middle == 4 ? fftSize * (18.9862 - 0.279 * log2(fftSize / (2.0 * 1024 * 1024))) :
+                middle == 5 ? fftSize * (18.8482 - 0.279 * log2(fftSize / (2.5 * 1024 * 1024))) :
+                middle == 6 ? fftSize * (18.7810 - 0.279 * log2(fftSize / (3.0 * 1024 * 1024))) :
+                middle == 7 ? fftSize * (18.7113 - 0.279 * log2(fftSize / (3.5 * 1024 * 1024))) :
+                middle == 8 ? fftSize * (18.6593 - 0.279 * log2(fftSize / (4.0 * 1024 * 1024))) :
+                middle == 9 ? fftSize * (18.6135 - 0.279 * log2(fftSize / (4.5 * 1024 * 1024))) :
+                middle == 10 ? fftSize * (18.5719 - 0.279 * log2(fftSize / (5.0 * 1024 * 1024))) :
+                middle == 11 ? fftSize * (18.5317 - 0.279 * log2(fftSize / (5.5 * 1024 * 1024))) :
+                middle == 12 ? fftSize * (18.5185 - 0.279 * log2(fftSize / (6.0 * 1024 * 1024))) :
+                middle == 13 ? fftSize * (18.4795 - 0.279 * log2(fftSize / (6.5 * 1024 * 1024))) :
+                middle == 14 ? fftSize * (18.4451 - 0.279 * log2(fftSize / (7.0 * 1024 * 1024))) :
+			       fftSize * (18.3804 - 0.279 * log2(fftSize / (7.5 * 1024 * 1024))); }
   
   static u32 getMaxCarry32(u32 fftSize, u32 exponent);
   static std::vector<FFTConfig> genConfigs();
 
-  static pair<u32, u32> getChainLengths(u32 fftSize, u32 exponent, u32 middle);
+  static tuple<bool, u32, u32, bool> getChainLengths(u32 fftSize, u32 exponent, u32 middle);
 
   // FFTConfig(u32 w, u32 m, u32 h) : width(w), middle(m), height(h) {}
   static FFTConfig fromSpec(const string& spec);

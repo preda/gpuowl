@@ -1883,7 +1883,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return fma(S0, x, r);
+  return forced_fma(S0, x, r);
 }
 
 double kcospi(double k, double n) {
@@ -1916,7 +1916,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return fma(S0, x, r);
+  return forced_fma(S0, x, r);
 }
 
 double kcospi(double k, double n) {
@@ -1951,7 +1951,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return fma(S0, x, r);
+  return forced_fma(S0, x, r);
 }
 
 double kcospi(double k, double n) {
@@ -1984,7 +1984,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return fma(S0, x, r);
+  return forced_fma(S0, x, r);
 }
 
 double kcospi(double k, double n) {
@@ -2017,7 +2017,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return fma(S0, x, r);
+  return forced_fma(S0, x, r);
 }
 
 double kcospi(double k, double n) {
@@ -2050,7 +2050,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return fma(S0, x, r);
+  return forced_fma(S0, x, r);
 }
 
 double kcospi(double k, double n) {
@@ -2083,7 +2083,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return fma(S0, x, r);
+  return forced_fma(S0, x, r);
 }
 
 double kcospi(double k, double n) {
@@ -2705,7 +2705,22 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
 
   fft_MIDDLE(u);
 
-  middleMul2(u, starty + my, startx + mx, 1.0 / (4 * (4 * NWORDS)));	// Compensate for weight and invweight being doubled
+  // FFT results come out multiplied by the FFT length (NWORDS).  Also, for performance reasons
+  // weights and invweights are doubled meaning we need to divide by another 2^2 and 2^2.
+  // Finally, roundoff errors are sometimes improved if we use the next lower double precision
+  // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
+  double factor = 1.0 / (4 * 4 * NWORDS);
+#if MIDDLE == 4 || MIDDLE == 5 || MIDDLE == 10 || MIDDLE == 11 || MIDDLE == 13
+  long tmp = as_long(factor);
+  tmp--;
+  factor = as_double(tmp);
+#elif MIDDLE == 8
+  long tmp = as_long(factor);
+  tmp -= 2;
+  factor = as_double(tmp);
+#endif
+
+  middleMul2(u, starty + my, startx + mx, factor);
   local T lds[OUT_WG * (MIDDLE <= 8 ? MIDDLE : ((MIDDLE + 1) / 2))];
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 

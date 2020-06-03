@@ -158,6 +158,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   return Weights{aTab, iTab, groupWeights, threadWeights, bits};
 }
 
+
 extern const char *CL_SOURCE;
 
 namespace {
@@ -211,9 +212,11 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
 
   // If we are near the maximum exponent for this FFT, then we may need to set some chain #defines
   // to reduce the round off errors.
-  auto [mm_chain, mm2_chain] = FFTConfig::getChainLengths(N, E, MIDDLE);
+  auto [max_accuracy, mm_chain, mm2_chain, ultra_trig] = FFTConfig::getChainLengths(N, E, MIDDLE);
   if (mm_chain) { defines.push_back({"MM_CHAIN", mm_chain}); }
   if (mm2_chain) { defines.push_back({"MM2_CHAIN", mm2_chain}); }
+  if (max_accuracy) { defines.push_back({"MAX_ACCURACY", 1}); }
+  if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }
 
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
