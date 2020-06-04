@@ -78,7 +78,7 @@ public:
     auto hash = SHA3::hash(u64(E), u64(topK), B);
     
     for (u32 i = 0; i < power; ++i) {
-      Words& M = middles[i];      
+      Words& M = middles[i];
       hash = SHA3::hash(hash, M);
       A = gpu->expMul(A, hash[0], M);
       B = gpu->expMul(M, hash[0], B);

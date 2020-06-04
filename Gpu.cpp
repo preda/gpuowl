@@ -1144,6 +1144,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
         checkStep = checkStepForErrors(args.logStep, nErrors);        
         auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
         k = loaded.k;
+        persistK = proofSet.firstPersistAfter(k);
         assert(blockSize == loaded.blockSize);
       }
       itTimer.reset(k);

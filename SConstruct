@@ -12,7 +12,7 @@ AlwaysBuild(Command('version.inc', [], 'echo \\"`git describe --long --dirty --a
 AlwaysBuild(Command('gpuowl-expanded.cl', ['gpuowl.cl'], './tools/expand.py < gpuowl.cl > gpuowl-expanded.cl'))
 AlwaysBuild(Command('gpuowl-wrap.cpp', ['gpuowl-expanded.cl'], 'cat head.txt gpuowl-expanded.cl tail.txt > gpuowl-wrap.cpp'))
 
-LIBPATH=['/opt/rocm-3.3.0/opencl/lib/x86_64', '/opt/rocm-3.1.0/opencl/lib/x86_64', '/opt/rocm/opencl/lib/x86_64']
+LIBPATH=['/opt/rocm-3.3.0/opencl/lib/x86_64', '/opt/rocm-3.5.0/opencl/lib']
 
 config = '-g -O2'
 #-fsanitize=address'
