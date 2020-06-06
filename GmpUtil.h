@@ -18,3 +18,10 @@ vector<bool> powerSmoothMSB(u32 exp, u32 B1);
 
 // Returns jacobi-symbol(words - 2, 2**exp - 1)
 int jacobi(u32 exp, const std::vector<u32>& words);
+
+inline mpz_class mpz64(u64 h) {
+  mpz_class ret{u32(h >> 32)};
+  ret <<= 32;
+  ret += u32(h);
+  return ret;
+}
