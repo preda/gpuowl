@@ -13,6 +13,7 @@
 #include <cassert>
 #include <filesystem>
 #include <cinttypes>
+#include <climits>
 
 struct ProofUtil {
   static Words makeWords(u32 E, u32 init) {
@@ -195,11 +196,12 @@ public:
       log("proof: building level %d, hash %016" PRIx64 "\n", (p + 1), hash[0]);
       u64 h = hash[0];
       for (int i = 0; i < (1 << (p - 1)); ++i) {
-        if constexpr (sizeof(u64) == sizeof(long)) {
-          hashes.push_back(hashes[i] * h);
-        } else {
-          hashes.push_back(hashes[i] * mpz64(h));
-        }
+#if ULONG_MAX > 4294967295
+        hashes.push_back(hashes[i] * h);
+#else
+        // When sizeof(long)==4 (i.e. on Windows), GMP constructors don't take 64-bit int.
+        hashes.push_back(hashes[i] * mpz64(h));
+#endif
       }
       Words M = ProofUtil::makeWords(E, 1);
       u32 s = topK / (1 << (p + 1));
