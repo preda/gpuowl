@@ -196,8 +196,6 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
      {"MIDDLE", MIDDLE},
-     {"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1.0)},
-     {"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1.0)},
      {"PM1", (isPm1 ? 1 : 0)},
     };
 
@@ -217,6 +215,14 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
   if (mm2_chain) { defines.push_back({"MM2_CHAIN", mm2_chain}); }
   if (max_accuracy) { defines.push_back({"MAX_ACCURACY", 1}); }
   if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }
+
+  if (max_accuracy) {
+     defines.push_back({"WEIGHT_STEP_MINUS_1", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1.0)});
+     defines.push_back({"IWEIGHT_STEP_MINUS_1", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1.0)});
+  } else {
+     defines.push_back({"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1))});
+     defines.push_back({"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1))});
+  }
 
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
