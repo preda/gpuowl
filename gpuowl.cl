@@ -296,20 +296,15 @@ T mul1_m2(T x, T y) {
 #endif
 }
 
-T OVERLOAD forced_fma(T x, T y, T z) {
+// Force generation of an FMA instruction where second argument is a constant
+T forced_fma_by_const(T x, const T y, T z) {
 #if HAS_ASM
   double out;
-  __asm("v_fma_f64 %0, %1, %2, %3" : "=v"(out) : "v"(x), "v"(y), "v"(z));
+  __asm("v_fma_f64 %0, %1, %2, %3" : "=v"(out) : "v"(x), "s"(y), "v"(z));
   return out;
 #else
   return fma(x, y, z);
 #endif
-}
-T2 OVERLOAD forced_fma(T2 x, T2 y, T2 z) {
-  T2 out;
-  out.x = forced_fma(x.x, y.x, z.x);
-  out.y = forced_fma(x.y, y.y, z.y);
-  return out;
 }
 
 T mad1(T x, T y, T z) { return x * y + z; }
@@ -1883,7 +1878,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma(S0, x, r);
+  return forced_fma_by_const(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -1916,7 +1911,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma(S0, x, r);
+  return forced_fma_by_const(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -1951,7 +1946,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma(S0, x, r);
+  return forced_fma_by_const(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -1984,7 +1979,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma(S0, x, r);
+  return forced_fma_by_const(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -2017,7 +2012,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma(S0, x, r);
+  return forced_fma_by_const(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -2050,7 +2045,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma(S0, x, r);
+  return forced_fma_by_const(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -2083,7 +2078,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma(S0, x, r);
+  return forced_fma_by_const(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -2710,11 +2705,11 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   // Finally, roundoff errors are sometimes improved if we use the next lower double precision
   // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
   double factor = 1.0 / (4 * 4 * NWORDS);
-#if MIDDLE == 4 || MIDDLE == 5 || MIDDLE == 10 || MIDDLE == 11 || MIDDLE == 13
+#if MAX_ACCURACY && (MIDDLE == 4 || MIDDLE == 5 || MIDDLE == 10 || MIDDLE == 11 || MIDDLE == 13)
   long tmp = as_long(factor);
   tmp--;
   factor = as_double(tmp);
-#elif MIDDLE == 8
+#elif MAX_ACCURACY && MIDDLE == 8
   long tmp = as_long(factor);
   tmp -= 2;
   factor = as_double(tmp);
@@ -2722,6 +2717,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
 
   middleMul2(u, starty + my, startx + mx, factor);
   local T lds[OUT_WG * (MIDDLE <= 8 ? MIDDLE : ((MIDDLE + 1) / 2))];
+
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
@@ -2902,35 +2898,42 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   float roundMax = 0;
   u32 carryMax = 0;
 
-  const double TWO_TO_MINUS_1_8TH = -0.08299595679532876825645840520586; // 2^-0.125 - 1.0
-  const double TWO_TO_MINUS_2_8TH = -0.15910358474628545696887452376679; // 2^-0.25 - 1.0
-  const double TWO_TO_MINUS_3_8TH = -0.22889458729602958819385406895463; // 2^-0.375 - 1.0
-  const double TWO_TO_MINUS_4_8TH = -0.29289321881345247559915563789515; // 2^-0.5 - 1.0
-  const double TWO_TO_MINUS_5_8TH = -0.35158022267449516703312294110377; // 2^-0.625 - 1.0
-  const double TWO_TO_MINUS_6_8TH = -0.40539644249863946664125001471976; // 2^-0.75 - 1.0
-  const double TWO_TO_MINUS_7_8TH = -0.45474613366737117039649467211965; // 2^-0.875 - 1.0
+  const double TWO_TO_MINUS_1_8TH_MINUS_1 = -0.08299595679532876825645840520586; // 2^-0.125 - 1.0
+  const double TWO_TO_MINUS_2_8TH_MINUS_1 = -0.15910358474628545696887452376679; // 2^-0.25 - 1.0
+  const double TWO_TO_MINUS_3_8TH_MINUS_1 = -0.22889458729602958819385406895463; // 2^-0.375 - 1.0
+  const double TWO_TO_MINUS_4_8TH_MINUS_1 = -0.29289321881345247559915563789515; // 2^-0.5 - 1.0
+  const double TWO_TO_MINUS_5_8TH_MINUS_1 = -0.35158022267449516703312294110377; // 2^-0.625 - 1.0
+  const double TWO_TO_MINUS_6_8TH_MINUS_1 = -0.40539644249863946664125001471976; // 2^-0.75 - 1.0
+  const double TWO_TO_MINUS_7_8TH_MINUS_1 = -0.45474613366737117039649467211965; // 2^-0.875 - 1.0
+  const double TWO_TO_MINUS_1_8TH = 0.91700404320467123174354159479414; // 2^-0.125
+  const double TWO_TO_MINUS_2_8TH = 0.84089641525371454303112547623321; // 2^-0.25
+  const double TWO_TO_MINUS_3_8TH = 0.77110541270397041180614593104537; // 2^-0.375
+  const double TWO_TO_MINUS_4_8TH = 0.70710678118654752440084436210485; // 2^-0.5
+  const double TWO_TO_MINUS_5_8TH = 0.64841977732550483296687705889623; // 2^-0.625
+  const double TWO_TO_MINUS_6_8TH = 0.59460355750136053335874998528024; // 2^-0.75
+  const double TWO_TO_MINUS_7_8TH = 0.54525386633262882960350532788035; // 2^-0.875
 
   for (i32 i = 0; i < NW; ++i) {
     T baseInvWeight, invWeight, invWeight2;
     if (i == 0) invWeight = baseInvWeight = optionalDouble(weights.x);
 #if MAX_ACCURACY
-    else if (((i * STEP) % NW) * (8 / NW) == 1) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_1_8TH, baseInvWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 2) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_2_8TH, baseInvWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 3) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_3_8TH, baseInvWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 4) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_4_8TH, baseInvWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 5) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_5_8TH, baseInvWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 6) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_6_8TH, baseInvWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 7) invWeight = optionalDouble(forced_fma(baseInvWeight, TWO_TO_MINUS_7_8TH, baseInvWeight));
-    invWeight2 = optionalDouble(forced_fma(invWeight, IWEIGHT_STEP, invWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 1) invWeight = optionalDouble(forced_fma_by_const(baseInvWeight, TWO_TO_MINUS_1_8TH_MINUS_1, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 2) invWeight = optionalDouble(forced_fma_by_const(baseInvWeight, TWO_TO_MINUS_2_8TH_MINUS_1, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 3) invWeight = optionalDouble(forced_fma_by_const(baseInvWeight, TWO_TO_MINUS_3_8TH_MINUS_1, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 4) invWeight = optionalDouble(forced_fma_by_const(baseInvWeight, TWO_TO_MINUS_4_8TH_MINUS_1, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 5) invWeight = optionalDouble(forced_fma_by_const(baseInvWeight, TWO_TO_MINUS_5_8TH_MINUS_1, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 6) invWeight = optionalDouble(forced_fma_by_const(baseInvWeight, TWO_TO_MINUS_6_8TH_MINUS_1, baseInvWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 7) invWeight = optionalDouble(forced_fma_by_const(baseInvWeight, TWO_TO_MINUS_7_8TH_MINUS_1, baseInvWeight));
+    invWeight2 = optionalDouble(forced_fma_by_const(invWeight, IWEIGHT_STEP_MINUS_1, invWeight));
 #else
-    else if ((STEP % NW) * (8 / NW) == 1) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_1_8TH));
-    else if ((STEP % NW) * (8 / NW) == 2) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_2_8TH));
-    else if ((STEP % NW) * (8 / NW) == 3) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_3_8TH));
-    else if ((STEP % NW) * (8 / NW) == 4) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_4_8TH));
-    else if ((STEP % NW) * (8 / NW) == 5) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_5_8TH));
-    else if ((STEP % NW) * (8 / NW) == 6) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_6_8TH));
-    else if ((STEP % NW) * (8 / NW) == 7) invWeight = optionalDouble(invWeight * (1.0 + TWO_TO_MINUS_7_8TH));
-    invWeight2 = optionalDouble(invWeight * (1.0 + IWEIGHT_STEP));
+    else if ((STEP % NW) * (8 / NW) == 1) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_1_8TH);
+    else if ((STEP % NW) * (8 / NW) == 2) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_2_8TH);
+    else if ((STEP % NW) * (8 / NW) == 3) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_3_8TH);
+    else if ((STEP % NW) * (8 / NW) == 4) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_4_8TH);
+    else if ((STEP % NW) * (8 / NW) == 5) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_5_8TH);
+    else if ((STEP % NW) * (8 / NW) == 6) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_6_8TH);
+    else if ((STEP % NW) * (8 / NW) == 7) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_7_8TH);
+    invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
 #endif
 
     T2 x = conjugate(u[i]) * U2(invWeight, invWeight2);
@@ -3008,36 +3011,43 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     // assert(gr <= H);
   }
 
-  const double TWO_TO_1_8TH = 0.0905077326652576592070106557607; // 2^0.125 - 1.0
-  const double TWO_TO_2_8TH = 0.1892071150027210667174999705605; // 2^0.25 - 1.0
-  const double TWO_TO_3_8TH = 0.2968395546510096659337541177925; // 2^0.375 - 1.0
-  const double TWO_TO_4_8TH = 0.4142135623730950488016887242097; // 2^0.5 - 1.0
-  const double TWO_TO_5_8TH = 0.5422108254079408236122918620907; // 2^0.625 - 1.0
-  const double TWO_TO_6_8TH = 0.6817928305074290860622509524664; // 2^0.75 - 1.0
-  const double TWO_TO_7_8TH = 0.8340080864093424634870831895883; // 2^0.875 - 1.0
+  const double TWO_TO_1_8TH_MINUS_1 = 0.0905077326652576592070106557607; // 2^0.125 - 1.0
+  const double TWO_TO_2_8TH_MINUS_1 = 0.1892071150027210667174999705605; // 2^0.25 - 1.0
+  const double TWO_TO_3_8TH_MINUS_1 = 0.2968395546510096659337541177925; // 2^0.375 - 1.0
+  const double TWO_TO_4_8TH_MINUS_1 = 0.4142135623730950488016887242097; // 2^0.5 - 1.0
+  const double TWO_TO_5_8TH_MINUS_1 = 0.5422108254079408236122918620907; // 2^0.625 - 1.0
+  const double TWO_TO_6_8TH_MINUS_1 = 0.6817928305074290860622509524664; // 2^0.75 - 1.0
+  const double TWO_TO_7_8TH_MINUS_1 = 0.8340080864093424634870831895883; // 2^0.875 - 1.0
+  const double TWO_TO_1_8TH = 1.0905077326652576592070106557607; // 2^0.125
+  const double TWO_TO_2_8TH = 1.1892071150027210667174999705605; // 2^0.25
+  const double TWO_TO_3_8TH = 1.2968395546510096659337541177925; // 2^0.375
+  const double TWO_TO_4_8TH = 1.4142135623730950488016887242097; // 2^0.5
+  const double TWO_TO_5_8TH = 1.5422108254079408236122918620907; // 2^0.625
+  const double TWO_TO_6_8TH = 1.6817928305074290860622509524664; // 2^0.75
+  const double TWO_TO_7_8TH = 1.8340080864093424634870831895883; // 2^0.875
 
   // Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
   for (i32 i = 0; i < NW; ++i) {
     T baseWeight, weight, weight2;
     if (i == 0) weight = baseWeight = optionalHalve(weights.y);
 #if MAX_ACCURACY
-    else if (((i * STEP) % NW) * (8 / NW) == 1) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_1_8TH, baseWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 2) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_2_8TH, baseWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 3) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_3_8TH, baseWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 4) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_4_8TH, baseWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 5) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_5_8TH, baseWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 6) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_6_8TH, baseWeight));
-    else if (((i * STEP) % NW) * (8 / NW) == 7) weight = optionalHalve(forced_fma(baseWeight, TWO_TO_7_8TH, baseWeight));
-    weight2 = optionalHalve(forced_fma(weight, WEIGHT_STEP, weight));
+    else if (((i * STEP) % NW) * (8 / NW) == 1) weight = optionalHalve(forced_fma_by_const(baseWeight, TWO_TO_1_8TH_MINUS_1, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 2) weight = optionalHalve(forced_fma_by_const(baseWeight, TWO_TO_2_8TH_MINUS_1, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 3) weight = optionalHalve(forced_fma_by_const(baseWeight, TWO_TO_3_8TH_MINUS_1, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 4) weight = optionalHalve(forced_fma_by_const(baseWeight, TWO_TO_4_8TH_MINUS_1, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 5) weight = optionalHalve(forced_fma_by_const(baseWeight, TWO_TO_5_8TH_MINUS_1, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 6) weight = optionalHalve(forced_fma_by_const(baseWeight, TWO_TO_6_8TH_MINUS_1, baseWeight));
+    else if (((i * STEP) % NW) * (8 / NW) == 7) weight = optionalHalve(forced_fma_by_const(baseWeight, TWO_TO_7_8TH_MINUS_1, baseWeight));
+    weight2 = optionalHalve(forced_fma_by_const(weight, WEIGHT_STEP_MINUS_1, weight));
 #else
-    else if ((STEP % NW) * (8 / NW) == 1) weight = optionalHalve(weight * (1.0 + TWO_TO_1_8TH));
-    else if ((STEP % NW) * (8 / NW) == 2) weight = optionalHalve(weight * (1.0 + TWO_TO_2_8TH));
-    else if ((STEP % NW) * (8 / NW) == 3) weight = optionalHalve(weight * (1.0 + TWO_TO_3_8TH));
-    else if ((STEP % NW) * (8 / NW) == 4) weight = optionalHalve(weight * (1.0 + TWO_TO_4_8TH));
-    else if ((STEP % NW) * (8 / NW) == 5) weight = optionalHalve(weight * (1.0 + TWO_TO_5_8TH));
-    else if ((STEP % NW) * (8 / NW) == 6) weight = optionalHalve(weight * (1.0 + TWO_TO_6_8TH));
-    else if ((STEP % NW) * (8 / NW) == 7) weight = optionalHalve(weight * (1.0 + TWO_TO_7_8TH));
-    weight2 = optionalHalve(weight * (1.0 + WEIGHT_STEP));
+    else if ((STEP % NW) * (8 / NW) == 1) weight = optionalHalve(weight * TWO_TO_1_8TH);
+    else if ((STEP % NW) * (8 / NW) == 2) weight = optionalHalve(weight * TWO_TO_2_8TH);
+    else if ((STEP % NW) * (8 / NW) == 3) weight = optionalHalve(weight * TWO_TO_3_8TH);
+    else if ((STEP % NW) * (8 / NW) == 4) weight = optionalHalve(weight * TWO_TO_4_8TH);
+    else if ((STEP % NW) * (8 / NW) == 5) weight = optionalHalve(weight * TWO_TO_5_8TH);
+    else if ((STEP % NW) * (8 / NW) == 6) weight = optionalHalve(weight * TWO_TO_6_8TH);
+    else if ((STEP % NW) * (8 / NW) == 7) weight = optionalHalve(weight * TWO_TO_7_8TH);
+    weight2 = optionalHalve(weight * WEIGHT_STEP);
 #endif
 
     u[i] = carryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2 * i));
