@@ -1035,6 +1035,12 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
   }
 }
 
+u32 Gpu::modSqLoopTo(Buffer<int>& io, u32 from, u32 to) {
+  assert(from <= to);
+  modSqLoop(io, to - from, buf1, buf2);
+  return to;
+}
+
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
   u32 k = 0, blockSize = 0, nErrors = 0;
 
@@ -1046,9 +1052,6 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
   }
   assert(blockSize > 0 && 10000 % blockSize == 0);
   
-  const u32 kEnd = E; // Type-1 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
-  assert(k < kEnd);
-
   u32 checkStep = checkStepForErrors(args.logStep, nErrors);
   
   u32 startK = k;
@@ -1068,42 +1071,50 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
   IterationTimer itTimer{startK};
 
   u64 finalRes64 = 0;
-  u32 nTotalIters = ((kEnd - 1) / blockSize + 1) * blockSize;
+
+  // We extract the res64 at kEnd.
+  const u32 kEnd = E; // Type-1 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
+  assert(k < kEnd);
+
+  // We continue beyound kEnd: up to the next multiple of 1024 if proof is enabled (kProofEnd), and up to the next blockSize
+  u32 kEndEnd = roundUp(proofSet.kProofEnd(kEnd), blockSize);
 
   bool displayRoundoff = args.flags.count("STATS");
 
-  u32 persistK = proofSet.firstPersistAfter(k);
-      
   while (true) {
     assert(k % blockSize == 0);
-    assert(k < kEnd);
+    assert(k < kEndEnd);
     
     u32 nextK = k + blockSize;
 
-    assert(persistK >= k);
+    u32 persistK = proofSet.firstPersistAt(k + 1);
+    assert(k < persistK);
 
-    if (persistK < nextK) {
-      assert(persistK <= kEnd);
-      modSqLoop(bufData, persistK - k, buf1, buf2);
-      k = persistK;
+    if (persistK <= nextK && persistK < kEnd) {
+      k = modSqLoopTo(bufData, k, persistK);
+      
+      log("proof: save residue @ %u\n", persistK);
       proofSet.save(k, readData());
-      persistK = proofSet.firstPersistAfter(k);
     }
     
-    if (nextK >= kEnd) {
-      assert(kEnd > k);
-      modSqLoop(bufData, kEnd - k, buf1, buf2);
+    if (k < kEnd && kEnd <= nextK) {
+      k = modSqLoopTo(bufData, k, kEnd);
+      
       auto words = readData();
       isPrime = equals9(words);
       doDiv9(E, words);
       finalRes64 = residue(words);
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
-      k = kEnd;
     }
 
-    assert(nextK >= k);
-    modSqLoop(bufData, nextK - k, buf1, buf2);
-    k = nextK;
+    if (persistK <= nextK && kEnd <= persistK) {
+      k = modSqLoopTo(bufData, k, persistK);
+      
+      log("proof: save residue @ %u\n", persistK);
+      proofSet.save(k, readData());
+    }
+    
+    k = modSqLoopTo(bufData, k, nextK);
 
     bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
     if (doStop) {
@@ -1111,7 +1122,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
       signal.release();
     }
 
-    bool doCheck = doStop || (k % checkStep == 0) || (k >= kEnd && k < kEnd + blockSize) || (k - startK == 2 * blockSize);
+    bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
     if (!doCheck) { this->updateCheck(buf1, buf2, buf3); }
     
     if (!args.noSpin) { spin(); }
@@ -1133,15 +1144,12 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
       bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
       
       if (ok) {
-        if (k < kEnd) {          
-          prpState.save(false);
-          doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, itTimer.reset(k));
-        }
-        assert(!isPrime || k >= kEnd);
-        if (k >= kEnd) { return {isPrime, finalRes64, nErrors}; }
+        if (k < kEnd) { prpState.save(false); }
+        doBigLog(E, k, res64, ok, timeExcludingCheck, kEndEnd, nErrors, itTimer.reset(k));
+        if (k >= kEndEnd) { return {isPrime, finalRes64, nErrors}; }
         nSeqErrors = 0;      
       } else {
-        doBigLog(E, k, res64, ok, timeExcludingCheck, nTotalIters, nErrors, itTimer.reset(k));
+        doBigLog(E, k, res64, ok, timeExcludingCheck, kEndEnd, nErrors, itTimer.reset(k));
 
         ++nErrors;
         if (++nSeqErrors > 2) {
@@ -1151,15 +1159,11 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
         checkStep = checkStepForErrors(args.logStep, nErrors);        
         auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
         k = loaded.k;
-        persistK = proofSet.firstPersistAfter(k);
         assert(blockSize == loaded.blockSize);
       }
       itTimer.reset(k);
       logTimeKernels();
-      if (doStop) {
-        // if (saveFuture.valid()) { saveFuture.get(); }
-        throw "stop requested";
-      }
+      if (doStop) { throw "stop requested"; }
     }
   }
 }

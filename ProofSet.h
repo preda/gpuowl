@@ -16,6 +16,9 @@
 #include <climits>
 
 struct ProofUtil {
+  static const u32 MAX_POWER = 10;
+  static const u32 MULTIPLE = (1 << MAX_POWER);
+  
   static Words makeWords(u32 E, u32 init) {
     u32 nWords = (E - 1) / 32 + 1;
     Words x(nWords);
@@ -32,20 +35,19 @@ struct ProofUtil {
 
 class Proof {
 public:
-  u32 E, topK;
+  u32 E;
   Words B;
   vector<Words> middles;
   u64 finalHash; // a data check
-  u64 prpRes64;
 
-  // version(1), E, topK, power, finalHash, res64
-  static const constexpr char* HEADER = "PRProof 1 %u %u %u 0x%" SCNx64 " 0x%" SCNx64 "\n";
+  // version(1), E, power, finalHash
+  static const constexpr char* HEADER = "PRProof 1 %u %u 0x%" SCNx64 "\n";
   
   fs::path save() {
     string strE = to_string(E);
     fs::path fileName = fs::current_path() / strE / (strE + '-' + hex(finalHash).substr(0, 4) + ".proof");
     File fo = File::openWrite(fileName);
-    fo.printf(HEADER, E, topK, u32(middles.size()), finalHash, prpRes64);
+    fo.printf(HEADER, E, u32(middles.size()), finalHash);
     fo.write(B);
     for (const Words& w : middles) { fo.write(w); }
     return fileName;
@@ -54,9 +56,9 @@ public:
   static Proof load(fs::path path) {
     File fi = File::openRead(path, true);
     string headerLine = fi.readLine();
-    u32 E = 0, topK = 0, power = 0;
-    u64 finalHash = 0, prpRes64 = 0;
-    if (sscanf(headerLine.c_str(), HEADER, &E, &topK, &power, &finalHash, &prpRes64) != 5) {
+    u32 E = 0, power = 0;
+    u64 finalHash = 0;
+    if (sscanf(headerLine.c_str(), HEADER, &E, &power, &finalHash) != 3) {
       log("Proof file '%s' has invalid header '%s'\n", path.string().c_str(), headerLine.c_str());
       throw "Invalid proof header";
     }
@@ -64,19 +66,31 @@ public:
     Words B = fi.read<u32>(nWords);
     vector<Words> middles;
     for (u32 i = 0; i < power; ++i) { middles.push_back(fi.read<u32>(nWords)); }
-    return {E, topK, B, middles, finalHash, prpRes64};
+    return {E, B, middles, finalHash};
   }
   
   bool verify(Gpu *gpu) {
     u32 power = middles.size();
     assert(power > 0);
-    assert(topK % (1 << power) == 0);
-    assert(topK <= E);
-    Words saveB = B;
-    
-    Words A{ProofUtil::makeWords(E, 3)};
 
-    auto hash = SHA3::hash(u64(E), u64(topK), B);
+    u32 topK = roundUp(E, ProofUtil::MULTIPLE);
+    assert(topK % (1 << power) == 0);
+    assert(topK > E);
+    u32 step = topK / (1 << power);
+
+    bool isPrime = false;
+    {
+      Words A{ProofUtil::makeWords(E, 3)};
+      log("proof: doing %d iterations\n", topK - E + 1);
+      A = gpu->expExp2(A, topK - E + 1);
+      isPrime = (A == B);
+      log("the proof indicates %s (%016" PRIx64 " vs. %016" PRIx64 " for a PRP)\n",
+          isPrime ? "probable prime" : "composite", res64(B), res64(A));
+    }
+
+    Words A{ProofUtil::makeWords(E, 3)};
+    
+    auto hash = SHA3::hash(u64(E), B);
     
     for (u32 i = 0; i < power; ++i) {
       Words& M = middles[i];
@@ -89,29 +103,21 @@ public:
       log("proof: hash %016" PRIx64 " expected %016" PRIx64 "\n", hash[0], finalHash);
       return false;
     }
-
-    u32 step = topK / (1 << power);
+    
     log("proof verification: doing %d iterations\n", step);
-    A = gpu->expExp2(A, step);
+    A = gpu->expExp2(A, step - 1);
+    u64 verificationSign = res64(A);
+    log("proof: verification signature: %016" PRIx64 "\n", verificationSign);
+    A = gpu->expExp2(A, 1);
+    
     if (A != B) {
-      log("proof: failed to validate: %016" PRIx64 " expected %016" PRIx64 "\n", res64(A), res64(B));
+      log("proof: invalid (%016" PRIx64 " expected %016" PRIx64 "); verification %016" PRIx64 "\n",
+          res64(A), res64(B), verificationSign);
       return false;
     }
 
-    log("proof: doing %d tail iterations\n", E - topK);
-    A = gpu->expExp2(saveB, E - topK);
-    bool isPrime = Gpu::equals9(A);
-    u64 resType4 = res64(A);
-
-    Gpu::doDiv9(E, A);
-    u64 resType1 = res64(A);
-    log("proof: %u proved %s, res type1 %016" PRIx64 " type4 %016" PRIx64 "\n",
-        E, isPrime ? "probable prime" : "composite", resType1, resType4);
-
-    if (resType1 != prpRes64) {
-      log("proof: res64 %016" PRIx64 " expected %016" PRIx64 "\n", resType1, prpRes64);
-      return false;
-    }
+    log("proof: %u proved %s; verification %016" PRIx64 "\n",
+        E, isPrime ? "probable prime" : "composite", verificationSign);
     
     return true;
   }
@@ -121,22 +127,22 @@ private:
 };
 
 class ProofSet {
-public:
-  static const u32 MAX_POWER = 10;
-  static const u32 MULTIPLE = (1 << MAX_POWER);
-  
+public:  
   u32 E;
   u32 power;
-  u32 topK{E / MULTIPLE * MULTIPLE};
+  u32 topK{roundUp(E, ProofUtil::MULTIPLE)};
   u32 step{topK / (1 << power)};
 
   ProofSet(u32 E, u32 power) : E{E}, power{power} {
-    assert(power <= MAX_POWER);
+    assert(E & 1); // E is supposed to be prime
+    assert(power <= ProofUtil::MAX_POWER);
     assert(topK % step == 0);
     assert(topK / step == (1u << power));
   }
 
-  u32 firstPersistAfter(u32 k) const { return (power && k <= topK) ? k / step * step + step : -1; }
+  u32 kProofEnd(u32 kEnd) const { return power ? roundUp(kEnd, ProofUtil::MULTIPLE) : kEnd; }
+  
+  u32 firstPersistAt(u32 k) const { return power ? roundUp(k, step): -1; }
 
   void save(u32 k, const vector<u32>& words) {
     assert(k > 0 && k <= topK);
@@ -189,7 +195,7 @@ public:
     hashes.emplace_back(1);
     middles.push_back(load(topK / 2));
 
-    auto hash = SHA3::hash(u64(E), u64(topK), B);
+    auto hash = SHA3::hash(u64(E), B);
     hash = SHA3::hash(hash, middles.back());
     
     for (u32 p = 1; p < power; ++p) {
@@ -213,7 +219,7 @@ public:
       middles.push_back(std::move(M));
       hash = SHA3::hash(hash, middles.back());
     }
-    return Proof{E, topK, std::move(B), std::move(middles), hash[0], prpRes64};
+    return Proof{E, std::move(B), std::move(middles), hash[0]};
   }
 
 private:  

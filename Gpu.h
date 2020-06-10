@@ -132,6 +132,8 @@ class Gpu {
   void modSqLoopLL(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
     modSqLoopRaw(io, reps, buf1, buf2, false, true);
   }
+  
+  u32 modSqLoopTo(Buffer<int>& io, u32 begin, u32 end);
 
   void modMul(Buffer<int>& io, Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
   bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);

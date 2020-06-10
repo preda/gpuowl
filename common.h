@@ -34,3 +34,5 @@ string hex(u64 x);
 string rstripNewline(string s);
 
 using Words = vector<u32>;
+
+inline u32 roundUp(u32 x, u32 multiple) { return ((x - 1) / multiple + 1) * multiple; }
