@@ -563,9 +563,52 @@ void Gpu::multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<doubl
   fftHin(io, tmp);
 }
 
+namespace {
+class IterationTimer {
+  Timer timer;
+  u32 kStart;
+
+  double secsPerIt(double secs, u32 k) const { return secs / std::max(k - kStart, 1u); }
+  
+public:
+  IterationTimer(u32 kStart) : kStart(kStart) {}
+  
+  // double at(u32 k) const { return secsPerIt(timer.elapsed(), k); }
+  
+  double reset(u32 k) {
+    double secs = timer.deltaSecs();
+    double ret = secsPerIt(secs, k);
+    kStart = k;
+    return ret;
+  }
+};
+
+void spin() {
+  static size_t spinPos = 0;
+  const char spinner[] = "-\\|/";
+  printf("\r%c", spinner[spinPos]);
+  fflush(stdout);
+  if (++spinPos >= sizeof(spinner) - 1) { spinPos = 0; }
+}
+
+}
+
 Words Gpu::expExp2(const Words& A, u32 n) {
+  u32 blockSize = 400;
+  u32 logStep = 20000;
+  
   writeData(A);
-  modSqLoop(bufData, n, buf1, buf2);
+  IterationTimer timer{0};
+  u32 k = 0;
+  while (true) {
+    u32 its = std::min(blockSize, n - k);
+    modSqLoop(bufData, its, buf1, buf2);
+    k += its;
+    spin();
+    queue->finish();
+    if (k % logStep == 0) { log("%u / %u, %.0f us/it\n", k, n, timer.reset(k) * 1'000'000.f); }
+    if (k >= n) { break; }
+  }
   return readData();
 }
 
@@ -801,26 +844,8 @@ void Gpu::doDiv9(u32 E, Words& words) {
   doDiv3(E, words);
 }
 
-class IterationTimer {
-  Timer timer;
-  u32 kStart;
-
-  double secsPerIt(double secs, u32 k) const { return secs / std::max(k - kStart, 1u); }
-  
-public:
-  IterationTimer(u32 kStart) : kStart(kStart) {}
-  
-  // double at(u32 k) const { return secsPerIt(timer.elapsed(), k); }
-  
-  double reset(u32 k) {
-    double secs = timer.deltaSecs();
-    double ret = secsPerIt(secs, k);
-    kStart = k;
-    return ret;
-  }
-};
-
-static u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
+namespace {
+u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
   if (argsCheckStep) { return argsCheckStep; }  
   switch (nErrors) {
     case 0:  return 200'000;
@@ -829,7 +854,6 @@ static u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
   }
 }
 
-namespace {
 int nFitBufs(cl_device_id device, size_t bufSize) {
   // log("availableBytes %lu\n", AllocTrac::availableBytes());
   int n = AllocTrac::availableBytes() / bufSize;  
@@ -839,16 +863,6 @@ int nFitBufs(cl_device_id device, size_t bufSize) {
     n = std::min(n, n2);
   }
   return n;
-}
-
-// u64 read64(u32 *p) { return p[0] + (u64(p[1]) << 32); }
-
-void spin() {
-  static size_t spinPos = 0;
-  const char spinner[] = "-\\|/";
-  printf("\r%c", spinner[spinPos]);
-  fflush(stdout);
-  if (++spinPos >= sizeof(spinner) - 1) { spinPos = 0; }
 }
 
 template<typename To, typename From> To pun(From x) {
