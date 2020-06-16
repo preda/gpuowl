@@ -517,7 +517,11 @@ Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord) {
 Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
   Word w = lowBits(x, nBits);
-#if 0
+// If nBits could 20 or more we must be careful.  doubleToLong generated x as 13 bits of trash and 51-bit signed value.
+// If we right shift 20 bits we will shift some of the trash into outCarry.  First we must remove the trash bits.
+#if EXP / NWORDS >= 19
+  *outCarry = (as_int2(x << 13).y >> (nBits - 19)) + (w < 0);
+#elif 0
   i32 out;
   __asm("v_alignbit_b32 %0, %1, %2, %3" : "=v"(out) : "v"(as_int2(x).y), "v"(as_int2(x).x), "v"(nBits));
   *outCarry = out + (w < 0);
