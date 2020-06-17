@@ -432,9 +432,11 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
 #if HAS_ASM
 i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
 u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+i32 xtract32(i64 x, u32 bits) { i32 tmp; __asm("v_alignbit_b32 %0, %1, %2, %3" : "=v"(tmp) : "v"(as_int2(x).y), "v"(as_int2(x).x), "v"(bits)); return tmp; }
 #else
 i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
+i32 xtract32(i64 x, u32 bits) { return ((i32) (x >> bits)); }
 #endif
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
@@ -499,35 +501,36 @@ i64 OVERLOAD doubleToLong(double x, i64 inCarry) {
   return as_long(data);
 }
 
-Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
+const bool MUST_BE_EXACT = 0;
+const bool CAN_BE_INEXACT = 1;
+
+Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord, bool exactness) {
   u32 nBits = bitlen(isBigWord);
-  Word w = lowBits(x, nBits);
-  *outCarry = (x - w) >> nBits;
+  Word w = (exactness == MUST_BE_EXACT) ? lowBits(x, nBits) : ulowBits(x, nBits);
+  if (exactness == MUST_BE_EXACT) x -= w;
+  *outCarry = x >> nBits;
   return w;
 }
 
-Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord) {
+Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord, bool exactness) {
   u32 nBits = bitlen(isBigWord);
-  Word w = lowBits(x, nBits);
-  *outCarry = (x - w) >> nBits;
+  Word w = (exactness == MUST_BE_EXACT) ? lowBits(x, nBits) : ulowBits(x, nBits);
+// If nBits could 20 or more we must be careful.  doubleToLong generated x as 13 bits of trash and 51-bit signed value.
+// If we right shift 20 bits we will shift some of the trash into outCarry.  First we must remove the trash bits.
+#if EXP / NWORDS >= 19
+  *outCarry = as_int2(x << 13).y >> (nBits - 19);
+#else
+  *outCarry = xtract32(x, nBits);
+#endif
+  if (exactness == MUST_BE_EXACT) *outCarry += (w < 0);
   CARRY32_CHECK(*outCarry);
   return w;
 }
 
-Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
+Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord, bool exactness) {
   u32 nBits = bitlen(isBigWord);
-  Word w = lowBits(x, nBits);
-// If nBits could 20 or more we must be careful.  doubleToLong generated x as 13 bits of trash and 51-bit signed value.
-// If we right shift 20 bits we will shift some of the trash into outCarry.  First we must remove the trash bits.
-#if EXP / NWORDS >= 19
-  *outCarry = (as_int2(x << 13).y >> (nBits - 19)) + (w < 0);
-#elif 0
-  i32 out;
-  __asm("v_alignbit_b32 %0, %1, %2, %3" : "=v"(out) : "v"(as_int2(x).y), "v"(as_int2(x).x), "v"(nBits));
-  *outCarry = out + (w < 0);
-#else
-  *outCarry = ((i32) (x >> nBits)) + (w < 0);
-#endif
+  Word w = lowBits(x, nBits);		// I believe this version is only called with MUST_BE_EXACT
+  *outCarry = (x - w) >> nBits;
   CARRY32_CHECK(*outCarry);
   return w;
 }
@@ -547,20 +550,20 @@ typedef i64 CFMcarry;
 u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 
 //{{ carries
-Word2 OVERLOAD unweightAndCarry(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax) {
+Word2 OVERLOAD unweightAndCarry(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
   iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x, inCarry), &midCarry, b1);
-  Word b = carryStep(doubleToLong(u.y, midCarry), outCarry, b2);
+  Word a = carryStep(doubleToLong(u.x, inCarry), &midCarry, b1, exactness);
+  Word b = carryStep(doubleToLong(u.y, midCarry), outCarry, b2, MUST_BE_EXACT);
 #if STATS
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
   return (Word2) (a, b);
 }
 
-Word2 OVERLOAD unweightAndCarryMul(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax) {
+Word2 OVERLOAD unweightAndCarryMul(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
   iCARRY midCarry;
-  Word a = carryStep(3 * doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1);
-  Word b = carryStep(3 * doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2);
+  Word a = carryStep(3 * doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1, exactness);
+  Word b = carryStep(3 * doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
 #if STATS
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
@@ -569,7 +572,7 @@ Word2 OVERLOAD unweightAndCarryMul(T2 u, iCARRY *outCarry, bool b1, bool b2, iCA
 
 T2 OVERLOAD carryAndWeightFinal(Word2 u, iCARRY inCarry, T2 w, bool b1) {
   i32 tmpCarry;
-  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
+  u.x = carryStep(u.x + inCarry, &tmpCarry, b1, MUST_BE_EXACT);
   u.y += tmpCarry;
   return U2(u.x, u.y) * w;
 }
@@ -580,8 +583,8 @@ T2 OVERLOAD carryAndWeightFinal(Word2 u, iCARRY inCarry, T2 w, bool b1) {
 
 // Carry propagation from word and carry.
 Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
-  a.x = carryStep(a.x + *carry, carry, b1);
-  a.y = carryStep(a.y + *carry, carry, b2);
+  a.x = carryStep(a.x + *carry, carry, b1, MUST_BE_EXACT);
+  a.y = carryStep(a.y + *carry, carry, b2, MUST_BE_EXACT);
   return a;
 }
 
@@ -2803,9 +2806,9 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
 #endif
     
 #if DO_MUL3
-    out[p] = unweightAndCarryMul(x, &carry, b1, b2, carry, &carryMax);
+    out[p] = unweightAndCarryMul(x, &carry, b1, b2, carry, &carryMax, MUST_BE_EXACT);
 #else
-    out[p] = unweightAndCarry(x, &carry, b1, b2, carry, &carryMax);
+    out[p] = unweightAndCarry(x, &carry, b1, b2, carry, &carryMax, MUST_BE_EXACT);
 #endif
     extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
@@ -2959,15 +2962,15 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 #endif
 
 #if CF_MUL    
-    wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
+    wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
 #else
 
 #if SUB2
     CFcarry inCarry = 0;
     if (i == 0 && line == 0 && me == 0) { inCarry = -2; }
-    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), inCarry, &carryMax);
+    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), inCarry, &carryMax, CAN_BE_INEXACT);
 #else    
-    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
+    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
 #endif
 
 #endif
@@ -3479,9 +3482,9 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 #ifdef TEST_KERNEL
 KERNEL(256) testKernel(global double* io) {
   u32 me = get_local_id(0);
-  double2 sc = slowTrig(me, 10240, 2560);
-  io[me] = sc.x;
-  io[me + 256] = sc.y;
+  i32 outCarry = 0;
+  io[me] = carryStep(doubleToLong(io[me], outCarry), &outCarry, me > 15, CAN_BE_INEXACT);
+  io[me+256] = outCarry;
 }
 #endif
 
