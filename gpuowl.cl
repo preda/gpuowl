@@ -2855,24 +2855,6 @@ KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) extras) {
   }
 }
 
-void release() {
-#if 0
-  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_order_release, memory_scope_device);
-  work_group_barrier(0);
-#else
-  work_group_barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_scope_device);
-#endif
-}
-
-void acquire() {
-#if 0
-  atomic_work_item_fence(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_order_acquire, memory_scope_device);
-  work_group_barrier(0);
-#else
-  work_group_barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE, memory_scope_device);
-#endif
-}
-
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 // See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
@@ -2986,16 +2968,12 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     for (i32 i = 0; i < NW; ++i) {
       carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
     }
-  }
-  release();
 
-  // Signal that this group is done writing its carries
-  if (gr < H && me == 0) {
-#ifdef ATOMICALLY_CORRECT
-    atomic_store((atomic_uint *) &ready[gr], 1);
-#else
-    ready[gr] = 1;
-#endif
+    // Signal that this group is done writing its carries
+    work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+    if (me == 0) {
+      atomic_store((atomic_uint *) &ready[gr], 1);
+    }
   }
 
 #if STATS
@@ -3007,17 +2985,16 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   // Wait until the previous group is ready with their carries
   if (me == 0) {
     while(!atomic_load((atomic_uint *) &ready[gr - 1]));
-    ready[gr - 1] = 0; // atomic_store((atomic_uint *) &ready[gr - 1], 0);
   }
+  work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
 
   // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
   // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
-  acquire();
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
     }
-  } else if (gr == H) {
+  } else {
     for (i32 i = 0; i < NW; ++i) {
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
     }
@@ -3077,11 +3054,14 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     u[i].y = (double) wu[i].y * weight2;
   }
 
-// Now do the forward FFT and write results
+// Clear carry ready flag for next iteration
 
   bar();
-  fft_WIDTH(lds, u, smallTrig);
+  if (me == 0) ready[gr - 1] = 0;
 
+// Now do the forward FFT and write results
+
+  fft_WIDTH(lds, u, smallTrig);
   write(G_W, NW, u, out, WIDTH * line);
 }
 //}}
