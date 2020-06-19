@@ -76,8 +76,9 @@ G_H        "group height"
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
-#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
-#pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
+// We are not using 64-bit atomics at the present time
+//#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+//#pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
 #if DEBUG
 #define assert(condition) if (!(condition)) { printf("assert(%s) failed at line %d\n", STR(condition), __LINE__ - 1); }
@@ -550,7 +551,7 @@ typedef i64 CFMcarry;
 u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 
 //{{ carries
-Word2 OVERLOAD unweightAndCarry(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
+Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
   iCARRY midCarry;
   Word a = carryStep(doubleToLong(u.x, inCarry), &midCarry, b1, exactness);
   Word b = carryStep(doubleToLong(u.y, midCarry), outCarry, b2, MUST_BE_EXACT);
@@ -560,7 +561,7 @@ Word2 OVERLOAD unweightAndCarry(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY
   return (Word2) (a, b);
 }
 
-Word2 OVERLOAD unweightAndCarryMul(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
+Word2 OVERLOAD carryPairMul(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
   iCARRY midCarry;
   Word a = carryStep(3 * doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1, exactness);
   Word b = carryStep(3 * doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
@@ -570,12 +571,13 @@ Word2 OVERLOAD unweightAndCarryMul(T2 u, iCARRY *outCarry, bool b1, bool b2, iCA
   return (Word2) (a, b);
 }
 
-T2 OVERLOAD carryAndWeightFinal(Word2 u, iCARRY inCarry, T2 w, bool b1) {
+Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
   i32 tmpCarry;
   u.x = carryStep(u.x + inCarry, &tmpCarry, b1, MUST_BE_EXACT);
   u.y += tmpCarry;
-  return U2(u.x, u.y) * w;
+  return u;
 }
+
 //}}
 
 //== carries CARRY=32
@@ -2806,9 +2808,9 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
 #endif
     
 #if DO_MUL3
-    out[p] = unweightAndCarryMul(x, &carry, b1, b2, carry, &carryMax, MUST_BE_EXACT);
+    out[p] = carryPairMul(x, &carry, b1, b2, carry, &carryMax, MUST_BE_EXACT);
 #else
-    out[p] = unweightAndCarry(x, &carry, b1, b2, carry, &carryMax, MUST_BE_EXACT);
+    out[p] = carryPair(x, &carry, b1, b2, carry, &carryMax, MUST_BE_EXACT);
 #endif
     extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
@@ -2932,6 +2934,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   const double TWO_TO_MINUS_6_8TH = 0.59460355750136053335874998528024; // 2^-0.75
   const double TWO_TO_MINUS_7_8TH = 0.54525386633262882960350532788035; // 2^-0.875
 
+// Apply the inverse weights
+
   for (i32 i = 0; i < NW; ++i) {
     T baseInvWeight, invWeight, invWeight2;
     if (i == 0) invWeight = baseInvWeight = optionalDouble(weights.x);
@@ -2955,36 +2959,37 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
 #endif
 
-    T2 x = conjugate(u[i]) * U2(invWeight, invWeight2);
-
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight, invWeight2)));
 #endif
 
-#if CF_MUL    
-    wu[i] = unweightAndCarryMul(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
-#else
+    u[i] = conjugate(u[i]) * U2(invWeight, invWeight2);
+
+// For LL tests, apply the -2 here.  If we ever support prime95 style shift counts, it needs to be here - prior to calculating carry.
 
 #if SUB2
-    CFcarry inCarry = 0;
-    if (i == 0 && line == 0 && me == 0) { inCarry = -2; }
-    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), inCarry, &carryMax, CAN_BE_INEXACT);
-#else    
-    wu[i] = unweightAndCarry(x, &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
-#endif
-
+   if (i == 0 && line == 0 && me == 0) u[i].x -= 2.0;
 #endif
   }
 
+  // Generate our output carries
+  for (i32 i = 0; i < NW; ++i) {
+#if CF_MUL    
+    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
+#else
+    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
+#endif
+  }
+
+  // Write out our carries
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
       carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
     }
   }
-
   release();
 
-  // Signal that this group is done writing the carry.
+  // Signal that this group is done writing its carries
   if (gr < H && me == 0) {
 #ifdef ATOMICALLY_CORRECT
     atomic_store((atomic_uint *) &ready[gr], 1);
@@ -2999,19 +3004,15 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
   if (gr == 0) { return; }
 
-  // Wait until the previous group is ready with the carry.
+  // Wait until the previous group is ready with their carries
   if (me == 0) {
     while(!atomic_load((atomic_uint *) &ready[gr - 1]));
     ready[gr - 1] = 0; // atomic_store((atomic_uint *) &ready[gr - 1], 0);
   }
 
-  acquire();
-
   // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
   // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
-
-  assert(gr > 0 && gr <= H);
-
+  acquire();
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
@@ -3025,10 +3026,14 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
       for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
       carry[0] = carry[NW];
     }
-  } else {
-    // This is unreachable because 'gr' is in range [1 .. H], so one of the previous branches must have been taken
-    // assert(gr <= H);
   }
+
+  // Apply each 32 or 64 bit carry to the 2 words
+  for (i32 i = 0; i < NW; ++i) {
+    wu[i] = carryFinal(wu[i], carry[i], test(b, 2 * i));
+  }
+
+// Apply the weights, converting from integers back to doubles
 
   const double TWO_TO_1_8TH_MINUS_1 = 0.0905077326652576592070106557607; // 2^0.125 - 1.0
   const double TWO_TO_2_8TH_MINUS_1 = 0.1892071150027210667174999705605; // 2^0.25 - 1.0
@@ -3045,7 +3050,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   const double TWO_TO_6_8TH = 1.6817928305074290860622509524664; // 2^0.75
   const double TWO_TO_7_8TH = 1.8340080864093424634870831895883; // 2^0.875
 
-  // Apply each 32 or 64 bit carry to the 2 words and weight the result to create new u values.
   for (i32 i = 0; i < NW; ++i) {
     T baseWeight, weight, weight2;
     if (i == 0) weight = baseWeight = optionalHalve(weights.y);
@@ -3069,8 +3073,11 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     weight2 = optionalHalve(weight * WEIGHT_STEP);
 #endif
 
-    u[i] = carryAndWeightFinal(wu[i], carry[i], U2(weight, weight2), test(b, 2 * i));
+    u[i].x = (double) wu[i].x * weight;
+    u[i].y = (double) wu[i].y * weight2;
   }
+
+// Now do the forward FFT and write results
 
   bar();
   fft_WIDTH(lds, u, smallTrig);
