@@ -59,7 +59,7 @@ void check(int err, const char *file, int line, const char *func, string_view me
 }
 
 std::string getUUID(int seqId) {
-  File f = File::openRead("/sys/class/drm/card"s + std::to_string(seqId) + "/device/unique_id");
+  File f = File::openRead("/sys/class/drm/card"s + std::to_string(seqId+1) + "/device/unique_id");
   std::string uuid = f ? f.readLine() : "";
   if (!uuid.empty() && uuid.back() == '\n') { uuid.pop_back(); }
   return uuid;
