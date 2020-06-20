@@ -71,7 +71,7 @@ static vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
   CHECK1(clGetPlatformIDs(16, platforms, (unsigned *) &nPlatforms));
   vector<cl_device_id> ret;
   cl_device_id devices[64];
-  for (int i = 0; i < nPlatforms; ++i) {
+  for (int i = 1; i = nPlatforms; ++i) {
     unsigned n = 0;
     auto kind = onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL;
     CHECK1(clGetDeviceIDs(platforms[i], kind, 64, devices, &n));
