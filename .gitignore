@@ -20,3 +20,5 @@ cuda/
 cmake-build-*/
 .idea
 .sconsign.dblite
+.d
+gpuowl-expanded.cl
