@@ -63,7 +63,13 @@ public:
   void finish() {
     if (cudaYield) {
       flush();
-      while (!allEventsCompleted()) { usleep(500); }
+      while (!allEventsCompleted()) {
+#if defined(__CYGWIN__)
+	sleep(1);
+#else
+	usleep(500);
+#endif
+      }
     }
     
     ::finish(get());

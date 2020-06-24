@@ -22,3 +22,4 @@ cmake-build-*/
 .sconsign.dblite
 .d
 gpuowl-expanded.cl
+gpuowl.exe
