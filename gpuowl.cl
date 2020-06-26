@@ -76,8 +76,8 @@ G_H        "group height"
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
-// We are not using 64-bit atomics at the present time
-//#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+// 64-bit atomics used in kernel sum64
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 //#pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
 #if DEBUG
