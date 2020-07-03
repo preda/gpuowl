@@ -90,7 +90,7 @@ public:
 
     Words A{ProofUtil::makeWords(E, 3)};
     
-    auto hash = SHA3::hash(u64(E), B);
+    auto hash = SHA3::hash(B);
     
     for (u32 i = 0; i < power; ++i) {
       Words& M = middles[i];
@@ -182,7 +182,7 @@ public:
   }
 
   bool isComplete() const { return isValidTo(topK); }
-
+  
   Proof computeProof(Gpu *gpu, u64 prpRes64) {
     assert(power > 0);
     
@@ -190,34 +190,30 @@ public:
     Words A = ProofUtil::makeWords(E, 3);
 
     vector<Words> middles;
-    
-    vector<mpz_class> hashes;
-    hashes.emplace_back(1);
-    middles.push_back(load(topK / 2));
+    vector<u64> hashes;
 
-    auto hash = SHA3::hash(u64(E), B);
-    hash = SHA3::hash(hash, middles.back());
+    auto hash = SHA3::hash(B);
+
+    vector<Buffer<i32>> bufVect = gpu->makeBufVector(power + 1);
     
-    for (u32 p = 1; p < power; ++p) {
+    for (u32 p = 0; p < power; ++p) {
+      auto bufIt = bufVect.begin();
+      assert(p == hashes.size());
       log("proof: building level %d, hash %016" PRIx64 "\n", (p + 1), hash[0]);
-      u64 h = hash[0];
-      for (int i = 0; i < (1 << (p - 1)); ++i) {
-#if ULONG_MAX > 4294967295
-        hashes.push_back(hashes[i] * h);
-#else
-        // When sizeof(long)==4 (i.e. on Windows), GMP constructors don't take 64-bit int.
-        hashes.push_back(hashes[i] * mpz64(h));
-#endif
-      }
-      Words M = ProofUtil::makeWords(E, 1);
       u32 s = topK / (1 << (p + 1));
       for (int i = 0; i < (1 << p); ++i) {
         Words w = load(s * (2 * i + 1));
-        u32 pos = ProofUtil::revbin(p, (1<<p) - 1 - i);
-        M = gpu->expMul(w, bitsMSB(hashes[pos]), M);
+        gpu->writeIn(*bufIt++, w);
+        for (int k = 0; i & (1 << k); ++k) {
+          --bufIt;
+          u64 h = hashes[p - 1 - k];
+          gpu->expMul(*(bufIt - 1), h, *bufIt);
+        }
       }
-      middles.push_back(std::move(M));
+      assert(bufIt == bufVect.begin() + 1);
+      middles.push_back(gpu->readAndCompress(bufVect.front()));
       hash = SHA3::hash(hash, middles.back());
+      hashes.push_back(hash[0]);
     }
     return Proof{E, std::move(B), std::move(middles), hash[0]};
   }

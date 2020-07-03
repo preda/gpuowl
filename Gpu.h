@@ -118,8 +118,7 @@ class Gpu {
   void tailFused(Buffer<double>& out, Buffer<double>& in) { tailFusedSquare(out, in); }
   
   vector<int> readOut(ConstBuffer<int> &buf);
-  void writeIn(const vector<u32> &words, Buffer<int>& buf);
-  void writeIn(const vector<int> &words, Buffer<int>& buf);
+  void writeIn(Buffer<int>& buf, const vector<i32> &words);
 
   void modSqLoopRaw(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, bool mul3, bool sub2);
   
@@ -147,9 +146,9 @@ class Gpu {
 
   void multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
 
-  void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, const vector<bool>& exp, Buffer<double>& tmp);
+  void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
   void exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& tmp2);
-  void exponentiateHigh(Buffer<int>& bufInOut, const vector<bool>& exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2);
+  void exponentiateHigh(Buffer<int>& bufInOut, u64 exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2);
   
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
@@ -160,8 +159,10 @@ class Gpu {
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights, bool isPm1);
 
-  vector<u32> readAndCompress(ConstBuffer<int>& buf);
   void printRoundoff(u32 E);
+
+  // does either carrryFused() or the expanded version depending on useLongCarry
+  void doCarry(Buffer<double>& out, Buffer<double>& in);
   
 public:
   static unique_ptr<Gpu> make(u32 E, const Args &args, bool isPm1);
@@ -172,8 +173,10 @@ public:
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, bool isPm1);
 
-  void writeData(const vector<u32> &v) { writeIn(v, bufData); }
-  void writeCheck(const vector<u32> &v) { writeIn(v, bufCheck); }
+  vector<u32> readAndCompress(ConstBuffer<int>& buf);
+  void writeIn(Buffer<int>& buf, const vector<u32> &words);
+  void writeData(const vector<u32> &v) { writeIn(bufData, v); }
+  void writeCheck(const vector<u32> &v) { writeIn(bufCheck, v); }
   
   u64 dataResidue()  { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }
@@ -195,10 +198,13 @@ public:
   
   u32 getFFTSize() { return N; }
 
-  // return A^x * M
-  Words expMul(const Words& A, u64 x, const Words& M);
-  Words expMul(const Words& A, const vector<bool>& x, const Words& M);
+  // return A^h * B
+  Words expMul(const Words& A, u64 h, const Words& B);
+
+  // A:= A^h * B
+  void expMul(Buffer<i32>& A, u64 h, Buffer<i32>& B);
   
   // return A^(2^n)
   Words expExp2(const Words& A, u32 n);
+  vector<Buffer<i32>> makeBufVector(u32 size);
 };
