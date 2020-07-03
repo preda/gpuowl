@@ -2,8 +2,6 @@
 
 #pragma once
 
-#include "Gpu.h"
-#include "GmpUtil.h"
 #include "File.h"
 #include "common.h"
 #include "Sha3Hash.h"
@@ -15,65 +13,73 @@
 #include <cinttypes>
 #include <climits>
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error Byte order must be Little Endian
+#endif
+
+
 struct ProofUtil {
-  static const u32 MAX_POWER = 10;
-  static const u32 MULTIPLE = (1 << MAX_POWER);
-  
   static Words makeWords(u32 E, u32 init) {
     u32 nWords = (E - 1) / 32 + 1;
     Words x(nWords);
     x[0] = init;
     return x;
   }
-
-  static u32 revbin(int nBits, u32 k) {
-    u32 r = 0;    
-    for (u32 bit = 1 << (nBits - 1); bit; bit>>=1, k>>=1) { if (k & 1) { r |= bit; }}
-    return r;
-  }
 };
+
 
 class Proof {
 public:
   u32 E;
   Words B;
   vector<Words> middles;
-  u64 finalHash; // a data check
 
-  // version(1), E, power, finalHash
-  static const constexpr char* HEADER = "PRProof 1 %u %u 0x%" SCNx64 "\n";
+  /*Example header:
+    PRP PROOF\n
+    VERSION=1\n
+    HASHSIZE=64\n
+    POWER=9\n
+    NUMBER=M216091\n
+  */
+  static const constexpr char* HEADER = "PRP Proof\nVERSION=1\nHASHSIZE=64\nPOWER=%u\nNUMBER=M%u%c";
   
   fs::path save() {
     string strE = to_string(E);
-    fs::path fileName = fs::current_path() / strE / (strE + '-' + hex(finalHash).substr(0, 4) + ".proof");
+    u32 power = middles.size();
+    fs::path fileName = fs::current_path() / strE / (strE + '-' + to_string(power) + ".proof");
     File fo = File::openWrite(fileName);
-    fo.printf(HEADER, E, u32(middles.size()), finalHash);
-    fo.write(B);
-    for (const Words& w : middles) { fo.write(w); }
+    fo.printf(HEADER, power, E, '\n');
+    fo.write(B.data(), (E-1)/8+1);
+    for (const Words& w : middles) { fo.write(w.data(), (E-1)/8+1); }
     return fileName;
   }
 
   static Proof load(fs::path path) {
     File fi = File::openRead(path, true);
-    string headerLine = fi.readLine();
     u32 E = 0, power = 0;
-    u64 finalHash = 0;
-    if (sscanf(headerLine.c_str(), HEADER, &E, &power, &finalHash) != 3) {
-      log("Proof file '%s' has invalid header '%s'\n", path.string().c_str(), headerLine.c_str());
+    char c = 0;
+    if (fi.scanf(HEADER, &power, &E, &c) != 3 || c != '\n') {
+      log("Proof file '%s' has invalid header\n", path.string().c_str());
       throw "Invalid proof header";
     }
-    u32 nWords = (E - 1) / 32 + 1;
-    Words B = fi.read<u32>(nWords);
+    u32 nBytes = (E-1)/8+1;
+    u32 nWords = (E-1)/32+1;
+    Words B(nWords);
+    fi.read(B.data(), nBytes);
     vector<Words> middles;
-    for (u32 i = 0; i < power; ++i) { middles.push_back(fi.read<u32>(nWords)); }
-    return {E, B, middles, finalHash};
+    for (u32 i = 0; i < power; ++i) {
+      Words M(nWords);
+      fi.read(M.data(), nBytes);
+      middles.push_back(std::move(M));
+    }
+    return {E, B, middles};
   }
   
   bool verify(Gpu *gpu) {
     u32 power = middles.size();
     assert(power > 0);
 
-    u32 topK = roundUp(E, ProofUtil::MULTIPLE);
+    u32 topK = roundUp(E, (1 << power));
     assert(topK % (1 << power) == 0);
     assert(topK > E);
     u32 step = topK / (1 << power);
@@ -84,8 +90,8 @@ public:
       log("proof: doing %d iterations\n", topK - E + 1);
       A = gpu->expExp2(A, topK - E + 1);
       isPrime = (A == B);
-      log("the proof indicates %s (%016" PRIx64 " vs. %016" PRIx64 " for a PRP)\n",
-          isPrime ? "probable prime" : "composite", res64(B), res64(A));
+      // log("the proof indicates %s (%016" PRIx64 " vs. %016" PRIx64 " for a PRP)\n",
+      //    isPrime ? "probable prime" : "composite", res64(B), res64(A));
     }
 
     Words A{ProofUtil::makeWords(E, 3)};
@@ -99,27 +105,16 @@ public:
       B = gpu->expMul(M, hash[0], B);
     }
     
-    if (hash[0] != finalHash) {
-      log("proof: hash %016" PRIx64 " expected %016" PRIx64 "\n", hash[0], finalHash);
-      return false;
-    }
-    
     log("proof verification: doing %d iterations\n", step);
-    A = gpu->expExp2(A, step - 1);
-    u64 verificationSign = res64(A);
-    log("proof: verification signature: %016" PRIx64 "\n", verificationSign);
-    A = gpu->expExp2(A, 1);
-    
-    if (A != B) {
-      log("proof: invalid (%016" PRIx64 " expected %016" PRIx64 "); verification %016" PRIx64 "\n",
-          res64(A), res64(B), verificationSign);
-      return false;
-    }
+    A = gpu->expExp2(A, step);
 
-    log("proof: %u proved %s; verification %016" PRIx64 "\n",
-        E, isPrime ? "probable prime" : "composite", verificationSign);
-    
-    return true;
+    bool ok = (A == B);
+    if (ok) {
+      log("proof: %u proved %s\n", E, isPrime ? "probable prime" : "composite");
+    } else {
+      log("proof: invalid (%016" PRIx64 " expected %016" PRIx64 ")\n", res64(A), res64(B));
+    }
+    return ok;
   }
 
 private:
@@ -130,17 +125,20 @@ class ProofSet {
 public:  
   u32 E;
   u32 power;
-  u32 topK{roundUp(E, ProofUtil::MULTIPLE)};
+  u32 topK{roundUp(E, (1 << power))};
   u32 step{topK / (1 << power)};
 
   ProofSet(u32 E, u32 power) : E{E}, power{power} {
     assert(E & 1); // E is supposed to be prime
-    assert(power <= ProofUtil::MAX_POWER);
     assert(topK % step == 0);
     assert(topK / step == (1u << power));
   }
 
-  u32 kProofEnd(u32 kEnd) const { return power ? roundUp(kEnd, ProofUtil::MULTIPLE) : kEnd; }
+  u32 kProofEnd(u32 kEnd) const {
+    if (!power) { return kEnd; }
+    assert(topK > kEnd);
+    return topK;
+  }
   
   u32 firstPersistAt(u32 k) const { return power ? roundUp(k, step): -1; }
 
@@ -215,7 +213,7 @@ public:
       hash = SHA3::hash(hash, middles.back());
       hashes.push_back(hash[0]);
     }
-    return Proof{E, std::move(B), std::move(middles), hash[0]};
+    return Proof{E, std::move(B), std::move(middles)};
   }
 
 private:  

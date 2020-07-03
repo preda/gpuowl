@@ -1108,7 +1108,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
 
     for (u32 persistK = proofSet.firstPersistAt(k+1); persistK <= nextK && persistK < kEnd; persistK = proofSet.firstPersistAt(k + 1)) {
       k = modSqLoopTo(bufData, k, persistK);
-      log("proof: save residue @ %u\n", k);
+      // log("proof: save residue @ %u\n", k);
       proofSet.save(k, readData());
     }
     
