@@ -192,7 +192,7 @@ public:
 
     auto hash = SHA3::hash(B);
 
-    vector<Buffer<i32>> bufVect = gpu->makeBufVector(power + 1);
+    vector<Buffer<i32>> bufVect = gpu->makeBufVector(power);
     
     for (u32 p = 0; p < power; ++p) {
       auto bufIt = bufVect.begin();
