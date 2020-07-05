@@ -17,7 +17,6 @@
 #error Byte order must be Little Endian
 #endif
 
-
 struct ProofUtil {
   static Words makeWords(u32 E, u32 init) {
     u32 nWords = (E - 1) / 32 + 1;
@@ -25,10 +24,14 @@ struct ProofUtil {
     x[0] = init;
     return x;
   }
+
+  static array<u64, 4> hashWords(u32 E, const Words& words) { return SHA3{}.update(words.data(), (E-1)/8+1).finish(); }
+  static array<u64, 4> hashWords(u32 E, array<u64, 4> prefix, const Words& words) {
+    return SHA3{}.update(prefix).update(words.data(), (E-1)/8+1).finish();
+  }
 };
 
-
-class Proof {
+class Proof {  
 public:
   u32 E;
   Words B;
@@ -96,13 +99,14 @@ public:
 
     Words A{ProofUtil::makeWords(E, 3)};
     
-    auto hash = SHA3::hash(B);
+    auto hash = ProofUtil::hashWords(E, B);
     
     for (u32 i = 0; i < power; ++i) {
       Words& M = middles[i];
-      hash = SHA3::hash(hash, M);
-      A = gpu->expMul(A, hash[0], M);
-      B = gpu->expMul(M, hash[0], B);
+      hash = ProofUtil::hashWords(E, hash, M);
+      u64 h = hash[0];
+      A = gpu->expMul(A, h, M);
+      B = gpu->expMul(M, h, B);
     }
     
     log("proof verification: doing %d iterations\n", step);
@@ -190,7 +194,7 @@ public:
     vector<Words> middles;
     vector<u64> hashes;
 
-    auto hash = SHA3::hash(B);
+    auto hash = ProofUtil::hashWords(E, B);
 
     vector<Buffer<i32>> bufVect = gpu->makeBufVector(power);
     
@@ -210,7 +214,7 @@ public:
       }
       assert(bufIt == bufVect.begin() + 1);
       middles.push_back(gpu->readAndCompress(bufVect.front()));
-      hash = SHA3::hash(hash, middles.back());
+      hash = ProofUtil::hashWords(E, hash, middles.back());
       hashes.push_back(hash[0]);
     }
     return Proof{E, std::move(B), std::move(middles)};
