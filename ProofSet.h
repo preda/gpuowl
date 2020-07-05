@@ -44,7 +44,7 @@ public:
     POWER=9\n
     NUMBER=M216091\n
   */
-  static const constexpr char* HEADER = "PRP Proof\nVERSION=1\nHASHSIZE=64\nPOWER=%u\nNUMBER=M%u%c";
+  static const constexpr char* HEADER = "PRP PROOF\nVERSION=1\nHASHSIZE=64\nPOWER=%u\nNUMBER=M%u%c";
   
   fs::path save() {
     string strE = to_string(E);
