@@ -62,7 +62,7 @@ void Args::printHelp() {
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
 -verify <file>|<exponent> : verify PRP-proof contained in <file> or in the folder <exponent>/
--proof [<power>]   : enable PRP proof generation. Default <power> is 9.
+-proof [<power>]   : enable PRP proof generation. Default <power> is 8. Use 8 - 10.
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
@@ -117,7 +117,7 @@ void Args::parse(string line) {
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
-    else if (key == "-proof") { proofPow = s.empty() ? 9 : stoi(s); }
+    else if (key == "-proof") { proofPow = s.empty() ? 8 : stoi(s); }
     else if (key == "-verify") {
       if (s.empty()) {
         log("-verify needs <proof-file> or <exponent>\n");
