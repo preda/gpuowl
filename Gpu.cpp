@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <future>
 #include <optional>
+#include <numeric>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -27,21 +28,35 @@
 #define M_PI 3.141592653589793238462643383279502884
 #endif
 
-#define TAU (2 * M_PIl)
-
 static_assert(sizeof(double2) == 16, "size double2");
 static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
 
 // Returns the primitive root of unity of order N, to the power k.
 static double2 root1(u32 N, u32 k) {
-  long double angle = - TAU / N * k;
-  return double2{double(cosl(angle)), double(sinl(angle))};
+  assert(k < N);
+  if (k >= N/2) {
+    auto [c, s] = root1(N, k - N/2);
+    return {-c, -s};
+  } else if (k > N/4) {
+    auto [c, s] = root1(N, N/2 - k);
+    return {-c, s};
+  } else if (k > N/8) {
+    auto [c, s] = root1(N, N/4 - k);
+    return {-s, -c};
+  } else {
+    assert(!(N&7));
+    assert(k <= N/8);
+    N /= 2;
+    long double angle = - M_PIl * k / N;
+    return {cosl(angle), sinl(angle)};    
+  }
 }
 
 static double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   for (u32 line = 1; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
       *p++ = root1(W * H, line * col);
+      // if(abs((p-1)->first) < 1e-16) { printf("%u %u %u %u %g\n", line, col, W, H, (p-1)->first); }
     }
   }
   return p;

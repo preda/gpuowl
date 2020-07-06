@@ -287,7 +287,8 @@ T mul1_m2(T x, T y) {
 #endif
 }
 
-// Force generation of an FMA instruction where second argument is a constant
+// Force generation of an FMA instruction where second argument is a constant.
+// (as fma() is not necesarilly preserved with -cl-fast-relaxed-math )
 T forced_fma_by_const(T x, const T y, T z) {
 #if HAS_ASM
   double out;
@@ -342,7 +343,6 @@ T msb1_m4(T a, T b, T c) {
   return 4 * mad1(a, b, -c);
 #endif
 }
-
 
 // complex add * 2
 T2 add_m2(T2 a, T2 b) { return U2(add1_m2(a.x, b.x), add1_m2(a.y, b.y)); }
@@ -2152,9 +2152,6 @@ double2 reducedCosSin(i32 k, i32 n) {
   return U2(kcospi((double)k, (double)n), ksinpi((double)k, (double)n));
 #endif
 }
-
-
-
 
 // Returns e^(-i * pi * k/n)
 double2 slowTrig(i32 k, i32 n, i32 kBound) {
