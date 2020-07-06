@@ -308,17 +308,8 @@ T forced_fma_by_const(T x, const T y, T z) {
 #endif
 }
 
-// Multiply by (1+const) using either an FMA or MUL instruction for maximum precision
-// On Radeon VII, an FMA is 8 clocks whereas a MUL is 4 clocks.
-T mul_by_const_plus_1(T x, const T y) {
-  if ((((as_uint2(y).y & 0x7FF00000) == 0x3FE00000) && ((as_uint2(y).x & 1) == 0)) ||	// Exp = -1 and LSB = 0
-      (((as_uint2(y).y & 0x7FF00000) == 0x3FD00000) && ((as_uint2(y).x & 3) == 0)) ||	// Exp = -2 and two LSBs = 0
-      (((as_uint2(y).y & 0x7FF00000) == 0x3FC00000) && ((as_uint2(y).x & 7) == 0))) {	// Exp = -3 and three LSBs = 0
-    return x * (1.0 + y);
-  } else {
-    return forced_fma_by_const(x, y, x);
-  }
-}
+// Multiply by (1+const).
+T mul_by_const_plus_1(T x, const T y) { return forced_fma_by_const(x, y, x); }
 
 T mad1(T x, T y, T z) { return x * y + z; }
 
