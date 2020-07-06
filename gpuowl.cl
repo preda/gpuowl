@@ -2920,7 +2920,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     else if (((i * STEP) % NW) * (8 / NW) == 5) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_5_8TH_MINUS_1));
     else if (((i * STEP) % NW) * (8 / NW) == 6) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_6_8TH_MINUS_1));
     else if (((i * STEP) % NW) * (8 / NW) == 7) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_7_8TH_MINUS_1));
-    invWeight2 = optionalDouble(mul_by_const_plus_1(invWeight, IWEIGHT_STEP_MINUS_1));
 #else
     else if ((STEP % NW) * (8 / NW) == 1) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_1_8TH);
     else if ((STEP % NW) * (8 / NW) == 2) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_2_8TH);
@@ -2929,8 +2928,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     else if ((STEP % NW) * (8 / NW) == 5) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_5_8TH);
     else if ((STEP % NW) * (8 / NW) == 6) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_6_8TH);
     else if ((STEP % NW) * (8 / NW) == 7) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_7_8TH);
-    invWeight2 = optionalDouble(invWeight * IWEIGHT_STEP);
 #endif
+    invWeight2 = optionalDouble(mul_by_const_plus_1(invWeight, IWEIGHT_STEP_MINUS_1));
 
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight, invWeight2)));
@@ -3029,7 +3028,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     else if (((i * STEP) % NW) * (8 / NW) == 5) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_5_8TH_MINUS_1));
     else if (((i * STEP) % NW) * (8 / NW) == 6) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_6_8TH_MINUS_1));
     else if (((i * STEP) % NW) * (8 / NW) == 7) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_7_8TH_MINUS_1));
-    weight2 = optionalHalve(mul_by_const_plus_1(weight, WEIGHT_STEP_MINUS_1));
 #else
     else if ((STEP % NW) * (8 / NW) == 1) weight = optionalHalve(weight * TWO_TO_1_8TH);
     else if ((STEP % NW) * (8 / NW) == 2) weight = optionalHalve(weight * TWO_TO_2_8TH);
@@ -3038,8 +3036,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     else if ((STEP % NW) * (8 / NW) == 5) weight = optionalHalve(weight * TWO_TO_5_8TH);
     else if ((STEP % NW) * (8 / NW) == 6) weight = optionalHalve(weight * TWO_TO_6_8TH);
     else if ((STEP % NW) * (8 / NW) == 7) weight = optionalHalve(weight * TWO_TO_7_8TH);
-    weight2 = optionalHalve(weight * WEIGHT_STEP);
 #endif
+    weight2 = optionalHalve(mul_by_const_plus_1(weight, WEIGHT_STEP_MINUS_1));
 
     u[i].x = (double) wu[i].x * weight;
     u[i].y = (double) wu[i].y * weight2;
