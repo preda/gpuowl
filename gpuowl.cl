@@ -266,16 +266,6 @@ T add1_m2(T x, T y) {
 #endif
 }
 
-T sub1(T x, T y) {
-#if !NO_OMOD
-  T tmp;
-  __asm("v_add_f64 %0, %1, -%2" : "=v" (tmp) : "v" (x), "v" (y));
-  return tmp;
-#else
-  return x - y;
-#endif  
-}
-
 T sub1_m2(T x, T y) {
 #if !NO_OMOD
   T tmp;
@@ -609,10 +599,9 @@ T2 foo(T2 a) { return foo2(a, a); }
 T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
 // Same as X2(a, b), b = mul_t4(b)
-#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = sub1(b.x, t.x); b.x = sub1(t.y, b.y); b.y = t.x; }
+#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
 
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
-// { T2 t = a; a = t + b; b.x = sub1(t.x, b.x); b.y = sub1(t.y, b.y); }
 
 // Same as X2(a, conjugate(b))
 #define X2conjb(a, b) { T2 t = a; a.x = a.x + b.x; a.y = a.y - b.y; b.x = t.x - b.x; b.y = t.y + b.y; }
