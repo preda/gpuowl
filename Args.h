@@ -38,7 +38,6 @@ public:
   bool noSpin = false;
   bool safeMath = false;
 
-  // Proof-related
   u32 proofPow = 8;
 
   fs::path resultsFile = "results.txt";

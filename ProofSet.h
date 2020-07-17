@@ -138,11 +138,14 @@ public:
 
   static bool canDo(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
     assert(power >= 6 && power <= 9);
-    return ProofSet{tmpDir, E, power}.seemsValidTo(currentK);
+    return ProofSet{tmpDir, E, power}.isValidTo(currentK);
   }
   
   static u32 effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
-    for (u32 p : {power, 9u, 8u, 7u, 6u}) { if (canDo(tmpDir, E, p, currentK)) { return p; } }
+    for (u32 p : {power, 9u, 8u, 7u, 6u}) {
+      log("validating proof residues for power %u\n", p);
+      if (canDo(tmpDir, E, p, currentK)) { return p; }
+    }
     return 0;
   }
   

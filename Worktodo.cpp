@@ -54,7 +54,12 @@ std::optional<Task> parse(const std::string& line) {
 void remove(const std::string& s) { ::remove(s.c_str()); }
 void rename(const std::string& a, const std::string& b) { ::rename(a.c_str(), b.c_str()); }
 
-bool deleteLine(const std::string& fileName, const std::string& targetLine) {
+fs::path operator+(fs::path p, const std::string& tail) {
+  p += tail;
+  return p;
+}
+
+bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   assert(!targetLine.empty());
   bool lineDeleted = false;
   {
