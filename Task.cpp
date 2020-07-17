@@ -148,11 +148,11 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
     if (!abortedFactorFound) {
       writeResultPRP(args, isPrime, res64, fftSize, nErrors);
       if (args.proofPow) {
-        ProofSet proofSet{exponent, args.proofPow};
+        ProofSet proofSet{args.tmpDir, exponent, args.proofPow};
         if (!proofSet.isComplete()) {
           log("Can't generate PRP-Proof of power %d for %u because some checkpoints are missing\n", args.proofPow, exponent);
         } else {        
-          fs::path name = proofSet.computeProof(gpu.get(), res64).save();
+          fs::path name = proofSet.computeProof(gpu.get(), res64).save(args.proofResultDir);
           log("PRP-Proof '%s' generated\n", name.string().c_str());
         }
       }

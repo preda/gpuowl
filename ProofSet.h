@@ -17,6 +17,8 @@
 #error Byte order must be Little Endian
 #endif
 
+namespace fs = std::filesystem;
+
 struct ProofUtil {
   static Words makeWords(u32 E, u32 init) {
     u32 nWords = (E - 1) / 32 + 1;
@@ -41,15 +43,17 @@ public:
     PRP PROOF\n
     VERSION=1\n
     HASHSIZE=64\n
-    POWER=9\n
+    POWER=8\n
     NUMBER=M216091\n
   */
   static const constexpr char* HEADER = "PRP PROOF\nVERSION=1\nHASHSIZE=64\nPOWER=%u\nNUMBER=M%u%c";
   
-  fs::path save() {
+  fs::path save(const fs::path& proofResultDir) {
+    fs::create_directories(proofResultDir);
+    
     string strE = to_string(E);
     u32 power = middles.size();
-    fs::path fileName = fs::current_path() / strE / (strE + '-' + to_string(power) + ".proof");
+    fs::path fileName = proofResultDir / (strE + '-' + to_string(power) + ".proof");
     File fo = File::openWrite(fileName);
     fo.printf(HEADER, power, E, '\n');
     fo.write(B.data(), (E-1)/8+1);
@@ -57,7 +61,7 @@ public:
     return fileName;
   }
 
-  static Proof load(fs::path path) {
+  static Proof load(const fs::path& path) {
     File fi = File::openRead(path, true);
     u32 E = 0, power = 0;
     char c = 0;
@@ -132,10 +136,11 @@ public:
   u32 topK{roundUp(E, (1 << power))};
   u32 step{topK / (1 << power)};
 
-  ProofSet(u32 E, u32 power) : E{E}, power{power} {
+  ProofSet(const fs::path& proofTmpDir, u32 E, u32 power) : E{E}, power{power}, proofPath(proofTmpDir / to_string(E) / "proof") {
     assert(E & 1); // E is supposed to be prime
     assert(topK % step == 0);
     assert(topK / step == (1u << power));
+    fs::create_directories(proofPath);
   }
 
   u32 kProofEnd(u32 kEnd) const {
@@ -146,13 +151,18 @@ public:
   
   u32 firstPersistAt(u32 k) const { return power ? roundUp(k, step): -1; }
 
-  void save(u32 k, const vector<u32>& words) {
+  void save(u32 k, const Words& words) {
     assert(k > 0 && k <= topK);
     assert(k % step == 0);
 
     File f = File::openWrite(proofPath / to_string(k));
-    f.write(words);
-    f.write<u32>({crc32(words)});
+    try {
+      f.write(words);
+      f.write<u32>({crc32(words)});
+    } catch (fs::filesystem_error& e) {
+      log("Can't save proof checkpoint; out of disk space?\n");
+      throw;
+    }
   }
 
   vector<u32> load(u32 k) const {
@@ -171,10 +181,7 @@ public:
   }
 
   bool isValidTo(u32 limitK) const {
-    if (!power) { return true; }
-
-    fs::create_directory(proofPath);
-    
+    if (!power) { return true; }    
     try {
       for (u32 k = step; k <= limitK; k += step) { load(k); }
     } catch (fs::filesystem_error&) {
@@ -238,5 +245,5 @@ private:
 
   static u32 crc32(const std::vector<u32>& words) { return crc32(words.data(), sizeof(words[0]) * words.size()); }
 
-  fs::path proofPath{fs::current_path() / to_string(E) / "proof"};
+  fs::path proofPath;
 };

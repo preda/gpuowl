@@ -1071,6 +1071,8 @@ u32 Gpu::modSqLoopTo(Buffer<int>& io, u32 from, u32 to) {
 }
 
 tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
+  if (args.proofPow) { log("Generating PRP-Proof of power %d\n", args.proofPow); }
+
   u32 k = 0, blockSize = 0, nErrors = 0;
 
   {
@@ -1084,12 +1086,14 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
   u32 checkStep = checkStepForErrors(args.logStep, nErrors);
   
   u32 startK = k;
-  ProofSet proofSet{E, args.proofPow};
+  
+  ProofSet proofSet{args.tmpDir, E, args.proofPow};
+  /*
   if (!proofSet.isValidTo(startK)) {
-    log("Proof generation at power %d is disabled because of missing checkpoints\n", args.proofPow);
-    log("If the proof is desired, you may either restart the PRP test or reduce the power\n");
-    proofSet = ProofSet{E, 0};
+    log("Proof generation (power %d) is not possible because of missing checkpoints\n", args.proofPow);
+    proofSet = ProofSet{args.tmpDir, E, 0};
   }
+  */
   
   Signal signal;
 

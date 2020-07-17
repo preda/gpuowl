@@ -65,7 +65,11 @@ void Args::printHelp() {
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
 -verify <file>|<exponent> : verify PRP-proof contained in <file> or in the folder <exponent>/
--proof [<power>]   : enable PRP proof generation. Default <power> is 8. Use 8 - 10.
+-proof <power>     : Valid <power> values are 6 to 9.
+                     By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
+                     A lower power reduces disk space requirements but increases the verification cost.
+                     A proof of power 9 uses 6GB of disk space for a 100M exponent and enables faster verification.
+-tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored.
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
@@ -122,8 +126,25 @@ void Args::parse(string line) {
     // log("key '%s'\n", key.c_str());
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
     else if (key == "-proof") {
-      proofPow = s.empty() ? 8 : stoi(s);
-      // log("proof power %d\n", proofPow);
+      int power = 0;
+      if (s.empty() || (power = stoi(s)) < 6 || power > 9) {
+        log("-proof expects <power> 6 - 9 (found '%s')\n", s.c_str());
+        throw "-proof expects <power> 6 - 9";
+      }
+      proofPow = power;
+      assert(proofPow >= 6 && proofPow <= 9);
+    } else if (key == "-tmpDir") {
+      if (s.empty()) {
+        log("-tmpDir needs <dir>\n");
+        throw "-tmpDir needs <dir>";
+      }
+      tmpDir = s;
+    } else if (key == "-keep") {
+      if (s != "proof") {
+        log("-keep requires 'proof'\n");
+        throw "-keep without proof";
+      }
+      keepProof = true;
     } else if (key == "-verify") {
       if (s.empty()) {
         log("-verify needs <proof-file> or <exponent>\n");
@@ -198,6 +219,7 @@ void Args::parse(string line) {
   }
   
   if (!masterDir.empty()) {
+    proofResultDir = masterDir + '/' + proofResultDir;
     if (resultsFile.find_first_of('/') == std::string::npos) {
       resultsFile = masterDir + '/' + resultsFile;
     }

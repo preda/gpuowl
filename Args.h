@@ -22,7 +22,9 @@ public:
   string dump;
   string dir;
   string resultsFile = "results.txt";
+  
   string masterDir;
+  
   string uid;
   string binaryFile;
   string verifyPath;
@@ -35,9 +37,13 @@ public:
   bool cleanup = false;
   bool noSpin = false;
   bool safeMath = false;
-  
-  u32 proofPow = 0;
-  
+
+  // Proof-related
+  u32 proofPow = 8;
+  string tmpDir = "";
+  string proofResultDir = "proof";
+  bool keepProof = false;
+
   int carry = CARRY_AUTO;
   u32 blockSize = 0;
   u32 logStep   = 0;
