@@ -136,7 +136,17 @@ public:
   u32 topK{roundUp(E, (1 << power))};
   u32 step{topK / (1 << power)};
 
-  ProofSet(const fs::path& proofTmpDir, u32 E, u32 power) : E{E}, power{power}, proofPath(proofTmpDir / to_string(E) / "proof") {
+  static bool canDo(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
+    assert(power >= 6 && power <= 9);
+    return ProofSet{tmpDir, E, power}.seemsValidTo(currentK);
+  }
+  
+  static u32 effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
+    for (u32 p : {power, 9u, 8u, 7u, 6u}) { if (canDo(tmpDir, E, p, currentK)) { return p; } }
+    return 0;
+  }
+  
+  ProofSet(const fs::path& tmpDir, u32 E, u32 power) : E{E}, power{power}, proofPath(tmpDir / to_string(E) / "proof") {
     assert(E & 1); // E is supposed to be prime
     assert(topK % step == 0);
     assert(topK / step == (1u << power));
@@ -179,7 +189,7 @@ public:
     }
     return words;
   }
-
+        
   bool isValidTo(u32 limitK) const {
     if (!power) { return true; }    
     try {
@@ -190,6 +200,9 @@ public:
     return true;
   }
 
+  // A quick-and-dirty version that checks only the first two residues.
+  bool seemsValidTo(u32 limitK) const { return isValidTo(std::min(limitK, 2 * step)); }
+  
   bool isComplete() const { return isValidTo(topK); }
   
   Proof computeProof(Gpu *gpu, u64 prpRes64) {
