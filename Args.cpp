@@ -152,7 +152,13 @@ void Args::parse(string line) {
       }
       verifyPath = s;
     }
-    else if (key == "-pool") { masterDir = s; }
+    else if (key == "-pool") {
+      masterDir = s;
+      if (!masterDir.is_absolute()) {
+        log("-pool <path> requires an absolute path\n");
+        throw("-pool <path> requires an absolute path");
+      }
+    }
     else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxBufs") { maxBuffers = stoi(s); }
     else if (key == "-maxAlloc") { maxAlloc = size_t(stoi(s)) << 20; }
@@ -219,11 +225,11 @@ void Args::parse(string line) {
   }
   
   if (!masterDir.empty()) {
-    proofResultDir = masterDir + '/' + proofResultDir;
-    if (resultsFile.find_first_of('/') == std::string::npos) {
-      resultsFile = masterDir + '/' + resultsFile;
-    }
+    assert(masterDir.is_absolute());
+    if (proofResultDir.is_relative()) { proofResultDir = masterDir / proofResultDir; }
+    if (resultsFile.is_relative()) { resultsFile = masterDir / resultsFile; }
   }
+  
   File::openAppend(resultsFile);  // verify that it's possible to write results
 }
 

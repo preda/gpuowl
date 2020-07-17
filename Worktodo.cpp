@@ -78,7 +78,7 @@ bool deleteLine(const std::string& fileName, const std::string& targetLine) {
   return true;
 }
 
-std::optional<Task> firstGoodTask(const std::string& fileName) {
+std::optional<Task> firstGoodTask(const fs::path& fileName) {
   for (const string& line : File::openRead(fileName)) {
     if (optional<Task> maybeTask = parse(line)) { return maybeTask; }
   }
@@ -111,7 +111,7 @@ std::optional<Task> Worktodo::getTask(Args &args) {
   }
   
   if (!args.masterDir.empty()) {
-    string globalWorktodo = args.masterDir + '/' + worktodoTxt;
+    fs::path globalWorktodo = args.masterDir / worktodoTxt;
     if (optional<Task> task = firstGoodTask(globalWorktodo)) {
       File::append(worktodoTxt, task->line);
       deleteLine(globalWorktodo, task->line);
