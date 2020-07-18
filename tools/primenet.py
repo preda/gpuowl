@@ -43,8 +43,11 @@ def sendOne(line):
     else:
         begin = res.find("CPU credit is")
         end   = res.find("</div>", begin);
-        if begin >= 0 and end >= 0: print(res[begin:end], '\n')
-        return True
+        if begin >= 0 and end >= 0:
+            print(res[begin:end], '\n')
+            return True
+        else:
+            return False
 
 def appendLine(fileName, line):
     with open(fileName, 'a') as fo: print(line, file = fo, end = '\n')
