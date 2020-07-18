@@ -161,6 +161,8 @@ public:
     if (!fread(data, nBytes, 1, get())) { throw(std::ios_base::failure(name + ": can't read")); }
   }
 
+  u32 readUpTo(void* data, u32 nUpToBytes) { return fread(data, 1, nUpToBytes, get()); }
+  
   string readAll() {
     size_t sz = size();
     return {read<char>(sz).data(), sz};

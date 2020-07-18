@@ -5,6 +5,7 @@
 #include "File.h"
 #include "common.h"
 #include "Sha3Hash.h"
+#include "MD5.h"
 
 #include <vector>
 #include <string>
@@ -27,15 +28,16 @@ struct ProofUtil {
     return x;
   }
 
-  static array<u64, 4> hashWords(u32 E, const Words& words) { return SHA3{}.update(words.data(), (E-1)/8+1).finish(); }
+  static array<u64, 4> hashWords(u32 E, const Words& words) { return std::move(SHA3{}.update(words.data(), (E-1)/8+1)).finish(); }
   static array<u64, 4> hashWords(u32 E, array<u64, 4> prefix, const Words& words) {
-    return SHA3{}.update(prefix).update(words.data(), (E-1)/8+1).finish();
+    return std::move(SHA3{}.update(prefix).update(words.data(), (E-1)/8+1)).finish();
   }
 };
 
 struct ProofInfo {
   u32 power;
-  
+  u32 exp;
+  string md5;
 };
 
 class Proof {  
@@ -52,6 +54,29 @@ public:
     NUMBER=M216091\n
   */
   static const constexpr char* HEADER = "PRP PROOF\nVERSION=1\nHASHSIZE=64\nPOWER=%u\nNUMBER=M%u%c";
+
+  static string fileHash(const fs::path& filePath) {
+    File fi = File::openRead(filePath, true);
+    char buf[64 * 1024];
+    MD5 h;
+    u32 size = 0;
+    while ((size = fi.readUpTo(buf, sizeof(buf)))) {
+      h.update(buf, size);
+    }
+    return std::move(h).finish();
+  }
+  
+  static ProofInfo getInfo(const fs::path& proofFile) {
+    string hash = fileHash(proofFile);
+    File fi = File::openRead(proofFile, true);
+    u32 E = 0, power = 0;
+    char c = 0;
+    if (fi.scanf(HEADER, &power, &E, &c) != 3 || c != '\n') {
+      log("Proof file '%s' has invalid header\n", proofFile.string().c_str());
+      throw "Invalid proof header";
+    }
+    return {power, E, hash};
+  }
   
   fs::path save(const fs::path& proofResultDir) {
     fs::create_directories(proofResultDir);

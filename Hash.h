@@ -17,7 +17,8 @@ public:
     return std::move(hash).finish();
   }
 
-  Hash&& update(const void* data, u32 size) && { h.update(data, size); return move(*this); }
+  Hash& update(const void* data, u32 size) { h.update(data, size); return *this; }
+  // Hash&& update(const void* data, u32 size) && { h.update(data, size); return move(*this); }
 
   template<typename T, std::size_t N>
   Hash&& update(const array<T, N>& v) && { h.update(v.data(), N * sizeof(T)); return move(*this); }
