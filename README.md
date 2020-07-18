@@ -129,7 +129,11 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
 -verify <file>|<exponent> : verify PRP-proof contained in <file> or in the folder <exponent>/
--proof [<power>]   : enable PRP proof generation. Default <power> is 9.
+-proof <power>     : Valid <power> values are 6 to 9.
+                     By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
+                     A lower power reduces disk space requirements but increases the verification cost.
+                     A proof of power 9 uses 6GB of disk space for a 100M exponent and enables faster verification.
+-tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored.
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
