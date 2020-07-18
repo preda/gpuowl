@@ -34,7 +34,7 @@ struct Task {
   
   void execute(const Args& args, Background& background, std::atomic<u32>& factorFoundForExp);
 
-  void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const;
+  void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const string&) const;
   void writeResultLL(const Args&,  bool isPrime, u64 res64, u32 fftSize) const;
   void writeResultPM1(const Args&, const std::string& factor, u32 fftSize, bool didStage2) const;
 

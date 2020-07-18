@@ -74,14 +74,29 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
 
 }
 
-void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors) const {
+void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const string& proofPath) const {
   assert(B1 == 0 && B2 == 0);
-  writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, 
-              {json("res64", Hex{res64}),
-               json("residue-type", 1),
-               json("errors", vector<string>{json("gerbicz", nErrors)}),
-               json("fft-length", fftSize)
-              });
+
+  vector<string> fields{json("res64", Hex{res64}),
+                        json("residue-type", 1),
+                        json("errors", vector<string>{json("gerbicz", nErrors)}),
+                        json("fft-length", fftSize)
+  };
+
+  // "proof":{"version":1, "power":6, "hashsize":64, "MD5":"0123456789ABCDEF"}, 
+  if (!proofPath.empty()) {
+    // ProofInfo info = Proof::getProofInfo(proofPath);
+    /*
+    fields.push_back(json("proof", vector<string>{
+            json("version", 1),
+            json("power", info.power),
+            json("hashsize", 64),
+            json("MD5", 0)
+            }));
+    */
+  }
+  
+  writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
 }
 
 void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
@@ -143,20 +158,10 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
   auto fftSize = gpu->getFFTSize();
 
   if (kind == PRP) {
-    auto [isPrime, res64, nErrors] = gpu->isPrimePRP(exponent, args, factorFoundForExp);
+    auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(exponent, args, factorFoundForExp);
     bool abortedFactorFound = (!isPrime && !res64 && nErrors == u32(-1));
     if (!abortedFactorFound) {
-      writeResultPRP(args, isPrime, res64, fftSize, nErrors);
-      if (args.proofPow) {
-        ProofSet proofSet{args.tmpDir, exponent, args.proofPow};
-        if (!proofSet.isComplete()) {
-          log("Can't generate PRP-Proof of power %d for %u because some checkpoints are missing\n", args.proofPow, exponent);
-        } else {        
-          fs::path name = proofSet.computeProof(gpu.get(), res64).save(args.proofResultDir);
-          log("PRP-Proof '%s' generated\n", name.string().c_str());
-        }
-      }
-      
+      writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
       Worktodo::deleteTask(*this);
     } else {
       Worktodo::deletePRP(exponent);

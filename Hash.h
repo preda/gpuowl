@@ -3,6 +3,7 @@
 #pragma once
 
 #include "common.h"
+#include <array>
 
 template <typename H>
 class Hash {
@@ -27,7 +28,7 @@ public:
   template<typename T>
   void update(const vector<T>& v) { h.update(v.data(), v.size() * sizeof(T)); }
 
-  // void update(const string& s) {h.update(s.c_str(), s.size()); }
+  void update(const string& s) {h.update(s.c_str(), s.size()); }
   
   auto finish() && { return std::move(h).finish(); }
 };

@@ -33,6 +33,11 @@ struct ProofUtil {
   }
 };
 
+struct ProofInfo {
+  u32 power;
+  
+};
+
 class Proof {  
 public:
   u32 E;
@@ -208,7 +213,7 @@ public:
   
   bool isComplete() const { return isValidTo(topK); }
   
-  Proof computeProof(Gpu *gpu, u64 prpRes64) {
+  Proof computeProof(Gpu *gpu) {
     assert(power > 0);
     
     Words B = load(topK);

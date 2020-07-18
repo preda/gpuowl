@@ -37,6 +37,8 @@ void readConfig(Args& args, const std::string& path, bool doLog) {
 int main(int argc, char **argv) {
   initLog();
   log("gpuowl %s\n", VERSION);
+  // log("%s %s\n", MD5::hash(""s).c_str(), MD5::hash("The quick brown fox jumps over the lazy dog"s).c_str());
+  
   
   Background background;
 

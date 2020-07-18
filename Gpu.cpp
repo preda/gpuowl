@@ -1070,7 +1070,7 @@ u32 Gpu::modSqLoopTo(Buffer<int>& io, u32 from, u32 to) {
   return to;
 }
 
-tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
+tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
   u32 k = 0, blockSize = 0, nErrors = 0;
 
   {
@@ -1139,7 +1139,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
 
     for (u32 persistK = proofSet.firstPersistAt(k+1); persistK <= nextK && kEnd <= persistK; persistK = proofSet.firstPersistAt(k + 1)) {
       k = modSqLoopTo(bufData, k, persistK);      
-      log("proof: save residue @ %u\n", k);
+      // log("proof: save residue @ %u\n", k);
       proofSet.save(k, readData());
     }
     
@@ -1160,7 +1160,7 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
     if (factorFoundForExp == E) {
       log("Aborting the PRP test because a factor was found\n");
       factorFoundForExp = 0;
-      return {false, 0, u32(-1)};
+      return {false, 0, u32(-1), {}};
     } 
     
     if (doCheck) {
@@ -1175,7 +1175,14 @@ tuple<bool, u64, u32> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>&
       if (ok) {
         if (k < kEnd) { prpState.save(false); }
         doBigLog(E, k, res64, ok, timeExcludingCheck, kEndEnd, nErrors, itTimer.reset(k));
-        if (k >= kEndEnd) { return {isPrime, finalRes64, nErrors}; }
+        if (k >= kEndEnd) {
+          fs::path proofPath;
+          if (proofSet.power > 0) {
+            proofPath = proofSet.computeProof(this).save(args.proofResultDir);
+            log("PRP-Proof '%s' generated\n", proofPath.string().c_str());
+          }
+          return {isPrime, finalRes64, nErrors, proofPath.string()};
+        }
         nSeqErrors = 0;      
       } else {
         doBigLog(E, k, res64, ok, timeExcludingCheck, kEndEnd, nErrors, itTimer.reset(k));
