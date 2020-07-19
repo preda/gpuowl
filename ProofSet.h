@@ -159,8 +159,78 @@ private:
   static u64 res64(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
 };
 
+class ProofCache {
+  std::unordered_map<u32, Words> pending;
+  fs::path proofPath;
+
+  static u32 crc32(const void *data, size_t size) {
+    u32 tab[16] = {
+                   0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC,
+                   0x76DC4190, 0x6B6B51F4, 0x4DB26158, 0x5005713C,
+                   0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C,
+                   0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C,
+    };
+    u32 crc = ~0;
+    for (auto *p = (const unsigned char *) data, *end = p + size; p < end; ++p) {
+      crc = tab[(crc ^  *p      ) & 0xf] ^ (crc >> 4);
+      crc = tab[(crc ^ (*p >> 4)) & 0xf] ^ (crc >> 4);
+    }
+    return ~crc;
+  }
+
+  static u32 crc32(const std::vector<u32>& words) { return crc32(words.data(), sizeof(words[0]) * words.size()); }
+  
+  bool write(u32 k, const Words& words) {
+    File f = File::openWrite(proofPath / to_string(k));
+    try {
+      f.write(words);
+      f.write<u32>({crc32(words)});
+      return true;
+    } catch (fs::filesystem_error& e) {
+      return false;
+    }
+  }
+
+  Words read(u32 E, u32 k) const {
+    File f = File::openRead(proofPath / to_string(k), true);
+    vector<u32> words = f.read<u32>(E / 32 + 2);
+    u32 checksum = words.back();
+    words.pop_back();
+    if (checksum != crc32(words)) {
+      log("checksum %x (expected %x) in '%s'\n", crc32(words), checksum, f.name.c_str());
+      throw fs::filesystem_error{"checksum mismatch", {}};
+    }
+    return words;
+  }
+
+  
+public:
+  ProofCache(const fs::path& proofPath) : proofPath{proofPath} {}
+  
+  void save(u32 k, const Words& words) {
+    if (pending.empty() && write(k, words)) { return; }
+    
+    pending[k] = words;
+
+    for (auto it = pending.cbegin(), end = pending.cend(); it != end && write(it->first, it->second); it = pending.erase(it));
+
+    if (!pending.empty()) {
+      log("Could not write %u residues under '%s' -- hurry make space!\n", u32(pending.size()), proofPath.string().c_str());
+    }
+  }
+
+  Words load(u32 E, u32 k) const {
+    auto it = pending.find(k);
+    return (it == pending.end()) ? read(E, k) : it->second;
+  }
+};
+
 class ProofSet {
-public:  
+  fs::path exponentDir;
+  fs::path proofPath{exponentDir / "proof"};
+  ProofCache cache{proofPath};
+  
+public:
   u32 E;
   u32 power;
   u32 topK{roundUp(E, (1 << power))};
@@ -179,7 +249,7 @@ public:
     return 0;
   }
   
-  ProofSet(const fs::path& tmpDir, u32 E, u32 power) : E{E}, power{power}, exponentDir(tmpDir / to_string(E)) {
+  ProofSet(const fs::path& tmpDir, u32 E, u32 power) : exponentDir(tmpDir / to_string(E)), E{E}, power{power} {
     assert(E & 1); // E is supposed to be prime
     assert(topK % step == 0);
     assert(topK / step == (1u << power));
@@ -203,30 +273,13 @@ public:
   void save(u32 k, const Words& words) {
     assert(k > 0 && k <= topK);
     assert(k % step == 0);
-
-    File f = File::openWrite(proofPath / to_string(k));
-    try {
-      f.write(words);
-      f.write<u32>({crc32(words)});
-    } catch (fs::filesystem_error& e) {
-      log("Can't save proof checkpoint; out of disk space?\n");
-      throw;
-    }
+    cache.save(k, words);
   }
 
-  vector<u32> load(u32 k) const {
+  Words load(u32 k) const {
     assert(k > 0 && k <= topK);
     assert(k % step == 0);
-    
-    File f = File::openRead(proofPath / to_string(k), true);
-    vector<u32> words = f.read<u32>(E / 32 + 2);
-    u32 checksum = words.back();
-    words.pop_back();
-    if (checksum != crc32(words)) {
-      log("checksum %x (expected %x) in '%s'\n", crc32(words), checksum, f.name.c_str());
-      throw fs::filesystem_error{"checksum mismatch", {}};
-    }
-    return words;
+    return cache.load(E, k);
   }
         
   bool isValidTo(u32 limitK) const {
@@ -278,25 +331,4 @@ public:
     }
     return Proof{E, std::move(B), std::move(middles)};
   }
-
-private:  
-  static u32 crc32(const void *data, size_t size) {
-    u32 tab[16] = {
-                   0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC,
-                   0x76DC4190, 0x6B6B51F4, 0x4DB26158, 0x5005713C,
-                   0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C,
-                   0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C,
-    };
-    u32 crc = ~0;
-    for (auto *p = (const unsigned char *) data, *end = p + size; p < end; ++p) {
-      crc = tab[(crc ^  *p      ) & 0xf] ^ (crc >> 4);
-      crc = tab[(crc ^ (*p >> 4)) & 0xf] ^ (crc >> 4);
-    }
-    return ~crc;
-  }
-
-  static u32 crc32(const std::vector<u32>& words) { return crc32(words.data(), sizeof(words[0]) * words.size()); }
-
-  fs::path exponentDir;
-  fs::path proofPath{exponentDir / "proof"};
 };
