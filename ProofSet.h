@@ -179,13 +179,19 @@ public:
     return 0;
   }
   
-  ProofSet(const fs::path& tmpDir, u32 E, u32 power) : E{E}, power{power}, proofPath(tmpDir / to_string(E) / "proof") {
+  ProofSet(const fs::path& tmpDir, u32 E, u32 power) : E{E}, power{power}, exponentDir(tmpDir / to_string(E)) {
     assert(E & 1); // E is supposed to be prime
     assert(topK % step == 0);
     assert(topK / step == (1u << power));
     fs::create_directories(proofPath);
   }
 
+  void cleanup() {
+    error_code noThrow;
+    fs::remove_all(proofPath, noThrow);
+    fs::remove(exponentDir, noThrow);
+  }
+  
   u32 kProofEnd(u32 kEnd) const {
     if (!power) { return kEnd; }
     assert(topK > kEnd);
@@ -291,5 +297,6 @@ private:
 
   static u32 crc32(const std::vector<u32>& words) { return crc32(words.data(), sizeof(words[0]) * words.size()); }
 
-  fs::path proofPath;
+  fs::path exponentDir;
+  fs::path proofPath{exponentDir / "proof"};
 };

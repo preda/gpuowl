@@ -1180,6 +1180,10 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
           if (proofSet.power > 0) {
             proofPath = proofSet.computeProof(this).save(args.proofResultDir);
             log("PRP-Proof '%s' generated\n", proofPath.string().c_str());
+            if (!args.keepProof) {
+              log("Proof: cleaning up temporary storage\n");
+              proofSet.cleanup();
+            }
           }
           return {isPrime, finalRes64, nErrors, proofPath.string()};
         }
