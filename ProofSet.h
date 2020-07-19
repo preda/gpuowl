@@ -286,10 +286,11 @@ public:
     if (!power) { return true; }    
     try {
       for (u32 k = step; k <= limitK; k += step) { load(k); }
+      return true;
     } catch (fs::filesystem_error&) {
-      return false;
+    } catch (std::ios_base::failure&) {
     }
-    return true;
+    return false;
   }
 
   // A quick-and-dirty version that checks only the first two residues.
