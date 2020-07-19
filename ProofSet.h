@@ -203,20 +203,23 @@ class ProofCache {
     return words;
   }
 
+
+  void flush() {
+    for (auto it = pending.cbegin(), end = pending.cend(); it != end && write(it->first, it->second); it = pending.erase(it));
+    if (!pending.empty()) {
+      log("Could not write %u residues under '%s' -- hurry make space!\n", u32(pending.size()), proofPath.string().c_str());
+    }
+  }
   
 public:
   ProofCache(const fs::path& proofPath) : proofPath{proofPath} {}
   
+  ~ProofCache() { flush(); }
+  
   void save(u32 k, const Words& words) {
-    if (pending.empty() && write(k, words)) { return; }
-    
+    if (pending.empty() && write(k, words)) { return; }    
     pending[k] = words;
-
-    for (auto it = pending.cbegin(), end = pending.cend(); it != end && write(it->first, it->second); it = pending.erase(it));
-
-    if (!pending.empty()) {
-      log("Could not write %u residues under '%s' -- hurry make space!\n", u32(pending.size()), proofPath.string().c_str());
-    }
+    flush();
   }
 
   Words load(u32 E, u32 k) const {
