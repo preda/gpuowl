@@ -226,6 +226,8 @@ public:
     auto it = pending.find(k);
     return (it == pending.end()) ? read(E, k) : it->second;
   }
+
+  void clear() { pending.clear(); }
 };
 
 class ProofSet {
@@ -261,6 +263,7 @@ public:
 
   void cleanup() {
     error_code noThrow;
+    cache.clear();
     fs::remove_all(proofPath, noThrow);
     fs::remove(exponentDir, noThrow);
   }
