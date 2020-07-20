@@ -134,20 +134,10 @@ void Task::adjustBounds(Args& args) {
 
 void Task::execute(const Args& args, Background& background, std::atomic<u32>& factorFoundForExp) {
   if (kind == VERIFY) {
-    fs::path path{verifyPath};
-    if (fs::status(path).type() == fs::file_type::directory) {
-      for (auto& entry : fs::directory_iterator(path)) {
-        log("- %s\n", entry.path().string().c_str());
-        if (entry.is_regular_file() && entry.path().extension().string() == ".proof"s) {
-          path = entry.path();
-          break;
-        }
-      }
-    }    
-    Proof proof = Proof::load(path);
+    Proof proof = Proof::load(verifyPath);
     auto gpu = Gpu::make(proof.E, args, false);
     bool ok = proof.verify(gpu.get());
-    log("proof '%s' %s\n", path.string().c_str(), ok ? "verified" : "failed");
+    log("proof '%s' %s\n", verifyPath.c_str(), ok ? "verified" : "failed");
     return;
   }
 

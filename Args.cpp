@@ -64,7 +64,7 @@ void Args::printHelp() {
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
--verify <file>|<exponent> : verify PRP-proof contained in <file> or in the folder <exponent>/
+-verify <file>     : verify PRP-proof contained in <file>
 -proof <power>     : Valid <power> values are 6 to 9.
                      By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
                      A lower power reduces disk space requirements but increases the verification cost.
