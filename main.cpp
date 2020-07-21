@@ -17,7 +17,7 @@ extern string globalCpuName;
 
 namespace fs = std::filesystem;
 
-void readConfig(Args& args, const std::string& path, bool doLog) {
+static void readConfig(Args& args, const fs::path& path, bool doLog) {
   if (auto file = File::openRead(path)) {
     // log("reading %s\n", path.c_str());
     while (true) {
@@ -30,7 +30,7 @@ void readConfig(Args& args, const std::string& path, bool doLog) {
       }
     }
   } else {
-    if (doLog) { log("Note: not found '%s'\n", path.c_str()); }
+    if (doLog) { log("Note: not found '%s'\n", path.string().c_str()); }
   }
 }
 
