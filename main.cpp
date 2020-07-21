@@ -55,16 +55,15 @@ int main(int argc, char **argv) {
       initLog("gpuowl.log");
     }
 
-    string poolDir{};
-    {
-      Args args;
-      readConfig(args, "config.txt", false);
-      args.parse(mainLine);
-      poolDir = args.masterDir;
-    }
+    fs::path poolDir = [&mainLine](){
+                         Args args;
+                         readConfig(args, "config.txt", false);
+                         args.parse(mainLine);
+                         return args.masterDir;
+                       }();
 
     Args args;
-    if (!poolDir.empty()) { readConfig(args, poolDir + '/' + "config.txt", true); }
+    if (!poolDir.empty()) { readConfig(args, poolDir / "config.txt", true); }
     readConfig(args, "config.txt", true);
     if (!mainLine.empty()) {
       log("config: %s\n", mainLine.c_str());

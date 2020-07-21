@@ -30,7 +30,7 @@ class File {
     std::string sname{name.string()};
     std::unique_ptr<FILE> f{fopen(sname.c_str(), mode)};
     if (!f && doLog) {
-      log("Can't open '%s' (mode '%s')\n", name.c_str(), mode);
+      log("Can't open '%s' (mode '%s')\n", name.string().c_str(), mode);
       throw(fs::filesystem_error("can't open file"s, name, {}));
     }
     return {std::move(f), sname};

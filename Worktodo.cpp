@@ -74,7 +74,7 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   }
 
   if (!lineDeleted) {
-    log("'%s': could not find the line '%s' to delete\n", fileName.c_str(), targetLine.c_str());
+    log("'%s': could not find the line '%s' to delete\n", fileName.string().c_str(), targetLine.c_str());
     return false;
   }
   remove(fileName + "-bak");
