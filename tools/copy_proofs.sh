@@ -2,4 +2,4 @@
 
 set -o xtrace
 
-find $1 -name '*.proof' -exec cp -v '{}' $2 \;
+find $1 -name '*.proof' -exec cp -v -n '{}' $2 \;
