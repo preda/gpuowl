@@ -42,7 +42,7 @@ public:
 
   fs::path resultsFile = "results.txt";
   fs::path masterDir;
-  fs::path tmpDir;
+  fs::path tmpDir = ".";
   fs::path proofResultDir = "proof";
   
   bool keepProof = false;
@@ -61,7 +61,6 @@ public:
   u32 pm1Exp = 0;
   u32 llExp = 0;
   
-  u32 maxBuffers = 0;
   size_t maxAlloc = 0;
 
   u32 iters = 0;

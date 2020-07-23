@@ -133,7 +133,7 @@ void Args::parse(string line) {
       }
       proofPow = power;
       assert(proofPow >= 6 && proofPow <= 9);
-    } else if (key == "-tmpDir") {
+    } else if (key == "-tmpDir" || key == "-tmpdir") {
       if (s.empty()) {
         log("-tmpDir needs <dir>\n");
         throw "-tmpDir needs <dir>";
@@ -160,8 +160,7 @@ void Args::parse(string line) {
       }
     }
     else if (key == "-results") { resultsFile = s; }
-    else if (key == "-maxBufs") { maxBuffers = stoi(s); }
-    else if (key == "-maxAlloc") { maxAlloc = size_t(stoi(s)) << 20; }
+    else if (key == "-maxAlloc" || key == "-maxalloc") { maxAlloc = size_t(stoi(s)) << 20; }
     else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
@@ -223,13 +222,7 @@ void Args::parse(string line) {
   if (jacobiStep && ((logStep && jacobiStep % logStep) || (!logStep && jacobiStep % 100'000))) {
     log("jacobi step (%u) must be a multiple of log step (%u)\n", jacobiStep, logStep);
   }
-  
-  if (!masterDir.empty()) {
-    assert(masterDir.is_absolute());
-    if (proofResultDir.is_relative()) { proofResultDir = masterDir / proofResultDir; }
-    if (resultsFile.is_relative()) { resultsFile = masterDir / resultsFile; }
-  }
-  
+    
   File::openAppend(resultsFile);  // verify that it's possible to write results
 }
 
@@ -239,5 +232,18 @@ void Args::setDefaults() {
   
   if (cpu.empty()) {
     cpu = uid.empty() ? getShortInfo(getDevice(device)) + "-" + std::to_string(device) : uid;
+  }
+
+  if (!masterDir.empty()) {
+    assert(masterDir.is_absolute());
+    if (proofResultDir.is_relative()) { proofResultDir = masterDir / proofResultDir; }
+    if (resultsFile.is_relative()) { resultsFile = masterDir / resultsFile; }
+  }
+
+  fs::create_directory(proofResultDir);
+
+  if (!fs::exists(tmpDir)) {
+    log("The tmpDir '%s' does not exist\n", tmpDir.string().c_str());
+    throw "tmpDir does not exist";
   }
 }

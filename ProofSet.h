@@ -79,8 +79,6 @@ public:
   }
   
   fs::path save(const fs::path& proofResultDir) {
-    fs::create_directories(proofResultDir);
-    
     string strE = to_string(E);
     u32 power = middles.size();
     fs::path fileName = proofResultDir / (strE + '-' + to_string(power) + ".proof");
@@ -258,7 +256,9 @@ public:
     assert(E & 1); // E is supposed to be prime
     assert(topK % step == 0);
     assert(topK / step == (1u << power));
-    fs::create_directories(proofPath);
+    
+    fs::create_directory(exponentDir);
+    fs::create_directory(proofPath);
   }
 
   void cleanup() {
