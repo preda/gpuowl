@@ -41,11 +41,11 @@ def uploadChunk(baseUrl, pos, chunk):
     # print(response.json())
     return False
 
-def upload(userId, exponent, data):
+def upload(userId, exponent, data, verbose):
     fileSize = len(data)
     fileHash = md5(data)
     url = f'http://mersenne.org/proof_upload/?UserID={userId}&Exponent={exponent}&FileSize={fileSize}&FileMD5={fileHash}'
-    print(url)
+    verbose and print(url)
 
     while True:
         json = requests.get(url).json()
@@ -54,14 +54,14 @@ def upload(userId, exponent, data):
             return json['error_status'] == 409 and json['error_description'] == 'Proof already uploaded'
 
         origUrl = json['URLToUse']
-        print(origUrl)
+        verbose and print(origUrl)
         baseUrl = 'http' + origUrl[5:] if origUrl.startswith('https:') else origUrl
         if baseUrl != origUrl:
-            print(f'Re-written to: {baseUrl}')
+            verbose and print(f'Re-written to: {baseUrl}')
 
         baseUrl = f'{baseUrl}&FileMD5={fileHash}'
         pos, end = getNeedRegion(json['need'])
-        print(pos, end)
+        verbose and print(pos, end)
 
         while pos < end:
             size = min(end - pos, 3*1024*1024)
@@ -84,21 +84,21 @@ def getTask(userId):
     r = requests.get(url)
     print(r)
     print(r.json())
-            
-if len(sys.argv) < 3:
-    print(f'Usage: {sys.argv[0]} <user-id> <proof-file>')
-    exit(1)
 
-userId = sys.argv[1]
+def uploadProof(userId, fileName, verbose=False):
+    exponent = headerExponent(fileName)
+    print(f'Uploading M{exponent} from "{fileName}"')
+    data = fileBytes(fileName)
+    return upload(userId, exponent, data, verbose)
+    
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        print(f'Usage: {sys.argv[0]} <user-id> <proof-file>')
+        exit(1)
 
-# getTask(userId)
-
-fileName = sys.argv[2]
-exponent = headerExponent(fileName)
-data = fileBytes(fileName)
-
-
-if upload(userId, exponent, data):
-    print('Success')
-else:
-    exit(1)
+    userId = sys.argv[1]
+    fileName = sys.argv[2]
+    if uploadProof(userId, fileName, verbose=True):
+        print('Success')
+    else:
+        exit(1)

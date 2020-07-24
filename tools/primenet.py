@@ -7,6 +7,8 @@ import argparse
 import time
 import urllib
 import requests
+import os
+import upload
 
 from http import cookiejar
 from urllib.parse import urlencode
@@ -111,9 +113,8 @@ if not password:
 # Initial early login, to display any login errors early
 login(user, password)
 
-sents = [loadLines(d + "sent.txt") for d in dirs]
-
-def handle(folder, sent):
+def handle(folder):
+    sent = loadLines(folder + "sent.txt")
     (resultsName, worktodoName, sentName, retryName) = (folder + name + ".txt" for name in "results worktodo sent retry".split())
     
     newResults = loadLines(resultsName) - sent
@@ -128,12 +129,26 @@ def handle(folder, sent):
         if newResults: sendResults(newResults, sent, sentName, retryName)
         for _ in range(len(tasks), desiredTasks):
             appendLine(worktodoName, fetch(worktype))
+
+    try:
+        os.mkdir(folder + 'uploaded')
+    except FileExistsError:
+        pass
     
+    for entry in os.listdir(folder + 'proof'):
+        if entry.endswith('.proof'):
+            fileName = folder + 'proof/' + entry
+            if upload.uploadProof(user, fileName):
+                os.rename(fileName, folder + 'uploaded/' + entry)
 
 while True:
-    for (folder, sent) in zip(dirs, sents):
+    for folder in dirs:
         try:
-            handle(folder, sent)
+            handle(folder)
         except urllib.error.URLError as e:
             print(e)
+
+    if timeout == 0:
+        break
+    
     time.sleep(timeout)
