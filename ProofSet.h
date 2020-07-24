@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <cinttypes>
 #include <climits>
+#include <unordered_map>
 
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error Byte order must be Little Endian
