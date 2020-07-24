@@ -127,12 +127,12 @@ void Args::parse(string line) {
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
     else if (key == "-proof") {
       int power = 0;
-      if (s.empty() || (power = stoi(s)) < 6 || power > 9) {
+      if (s.empty() || (power = stoi(s)) < 6 || power > 10) {
         log("-proof expects <power> 6 - 9 (found '%s')\n", s.c_str());
         throw "-proof expects <power> 6 - 9";
       }
       proofPow = power;
-      assert(proofPow >= 6 && proofPow <= 9);
+      assert(proofPow >= 6 && proofPow <= 10);
     } else if (key == "-tmpDir" || key == "-tmpdir") {
       if (s.empty()) {
         log("-tmpDir needs <dir>\n");

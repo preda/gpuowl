@@ -3,6 +3,7 @@
 import requests
 import hashlib
 import sys
+import time
 
 def fileBytes(name):
     with open(name, mode='rb') as f:
@@ -30,12 +31,14 @@ def getNeedRegion(need):
 def uploadChunk(baseUrl, pos, chunk):
     url = f'{baseUrl}&DataOffset={pos}&DataSize={len(chunk)}&DataMD5={md5(chunk)}'
     response = requests.post(url, {'Data': chunk}, allow_redirects=False)
+    return response
+    print(response.json())
     if response.status_code == 200:
         return True
 
     print(url)
     print(response)
-    print(response.json())
+    # print(response.json())
     return False
 
 def upload(userId, exponent, data):
@@ -62,20 +65,40 @@ def upload(userId, exponent, data):
 
         while pos < end:
             size = min(end - pos, 3*1024*1024)
-            print('.', end='', flush=True)
-            if not uploadChunk(baseUrl, pos, data[pos:pos+size]):
+            time1 = time.time()
+            response = uploadChunk(baseUrl, pos, data[pos:pos+size])
+            if response.status_code != 200:
                 return False
             pos += size
-        print('\n')
+            time2 = time.time()
+            print(f'\r{int(pos/fileSize*100+0.5)}%\t{int(size/(time2 - time1)/1024+0.5)} KB/s', end='', flush=True)
+            if 'FileUploaded' in response.json():
+                print('\nUpload complete')
+                assert(pos >= end)
+                return True
 
+
+def getTask(userId):
+    url = f'http://mersenne.org/oneAssignment/&UserID={userId}&workpref=150'
+    print(url)
+    r = requests.get(url)
+    print(r)
+    print(r.json())
+            
 if len(sys.argv) < 3:
     print(f'Usage: {sys.argv[0]} <user-id> <proof-file>')
-    exit()
-        
+    exit(1)
+
+userId = sys.argv[1]
+
+# getTask(userId)
+
 fileName = sys.argv[2]
 exponent = headerExponent(fileName)
 data = fileBytes(fileName)
-userId = sys.argv[1]
+
 
 if upload(userId, exponent, data):
-    print('Done')
+    print('Success')
+else:
+    exit(1)

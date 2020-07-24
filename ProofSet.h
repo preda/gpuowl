@@ -240,7 +240,7 @@ public:
   u32 step{topK / (1 << power)};
 
   static bool canDo(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
-    assert(power >= 6 && power <= 9);
+    assert(power >= 6 && power <= 10);
     return ProofSet{tmpDir, E, power}.isValidTo(currentK);
   }
   

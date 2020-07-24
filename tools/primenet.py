@@ -6,6 +6,7 @@
 import argparse
 import time
 import urllib
+import requests
 
 from http import cookiejar
 from urllib.parse import urlencode
