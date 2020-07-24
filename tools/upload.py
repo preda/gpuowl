@@ -1,0 +1,81 @@
+#!/usr/bin/python3
+
+import requests
+import hashlib
+import sys
+
+def fileBytes(name):
+    with open(name, mode='rb') as f:
+        return f.read()
+
+def md5(data):
+    return hashlib.md5(data).digest().hex()
+
+def headerLines(fileName):
+    readLine = lambda f: f.readline().decode().strip()
+    with open(fileName, mode='rb') as f:
+        return [readLine(f) for _ in range(5)]
+
+def headerExponent(fileName):
+    header = headerLines(fileName)
+    assert(header[0] == 'PRP PROOF')
+    exponent = int(header[4].split('=')[1][1:])
+    return exponent
+
+def getNeedRegion(need):
+    #print(need)
+    firstNeed = sorted([(int(a), b) for a, b in need.items()])[0]
+    return firstNeed[0], firstNeed[1] + 1
+
+def uploadChunk(baseUrl, pos, chunk):
+    url = f'{baseUrl}&DataOffset={pos}&DataSize={len(chunk)}&DataMD5={md5(chunk)}'
+    response = requests.post(url, {'Data': chunk}, allow_redirects=False)
+    if response.status_code == 200:
+        return True
+
+    print(url)
+    print(response)
+    print(response.json())
+    return False
+
+def upload(userId, exponent, data):
+    fileSize = len(data)
+    fileHash = md5(data)
+    url = f'http://mersenne.org/proof_upload/?UserID={userId}&Exponent={exponent}&FileSize={fileSize}&FileMD5={fileHash}'
+    print(url)
+
+    while True:
+        json = requests.get(url).json()
+        if 'error_status' in json or 'URLToUse' not in json or 'need' not in json:
+            print(json)
+            return json['error_status'] == 409 and json['error_description'] == 'Proof already uploaded'
+
+        origUrl = json['URLToUse']
+        print(origUrl)
+        baseUrl = 'http' + origUrl[5:] if origUrl.startswith('https:') else origUrl
+        if baseUrl != origUrl:
+            print(f'Re-written to: {baseUrl}')
+
+        baseUrl = f'{baseUrl}&FileMD5={fileHash}'
+        pos, end = getNeedRegion(json['need'])
+        print(pos, end)
+
+        while pos < end:
+            size = min(end - pos, 3*1024*1024)
+            print('.', end='', flush=True)
+            if not uploadChunk(baseUrl, pos, data[pos:pos+size]):
+                return False
+            pos += size
+        print('\n')
+
+if len(sys.argv) < 3:
+    print(f'Usage: {sys.argv[0]} <user-id> <proof-file>')
+    exit()
+        
+fileName = sys.argv[2]
+exponent = headerExponent(fileName)
+data = fileBytes(fileName)
+userId = sys.argv[1]
+
+if upload(userId, exponent, data):
+    print('Done')
