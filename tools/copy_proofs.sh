@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 
-set -o xtrace
-
-# Copy files to upload location.
-find $1 -name '*.proof' -exec cp -v -n '{}' $2 \;
-
-# Also copy to a backup location.
- [[ ! -z "$3" ]] && find $1 -name '*.proof' -exec cp -v -n '{}' $3 \; || echo "No backup location specified, proof files still copied to upload location."
- 
+if [[ $# -eq 2 ]]; then
+  if [[ "$1" == "$2" ]]; then
+    echo "Cannot copy to the same directory."; exit;
+  fi
+  # Copy files to backup location.
+  find $1 -name '*.proof' -exec cp -v -n '{}' $2 \; exit;
+elif [[ $# -lt 2 ]]; then
+  echo "Too few arguments. Must specify original and destination directories."; exit;
+elif [[ $# -gt 2 ]]; then
+  echo "Too much arguments. Must specify original and destination directories only."; exit;
+fi
