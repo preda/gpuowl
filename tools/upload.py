@@ -68,12 +68,13 @@ def upload(userId, exponent, data, verbose):
             time1 = time.time()
             response = uploadChunk(baseUrl, pos, data[pos:pos+size])
             if response.status_code != 200:
+                print(response)                
                 return False
             pos += size
             time2 = time.time()
             print(f'\r{int(pos/fileSize*100+0.5)}%\t{int(size/(time2 - time1)/1024+0.5)} KB/s', end='', flush=True)
             if 'FileUploaded' in response.json():
-                print('\nUpload complete')
+                verbose and print('\nUpload complete')
                 assert(pos >= end)
                 return True
 
