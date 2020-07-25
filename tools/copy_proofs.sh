@@ -5,9 +5,9 @@ if [[ $# -eq 2 ]]; then
     echo "Cannot copy to the same directory."; exit;
   fi
   # Copy files to backup location.
-  find $1 -name '*.proof' -exec cp -v -n '{}' $2 \; exit;
+  find $1 -name '*.proof' -exec cp -v -n '{}' $2 \;
 elif [[ $# -lt 2 ]]; then
-  echo "Too few arguments. Must specify original and destination directories."; exit;
+  echo "Too few arguments. Must specify original and destination directories.";
 elif [[ $# -gt 2 ]]; then
-  echo "Too much arguments. Must specify original and destination directories only."; exit;
+  echo "Too much arguments. Must specify original and destination directories only.";
 fi
