@@ -72,7 +72,7 @@ def upload(userId, exponent, data, verbose):
                 return False
             pos += size
             time2 = time.time()
-            print(f'\r{int(pos/fileSize*100+0.5)}%\t{int(size/(time2 - time1)/1024+0.5)} KB/s', end='', flush=True)
+            print(f'\r{int(pos/fileSize*100+0.5)}%\t{int(size/(time2 - time1)/1024+0.5)} KB/s ', end='', flush=True)
             if 'FileUploaded' in response.json():
                 verbose and print('\nUpload complete')
                 assert(pos >= end)
