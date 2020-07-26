@@ -2,7 +2,8 @@
 
 if [[ $# -eq 2 ]]; then
   if [[ "$1" == "$2" ]]; then
-    echo "Cannot copy to the same directory."; exit;
+    echo "Cannot copy to the same directory.";
+    exit;
   fi
   # Copy files to backup location.
   find $1 -name '*.proof' -exec cp -v -n '{}' $2 \; exit;
