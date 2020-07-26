@@ -45,7 +45,8 @@ def upload(userId, exponent, data, verbose):
     fileSize = len(data)
     fileHash = md5(data)
     url = f'http://mersenne.org/proof_upload/?UserID={userId}&Exponent={exponent}&FileSize={fileSize}&FileMD5={fileHash}'
-    verbose and print(url)
+    if verbose:
+        print(url)
 
     while True:
         json = requests.get(url).json()
@@ -54,14 +55,17 @@ def upload(userId, exponent, data, verbose):
             return json['error_status'] == 409 and json['error_description'] == 'Proof already uploaded'
 
         origUrl = json['URLToUse']
-        verbose and print(origUrl)
+        if verbose:
+            print(origUrl)
         baseUrl = 'http' + origUrl[5:] if origUrl.startswith('https:') else origUrl
         if baseUrl != origUrl:
-            verbose and print(f'Re-written to: {baseUrl}')
+            if verbose:
+                print(f'Re-written to: {baseUrl}')
 
         baseUrl = f'{baseUrl}&FileMD5={fileHash}'
         pos, end = getNeedRegion(json['need'])
-        verbose and print(pos, end)
+        if verbose:
+            print(pos, end)
 
         while pos < end:
             size = min(end - pos, 3*1024*1024)
@@ -74,7 +78,8 @@ def upload(userId, exponent, data, verbose):
             time2 = time.time()
             print(f'\r{int(pos/fileSize*100+0.5)}%\t{int(size/(time2 - time1)/1024+0.5)} KB/s ', end='', flush=True)
             if 'FileUploaded' in response.json():
-                verbose and print('\nUpload complete')
+                if verbose:
+                    print('\nUpload complete\n')
                 assert(pos >= end)
                 return True
 
@@ -100,6 +105,6 @@ if __name__ == '__main__':
     userId = sys.argv[1]
     fileName = sys.argv[2]
     if uploadProof(userId, fileName, verbose=True):
-        print('Success')
+        print('Success\n')
     else:
         exit(1)
