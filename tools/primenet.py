@@ -138,7 +138,7 @@ def handle(folder):
     for entry in os.listdir(folder + 'proof'):
         if entry.endswith('.proof'):
             fileName = folder + 'proof/' + entry
-            if upload.uploadProof(user, fileName):
+            if upload.uploadProof(user, fileName, True):
                 os.rename(fileName, folder + 'uploaded/' + entry)
 
 while True:
