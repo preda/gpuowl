@@ -30,7 +30,8 @@ def getNeedRegion(need):
 
 def uploadChunk(session, baseUrl, pos, chunk):
     url = f'{baseUrl}&DataOffset={pos}&DataSize={len(chunk)}&DataMD5={md5(chunk)}'
-    response = session.post(url, {'Data': chunk}, allow_redirects=False)
+    response = session.post(url, files={'Data': (None, chunk)}, allow_redirects=False)
+    # headers={'Content-Type:': 'multipart/form-data'}
     return response
     print(response.json())
     if response.status_code == 200:
@@ -65,7 +66,7 @@ def upload(userId, exponent, data, verbose):
 
         with requests.session() as session:
             while pos < end:
-                size = min(end - pos, 3*1024*1024)
+                size = min(end - pos, 5*1024*1024)
                 time1 = time.time()
                 response = uploadChunk(session, baseUrl, pos, data[pos:pos+size])
                 if response.status_code != 200:
