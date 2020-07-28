@@ -28,9 +28,9 @@ def getNeedRegion(need):
     firstNeed = sorted([(int(a), b) for a, b in need.items()])[0]
     return firstNeed[0], firstNeed[1] + 1
 
-def uploadChunk(baseUrl, pos, chunk):
+def uploadChunk(session, baseUrl, pos, chunk):
     url = f'{baseUrl}&DataOffset={pos}&DataSize={len(chunk)}&DataMD5={md5(chunk)}'
-    response = requests.post(url, {'Data': chunk}, allow_redirects=False)
+    response = session.post(url, {'Data': chunk}, allow_redirects=False)
     return response
     print(response.json())
     if response.status_code == 200:
@@ -63,21 +63,22 @@ def upload(userId, exponent, data, verbose):
         pos, end = getNeedRegion(json['need'])
         verbose and print(pos, end)
 
-        while pos < end:
-            size = min(end - pos, 3*1024*1024)
-            time1 = time.time()
-            response = uploadChunk(baseUrl, pos, data[pos:pos+size])
-            if response.status_code != 200:
-                print(response)                
-                return False
-            pos += size
-            time2 = time.time()
-            print(f'\r{int(pos/fileSize*100+0.5)}%\t{int(size/(time2 - time1)/1024+0.5)} KB/s ', end='', flush=True)
-            if 'FileUploaded' in response.json():
-                verbose and print('\nUpload complete')
-                assert(pos >= end)
-                return True
-
+        with requests.session() as session:
+            while pos < end:
+                size = min(end - pos, 3*1024*1024)
+                time1 = time.time()
+                response = uploadChunk(session, baseUrl, pos, data[pos:pos+size])
+                if response.status_code != 200:
+                    print(response)                
+                    return False
+                pos += size
+                time2 = time.time()
+                print(f'\r{int(pos/fileSize*100+0.5)}%\t{int(size/(time2 - time1)/1024+0.5)} KB/s    ', end='', flush=True)
+                if 'FileUploaded' in response.json():
+                    print('')
+                    verbose and print('Upload complete')
+                    assert(pos >= end)
+                    return True
 
 def getTask(userId):
     url = f'http://mersenne.org/oneAssignment/&UserID={userId}&workpref=150'
