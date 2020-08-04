@@ -30,7 +30,7 @@ def getNeedRegion(need):
 
 def uploadChunk(session, baseUrl, pos, chunk):
     url = f'{baseUrl}&DataOffset={pos}&DataSize={len(chunk)}&DataMD5={md5(chunk)}'
-    response = session.post(url, files={'Data': (None, chunk)}, allow_redirects=False)
+    response = session.post(url, files={'Data': (None, chunk)}, allow_redirects=False, timeout=900)
     # headers={'Content-Type:': 'multipart/form-data'}
     return response
     print(response.json())
@@ -49,7 +49,7 @@ def upload(userId, exponent, data, verbose):
     verbose and print(url)
 
     while True:
-        json = requests.get(url).json()
+        json = requests.get(url, timeout=20).json()
         if 'error_status' in json or 'URLToUse' not in json or 'need' not in json:
             print(json)
             return json['error_status'] == 409 and json['error_description'] == 'Proof already uploaded'
