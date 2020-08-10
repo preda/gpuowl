@@ -147,6 +147,8 @@ while True:
             handle(folder)
         except urllib.error.URLError as e:
             print(e)
+        except requests.exceptions.ConnectionError as e:
+            print(e)
 
     if timeout == 0:
         break
