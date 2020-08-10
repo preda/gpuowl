@@ -12,8 +12,8 @@ double nPrimesBetween(u32 B1, u32 B2) { return B2/log(B2) - B1/log(B1); }
 double workForBounds(u32 B1, u32 B2) { return B1 * 1.442 * 1.1 + nPrimesBetween(B1, B2); }
 
 pair<u32, u32> boundsFor(double ratio, double work) {
-  u32 lo = 100'000;
-  u32 hi = 5'000'000;
+  u32 lo = 0;
+  u32 hi = 8'000'000;
   while (true) {
     u32 B1 = (lo + hi) / 2;
     u32 B2 = B1 * ratio;
@@ -48,6 +48,8 @@ tuple<double,u32,u32> bestGain(u32 exponent, u32 factored, double ratioB2B1) {
 }
 
 int main(int argc, char*argv[]) {
+  printf("%f\n%f\n%f\n", rho(3.27), pm1(100'000'000, 77, 1'000'000, 1'000'000), pm1(100'000'000, 77, 1'000'000, 50'000'000));
+
   if (argc < 2) { return 1; }
   u32 factored = atoi(argv[1]);
   

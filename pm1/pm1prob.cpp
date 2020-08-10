@@ -79,7 +79,7 @@ double rho(double x) {
   assert (x >= 0);
   x *= 20;
   int pos = x;
-  if (pos >= sizeof(rhotab)/sizeof(rhotab[0])) { return 0; }
+  if (pos + 1 >= sizeof(rhotab)/sizeof(rhotab[0])) { return 0; }
   
   // linear interpolation between rhotab[pos] and rhotab[pos+1]
   return rhotab[pos] + (x - pos) * (rhotab[pos + 1] - rhotab[pos]);
@@ -135,7 +135,7 @@ double pm1(unsigned exponent, unsigned factoredUpTo, unsigned B1, unsigned B2) {
   double beta  = bitsB2 / bitsB1;
   
   // When the per-slice probability increment gets below EPSILON we ignore the remaining slices as insignificant.
-  constexpr double EPSILON = 1e-6;
+  constexpr double EPSILON = 1e-7;
 
   double sum = 0;
 
@@ -147,10 +147,10 @@ double pm1(unsigned exponent, unsigned factoredUpTo, unsigned B1, unsigned B2) {
     // nFactors = -log(1-p).
     // double levelRate = log1p(SLICE_WIDTH / n);
     // Approximated through log(1-p) ~= -1/(1/p - 0.5); log(1+p) ~= 1/(1/p + 0.5) for small p.
-    // Here s==SLICE_WIDTH, n=factoredUpTo: -log(1-s/(n+s))=-log(n/(n+s))=log(1+s/n)~=1/(n/s+0.5)
-    double levelRate = 1 / nSlice;
+    // Here s==SLICE_WIDTH, n=factoredUpTo: -log(1-s/(n+s))=-log(n/(n+s))=log(1+s/n)~=1/(n/s+0.5); (see "nSlice" above)
+    // double levelRate = 1 / nSlice;
     
-    p = pm1Prob * levelRate;
+    p = pm1Prob / nSlice;
 
     // Normally we'd add probabilities using the rule below:
     // Probability of [independent] "A or B" is: p(A or B) == p(A) + p(B) - p(A)*p(B), i.e. sum += p * (1 - sum);
