@@ -85,6 +85,7 @@ def miu(a, b):
     return rho(a) + integral(a - b, a - 1, lambda t: rho(t)/(a-t))
 
 def pm1(exponent, factoredTo, B1, B2):
+    B2 = max(B1, B2) # B2 can't be lower than B1.
     takeAwayBits = log2(exponent) + 1
     SLICE_WIDTH = 0.25
     MIDDLE_SHIFT = log2(1 + 2**SLICE_WIDTH) - 1
@@ -104,6 +105,46 @@ def pm1(exponent, factoredTo, B1, B2):
         nSlice += 1
     return -expm1(-sum)
 
-E = 100000000
-print(pm1(E, 77, 1000000, 1000000) * 100)
-print(pm1(E, 77, 1000000, 50000000) * 100)
+def nPrimesBetween(B1, B2):
+    return max(0, B2/log(B2) - B1/log(B1))
+
+def workForBounds(B1, B2, factorB1=1.1, factorB2=1.35):
+    # 1.442 is an approximation of log(powerSmooth(N))/N, the bitlen-expansion of powerSmooth().
+    # 0.85 is an estimation of the ratio of primes remaining after "pairing" in second stage.
+    return B1 * 1.442 * factorB1 + nPrimesBetween(B1, B2) * 0.85 * factorB2
+
+def gain(exponent, factoredTo, B1, B2):
+    return pm1(exponent, factoredTo, B1, B2) - workForBounds(B1, B2) / exponent
+
+def walkGain(exponent, factoredTo):
+    print(f'Exponent {exponent} factored to {factoredTo}: ', end='')
+    B1 = 1000000
+    B2 = 30000000
+    stepB1 = 50000
+    stepB2 = 500000
+    while True:
+        best = gain(exponent, factoredTo, B1, B2)
+        bestB1 = B1
+        bestB2 = B2
+        # p = pm1(exponent, factoredTo, B1, B2)
+        # print(p * 100, best * 100, B1, B2)
+        for (tryB1, tryB2) in [(B1 - stepB1, B2), (B1 + stepB1, B2), (B1, B2 - stepB2), (B1, B2 + stepB2)]:
+            if tryB1 <= 0 or tryB2 <= tryB1:
+                continue
+            p = gain(exponent, factoredTo, tryB1, tryB2)
+            if p > best:
+                (best, bestB1, bestB2) = (p, tryB1, tryB2)
+        if bestB1 == B1 and bestB2 == B2:
+            break
+        (B1, B2) = (bestB1, bestB2)
+    #print('')
+    p = pm1(exponent, factoredTo, B1, B2)
+    print(p * 100, best * 100, B1, B2)
+
+
+
+walkGain(330000000, 76)
+
+walkGain(100000000, 77)
+
+walkGain(100000000, 78)
