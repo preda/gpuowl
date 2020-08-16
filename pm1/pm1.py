@@ -3,71 +3,56 @@
 from math import *
 
 # Table of values of Dickman's "rho" function for argument from 2 in steps of 1/20.
-# Was generated in SageMath: [dickman_rho(x/20.0) for x in range(40,142)]
+# Was generated in SageMath: [dickman_rho(2 + x/20.0) for x in range(280)]
 rhotab = [
- # 2
- 0.306852819440055, 0.282765004395792,
- 0.260405780162154, 0.239642788276221,
- 0.220357137908328, 0.202441664262192,
- 0.185799461593866, 0.170342639724018,
- 0.155991263872504, 0.142672445952511,
- 0.130319561832251, 0.118871574006370,
- 0.108272442976271, 0.0984706136794386,
- 0.0894185657243129, 0.0810724181216677,
- 0.0733915807625995, 0.0663384461579859,
- 0.0598781159863707, 0.0539781578442059,
- # 3
- 0.0486083882911316, 0.0437373330511146,
- 0.0393229695406371, 0.0353240987411619,
- 0.0317034445117801, 0.0284272153221808,
- 0.0254647238733285, 0.0227880556511908,
- 0.0203717790604077, 0.0181926910596145,
- 0.0162295932432360, 0.0144630941418387,
- 0.0128754341866765, 0.0114503303359322,
- 0.0101728378150057, 0.00902922680011186,
- 0.00800687218838523, 0.00709415486039758,
- 0.00628037306181464, 0.00555566271730628,
- # 4
- 0.00491092564776083, 0.00433777522517762,
- 0.00382858617381395, 0.00337652538864193,
- 0.00297547478958152, 0.00261995369508530,
- 0.00230505051439257, 0.00202636249613307,
- 0.00177994246481535, 0.00156225163688919,
- 0.00137011774112811, 0.00120069777918906,
- 0.00105144485543239, 0.000920078583646128,
- 0.000804558644792605, 0.000703061126353299,
- 0.000613957321970095, 0.000535794711233811,
- 0.000467279874773688, 0.000407263130174890,
- # 5
- 0.000354724700456040, 0.000308762228684552,
- 0.000268578998820779, 0.000233472107922766,
- 0.000202821534805516, 0.000176080503619378,
- 0.000152766994802780, 0.000132456257345164,
- 0.000114774196621564, 0.0000993915292610416,
- 0.0000860186111205116, 0.0000744008568854185,
- 0.0000643146804615109, 0.0000555638944463892,
- 0.0000479765148133912, 0.0000414019237006278,
- 0.0000357083490382522, 0.0000307806248038908,
- 0.0000265182000840266, 0.0000228333689341654,
- # 6
- 0.0000196496963539553, 0.0000169006186225834,
- 0.0000145282003166539, 0.0000124820385512393,
- 0.0000107183044508680, 9.19890566611241e-6,
- 7.89075437420041e-6, 6.76512728089460e-6,
- 5.79710594495074e-6, 4.96508729255373e-6,
- 4.25035551717139e-6, 3.63670770345000e-6,
- 3.11012649979137e-6, 2.65849401629250e-6,
- 2.27134186228307e-6, 1.93963287719169e-6,
- 1.65557066379923e-6, 1.41243351587104e-6,
- 1.20442975270958e-6, 1.02657183986121e-6,
- # 7
- 8.74566995329392e-7, 7.44722260394541e-7, 0
-]
+#2
+0.306852819440055, 0.282765004395792, 0.260405780162154, 0.239642788276221, 0.220357137908328, 0.202441664262192, 0.185799461593866, 0.170342639724018, 0.155991263872504, 0.142672445952511,
+0.130319561832251, 0.118871574006370, 0.108272442976271, 0.0984706136794386, 0.0894185657243129, 0.0810724181216677, 0.0733915807625995, 0.0663384461579859, 0.0598781159863707, 0.0539781578442059,
+#3
+0.0486083882911316, 0.0437373330511146, 0.0393229695406371, 0.0353240987411619, 0.0317034445117801, 0.0284272153221808, 0.0254647238733285, 0.0227880556511908, 0.0203717790604077, 0.0181926910596145,
+0.0162295932432360, 0.0144630941418387, 0.0128754341866765, 0.0114503303359322, 0.0101728378150057, 0.00902922680011186, 0.00800687218838523, 0.00709415486039758, 0.00628037306181464, 0.00555566271730628,
+#4
+0.00491092564776083, 0.00433777522517762, 0.00382858617381395, 0.00337652538864193, 0.00297547478958152, 0.00261995369508530, 0.00230505051439257, 0.00202636249613307, 0.00177994246481535, 0.00156225163688919,
+0.00137011774112811, 0.00120069777918906, 0.00105144485543239, 0.000920078583646128, 0.000804558644792605, 0.000703061126353299, 0.000613957321970095, 0.000535794711233811, 0.000467279874773688, 0.000407263130174890,
+#5
+0.000354724700456040, 0.000308762228684552, 0.000268578998820779, 0.000233472107922766, 0.000202821534805516, 0.000176080503619378, 0.000152766994802780, 0.000132456257345164, 0.000114774196621564, 0.0000993915292610416,
+0.0000860186111205116, 0.0000744008568854185, 0.0000643146804615109, 0.0000555638944463892, 0.0000479765148133912, 0.0000414019237006278, 0.0000357083490382522, 0.0000307806248038908, 0.0000265182000840266, 0.0000228333689341654,
+#6
+0.0000196496963539553, 0.0000169006186225834, 0.0000145282003166539, 0.0000124820385512393, 0.0000107183044508680, 9.19890566611241e-6, 7.89075437420041e-6, 6.76512728089460e-6, 5.79710594495074e-6, 4.96508729255373e-6,
+4.25035551717139e-6, 3.63670770345000e-6, 3.11012649979137e-6, 2.65849401629250e-6, 2.27134186228307e-6, 1.93963287719169e-6, 1.65557066379923e-6, 1.41243351587104e-6, 1.20442975270958e-6, 1.02657183986121e-6,
+#7
+8.74566995329392e-7, 7.44722260394541e-7, 6.33862255545582e-7, 5.39258025342825e-7, 4.58565512804405e-7, 3.89772368391109e-7, 3.31151972577348e-7, 2.81223703587451e-7, 2.38718612981323e-7, 2.02549784558224e-7,
+1.71786749203399e-7, 1.45633412099219e-7, 1.23409021080502e-7, 1.04531767460094e-7, 8.85046647687321e-8, 7.49033977199179e-8, 6.33658743306062e-8, 5.35832493603539e-8, 4.52922178102003e-8, 3.82684037781748e-8,
+#8
+3.23206930422610e-8, 2.72863777994286e-8, 2.30269994373198e-8, 1.94247904820595e-8, 1.63796304411581e-8, 1.38064422807221e-8, 1.16329666668818e-8, 9.79786000820215e-9, 8.24906997200364e-9, 6.94244869879648e-9,
+5.84056956293623e-9, 4.91171815795476e-9, 4.12903233557698e-9, 3.46976969515950e-9, 2.91468398787199e-9, 2.44749453802384e-9, 2.05443505293307e-9, 1.72387014435469e-9, 1.44596956306737e-9, 1.21243159178189e-9,
+#9
+1.01624828273784e-9, 8.51506293255724e-10, 7.13217989231916e-10, 5.97178273686798e-10, 4.99843271868294e-10, 4.18227580146182e-10, 3.49817276438660e-10, 2.92496307733140e-10, 2.44484226227652e-10, 2.04283548915435e-10,
+1.70635273863534e-10, 1.42481306624186e-10, 1.18932737801671e-10, 9.92430725748863e-11, 8.27856490334434e-11, 6.90345980053579e-11, 5.75487956079478e-11, 4.79583435743883e-11, 3.99531836601083e-11, 3.32735129630055e-11,
+#10
+2.77017183772596e-11, 2.30555919904645e-11, 1.91826261797451e-11, 1.59552184492373e-11, 1.32666425229607e-11, 1.10276645918872e-11, 9.16370253824348e-12, 7.61244195636034e-12, 6.32183630823821e-12, 5.24842997441282e-12,
+4.35595260905192e-12, 3.61414135533970e-12, 2.99775435412426e-12, 2.48574478117179e-12, 2.06056954190735e-12, 1.70761087761789e-12, 1.41469261268532e-12, 1.17167569925493e-12, 9.70120179176324e-13, 8.03002755355921e-13,
+#11
+6.64480907032201e-13, 5.49695947730361e-13, 4.54608654601190e-13, 3.75862130571052e-13, 3.10667427553834e-13, 2.56708186340823e-13, 2.12061158957008e-13, 1.75129990979628e-13, 1.44590070306053e-13, 1.19342608376890e-13,
+9.84764210448520e-14, 8.12361284968988e-14, 6.69957047626884e-14, 5.52364839983536e-14, 4.55288784872365e-14, 3.75171868260434e-14, 3.09069739955730e-14, 2.54545912496319e-14, 2.09584757642051e-14, 1.72519300955857e-14,
+#12
+1.41971316501794e-14, 1.16801642038076e-14, 9.60689839298851e-15, 7.89957718055663e-15, 6.49398653148027e-15, 5.33711172323687e-15, 4.38519652833446e-15, 3.60213650413600e-15, 2.95814927457727e-15, 2.42867438017647e-15,
+1.99346333303212e-15, 1.63582721456795e-15, 1.34201472284939e-15, 1.10069820297832e-15, 9.02549036511458e-16, 7.39886955899583e-16, 6.06390497499970e-16, 4.96858003320228e-16, 4.07010403543137e-16, 3.33328522514641e-16,
+#13
+2.72918903047290e-16, 2.23403181509686e-16, 1.82826905742816e-16, 1.49584399704446e-16, 1.22356868095946e-16, 1.00061422004550e-16, 8.18091101788785e-17, 6.68703743742468e-17, 5.46466232309370e-17, 4.46468473170557e-17,
+3.64683865173660e-17, 2.97811167122010e-17, 2.43144513286369e-17, 1.98466595514452e-17, 1.61960906400940e-17, 1.32139661280568e-17, 1.07784613453433e-17, 8.78984690826589e-18, 7.16650138491662e-18, 5.84163977794677e-18,
+#14
+4.76063001400521e-18, 3.87879232126172e-18, 3.15959506343337e-18, 2.57317598320038e-18, 2.09513046990837e-18, 1.70551888483764e-18, 1.38805354722395e-18, 1.12943303162933e-18, 9.18797221060242e-19, 7.47281322095490e-19,
+6.07650960951011e-19, 4.94003693444398e-19, 4.01524901266115e-19, 3.26288213964971e-19, 2.65092374707276e-19, 2.15327927385602e-19, 1.74868299982827e-19, 1.41980841083036e-19, 1.15254171584394e-19, 9.35388736783942e-20,
+#15
+7.58990800429806e-20, 6.15729693405857e-20, 4.99405370840484e-20, 4.04973081615272e-20, 3.28329006413784e-20, 2.66135496324475e-20, 2.15678629328980e-20, 1.74752135068077e-20, 1.41562828504629e-20, 1.14653584509271e-20,
+9.28406140589761e-21, 7.51623982263034e-21, 6.08381226695129e-21, 4.92338527497562e-21, 3.98350139454904e-21, 3.22240072043320e-21, 2.60620051521272e-21, 2.10741515728752e-21, 1.70375305656048e-21, 1.37713892323882e-21,
+#20
+2.2354265870871718e-27]
 
 def interpolate(tab, x):
     assert(x >= 0)
     ix = int(x)
-    # print(x, ix)
     return tab[-1] if ix + 1 >= len(tab) else (tab[ix] + (x - ix) * (tab[ix + 1] - tab[ix]))
 
 def rho(x):    
@@ -81,70 +66,248 @@ def integral(a, b, f, STEPS = 20):
     step = w / STEPS
     return step * sum([f(a + step * (0.5 + i)) for i in range(STEPS)])
 
-def miu(a, b):
-    return rho(a) + integral(a - b, a - 1, lambda t: rho(t)/(a-t))
+def pFirstStage(a):
+    return rho(a)
 
-def pm1(exponent, factoredTo, B1, B2):
-    B2 = max(B1, B2) # B2 can't be lower than B1.
-    takeAwayBits = log2(exponent) + 1
-    SLICE_WIDTH = 0.25
-    MIDDLE_SHIFT = log2(1 + 2**SLICE_WIDTH) - 1
-    bitsFactor = factoredTo + MIDDLE_SHIFT - takeAwayBits
-    bitsB1 = log2(B1)
-    bitsB2 = log2(B2)
-    alpha = bitsFactor / bitsB1
-    beta = bitsB2 / bitsB1
-    EPSILON = 1e-7
-    sum = 0
-    p = 1
-    nSlice = factoredTo / SLICE_WIDTH + 0.5
-    while p >= EPSILON:
-        p = miu(alpha, beta) / nSlice
-        sum += p
-        alpha += SLICE_WIDTH / bitsB1
-        nSlice += 1
-    return -expm1(-sum)
+def pSecondStage(a, b):
+    return integral(a - b, a - 1, lambda t: rho(t)/(a-t))
+
+def miu(a, b):
+    return pFirstStage(a) + pSecondStage(a, b)
+
+# approximation of the number of primes <= n
+def primepi(n):
+    return n / (log(n) - 1.06)
 
 def nPrimesBetween(B1, B2):
-    return max(0, B2/log(B2) - B1/log(B1))
+    return max(0, primepi(B2) - primepi(B1))
 
-def workForBounds(B1, B2, factorB1=1.1, factorB2=1.35):
+def workForBounds(B1, B2, factorB1=1.2/7, factorB2=1.35):
     # 1.442 is an approximation of log(powerSmooth(N))/N, the bitlen-expansion of powerSmooth().
     # 0.85 is an estimation of the ratio of primes remaining after "pairing" in second stage.
-    return B1 * 1.442 * factorB1 + nPrimesBetween(B1, B2) * 0.85 * factorB2
+    return (B1 * 1.442 * factorB1, nPrimesBetween(B1, B2) * 0.85 * factorB2)
 
-def gain(exponent, factoredTo, B1, B2):
-    return pm1(exponent, factoredTo, B1, B2) - workForBounds(B1, B2) / exponent
+# steps of approx 10%
+niceStep = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30, 32, 34, 36, 40, 45, 50, 55, 60, 65, 70, 80, 90]
 
-def walkGain(exponent, factoredTo):
-    print(f'Exponent {exponent} factored to {factoredTo}: ', end='')
-    B1 = 1000000
-    B2 = 30000000
-    stepB1 = 50000
-    stepB2 = 500000
-    while True:
-        best = gain(exponent, factoredTo, B1, B2)
+def nextNiceNumber(value):
+    ret = 1
+    while value >= niceStep[-1]:
+        value //= 10
+        ret *= 10
+    for n in niceStep:
+        if n > value:
+            return n * ret
+    assert(False)
+
+class PM1:
+    SLICE_WIDTH = 0.25
+    MIDDLE_SHIFT = log2(1 + 2**SLICE_WIDTH) - 1
+
+    def __init__(self, exponent, factoredTo):
+        self.exponent = exponent
+        self.factoredTo = factoredTo
+
+        # Bits removed because of special form of factors 2*k*exponent + 1
+        self.takeAwayBits = log2(exponent) + 1
+        
+    def pm1(self, B1, B2):
+        B2 = max(B1, B2) # B2 can't be lower than B1.
+        bitsB1 = log2(B1)
+        bitsB2 = log2(B2)
+        alpha = (self.factoredTo + self.MIDDLE_SHIFT - self.takeAwayBits) / bitsB1
+        alphaStep = self.SLICE_WIDTH / bitsB1
+        beta = bitsB2 / bitsB1
+        
+        sum1 = 0
+        sum2 = 0
+        invSliceProb = self.factoredTo / self.SLICE_WIDTH + 0.5
+        p = 1
+
+        while p >= 1e-8:
+            sliceProb = 1 / invSliceProb
+            p1 = pFirstStage(alpha) * sliceProb
+            p2 = pSecondStage(alpha, beta) * sliceProb
+            sum1 += p1
+            sum2 += p2
+            p = p1 + p2
+            alpha += alphaStep
+            invSliceProb += 1
+        # print(f'stopped at {nSlice * SLICE_WIDTH}')
+        return (-expm1(-sum1), -expm1(-sum2))
+
+    def pProb(exponent, factoredTo, B1, P):
+        bitsB1 = log2(B1)
+        bitsP  = log2(P)
+        alpha = (self.factoredTo + MIDDLE_SHIFT - self.takeAwayBits - bitsP) / bitsB1
+        alphaStep = SLICE_WIDTH / bitsB1
+        
+        sum = 0
+        invSliceProb = factoredTo / SLICE_WIDTH + 0.5
+        # invSliceProb = factoredTo / SLICE_WIDTH + 1
+        p = 1
+        
+        while p >= 1e-7:
+            p = rho(alpha) / invSliceProb
+            sum += p
+            alpha += alphaStep
+            invSliceProb += 1
+        # print(f'stopped at {invSliceProb * SLICE_WIDTH}, sum {sum}')
+        # return -expm1(-sum / P)
+        return sum
+
+    # return tuple (benefit, work) expressed as a ratio of one PRP test
+    def gainRaw(self, B1, B2):
+        (p1, p2) = self.pm1(B1, B2)
+        (w1, w2) = workForBounds(B1, B2)
+        p = p1 + p2
+        # the formula below models one GCD after first stage, one GCD in the middle of second stage, and one GCD at the end.
+        w = (w1 + (1 - p1 - p2/4) * w2) * (1 / self.exponent)
+        return (p, w)
+
+    def gain(self, B1, B2):
+        (p, w) = self.gainRaw(B1, B2)
+        return p - w
+
+    def walkGain(self):
+        print(f'Exponent {self.exponent} factored to {self.factoredTo}: ', end='')
+        B1 = 1000000
+        B2 = 30000000
+        stepB1 = 50000
+        stepB2 = 500000
+
+        best = self.gain(B1, B2)
         bestB1 = B1
         bestB2 = B2
-        # p = pm1(exponent, factoredTo, B1, B2)
-        # print(p * 100, best * 100, B1, B2)
-        for (tryB1, tryB2) in [(B1 - stepB1, B2), (B1 + stepB1, B2), (B1, B2 - stepB2), (B1, B2 + stepB2)]:
-            if tryB1 <= 0 or tryB2 <= tryB1:
-                continue
-            p = gain(exponent, factoredTo, tryB1, tryB2)
-            if p > best:
-                (best, bestB1, bestB2) = (p, tryB1, tryB2)
-        if bestB1 == B1 and bestB2 == B2:
+
+        while True:
+            #print(pm1(exponent, factoredTo, B1, B2), best * 100, B1, B2)
+            for (tryB1, tryB2) in [(B1 - stepB1, B2), (B1 + stepB1, B2), (B1, B2 - stepB2), (B1, B2 + stepB2)]:
+                if tryB1 <= 0 or tryB2 <= tryB1:
+                    continue
+                p = self.gain(tryB1, tryB2)
+                if p > best:
+                    (best, bestB1, bestB2) = (p, tryB1, tryB2)
+            if bestB1 == B1 and bestB2 == B2:
+                break
+            (B1, B2) = (bestB1, bestB2)
+        print('')
+        print(self.pm1(B1, B2), best * 100, B1, B2, workForBounds(B1, B2))
+
+    def walk2(self):
+        print(f'Exponent {self.exponent} factored to {self.factoredTo}:')
+        B1, B2 = 200000, 1000000
+
+        smallB1, smallB2 = None, None
+        
+        (p, w) = self.gainRaw(B1, B2)
+
+        while True:
+            stepB1 = nextNiceNumber(B1) - B1
+            stepB2 = nextNiceNumber(B2) - B2
+            (p1, w1) = self.gainRaw(B1 + stepB1, B2)
+            (p2, w2) = self.gainRaw(B1, B2 + stepB2)
+
+            assert(w1 > w and w2 > w and p1 > p and p2 > p)
+            d1 = (p1 - p, w1 - w)
+            d2 = (p2 - p, w2 - w)
+            r1 = d1[0] / d1[1] if p1 > w1 else 0
+            r2 = d2[0] / d2[1] if p2 > w2 else 0
+
+            if r1 < 1 and r2 < 1 and not smallB1:
+                # first time both rates go under 1 marks the point of diminishing returns from P-1.
+                smallB1 = B1
+                smallB2 = B2
+            
+            print(B1, B2, (p, w), d1, d2, r1, r2)
+
+            if r1 == 0 and r2 == 0:
+                break
+
+            if r1 > r2:
+                B1 += stepB1
+                (p, w) = (p1, w1)
+            else:
+                B2 += stepB2
+                (p, w) = (p2, w2)
+
+        return ((B1, B2), (smallB1, smallB2))
+            
+# def walkFirstStage(exponent, factoredTo):
+#     B1 = 1000000
+#     stepB1 = 50000
+
+#     best = gain(exponent, factoredTo, B1, B1)
+#     bestB1 = B1
+
+#     while True:
+#         #print(pm1(exponent, factoredTo, B1, B2), best * 100, B1, B2)
+#         for tryB1 in [B1 - stepB1, B1 + stepB1]:
+#             if tryB1 <= 0:
+#                 continue
+#             p = gain(exponent, factoredTo, tryB1, tryB1)
+#             if p > best:
+#                 (best, bestB1) = (p, tryB1)
+#         if bestB1 == B1:
+#             break
+#         B1 = bestB1
+#     print('')
+#     print(pm1(exponent, factoredTo, B1, B1), best * 100, B1, B1, workForBounds(B1, B1))
+
+pm1 = PM1(100000000, 77)
+
+print(pm1.walk2())
+
+print(pm1.walkGain())
+# walk2(330000000, 76)
+# walkFirstStage(E, 77);
+
+import sympy
+
+def newSum(E):
+    sum = 0
+    for p in sympy.primerange(500000, 1000000):
+        sum += pProb(E, 77, 500000, p) / p
+    return sum
+
+    #sum = 0
+    #for p in range(500000, 1000000, 1000):
+    #    sum += pProb(100000000, 77, 500000, p)*(1000/log(p))
+    #print(-expm1(-sum))
+    #print(sum)
+
+# print(pm1(E, 77, 500000, 1000000), newSum(E))
+    
+def pmap(exponent, factored, B1):
+    p = B1
+    for n in range(18, 33):
+        print(n, pProb(exponent, factored, B1, 1 << n))
+
+pvalTab = [0.06639208197938358, 0.07219461819946979, 0.07835524907604118, 0.08488439147169541,
+           0.0917936660332634, 0.0990954215585409, 0.10680323506402828, 0.11493195003678472,
+           0.12349783365499045, 0.13251866583554872, 0.14201434177540156, 0.15200655596498086,
+           0.16251950011663344, 0.17349333969207906, 0.18442933446697876]
+
+def pValue(p):
+    x = log2(p) - 18
+    ix = int(x)
+    return pvalTab[ix] + (x - ix) * (pvalTab[ix + 1] - pvalTab[ix])
+
+# print(pValue(500000), pValue(1000000))
+
+def value(p):
+    if p <= 500000:
+        return 0
+    return pValue(p) / p
+
+import sys
+
+def zvalue():
+    for line in sys.stdin:
+        vals = list(map(int, line.strip().split()))
+        z = vals[0]
+        if (z > 100000000):
             break
-        (B1, B2) = (bestB1, bestB2)
-    #print('')
-    p = pm1(exponent, factoredTo, B1, B2)
-    print(p * 100, best * 100, B1, B2)
-
-
-
-walkGain(330000000, 76)
-
-walkGain(100000000, 77)
-
-walkGain(100000000, 78)
+        s = sum(map(value, vals[1:]))
+        if s:
+            print(z, s)
