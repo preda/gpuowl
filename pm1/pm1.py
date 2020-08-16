@@ -202,8 +202,9 @@ class PM1:
     def printResult(self, B1, B2, label):
         p1, p2 = self.pm1(B1, B2)
         w1, w2 = workForBounds(B1, B2)
+        _, w = self.gain(B1, B2)
         w1, w2 = w1/self.exponent, w2/self.exponent
-        print(f'{label:30}: B1={B1//1000:5}K, B2={B2//1000:6}K: p={100*(p1+p2):.2f}% (first-stage {100*p1:.2f}%, second-stage {100*p2:.2f}%), work=({w1*100:.2f}%, {w2*100:.2f}%)')
+        print(f'{label}: B1={B1//1000:5}K, B2={B2//1000:6}K: p={100*(p1+p2):.2f}% ({100*p1:.2f}% + {100*p2:.2f}%), work={100*w:.2f}% ({w1*100:.2f}% + {w2*100:.2f}%)')
     
 import sys
 
@@ -221,6 +222,6 @@ if __name__ == "__main__":
     pm1 = PM1(exponent, factored)
     r = pm1.walk(debug=debug)
 
-    pm1.printResult(*r[1], 'Min bounds (max efficiency)')
-    pm1.printResult(*r[2], 'Mid bounds')
-    pm1.printResult(*r[0], 'Big bounds (factor finding)')
+    pm1.printResult(*r[1], 'Min')
+    pm1.printResult(*r[2], 'Mid')
+    pm1.printResult(*r[0], 'Big')
