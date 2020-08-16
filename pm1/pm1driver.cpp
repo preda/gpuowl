@@ -7,63 +7,16 @@
 using u32 = unsigned;
 using namespace std;
 
-double nPrimesBetween(u32 B1, u32 B2) { return B2/log(B2) - B1/log(B1); }
-
-double workForBounds(u32 B1, u32 B2) { return B1 * 1.442 * 1.1 + nPrimesBetween(B1, B2); }
-
-pair<u32, u32> boundsFor(double ratio, double work) {
-  u32 lo = 0;
-  u32 hi = 8'000'000;
-  while (true) {
-    u32 B1 = (lo + hi) / 2;
-    u32 B2 = B1 * ratio;
-    double w = workForBounds(B1, B2);
-    if (abs(w - work) / work < 0.01) { return {B1, B2}; }
-    if (w < work) {
-      lo = B1;
-    } else {
-      hi = B1;
-    }
-  }
-}
-
-tuple<double,u32,u32> bestGain(u32 exponent, u32 factored, double ratioB2B1) {
-  double lo = 0.5 / 100;
-  double hi = 6.0 / 100;
-  while (true) {
-    double work = (lo + hi) / 2;
-    auto [B1, B2] = boundsFor(ratioB2B1, work * exponent);
-    double p = pm1(exponent, factored, B1, B2);
-    // fprintf(stderr, "%f %f %f\n", ratioB2B1, work, p);
-    if (work >= p && (work - p) < 0.001 / 100) {
-      // fprintf(stderr, "\n");
-      return {p, B1, B2};
-    }
-    if (work >= p) {
-      hi = work;
-    } else {
-      lo = work;
-    }
-  }
-}
-
 int main(int argc, char*argv[]) {
-  printf("%f\n%f\n%f\n", rho(3.27), pm1(100'000'000, 77, 1'000'000, 1'000'000), pm1(100'000'000, 77, 1'000'000, 50'000'000));
-
-  if (argc < 2) { return 1; }
-  u32 factored = atoi(argv[1]);
-  
-  u32 bestB1, bestB2, bestR;
-  double best = 0;
-  for (double r = 10; r <= 80; r += 5) {
-    auto [p, B1, B2] = bestGain(100'000'000, factored, r);
-    printf("%3.0f %.3f%% %u %u\n", r, p*100, B1, B2);
-    if (p > best) {
-      best = p;
-      bestB1 = B1;
-      bestB2 = B2;
-      bestR = r;
-    }
+  if (argc < 5) {
+    printf("Usage: %s <exponent> <factoredTo> <B1> <B2>\nExample %s 100000000 77 500000 3000000", argv[0], argv[0]);
+    return 1;
   }
-  printf("\n%u %u %u %f\n", bestR, bestB1, bestB2, best * 100);  
+  u32 exponent = atoi(argv[1]);  
+  u32 factored = atoi(argv[2]);
+  u32 B1 = atoi(argv[3]);
+  u32 B2 = atoi(argv[4]);
+
+  auto [p1, p2] = pm1(exponent, factored, B1, B2);
+  printf("%.2f%% (first-stage %.2f%%, second-stage %.2f%%)\n", (p1 + p2)*100, p1*100, p2*100);
 }

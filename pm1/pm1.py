@@ -66,23 +66,31 @@ def integral(a, b, f, STEPS = 20):
     step = w / STEPS
     return step * sum([f(a + step * (0.5 + i)) for i in range(STEPS)])
 
+# Probabiliy of first stage success.
 def pFirstStage(a):
     return rho(a)
 
+# Probability of second stage success
 def pSecondStage(a, b):
     return integral(a - b, a - 1, lambda t: rho(t)/(a-t))
 
+# See "Some Integer Factorization Algorithms using Elliptic Curves", R. P. Brent, page 3.
+# https://maths-people.anu.edu.au/~brent/pd/rpb102.pdf
+# Also "Speeding up Integer Multiplication and Factorization", A. Kruppa, chapter 5.3.3 (page 102).
 def miu(a, b):
+    # We approximate the two events as disjoint, thus we simply add them.
     return pFirstStage(a) + pSecondStage(a, b)
 
-# approximation of the number of primes <= n
+# Approximation of the number of primes <= n.
+# The correction term "-1.06" was determined experimentally to improve the approximation.
 def primepi(n):
     return n / (log(n) - 1.06)
 
 def nPrimesBetween(B1, B2):
-    return max(0, primepi(B2) - primepi(B1))
+    assert(B2 >= B1)
+    return primepi(B2) - primepi(B1)
 
-def workForBounds(B1, B2, factorB1=1.2/7, factorB2=1.35):
+def workForBounds(B1, B2, factorB1=1.2, factorB2=1.35):
     # 1.442 is an approximation of log(powerSmooth(N))/N, the bitlen-expansion of powerSmooth().
     # 0.85 is an estimation of the ratio of primes remaining after "pairing" in second stage.
     return (B1 * 1.442 * factorB1, nPrimesBetween(B1, B2) * 0.85 * factorB2)
@@ -90,6 +98,7 @@ def workForBounds(B1, B2, factorB1=1.2/7, factorB2=1.35):
 # steps of approx 10%
 niceStep = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30, 32, 34, 36, 40, 45, 50, 55, 60, 65, 70, 80, 90]
 
+# use nice round values for bounds.
 def nextNiceNumber(value):
     ret = 1
     while value >= niceStep[-1]:
@@ -136,28 +145,8 @@ class PM1:
         # print(f'stopped at {nSlice * SLICE_WIDTH}')
         return (-expm1(-sum1), -expm1(-sum2))
 
-    def pProb(exponent, factoredTo, B1, P):
-        bitsB1 = log2(B1)
-        bitsP  = log2(P)
-        alpha = (self.factoredTo + MIDDLE_SHIFT - self.takeAwayBits - bitsP) / bitsB1
-        alphaStep = SLICE_WIDTH / bitsB1
-        
-        sum = 0
-        invSliceProb = factoredTo / SLICE_WIDTH + 0.5
-        # invSliceProb = factoredTo / SLICE_WIDTH + 1
-        p = 1
-        
-        while p >= 1e-7:
-            p = rho(alpha) / invSliceProb
-            sum += p
-            alpha += alphaStep
-            invSliceProb += 1
-        # print(f'stopped at {invSliceProb * SLICE_WIDTH}, sum {sum}')
-        # return -expm1(-sum / P)
-        return sum
-
     # return tuple (benefit, work) expressed as a ratio of one PRP test
-    def gainRaw(self, B1, B2):
+    def gain(self, B1, B2):
         (p1, p2) = self.pm1(B1, B2)
         (w1, w2) = workForBounds(B1, B2)
         p = p1 + p2
@@ -165,63 +154,34 @@ class PM1:
         w = (w1 + (1 - p1 - p2/4) * w2) * (1 / self.exponent)
         return (p, w)
 
-    def gain(self, B1, B2):
-        (p, w) = self.gainRaw(B1, B2)
-        return p - w
-
-    def walkGain(self):
-        print(f'Exponent {self.exponent} factored to {self.factoredTo}: ', end='')
-        B1 = 1000000
-        B2 = 30000000
-        stepB1 = 50000
-        stepB2 = 500000
-
-        best = self.gain(B1, B2)
-        bestB1 = B1
-        bestB2 = B2
-
-        while True:
-            #print(pm1(exponent, factoredTo, B1, B2), best * 100, B1, B2)
-            for (tryB1, tryB2) in [(B1 - stepB1, B2), (B1 + stepB1, B2), (B1, B2 - stepB2), (B1, B2 + stepB2)]:
-                if tryB1 <= 0 or tryB2 <= tryB1:
-                    continue
-                p = self.gain(tryB1, tryB2)
-                if p > best:
-                    (best, bestB1, bestB2) = (p, tryB1, tryB2)
-            if bestB1 == B1 and bestB2 == B2:
-                break
-            (B1, B2) = (bestB1, bestB2)
-        print('')
-        print(self.pm1(B1, B2), best * 100, B1, B2, workForBounds(B1, B2))
-
-    def walk2(self):
-        print(f'Exponent {self.exponent} factored to {self.factoredTo}:')
+    def walk(self, debug=None):
+        debug and print(f'Exponent {self.exponent} factored to {self.factoredTo}:')
         B1, B2 = 200000, 1000000
 
         smallB1, smallB2 = None, None
         
-        (p, w) = self.gainRaw(B1, B2)
+        (p, w) = self.gain(B1, B2)
 
         while True:
             stepB1 = nextNiceNumber(B1) - B1
             stepB2 = nextNiceNumber(B2) - B2
-            (p1, w1) = self.gainRaw(B1 + stepB1, B2)
-            (p2, w2) = self.gainRaw(B1, B2 + stepB2)
+            (p1, w1) = self.gain(B1 + stepB1, B2)
+            (p2, w2) = self.gain(B1, B2 + stepB2)
 
             assert(w1 > w and w2 > w and p1 > p and p2 > p)
             d1 = (p1 - p, w1 - w)
             d2 = (p2 - p, w2 - w)
-            r1 = d1[0] / d1[1] if p1 > w1 else 0
-            r2 = d2[0] / d2[1] if p2 > w2 else 0
+            r1 = d1[0] / d1[1]
+            r2 = d2[0] / d2[1]
 
+            # first time both rates go under 1 marks the point of diminishing returns from P-1; save max-efficient bounds.
             if r1 < 1 and r2 < 1 and not smallB1:
-                # first time both rates go under 1 marks the point of diminishing returns from P-1.
                 smallB1 = B1
                 smallB2 = B2
             
-            print(B1, B2, (p, w), d1, d2, r1, r2)
+            debug and print(f'B1={B1//1000:5}K, B2={B2//1000:6}K: (win={p*100:.3f}%, work={w*100:.3f}%), B1 step ({d1[0]*100:3f}%, {d1[1]*100:3f}%) ratio={r1:.3f}, B2 step ({d2[0]*100:3f}%, {d2[1]*100:3f}%) ratio={r2:.3f}')
 
-            if r1 == 0 and r2 == 0:
+            if p1 <= w1 and p2 <= w2:
                 break
 
             if r1 > r2:
@@ -232,82 +192,28 @@ class PM1:
                 (p, w) = (p2, w2)
 
         return ((B1, B2), (smallB1, smallB2))
-            
-# def walkFirstStage(exponent, factoredTo):
-#     B1 = 1000000
-#     stepB1 = 50000
 
-#     best = gain(exponent, factoredTo, B1, B1)
-#     bestB1 = B1
-
-#     while True:
-#         #print(pm1(exponent, factoredTo, B1, B2), best * 100, B1, B2)
-#         for tryB1 in [B1 - stepB1, B1 + stepB1]:
-#             if tryB1 <= 0:
-#                 continue
-#             p = gain(exponent, factoredTo, tryB1, tryB1)
-#             if p > best:
-#                 (best, bestB1) = (p, tryB1)
-#         if bestB1 == B1:
-#             break
-#         B1 = bestB1
-#     print('')
-#     print(pm1(exponent, factoredTo, B1, B1), best * 100, B1, B1, workForBounds(B1, B1))
-
-pm1 = PM1(100000000, 77)
-
-print(pm1.walk2())
-
-print(pm1.walkGain())
-# walk2(330000000, 76)
-# walkFirstStage(E, 77);
-
-import sympy
-
-def newSum(E):
-    sum = 0
-    for p in sympy.primerange(500000, 1000000):
-        sum += pProb(E, 77, 500000, p) / p
-    return sum
-
-    #sum = 0
-    #for p in range(500000, 1000000, 1000):
-    #    sum += pProb(100000000, 77, 500000, p)*(1000/log(p))
-    #print(-expm1(-sum))
-    #print(sum)
-
-# print(pm1(E, 77, 500000, 1000000), newSum(E))
-    
-def pmap(exponent, factored, B1):
-    p = B1
-    for n in range(18, 33):
-        print(n, pProb(exponent, factored, B1, 1 << n))
-
-pvalTab = [0.06639208197938358, 0.07219461819946979, 0.07835524907604118, 0.08488439147169541,
-           0.0917936660332634, 0.0990954215585409, 0.10680323506402828, 0.11493195003678472,
-           0.12349783365499045, 0.13251866583554872, 0.14201434177540156, 0.15200655596498086,
-           0.16251950011663344, 0.17349333969207906, 0.18442933446697876]
-
-def pValue(p):
-    x = log2(p) - 18
-    ix = int(x)
-    return pvalTab[ix] + (x - ix) * (pvalTab[ix + 1] - pvalTab[ix])
-
-# print(pValue(500000), pValue(1000000))
-
-def value(p):
-    if p <= 500000:
-        return 0
-    return pValue(p) / p
 
 import sys
 
-def zvalue():
-    for line in sys.stdin:
-        vals = list(map(int, line.strip().split()))
-        z = vals[0]
-        if (z > 100000000):
-            break
-        s = sum(map(value, vals[1:]))
-        if s:
-            print(z, s)
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print('Usage: pm1.py <exponent> <factoredTo> [-verbose]')
+        print('Example: pm1.py 100000000 77')
+        exit(1)
+    exponent = int(sys.argv[1])
+    factored = int(sys.argv[2])
+    debug = len(sys.argv) >= 4 and sys.argv[3]=='-verbose'
+    
+    pm1 = PM1(exponent, factored)
+    r = pm1.walk(debug=debug)
+
+    B1, B2 = r[1]
+    p1, p2 = pm1.pm1(B1, B2)
+    w1, w2 = workForBounds(B1, B2)
+    print(f'Min bounds (max efficiency) : B1={B1//1000:5}K, B2={B2//1000:6}K: p={100*(p1+p2):.2f}% (first-stage {100*p1:.2f}%, second-stage {100*p2:.2f}%), work=({w1/exponent*100:.2f}%, {w2/exponent*100:.2f}%)')
+    
+    B1, B2 = r[0]
+    p1, p2 = pm1.pm1(B1, B2)
+    w1, w2 = workForBounds(B1, B2)
+    print(f'Big bounds (factor finding) : B1={B1//1000:5}K, B2={B2//1000:6}K: p={100*(p1+p2):.2f}% (first-stage {100*p1:.2f}%, second-stage {100*p2:.2f}%), work=({w1/exponent*100:.2f}%, {w2/exponent*100:.2f}%)')
