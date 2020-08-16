@@ -159,6 +159,7 @@ class PM1:
         B1, B2 = 200000, 1000000
 
         smallB1, smallB2 = None, None
+        midB1, midB2 = None, None
         
         (p, w) = self.gain(B1, B2)
 
@@ -178,8 +179,13 @@ class PM1:
             if r1 < 1 and r2 < 1 and not smallB1:
                 smallB1 = B1
                 smallB2 = B2
+
+            # some intermediate bounds between max-efficient and good-factor-finding
+            if r1 < .5 and r2 < .5 and not midB1:
+                midB1 = B1
+                midB2 = B2
             
-            debug and print(f'B1={B1//1000:5}K, B2={B2//1000:6}K: (win={p*100:.3f}%, work={w*100:.3f}%), B1 step ({d1[0]*100:3f}%, {d1[1]*100:3f}%) ratio={r1:.3f}, B2 step ({d2[0]*100:3f}%, {d2[1]*100:3f}%) ratio={r2:.3f}')
+            debug and print(f'B1={B1//1000:5}K, B2={B2//1000:6}K: (p={p*100:.3f}%, work={w*100:.3f}%), B1 step ({d1[0]*100:3f}%, {d1[1]*100:3f}%) ratio={r1:.3f}, B2 step ({d2[0]*100:3f}%, {d2[1]*100:3f}%) ratio={r2:.3f}')
 
             if p1 <= w1 and p2 <= w2:
                 break
@@ -191,10 +197,17 @@ class PM1:
                 B2 += stepB2
                 (p, w) = (p2, w2)
 
-        return ((B1, B2), (smallB1, smallB2))
+        return ((B1, B2), (smallB1, smallB2), (midB1, midB2))
 
-
+    def printResult(self, B1, B2, label):
+        p1, p2 = self.pm1(B1, B2)
+        w1, w2 = workForBounds(B1, B2)
+        w1, w2 = w1/self.exponent, w2/self.exponent
+        print(f'{label:30}: B1={B1//1000:5}K, B2={B2//1000:6}K: p={100*(p1+p2):.2f}% (first-stage {100*p1:.2f}%, second-stage {100*p2:.2f}%), work=({w1*100:.2f}%, {w2*100:.2f}%)')
+    
 import sys
+
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
@@ -208,12 +221,6 @@ if __name__ == "__main__":
     pm1 = PM1(exponent, factored)
     r = pm1.walk(debug=debug)
 
-    B1, B2 = r[1]
-    p1, p2 = pm1.pm1(B1, B2)
-    w1, w2 = workForBounds(B1, B2)
-    print(f'Min bounds (max efficiency) : B1={B1//1000:5}K, B2={B2//1000:6}K: p={100*(p1+p2):.2f}% (first-stage {100*p1:.2f}%, second-stage {100*p2:.2f}%), work=({w1/exponent*100:.2f}%, {w2/exponent*100:.2f}%)')
-    
-    B1, B2 = r[0]
-    p1, p2 = pm1.pm1(B1, B2)
-    w1, w2 = workForBounds(B1, B2)
-    print(f'Big bounds (factor finding) : B1={B1//1000:5}K, B2={B2//1000:6}K: p={100*(p1+p2):.2f}% (first-stage {100*p1:.2f}%, second-stage {100*p2:.2f}%), work=({w1/exponent*100:.2f}%, {w2/exponent*100:.2f}%)')
+    pm1.printResult(*r[1], 'Min bounds (max efficiency)')
+    pm1.printResult(*r[2], 'Mid bounds')
+    pm1.printResult(*r[0], 'Big bounds (factor finding)')
