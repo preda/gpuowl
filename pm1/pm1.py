@@ -96,7 +96,7 @@ def workForBounds(B1, B2, factorB1=1.2, factorB2=1.35):
     return (B1 * 1.442 * factorB1, nPrimesBetween(B1, B2) * 0.85 * factorB2)
 
 # steps of approx 10%
-niceStep = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30, 32, 34, 36, 40, 45, 50, 55, 60, 65, 70, 80, 90]
+niceStep = [10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 40, 45, 50, 55, 60, 65, 70, 80, 90]
 
 # use nice round values for bounds.
 def nextNiceNumber(value):
@@ -156,10 +156,10 @@ class PM1:
 
     def walk(self, debug=None):
         debug and print(f'Exponent {self.exponent} factored to {self.factoredTo}:')
-        B1, B2 = 200000, 1000000
+        B1, B2 = self.exponent ** (2/3), self.exponent ** (3/4)
 
-        smallB1, smallB2 = None, None
-        midB1, midB2 = None, None
+        smallB1, smallB2 = 0, 0
+        midB1, midB2 = 0, 0
         
         (p, w) = self.gain(B1, B2)
 
@@ -220,8 +220,11 @@ if __name__ == "__main__":
     debug = len(sys.argv) >= 4 and sys.argv[3]=='-verbose'
     
     pm1 = PM1(exponent, factored)
-    r = pm1.walk(debug=debug)
+    a, b, c = pm1.walk(debug=debug)
 
-    pm1.printResult(*r[1], 'Min')
-    pm1.printResult(*r[2], 'Mid')
-    pm1.printResult(*r[0], 'Big')
+    if b[0]:
+        pm1.printResult(*b, 'Min')
+    if c[0]:
+        pm1.printResult(*c, 'Mid')
+    if a[0]:
+        pm1.printResult(*a, 'Big')
