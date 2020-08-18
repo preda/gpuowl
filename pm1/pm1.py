@@ -158,10 +158,12 @@ class PM1:
         w = (w1 + (1 - p1 - p2/4) * w2) * (1 / self.exponent)
         return (p, w)
 
-    def walk(self, debug=None):
+    def walk(self, *, debug=None, B1=None, B2=None):
+        fixB1, fixB2 = B1, B2
         debug and print(f'Exponent {self.exponent} factored to {self.factoredTo}:')
-        B1, B2 = map(nextNiceNumber, map(int, (self.exponent / 1000, self.exponent / 100)))
-
+        B1 = fixB1 if fixB1 else nextNiceNumber(int(self.exponent / 1000))
+        B2 = max(B1, fixB2 if fixB2 else nextNiceNumber(int(self.exponent / 100)))
+        
         smallB1, smallB2 = 0, 0
         midB1, midB2 = 0, 0
         
@@ -170,10 +172,10 @@ class PM1:
         while True:
             stepB1 = nextNiceNumber(B1) - B1
             stepB2 = nextNiceNumber(B2) - B2
-            (p1, w1) = self.gain(B1 + stepB1, B2)
-            (p2, w2) = self.gain(B1, B2 + stepB2)
+            (p1, w1) = (p, w + 1) if fixB1 else self.gain(B1 + stepB1, B2)
+            (p2, w2) = (p, w + 1) if fixB2 else self.gain(B1, B2 + stepB2)
 
-            assert(w1 > w and w2 > w and p1 > p and p2 > p)
+            assert(w1 > w and w2 > w and p1 >= p and p2 >= p)
             r1 = (p1 - p) / (w1 - w)
             r2 = (p2 - p) / (w2 - w)
 
@@ -189,7 +191,7 @@ class PM1:
                 midB1 = B1
                 midB2 = B2
 
-            isBigPoint = p1 <= w1 and p2 <= w2
+            isBigPoint = r1 < 1 and r2 < 1 and p1 <= w1 and p2 <= w2
             
             debug and print(f'{fmtBound(B1)}, {fmtBound(B2)} : (p={p*100:.3f}%, work={w*100:.3f}%), B1 step {r1:.3f}={(p1-p)*100:.4f}/{(w1-w)*100:.4f}, B2 step {r2:.3f}={(p2-p)*100:.4f}/{(w2-w)*100:.4f}', '[MIN]' if isSmallPoint else '[MID]' if isMidPoint else '[BIG]' if isBigPoint else '')
 
@@ -214,21 +216,39 @@ class PM1:
             w1, w2 = w1/self.exponent, w2/self.exponent
             print(f'{label}: B1={fmtBound(B1)}, B2={fmtBound(B2)} : p={100*(p1+p2):.2f}% ({100*p1:.2f}% + {100*p2:.2f}%), work={100*w:.2f}% ({w1*100:.2f}% + {w2*100:.2f}%)')
 
-    def walkBounds(self, debug=False):
-        for bounds, label in zip(self.walk(debug=debug), ('[MIN]', '[MID]', '[BIG]')):
+    def walkBounds(self, **named):
+        for bounds, label in zip(self.walk(**named), ('[MIN]', '[MID]', '[BIG]')):
             self.printResult(bounds, label)
 
-def walk(exponent, factored, debug=False):
-    PM1(exponent, factored).walkBounds(debug)
+def walk(exponent, factored, **named):
+    PM1(exponent, factored).walkBounds(**named)
             
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 3:
-        print('Usage: pm1.py <exponent> <factoredTo> [-verbose]')
+        print('Usage: pm1.py <exponent> <factoredTo> [-verbose] [-B1 <fixed B1>] [-B2 <fixed B2>]')
         print('Example: pm1.py 100000000 77')
         exit(1)
         
     exponent = int(sys.argv[1])
     factored = int(sys.argv[2])
-    debug = len(sys.argv) >= 4 and sys.argv[3]=='-verbose'
-    walk(exponent, factored, debug)
+    debug = False
+    fixedB1, fixedB2 = None, None
+    
+    args = sys.argv[3:]
+    while args:
+        # print(args[0])
+        if args[0] == '-verbose':
+            debug = True
+            args = args[1:]
+        elif args[0] == '-B1':
+            fixedB1 = int(args[1])
+            args = args[2:]
+        elif args[0] == '-B2':
+            fixedB2 = int(args[1])
+            args = args[2:]
+        else:
+            print('Unrecognized argument "f{args[0]}"')
+            args = args[1:]
+            
+    walk(exponent, factored, debug=debug, B1=fixedB1, B2=fixedB2)
