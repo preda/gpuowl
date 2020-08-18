@@ -95,6 +95,10 @@ def workForBounds(B1, B2, factorB1=1.2, factorB2=1.35):
     # 0.85 is an estimation of the ratio of primes remaining after "pairing" in second stage.
     return (B1 * 1.442 * factorB1, nPrimesBetween(B1, B2) * 0.85 * factorB2)
 
+def fmtBound(b):
+    s = f'{b//1000000}M' if not b % 1000000 else f'{b/1000000:1}M' if b > 1000000 else f'{b//1000}K' if not b % 1000 else f'{b/1000}' if b > 1000 else f'{b}'
+    return f'{s:>4}'
+    
 # steps of approx 10%
 niceStep = [10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 40, 45, 50, 55, 60, 65, 70, 80, 90]
 
@@ -156,7 +160,7 @@ class PM1:
 
     def walk(self, debug=None):
         debug and print(f'Exponent {self.exponent} factored to {self.factoredTo}:')
-        B1, B2 = self.exponent ** (2/3), self.exponent ** (3/4)
+        B1, B2 = map(nextNiceNumber, map(int, (self.exponent / 1000, self.exponent / 100)))
 
         smallB1, smallB2 = 0, 0
         midB1, midB2 = 0, 0
@@ -170,24 +174,26 @@ class PM1:
             (p2, w2) = self.gain(B1, B2 + stepB2)
 
             assert(w1 > w and w2 > w and p1 > p and p2 > p)
-            d1 = (p1 - p, w1 - w)
-            d2 = (p2 - p, w2 - w)
-            r1 = d1[0] / d1[1]
-            r2 = d2[0] / d2[1]
+            r1 = (p1 - p) / (w1 - w)
+            r2 = (p2 - p) / (w2 - w)
 
             # first time both rates go under 1 marks the point of diminishing returns from P-1; save max-efficient bounds.
-            if r1 < 1 and r2 < 1 and not smallB1:
+            isSmallPoint = r1 < 1 and r2 < 1 and not smallB1
+            if isSmallPoint:
                 smallB1 = B1
                 smallB2 = B2
 
             # some intermediate bounds between max-efficient and good-factor-finding
-            if r1 < .5 and r2 < .5 and not midB1:
+            isMidPoint = r1 < .5 and r2 < .5 and not midB1
+            if isMidPoint:
                 midB1 = B1
                 midB2 = B2
-            
-            debug and print(f'B1={B1//1000:5}K, B2={B2//1000:6}K: (p={p*100:.3f}%, work={w*100:.3f}%), B1 step ({d1[0]*100:3f}%, {d1[1]*100:3f}%) ratio={r1:.3f}, B2 step ({d2[0]*100:3f}%, {d2[1]*100:3f}%) ratio={r2:.3f}')
 
-            if p1 <= w1 and p2 <= w2:
+            isBigPoint = p1 <= w1 and p2 <= w2
+            
+            debug and print(f'{fmtBound(B1)}, {fmtBound(B2)} : (p={p*100:.3f}%, work={w*100:.3f}%), B1 step {r1:.3f}={(p1-p)*100:.4f}/{(w1-w)*100:.4f}, B2 step {r2:.3f}={(p2-p)*100:.4f}/{(w2-w)*100:.4f}', '[MIN]' if isSmallPoint else '[MID]' if isMidPoint else '[BIG]' if isBigPoint else '')
+
+            if isBigPoint:
                 break
 
             if r1 > r2:
@@ -197,34 +203,32 @@ class PM1:
                 B2 += stepB2
                 (p, w) = (p2, w2)
 
-        return ((B1, B2), (smallB1, smallB2), (midB1, midB2))
+        return ((smallB1, smallB2) if smallB1 else None, (midB1, midB2) if midB1 else None, (B1, B2))
 
-    def printResult(self, B1, B2, label):
-        p1, p2 = self.pm1(B1, B2)
-        w1, w2 = workForBounds(B1, B2)
-        _, w = self.gain(B1, B2)
-        w1, w2 = w1/self.exponent, w2/self.exponent
-        print(f'{label}: B1={B1//1000:5}K, B2={B2//1000:6}K: p={100*(p1+p2):.2f}% ({100*p1:.2f}% + {100*p2:.2f}%), work={100*w:.2f}% ({w1*100:.2f}% + {w2*100:.2f}%)')
-    
-import sys
+    def printResult(self, bounds, label):
+        if bounds:
+            B1, B2 = bounds
+            p1, p2 = self.pm1(B1, B2)
+            w1, w2 = workForBounds(B1, B2)
+            _, w = self.gain(B1, B2)
+            w1, w2 = w1/self.exponent, w2/self.exponent
+            print(f'{label}: B1={fmtBound(B1)}, B2={fmtBound(B2)} : p={100*(p1+p2):.2f}% ({100*p1:.2f}% + {100*p2:.2f}%), work={100*w:.2f}% ({w1*100:.2f}% + {w2*100:.2f}%)')
 
+    def walkBounds(self, debug=False):
+        for bounds, label in zip(self.walk(debug=debug), ('[MIN]', '[MID]', '[BIG]')):
+            self.printResult(bounds, label)
 
-
+def walk(exponent, factored, debug=False):
+    PM1(exponent, factored).walkBounds(debug)
+            
 if __name__ == "__main__":
+    import sys
     if len(sys.argv) < 3:
         print('Usage: pm1.py <exponent> <factoredTo> [-verbose]')
         print('Example: pm1.py 100000000 77')
         exit(1)
+        
     exponent = int(sys.argv[1])
     factored = int(sys.argv[2])
     debug = len(sys.argv) >= 4 and sys.argv[3]=='-verbose'
-    
-    pm1 = PM1(exponent, factored)
-    a, b, c = pm1.walk(debug=debug)
-
-    if b[0]:
-        pm1.printResult(*b, 'Min')
-    if c[0]:
-        pm1.printResult(*c, 'Mid')
-    if a[0]:
-        pm1.printResult(*a, 'Big')
+    walk(exponent, factored, debug)
