@@ -87,7 +87,11 @@ double integral(double a, double b, Fun f) {
 double pFirstStage(double alpha) { return rho(alpha); }
 
 double pSecondStage(double alpha, double beta) {
-  return integral(max(0.0, alpha - beta), max(0.0, alpha - 1), [alpha](double t) {return rho(t)/(alpha-t); });
+  // assert(beta >= 1);
+  return integral(1, beta, [alpha](double x) { return rho(alpha - x) / x; });
+  
+  // Equivalent:
+  // return integral(alpha - beta, alpha - 1, [alpha](double t) {return rho(t)/(alpha-t); });
 }
 
 // Returns the probability of PM1(B1,B2) success for a Mersenne 2^exponent -1 already TF'ed to factoredUpTo.
@@ -110,7 +114,8 @@ std::pair<double, double> pm1(unsigned exponent, unsigned factoredUpTo, unsigned
   double bitsB2 = log2(B2);
   
   double alpha = bitsFactor / bitsB1;
-  double beta  = bitsB2 / bitsB1;
+  const double beta  = bitsB2 / bitsB1;
+  assert(beta >= 1);
   
   // When the per-slice probability increment gets below EPSILON we ignore the remaining slices as insignificant.
   constexpr double EPSILON = 1e-7;

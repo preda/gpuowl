@@ -72,7 +72,8 @@ def pFirstStage(a):
 
 # Probability of second stage success
 def pSecondStage(a, b):
-    return integral(max(0, a - b), max(0, a - 1), lambda t: rho(t)/(a-t))
+    return integral(1, b, lambda x: rho(a - x) / x)
+    # return integral(a - b, a - 1, lambda t: rho(t)/(a-t))
 
 # See "Some Integer Factorization Algorithms using Elliptic Curves", R. P. Brent, page 3.
 # https://maths-people.anu.edu.au/~brent/pd/rpb102.pdf
@@ -96,7 +97,7 @@ def workForBounds(B1, B2, factorB1=1.2, factorB2=1.35):
     return (B1 * 1.442 * factorB1, nPrimesBetween(B1, B2) * 0.85 * factorB2)
 
 def fmtBound(b):
-    s = f'{b//1000000}M' if not b % 1000000 else f'{b/1000000:1}M' if b > 1000000 else f'{b//1000}K' if not b % 1000 else f'{b/1000}' if b > 1000 else f'{b}'
+    s = f'{b//1000000}M' if not b % 1000000 else f'{b/1000000:1}M' if b > 1000000 else f'{b//1000}K' if not b % 1000 else f'{b/1000}K' if b > 1000 else f'{b}'
     return f'{s:>4}'
     
 # steps of approx 10%
@@ -131,6 +132,7 @@ class PM1:
         alpha = (self.factoredTo + self.MIDDLE_SHIFT - self.takeAwayBits) / bitsB1
         alphaStep = self.SLICE_WIDTH / bitsB1
         beta = bitsB2 / bitsB1
+        assert(beta >= 1)
         
         sum1 = 0
         sum2 = 0
