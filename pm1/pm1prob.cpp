@@ -87,7 +87,7 @@ double integral(double a, double b, Fun f) {
 double pFirstStage(double alpha) { return rho(alpha); }
 
 double pSecondStage(double alpha, double beta) {
-  return integral(alpha - beta, alpha - 1, [alpha](double t) {return rho(t)/(alpha-t); });
+  return integral(max(0.0, alpha - beta), max(0.0, alpha - 1), [alpha](double t) {return rho(t)/(alpha-t); });
 }
 
 // Returns the probability of PM1(B1,B2) success for a Mersenne 2^exponent -1 already TF'ed to factoredUpTo.

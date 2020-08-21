@@ -72,7 +72,7 @@ def pFirstStage(a):
 
 # Probability of second stage success
 def pSecondStage(a, b):
-    return integral(a - b, a - 1, lambda t: rho(t)/(a-t))
+    return integral(max(0, a - b), max(0, a - 1), lambda t: rho(t)/(a-t))
 
 # See "Some Integer Factorization Algorithms using Elliptic Curves", R. P. Brent, page 3.
 # https://maths-people.anu.edu.au/~brent/pd/rpb102.pdf
@@ -153,6 +153,7 @@ class PM1:
     def gain(self, B1, B2):
         (p1, p2) = self.pm1(B1, B2)
         (w1, w2) = workForBounds(B1, B2)
+        # print('gain', B1, B2, p1, p2, w1, w2)
         p = p1 + p2
         # the formula below models one GCD after first stage, one GCD in the middle of second stage, and one GCD at the end.
         w = (w1 + (1 - p1 - p2/4) * w2) * (1 / self.exponent)
@@ -175,9 +176,10 @@ class PM1:
             (p1, w1) = (p, w + 1) if fixB1 else self.gain(B1 + stepB1, B2)
             (p2, w2) = (p, w + 1) if fixB2 else self.gain(B1, B2 + stepB2)
 
-            assert(w1 > w and w2 > w and p1 >= p and p2 >= p)
-            r1 = (p1 - p) / (w1 - w)
-            r2 = (p2 - p) / (w2 - w)
+            # print(w1, w2, w, p1, p2, p)
+            assert((w1 > w or w2 > w) and p1 >= p and p2 >= p)
+            r1 = ((p1 - p) / (w1 - w)) if w1 > w else 1000
+            r2 = ((p2 - p) / (w2 - w)) if w2 > w else 1000
 
             # first time both rates go under 1 marks the point of diminishing returns from P-1; save max-efficient bounds.
             isSmallPoint = r1 < 1 and r2 < 1 and not smallB1
@@ -248,7 +250,7 @@ if __name__ == "__main__":
             fixedB2 = int(args[1])
             args = args[2:]
         else:
-            print('Unrecognized argument "f{args[0]}"')
+            print(f'Unrecognized argument "{args[0]}"')
             args = args[1:]
             
     walk(exponent, factored, debug=debug, B1=fixedB1, B2=fixedB2)
