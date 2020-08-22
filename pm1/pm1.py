@@ -91,10 +91,13 @@ def nPrimesBetween(B1, B2):
     assert(B2 >= B1)
     return primepi(B2) - primepi(B1)
 
-def workForBounds(B1, B2, factorB1=1.2, factorB2=1.35):
+def workForBounds(B1, B2, useTrick, factorB1=1.1, factorB2=1.35):
     # 1.442 is an approximation of log(powerSmooth(N))/N, the bitlen-expansion of powerSmooth().
     # 0.85 is an estimation of the ratio of primes remaining after "pairing" in second stage.
-    return (B1 * 1.442 * factorB1, nPrimesBetween(B1, B2) * 0.85 * factorB2)
+    w1 = B1 * 1.442 * factorB1
+    if useTrick:
+        w1 *= 1/10
+    return (w1, nPrimesBetween(B1, B2) * 0.85 * factorB2)
 
 def fmtBound(b):
     s = f'{b//1000000}M' if not b % 1000000 else f'{b/1000000:1}M' if b > 1000000 else f'{b//1000}K' if not b % 1000 else f'{b/1000}K' if b > 1000 else f'{b}'
@@ -152,16 +155,20 @@ class PM1:
         return (-expm1(-sum1), -expm1(-sum2))
 
     # return tuple (benefit, work) expressed as a ratio of one PRP test
-    def gain(self, B1, B2):
+    def gain(self, B1, B2, useTrick):
         (p1, p2) = self.pm1(B1, B2)
-        (w1, w2) = workForBounds(B1, B2)
+        (w1, w2) = workForBounds(B1, B2, useTrick)
         # print('gain', B1, B2, p1, p2, w1, w2)
         p = p1 + p2
+        if useTrick:
+            p *= 1 - B1 * (1.442 / self.exponent)
         # the formula below models one GCD after first stage, one GCD in the middle of second stage, and one GCD at the end.
-        w = (w1 + (1 - p1 - p2/4) * w2) * (1 / self.exponent)
-        return (p, w)
+        workIts = w1 + (1 - p1) * (1 - p2/4) * w2
+        #if useTrick:
+        #    workIts -= B1 * 1.442 * (1 - p1 - p2)
+        return (p, 1 / self.exponent * workIts)
 
-    def walk(self, *, debug=None, B1=None, B2=None):
+    def walk(self, *, debug=None, B1=None, B2=None, useP1Trick=False):
         fixB1, fixB2 = B1, B2
         debug and print(f'Exponent {self.exponent} factored to {self.factoredTo}:')
         B1 = fixB1 if fixB1 else nextNiceNumber(int(self.exponent / 1000))
@@ -170,13 +177,13 @@ class PM1:
         smallB1, smallB2 = 0, 0
         midB1, midB2 = 0, 0
         
-        (p, w) = self.gain(B1, B2)
+        (p, w) = self.gain(B1, B2, useP1Trick)
 
         while True:
             stepB1 = nextNiceNumber(B1) - B1
             stepB2 = nextNiceNumber(B2) - B2
-            (p1, w1) = (p, w + 1) if fixB1 else self.gain(B1 + stepB1, B2)
-            (p2, w2) = (p, w + 1) if fixB2 else self.gain(B1, B2 + stepB2)
+            (p1, w1) = (p, w + 1) if fixB1 else self.gain(B1 + stepB1, B2, useP1Trick)
+            (p2, w2) = (p, w + 1) if fixB2 else self.gain(B1, B2 + stepB2, useP1Trick)
 
             # print(w1, w2, w, p1, p2, p)
             assert((w1 > w or w2 > w) and p1 >= p and p2 >= p)
@@ -195,6 +202,7 @@ class PM1:
                 midB1 = B1
                 midB2 = B2
 
+            # print(p1, w1, p2, w2)
             isBigPoint = r1 < 1 and r2 < 1 and p1 <= w1 and p2 <= w2
             
             debug and print(f'{fmtBound(B1)}, {fmtBound(B2)} : (p={p*100:.3f}%, work={w*100:.3f}%), B1 step {r1:.3f}={(p1-p)*100:.4f}/{(w1-w)*100:.4f}, B2 step {r2:.3f}={(p2-p)*100:.4f}/{(w2-w)*100:.4f}', '[MIN]' if isSmallPoint else '[MID]' if isMidPoint else '[BIG]' if isBigPoint else '')
@@ -211,18 +219,18 @@ class PM1:
 
         return ((smallB1, smallB2) if smallB1 else None, (midB1, midB2) if midB1 else None, (B1, B2))
 
-    def printResult(self, bounds, label):
+    def printResult(self, bounds, label, useP1Trick):
         if bounds:
             B1, B2 = bounds
             p1, p2 = self.pm1(B1, B2)
-            w1, w2 = workForBounds(B1, B2)
-            _, w = self.gain(B1, B2)
+            w1, w2 = workForBounds(B1, B2, useP1Trick)
+            _, w = self.gain(B1, B2, useP1Trick)
             w1, w2 = w1/self.exponent, w2/self.exponent
             print(f'{label}: B1={fmtBound(B1)}, B2={fmtBound(B2)} : p={100*(p1+p2):.2f}% ({100*p1:.2f}% + {100*p2:.2f}%), work={100*w:.2f}% ({w1*100:.2f}% + {w2*100:.2f}%)')
 
     def walkBounds(self, **named):
         for bounds, label in zip(self.walk(**named), ('[MIN]', '[MID]', '[BIG]')):
-            self.printResult(bounds, label)
+            self.printResult(bounds, label, named['useP1Trick'])
 
 def walk(exponent, factored, **named):
     PM1(exponent, factored).walkBounds(**named)
@@ -255,4 +263,6 @@ if __name__ == "__main__":
             print(f'Unrecognized argument "{args[0]}"')
             args = args[1:]
             
-    walk(exponent, factored, debug=debug, B1=fixedB1, B2=fixedB2)
+    walk(exponent, factored, debug=debug, B1=fixedB1, B2=fixedB2, useP1Trick=False)
+    # walk(exponent, factored, debug=debug, B1=fixedB1, B2=fixedB2, useP1Trick=True)
+    
