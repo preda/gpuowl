@@ -3200,6 +3200,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   }
 }
 
+/*
 KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
@@ -3230,6 +3231,7 @@ KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
     }
   }
 }
+*/
 
 //{{ MULTIPLY
 KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {

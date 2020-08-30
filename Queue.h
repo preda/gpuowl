@@ -90,11 +90,13 @@ public:
     events.clear();
     timeMap.clear();
   }
-  
+
+  /*
   template<typename T> void zero(Buffer<T>& buf, size_t sizeOrFull = 0) {
     auto size = sizeOrFull ? sizeOrFull : buf.size;
     assert(size <= buf.size);
     T zero = 0;
     fillBuf(get(), buf.get(), &zero, sizeof(T), size * sizeof(T));
   }
+  */
 };

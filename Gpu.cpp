@@ -310,7 +310,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
   LOAD(multiply,      hN / SMALL_H),
   LOAD(multiplyDelta, hN / SMALL_H),
-  LOAD(square,        hN / SMALL_H),
+  // LOAD(square,        hN / SMALL_H),
   LOAD(tailFusedSquare,   hN / SMALL_H / 2),
   LOAD(tailFusedMulDelta, hN / SMALL_H / 2),
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
@@ -372,11 +372,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrigH);
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
-  
-  queue->zero(bufReady, BIG_H);
-  queue->zero(bufRoundoff, 8);
-  queue->zero(bufCarryMax, 8);
-  queue->zero(bufCarryMulMax, 8);
+
+  bufReady.zero();
+  bufRoundoff.zero();
+  bufCarryMax.zero();
+  bufCarryMulMax.zero();
 }
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
@@ -644,9 +644,7 @@ Words Gpu::expMul(const Words& A, u64 h, const Words& B) {
 
 void Gpu::exponentiateHigh(Buffer<int>& bufInOut, u64 exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2) {
   if (exp == 0) {
-    queue->zero(bufInOut, N);
-    u32 data = 1;
-    fillBuf(queue->get(), bufInOut.get(), &data, sizeof(data));
+    bufInOut.set(1);
   } else if (exp > 1) {
     fftP(buf1, bufInOut);
     tW(buf2, buf1);
@@ -707,15 +705,34 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
 
     doCarry(tmp, out);
     tW(out, tmp);
-    tailFusedSquare(tmp, out);
+    tailSquare(tmp, out);
     tH(out, tmp);
   }
 }
 
-void Gpu::coreStep(bool leadIn, bool leadOut, bool mul3, bool sub2, Buffer<double>& buf1, Buffer<double>& bufTmp, Buffer<int>& io) {
+void Gpu::coreStep(Buffer<int>& io, Buffer<double>& buf1, Buffer<double>& bufTmp, bool leadIn, bool leadOut, bool mul3, bool sub2) {
   if (leadIn) { fftP(buf1, io); }
+  
   tW(bufTmp, buf1);
-  tailFusedSquare(buf1, bufTmp);
+
+  /*
+  if (bufAcc) {
+    fftP(buf1, *bufAcc);
+    
+    tW(bufTmp2, buf1);
+    
+    tailMul(buf1, bufTmp, bufTmp2);
+    
+    tH(bufTmp2, buf1);
+    
+    fftW(buf1, bufTmp2);
+    carryA(*bufAcc, buf1);
+    carryB(*bufAcc);
+  }
+  */
+  
+  tailSquare(buf1, bufTmp);
+  
   tH(bufTmp, buf1);
 
   if (leadOut) {
@@ -745,13 +762,31 @@ void Gpu::modSqLoopRaw(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<d
   bool leadIn = true;
   for (u32 i = 0; i < reps; ++i) {
     bool leadOut = useLongCarry || (i == reps - 1);
-    coreStep(leadIn, leadOut, mul3 && (i == reps - 1), sub2, buf1, bufTmp, io);
+    coreStep(io, buf1, bufTmp, leadIn, leadOut, mul3 && (i == reps - 1), sub2);
     leadIn = leadOut;
   }
 }
 
+void Gpu::modSqLoop(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
+  modSqLoopRaw(io, reps, buf1, buf2, false, false);
+}
+
+void Gpu::modSqLoopMul(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
+  modSqLoopRaw(io, reps, buf1, buf2, true, false);
+}
+
+void Gpu::modSqLoopLL(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
+  modSqLoopRaw(io, reps, buf1, buf2, false, true);
+}
+
+u32 Gpu::modSqLoopTo(Buffer<int>& io, u32 from, u32 to) {
+  assert(from <= to);
+  modSqLoop(io, to - from, buf1, buf2);
+  return to;
+}
+
 bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
-  queue->zero(bufSmallOut, 1);
+  bufSmallOut.zero(1);
   u32 sizeBytes = N * sizeof(int);
   isNotZero(bufSmallOut, sizeBytes, buf1);
   isEqual(bufSmallOut, sizeBytes, buf1, buf2);
@@ -809,9 +844,7 @@ bool Gpu::equals9(const Words& a) {
   return true;
 }
 
-
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  if (iniBlockSize == 0) { iniBlockSize = 400; } // default PRP block size
   PRPState loaded(E, iniBlockSize);
   writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
 
@@ -1064,21 +1097,159 @@ tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
   }
 }
 
-u32 Gpu::modSqLoopTo(Buffer<int>& io, u32 from, u32 to) {
-  assert(from <= to);
-  modSqLoop(io, to - from, buf1, buf2);
-  return to;
+void Gpu::accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
+  fftP(tmp1, acc);
+  tW(tmp2, tmp1);
+  tailMul(tmp1, data, tmp2);
+  tH(tmp2, tmp1);
+  fftW(tmp1, tmp2);
+  carryA(acc, tmp1);
+  carryB(acc);
 }
 
-tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp) {
+void Gpu::square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
+  fftP(tmp1, data);
+  tW(tmp2, tmp1);
+  tailSquare(tmp1, tmp2);
+  tH(tmp2, tmp1);
+  fftW(tmp1, tmp2);
+  carryA(data, tmp1);
+  carryB(data);  
+}
+
+class B1Accumulator {
+public:
+  Gpu *gpu;
+  u32 b1;
+  u32 pow2;
+  u32 nextK;
+  vector<bool> bits;
+  vector<Buffer<i32>> bufs;
+  
+  B1Accumulator(Gpu* gpu, u32 E, B1State&& state, u32 pow2) :gpu{gpu}, b1{state.b1}, pow2{pow2}, nextK{state.nextK} {
+    if (!b1) {
+      assert(state.data.empty());
+      return;
+    }
+
+    bufs = gpu->makeBufVector(1u << pow2);
+      
+    Timer timer;
+    bits = powerSmoothLSB(E, b1);
+    log("GMP powerSmooth(%u) took %.2fs\n", b1, timer.elapsedSecs());
+    
+    assert(state.data.size() == (E - 1)/32 + 1);
+    gpu->writeIn(bufs[0], state.data);
+    state.data.clear();
+    
+    for (u32 i = 1; i < bufs.size(); ++i) { bufs[i].set(1); }
+  }
+
+  bool isComplete() { return nextK == bits.size(); }
+  
+  void observe(u32 k, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
+    if (!b1 || isComplete()) { return; }
+    
+    assert(k <= nextK);    
+    if (k == nextK) {
+      assert(k < bits.size());
+      assert(bits[k]);
+      u32 pos = 0;
+      u32 i = k + 1;
+      for (; i < min(k + 1 + pow2, u32(bits.size())); ++i) {
+        if (bits[i]) {
+          pos += 1u << (i - (k + 1));
+        }
+      }
+      while (i < bits.size() && !bits[i]) { ++i; }      
+      nextK = i;
+      gpu->accumulate(bufs[pos], data, tmp1, tmp2);
+    }
+  }
+
+  vector<u32> fold(Buffer<double>& tmp1, Buffer<double>& tmp2, Buffer<double>& tmp3) {
+    u32 n = bufs.size();
+    assert(n > 1);
+
+    Timer timer;
+    for (int i = n-2; i > 0; --i) {
+      gpu->modMul(bufs[i],   bufs[i+1], tmp1, tmp2, tmp3);
+      gpu->modMul(bufs[n-1], bufs[i],   tmp1, tmp2, tmp3);
+    }
+    gpu->square(bufs[n-1], tmp1, tmp2);
+    gpu->modMul(bufs[0], bufs[1], tmp1, tmp2, tmp3);    
+    gpu->modMul(bufs[0], bufs[n-1], tmp1, tmp2, tmp3);
+    gpu->finish();
+    log("B1 fold(%u) took %.2fs\n", n, timer.deltaSecs());
+    
+    for (u32 i = 1; i < n; ++i) { bufs[i].set(1); }
+    gpu->finish();
+    log("B1 reset(%u) took %.2fs\n", n, timer.deltaSecs());
+
+    auto ret = gpu->readAndCompress(bufs[0]);
+    log("B1 read took %.2fs\n", timer.deltaSecs());
+    return ret;
+  }
+};
+
+tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp, u32 b1, u32 b1Low) {
   u32 k = 0, blockSize = 0, nErrors = 0;
 
+  if (!args.maxAlloc) { log("Use -maxAlloc <MBytes> to bound GPU memory usage\n"); }
+
+  B1State highB1;
+  B1State lowB1;
+  
   {
-    PRPState loaded = loadPRP(E, args.blockSize, buf1, buf2, buf3);
+    PRPState loaded(E, args.blockSize);
+
+    highB1 = std::move(loaded.highB1);
+    lowB1  = std::move(loaded.lowB1);
+    
+    if (b1 && highB1.b1 != b1) {
+      log("Requested high B1=%u but savefile has B1=%u\n", b1, highB1.b1);
+      throw "B1 mismatch high";
+    }
+    
+    if (b1Low && lowB1.b1 != b1Low) {
+      log("Requested low B1=%u but savefile has B1=%u\n", b1Low, lowB1.b1);
+      throw "B1 mismatch low";
+    }
+
+    writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
+    
+    u64 res64 = dataResidue();
+    bool ok = (res64 == loaded.res64);
+    updateCheck(buf1, buf2, buf3);
+
+    std::string expected = " (expected "s + hex(loaded.res64) + ")";
+    log("%u %2s %8d loaded: blockSize %d, %s%s\n",
+        E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
+    
+    if (!ok) { throw "error on load"; }
+
     k = loaded.k;
     blockSize = loaded.blockSize;
     nErrors = loaded.nErrors;
   }
+
+  u32 smallBufSize = N * 4; // "small buf" of ints
+
+  size_t availableBytes = AllocTrac::availableBytes();
+  u32 maxBufs = u32(availableBytes / smallBufSize);
+  u32 pow2 = u32(log2(maxBufs));
+  log("Using %u B1 buffers (available mem of %.1f MB)\n",  1u << pow2, float(availableBytes)*(1/(1024.0f*1024.0f)));
+    
+  if (lowB1.b1) {
+    assert(k <= lowB1.nextK);
+    assert(highB1.b1 > lowB1.b1);
+    assert(k <= highB1.nextK);
+    --pow2; // split equally between lowB1 and highB1.
+  }
+    
+  B1Accumulator highAcc(this, E, std::move(highB1), pow2);
+  B1Accumulator lowAcc(this, E, std::move(lowB1), pow2);
+  
   assert(blockSize > 0 && 10000 % blockSize == 0);
   
   u32 checkStep = checkStepForErrors(args.logStep, nErrors);
@@ -1300,7 +1471,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     if (doStop) { log("Stopping, please wait..\n"); }
     bool doSave = doStop || saveTimer.elapsedSecs() > 300 || isAtEnd;
     bool leadOut = useLongCarry || doLog || doSave;
-    coreStep(leadIn, leadOut, bits[k], false, buf2, buf1, bufData);
+    coreStep(bufData, buf2, buf1, leadIn, leadOut, bits[k], false);
     leadIn = leadOut;
 
     if ((k + 1) % 100 == 0 || doLog || doSave) {
@@ -1326,7 +1497,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   HostAccessBuffer<double> bufAcc{queue, "acc", N};
 
   tW(buf1, buf2);
-  tailFusedSquare(buf2, buf1);
+  tailSquare(buf2, buf1);
   tH(bufAcc, buf2);			// Save bufAcc for later use as an accumulator
   fftW(buf2, bufAcc);
   carryA(bufData, buf2);

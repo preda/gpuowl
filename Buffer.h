@@ -73,6 +73,17 @@ public:
 
   Buffer(Buffer&& rhs) = default;
 
+  void zero(size_t len = 0) {
+    assert(len <= this->size);
+    T zero = 0;
+    fillBuf(queue->get(), this->get(), &zero, sizeof(T), (len ? len : this->size) * sizeof(T));
+  }
+
+  void set(T value) {
+    zero();
+    fillBuf(queue->get(), this->get(), &value, sizeof(T), sizeof(T));
+  }
+
   // device-side copy
   void operator<<(const ConstBuffer<T>& rhs) {
     assert(this->size == rhs.size);

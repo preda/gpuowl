@@ -14,15 +14,15 @@ void deleteSaveFiles(u32 E);
 class StateLoader {
 protected:
   virtual ~StateLoader() = default;
+
+  bool load(u32 E, const std::string& extension);
+  void save(u32 E, const std::string& extension, u32 k = 0);
   
   virtual bool doLoad(const char* headerLine, FILE* fi) = 0;
   virtual void doSave(FILE* fo) = 0;
   virtual u32 getK() = 0;
-  
-  bool load(u32 E, const std::string& extension);
-  void save(u32 E, const std::string& extension, u32 k = 0);
-  
-  bool load(FILE* fi) {
+    
+  virtual bool loadFile(FILE* fi) {
     char line[256];
     if (!fgets(line, sizeof(line), fi)) { return false; }
     return doLoad(line, fi);
@@ -52,9 +52,34 @@ public:
   vector<u32> data;
 };
 
+class B1State {
+public:
+  B1State() {}
+  
+  B1State(const B1State&)=delete;
+  B1State& operator=(const B1State&)=delete;
+  
+  B1State(B1State&&)=default;
+  B1State& operator=(B1State&&)=default;
+  
+  u32 b1{};
+  u32 nBits{};
+  u32 nextK{};
+  vector<u32> data;
+
+  bool load(u32 E, FILE *fi);
+  void save(FILE *fo);
+};
+
 class PRPState : private StateLoader {
   // Exponent, iteration, block-size, res64, nErrors
   static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
+
+  // Now PRP is running at the same time with up to two P-1 first stage.
+  // Exponent, iteration, block-size, res64, nErrors
+  static constexpr const char *HEADER_v11 = "OWL PRP 11 %u %u %u %016" SCNx64 " %u\n";
+  // %u %u %u %u %u %u\n";
+  
   static constexpr const char *EXT = "owl";
   
 protected:
@@ -66,8 +91,9 @@ public:
   static void cleanup(u32 E);
 
   PRPState(u32 E, u32 iniBlockSize);
-  PRPState(u32 E, u32 k, u32 blockSize, u64 res64, vector<u32> check, u32 nErrors)
-    : E{E}, k{k}, blockSize{blockSize}, res64{res64}, check{std::move(check)}, nErrors{nErrors} {
+  
+  PRPState(u32 E, u32 k, u32 blockSize, u64 res64, const vector<u32>& check, u32 nErrors)
+    : E{E}, k{k}, blockSize{blockSize}, res64{res64}, check{check}, nErrors{nErrors} {
   }
 
   void save(bool persist) { StateLoader::save(E, EXT, persist ? k : 0); }
@@ -78,6 +104,9 @@ public:
   u64 res64{};
   vector<u32> check;
   u32 nErrors{};
+
+  B1State highB1{};
+  B1State lowB1{};
 };
 
 class P1State : private StateLoader {

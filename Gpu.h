@@ -57,7 +57,7 @@ class Gpu {
 
   Kernel multiply;
   Kernel multiplyDelta;
-  Kernel square;
+  // Kernel square;
   Kernel tailFusedSquare;
   Kernel tailFusedMulDelta;
   Kernel tailFusedMulLow;
@@ -108,33 +108,22 @@ class Gpu {
   
   const Args& args;
   
-  vector<u32> computeBase(u32 E, u32 B1);
-  pair<vector<u32>, vector<u32>> seedPRP(u32 E, u32 B1);
-  
   vector<int> readSmall(Buffer<int>& buf, u32 start);
 
   void tW(Buffer<double>& out, Buffer<double>& in);
   void tH(Buffer<double>& out, Buffer<double>& in);
-  void tailFused(Buffer<double>& out, Buffer<double>& in) { tailFusedSquare(out, in); }
+  void tailSquare(Buffer<double>& out, Buffer<double>& in) { tailFusedSquare(out, in); }
   
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(Buffer<int>& buf, const vector<i32> &words);
 
   void modSqLoopRaw(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, bool mul3, bool sub2);
   
-  void modSqLoop(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
-    modSqLoopRaw(io, reps, buf1, buf2, false, false);
-  }
-  void modSqLoopMul(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
-    modSqLoopRaw(io, reps, buf1, buf2, true, false);
-  }
-  void modSqLoopLL(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
-    modSqLoopRaw(io, reps, buf1, buf2, false, true);
-  }
-  
+  void modSqLoop(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2);
+  void modSqLoopMul(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2);
+  void modSqLoopLL(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2);  
   u32 modSqLoopTo(Buffer<int>& io, u32 begin, u32 end);
 
-  void modMul(Buffer<int>& io, Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
   bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
   u64 bufResidue(Buffer<int>& buf);
   
@@ -142,7 +131,7 @@ class Gpu {
 
   PRPState loadPRP(u32 E, u32 iniBlockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
 
-  void coreStep(bool leadIn, bool leadOut, bool mul3, bool sub2, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<int>& io);
+  void coreStep(Buffer<int>& io, Buffer<double>& buf1, Buffer<double>& buf2, bool leadIn, bool leadOut, bool mul3, bool sub2);
 
   void multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
 
@@ -163,8 +152,18 @@ class Gpu {
 
   // does either carrryFused() or the expanded version depending on useLongCarry
   void doCarry(Buffer<double>& out, Buffer<double>& in);
-  
+
 public:
+  void modMul(Buffer<int>& io, Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
+
+  void finish() { queue->finish(); }
+
+  // acc := acc * data; with "data" in lowish position.
+  void accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
+
+  // data := data * data;
+  void square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
+  
   static unique_ptr<Gpu> make(u32 E, const Args &args, bool isPm1);
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);
@@ -184,14 +183,12 @@ public:
   bool doCheck(u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   void updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3);
 
-  void finish();
-
   void logTimeKernels();
 
   vector<u32> readCheck() { return readAndCompress(bufCheck); }
   vector<u32> readData() { return readAndCompress(bufData); }
 
-  std::tuple<bool, u64, u32, string> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp);
+  std::tuple<bool, u64, u32, string> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp, u32 b1 = 0, u32 b1Low = 0);
   std::tuple<bool, u64> isPrimeLL(u32 E, const Args& args);
 
   std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);

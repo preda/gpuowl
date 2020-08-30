@@ -360,16 +360,6 @@ std::string getKernelArgName(cl_kernel k, int pos) {
   return buf;
 }
 
-/*
-void Queue::zero(Buffer &buf, size_t size) {
-  assert(size % sizeof(int) == 0);
-  int zero = 0;
-  fillBuf(queue.get(), buf, &zero, sizeof(zero), size);
-  // CHECK(clEnqueueFillBuffer(queue.get(), buf.get(), &zero, sizeof(zero), 0, size, 0, 0, 0));
-  // finish();
-}
-*/
-
 void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size, size_t start) {
   CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, start, size ? size : patSize, 0, 0, 0));
 }

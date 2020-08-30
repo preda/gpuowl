@@ -42,6 +42,15 @@ vector<bool> bitsMSB(const mpz_class& a) {
   return bits;
 }
 
+vector<bool> bitsLSB(const mpz_class& a) {
+  vector<bool> bits;
+  int nBits = sizeBits(a);
+  bits.reserve(nBits);
+  for (int i = 0; i < nBits; ++i) { bits.push_back(mpz_tstbit(a.get_mpz_t(), i)); }
+  assert(int(bits.size()) == nBits);
+  return bits;
+}
+
 // return GCD(bits - sub, 2^exp - 1) as a decimal string if GCD!=1, or empty string otherwise.
 std::string GCD(u32 exp, const std::vector<u32>& words, u32 sub) {
   mpz_class w = mpz(words);
@@ -54,6 +63,7 @@ std::string GCD(u32 exp, const std::vector<u32>& words, u32 sub) {
 
 // MSB: Most Significant Bit first (at index 0).
 vector<bool> powerSmoothMSB(u32 exp, u32 B1) { return bitsMSB(powerSmooth(exp, B1)); }
+vector<bool> powerSmoothLSB(u32 exp, u32 B1) { return bitsLSB(powerSmooth(exp, B1)); }
 
 int jacobi(u32 exp, const std::vector<u32>& words) {
   mpz_class w = mpz(words) - 2;
