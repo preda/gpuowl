@@ -59,7 +59,6 @@ public:
 
   u32 prpExp = 0;
   u32 pm1Exp = 0;
-  u32 llExp = 0;
   
   size_t maxAlloc = 0;
 

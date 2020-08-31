@@ -293,7 +293,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   LOAD(carryFused,    BIG_H + 1),
   LOAD(carryFusedMul, BIG_H + 1),
-  LOAD(carryFusedLL,  BIG_H + 1),
   LOAD(fftP, BIG_H),
   LOAD(fftW,   BIG_H),
   LOAD(fftHin,  hN / SMALL_H),
@@ -303,14 +302,12 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD_WS(carryA,  hN / 16),
   LOAD_WS(carryM,  hN / 16),
   LOAD_WS(carryB,  hN / 16),
-  LOAD_WS(carryLL, hN / 16),
   LOAD(transposeW,   (W/64) * (BIG_H/64)),
   LOAD(transposeH,   (W/64) * (BIG_H/64)),
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
   LOAD(multiply,      hN / SMALL_H),
   LOAD(multiplyDelta, hN / SMALL_H),
-  // LOAD(square,        hN / SMALL_H),
   LOAD(tailFusedSquare,   hN / SMALL_H / 2),
   LOAD(tailFusedMulDelta, hN / SMALL_H / 2),
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
@@ -335,6 +332,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufThreadWeights{context, "threadWeights", weights.threadWeights},
   bufData{queue, "data", N},
   bufAux{queue, "aux", N},
+  bufAux2{queue, "aux2", N},
   bufCheck{queue, "check", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
@@ -351,7 +349,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
   carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
-  carryFusedLL.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
   fftP.setFixedArgs(2, bufWeightA, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
@@ -361,7 +358,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleOut.setFixedArgs(2, bufTrigM);
     
   carryA.setFixedArgs( 2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMax);
-  carryLL.setFixedArgs(2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMax);
   carryM.setFixedArgs(2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufExtras);
 
@@ -466,20 +462,24 @@ void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp
   }
 }
 
-// The modular multiplication io *= in.
-void Gpu::modMul(Buffer<int>& io, Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
-  fftP(buf2, in);
-  tW(buf1, buf2);
+// out := inA * inB;
+void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3) {
+    fftP(tmp1, inA);
+    tW(tmp2, tmp1);
+    tailMul(tmp1, tmp2, inB);
+    tH(tmp2, tmp1);
+    fftW(tmp1, tmp2);
+    if (mul3) { carryM(out, buf1); } else { carryA(out, buf1); }
+    carryB(out);
+}
 
-  fftP(buf2, io);
+// out := inA * inB;
+void Gpu::modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
+
+  fftP(buf2, inB);
   tW(buf3, buf2);
-
-  tailMul(buf2, buf3, buf1);
-
-  tH(buf3, buf2);
-  fftW(buf2, buf3);
-  if (mul3) { carryM(io, buf2); } else { carryA(io, buf2); }
-  carryB(io);
+  
+  mul(out, inA, buf3, buf1, buf2, mul3);
 };
 
 void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
@@ -490,8 +490,8 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
-    modSqLoop(bufData, n, buf1, buf2);
-    modMul(bufData, bufAux, buf1, buf2, buf3);
+    modSqLoop(bufData, 0, n, {});
+    modMul(bufData, bufData, bufAux, buf1, buf2, buf3);
     bufAux << bufData;
   }
 
@@ -502,23 +502,19 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize >= 2);
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
-    modSqLoop(bufData, n, buf1, buf2);
-    modMul(bufData, bufAux, buf1, buf2, buf3);
+    modSqLoop(bufData, 0, n, {});
+    modMul(bufData, bufData, bufAux, buf1, buf2, buf3);
   }
   
-  modSqLoop(bufData, n, buf1, buf2);
-  modMul(bufData, bufAux, buf1, buf2, buf3, true);
-}
-
-void Gpu::updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  modMul(bufCheck, bufData, buf1, buf2, buf3);
+  modSqLoop(bufData, 0, n, {});
+  modMul(bufData, bufData, bufAux, buf1, buf2, buf3, true);
 }
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   bufAux << bufCheck;
-  modSqLoopMul(bufAux, blockSize, buf1, buf2);
-  updateCheck(buf1, buf2, buf3);
-  return equalNotZero(bufCheck, bufAux);
+  modSqLoopMul(bufAux, 0, blockSize, {});  
+  modMul(bufAux2, bufCheck, bufData, buf1, buf2, buf3);  
+  return equalNotZero(bufAux2, bufAux);
 }
 
 void Gpu::logTimeKernels() {
@@ -618,7 +614,7 @@ Words Gpu::expExp2(const Words& A, u32 n) {
   u32 k = 0;
   while (true) {
     u32 its = std::min(blockSize, n - k);
-    modSqLoop(bufData, its, buf1, buf2);
+    modSqLoop(bufData, 0, its, {});
     k += its;
     spin();
     queue->finish();
@@ -631,7 +627,7 @@ Words Gpu::expExp2(const Words& A, u32 n) {
 // A:= A^h * B
 void Gpu::expMul(Buffer<i32>& A, u64 h, Buffer<i32>& B) {
   exponentiateHigh(A, h, buf1, buf2, buf3);
-  modMul(A, B, buf1, buf2, buf3);
+  modMul(A, A, B, buf1, buf2, buf3);
 }
 
 // return A^x * B
@@ -710,11 +706,19 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
   }
 }
 
-void Gpu::coreStep(Buffer<int>& io, Buffer<double>& buf1, Buffer<double>& bufTmp, bool leadIn, bool leadOut, bool mul3, bool sub2) {
+struct Observer {
+  virtual ~Observer() = default;
+  
+  virtual void observe(u32 k, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) = 0;
+};
+
+void Gpu::coreStep(Buffer<int>& io, bool leadIn, bool leadOut, bool mul3, u32 k, const vector<Observer*>& observers) {
   if (leadIn) { fftP(buf1, io); }
   
-  tW(bufTmp, buf1);
+  tW(buf2, buf1);
 
+  for (Observer* observer : observers) { observer->observe(k, buf2, buf1, buf3); }
+  
   /*
   if (bufAcc) {
     fftP(buf1, *bufAcc);
@@ -731,59 +735,44 @@ void Gpu::coreStep(Buffer<int>& io, Buffer<double>& buf1, Buffer<double>& bufTmp
   }
   */
   
-  tailSquare(buf1, bufTmp);
+  tailSquare(buf1, buf2);
   
-  tH(bufTmp, buf1);
+  tH(buf2, buf1);
 
   if (leadOut) {
-    fftW(buf1, bufTmp);
-    
-    if (mul3) {
-      carryM(io, buf1);
-    } else if (sub2) {
-      carryLL(io, buf1);
-    } else {
-      carryA(io, buf1);
-    }
-    
+    fftW(buf1, buf2);    
+    if (mul3) { carryM(io, buf1); } else { carryA(io, buf1); }    
     carryB(io);
   } else {
-    if (mul3) {
-      carryFusedMul(buf1, bufTmp);
-    } else if (sub2) {
-      carryFusedLL(buf1, bufTmp);
-    } else {
-      carryFused(buf1, bufTmp);
-    }
+    if (mul3) { carryFusedMul(buf1, buf2); } else { carryFused(buf1, buf2); }
   }  
 }
 
-void Gpu::modSqLoopRaw(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& bufTmp, bool mul3, bool sub2) {
+u32 Gpu::modSqLoopRaw(Buffer<int>& io, u32 from, u32 to, bool mul3, const vector<Observer*>& observers) {
+  assert(from <= to);
   bool leadIn = true;
-  for (u32 i = 0; i < reps; ++i) {
-    bool leadOut = useLongCarry || (i == reps - 1);
-    coreStep(io, buf1, bufTmp, leadIn, leadOut, mul3 && (i == reps - 1), sub2);
+  for (u32 k = from; k < to; ++k) {
+    bool leadOut = useLongCarry || (k == to - 1);
+    coreStep(io, leadIn, leadOut, mul3 && (k == to - 1), k, observers);
     leadIn = leadOut;
   }
-}
-
-void Gpu::modSqLoop(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
-  modSqLoopRaw(io, reps, buf1, buf2, false, false);
-}
-
-void Gpu::modSqLoopMul(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
-  modSqLoopRaw(io, reps, buf1, buf2, true, false);
-}
-
-void Gpu::modSqLoopLL(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2) {
-  modSqLoopRaw(io, reps, buf1, buf2, false, true);
-}
-
-u32 Gpu::modSqLoopTo(Buffer<int>& io, u32 from, u32 to) {
-  assert(from <= to);
-  modSqLoop(io, to - from, buf1, buf2);
   return to;
 }
+
+u32 Gpu::modSqLoop(Buffer<int>& io, u32 from, u32 to, const vector<Observer*>& observers) {
+  return modSqLoopRaw(io, from, to, false, observers);
+}
+
+u32 Gpu::modSqLoopMul(Buffer<int>& io, u32 from, u32 to, const vector<Observer*>& observers) {
+  return modSqLoopRaw(io, from, to, true, observers);
+}
+
+/*
+u32 Gpu::modSqLoopTo(Buffer<int>& io, u32 from, u32 to, const vector<Observer*>& observers) {
+  modSqLoop(io, from, to, buf1, buf2, observers);
+  return to;
+}
+*/
 
 bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
   bufSmallOut.zero(1);
@@ -825,10 +814,6 @@ static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 
       checkTime, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
-static void logLL(u32 E, u32 k, u64 res, double secsPerIt, u32 nIters) {
-  log("%s\n", makeLogStr(E, "LL", k, res, secsPerIt, nIters).c_str());
-}
-
 static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
   log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters).c_str());
 }
@@ -850,10 +835,7 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<doub
 
   u64 res64 = dataResidue();
   bool ok = (res64 == loaded.res64);
-  updateCheck(buf1, buf2, buf3);
 
-  // printRoundoff();
-  
   std::string expected = " (expected "s + hex(loaded.res64) + ")";
   log("%u %2s %8d loaded: blockSize %d, %s%s\n",
       E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
@@ -992,111 +974,6 @@ void Gpu::printRoundoff(u32 E) {
 #endif
 }
 
-namespace {
-  struct JacobiData {
-    vector<u32> words;
-    u32 k;
-  };
-}
-
-tuple<bool, u64> Gpu::isPrimeLL(u32 E, const Args &args) {
- reload:
-  LLState loaded(E);
-  writeData(loaded.data);
-  u64 res64 = dataResidue();
-  u64 expectedRes = residue(loaded.data);
-  bool ok = res64 == expectedRes;
-  string expected = " (expected "s + hex(expectedRes) + ")";
-  log("%u %2s %8d loaded: %s%s\n", E, ok ? "LL" : "EE", loaded.k, hex(res64).c_str(), ok ? "" : expected.c_str());
-
-  u32 k = loaded.k;
-  const u32 kEnd = E - 2;
-
-  u32 startK = k;
-  Signal signal;
-  IterationTimer itTimer{startK};
-
-  bool displayRoundoff = args.flags.count("STATS");
-
-  u32 blockSize = args.blockSize ? args.blockSize : 1000; // default LL block size
-  u32 logStep = args.logStep ? args.logStep : 100'000;
-  u32 jacobiStep = args.jacobiStep ? args.jacobiStep : 500'000;
-
-  future<int> jacobiFuture;
-  JacobiData jacobiData;
-  
-  while (true) {
-    assert(k < kEnd);    
-    u32 nextK = std::min(kEnd, k + blockSize);
-    modSqLoopLL(bufData, nextK - k, buf1, buf2);
-    k = nextK;
-    
-    queue->finish();
-
-    if (!args.noSpin) { spin(); }
-    
-    bool doStop = (args.iters && k - startK == args.iters);
-    if (signal.stopRequested()) {
-      doStop = true;
-      log("Stopping, please wait..\n");
-      signal.release();
-    }
-    
-    bool atEnd = k >= kEnd;
-    
-    if (doStop || (k % logStep == 0) || atEnd) {
-      if (displayRoundoff) { printRoundoff(E); }
-
-      vector<u32> data = readData();
-      u64 res64 = residue(data);
-      double time = itTimer.reset(k);
-      logLL(E, k, res64, time, kEnd);
-
-      if (!jacobiFuture.valid() && doStop) {
-        // log("starting Jacobi check\n");
-        jacobiData.words = data; // copy the vector
-        jacobiData.k = k;
-        jacobiFuture = async(launch::async, jacobi, E, std::cref(jacobiData.words));
-      }
-
-      if (jacobiFuture.valid()) {
-        if (atEnd || doStop) {
-          log("waiting for the Jacobi check to finish..\n");
-          jacobiFuture.wait();
-        }
-      
-        if (jacobiFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-          int jacobi = jacobiFuture.get();
-          bool jacobiOK = (jacobi == -1);
-          log("%u %2s %8d (jacobi == %d)\n", E, jacobiOK ? "OK" : "EE", jacobiData.k, jacobi);
-          
-          if (jacobiOK) {          
-            LLState{E, jacobiData.k, std::move(jacobiData.words)}.save();
-          }
-
-          if (doStop) { throw "stop requested"; }
-
-          if (!jacobiOK) { goto reload; }
-        }
-      }
-
-      if (!jacobiFuture.valid() && (k % jacobiStep == 0)) {
-        // log("starting Jacobi check\n");
-        jacobiData.words = data; // copy the vector
-        jacobiData.k = k;
-        jacobiFuture = async(launch::async, jacobi, E, std::cref(jacobiData.words));
-      }
-              
-      if (atEnd) {
-        assert(k == kEnd);
-        bool allZero = std::all_of(data.begin(), data.end(), [](u32 x) { return (x == 0); } );
-        return {allZero, res64};
-      }
-      if (doStop) { throw "stop requested"; }
-    }
-  }
-}
-
 void Gpu::accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
   fftP(tmp1, acc);
   tW(tmp2, tmp1);
@@ -1117,7 +994,19 @@ void Gpu::square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) 
   carryB(data);  
 }
 
-class B1Accumulator {
+class CheckUpdater : public Observer {  
+  Gpu *gpu;
+  u32 blockSize;
+
+public:
+  CheckUpdater(Gpu* gpu, u32 blockSize) : gpu{gpu}, blockSize{blockSize} {}
+  
+  void observe(u32 k, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) override {
+    if (k % blockSize == 0) { gpu->mul(gpu->bufCheck, gpu->bufCheck, data, tmp1, tmp2); }
+  }
+};
+
+class B1Accumulator : public Observer {
 public:
   Gpu *gpu;
   u32 b1;
@@ -1147,7 +1036,7 @@ public:
 
   bool isComplete() { return nextK == bits.size(); }
   
-  void observe(u32 k, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
+  void observe(u32 k, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) override {
     if (!b1 || isComplete()) { return; }
     
     assert(k <= nextK);    
@@ -1173,12 +1062,12 @@ public:
 
     Timer timer;
     for (int i = n-2; i > 0; --i) {
-      gpu->modMul(bufs[i],   bufs[i+1], tmp1, tmp2, tmp3);
-      gpu->modMul(bufs[n-1], bufs[i],   tmp1, tmp2, tmp3);
+      gpu->modMul(bufs[i],   bufs[i], bufs[i+1], tmp1, tmp2, tmp3);
+      gpu->modMul(bufs[n-1], bufs[n-1], bufs[i],   tmp1, tmp2, tmp3);
     }
     gpu->square(bufs[n-1], tmp1, tmp2);
-    gpu->modMul(bufs[0], bufs[1], tmp1, tmp2, tmp3);    
-    gpu->modMul(bufs[0], bufs[n-1], tmp1, tmp2, tmp3);
+    gpu->modMul(bufs[0], bufs[0], bufs[1], tmp1, tmp2, tmp3);    
+    gpu->modMul(bufs[0], bufs[0], bufs[n-1], tmp1, tmp2, tmp3);
     gpu->finish();
     log("B1 fold(%u) took %.2fs\n", n, timer.deltaSecs());
     
@@ -1208,19 +1097,18 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     
     if (b1 && highB1.b1 != b1) {
       log("Requested high B1=%u but savefile has B1=%u\n", b1, highB1.b1);
-      throw "B1 mismatch high";
+      throw "B1 mismatch";
     }
     
     if (b1Low && lowB1.b1 != b1Low) {
       log("Requested low B1=%u but savefile has B1=%u\n", b1Low, lowB1.b1);
-      throw "B1 mismatch low";
+      throw "B1 mismatch";
     }
 
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
     
     u64 res64 = dataResidue();
     bool ok = (res64 == loaded.res64);
-    updateCheck(buf1, buf2, buf3);
 
     std::string expected = " (expected "s + hex(loaded.res64) + ")";
     log("%u %2s %8d loaded: blockSize %d, %s%s\n",
@@ -1286,6 +1174,10 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
 
   bool displayRoundoff = args.flags.count("STATS");
 
+  CheckUpdater checkUpdater{this, blockSize};
+
+  vector<Observer*> observers{&checkUpdater};
+  
   while (true) {
     assert(k % blockSize == 0);
     assert(k < kEndEnd);
@@ -1293,13 +1185,13 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     u32 nextK = k + blockSize;
 
     for (u32 persistK = proofSet.firstPersistAt(k+1); persistK <= nextK && persistK < kEnd; persistK = proofSet.firstPersistAt(k + 1)) {
-      k = modSqLoopTo(bufData, k, persistK);
+      k = modSqLoop(bufData, k, persistK, observers);
       // log("proof: save residue @ %u\n", k);
       proofSet.save(k, readData());
     }
     
     if (k < kEnd && kEnd <= nextK) {
-      k = modSqLoopTo(bufData, k, kEnd);
+      k = modSqLoop(bufData, k, kEnd, observers);
       
       auto words = readData();
       isPrime = equals9(words);
@@ -1309,12 +1201,12 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     }
 
     for (u32 persistK = proofSet.firstPersistAt(k+1); persistK <= nextK && kEnd <= persistK; persistK = proofSet.firstPersistAt(k + 1)) {
-      k = modSqLoopTo(bufData, k, persistK);      
+      k = modSqLoop(bufData, k, persistK, observers);
       // log("proof: save residue @ %u\n", k);
       proofSet.save(k, readData());
     }
     
-    k = modSqLoopTo(bufData, k, nextK);
+    k = modSqLoop(bufData, k, nextK, observers);
 
     bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
     if (doStop) {
@@ -1323,7 +1215,6 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     }
 
     bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
-    if (!doCheck) { this->updateCheck(buf1, buf2, buf3); }
     
     if (!args.noSpin) { spin(); }
     queue->finish();
@@ -1471,7 +1362,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     if (doStop) { log("Stopping, please wait..\n"); }
     bool doSave = doStop || saveTimer.elapsedSecs() > 300 || isAtEnd;
     bool leadOut = useLongCarry || doLog || doSave;
-    coreStep(bufData, buf2, buf1, leadIn, leadOut, bits[k], false);
+    coreStep(bufData, leadIn, leadOut, bits[k], 0, {});
     leadIn = leadOut;
 
     if ((k + 1) % 100 == 0 || doLog || doSave) {

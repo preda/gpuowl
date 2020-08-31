@@ -63,7 +63,6 @@ void Args::printHelp() {
 -cleanup           : delete save files at end of run
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
--ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
 -verify <file>     : verify PRP-proof contained in <file>
 -proof <power>     : Valid <power> values are 6 to 9.
                      By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
@@ -165,7 +164,6 @@ void Args::parse(string line) {
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
     else if (key == "-pm1" || key == "-PM1") { pm1Exp = stoll(s); }
-    else if (key == "-ll" || key == "-LL") { llExp = stoll(s); }
     else if (key == "-B1") { B1 = stoi(s); }
     else if (key == "-B2") { B2 = stoi(s); }
     else if (key == "-rB2") { B2_B1_ratio = stoi(s); }

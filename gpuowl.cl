@@ -2765,11 +2765,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
   u32 gx = g % NW;
   u32 gy = g / NW;
 
-  CarryABM carry = 0;
-#if SUB2
-  if (g == 0 && me == 0) { carry = -2; }
-#endif
-  
+  CarryABM carry = 0;  
   float roundMax = 0;
   u32 carryMax = 0;
   
@@ -2799,9 +2795,8 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
 }
 //}}
 
-//== CARRYA NAME=carryA,DO_MUL3=0,SUB2=0
-//== CARRYA NAME=carryM,DO_MUL3=1,SUB2=0
-//== CARRYA NAME=carryLL,DO_MUL3=0,SUB2=1
+//== CARRYA NAME=carryA,DO_MUL3=0
+//== CARRYA NAME=carryM,DO_MUL3=1
 
 KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) extras) {
   u32 g  = get_group_id(0);
@@ -2922,12 +2917,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 #endif
 
     u[i] = conjugate(u[i]) * U2(invWeight, invWeight2);
-
-// For LL tests, apply the -2 here.  If we ever support prime95 style shift counts, it needs to be here - prior to calculating carry.
-
-#if SUB2
-   if (i == 0 && line == 0 && me == 0) u[i].x -= 2.0;
-#endif
   }
 
   // Generate our output carries
@@ -3041,9 +3030,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 }
 //}}
 
-//== CARRY_FUSED NAME=carryFused,    CF_MUL=0,SUB2=0
-//== CARRY_FUSED NAME=carryFusedMul, CF_MUL=1,SUB2=0
-//== CARRY_FUSED NAME=carryFusedLL,  CF_MUL=0,SUB2=1
+//== CARRY_FUSED NAME=carryFused,    CF_MUL=0
+//== CARRY_FUSED NAME=carryFusedMul, CF_MUL=1
 
 // from transposed to sequential.
 KERNEL(256) transposeOut(P(Word2) out, CP(Word2) in) {
@@ -3199,39 +3187,6 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
     }
   }
 }
-
-/*
-KERNEL(SMALL_HEIGHT / 2 / 4) square(P(T2) out, CP(T2) in) {
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
-
-  ENABLE_MUL2();
-
-  u32 me = get_local_id(0);
-  u32 line1 = get_group_id(0);
-  u32 line2 = (H - line1) % H;
-  u32 g1 = transPos(line1, MIDDLE, WIDTH);
-  u32 g2 = transPos(line2, MIDDLE, WIDTH);
-
-  T2 base_squared = slowTrig(me * H + line1, W * H / 2, W * H / 4);
-  T2 step = U2(M_SQRT1_2, -M_SQRT1_2); // trig(pi/4)
-  
-  for (u32 i = 0; i < 4; ++i, base_squared = mul(base_squared, step)) {
-    if (i == 0 && line1 == 0 && me == 0) {
-      out[0]     = foo_m2(conjugate(in[0]));
-      out[W / 2] = 4 * sq(conjugate(in[W / 2]));
-    } else {
-      u32 k = g1 * W + i * (W / 8) + me;
-      u32 v = g2 * W + (W - 1) + (line1 == 0) - i * (W / 8) - me;
-      T2 a = in[k];
-      T2 b = in[v];
-      onePairSq(a, b, swap_squared(base_squared));
-      out[k] = a;
-      out[v] = b;
-    }
-  }
-}
-*/
 
 //{{ MULTIPLY
 KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {

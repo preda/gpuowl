@@ -21,8 +21,12 @@ struct PRPState;
 
 using double2 = pair<double, double>;
 
+class Observer;
+
 class Gpu {
   friend class SquaringSet;
+  friend class CheckUpdater;
+  
   u32 E;
   u32 N;
 
@@ -39,7 +43,6 @@ class Gpu {
   
   Kernel carryFused;
   Kernel carryFusedMul;
-  Kernel carryFusedLL;
   Kernel fftP;
   Kernel fftW;
   Kernel fftHin;
@@ -50,7 +53,6 @@ class Gpu {
   Kernel carryA;
   Kernel carryM;
   Kernel carryB;
-  Kernel carryLL;
   
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
@@ -87,6 +89,7 @@ class Gpu {
   // "integer word" buffers. These are "small buffers": N x int.
   HostAccessBuffer<int> bufData;   // Main int buffer with the words.
   HostAccessBuffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
+  Buffer<int> bufAux2;
   Buffer<int> bufCheck;  // Buffers used with the error check.
   
   // Carry buffers, used in carry and fusedCarry.
@@ -117,12 +120,11 @@ class Gpu {
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(Buffer<int>& buf, const vector<i32> &words);
 
-  void modSqLoopRaw(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2, bool mul3, bool sub2);
-  
-  void modSqLoop(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2);
-  void modSqLoopMul(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2);
-  void modSqLoopLL(Buffer<int>& io, u32 reps, Buffer<double>& buf1, Buffer<double>& buf2);  
-  u32 modSqLoopTo(Buffer<int>& io, u32 begin, u32 end);
+  void coreStep(Buffer<int>& io, bool leadIn, bool leadOut, bool mul3, u32 k, const vector<Observer*>& observers);
+  u32 modSqLoopRaw(Buffer<int>& io, u32 from, u32 to, bool mul3, const vector<Observer*>& observers);  
+  u32 modSqLoop(Buffer<int>& io, u32 from, u32 to, const vector<Observer*>& observers);
+  u32 modSqLoopMul(Buffer<int>& io, u32 from, u32 to, const vector<Observer*>& observers);
+  // u32 modSqLoopTo(Buffer<int>& io, u32 begin, u32 end, const vector<Observer*>& observers);
 
   bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
   u64 bufResidue(Buffer<int>& buf);
@@ -130,8 +132,6 @@ class Gpu {
   vector<u32> writeBase(const vector<u32> &v);
 
   PRPState loadPRP(u32 E, u32 iniBlockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
-
-  void coreStep(Buffer<int>& io, Buffer<double>& buf1, Buffer<double>& buf2, bool leadIn, bool leadOut, bool mul3, bool sub2);
 
   void multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
 
@@ -154,7 +154,8 @@ class Gpu {
   void doCarry(Buffer<double>& out, Buffer<double>& in);
 
 public:
-  void modMul(Buffer<int>& io, Buffer<int>& in, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
+  void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3 = false);  
+  void modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
 
   void finish() { queue->finish(); }
 
@@ -181,7 +182,6 @@ public:
   u64 checkResidue() { return bufResidue(bufCheck); }
     
   bool doCheck(u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
-  void updateCheck(Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3);
 
   void logTimeKernels();
 
@@ -189,7 +189,6 @@ public:
   vector<u32> readData() { return readAndCompress(bufData); }
 
   std::tuple<bool, u64, u32, string> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp, u32 b1 = 0, u32 b1Low = 0);
-  std::tuple<bool, u64> isPrimeLL(u32 E, const Args& args);
 
   std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
   
