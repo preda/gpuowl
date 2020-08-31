@@ -89,7 +89,6 @@ class Gpu {
   // "integer word" buffers. These are "small buffers": N x int.
   HostAccessBuffer<int> bufData;   // Main int buffer with the words.
   HostAccessBuffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
-  Buffer<int> bufAux2;
   Buffer<int> bufCheck;  // Buffers used with the error check.
   
   // Carry buffers, used in carry and fusedCarry.
@@ -120,11 +119,9 @@ class Gpu {
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(Buffer<int>& buf, const vector<i32> &words);
 
-  void coreStep(Buffer<int>& io, bool leadIn, bool leadOut, bool mul3, u32 k, const vector<Observer*>& observers);
-  u32 modSqLoopRaw(Buffer<int>& io, u32 from, u32 to, bool mul3, const vector<Observer*>& observers);  
+  void coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3, u32 k, const vector<Observer*>& observers);
   u32 modSqLoop(Buffer<int>& io, u32 from, u32 to, const vector<Observer*>& observers);
-  u32 modSqLoopMul(Buffer<int>& io, u32 from, u32 to, const vector<Observer*>& observers);
-  // u32 modSqLoopTo(Buffer<int>& io, u32 begin, u32 end, const vector<Observer*>& observers);
+  u32 modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to);
 
   bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
   u64 bufResidue(Buffer<int>& buf);
