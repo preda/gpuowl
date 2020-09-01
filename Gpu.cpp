@@ -1079,7 +1079,8 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
 
   B1State highB1;
   B1State lowB1;
-  
+
+ reload:
   {
     PRPState loaded(E, args.blockSize);
 
@@ -1101,8 +1102,6 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     u64 res64 = dataResidue();
     bool ok = (res64 == loaded.res64);
 
-    // modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
-    
     std::string expected = " (expected "s + hex(loaded.res64) + ")";
     log("%u %2s %8d loaded: blockSize %d, %s%s\n",
         E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
@@ -1167,33 +1166,38 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
 
   bool displayRoundoff = args.flags.count("STATS");
 
-  CheckUpdater checkUpdater{this, blockSize};
-
   vector<Observer*> observers{};
 
   bool skipNextCheckUpdate = false;
+
+  u32 persistK = proofSet.firstPersistAt(k + 1);
+  bool leadIn = true;  
+
+  assert(k % blockSize == 0);
+  assert(checkStep % blockSize == 0);
   
   while (true) {
-    assert(k % blockSize == 0);
-    assert(k < kEndEnd);
-    
-    u32 nextK = k + blockSize;
+    assert(k < kEndEnd);   
 
     if (skipNextCheckUpdate) {
       skipNextCheckUpdate = false;
-    } else {
+    } else if (k % blockSize == 0) {
       modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
     }
-    
-    for (u32 persistK = proofSet.firstPersistAt(k+1); persistK <= nextK && persistK < kEnd; persistK = proofSet.firstPersistAt(k + 1)) {
-      k = modSqLoop(bufData, k, persistK, observers);
-      // log("proof: save residue @ %u\n", k);
+
+    u32 nextK = k + 1;
+    bool leadOut = (nextK % blockSize == 0) || nextK == persistK || nextK == kEnd;
+
+    coreStep(bufData, bufData, leadIn, leadOut, false, 0, {});
+    leadIn = leadOut;
+    ++k;
+
+    if (k == persistK) {
       proofSet.save(k, readData());
+      persistK = proofSet.firstPersistAt(k + 1);
     }
-    
-    if (k < kEnd && kEnd <= nextK) {
-      k = modSqLoop(bufData, k, kEnd, observers);
-      
+
+    if (k == kEnd) {
       auto words = readData();
       isPrime = equals9(words);
       doDiv9(E, words);
@@ -1201,75 +1205,64 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
     }
 
-    for (u32 persistK = proofSet.firstPersistAt(k+1); persistK <= nextK && kEnd <= persistK; persistK = proofSet.firstPersistAt(k + 1)) {
-      k = modSqLoop(bufData, k, persistK, observers);
-      // log("proof: save residue @ %u\n", k);
-      proofSet.save(k, readData());
-    }
-    
-    k = modSqLoop(bufData, k, nextK, observers);
+    if (k % blockSize == 0) {
+      if (!args.noSpin) { spin(); }
 
-    bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
-    if (doStop) {
-      log("Stopping, please wait..\n");
-      signal.release();
-    }
+      queue->finish();
 
-    bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
-    // if (!doCheck) { modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3); }
-    
-    if (!args.noSpin) { spin(); }
-    queue->finish();
-    
-    if (factorFoundForExp == E) {
-      log("Aborting the PRP test because a factor was found\n");
-      factorFoundForExp = 0;
-      return {false, 0, u32(-1), {}};
-    } 
-    
-    if (doCheck) {
-      // double timeExcludingCheck = itTimer.reset(k);
-
-      if (displayRoundoff) { printRoundoff(E); }
-      
-      u64 res64 = dataResidue();
-      PRPState prpState{E, k, blockSize, res64, readCheck(), nErrors};
-      bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
-      
-      if (ok) {
-        checkUpdater.skipOne(k);
-        skipNextCheckUpdate = true;
-        if (k < kEnd) { prpState.save(false); }
-        doBigLog(E, k, res64, ok, itTimer.reset(k), kEndEnd, nErrors);
-        if (k >= kEndEnd) {
-          fs::path proofPath;
-          if (proofSet.power > 0) {
-            proofPath = proofSet.computeProof(this).save(args.proofResultDir);
-            log("PRP-Proof '%s' generated\n", proofPath.string().c_str());
-            if (!args.keepProof) {
-              log("Proof: cleaning up temporary storage\n");
-              proofSet.cleanup();
-            }
-          }
-          return {isPrime, finalRes64, nErrors, proofPath.string()};
-        }
-        nSeqErrors = 0;      
-      } else {
-        doBigLog(E, k, res64, ok, itTimer.reset(k), kEndEnd, nErrors);
-
-        ++nErrors;
-        if (++nSeqErrors > 2) {
-          log("%d sequential errors, will stop.\n", nSeqErrors);
-          throw "too many errors";
-        }
-        checkStep = checkStepForErrors(args.logStep, nErrors);        
-        auto loaded = loadPRP(E, blockSize, buf1, buf2, buf3);
-        k = loaded.k;
-        assert(blockSize == loaded.blockSize);
+      if (factorFoundForExp == E) {
+        log("Aborting the PRP test because a factor was found\n");
+        factorFoundForExp = 0;
+        return {false, 0, u32(-1), {}};
       }
-      itTimer.reset(k);
-      logTimeKernels();
-      if (doStop) { throw "stop requested"; }
+
+      bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
+      if (doStop) {
+        log("Stopping, please wait..\n");
+        signal.release();
+      }
+
+      bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+
+      if (doCheck) {
+        if (displayRoundoff) { printRoundoff(E); }
+      
+        u64 res64 = dataResidue();
+        PRPState prpState{E, k, blockSize, res64, readCheck(), nErrors};
+        bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
+      
+        if (ok) {
+          skipNextCheckUpdate = true;
+          double timeWithoutSave = itTimer.reset(k);
+          if (k < kEnd) { prpState.save(false); }
+          doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
+          if (k >= kEndEnd) {
+            fs::path proofPath;
+            if (proofSet.power > 0) {
+              proofPath = proofSet.computeProof(this).save(args.proofResultDir);
+              log("PRP-Proof '%s' generated\n", proofPath.string().c_str());
+              if (!args.keepProof) {
+                log("Proof: cleaning up temporary storage\n");
+                proofSet.cleanup();
+              }
+            }
+            return {isPrime, finalRes64, nErrors, proofPath.string()};
+          }
+          nSeqErrors = 0;      
+        } else {
+          doBigLog(E, k, res64, ok, itTimer.reset(k), kEndEnd, nErrors);
+          ++nErrors;
+          if (++nSeqErrors > 2) {
+            log("%d sequential errors, will stop.\n", nSeqErrors);
+            throw "too many errors";
+          }
+          goto reload;
+        }
+        
+        logTimeKernels();
+        if (doStop) { throw "stop requested"; }
+        itTimer.reset(k);
+      }
     }
   }
 }
