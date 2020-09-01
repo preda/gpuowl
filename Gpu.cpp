@@ -475,8 +475,8 @@ void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<do
 // out := inA * inB;
 void Gpu::modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
 
-  fftP(buf2, inB);
-  tW(buf3, buf2);
+  fftP(buf1, inB);
+  tW(buf3, buf1);
   
   mul(out, inA, buf3, buf1, buf2, mul3);
 };
@@ -787,9 +787,9 @@ static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float secsPe
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, double checkTime) {
-  log("%s (check %.2fs)%s\n", makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
-      checkTime, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors) {
+  log("%s%s\n", makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
+      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
 static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
@@ -1215,7 +1215,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     } 
     
     if (doCheck) {
-      double timeExcludingCheck = itTimer.reset(k);
+      // double timeExcludingCheck = itTimer.reset(k);
 
       if (displayRoundoff) { printRoundoff(E); }
       
@@ -1226,7 +1226,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
       if (ok) {
         checkUpdater.skipOne(k);
         if (k < kEnd) { prpState.save(false); }
-        doBigLog(E, k, res64, ok, timeExcludingCheck, kEndEnd, nErrors, itTimer.reset(k));
+        doBigLog(E, k, res64, ok, itTimer.reset(k), kEndEnd, nErrors);
         if (k >= kEndEnd) {
           fs::path proofPath;
           if (proofSet.power > 0) {
@@ -1241,7 +1241,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
         }
         nSeqErrors = 0;      
       } else {
-        doBigLog(E, k, res64, ok, timeExcludingCheck, kEndEnd, nErrors, itTimer.reset(k));
+        doBigLog(E, k, res64, ok, itTimer.reset(k), kEndEnd, nErrors);
 
         ++nErrors;
         if (++nSeqErrors > 2) {
