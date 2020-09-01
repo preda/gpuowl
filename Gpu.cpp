@@ -814,7 +814,7 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<doub
   u64 res64 = dataResidue();
   bool ok = (res64 == loaded.res64);
 
-  modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+  // modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
   
   std::string expected = " (expected "s + hex(loaded.res64) + ")";
   log("%u %2s %8d loaded: blockSize %d, %s%s\n",
@@ -1101,7 +1101,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     u64 res64 = dataResidue();
     bool ok = (res64 == loaded.res64);
 
-    modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+    // modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
     
     std::string expected = " (expected "s + hex(loaded.res64) + ")";
     log("%u %2s %8d loaded: blockSize %d, %s%s\n",
@@ -1170,6 +1170,8 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
   CheckUpdater checkUpdater{this, blockSize};
 
   vector<Observer*> observers{};
+
+  bool skipNextCheckUpdate = false;
   
   while (true) {
     assert(k % blockSize == 0);
@@ -1177,6 +1179,12 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     
     u32 nextK = k + blockSize;
 
+    if (skipNextCheckUpdate) {
+      skipNextCheckUpdate = false;
+    } else {
+      modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+    }
+    
     for (u32 persistK = proofSet.firstPersistAt(k+1); persistK <= nextK && persistK < kEnd; persistK = proofSet.firstPersistAt(k + 1)) {
       k = modSqLoop(bufData, k, persistK, observers);
       // log("proof: save residue @ %u\n", k);
@@ -1208,7 +1216,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     }
 
     bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
-    if (!doCheck) { modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3); }
+    // if (!doCheck) { modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3); }
     
     if (!args.noSpin) { spin(); }
     queue->finish();
@@ -1230,6 +1238,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
       
       if (ok) {
         checkUpdater.skipOne(k);
+        skipNextCheckUpdate = true;
         if (k < kEnd) { prpState.save(false); }
         doBigLog(E, k, res64, ok, itTimer.reset(k), kEndEnd, nErrors);
         if (k >= kEndEnd) {
