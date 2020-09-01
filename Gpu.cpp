@@ -489,7 +489,7 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
 
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
-    modSqLoop(bufData, 0, n, {});
+    modSqLoop(bufData, 0, n);
     modMul(bufData, bufData, bufAux, buf1, buf2, buf3);
     bufAux << bufData;
   }
@@ -501,11 +501,11 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize >= 2);
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
-    modSqLoop(bufData, 0, n, {});
+    modSqLoop(bufData, 0, n);
     modMul(bufData, bufData, bufAux, buf1, buf2, buf3);
   }
   
-  modSqLoop(bufData, 0, n, {});
+  modSqLoop(bufData, 0, n);
   modMul(bufData, bufData, bufAux, buf1, buf2, buf3, true);
 }
   
@@ -612,7 +612,7 @@ Words Gpu::expExp2(const Words& A, u32 n) {
   u32 k = 0;
   while (true) {
     u32 its = std::min(blockSize, n - k);
-    modSqLoop(bufData, 0, its, {});
+    modSqLoop(bufData, 0, its);
     k += its;
     spin();
     queue->finish();
@@ -704,19 +704,11 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
   }
 }
 
-struct Observer {
-  virtual ~Observer() = default;
-  
-  virtual void observe(u32 k, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) = 0;
-};
-
-void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3, u32 k, const vector<Observer*>& observers) {
+void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3) {
   if (leadIn) { fftP(buf1, in); }
   
   tW(buf2, buf1);
 
-  for (Observer* observer : observers) { observer->observe(k, buf2, buf1, buf3); }
-  
   tailSquare(buf1, buf2);
   
   tH(buf2, buf1);
@@ -730,12 +722,12 @@ void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut,
   }  
 }
 
-u32 Gpu::modSqLoop(Buffer<int>& io, u32 from, u32 to, const vector<Observer*>& observers) {
+u32 Gpu::modSqLoop(Buffer<int>& io, u32 from, u32 to) {
   assert(from <= to);
   bool leadIn = true;
   for (u32 k = from; k < to; ++k) {
     bool leadOut = useLongCarry || (k == to - 1);
-    coreStep(io, io, leadIn, leadOut, false, k, observers);
+    coreStep(io, io, leadIn, leadOut, false);
     leadIn = leadOut;
   }
   return to;
@@ -746,7 +738,7 @@ u32 Gpu::modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to) {
   bool leadIn = true;
   for (u32 k = from; k < to; ++k) {
     bool leadOut = useLongCarry || (k == to - 1);
-    coreStep(out, (k==from) ? in : out, leadIn, leadOut, (k == to - 1), 0, {});
+    coreStep(out, (k==from) ? in : out, leadIn, leadOut, (k == to - 1));
     leadIn = leadOut;
   }
   return to;
@@ -974,30 +966,7 @@ void Gpu::square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) 
   carryB(data);  
 }
 
-class CheckUpdater : public Observer {  
-  Gpu *gpu;
-  u32 blockSize;
-  u32 skip = 0;
-  
-public:
-  CheckUpdater(Gpu* gpu, u32 blockSize) : gpu{gpu}, blockSize{blockSize} {}
-  
-  void observe(u32 k, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) override {
-    if (skip) {
-      assert(k == skip);
-      skip = 0;
-      return;
-    }
-    if (k % blockSize == 0) { gpu->mul(gpu->bufCheck, gpu->bufCheck, data, tmp1, tmp2); }
-  }
-
-  void skipOne(u32 k) {
-    assert(k);
-    skip = k;
-  }
-};
-
-class B1Accumulator : public Observer {
+class B1Accumulator {
 public:
   Gpu *gpu;
   u32 b1;
@@ -1027,7 +996,7 @@ public:
 
   bool isComplete() { return nextK == bits.size(); }
   
-  void observe(u32 k, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) override {
+  void observe(u32 k, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
     if (!b1 || isComplete()) { return; }
     
     assert(k <= nextK);    
@@ -1166,8 +1135,6 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
 
   bool displayRoundoff = args.flags.count("STATS");
 
-  vector<Observer*> observers{};
-
   bool skipNextCheckUpdate = false;
 
   u32 persistK = proofSet.firstPersistAt(k + 1);
@@ -1188,7 +1155,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     u32 nextK = k + 1;
     bool leadOut = (nextK % blockSize == 0) || nextK == persistK || nextK == kEnd;
 
-    coreStep(bufData, bufData, leadIn, leadOut, false, 0, {});
+    coreStep(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;
     ++k;
 
@@ -1359,7 +1326,7 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
     if (doStop) { log("Stopping, please wait..\n"); }
     bool doSave = doStop || saveTimer.elapsedSecs() > 300 || isAtEnd;
     bool leadOut = useLongCarry || doLog || doSave;
-    coreStep(bufData, bufData, leadIn, leadOut, bits[k], 0, {});
+    coreStep(bufData, bufData, leadIn, leadOut, bits[k]);
     leadIn = leadOut;
 
     if ((k + 1) % 100 == 0 || doLog || doSave) {

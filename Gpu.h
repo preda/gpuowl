@@ -21,12 +21,8 @@ struct PRPState;
 
 using double2 = pair<double, double>;
 
-class Observer;
-
 class Gpu {
   friend class SquaringSet;
-  friend class CheckUpdater;
-  
   u32 E;
   u32 N;
 
@@ -119,8 +115,8 @@ class Gpu {
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(Buffer<int>& buf, const vector<i32> &words);
 
-  void coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3, u32 k, const vector<Observer*>& observers);
-  u32 modSqLoop(Buffer<int>& io, u32 from, u32 to, const vector<Observer*>& observers);
+  void coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3);
+  u32 modSqLoop(Buffer<int>& io, u32 from, u32 to);
   u32 modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to);
 
   bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
