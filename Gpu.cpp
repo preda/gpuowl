@@ -814,6 +814,8 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<doub
   u64 res64 = dataResidue();
   bool ok = (res64 == loaded.res64);
 
+  modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+  
   std::string expected = " (expected "s + hex(loaded.res64) + ")";
   log("%u %2s %8d loaded: blockSize %d, %s%s\n",
       E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
@@ -1099,6 +1101,8 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     u64 res64 = dataResidue();
     bool ok = (res64 == loaded.res64);
 
+    modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+    
     std::string expected = " (expected "s + hex(loaded.res64) + ")";
     log("%u %2s %8d loaded: blockSize %d, %s%s\n",
         E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
@@ -1165,7 +1169,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
 
   CheckUpdater checkUpdater{this, blockSize};
 
-  vector<Observer*> observers{&checkUpdater};
+  vector<Observer*> observers{};
   
   while (true) {
     assert(k % blockSize == 0);
@@ -1204,6 +1208,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     }
 
     bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+    if (!doCheck) { modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3); }
     
     if (!args.noSpin) { spin(); }
     queue->finish();
