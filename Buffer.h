@@ -126,5 +126,4 @@ public:
 
   // async read
   void operator>>(vector<T>& out) const { readAsync(out); }
-
 };

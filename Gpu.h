@@ -147,6 +147,7 @@ class Gpu {
   void doCarry(Buffer<double>& out, Buffer<double>& in);
 
 public:
+  void mul(Buffer<int>& io, Buffer<int>& inB);
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3 = false);  
   void modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
 

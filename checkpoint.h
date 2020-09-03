@@ -29,29 +29,6 @@ protected:
   }
 };
 
-class LLState : private StateLoader {
-  // Exponent, iteration, 0, hash
-  static constexpr const char *HEADER_v1 = "OWL LL 1 %u %u 0 %" SCNx64 "\n";
-  static constexpr const char *EXT = "ll.owl";
-  
-protected:
-  bool doLoad(const char* headerLine, FILE *fi) override;
-  void doSave(FILE* fo) override;
-  u32 getK() override { return k; }
-  
-public:  
-  static void cleanup(u32 E);
-
-  LLState(u32 E);
-  LLState(u32 E, u32 k, vector<u32> data) : E{E}, k{k}, data{std::move(data)} {}
-
-  void save() { StateLoader::save(E, EXT, 0); }
-
-  const u32 E{};
-  u32 k{};
-  vector<u32> data;
-};
-
 class B1State {
 public:
   B1State() {}
@@ -61,6 +38,10 @@ public:
   
   B1State(B1State&&)=default;
   B1State& operator=(B1State&&)=default;
+
+  bool isCompleted() const { return nextK == 0; }
+  bool isEmpty() const { return b1 == 0; }
+  // bool isA() { return nextK > 1; }
   
   u32 b1{};
   u32 nBits{};

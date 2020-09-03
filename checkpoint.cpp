@@ -98,45 +98,6 @@ bool StateLoader::load(u32 E, const std::string& extension) {
 }
 
 
-// --- LL ---
-
-LLState::LLState(u32 E) : E{E} {
-  if (!load(E, EXT)) {  
-    k = 0;
-    data = makeVect(nWords(E), 4);
-  }
-}
-
-bool LLState::doLoad(const char* headerLine, FILE *fi) {
-  u32 fileE = 0;
-  u64 fileHash = 0;
-  if (sscanf(headerLine, HEADER_v1, &fileE, &k, &fileHash) != 3) {
-    log("invalid header\n");
-    return false;
-  }
-  assert(E == fileE);
-  if (!read(fi, nWords(E), &data)) {
-    log("can't read data\n");
-    return false;
-  }
-  u64 hash = Blake2::hash(E, k, data);
-  bool hashOK = (hash == fileHash);
-  if (!hashOK) {
-    // log("Hash %u %u %lu\n", E, k, data.size());
-    log("hash mismatch %" PRIx64 " vs. expected %" PRIx64 "\n", hash, fileHash);
-  }
-  return hashOK;
-}
-
-void LLState::doSave(FILE* fo) {
-  assert(data.size() == nWords(E));
-  u64 hash = Blake2::hash(E, k, data);
-  // log("Hash %u %u %lu %lx %lx\n", E, k, data.size(), hash, h2);
-  if (fprintf(fo, HEADER_v1, E, k, hash) <= 0) { throw(ios_base::failure("can't write header")); }
-  write(fo, data);
-}
-
-
 // --- PRP ---
 
 PRPState::PRPState(u32 E, u32 iniBlockSize) : E{E} {
