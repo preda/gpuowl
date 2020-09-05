@@ -146,18 +146,23 @@ class Gpu {
   // does either carrryFused() or the expanded version depending on useLongCarry
   void doCarry(Buffer<double>& out, Buffer<double>& in);
 
-public:
-  void mul(Buffer<int>& io, Buffer<int>& inB);
-  void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3 = false);  
   void modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
+  
+  void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3 = false);
+
+  // data := data * data;
+  void square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
+  
+public:
+  void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
+  void mul(Buffer<int>& io, Buffer<int>& inB);
+  void square(Buffer<int>& data);
 
   void finish() { queue->finish(); }
 
   // acc := acc * data; with "data" in lowish position.
   void accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
 
-  // data := data * data;
-  void square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
   
   static unique_ptr<Gpu> make(u32 E, const Args &args, bool isPm1);
   static void doDiv9(u32 E, Words& words);
@@ -182,7 +187,7 @@ public:
   vector<u32> readCheck() { return readAndCompress(bufCheck); }
   vector<u32> readData() { return readAndCompress(bufData); }
 
-  std::tuple<bool, u64, u32, string> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp, u32 b1 = 0, u32 b1Low = 0);
+  std::tuple<bool, u64, u32, string> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp, vector<u32> B1s);
 
   std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
   

@@ -137,7 +137,7 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
   auto fftSize = gpu->getFFTSize();
 
   if (kind == PRP) {
-    auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(exponent, args, factorFoundForExp);
+    auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(exponent, args, factorFoundForExp, {});
     bool abortedFactorFound = (!isPrime && !res64 && nErrors == u32(-1));
     if (!abortedFactorFound) {
       writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);

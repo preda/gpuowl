@@ -29,36 +29,13 @@ protected:
   }
 };
 
-class B1State {
-public:
-  B1State() {}
-  
-  B1State(const B1State&)=delete;
-  B1State& operator=(const B1State&)=delete;
-  
-  B1State(B1State&&)=default;
-  B1State& operator=(B1State&&)=default;
-
-  bool isCompleted() const { return nextK == 0; }
-  bool isEmpty() const { return b1 == 0; }
-  // bool isA() { return nextK > 1; }
-  
-  u32 b1{};
-  u32 nBits{};
-  u32 nextK{};
-  vector<u32> data;
-
-  bool load(u32 E, FILE *fi);
-  void save(FILE *fo);
-};
-
 class PRPState : private StateLoader {
   // Exponent, iteration, block-size, res64, nErrors
   static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
 
-  // Now PRP is running at the same time with up to two P-1 first stage.
   // Exponent, iteration, block-size, res64, nErrors
-  static constexpr const char *HEADER_v11 = "OWL PRP 11 %u %u %u %016" SCNx64 " %u\n";
+  // B1, nBits, start, nextK, crc
+  static constexpr const char *HEADER_v11 = "OWL PRP 11 %u %u %u %016" SCNx64 " %u %u %u %u %u %u\n";
   // %u %u %u %u %u %u\n";
   
   static constexpr const char *EXT = "owl";
@@ -86,8 +63,12 @@ public:
   vector<u32> check;
   u32 nErrors{};
 
-  B1State highB1{};
-  B1State lowB1{};
+  // P-1 below
+  u32 b1{};
+  u32 nBits{};
+  u32 start{};
+  u32 nextK{};
+  vector<u32> data;
 };
 
 class P1State : private StateLoader {

@@ -110,37 +110,10 @@ PRPState::PRPState(u32 E, u32 iniBlockSize) : E{E} {
   }
 }
 
-bool B1State::load(u32 E, FILE *fi) {
-  // B1, nBits, nextK, crc
-  u32 crc;
-  char c;
-  if (fscanf(fi, "%u %u %u %u%c", &b1, &nBits, &nextK, &crc, &c) != 5) { return false; }
-
-  if (c != '\n') {
-    log("Invalid B1State header\n");
-    return false;
-  }
-  
-  if (b1) {
-    if (!read(fi, (E-1)/32+1, &data)) {
-      log("Can't read B1State residue\n");
-      return false;
-    }
-    assert(crc32(data) == crc);
-  }    
-  return true;
-}
-
-void B1State::save(FILE *fo) {
-  if (fprintf(fo, "%u %u %u %u\n", b1, nBits, nextK, crc32(data)) <= 0) {
-    throw(ios_base::failure("B1State can't write header"));
-  }
-  write(fo, data);
-}
-
 bool PRPState::doLoad(const char* headerLine, FILE *fi) {
   u32 fileE = 0;
-  if (sscanf(headerLine, HEADER_v11, &fileE, &k, &blockSize, &res64, &nErrors) == 5) {
+  u32 crc = 0;
+  if (sscanf(headerLine, HEADER_v11, &fileE, &k, &blockSize, &res64, &nErrors, &b1, &nBits, &start, &nextK, &crc) == 10) {
     assert(E == fileE);
     assert(k > 0);
     
@@ -148,33 +121,33 @@ bool PRPState::doLoad(const char* headerLine, FILE *fi) {
       log("Can't read PRP residue\n");
       return false;
     }
-    
-    return highB1.load(E, fi) && lowB1.load(E, fi);
+
+    if (nextK != 0) {
+      assert(b1);
+      assert(k >= start && nextK > k);
+      
+      if (!read(fi, nWords(E), &data)) {
+        log("Can't read PRP P-1 residue\n");
+        return false;
+      }
+      assert(crc32(data) == crc);
+    } else {
+    }
+    return true;
   } else if (sscanf(headerLine, HEADER_v10, &fileE, &k, &blockSize, &res64, &nErrors) == 5) {
     if (read(fi, nWords(E), &check)) { return true; }
     log("Can't read PRP residue\n");
   }
-  // log("Can't parse header '%s'\n", headerLine);
   return false;
 }
 
 void PRPState::doSave(FILE* fo) {
   assert(check.size() == nWords(E));
-  /*
-  assert(b1High > b1Low || (!biHigh && !b1Low));
-  assert(!b1High || (nHighBits > k - 1));
-  assert(!b1Low  || (nLowBits  > k - 1));
-  assert(high.empty() == (b1High == 0));
-  assert(low.empty() == (b1Low == 0));
-  */
-
-  if (fprintf(fo, HEADER_v11, E, k, blockSize, res64, nErrors) <= 0) {
+  if (fprintf(fo, HEADER_v11, E, k, blockSize, res64, nErrors, b1, nBits, start, nextK, crc32(data)) <= 0) {
     throw(ios_base::failure("can't write header"));
-  }
-    
+  }    
   write(fo, check);
-  highB1.save(fo);
-  lowB1.save(fo);
+  write(fo, data);
 }
 
 // --- P1 ---
