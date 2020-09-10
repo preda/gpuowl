@@ -14,29 +14,29 @@
 
 namespace fs = std::filesystem;
 
-namespace std {
-  template<> struct default_delete<FILE> {
-    void operator()(FILE *f) { if (f != nullptr) { fclose(f); } }
-  };
-}
-
 class File {
-  std::unique_ptr<FILE> ptr;
+  FILE* f = nullptr;
 
-  File() = default;
-  File(std::unique_ptr<FILE>&& ptr, std::string_view name) : ptr{std::move(ptr)}, name{name} {}
-
-  static File open(const fs::path &name, const char *mode, bool doLog) {
-    std::string sname{name.string()};
-    std::unique_ptr<FILE> f{fopen(sname.c_str(), mode)};
+  File(const fs::path &path, const string& mode, bool doLog) : name{path.string()} {
+    f = fopen(name.c_str(), mode.c_str());
     if (!f && doLog) {
-      log("Can't open '%s' (mode '%s')\n", name.string().c_str(), mode);
-      throw(fs::filesystem_error("can't open file"s, name, {}));
+      log("Can't open '%s' (mode '%s')\n", name.c_str(), mode.c_str());
+      throw(fs::filesystem_error("can't open file"s, path, {}));
     }
-    return {std::move(f), sname};
+  }
+    
+public:
+  File(FILE* f, const string& name) : f{f}, name{name} {}
+  File(File&& other) : f{other.f}, name{other.name} { other.f = nullptr; }
+  
+  File(const File& other) = delete;
+  File& operator=(const File& other) = delete;
+  File& operator=(File&& other) = delete;
+
+  ~File() {
+    if (f != nullptr) { fclose(f); }    
   }
   
-public:
   class It {
   public:
     It(File& file) : file{&file}, line{file ? file.maybeReadLine() : nullopt} {}
@@ -60,12 +60,10 @@ public:
   It begin() { return It{*this}; }
   It end() { return It{}; }
   
-  static File openRead(const fs::path& name, bool doThrow = false) { return open(name, "rb", doThrow); }
-  static File openWrite(const fs::path &name) { return open(name, "wb", true); }
-  static File openAppend(const fs::path &name) { return open(name, "ab", true); }
+  static File openRead(const fs::path& name, bool doThrow = false) { return File{name, "rb", doThrow}; }
+  static File openWrite(const fs::path &name) { return File{name, "wb", true}; }
+  static File openAppend(const fs::path &name) { return File{name, "ab", true}; }
   static void append(const fs::path& name, std::string_view s) { File::openAppend(name).write(s); }
-  
-  File(FILE* ptr, std::string_view name) : ptr{ptr}, name{name} {}
 
   const std::string name;
   
@@ -81,7 +79,7 @@ public:
   int printf(const char *fmt, ...) __attribute__((format(printf, 2, 3))) {
     va_list va;
     va_start(va, fmt);
-    int ret = vfprintf(ptr.get(), fmt, va);
+    int ret = vfprintf(f, fmt, va);
     va_end(va);
     return ret;
   }
@@ -89,19 +87,19 @@ public:
   int scanf(const char *fmt, ...) __attribute__((format(scanf, 2, 3))) {
     va_list va;
     va_start(va, fmt);
-    int ret = vfscanf(ptr.get(), fmt, va);
+    int ret = vfscanf(f, fmt, va);
     va_end(va);
     return ret;
   }
   
   void write(string_view s) {
-    if (fwrite(s.data(), s.size(), 1, ptr.get()) != 1) {
+    if (fwrite(s.data(), s.size(), 1, f) != 1) {
       throw fs::filesystem_error("can't write to file"s, name, {});
     }
   }
 
-  operator bool() const { return bool(ptr); }
-  FILE* get() const { return ptr.get(); }
+  operator bool() const { return f != nullptr; }
+  FILE* get() const { return f; }
 
   long ftell() const {
     long pos = ::ftell(get());
