@@ -57,7 +57,7 @@ static vector<u32> makeVect(u32 size, u32 elem0) {
 
 void StateLoader::save(u32 E, const std::string& extension, u32 k) {
   fs::path newFile = fileName(E, E, "-new", extension);
-  doSave(File::openWrite(newFile).get());
+  doSave(File::openWrite(newFile).syncOnClose().get());
   
   fs::path saveFile = fileName(E, E, "", extension);
   fs::path oldFile = fileName(E, E, "-old", extension);

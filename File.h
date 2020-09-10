@@ -3,11 +3,14 @@
 #pragma once
 
 #include "common.h"
+
 #include <cstdio>
 #include <cstdarg>
 #include <cassert>
+#include <unistd.h>
 #include <memory>
 #include <filesystem>
+#include <thread>
 #include <vector>
 #include <string>
 #include <optional>
@@ -16,7 +19,8 @@ namespace fs = std::filesystem;
 
 class File {
   FILE* f = nullptr;
-
+  bool sync = false;
+  
   File(const fs::path &path, const string& mode, bool doLog) : name{path.string()} {
     f = fopen(name.c_str(), mode.c_str());
     if (!f && doLog) {
@@ -26,6 +30,15 @@ class File {
   }
     
 public:
+  static File openRead(const fs::path& name, bool doThrow = false) { return File{name, "rb", doThrow}; }
+  static File openWrite(const fs::path &name) { return File{name, "wb", true}; }
+  static File openAppend(const fs::path &name) { return File{name, "ab", true}; }
+  
+  static void append(const fs::path& name, std::string_view text) { File::openAppend(name).write(text); }
+
+  
+  const std::string name;
+  
   File(FILE* f, const string& name) : f{f}, name{name} {}
   File(File&& other) : f{other.f}, name{other.name} { other.f = nullptr; }
   
@@ -34,8 +47,17 @@ public:
   File& operator=(File&& other) = delete;
 
   ~File() {
-    if (f != nullptr) { fclose(f); }    
+    if (f) {
+      if (sync) {
+        std::thread{[f=f]() { fdatasync(fileno(f)); fclose(f); }}.detach();      
+      } else {
+        fclose(f);
+      }
+      f = nullptr;
+    }
   }
+
+  File& syncOnClose() { sync = true; return *this; }
   
   class It {
   public:
@@ -59,13 +81,6 @@ public:
 
   It begin() { return It{*this}; }
   It end() { return It{}; }
-  
-  static File openRead(const fs::path& name, bool doThrow = false) { return File{name, "rb", doThrow}; }
-  static File openWrite(const fs::path &name) { return File{name, "wb", true}; }
-  static File openAppend(const fs::path &name) { return File{name, "ab", true}; }
-  static void append(const fs::path& name, std::string_view s) { File::openAppend(name).write(s); }
-
-  const std::string name;
   
   template<typename T>
   void write(const vector<T>& v) { write(v.data(), v.size() * sizeof(T)); }
