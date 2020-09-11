@@ -30,13 +30,15 @@ protected:
 };
 
 struct PRPState {
-  // Exponent, iteration, block-size, res64, nErrors
+  // E, k, block-size, res64, nErrors
   static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
 
   // Exponent, iteration, block-size, res64, nErrors
   // B1, nBits, start, nextK, crc
   static constexpr const char *HEADER_v11 = "OWL PRP 11 %u %u %u %016" SCNx64 " %u %u %u %u %u %u\n";
-  // %u %u %u %u %u %u\n";
+
+  // E, k, block-size, res64, nErrors, crc
+  static constexpr const char *HEADER_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u\n";
   
   static constexpr const char *EXT = ".owl";
 

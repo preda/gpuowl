@@ -153,11 +153,20 @@ PRPState PRPState::loadInt(u32 E, u32 k) {
 
   u32 fileE, fileK, blockSize, nErrors, crc;
   u64 res64;
-
-  u32 b1, nBits, start, nextK;
   vector<u32> check;
-  if (sscanf(header.c_str(), HEADER_v10, &fileE, &fileK, &blockSize, &res64, &nErrors) == 5
-      || sscanf(header.c_str(), HEADER_v11, &fileE, &fileK, &blockSize, &res64, &nErrors, &b1, &nBits, &start, &nextK, &crc) == 10) { 
+  u32 b1, nBits, start, nextK;
+  if (sscanf(header.c_str(), HEADER_v12, &fileE, &fileK, &blockSize, &res64, &nErrors, &crc) == 6) {
+    assert(E == fileE && k == fileK);    
+    if (!read(fi.get(), nWords(E), &check)) {
+      log("Can't read PRP residue from '%s'\n", fi.name.c_str());
+      throw "bad savefile";
+    }
+    if (crc != crc32(check)) {
+      log("CRC in '%s' : found %u expected %u\n", fi.name.c_str(), crc, crc32(check));
+      throw "bad savefile";
+    }    
+  } else if (sscanf(header.c_str(), HEADER_v10, &fileE, &fileK, &blockSize, &res64, &nErrors) == 5
+             || sscanf(header.c_str(), HEADER_v11, &fileE, &fileK, &blockSize, &res64, &nErrors, &b1, &nBits, &start, &nextK, &crc) == 10) { 
     assert(E == fileE && k == fileK);
     if (!read(fi.get(), nWords(E), &check)) {
       log("Can't read PRP residue from '%s'\n", fi.name.c_str());
@@ -176,7 +185,7 @@ void PRPState::save(u32 E, const PRPState& state) {
   fs::path path = fs::current_path() / to_string(E) / (to_string(state.k) + EXT);
   File fo = File::openWrite(path);
 
-  if (fprintf(fo.get(), HEADER_v10, E, state.k, state.blockSize, state.res64, state.nErrors) <= 0) {
+  if (fprintf(fo.get(), HEADER_v12, E, state.k, state.blockSize, state.res64, state.nErrors, crc32(state.check)) <= 0) {
     throw(ios_base::failure("can't write header"));
   }    
   write(fo.get(), state.check);

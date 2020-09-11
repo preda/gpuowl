@@ -36,6 +36,8 @@ u32 sizeBits(mpz_class a) { return mpz_sizeinbase(a.get_mpz_t(), 2); }
 }
 
 u32 powerSmoothBits(u32 exp, u32 B1) {
+  if (!B1) { return 0; }
+  
   // Could be implemented more efficiently by summing log2() over primes.
   return sizeBits(powerSmooth(exp, B1));  
 }
