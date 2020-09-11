@@ -5,9 +5,11 @@
 #include "Blake2.h"
 
 #include <filesystem>
+#include <functional>
 #include <ios>
 #include <cassert>
 #include <cinttypes>
+
 
 namespace fs = std::filesystem;
 
@@ -18,6 +20,37 @@ fs::path fileName(u32 E, u32 k, const string& suffix, const string& extension) {
   auto baseDir = fs::current_path() / sE;
   if (!fs::exists(baseDir)) { fs::create_directory(baseDir); }
   return baseDir / (to_string(k) + suffix + '.' + extension);
+}
+
+/*
+vector<string> listFiles(const fs::path& path, const string& ext) {
+  vector<string> ret;
+  for (auto it : fs::directory_iterator(path)) {
+    if (it->is_regular_file()) {
+      string name = it->path().filename().string();
+      if (name.size() >= tail.size() && name.substr(name.size() - tail.size()) == tail) { ret.push_back(name); }
+    }
+  }
+  return ret;
+}
+*/
+
+vector<u32> listIterations(u32 E, const string& ext) {
+  vector<u32> ret;
+  fs::path path = fs::current_path() / to_string(E);
+  for (auto entry : fs::directory_iterator(path)) {
+    if (entry.is_regular_file()) {
+      string name = entry.path().filename().string();
+      u32 dot = name.find('.');
+      if (dot != string::npos && name.substr(dot) == ext) {
+        string head = name.substr(0, dot);
+        u32 k = std::stoul(head);
+        ret.push_back(k);
+      }
+    }
+  }
+  std::sort(ret.begin(), ret.end());
+  return ret;
 }
 
 void cleanup(u32 E, const string& ext) {
@@ -100,85 +133,91 @@ bool StateLoader::load(u32 E, const std::string& extension) {
 
 // --- PRP ---
 
-PRPState::PRPState(u32 E, u32 iniBlockSize) : E{E} {
-  if (!load(E, EXT)) {
-    // log("starting from the beginning\n");
-    k = 0;
-    blockSize = iniBlockSize ? iniBlockSize : 500;
-    res64  = 3;
-    check = makeVect(nWords(E), 1);
+PRPState PRPState::load(u32 E, u32 iniBlockSize) {
+  vector<u32> iterations = listIterations(E, EXT);
+  if (iterations.empty()) {
+    log("PRP starting from the beginning\n");
+    u32 blockSize = iniBlockSize ? iniBlockSize : 500;
+    return {0, blockSize, 3, makeVect(nWords(E), 1), 0};
+  } else {
+    u32 k = iterations.back();
+    return loadInt(E, k);
   }
 }
 
-bool PRPState::doLoad(const char* headerLine, FILE *fi) {
-  u32 fileE = 0;
-  u32 crc = 0;
-  if (sscanf(headerLine, HEADER_v11, &fileE, &k, &blockSize, &res64, &nErrors, &b1, &nBits, &start, &nextK, &crc) == 10) {
-    assert(E == fileE);
-    assert(k > 0);
-    
-    if (!read(fi, nWords(E), &check)) {
-      log("Can't read PRP residue\n");
-      return false;
-    }
+PRPState PRPState::loadInt(u32 E, u32 k) {
+  assert(k > 0);
+  fs::path path = fs::current_path() / to_string(E) / (to_string(k) + EXT);
+  File fi = File::openRead(path, true);
+  string header = fi.readLine();
 
-    if (nextK != 0) {
-      assert(b1);
-      assert(k >= start && nextK > k);
-      
-      if (!read(fi, nWords(E), &data)) {
-        log("Can't read PRP P-1 residue\n");
-        return false;
-      }
-      assert(crc32(data) == crc);
-    } else {
+  u32 fileE, fileK, blockSize, nErrors, crc;
+  u64 res64;
+
+  u32 b1, nBits, start, nextK;
+  vector<u32> check;
+  if (sscanf(header.c_str(), HEADER_v10, &fileE, &fileK, &blockSize, &res64, &nErrors) == 5
+      || sscanf(header.c_str(), HEADER_v11, &fileE, &fileK, &blockSize, &res64, &nErrors, &b1, &nBits, &start, &nextK, &crc) == 10) { 
+    assert(E == fileE && k == fileK);
+    if (!read(fi.get(), nWords(E), &check)) {
+      log("Can't read PRP residue from '%s'\n", fi.name.c_str());
+      throw "bad savefile";
     }
-    return true;
-  } else if (sscanf(headerLine, HEADER_v10, &fileE, &k, &blockSize, &res64, &nErrors) == 5) {
-    if (read(fi, nWords(E), &check)) { return true; }
-    log("Can't read PRP residue\n");
+  } else {
+    log("Can't parse PRP header '%s'\n", header.c_str());
+    throw "bad savefile";
   }
-  return false;
+  return {k, blockSize, res64, check, nErrors};
 }
 
-void PRPState::doSave(FILE* fo) {
-  assert(check.size() == nWords(E));
-  if (fprintf(fo, HEADER_v11, E, k, blockSize, res64, nErrors, b1, nBits, start, nextK, crc32(data)) <= 0) {
+void PRPState::save(u32 E, const PRPState& state) {
+  assert(state.check.size() == nWords(E));
+
+  fs::path path = fs::current_path() / to_string(E) / (to_string(state.k) + EXT);
+  File fo = File::openWrite(path);
+
+  if (fprintf(fo.get(), HEADER_v10, E, state.k, state.blockSize, state.res64, state.nErrors) <= 0) {
     throw(ios_base::failure("can't write header"));
   }    
-  write(fo, check);
-  write(fo, data);
+  write(fo.get(), state.check);
 }
 
 // --- P1 ---
 
-P1State::P1State(u32 E, u32 B1) : E{E}, B1{B1} {
-  if (!load(E, EXT)) {  
-    // log("%u P1 starting from the beginning.\n", E);
-    k = 0;
-    nBits = 0;
-    data = makeVect(nWords(E), 1);
-  }
+void P1State::save(u32 E, u32 b1, u32 k, const P1State& state) {
+  assert(state.data.size() == nWords(E));
+
+  fs::path path = fs::current_path() / to_string(E) / (to_string(k) + EXT);
+  File fo = File::openWrite(path);
+  if (fprintf(fo.get(), HEADER_v2, E, b1, k, state.nextK, crc32(state.data)) <= 0) {
+    throw(ios_base::failure("can't write header"));
+  }    
+  write(fo.get(), state.data);
 }
 
-bool P1State::doLoad(const char* headerLine, FILE *fi) {
-  u32 fileE = 0;
-  u32 fileB1 = 0;
-  if (sscanf(headerLine, HEADER_v1, &fileE, &fileB1, &k, &nBits) == 4) {
-    assert(E == fileE);
-    if (B1 != fileB1) {
-      log("%u P1 wants B1=%u but savefile has B1=%u. Fix B1 or move savefile\n", E, B1, fileB1);
-    } else {
-      return read(fi, nWords(E), &data);
+P1State P1State::load(u32 E, u32 b1, u32 k) {
+  fs::path path = fs::current_path() / to_string(E) / (to_string(k) + EXT);
+  File fi = File::openRead(path, true);
+  string header = fi.readLine();
+  u32 fileE, fileB1, fileK, nextK, crc;
+  vector<u32> data;
+  if (sscanf(header.c_str(), HEADER_v2, &fileE, &fileB1, &fileK, &nextK, &crc) == 5) {
+    assert(fileE == E && fileB1 == b1 && fileK == k);
+    if (!read(fi.get(), nWords(E), &data)) {
+      log("Can't read P-1 residue from '%s'\n", fi.name.c_str());
+      throw "bad savefile";
     }
-  }
-  return false;
-}
+    
+    if (crc != crc32(data)) {
+      log("CRC in '%s' : found %u expected %u\n", fi.name.c_str(), crc, crc32(data));
+      throw "bad savefile";
+    }
 
-void P1State::doSave(FILE* fo) {
-  assert(data.size() == nWords(E));
-  if (fprintf(fo, HEADER_v1, E, B1, k, nBits) <= 0) { throw(ios_base::failure("can't write header")); }
-  write(fo, data);
+    return {nextK, data};
+  } else {
+    log("Can't parse P-1 header '%s'\n", header.c_str());
+    throw "bad savefile";
+  }
 }
 
 // --- P2 ---

@@ -22,7 +22,9 @@ mpz_class primorial(u32 p) {
   return b;
 }
 
-mpz_class powerSmooth(u32 exp, u32 B1) {  
+mpz_class powerSmooth(u32 exp, u32 B1) {
+  if (!B1) { return 0; }
+  
   mpz_class a{exp};
   a *= 256;  // boost 2s.
   for (int k = log2(B1); k >= 1; --k) { a *= primorial(pow(B1, 1.0 / k)); }
@@ -31,6 +33,11 @@ mpz_class powerSmooth(u32 exp, u32 B1) {
 
 u32 sizeBits(mpz_class a) { return mpz_sizeinbase(a.get_mpz_t(), 2); }
 
+}
+
+u32 powerSmoothBits(u32 exp, u32 B1) {
+  // Could be implemented more efficiently by summing log2() over primes.
+  return sizeBits(powerSmooth(exp, B1));  
 }
 
 vector<bool> bitsMSB(const mpz_class& a) {

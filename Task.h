@@ -23,6 +23,7 @@ struct Task {
 
   // PM1
   u32 B1 = 0;
+  u32 B1a = 0;
   u32 B2 = 0;
 
   u32 bitLo = 0;

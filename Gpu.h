@@ -153,6 +153,8 @@ class Gpu {
   // data := data * data;
   void square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
   
+  u32 maxBuffers();
+  
 public:
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<int>& inB);
@@ -187,9 +189,9 @@ public:
   vector<u32> readCheck() { return readAndCompress(bufCheck); }
   vector<u32> readData() { return readAndCompress(bufData); }
 
-  std::tuple<bool, u64, u32, string> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp, vector<u32> B1s);
+  std::tuple<bool, u64, u32, string> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp, u32 b1);
 
-  std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
+  // std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
   
   u32 getFFTSize() { return N; }
 

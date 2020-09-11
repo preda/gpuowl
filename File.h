@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "timeutil.h"
 #include "common.h"
 
 #include <cstdio>
@@ -49,7 +50,12 @@ public:
   ~File() {
     if (f) {
       if (sync) {
-        std::thread{[f=f]() { fdatasync(fileno(f)); fclose(f); }}.detach();      
+        std::thread{[f=f, name=name]() {
+          Timer timer;
+          fdatasync(fileno(f));
+          fclose(f);
+          log("syncing %s took %.0f ms\n", name.c_str(), timer.deltaSecs() * 1000);
+        }}.detach();      
       } else {
         fclose(f);
       }
@@ -144,7 +150,7 @@ public:
 
   // Returns newline-ended line.
   std::string readLine() {
-    char buf[512];
+    char buf[1024];
     buf[0] = 0;
     bool ok = fgets(buf, sizeof(buf), get());
     if (!ok) { return ""; }  // EOF or error

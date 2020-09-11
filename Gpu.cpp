@@ -804,7 +804,7 @@ bool Gpu::equals9(const Words& a) {
 }
 
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  PRPState loaded(E, iniBlockSize);
+  PRPState loaded = PRPState::load(E, iniBlockSize);
   writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
 
   u64 res64 = dataResidue();
@@ -976,150 +976,41 @@ void Gpu::square(Buffer<int>& data) {
 
 namespace {
 
+/*
 class B1Accumulator {
+public:
+  virtual ~B1Accumulator() = default;
 
-  // Mark all buffers as not engaged, but do not release storage.
-  void clearEngaged() {
-    engaged.clear();
-    engaged.resize(nBufs);
-    assert(engaged.size() == nBufs);
-  }
-  
-  void initBufs(u32 newB1) {
-    if (b1 != newB1 || bits.empty()) {    
-      Timer timer;
-      bits = powerSmoothLSB(E, b1);
-      log("powerSmooth(%u) took %.2fs (CPU)\n", b1, timer.elapsedSecs());
-    }
-    
-    if (bufs.empty()) {
-      bufs = gpu->makeBufVector(nBufs);
-      log("B1: allocating %u buffers\n", nBufs);
-    }
-    
-    clearEngaged();
+  virtual u32 nextK() = 0;
+  virtual pair<vector<int>, u32> accumulate(const Buffer<int>& data) = 0;  
+};
+*/
 
-    b1 = newB1;
-  }
-
+class B1Accumulator {
   u32 findFirstBitSet() const {
     assert(!bits.empty());
     for (u32 i = 0, end = bits.size(); i < end; ++i) { if (bits[i]) { return i; } }
     assert(false);
+    return 0;
   }
 
-#define CHECK_NEXTK() assert(nextK >= start && nextK - start < bits.size() && bits[nextK - start])
-  
-public:
-  Gpu *gpu;
-  const u32 E;
-  const u32 nBufs;
-  
-  u32 b1 = 0;
-  u32 nextK = 0;
-  u32 start = 0;
-  
-  vector<bool> bits;
-  vector<Buffer<i32>> bufs;
-  vector<bool> engaged;
-
-  B1Accumulator(Gpu* gpu, u32 E, u32 nBufs) : gpu{gpu}, E{E}, nBufs{nBufs} { assert(nBufs > 0); }
-
-  bool isComplete() { return !nextK; }
-  
-  void startB1(u32 k, u32 newB1) {
-    initBufs(newB1);
-    u32 zeros = findFirstBitSet();
-    u32 start = k - min(k, zeros);
-    u32 nextK = start + zeros;
-    CHECK_NEXTK();
-  }
-
-  // Release all storage.
-  void reset() {
-    b1 = 0;
-    nextK = 0;
-    start = 0;
+  void release() {
     if (!bits.empty()) {
-      log("B1: releasing bits\n");
+      log("B1 %u: releasing %u bits\n", b1, u32(bits.size()));
       bits.clear();
     }
     
     if (!bufs.empty()) {
-      log("B1: releasing %u buffers\n", u32(bufs.size()));
+      log("B1 %u: releasing %u buffers\n", b1, u32(bufs.size()));
       bufs.clear();
     }
-    
-    clearEngaged();
-  }
-  
-  void resume(u32 wantB1, PRPState& loaded) {
-    assert(wantB1);
 
-    if (loaded.k && loaded.b1 != wantB1) {
-      log("B1=%u requested, but savefile has B1=%u\n", wantB1, loaded.b1);
-      throw "Mismatched B1";
-    }
-
-    if (!loaded.nextK) {
-      assert(loaded.k);
-      log("Too late to start B1=%u now\n", wantB1);
-      throw "Late B1";
-    }
-
-    if (loaded.k == 0) {
-      assert(!loaded.b1);
-      startB1(0, wantB1);
-      log("Starting B1=%u\n", wantB1);
-    } else {
-      initBufs(loaded.b1);
-      nextK = loaded.nextK;
-      start = loaded.start;
-      
-      assert(b1 == loaded.b1);
-      assert(bits.size() == loaded.nBits);    
-      assert(!loaded.data.empty());
-    
-      gpu->writeIn(bufs[0], loaded.data);
-      engaged[0] = true;
-    }
-  }
-
-  void step(u32 kAt, Buffer<int>& data) {
-    if (kAt != nextK) { return; }
-    CHECK_NEXTK();
-
-    u32 s = nextK - start + 1;
-    u32 sum = 0;
-    u32 i = s;
-    
-    for (; i < bits.size(); ++i) {
-      if (bits[i]) {
-        u32 n = i - s;
-        u32 delta = 1u << n;
-        if (n > 31 || sum + delta >= bufs.size()) {
-          break;
-        } else {
-          sum += delta;
-        }
-      }
-    }
-
-    nextK = i + start;
-    CHECK_NEXTK();
-
-    if (nextK == bits.size()) { nextK = 0; }
-
-    assert(sum < bufs.size());
-    if (engaged[sum]) {
-      gpu->mul(bufs[sum], data);
-    } else {
-      bufs[sum] << data;
-      engaged[sum] = true;
-    }
+    engaged.clear();
   }
 
   vector<u32> fold() {
+    if (b1 == 0) { return {}; }
+    
     u32 n = bufs.size();
     assert(n > 1 && engaged.size() == n);
     
@@ -1148,16 +1039,127 @@ public:
     log("B1 fold(%u) took %.2fs\n", n, timer.deltaSecs());
 
     for (u32 i = 1; i < n; ++i) { engaged[i] = false; }
+    engaged[0] = true;
 
     auto ret = gpu->readAndCompress(bufs[0]);
     log("B1 read took %.2fs\n", timer.deltaSecs());
     return ret;
   }
+
+  Gpu *gpu;
+  
+public:
+  const u32 E;
+  const u32 b1;
+  const u32 nBits;
+
+private:
+  u32 maxBufs;  
+  u32 nextK = 0;
+  
+  vector<bool> bits;
+  vector<Buffer<i32>> bufs;
+  vector<bool> engaged;
+
+public:
+  B1Accumulator(Gpu* gpu, u32 E, u32 b1, u32 maxBufs) : gpu{gpu}, E{E}, b1{b1}, nBits{powerSmoothBits(E, b1)}, maxBufs{maxBufs} {
+    assert(maxBufs > 0);
+    log("B1=%u (%u bits)\n", b1, nBits);
+  }
+
+  ~B1Accumulator() { release(); }
+
+  u32 wantK() const { return nextK; }
+  
+  void save(u32 k) { if (k <= nBits) { P1State::save(E, b1, k, {nextK, fold()}); } }
+  
+  void load(u32 k) {
+    if (!b1 || k > nBits) {
+      release();
+      nextK = 0;
+      maxBufs = 0;
+    } else {
+      if (bits.empty()) {
+        Timer timer;
+        bits = powerSmoothLSB(E, b1);
+        log("powerSmooth(%u), %u bits, took %.2fs (CPU)\n", b1, u32(bits.size()), timer.elapsedSecs());
+      }
+
+      if (bufs.empty()) {
+        assert(engaged.empty());
+        bufs = gpu->makeBufVector(maxBufs);        
+        log("B1: allocating %u buffers\n", maxBufs);
+      }
+
+      engaged.clear();
+      engaged.resize(maxBufs);
+
+      if (k) {
+        auto [loadNextK, data] = P1State::load(E, b1, k);
+        nextK = loadNextK;
+        gpu->writeIn(bufs[0], data);
+        engaged[0] = true;
+      } else {
+        nextK = findFirstBitSet();
+        log("Starting B1=%u, first bit %u\n", b1, nextK);
+      }
+    }
+  }
+
+  vector<u32> step(u32 kAt, Buffer<int>& data) {
+    assert(nextK && kAt == nextK);
+    assert(nextK < bits.size() && bits[nextK]);
+
+    u32 sum = 0;    
+    u32 i = nextK + 1;    
+    for (; i < bits.size(); ++i) {
+      if (bits[i]) {
+        u32 n = i - nextK - 1;
+        u32 delta = 1u << n;
+        if (n > 31 || sum + delta >= bufs.size()) {
+          break;
+        } else {
+          sum += delta;
+        }
+      }
+    }
+    assert(sum < bufs.size());
+    
+    nextK = (i == bits.size()) ? 0 : i;
+
+    assert(nextK < bits.size() && bits[nextK]);
+
+    assert(engaged.size() == bufs.size());
+    if (engaged[sum]) {
+      gpu->mul(bufs[sum], data);
+    } else {
+      bufs[sum] << data;
+      engaged[sum] = true;
+    }
+    bool done = (nextK == 0);
+    if (done) {
+      vector<u32> data = fold();
+      release();
+      return data;      
+    } else {
+      return {};
+    }
+  }
 };
 
 }
 
-tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp, vector<u32> B1s) {
+u32 Gpu::maxBuffers() {
+  u32 smallBufSize = N * 4; // "small buf" of ints
+  size_t availableBytes = AllocTrac::availableBytes();
+  u32 maxBufs = (availableBytes + smallBufSize / 2) / smallBufSize;
+
+  float MB = 1 / (1024.0f*1024.0f);
+  log("Space for %u B1 buffers (available mem %.1f MB, buf size %.1f MB)\n",  maxBufs, availableBytes * MB, smallBufSize * MB);
+  return maxBufs;
+}
+
+tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atomic<u32>& factorFoundForExp, u32 b1) {
   u32 k = 0, blockSize = 0, nErrors = 0;
 
   if (!args.maxAlloc) { log("Use -maxAlloc <MBytes> to bound GPU memory usage\n"); }
@@ -1165,37 +1167,17 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
   u32 power = -1;
   u32 startK = 0;
 
-  const u32 b1Bufs = [this]() {
-    u32 smallBufSize = N * 4; // "small buf" of ints
-    size_t availableBytes = AllocTrac::availableBytes();
-    u32 maxBufs = (availableBytes + smallBufSize / 2) / smallBufSize;
-    assert(maxBufs >= 13);     // An arbitrary too-low-memory point.
-    u32 b1Bufs = maxBufs - 5;  // Keep a small reserve of free RAM.
-    float MB = 1 / (1024.0f*1024.0f);
-    log("Space for %u B1 buffers (available mem %.1f MB, buf size %.1fMB)\n",  b1Bufs, availableBytes * MB, smallBufSize * MB);
-    return b1Bufs; }();
-
-  B1Accumulator b1Acc{this, E, b1Bufs};
+  const u32 maxBufs = maxBuffers();
+  assert(maxBufs >= 13);           // An arbitrary too-low-memory point.
+  const u32 b1MaxBufs = maxBufs - 5;  // Keep a small reserve of free RAM.
+  
+  B1Accumulator b1Acc{this, E, b1, b1MaxBufs};
 
  reload:
   {
-    PRPState loaded(E, args.blockSize);
-
-    while (!B1s.empty() && loaded.b1 > B1s.back()) { B1s.pop_back(); }
-
-    if (loaded.nextK && B1s.empty()) {
-      log("Continuing B1=%u\n", loaded.b1);
-      B1s.push_back(loaded.b1);
-    }
-
-    if (!B1s.empty()) {
-      b1Acc.resume(B1s.back(), loaded);
-    } else {
-      assert(!loaded.nextK);
-      if (loaded.b1) { log("Note: B1=%u already completed\n", loaded.b1); }
-      b1Acc.reset();
-    }
-
+    PRPState loaded = PRPState::load(E, args.blockSize);
+    b1Acc.load(loaded.k);
+    
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
     
     u64 res64 = dataResidue();
@@ -1210,7 +1192,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     k = loaded.k;
     blockSize = loaded.blockSize;
     if (nErrors == 0) { nErrors = loaded.nErrors; }
-    assert(nErrors >= loaded.nErrors);
+    assert(nErrors >= loaded.nErrors);    
   }
 
   assert(blockSize > 0 && 10000 % blockSize == 0);
@@ -1258,6 +1240,8 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
 
   assert(k % blockSize == 0);
   assert(checkStep % blockSize == 0);
+
+  future<string> gcdFuture;
   
   while (true) {
     assert(k < kEndEnd);   
@@ -1269,7 +1253,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     }
 
     u32 nextK = k + 1;
-    bool leadOut = (nextK % blockSize == 0) || nextK == persistK || nextK == kEnd || nextK == b1Acc.nextK;
+    bool leadOut = (nextK % blockSize == 0) || nextK == persistK || nextK == kEnd || nextK == b1Acc.wantK();
 
     coreStep(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;
@@ -1288,7 +1272,15 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
     }
 
-    b1Acc.step(k, bufData);
+    if (k == b1Acc.wantK()) {
+      vector<u32> b1Data = b1Acc.step(k, bufData);
+      if (!b1Data.empty()) {
+        log("%u : B1 completed. Will start GCD\n", k);
+        // assert(!gcdFuture.valid());
+        // P1State{E, b1Acc.b1, b1Acc.nBits, b1Acc.nBits, b1Data}.save();        
+        gcdFuture = async(launch::async, GCD, E, b1Data, 1);        
+      }      
+    }
     
     if (k % blockSize == 0) {
       if (!args.noSpin) { spin(); }
@@ -1313,13 +1305,14 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
         if (displayRoundoff) { printRoundoff(E); }
       
         u64 res64 = dataResidue();
-        PRPState prpState{E, k, blockSize, res64, readCheck(), nErrors};
+        PRPState prpState{k, blockSize, res64, readCheck(), nErrors};
         bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
       
         if (ok) {
+          b1Acc.save(k);
           skipNextCheckUpdate = true;
           double timeWithoutSave = itTimer.reset(k);
-          if (k < kEnd) { prpState.save(false); }
+          if (k < kEnd) { PRPState::save(E, prpState); }
           doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
           if (k >= kEndEnd) {
             fs::path proofPath;
@@ -1402,6 +1395,7 @@ private:
   }
 };
 
+/*
 std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
   assert(B1 && B2 && B2 >= B1);
   bufCheck.reset();
@@ -1608,3 +1602,4 @@ std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1
   
   return stage2Data;
 }
+*/

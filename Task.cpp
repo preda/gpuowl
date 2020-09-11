@@ -137,7 +137,7 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
   auto fftSize = gpu->getFFTSize();
 
   if (kind == PRP) {
-    auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(exponent, args, factorFoundForExp, {});
+    auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(exponent, args, factorFoundForExp, B1);
     bool abortedFactorFound = (!isPrime && !res64 && nErrors == u32(-1));
     if (!abortedFactorFound) {
       writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
@@ -148,6 +148,8 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
     }
     if (args.cleanup && !isPrime) { PRPState::cleanup(exponent); }
   } else if (kind == PM1) {
+    assert(false);
+    /*
     auto result = gpu->factorPM1(exponent, args, B1, B2);
     if (holds_alternative<string>(result)) {
       string factor = get<string>(result);
@@ -168,6 +170,7 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
       }
     }
     Worktodo::deleteTask(*this);
+    */
   }
 
 }

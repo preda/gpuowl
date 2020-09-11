@@ -128,7 +128,7 @@ class PM1:
         # Bits removed because of special form of factors 2*k*exponent + 1
         self.takeAwayBits = log2(exponent) + 1
         
-    def pm1(self, B1, B2):
+    def pm1(self, B1, B2 = 0):
         B2 = max(B1, B2) # B2 can't be lower than B1.
         bitsB1 = log2(B1)
         bitsB2 = log2(B2)
@@ -234,7 +234,23 @@ class PM1:
 
 def walk(exponent, factored, **named):
     PM1(exponent, factored).walkBounds(**named)
-            
+
+def middle(exponent, factored, B1):
+    pm1 = PM1(exponent, factored)
+    best = 0
+    bestPos = 0
+    pos = 1000
+    while pos < B1:
+        p = pm1.pm1(pos)[0]
+        g = (p * (B1 - pos) - pos / 10) * 1.442
+        print(pos, p, p * (B1 - pos), g)
+        # g = (p * B1 - pos * (1 + p)) * 1.442
+        if g > best:
+            best = g
+            bestPos = pos
+        pos = nextNiceNumber(pos)
+    return bestPos, best
+    
 if __name__ == "__main__":
     import sys
     if len(sys.argv) < 3:
@@ -264,5 +280,4 @@ if __name__ == "__main__":
             args = args[1:]
             
     walk(exponent, factored, debug=debug, B1=fixedB1, B2=fixedB2, useP1Trick=False)
-    # walk(exponent, factored, debug=debug, B1=fixedB1, B2=fixedB2, useP1Trick=True)
-    
+    # print(middle(exponent, factored, fixedB1))

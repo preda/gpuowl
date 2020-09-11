@@ -17,6 +17,9 @@ vector<bool> bitsMSB(const mpz_class& a);
 vector<bool> powerSmoothMSB(u32 exp, u32 B1);
 vector<bool> powerSmoothLSB(u32 exp, u32 B1);
 
+// Bitlen of powerSmooth
+u32 powerSmoothBits(u32 exp, u32 B1);
+
 // Returns jacobi-symbol(words - 2, 2**exp - 1)
 int jacobi(u32 exp, const std::vector<u32>& words);
 

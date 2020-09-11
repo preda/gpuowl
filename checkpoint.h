@@ -29,7 +29,7 @@ protected:
   }
 };
 
-class PRPState : private StateLoader {
+struct PRPState {
   // Exponent, iteration, block-size, res64, nErrors
   static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
 
@@ -38,63 +38,34 @@ class PRPState : private StateLoader {
   static constexpr const char *HEADER_v11 = "OWL PRP 11 %u %u %u %016" SCNx64 " %u %u %u %u %u %u\n";
   // %u %u %u %u %u %u\n";
   
-  static constexpr const char *EXT = "owl";
-  
-protected:
-  bool doLoad(const char* headerLine, FILE *fi) override;
-  void doSave(FILE* fo) override;
-  u32 getK() override { return k; }
-  
-public:  
+  static constexpr const char *EXT = ".owl";
+
   static void cleanup(u32 E);
 
-  PRPState(u32 E, u32 iniBlockSize);
+  static PRPState load(u32 E, u32 iniBlockSize);
+  static void save(u32 E, const PRPState& state);
   
-  PRPState(u32 E, u32 k, u32 blockSize, u64 res64, const vector<u32>& check, u32 nErrors)
-    : E{E}, k{k}, blockSize{blockSize}, res64{res64}, check{check}, nErrors{nErrors} {
-  }
-
-  void save(bool persist) { StateLoader::save(E, EXT, persist ? k : 0); }
-
-  const u32 E{};
   u32 k{};
   u32 blockSize{};
   u64 res64{};
   vector<u32> check;
   u32 nErrors{};
 
-  // P-1 below
-  u32 b1{};
-  u32 nBits{};
-  u32 start{};
-  u32 nextK{};
-  vector<u32> data;
+private:
+  static PRPState loadInt(u32 E, u32 k);
 };
 
-class P1State : private StateLoader {
-  // Exponent, B1, iteration, nBits
-  static constexpr const char *HEADER_v1 = "OWL P1 1 %u %u %u %u\n";
-  static constexpr const char *EXT = "p1.owl";
-  
-  bool doLoad(const char* headerLine, FILE *fi) override;
-  void doSave(FILE *fo) override;
-  u32 getK() override { return k; }
-  
-public:
-  static void cleanup(u32 E);
+struct P1State {
+  // E, B1, k, nextK, crc32
+  static constexpr const char *HEADER_v2 = "OWL P1 2 %u %u %u %u %u\n";
+  static constexpr const char *EXT = ".p1.owl";
 
-  P1State(u32 E, u32 B1);
-  P1State(u32 E, u32 B1, u32 k, u32 nBits, vector<u32> data)
-    : E{E}, B1{B1}, k{k}, nBits{nBits}, data{std::move(data)} {
-  }
-
-  void save() { StateLoader::save(E, EXT); }
-
-  const u32 E;
-  u32 B1;
-  u32 k;
-  u32 nBits;
+  u32 nextK;
   vector<u32> data;
+  
+  static void cleanup(u32 E);
+  static P1State load(u32 E, u32 b1, u32 k);
+  static void save(u32 E, u32 b1, u32 k, const P1State& p1State);
 };
 
 class P2State : private StateLoader {

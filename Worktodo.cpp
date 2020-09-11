@@ -20,16 +20,18 @@ std::optional<Task> parse(const std::string& line) {
   u32 bitLo = 0;
   int pos = 0;
   u32 wantsPm1 = 0;
-  u32 B1 = 0, B2 = 0;
+  u32 B1 = 0, B1a = 0, B2 = 0;
 
   char buf[256];
   if (sscanf(line.c_str(), "Verify=%255s", buf) == 1) { return Task{Task::VERIFY, .verifyPath=buf}; }
 
   const char* tail = line.c_str();
-  
-  if (sscanf(tail, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||
+
+  if (sscanf(tail, "B1=%u,%u,B2=%u;%n", &B1, &B1a, &B2, &pos) == 3 ||
+      sscanf(tail, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||
       sscanf(tail, "B1=%u;%n", &B1, &pos) == 1) {
     tail += pos;
+    if (B1a > B1) { std::swap(B1, B1a); }
   }
 
   char kindStr[32] = {0};
@@ -43,7 +45,7 @@ std::optional<Task> parse(const std::string& line) {
           || (AIDStr[0]=0, sscanf(tail, "%u", &exp)) == 1) {
         string AID = AIDStr;
         if (AID == "N/A" || AID == "0") { AID = ""; }
-        return {{kind == "PRP" ? Task::PRP : Task::PM1, exp, AID, line, B1, B2, bitLo, wantsPm1}};
+        return {{kind == "PRP" ? Task::PRP : Task::PM1, exp, AID, line, B1, B1a, B2, bitLo, wantsPm1}};
       }
     }
   }
