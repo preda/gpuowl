@@ -63,6 +63,7 @@ public:
   size_t maxAlloc = 0;
 
   u32 iters = 0;
+  u32 nSavefiles = 10;
 
   void printHelp();
 };

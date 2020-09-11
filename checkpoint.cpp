@@ -66,6 +66,41 @@ u32 nWords(u32 E) { return (E - 1) / 32 + 1; }
 
 }
 
+float IterationTracker::value(u32 k) {
+  assert(k > 0);
+  u32 dist = (k < E) ? (E - k) : 1;
+  return (1u << __builtin_ctz(k)) / float(dist);
+}
+
+void IterationTracker::del(u32 k) {
+  log("Note: deleting savefile %u\n", k);
+  error_code noThrow;
+  fs::path path = fs::current_path() / to_string(E);
+  for (string ext : {PRPState::EXT, P1State::EXT}) {
+    fs::remove(path / (to_string(k) + ext), noThrow);
+  }  
+}
+
+IterationTracker::IterationTracker(u32 E, u32 nKeep) : E{E}, nKeep{max(nKeep, 4u)} {
+  vector<u32> iterations = listIterations(E, PRPState::EXT);
+  for (u32 k : iterations) {
+    minVal.push({value(k), k});
+    lastK = max(lastK, k);
+  }
+}
+
+void IterationTracker::saved(u32 k) {
+  assert(k >= lastK);
+  lastK = k;
+  while (minVal.size() >= nKeep) {
+    auto kDel = minVal.top().second;
+    minVal.pop();
+    del(kDel);
+  }
+  minVal.push({value(k), k});
+}
+
+
 void PRPState::cleanup(u32 E) { ::cleanup(E, EXT); }
 void  P1State::cleanup(u32 E) { ::cleanup(E, EXT); }
 void  P2State::cleanup(u32 E) { ::cleanup(E, EXT); }
@@ -133,15 +168,14 @@ bool StateLoader::load(u32 E, const std::string& extension) {
 
 // --- PRP ---
 
-PRPState PRPState::load(u32 E, u32 iniBlockSize) {
-  vector<u32> iterations = listIterations(E, EXT);
-  if (iterations.empty()) {
+PRPState PRPState::load(u32 E, u32 iniBlockSize, IterationTracker *tracker) {
+  u32 lastK = tracker->last();
+  if (lastK == 0) {
     log("PRP starting from the beginning\n");
     u32 blockSize = iniBlockSize ? iniBlockSize : 500;
     return {0, blockSize, 3, makeVect(nWords(E), 1), 0};
   } else {
-    u32 k = iterations.back();
-    return loadInt(E, k);
+    return loadInt(E, lastK);
   }
 }
 
@@ -179,16 +213,20 @@ PRPState PRPState::loadInt(u32 E, u32 k) {
   return {k, blockSize, res64, check, nErrors};
 }
 
-void PRPState::save(u32 E, const PRPState& state) {
+void PRPState::save(u32 E, const PRPState& state, IterationTracker *tracker) {
   assert(state.check.size() == nWords(E));
+  u32 k = state.k;
+  
+  fs::path path = fs::current_path() / to_string(E) / (to_string(k) + EXT);
+  {
+    File fo = File::openWrite(path);
 
-  fs::path path = fs::current_path() / to_string(E) / (to_string(state.k) + EXT);
-  File fo = File::openWrite(path);
-
-  if (fprintf(fo.get(), HEADER_v12, E, state.k, state.blockSize, state.res64, state.nErrors, crc32(state.check)) <= 0) {
-    throw(ios_base::failure("can't write header"));
-  }    
-  write(fo.get(), state.check);
+    if (fprintf(fo.get(), HEADER_v12, E, k, state.blockSize, state.res64, state.nErrors, crc32(state.check)) <= 0) {
+      throw(ios_base::failure("can't write header"));
+    }    
+    write(fo.get(), state.check);
+  }
+  tracker->saved(k);  
 }
 
 // --- P1 ---

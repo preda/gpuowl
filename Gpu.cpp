@@ -803,6 +803,7 @@ bool Gpu::equals9(const Words& a) {
   return true;
 }
 
+/*
 PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   PRPState loaded = PRPState::load(E, iniBlockSize);
   writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
@@ -820,6 +821,7 @@ PRPState Gpu::loadPRP(u32 E, u32 iniBlockSize, Buffer<double>& buf1, Buffer<doub
 
   return loaded;
 }
+*/
 
 static u32 mod3(const std::vector<u32> &words) {
   u32 r = 0;
@@ -1173,9 +1175,11 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
   
   B1Accumulator b1Acc{this, E, b1, b1MaxBufs};
 
+  IterationTracker tracker{E, args.nSavefiles};
+  
  reload:
   {
-    PRPState loaded = PRPState::load(E, args.blockSize);
+    PRPState loaded = PRPState::load(E, args.blockSize, &tracker);
     b1Acc.load(loaded.k);
     
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
@@ -1312,7 +1316,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
           b1Acc.save(k);
           skipNextCheckUpdate = true;
           double timeWithoutSave = itTimer.reset(k);
-          if (k < kEnd) { PRPState::save(E, prpState); }
+          if (k < kEnd) { PRPState::save(E, prpState, &tracker); }
           doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
           if (k >= kEndEnd) {
             fs::path proofPath;

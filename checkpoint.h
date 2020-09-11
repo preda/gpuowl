@@ -8,8 +8,24 @@
 #include <vector>
 #include <string>
 #include <cinttypes>
+#include <queue>
 
-void deleteSaveFiles(u32 E);
+class IterationTracker {
+  u32 E;
+  u32 nKeep;
+  u32 lastK = 0;
+  using T = pair<float, u32>;
+  priority_queue<T, std::vector<T>, std::greater<T>> minVal;
+
+  float value(u32 k);
+  void del(u32 k);
+  
+public:
+  IterationTracker(u32 E, u32 nKeep);
+
+  void saved(u32 k);
+  u32 last() const { return lastK; }
+};
 
 class StateLoader {
 protected:
@@ -44,8 +60,8 @@ struct PRPState {
 
   static void cleanup(u32 E);
 
-  static PRPState load(u32 E, u32 iniBlockSize);
-  static void save(u32 E, const PRPState& state);
+  static PRPState load(u32 E, u32 iniBlockSize, IterationTracker*);
+  static void save(u32 E, const PRPState& state, IterationTracker*);
   
   u32 k{};
   u32 blockSize{};

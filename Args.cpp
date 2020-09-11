@@ -72,6 +72,7 @@ void Args::printHelp() {
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
+-save <N>          : specify the number of savefiles to keep (default 10).
 -yield             : enable work-around for CUDA busy wait taking up one CPU core
 -nospin            : disable progress spinner
 -use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
@@ -205,6 +206,8 @@ void Args::parse(string line) {
       safeMath = true;
     } else if (key == "-binary") {
       binaryFile = s;
+    } else if (key == "-save") {
+      nSavefiles = stoi(s);      
     } else {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";
