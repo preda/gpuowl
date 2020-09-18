@@ -98,16 +98,10 @@ public:
       log("Proof file '%s' has invalid header\n", path.string().c_str());
       throw "Invalid proof header";
     }
-    u32 nBytes = (E-1)/8+1;
-    u32 nWords = (E-1)/32+1;
-    Words B(nWords);
-    fi.read(B.data(), nBytes);
+    u32 nBytes = (E - 1) / 8 + 1;
+    Words B = fi.readBytesLE(nBytes);
     vector<Words> middles;
-    for (u32 i = 0; i < power; ++i) {
-      Words M(nWords);
-      fi.read(M.data(), nBytes);
-      middles.push_back(std::move(M));
-    }
+    for (u32 i = 0; i < power; ++i) { middles.push_back(fi.readBytesLE(nBytes)); }
     return {E, B, middles};
   }
   

@@ -29,7 +29,13 @@ class File {
       throw(fs::filesystem_error("can't open file"s, path, {}));
     }
   }
-    
+
+  bool readNoThrow(void* data, u32 nBytes) { return fread(data, nBytes, 1, get()); }
+  
+  void read(void* data, u32 nBytes) {
+    if (!readNoThrow(data, nBytes)) { throw(std::ios_base::failure(name + ": can't read")); }
+  }
+
 public:
   static File openRead(const fs::path& name, bool doThrow = false) { return File{name, "rb", doThrow}; }
   static File openWrite(const fs::path &name) { return File{name, "wb", true}; }
@@ -176,9 +182,31 @@ public:
     return ret;
   }
 
-  void read(void* data, u32 nBytes) {
-    if (!fread(data, nBytes, 1, get())) { throw(std::ios_base::failure(name + ": can't read")); }
+  template<typename T>
+  std::vector<T> readWithCRC(u32 nWords, u32 crc) {
+    auto data = read<T>(nWords);
+    if (crc != crc32(data)) {
+      log("File '%s' : CRC found %u expected %u\n", name.c_str(), crc, crc32(data));
+      throw "CRC";
+    }    
+    return data;
   }
+
+  std::vector<u32> readBytesLE(u32 nBytes) {
+    assert(nBytes > 0);
+    u32 nWords = (nBytes - 1) / 4 + 1;
+    vector<u32> data(nWords);
+    read(data.data(), nBytes);
+    return data;
+  }
+  
+  /*
+  template<typename T>
+  bool read(vector<T>* data, u32 nWords) {
+    data->resize(nWords);
+    return readNoThrow(data->data(), nWords * sizeof(T));
+  }
+  */
 
   u32 readUpTo(void* data, u32 nUpToBytes) { return fread(data, 1, nUpToBytes, get()); }
   

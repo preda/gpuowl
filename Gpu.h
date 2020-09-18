@@ -124,8 +124,6 @@ class Gpu {
   
   vector<u32> writeBase(const vector<u32> &v);
 
-  // PRPState loadPRP(u32 E, u32 iniBlockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
-
   void multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
 
   void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);

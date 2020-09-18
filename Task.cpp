@@ -146,7 +146,7 @@ void Task::execute(const Args& args, Background& background, std::atomic<u32>& f
       Worktodo::deletePRP(exponent);
       factorFoundForExp = 0;
     }
-    if (args.cleanup && !isPrime) { PRPState::cleanup(exponent); }
+    if (args.cleanup && !isPrime) { Saver::cleanup(exponent); }
   } else if (kind == PM1) {
     assert(false);
     /*

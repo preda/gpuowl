@@ -978,16 +978,6 @@ void Gpu::square(Buffer<int>& data) {
 
 namespace {
 
-/*
-class B1Accumulator {
-public:
-  virtual ~B1Accumulator() = default;
-
-  virtual u32 nextK() = 0;
-  virtual pair<vector<int>, u32> accumulate(const Buffer<int>& data) = 0;  
-};
-*/
-
 class B1Accumulator {
   u32 findFirstBitSet() const {
     assert(!bits.empty());
@@ -1048,7 +1038,8 @@ class B1Accumulator {
     return ret;
   }
 
-  Gpu *gpu;
+  Gpu* gpu;
+  Saver* saver;
   
 public:
   const u32 E;
@@ -1064,7 +1055,8 @@ private:
   vector<bool> engaged;
 
 public:
-  B1Accumulator(Gpu* gpu, u32 E, u32 b1, u32 maxBufs) : gpu{gpu}, E{E}, b1{b1}, nBits{powerSmoothBits(E, b1)}, maxBufs{maxBufs} {
+  B1Accumulator(Gpu* gpu, Saver* saver, u32 E, u32 b1, u32 maxBufs)
+    : gpu{gpu}, saver{saver}, E{E}, b1{b1}, nBits{powerSmoothBits(E, b1)}, maxBufs{maxBufs} {
     assert(maxBufs > 0);
     log("B1=%u (%u bits)\n", b1, nBits);
   }
@@ -1073,7 +1065,18 @@ public:
 
   u32 wantK() const { return nextK; }
   
-  void save(u32 k) { if (k <= nBits) { P1State::save(E, b1, k, {nextK, fold()}); } }
+  vector<u32> save(u32 k) {    
+    if (!bufs.empty()) {
+      assert(k < nBits + 1000);
+      
+      vector<u32> data = fold();
+      saver->save(b1, k, {nextK, data});
+      if (nextK == 0) { release(); }
+      return data;
+    } else {
+      return {};
+    }
+  }
   
   void load(u32 k) {
     if (!b1 || k > nBits) {
@@ -1097,7 +1100,7 @@ public:
       engaged.resize(maxBufs);
 
       if (k) {
-        auto [loadNextK, data] = P1State::load(E, b1, k);
+        auto [loadNextK, data] = saver->loadP1(b1);
         nextK = loadNextK;
         gpu->writeIn(bufs[0], data);
         engaged[0] = true;
@@ -1108,7 +1111,7 @@ public:
     }
   }
 
-  vector<u32> step(u32 kAt, Buffer<int>& data) {
+  void step(u32 kAt, Buffer<int>& data) {
     assert(nextK && kAt == nextK);
     assert(nextK < bits.size() && bits[nextK]);
 
@@ -1138,14 +1141,6 @@ public:
       bufs[sum] << data;
       engaged[sum] = true;
     }
-    bool done = (nextK == 0);
-    if (done) {
-      vector<u32> data = fold();
-      release();
-      return data;      
-    } else {
-      return {};
-    }
   }
 };
 
@@ -1170,16 +1165,17 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
   u32 startK = 0;
 
   const u32 maxBufs = maxBuffers();
-  assert(maxBufs >= 13);           // An arbitrary too-low-memory point.
+  assert(maxBufs >= 13);              // too-low-memory.
   const u32 b1MaxBufs = maxBufs - 5;  // Keep a small reserve of free RAM.
-  
-  B1Accumulator b1Acc{this, E, b1, b1MaxBufs};
 
-  IterationTracker tracker{E, args.nSavefiles};
+  Saver saver{E, args.nSavefiles, {b1}};
+  B1Accumulator b1Acc{this, &saver, E, b1, b1MaxBufs};
+
+  // IterationTracker tracker{E, args.nSavefiles};
   
  reload:
   {
-    PRPState loaded = PRPState::load(E, args.blockSize, &tracker);
+    PRPState loaded = saver.loadPRP(args.blockSize);
     b1Acc.load(loaded.k);
     
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
@@ -1277,13 +1273,15 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
     }
 
     if (k == b1Acc.wantK()) {
-      vector<u32> b1Data = b1Acc.step(k, bufData);
+      b1Acc.step(k, bufData);
+      /*
       if (!b1Data.empty()) {
         log("%u : B1 completed. Will start GCD\n", k);
         // assert(!gcdFuture.valid());
         // P1State{E, b1Acc.b1, b1Acc.nBits, b1Acc.nBits, b1Data}.save();        
         gcdFuture = async(launch::async, GCD, E, b1Data, 1);        
-      }      
+      }
+      */
     }
     
     if (k % blockSize == 0) {
@@ -1316,7 +1314,7 @@ tuple<bool, u64, u32, string> Gpu::isPrimePRP(u32 E, const Args &args, std::atom
           b1Acc.save(k);
           skipNextCheckUpdate = true;
           double timeWithoutSave = itTimer.reset(k);
-          if (k < kEnd) { PRPState::save(E, prpState, &tracker); }
+          if (k < kEnd) { saver.save(prpState); }
           doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
           if (k >= kEndEnd) {
             fs::path proofPath;

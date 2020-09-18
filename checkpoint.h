@@ -10,104 +10,94 @@
 #include <cinttypes>
 #include <queue>
 
-class IterationTracker {
-  u32 E;
-  u32 nKeep;
-  u32 lastK = 0;
-  using T = pair<float, u32>;
-  priority_queue<T, std::vector<T>, std::greater<T>> minVal;
-
-  float value(u32 k);
-  void del(u32 k);
-  
-public:
-  IterationTracker(u32 E, u32 nKeep);
-
-  void saved(u32 k);
-  u32 last() const { return lastK; }
-};
-
-class StateLoader {
-protected:
-  virtual ~StateLoader() = default;
-
-  bool load(u32 E, const std::string& extension);
-  void save(u32 E, const std::string& extension, u32 k = 0);
-  
-  virtual bool doLoad(const char* headerLine, FILE* fi) = 0;
-  virtual void doSave(FILE* fo) = 0;
-  virtual u32 getK() = 0;
-    
-  virtual bool loadFile(FILE* fi) {
-    char line[256];
-    if (!fgets(line, sizeof(line), fi)) { return false; }
-    return doLoad(line, fi);
-  }
-};
-
 struct PRPState {
-  // E, k, block-size, res64, nErrors
-  static constexpr const char *HEADER_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
-
-  // Exponent, iteration, block-size, res64, nErrors
-  // B1, nBits, start, nextK, crc
-  static constexpr const char *HEADER_v11 = "OWL PRP 11 %u %u %u %016" SCNx64 " %u %u %u %u %u %u\n";
-
-  // E, k, block-size, res64, nErrors, crc
-  static constexpr const char *HEADER_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u\n";
-  
-  static constexpr const char *EXT = ".owl";
-
-  static void cleanup(u32 E);
-
-  static PRPState load(u32 E, u32 iniBlockSize, IterationTracker*);
-  static void save(u32 E, const PRPState& state, IterationTracker*);
-  
   u32 k{};
   u32 blockSize{};
   u64 res64{};
   vector<u32> check;
   u32 nErrors{};
-
-private:
-  static PRPState loadInt(u32 E, u32 k);
 };
 
 struct P1State {
-  // E, B1, k, nextK, crc32
-  static constexpr const char *HEADER_v2 = "OWL P1 2 %u %u %u %u %u\n";
-  static constexpr const char *EXT = ".p1.owl";
-
-  u32 nextK;
+  u32 nextK{};
   vector<u32> data;
-  
-  static void cleanup(u32 E);
-  static P1State load(u32 E, u32 b1, u32 k);
-  static void save(u32 E, u32 b1, u32 k, const P1State& p1State);
 };
 
-class P2State : private StateLoader {
-  // Exponent, B1, B2, nWords, kDone
-  static constexpr const char *HEADER_v1 = "OWL P2 1 %u %u %u %u 2880 %u\n";
-  static constexpr const char *EXT = "p2.owl";
+struct P2State {
+  u32 k{};
+  vector<u32> data;
+};
+
+class Saver {
+  // E, k, block-size, res64, nErrors
+  static constexpr const char *PRP_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
+
+  // Exponent, iteration, block-size, res64, nErrors
+  // B1, nBits, start, nextK, crc
+  static constexpr const char *PRP_v11 = "OWL PRP 11 %u %u %u %016" SCNx64 " %u %u %u %u %u %u\n";
+
+  // E, k, block-size, res64, nErrors, CRC
+  static constexpr const char *PRP_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u\n";
+
+  // E, B1, k, nextK, CRC
+  static constexpr const char *P1_v2 = "OWL P1 2 %u %u %u %u %u\n";
+
+  // E, B1, B2, CRC
+  static constexpr const char *P2_v2 = "OWL P2 2 %u %u %u %u\n";  
+
+  // ----
   
-  bool doLoad(const char* headerLine, FILE *fi) override;
-  void doSave(FILE *fo) override;
-  u32 getK() override { return k; }
+  const u32 E;
+  const u32 nKeep;
+  const vector<u32> b1s;
   
-public:
-  static void cleanup(u32 E);
+  u32 lastK = 0;
+  u32 lastB2 = 0;
   
-  P2State(u32 E, u32 B1, u32 B2);
-  P2State(u32 E, u32 B1, u32 B2, u32 k, vector<double> raw)
-    : E{E}, B1{B1}, B2{B2}, k{k}, raw{std::move(raw)} {
+  using T = pair<float, u32>;
+  using Heap = priority_queue<T, std::vector<T>, std::greater<T>>;
+  Heap minValPRP;
+  Heap minValP2;
+  
+  const fs::path base = fs::current_path() / to_string(E);
+
+  float value(u32 k);
+  void del(u32 k);
+
+  static string str9(u32 k) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%09u", k);
+    return buf;
   }
 
-  void save() { StateLoader::save(E, EXT); }
+  fs::path makePath(const string& prefix, u32 k, const string& ext) const {
+    return base / (prefix + '-' + str9(k) + ext);
+  }
 
-  const u32 E;
-  u32 B1;
-  u32 B2;
-  u32 k;
-  vector<double> raw;
+  fs::path pathPRP(u32 k) const         { return makePath(to_string(E), k, ".prp"); }
+  fs::path pathP1(u32 b1, u32 k) const  { return makePath(to_string(E) + '-' + to_string(b1), k, ".p1"); }
+  fs::path pathP2(u32 b1, u32 b2) const { return makePath(to_string(E) + '-' + to_string(b1), b2, ".p2"); }
+
+  void savedPRP(u32 k);
+  void savedP2(u32 b2);
+
+  PRPState loadPRPAux(u32 k);
+  vector<u32> listIterations(const string& prefix, const string& ext);
+  
+  P1State loadP1(u32 b1, u32 k);
+  P2State loadP2(u32 b1, u32 k);
+  
+public:
+  Saver(u32 E, u32 nKeep, vector<u32> b1s);
+
+  static void cleanup(u32 E);
+
+  PRPState loadPRP(u32 iniBlockSize);  
+  void save(const PRPState& state);
+
+  P1State loadP1(u32 b1) { return loadP1(b1, lastK); }
+  void save(u32 b1, u32 k, const P1State& state);
+
+  P2State loadP2(u32 b1) { return loadP2(b1, lastB2); }
+  void save(u32 b1, const P2State& state);  
 };
