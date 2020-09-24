@@ -37,8 +37,6 @@ class File {
     if (!readNoThrow(data, nBytes)) { throw(std::ios_base::failure(name + ": can't read")); }
   }
 
-  // File& syncOnClose() { sync = true; return *this; }
-  
 public:
   static File openRead(const fs::path& name, bool doThrow = false) { return File{name, "rb", doThrow}; }
   static File openWrite(const fs::path &name) { return File{name, "wb", true, true}; }
@@ -64,7 +62,7 @@ public:
           Timer timer;
           fdatasync(fileno(f));
           fclose(f);
-          log("syncing '%s' took %.0f ms\n", name.c_str(), timer.deltaSecs() * 1000);
+          // log("syncing '%s' took %.0f ms\n", name.c_str(), timer.deltaSecs() * 1000);
         }}.detach();      
       } else {
         fclose(f);

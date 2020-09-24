@@ -81,7 +81,7 @@ class Gpu {
   Kernel isEqual;
   Kernel sum64;
   
-  Kernel testKernel;
+  // Kernel testKernel;
 
   // Trigonometry constant buffers, used in FFTs.
   ConstBuffer<double2> bufTrigW;

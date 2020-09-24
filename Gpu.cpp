@@ -318,7 +318,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
   LOAD(sum64, 256),
-  LOAD(testKernel, 1),
+  // LOAD(testKernel, 1),
 #undef LOAD_WS
 #undef LOAD
 
@@ -374,16 +374,15 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarryMax.zero();
   bufCarryMulMax.zero();
 
+  /*
   vector<float> v;
   for (int i = 0; i < 256; ++i) { v.push_back(i / float(1024 * 1024)); }
-  
   HostAccessBuffer<float> testBuf{queue, "test", 256};
   testBuf.write(v);
   testKernel(testBuf);
   v = testBuf.read();
   for (int i = 0; i < 256; ++i) { printf("%.20f\n", v[i]); }
-  
-  
+  */  
 }
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
