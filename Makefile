@@ -34,7 +34,7 @@ $(DEPDIR)/%.d: ;
 .PRECIOUS: $(DEPDIR)/%.d
 
 version.inc: FORCE
-	echo \"`git describe --long --dirty --always`\" > version.new
+	echo \"`git describe --tags --long --dirty --always`\" > version.new
 	diff -q -N version.new version.inc >/dev/null || mv version.new version.inc
 	echo Version: `cat version.inc`
 

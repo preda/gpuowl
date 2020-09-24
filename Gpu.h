@@ -68,7 +68,6 @@ class Gpu {
 
   Kernel multiply;
   Kernel multiplyDelta;
-  // Kernel square;
   Kernel tailFusedSquare;
   Kernel tailFusedMulDelta;
   Kernel tailFusedMulLow;
