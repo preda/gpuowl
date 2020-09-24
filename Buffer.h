@@ -94,7 +94,7 @@ public:
 template<typename T>
 class HostAccessBuffer : public Buffer<T> {
 public:
-  using Buffer<T>::operator=;
+  // using Buffer<T>::operator=;
   using Buffer<T>::operator<<;
   
   HostAccessBuffer(QueuePtr queue, std::string_view name, size_t size)
@@ -117,9 +117,9 @@ public:
   }
 
   // sync write
-  void operator=(const vector<T>& vect) {
+  void write(const vector<T>& vect) {
     assert(this->size >= vect.size());
-    write(this->queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
+    ::write(this->queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
   }
 
   operator vector<T>() const { return read(); }

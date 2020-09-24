@@ -2,7 +2,7 @@
 
 #include "Args.h"
 #include "Task.h"
-#include "Background.h"
+// #include "Background.h"
 #include "Worktodo.h"
 #include "common.h"
 #include "File.h"
@@ -37,15 +37,10 @@ static void readConfig(Args& args, const fs::path& path, bool doLog) {
 int main(int argc, char **argv) {
   initLog();
   log("gpuowl %s\n", VERSION);
-  // log("%s %s\n", MD5::hash(""s).c_str(), MD5::hash("The quick brown fox jumps over the lazy dog"s).c_str());
-  
-  
-  Background background;
+  // Background background;
 
   int exitCode = 0;
 
-  std::atomic<u32> factorFoundForExp = 0;
-  
   try {
     string mainLine = Args::mergeArgs(argc, argv);
     {
@@ -75,13 +70,11 @@ int main(int argc, char **argv) {
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
     if (args.prpExp) {
-      Worktodo::makePRP(args, args.prpExp).execute(args, background, factorFoundForExp);
-    } else if (args.pm1Exp) {
-      Worktodo::makePM1(args, args.pm1Exp).execute(args, background, factorFoundForExp);
+      Worktodo::makePRP(args, args.prpExp).execute(args);
     } else if (!args.verifyPath.empty()) {
-      Worktodo::makeVerify(args, args.verifyPath).execute(args, background, factorFoundForExp);
+      Worktodo::makeVerify(args, args.verifyPath).execute(args);
     } else {
-      while (auto task = Worktodo::getTask(args)) { task->execute(args, background, factorFoundForExp); }
+      while (auto task = Worktodo::getTask(args)) { task->execute(args); }
     }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
@@ -91,8 +84,8 @@ int main(int argc, char **argv) {
     log("Unexpected exception\n");
   }
 
-  background.wait();
-  if (factorFoundForExp) { Worktodo::deletePRP(factorFoundForExp); }
+  // background.wait();
+  // if (factorFoundForExp) { Worktodo::deletePRP(factorFoundForExp); }
   log("Bye\n");
   return exitCode; // not used yet.
 }

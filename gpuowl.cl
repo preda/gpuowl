@@ -48,7 +48,6 @@ EXP        the exponent
 WIDTH
 SMALL_HEIGHT
 MIDDLE
-PM1        set to indicate that a P-1 test will be done (as opposed to PRP)
 
 -- Derived from above:
 BIG_HEIGHT = SMALL_HEIGHT * MIDDLE
@@ -3399,11 +3398,16 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
-KERNEL(256) testKernel(global double* io) {
+
+float hwSin(float x) {
+  float out;
+  __asm volatile ("v_sin_f32 %0, %1" : "=v"(out) : "v" (x));
+  return out;
+}
+ 
+KERNEL(256) testKernel(global float* io) {
   u32 me = get_local_id(0);
-  i32 outCarry = 0;
-  io[me] = carryStep(doubleToLong(io[me], outCarry), &outCarry, me > 15, CAN_BE_INEXACT);
-  io[me+256] = outCarry;
+  io[me] = hwSin(io[me]);
 }
 #endif
 

@@ -15,20 +15,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-/*
-vector<string> listFiles(const fs::path& path, const string& ext) {
-  vector<string> ret;
-  for (auto it : fs::directory_iterator(path)) {
-    if (it->is_regular_file()) {
-      string name = it->path().filename().string();
-      if (name.size() >= tail.size() && name.substr(name.size() - tail.size()) == tail) { ret.push_back(name); }
-    }
-  }
-  return ret;
-}
-*/
-
-
 u32 nWords(u32 E) { return (E - 1) / 32 + 1; }
 
 error_code& noThrow() {
@@ -88,6 +74,7 @@ Saver::Saver(u32 E, u32 nKeep, vector<u32> b1s) : E{E}, nKeep{max(nKeep, 4u)}, b
     lastK = max(lastK, k);
   }
 
+  /*
   if (!b1s.empty()) {
     iterations = listIterations(to_string(E) + '-' + to_string(b1s.back()) + '-', ".p2");
     for (u32 k : iterations) {
@@ -95,10 +82,11 @@ Saver::Saver(u32 E, u32 nKeep, vector<u32> b1s) : E{E}, nKeep{max(nKeep, 4u)}, b
       lastB2 = max(lastK, k);
     }
   }
+  */
 }
 
 void Saver::del(u32 k) {
-  log("Note: deleting savefile %u\n", k);
+  // log("Note: deleting savefile %u\n", k);
   fs::remove(pathPRP(k), noThrow());
   for (u32 b1 : b1s) { fs::remove(pathP1(b1, k), noThrow()); }
 }
@@ -114,6 +102,7 @@ void Saver::savedPRP(u32 k) {
   minValPRP.push({value(k), k});
 }
 
+/*
 void Saver::savedP2(u32 b2) {
   assert(!b1s.empty());
   
@@ -126,6 +115,7 @@ void Saver::savedP2(u32 b2) {
   }
   minValP2.push({value(b2), b2});
 }
+*/
 
 namespace {
 
@@ -222,31 +212,26 @@ void Saver::save(u32 b1, u32 k, const P1State& state) {
 
 // --- P2 ---
 
-P2State Saver::loadP2(u32 b1, u32 k) {
-  fs::path path = pathP2(b1, k);
-  File fi = File::openRead(path, true);
-  string header = fi.readLine();
-  u32 fileE, fileB1, fileB2, crc;
-  if (sscanf(header.c_str(), P2_v2, &fileE, &fileB1, &fileB2, &crc) != 4) {
-    log("In file '%s' wrong header '%s'\n", fi.name.c_str(), header.c_str());
-    throw "bad savefile";
+u32 Saver::loadP2(u32 b1) {
+  fs::path path = pathP2(b1);
+  File fi = File::openRead(path);
+  if (!fi) {
+    return 0;
+  } else {    
+    string header = fi.readLine();    
+    u32 fileE, fileB1, b2;    
+    if (sscanf(header.c_str(), P2_v2, &fileE, &fileB1, &b2) != 3) {
+      log("In file '%s' wrong header '%s'\n", fi.name.c_str(), header.c_str());
+      throw "bad savefile";
+    }
+    assert(fileE == E && fileB1 == b1);
+    return b2;
   }
-
-  assert(fileE == E && fileB1 == b1 && fileB2 == k);
-  return {fileB2, fi.readWithCRC<u32>(nWords(E), crc)};
 }
 
-void Saver::save(u32 b1, const P2State& state) {
-  assert(state.data.size() == nWords(E));
-
-  {
-    File fo = File::openWrite(pathP2(b1, state.k));
-    if (fprintf(fo.get(), P2_v2, E, b1, state.k, crc32(state.data)) <= 0) {
-      throw(ios_base::failure("can't write header"));
-    }    
-    fo.write(state.data);
+void Saver::saveP2(u32 b1, u32 b2) {
+  File fo = File::openWrite(pathP2(b1));
+  if (fprintf(fo.get(), P2_v2, E, b1, b2) <= 0) {
+    throw(ios_base::failure("can't write header"));
   }
-
-  loadP2(b1, state.k);
-  savedP2(state.k);
 }

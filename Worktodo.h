@@ -15,12 +15,14 @@ public:
   static void deletePRP(u32 exponent);
   
   static Task makePRP(Args &args, u32 exponent) { return Task{Task::PRP, exponent}; }
-  
+
+  /*
   static Task makePM1(Args &args, u32 exponent) {
     Task task{Task::PM1, exponent};
     task.adjustBounds(args);
     return task;
   }
+  */
 
   static Task makeVerify(Args& args, string path) { return Task{Task::VERIFY, .verifyPath=path}; }
 };

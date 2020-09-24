@@ -14,12 +14,25 @@
 #include <memory>
 #include <variant>
 #include <atomic>
+#include <future>
+#include <filesystem>
 
 struct Args;
 struct PRPResult;
 struct PRPState;
+class Saver;
 
 using double2 = pair<double, double>;
+
+namespace fs = std::filesystem;
+
+struct PRPResult {
+  string factor;
+  bool isPrime{};
+  u64 res64 = 0;
+  u32 nErrors = 0;
+  fs::path proofPath{};
+};
 
 class Gpu {
   friend class SquaringSet;
@@ -67,6 +80,8 @@ class Gpu {
   Kernel isNotZero;
   Kernel isEqual;
   Kernel sum64;
+  
+  Kernel testKernel;
 
   // Trigonometry constant buffers, used in FFTs.
   ConstBuffer<double2> bufTrigW;
@@ -103,7 +118,7 @@ class Gpu {
   Buffer<double> buf1;
   Buffer<double> buf2;
   Buffer<double> buf3;
-  
+
   const Args& args;
   
   vector<int> readSmall(Buffer<int>& buf, u32 start);
@@ -137,7 +152,7 @@ class Gpu {
   
 
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights, bool isPm1);
+      cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
 
   void printRoundoff(u32 E);
 
@@ -152,6 +167,9 @@ class Gpu {
   void square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
   
   u32 maxBuffers();
+
+  template<typename Pm1Plan>
+  void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture);
   
 public:
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
@@ -164,13 +182,13 @@ public:
   void accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
 
   
-  static unique_ptr<Gpu> make(u32 E, const Args &args, bool isPm1);
+  static unique_ptr<Gpu> make(u32 E, const Args &args);
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);
   static u64 residue(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
   
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry, bool isPm1);
+      cl_device_id device, bool timeKernels, bool useLongCarry);
 
   vector<u32> readAndCompress(ConstBuffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
@@ -187,7 +205,7 @@ public:
   vector<u32> readCheck() { return readAndCompress(bufCheck); }
   vector<u32> readData() { return readAndCompress(bufData); }
 
-  std::tuple<bool, u64, u32, string> isPrimePRP(u32 E, const Args& args, std::atomic<u32>& factorFoundForExp, u32 b1);
+  PRPResult isPrimePRP(u32 E, const Args& args, u32 b1, u32 b2 = 0);
 
   // std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
   

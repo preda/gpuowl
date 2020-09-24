@@ -14,16 +14,14 @@ class Result;
 class Background;
 
 struct Task {
-  enum Kind {PRP, PM1, VERIFY};
+  enum Kind {PRP, VERIFY};
 
   Kind kind;
   u32 exponent;
   string AID;  // Assignment ID
   string line; // the verbatim worktodo line, used in deleteTask().
 
-  // PM1
   u32 B1 = 0;
-  u32 B1a = 0;
   u32 B2 = 0;
 
   u32 bitLo = 0;
@@ -33,12 +31,12 @@ struct Task {
   
   void adjustBounds(Args& args);
   
-  void execute(const Args& args, Background& background, std::atomic<u32>& factorFoundForExp);
+  void execute(const Args& args);
 
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const string&) const;
-  void writeResultPM1(const Args&, const std::string& factor, u32 fftSize, bool didStage2) const;
+  void writeResultPM1(const Args&, const std::string& factor, u32 fftSize) const;
 
-  string kindStr() const { return kind == PRP ? "PRP" : (kind == PM1 ? "PFactor" : "LL"); }
+  string kindStr() const { return kind == PRP ? "PRP" : "LL"; } // kind == PM1 ? "PFactor"
   
   operator string() const {
     string prefix;

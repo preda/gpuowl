@@ -20,32 +20,34 @@ std::optional<Task> parse(const std::string& line) {
   u32 bitLo = 0;
   int pos = 0;
   u32 wantsPm1 = 0;
-  u32 B1 = 0, B1a = 0, B2 = 0;
+  u32 B1 = 0, B2 = 0;
 
-  char buf[256];
-  if (sscanf(line.c_str(), "Verify=%255s", buf) == 1) { return Task{Task::VERIFY, .verifyPath=buf}; }
+  // char buf[256];
+  // if (sscanf(line.c_str(), "Verify=%255s", buf) == 1) { return Task{Task::VERIFY, .verifyPath=buf}; }
 
-  const char* tail = line.c_str();
-
-  if (sscanf(tail, "B1=%u,%u,B2=%u;%n", &B1, &B1a, &B2, &pos) == 3 ||
-      sscanf(tail, "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2 ||
-      sscanf(tail, "B1=%u;%n", &B1, &pos) == 1) {
-    tail += pos;
-    if (B1a > B1) { std::swap(B1, B1a); }
+  string tail = line;
+  
+  if (sscanf(tail.c_str(), "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2
+      || sscanf(tail.c_str(), "B1=%u;%n", &B1, &pos) == 1) {
+    tail = tail.substr(pos);
   }
 
   char kindStr[32] = {0};
-  if(sscanf(tail, "%11[a-zA-Z]=%n", kindStr, &pos) == 1) {
+  if(sscanf(tail.c_str(), "%11[a-zA-Z]=%n", kindStr, &pos) == 1) {
     string kind = kindStr;
-    tail += pos;
-    if (kind == "PRP" || kind == "PFactor" || kind == "Pfactor") {
-      char AIDStr[64] = {0};
-      if (sscanf(tail, "%32[0-9a-fA-FN/],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
-          || sscanf(tail, "%32[0-9a-fA-FN/],%u", AIDStr, &exp) == 2
-          || (AIDStr[0]=0, sscanf(tail, "%u", &exp)) == 1) {
-        string AID = AIDStr;
-        if (AID == "N/A" || AID == "0") { AID = ""; }
-        return {{kind == "PRP" ? Task::PRP : Task::PM1, exp, AID, line, B1, B1a, B2, bitLo, wantsPm1}};
+    tail = tail.substr(pos);
+    if (kind == "PRP") {
+      if (tail.find('"') != string::npos) {
+        log("GpuOwl does not support PRP-CF!\n");
+      } else {
+        char AIDStr[64] = {0};
+        if (sscanf(tail.c_str(), "%32[0-9a-fA-FN/],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
+            || sscanf(tail.c_str(), "%32[0-9a-fA-FN/],%u", AIDStr, &exp) == 2
+            || (AIDStr[0]=0, sscanf(tail.c_str(), "%u", &exp)) == 1) {
+          string AID = AIDStr;
+          if (AID == "N/A" || AID == "0") { AID = ""; }
+          return {{Task::PRP, exp, AID, line, B1, B2, bitLo, wantsPm1}};
+        }
       }
     }
   }
@@ -99,20 +101,7 @@ std::optional<Task> Worktodo::getTask(Args &args) {
   
  again:
   // Try to get a task from the local worktodo.txt
-  if (optional<Task> task = firstGoodTask(worktodoTxt)) {
-    if (task->kind == Task::PRP && task->wantsPm1) {
-      // Some worktodo tasks can be expanded into subtasks:
-      // PRP with wantsPm1>0 is expanded into a sequence of P-1 followed by PRP with wantsPm1==0.
-      Task pm1{Task::PM1, task->exponent, task->AID, "", task->B1, task->B2, task->bitLo, task->wantsPm1};
-      pm1.adjustBounds(args);
-      task->wantsPm1 = 0;
-      // File::append(worktodoTxt, "#"s + task.line);
-      File::append(worktodoTxt, string(pm1) + '\n');
-      File::append(worktodoTxt, string(*task) + '\n');
-      deleteLine(worktodoTxt, task->line);
-      goto again;
-    }
-    
+  if (optional<Task> task = firstGoodTask(worktodoTxt)) {    
     task->adjustBounds(args);
     return task;
   }

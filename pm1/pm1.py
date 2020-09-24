@@ -104,7 +104,7 @@ def fmtBound(b):
     return f'{s:>4}'
     
 # steps of approx 10%
-niceStep = [10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 40, 45, 50, 55, 60, 65, 70, 80, 90]
+niceStep = [10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 40, 45, 50, 55, 60, 65, 70, 75, 80, 90]
 
 # use nice round values for bounds.
 def nextNiceNumber(value):
@@ -182,11 +182,13 @@ class PM1:
         while True:
             stepB1 = nextNiceNumber(B1) - B1
             stepB2 = nextNiceNumber(B2) - B2
-            (p1, w1) = (p, w + 1) if fixB1 else self.gain(B1 + stepB1, B2, useP1Trick)
-            (p2, w2) = (p, w + 1) if fixB2 else self.gain(B1, B2 + stepB2, useP1Trick)
+            (p1, w1) = (-1, w + 1) if fixB1 else self.gain(B1 + stepB1, B2, useP1Trick)
+            (p2, w2) = (-1, w + 1) if fixB2 else self.gain(B1, B2 + stepB2, useP1Trick)
 
-            # print(w1, w2, w, p1, p2, p)
-            assert((w1 > w or w2 > w) and p1 >= p and p2 >= p)
+            # print(p1, p, p1 - p)
+            
+            #print(w1, w2, w, p1, p2, p)
+            #assert((w1 > w or w2 > w) and p1 >= p and p2 >= p)
             r1 = ((p1 - p) / (w1 - w)) if w1 > w else 1000
             r2 = ((p2 - p) / (w2 - w)) if w2 > w else 1000
 
@@ -203,8 +205,8 @@ class PM1:
                 midB2 = B2
 
             # print(p1, w1, p2, w2)
-            isBigPoint = r1 < 1 and r2 < 1 and p1 <= w1 and p2 <= w2
-            
+            isBigPoint = r1 < 1 and r2 < 1 and (p1 <= w1 or r1 < 0) and (p2 <= w2 or r2 < 0)
+
             debug and print(f'{fmtBound(B1)}, {fmtBound(B2)} : (p={p*100:.3f}%, work={w*100:.3f}%), B1 step {r1:.3f}={(p1-p)*100:.4f}/{(w1-w)*100:.4f}, B2 step {r2:.3f}={(p2-p)*100:.4f}/{(w2-w)*100:.4f}', '[MIN]' if isSmallPoint else '[MID]' if isMidPoint else '[BIG]' if isBigPoint else '')
 
             if isBigPoint:
@@ -279,5 +281,5 @@ if __name__ == "__main__":
             print(f'Unrecognized argument "{args[0]}"')
             args = args[1:]
             
-    walk(exponent, factored, debug=debug, B1=fixedB1, B2=fixedB2, useP1Trick=False)
+    walk(exponent, factored, debug=debug, B1=fixedB1, B2=fixedB2, useP1Trick=True)
     # print(middle(exponent, factored, fixedB1))
