@@ -193,11 +193,12 @@ P1State Saver::loadP1(u32 b1, u32 k) {
   }
   
   assert(fileE == E && fileB1 == b1 && fileK == k);
-  return {k, fi.readWithCRC<u32>(nWords(E), crc)};
+  return {nextK, fi.readWithCRC<u32>(nWords(E), crc)};
 }
 
 void Saver::save(u32 b1, u32 k, const P1State& state) {
   assert(state.data.size() == nWords(E));
+  assert(state.nextK == 0 || state.nextK >= k);
 
   {
     File fo = File::openWrite(pathP1(b1, k));

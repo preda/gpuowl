@@ -57,8 +57,8 @@ void Args::printHelp() {
 -log <step>        : log every <step> iterations. Multiple of 10'000.
 -jacobi <step>     : (LL-only): do Jacobi check every <step> iterations. Default 1'000'000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
--B1                : P-1 B1 bound, default %u
--B2                : P-1 B2 bound, default B1 * 30
+-B1                : P-1 B1 bound
+-B2                : P-1 B2 bound
 -rB2               : ratio of B2 to B1. Default %u, used only if B2 is not explicitly set
 -cleanup           : delete save files at end of run
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
@@ -79,7 +79,7 @@ void Args::printHelp() {
 -safeMath          : do not use -cl-unsafe-math-optimizations (OpenCL)
 -binary <file>     : specify a file containing the compiled kernels binary
 -device <N>        : select a specific device:
-)", B1, B2_B1_ratio);
+)", B2_B1_ratio);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
@@ -165,8 +165,8 @@ void Args::parse(string line) {
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
     else if (key == "-pm1" || key == "-PM1") { pm1Exp = stoll(s); }
-    else if (key == "-B1") { B1 = stoi(s); }
-    else if (key == "-B2") { B2 = stoi(s); }
+    else if (key == "-B1" || key == "-b1") { B1 = stoi(s); }
+    else if (key == "-B2" || key == "-b2") { B2 = stoi(s); }
     else if (key == "-rB2") { B2_B1_ratio = stoi(s); }
     else if (key == "-fft") { fftSpec = s; }
     else if (key == "-dump") { dump = s; }

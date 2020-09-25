@@ -98,6 +98,7 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
 }
 
 void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) const {
+  assert(B1);
   bool hasFactor = !factor.empty();
 
   // An approximation: if no factor is found, we know stage2 was done. Otherwise be 'conservative' and assume not done.
@@ -113,7 +114,7 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) c
 }
 
 void Task::adjustBounds(Args& args) {
-  if (kind == PRP && wantsPm1) {
+  if (kind == PRP && (wantsPm1 || args.B1 || args.B2)) {
     if (B1 == 0) { B1 = args.B1 ? args.B1 : (u32(exponent * 1e-7f + .5f) * 500'000); }
     if (B2 == 0) { B2 = args.B2 ? args.B2 : (B1 * args.B2_B1_ratio); }
     /*
@@ -144,8 +145,12 @@ void Task::execute(const Args& args) {
 
   if (kind == PRP) {    
     auto [factor, isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(exponent, args, B1, B2);
-    
-    writeResultPM1(args, factor, fftSize);
+
+    if (B1) {
+      writeResultPM1(args, factor, fftSize);
+    } else {
+      assert(factor.empty());
+    }
     
     if (factor.empty()) {
       writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);

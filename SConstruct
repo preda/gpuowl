@@ -14,7 +14,8 @@ AlwaysBuild(Command('gpuowl-wrap.cpp', ['gpuowl-expanded.cl'], 'cat head.txt gpu
 
 LIBPATH=['/opt/rocm-3.3.0/opencl/lib/x86_64', '/opt/rocm-3.5.0/opencl/lib']
 
-config = '-g -O2'
+config = '-g'
+#config = '-g -O2'
 #-fsanitize=address'
 # -fstack-protector-strong -static-libasan'
 #config = '-O2'

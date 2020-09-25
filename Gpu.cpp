@@ -1123,10 +1123,11 @@ public:
       }
     }
     assert(sum < bufs.size());
+    assert(i <= bits.size());
     
     nextK = (i == bits.size()) ? 0 : i;
 
-    assert(nextK < bits.size() && bits[nextK]);
+    assert(nextK == 0 || bits[nextK]);
 
     assert(engaged.size() == bufs.size());
     if (engaged[sum]) {
@@ -1269,7 +1270,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
 
   u32 nSelected = 0;
 
-  constexpr const u32 blockMulti = Pm1Plan::D / 210;
+  constexpr const u32 blockMulti = 2310 / Pm1Plan::D;
 
   for (u32 block = 0; block < selected.size(); ++block) {
     auto bits = selected[block];
@@ -1284,6 +1285,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
     }
     
     big.step(buf1);
+
+    // log("block %u selected %u\n", block, nSelected);
     
     if (block % (10 * blockMulti) == 0) {
       queue->finish();
@@ -1292,6 +1295,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
         if (!factor.empty()) {
           log("P2 %u GCD FACTOR %s\n", E, factor.c_str());
           gcdFuture = async([factor](){ return factor; });
+          return;
         } else {
           log("P2 %u GCD no factor yet..\n", E);
         }
@@ -1299,7 +1303,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
       
       if (block % (100 * blockMulti) == 0) {
         u32 n = selected.size();
-        log("P2 block %u of %u (%2.0f%%); %u muls took %.1f s", block, n, block * (100.0f / n), nSelected, timer.deltaSecs());
+        log("P2 block %u of %u (%2.0f%%); %u muls took %.1f s\n", block, n, block * (100.0f / n), nSelected, timer.deltaSecs());
         nSelected = 0;
         
         if (block % (2000 * blockMulti) == 0) {
@@ -1414,6 +1418,8 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
 
   assert(k % blockSize == 0);
   assert(checkStep % blockSize == 0);
+
+  bool b1JustFinished = false;
   
   while (true) {
     assert(k < kEndEnd);   
@@ -1425,6 +1431,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
     }
 
     u32 nextK = k + 1;
+    assert(b1Acc.wantK() == 0 || b1Acc.wantK() >= nextK);
     bool leadOut = (nextK % blockSize == 0) || nextK == persistK || nextK == kEnd || nextK == b1Acc.wantK() || useLongCarry;
 
     coreStep(bufData, bufData, leadIn, leadOut, false);
@@ -1444,7 +1451,14 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
     }
 
-    if (k == b1Acc.wantK()) { b1Acc.step(k, bufData); }
+    if (k == b1Acc.wantK()) {
+      b1Acc.step(k, bufData);
+      if (!b1Acc.wantK()) {
+        b1JustFinished = true;
+      } else {
+        assert(b1Acc.wantK() > k);
+      }
+    }
     
     if (k % blockSize == 0) {
       if (!args.noSpin) { spin(); }
@@ -1463,17 +1477,25 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
         signal.release();
       }
 
-      bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+      bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
 
       if (doCheck) {
         if (displayRoundoff) { printRoundoff(E); }
       
         u64 res64 = dataResidue();
         PRPState prpState{k, blockSize, res64, readCheck(), nErrors};
-        bool ok = this->doCheck(blockSize, buf1, buf2, buf3);
-      
+        bool ok = this->doCheck(blockSize, buf1, buf2, buf3);        
+        
         if (ok) {
+          skipNextCheckUpdate = true;
+          double timeWithoutSave = itTimer.reset(k);
+                    
           Words b1Data = b1Acc.save(k);
+          b1JustFinished = false;
+
+          if (k < kEnd) { saver.save(prpState); }
+          doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
+                    
           if (!b1Data.empty()) {
             log("%u : B1 completed. Will start GCD\n", k);
             assert(!gcdFuture.valid());
@@ -1481,10 +1503,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
 
             if (!b1Acc.wantK()) { doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture); }
           }
-          skipNextCheckUpdate = true;
-          double timeWithoutSave = itTimer.reset(k);
-          if (k < kEnd) { saver.save(prpState); }
-          doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
+          
           if (k >= kEndEnd) {
             fs::path proofPath;
             if (proofSet.power > 0) {

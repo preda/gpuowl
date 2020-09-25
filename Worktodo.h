@@ -14,7 +14,11 @@ public:
   static bool deleteTask(const Task &task);
   static void deletePRP(u32 exponent);
   
-  static Task makePRP(Args &args, u32 exponent) { return Task{Task::PRP, exponent}; }
+  static Task makePRP(Args &args, u32 exponent) {
+    Task task{Task::PRP, exponent};
+    task.adjustBounds(args);
+    return task;
+  }
 
   /*
   static Task makePM1(Args &args, u32 exponent) {
