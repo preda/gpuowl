@@ -993,6 +993,23 @@ class B1Accumulator {
     engaged.clear();
   }
 
+  void alloc() {
+    if (bits.empty()) {
+      Timer timer;
+      bits = powerSmoothLSB(E, b1);
+      log("powerSmooth(%u), %u bits, took %.2fs (CPU)\n", b1, u32(bits.size()), timer.elapsedSecs());
+    }
+
+    if (bufs.empty()) {
+      assert(engaged.empty());
+      bufs = gpu->makeBufVector(maxBufs);        
+      log("B1: allocating %u buffers\n", maxBufs);
+    }
+
+    engaged.clear();
+    engaged.resize(maxBufs);
+  }
+  
   vector<u32> fold() {
     if (b1 == 0) { return {}; }
     
@@ -1076,33 +1093,26 @@ public:
     if (!b1 || k > nBits) {
       release();
       nextK = 0;
-      maxBufs = 0;
-    } else {
-      if (bits.empty()) {
-        Timer timer;
-        bits = powerSmoothLSB(E, b1);
-        log("powerSmooth(%u), %u bits, took %.2fs (CPU)\n", b1, u32(bits.size()), timer.elapsedSecs());
-      }
-
-      if (bufs.empty()) {
-        assert(engaged.empty());
-        bufs = gpu->makeBufVector(maxBufs);        
-        log("B1: allocating %u buffers\n", maxBufs);
-      }
-
-      engaged.clear();
-      engaged.resize(maxBufs);
-
-      if (k) {
-        auto [loadNextK, data] = saver->loadP1(b1);
-        nextK = loadNextK;
-        gpu->writeIn(bufs[0], data);
-        engaged[0] = true;
-      } else {
-        nextK = findFirstBitSet();
-        log("Starting B1=%u, first bit %u\n", b1, nextK);
-      }
+      return;
     }
+
+    if (k == 0) {
+      alloc();
+      nextK = findFirstBitSet();
+      log("Starting B1=%u, first bit %u\n", b1, nextK);
+      return;
+    }
+
+    auto [loadNextK, data] = saver->loadP1(b1);
+    nextK = loadNextK;
+    if (!nextK) {
+      release();
+      return;
+    }
+
+    alloc();
+    gpu->writeIn(bufs[0], data);
+    engaged[0] = true;
   }
 
   void step(u32 kAt, Buffer<int>& data) {
@@ -1216,9 +1226,6 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
   auto [nextK, p1Data] = saver->loadP1(b1);
   assert(nextK == 0);
 
-  // Pm1Plan<210> smallP2;
-  // Pm1Plan<2310> bigP2;
-
   auto [startBlock, selected] = Pm1Plan::makePm1Plan(b1, doneB2, b2);
   assert(startBlock > 0);
   assert(!selected.empty());
@@ -1238,7 +1245,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
   fftP(buf2, bufData);
   tW(buf1, buf2);
   tailSquare(buf2, buf1);
-  tH(bufAcc, buf2);  // Save bufAcc for later use as an accumulator
+  tH(bufAcc, buf2);  // Save bufAcc for later use as accumulator
 
   // buf3 takes "data" in low position, used in initializing the SquaringSets below.
   doCarry(buf3, bufAcc);
@@ -1262,6 +1269,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
 
   exponentiateLow(buf1, buf3, Pm1Plan::D * Pm1Plan::D, buf2, buf3); // base^(D^2)  
   SquaringSet big{*this, N, buf1, buf2, buf3, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "big"};
+
+  Buffer<int> bufP2Data{queue, "p2Data", N};
   
   queue->finish();
   log("Setup %u P2 buffers in %.1f ms\n", Pm1Plan::J, timer.deltaSecs() * 1000);
@@ -1272,8 +1281,13 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
 
   constexpr const u32 blockMulti = 2310 / Pm1Plan::D;
 
+  bool pastHalfway = false;
+
   for (u32 block = 0; block < selected.size(); ++block) {
-    auto bits = selected[block];
+    const auto& bits = selected[block];
+
+    const u32 blockEndB2 = (startBlock + block) * Pm1Plan::D + Pm1Plan::D/2;
+    
     for (u32 i = 0; i < Pm1Plan::J; ++i) {
       if (bits[i]) {
         ++nSelected;
@@ -1288,8 +1302,11 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
 
     // log("block %u selected %u\n", block, nSelected);
     
-    if (block % (10 * blockMulti) == 0) {
+    if (block % blockMulti == 0) {
+      if (!args.noSpin) { spin(); }
+      
       queue->finish();
+      
       if (finished(gcdFuture)) {
         string factor = gcdFuture.get();
         if (!factor.empty()) {
@@ -1300,31 +1317,38 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
           log("P2 %u GCD no factor yet..\n", E);
         }
       }
+
+      bool doLog = block % (100 * blockMulti) == 0;
       
-      if (block % (100 * blockMulti) == 0) {
+      if (doLog) {
         u32 n = selected.size();
-        log("P2 block %u of %u (%2.0f%%); %u muls took %.1f s\n", block, n, block * (100.0f / n), nSelected, timer.deltaSecs());
+        log("P2 : B2 %u/%u (%2.0f%%); %u muls, %.0f us/mul\n", blockEndB2, b2, block * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
         nSelected = 0;
+
+        bool prevPastHalfway = pastHalfway;
+        pastHalfway = block >= selected.size() / 2;
         
-        if (block % (2000 * blockMulti) == 0) {
-          if (!gcdFuture.valid()) {
-            log("Starting partial GCD\n");
-            fftW(buf1, bufAcc);
-            carryA(bufData, buf1);
-            carryB(bufData);
-            gcdFuture = async(launch::async, [E=E, b1, block, data=readData(), saver]() {
-              string factor = GCD(E, data, 0);
-              if (!factor.empty()) { return factor; }
-              saver->saveP2(b1, block * Pm1Plan::D + Pm1Plan::D/2);
-              return ""s;
-            });
-          }
-        }        
-      } else {
-        if (!args.noSpin) { spin(); }
+        bool atHalfway = !prevPastHalfway && pastHalfway;
+        bool itsBeenAWhile = block % (500 * blockMulti) == 0;
+        bool atEnd = block == selected.size() - 1;
+        bool doGCD = atEnd || ((itsBeenAWhile || atHalfway) && !gcdFuture.valid());
+        
+        if (doGCD) {
+          log("Starting GCD\n");
+          fftW(buf1, bufAcc);
+          carryA(bufP2Data, buf1);
+          carryB(bufP2Data);
+          Words p2Data = readAndCompress(bufP2Data);
+          gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
+            string factor = GCD(E, p2Data, 0);
+            if (!factor.empty()) { return factor; }
+            saver->saveP2(b1, blockEndB2);
+            return ""s;
+          });
+        }
       }
     }
-  }  
+  }
 }
 
 PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
@@ -1501,7 +1525,10 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
             assert(!gcdFuture.valid());
             gcdFuture = async(launch::async, GCD, E, b1Data, 1);
 
-            if (!b1Acc.wantK()) { doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture); }
+            if (!b1Acc.wantK()) {
+              doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture);
+              
+            }
           }
           
           if (k >= kEndEnd) {
