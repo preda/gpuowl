@@ -980,10 +980,8 @@ class B1Accumulator {
   }
 
   void release() {
-    if (!bits.empty()) {
-      log("B1 %u: releasing %u bits\n", b1, u32(bits.size()));
-      bits.clear();
-    }
+    if (!bits.empty()) { bits.clear(); }
+    // log("B1 %u: releasing %u bits\n", b1, u32(bits.size()));
     
     if (!bufs.empty()) {
       log("B1 %u: releasing %u buffers\n", b1, u32(bufs.size()));
@@ -1016,10 +1014,57 @@ class B1Accumulator {
     u32 n = bufs.size();
     assert(n > 1 && engaged.size() == n);
     
-    Timer timer;
-    
-    if (!engaged[n - 1]) { bufs[n - 1].set(1); }
+    u32 nEngaged = std::accumulate(engaged.begin(), engaged.end(), 0);
 
+    Words ret;
+
+    Timer timer;
+    if (nEngaged == 0) {
+      ret.resize((E-1)/32 +1);
+      ret[0] = 1;
+    } else {
+      if (nEngaged > 1 || !engaged[0]) {
+        Buffer<int>* pBuf = engaged[n-1] ? &bufs[n - 1] : nullptr;
+        
+        for (int i = n-2; i > 0; --i) {
+          if (engaged[i]) {
+            if (pBuf) { gpu->mul(bufs[i], *pBuf); }
+            pBuf = &bufs[i];
+          }
+          if (pBuf) {
+            if (engaged[n-1]) {
+              gpu->mul(bufs[n-1], *pBuf);
+            } else {
+              bufs[n-1] << *pBuf;
+              engaged[n-1] = true;
+            }
+          }
+        }
+        assert(engaged[n-1]);
+        
+        gpu->square(bufs[n-1]);
+    
+        if (engaged[0]) {
+          if (pBuf) { gpu->mul(bufs[0], *pBuf); }
+          pBuf = &bufs[0];
+        }
+        
+        gpu->mul(bufs[0], *pBuf, bufs[n-1]);
+        engaged.clear();
+        engaged.resize(n);
+        engaged[0] = true;
+      }
+
+      assert(engaged[0]);
+      ret = gpu->readAndCompress(bufs[0]);     
+    }
+
+    log("B1 fold(%u) (%u set) took %.2fs\n", n, nEngaged, timer.deltaSecs());
+    return ret;
+  }
+
+    /*
+    if (!engaged[n - 1]) { bufs[n - 1].set(1); }
     Buffer<int>* pBuf = &bufs[n - 1];
     for (int i = n-2; i > 0; --i) {      
       if (engaged[i]) {
@@ -1028,25 +1073,7 @@ class B1Accumulator {
       }
       gpu->mul(bufs[n-1], *pBuf);
     }
-    
-    gpu->square(bufs[n-1]);
-    
-    if (engaged[0]) {
-      gpu->mul(bufs[0], *pBuf);
-      pBuf = &bufs[0];
-    }
-        
-    gpu->mul(bufs[0], *pBuf, bufs[n-1]);    
-    gpu->finish();
-    log("B1 fold(%u) took %.2fs\n", n, timer.deltaSecs());
-
-    for (u32 i = 1; i < n; ++i) { engaged[i] = false; }
-    engaged[0] = true;
-
-    auto ret = gpu->readAndCompress(bufs[0]);
-    log("B1 read took %.2fs\n", timer.deltaSecs());
-    return ret;
-  }
+    */
 
   Gpu* gpu;
   Saver* saver;
@@ -1213,6 +1240,15 @@ template<typename Future> bool finished(const Future& f) {
   return f.valid() && f.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready;
 }
 
+template<typename Future> bool wait(const Future& f) {
+  if (f.valid()) {
+    f.wait();
+    return true;
+  } else {
+    return false;
+  }
+}
+
 template<typename Pm1Plan>
 void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
   assert(b1 && b2 && b2 > b1);
@@ -1240,9 +1276,10 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
   log("Allocated %u P2 buffers\n", Pm1Plan::J);
 
   Buffer<double> bufAcc{queue, "Acc", N};  // Second-stage accumulator.
+  Buffer<int> bufP2Data{queue, "p2Data", N};
   
-  writeData(p1Data);
-  fftP(buf2, bufData);
+  writeIn(bufP2Data, p1Data);
+  fftP(buf2, bufP2Data);
   tW(buf1, buf2);
   tailSquare(buf2, buf1);
   tH(bufAcc, buf2);  // Save bufAcc for later use as accumulator
@@ -1251,6 +1288,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
   doCarry(buf3, bufAcc);
   tW(buf1, buf3);
   fftHin(buf3, buf1);
+
+  p1Data.clear();
   
   {
     constexpr auto jset = Pm1Plan::getJset();
@@ -1269,8 +1308,6 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
 
   exponentiateLow(buf1, buf3, Pm1Plan::D * Pm1Plan::D, buf2, buf3); // base^(D^2)  
   SquaringSet big{*this, N, buf1, buf2, buf3, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "big"};
-
-  Buffer<int> bufP2Data{queue, "p2Data", N};
   
   queue->finish();
   log("Setup %u P2 buffers in %.1f ms\n", Pm1Plan::J, timer.deltaSecs() * 1000);
@@ -1280,6 +1317,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
   u32 nSelected = 0;
 
   constexpr const u32 blockMulti = 2310 / Pm1Plan::D;
+  assert(blockMulti > 0);
 
   bool pastHalfway = false;
 
@@ -1300,55 +1338,56 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
     
     big.step(buf1);
 
-    // log("block %u selected %u\n", block, nSelected);
+    bool atEnd = block == selected.size() - 1;
+    if (atEnd) { wait(gcdFuture); }
     
-    if (block % blockMulti == 0) {
-      if (!args.noSpin) { spin(); }
-      
-      queue->finish();
-      
-      if (finished(gcdFuture)) {
-        string factor = gcdFuture.get();
-        if (!factor.empty()) {
-          log("P2 %u GCD FACTOR %s\n", E, factor.c_str());
-          gcdFuture = async([factor](){ return factor; });
-          return;
-        } else {
-          log("P2 %u GCD no factor yet..\n", E);
-        }
+    if (finished(gcdFuture)) {
+      string factor = gcdFuture.get();
+      if (!factor.empty()) {
+        log("P2 %u GCD FACTOR %s\n", E, factor.c_str());
+        gcdFuture = async([factor](){ return factor; });
+        return;
+      } else {
+        log("P2 %u GCD no factor yet..\n", E);
       }
+    }
 
-      bool doLog = block % (100 * blockMulti) == 0;
+    if (block % blockMulti == 0) {
+      if (!args.noSpin) { spin(); }      
+      queue->finish();
+    }
       
-      if (doLog) {
-        u32 n = selected.size();
-        log("P2 : B2 %u/%u (%2.0f%%); %u muls, %.0f us/mul\n", blockEndB2, b2, block * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
-        nSelected = 0;
-
-        bool prevPastHalfway = pastHalfway;
-        pastHalfway = block >= selected.size() / 2;
+    bool doLog = atEnd || block % (100 * blockMulti) == 0;
+      
+    if (doLog) {
+      u32 n = selected.size();
+      log("P2 : B2 %u/%u (%2.0f%%); %u muls, %.0f us/mul\n", blockEndB2, b2, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
+      nSelected = 0;
+      
+      bool prevPastHalfway = pastHalfway;
+      pastHalfway = block >= selected.size() / 2;
+      
+      bool atHalfway = !prevPastHalfway && pastHalfway;
+      bool itsBeenAWhile = block % (500 * blockMulti) == 0;
+      
+      bool doGCD = atEnd || ((itsBeenAWhile || atHalfway) && !gcdFuture.valid());
         
-        bool atHalfway = !prevPastHalfway && pastHalfway;
-        bool itsBeenAWhile = block % (500 * blockMulti) == 0;
-        bool atEnd = block == selected.size() - 1;
-        bool doGCD = atEnd || ((itsBeenAWhile || atHalfway) && !gcdFuture.valid());
-        
-        if (doGCD) {
-          log("Starting GCD\n");
-          fftW(buf1, bufAcc);
-          carryA(bufP2Data, buf1);
-          carryB(bufP2Data);
-          Words p2Data = readAndCompress(bufP2Data);
-          gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
-            string factor = GCD(E, p2Data, 0);
-            if (!factor.empty()) { return factor; }
-            saver->saveP2(b1, blockEndB2);
-            return ""s;
-          });
-        }
+      if (doGCD) {
+        log("Starting %s GCD\n", atEnd ? "final" : "intermediary");
+        fftW(buf1, bufAcc);
+        carryA(bufP2Data, buf1);
+        carryB(bufP2Data);
+        Words p2Data = readAndCompress(bufP2Data);
+        gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
+          string factor = GCD(E, p2Data, 0);
+          if (!factor.empty()) { return factor; }
+          saver->saveP2(b1, blockEndB2);
+          return ""s;
+        });
       }
     }
   }
+  queue->finish();
 }
 
 PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
@@ -1521,13 +1560,12 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
           doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
                     
           if (!b1Data.empty()) {
-            log("%u : B1 completed. Will start GCD\n", k);
+            log("%u : B1 completed. Starting GCD\n", k);
             assert(!gcdFuture.valid());
             gcdFuture = async(launch::async, GCD, E, b1Data, 1);
 
             if (!b1Acc.wantK()) {
-              doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture);
-              
+              doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture);              
             }
           }
           
