@@ -21,6 +21,7 @@ struct Args;
 struct PRPResult;
 struct PRPState;
 class Saver;
+class Signal;
 
 using double2 = pair<double, double>;
 
@@ -170,7 +171,7 @@ class Gpu {
   u32 maxBuffers();
 
   template<typename Pm1Plan>
-  void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture);
+  void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
   
 public:
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);

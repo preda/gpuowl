@@ -1229,7 +1229,7 @@ template<typename Future> bool wait(const Future& f) {
 }
 
 template<typename Pm1Plan>
-void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
+void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {
   assert(b1 && b2 && b2 > b1);
 
   bool printStats = args.flags.count("STATS");
@@ -1337,8 +1337,9 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
       if (!args.noSpin) { spin(); }      
       queue->finish();
     }
-      
-    bool doLog = atEnd || block % (50 * blockMulti) == 0;
+
+    bool doStop = signal.stopRequested();
+    bool doLog = atEnd || doStop || block % (50 * blockMulti) == 0;
       
     if (doLog) {
       if (printStats) { printRoundoff(E); }
@@ -1361,10 +1362,14 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
       bool atHalfway = !prevPastHalfway && pastHalfway;
       bool itsBeenAWhile = block % (500 * blockMulti) == 0;
       
-      bool doGCD = atEnd || ((itsBeenAWhile || atHalfway) && !gcdFuture.valid());
+      bool doGCD = atEnd || doStop || ((itsBeenAWhile || atHalfway) && !gcdFuture.valid());
         
       if (doGCD) {
-        log("Starting %s GCD\n", atEnd ? "final" : "intermediary");
+        if (doStop) {
+          log("Stopping, wait for GCD..\n");
+        } else {
+          log("Starting %s GCD\n", atEnd ? "final" : "intermediary");
+        }
         fftW(buf1, bufAcc);
         carryA(bufP2Data, buf1);
         carryB(bufP2Data);
@@ -1377,6 +1382,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
         });
       }
     }
+    if (doStop) { break; }
   }
   queue->finish();
 }
@@ -1396,6 +1402,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
   Saver saver{E, args.nSavefiles, {b1}};
   B1Accumulator b1Acc{this, &saver, E, b1, b1MaxBufs};
   future<string> gcdFuture;
+  Signal signal;
   
  reload:
   {
@@ -1403,7 +1410,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
     b1Acc.load(loaded.k);
 
     if (b1 && !b1Acc.wantK()) {
-      doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture);
+      doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture, signal);
       if (finished(gcdFuture)) {
         string factor = gcdFuture.get();        
         if (!factor.empty()) { return {factor}; }
@@ -1446,8 +1453,6 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
   
   ProofSet proofSet{args.tmpDir, E, power};
 
-  Signal signal;
-
   // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
   int nSeqErrors = 0;
 
@@ -1476,7 +1481,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
   bool b1JustFinished = false;
   
   while (true) {
-    assert(k < kEndEnd);   
+    assert(k < kEndEnd);
 
     if (skipNextCheckUpdate) {
       skipNextCheckUpdate = false;
@@ -1517,16 +1522,16 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
 
       queue->finish();
 
-      if (finished(gcdFuture)) {
-        string gcd = gcdFuture.get();
-        log("%u GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-        if (!gcd.empty()) { return {gcd}; }        
-      }
-
       bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
       if (doStop) {
         log("Stopping, please wait..\n");
         signal.release();
+      }
+      
+      if (finished(gcdFuture) || (doStop && wait(gcdFuture))) {
+        string gcd = gcdFuture.get();
+        log("%u GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
+        if (!gcd.empty()) { return {gcd}; }        
       }
 
       bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
@@ -1539,6 +1544,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
         bool ok = this->doCheck(blockSize, buf1, buf2, buf3);        
         
         if (ok) {
+          nSeqErrors = 0;      
           skipNextCheckUpdate = true;
           double timeWithoutSave = itTimer.reset(k);
                     
@@ -1553,8 +1559,8 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
             assert(!gcdFuture.valid());
             gcdFuture = async(launch::async, GCD, E, b1Data, 1);
 
-            if (!b1Acc.wantK()) {
-              doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture);              
+            if (!b1Acc.wantK() && !doStop) {
+              doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture, signal);              
             }
           }
           
@@ -1570,7 +1576,6 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
             }
             return {"", isPrime, finalRes64, nErrors, proofPath.string()};
           }
-          nSeqErrors = 0;      
         } else {
           doBigLog(E, k, res64, ok, itTimer.reset(k), kEndEnd, nErrors);
           ++nErrors;
@@ -1578,11 +1583,16 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
             log("%d sequential errors, will stop.\n", nSeqErrors);
             throw "too many errors";
           }
-          goto reload;
+          if (!doStop) { goto reload; }
         }
         
         logTimeKernels();
-        if (doStop) { throw "stop requested"; }
+        
+        if (doStop) {
+          assert(!gcdFuture.valid());
+          throw "stop requested";
+        }
+        
         itTimer.reset(k);
       }
     }
