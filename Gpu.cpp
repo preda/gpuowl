@@ -801,13 +801,24 @@ static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
-static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
+[[maybe_unused]] static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
   log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters).c_str());
 }
 
 [[maybe_unused]] static void logPm1Stage2(u32 E, float ratioComplete) {
   char buf[256];
   snprintf(buf, sizeof(buf), "%u %2s %5.2f%%\n", E, "P2", ratioComplete * 100);
+}
+
+[[maybe_unused]] int nFitBufs(cl_device_id device, size_t bufSize) {
+  // log("availableBytes %lu\n", AllocTrac::availableBytes());
+  int n = AllocTrac::availableBytes() / bufSize;  
+  if (hasFreeMemInfo(device)) {
+    // log("freemem %lu\n", getFreeMem(device));
+    int n2 = (i64(getFreeMem(device)) - 256 * 1024 * 1024) / bufSize;
+    n = std::min(n, n2);
+  }
+  return n;
 }
 
 bool Gpu::equals9(const Words& a) {
@@ -853,17 +864,6 @@ u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
     case 1:  return 100'000;
     default: return  50'000;
   }
-}
-
-int nFitBufs(cl_device_id device, size_t bufSize) {
-  // log("availableBytes %lu\n", AllocTrac::availableBytes());
-  int n = AllocTrac::availableBytes() / bufSize;  
-  if (hasFreeMemInfo(device)) {
-    // log("freemem %lu\n", getFreeMem(device));
-    int n2 = (i64(getFreeMem(device)) - 256 * 1024 * 1024) / bufSize;
-    n = std::min(n, n2);
-  }
-  return n;
 }
 
 template<typename To, typename From> To pun(From x) {
@@ -1598,211 +1598,3 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
     }
   }
 }
-
-/*
-std::variant<string, vector<u32>> Gpu::factorPM1(u32 E, const Args& args, u32 B1, u32 B2) {
-  assert(B1 && B2 && B2 >= B1);
-  bufCheck.reset();
-
-  if (!args.maxAlloc && !hasFreeMemInfo(device)) {
-    log("%u P1 must specify -maxAlloc <MBytes> to limit GPU memory to use\n", E);
-    throw("missing -maxAlloc");
-  }
-  
-  vector<bool> bits = powerSmoothMSB(E, B1);
-
-  // --- Stage 1 ---
-
-  u32 kBegin = 0;
-  {
-    P1State loaded{E, B1};
-    assert(loaded.nBits == bits.size() || loaded.k == 0);
-    assert(loaded.data.size() == (E - 1) / 32 + 1);
-    writeData(loaded.data);
-    kBegin = loaded.k;
-  }
-
-  const u32 kEnd = bits.size();
-  log("%u P1 B1=%u, B2=%u; %u bits; starting at %u\n", E, B1, B2, kEnd, kBegin);
-
-  Signal signal;
-  // TimeInfo timeInfo;
-  // Timer timer;
-  Timer saveTimer;
-  IterationTimer itTimer{kBegin};
-
-  assert(kEnd > 0);
-  assert(bits.front() && !bits.back());
-
-  bool leadIn = true;
-  for (u32 k = kBegin; k < kEnd - 1; ++k) {
-    bool isAtEnd = k == kEnd - 2;
-    bool doLog = (k + 1) % 10000 == 0; // || isAtEnd;
-    bool doStop = signal.stopRequested();
-    if (doStop) { log("Stopping, please wait..\n"); }
-    bool doSave = doStop || saveTimer.elapsedSecs() > 300 || isAtEnd;
-    bool leadOut = useLongCarry || doLog || doSave;
-    coreStep(bufData, bufData, leadIn, leadOut, bits[k]);
-    leadIn = leadOut;
-
-    if ((k + 1) % 100 == 0 || doLog || doSave) {
-      queue->finish();
-      // timeInfo.add(timer.delta(), (k + 1) - (k / 100) * 100);
-      if (doLog) {
-        logPm1Stage1(E, k + 1, dataResidue(), itTimer.reset(k + 1), kEnd);
-        logTimeKernels();
-      }
-      if (doSave) {
-        P1State{E, B1, k + 1, u32(bits.size()), readData()}.save();
-        // log("%u P1 saved at %u\n", E, k + 1);
-        saveTimer.reset();
-        if (doStop) { throw "stop requested"; }
-        log("saved\n");
-      }
-    }
-  }
-
-  // See coreStep().
-  if (leadIn) { fftP(buf2, bufData); }
-
-  HostAccessBuffer<double> bufAcc{queue, "acc", N};
-
-  tW(buf1, buf2);
-  tailSquare(buf2, buf1);
-  tH(bufAcc, buf2);			// Save bufAcc for later use as an accumulator
-  fftW(buf2, bufAcc);
-  carryA(bufData, buf2);
-  carryB(bufData);
-
-  u32 beginPos = 0;
-  {
-    P2State loaded{E, B1, B2};
-    if (loaded.k > 0) {
-      if (loaded.raw.size() != N) {
-        log("%u P2 wants %u words but savefile has %u\n", E, N, u32(loaded.raw.size()));
-        throw "P2 savefile FFT size mismatch";
-      }
-      beginPos = loaded.k;
-      bufAcc = loaded.raw;
-      log("%u P2 B1=%u, B2=%u, starting at %u\n", E, B1, B2, beginPos);
-    }
-  }
-
-  future<string> gcdFuture;
-  if (beginPos == 0) {
-    gcdFuture = async(launch::async, GCD, E, readData(), 1);
-    // timeInfo.add(timer.delta(), kEnd - (kEnd / 100) * 100);
-    logPm1Stage1(E, kEnd, dataResidue(), itTimer.reset(kEnd), kEnd);
-  }
-
-  signal.release();
-  
-  // --- Stage 2 ---
-
-  // Take bufData to "low" state stored in bufBase
-  Buffer<double> bufBase{queue, "base", N};
-  fftP(bufBase, bufData);
-  tW(buf1, bufBase);
-  fftHin(bufBase, buf1);
-  
-  auto [startBlock, nPrimes, allSelected] = makePm1Plan(B1, B2);
-  assert(startBlock > 0);  
-  u32 nBlocks = allSelected.size();
-  log("%u P2 using blocks [%u - %u] to cover %u primes\n", E, startBlock, startBlock + nBlocks - 1, nPrimes);
-  
-  exponentiateLow(buf2, bufBase, 30030*30030, buf1, buf3); // Aux := base^(D^2)
-
-  constexpr auto jset = getJset();
-  static_assert(jset[0] == 1);
-  static_assert(jset[2880 - 1] == 15013);
-
-  u32 beginJ = jset[beginPos];
-  SquaringSet little{*this, N, bufBase, buf1, buf3, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
-  SquaringSet bigStart{*this, N, buf2, buf1, buf3, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "bigStart"};
-  bufBase.reset();
-  buf2.reset();
-  SquaringSet big{*this, N, "big"};
-  
-
-  vector<Buffer<double>> blockBufs;
-  try {
-    for (int i = 0, end = std::min(2880/2, nFitBufs(device, sizeof(double) * N)); i < end; ++i) {
-      blockBufs.emplace_back(queue, "p2BlockBuf"s + std::to_string(i), N);
-    }
-  } catch (const gpu_bad_alloc& e) {
-  }
-
-  vector<u32> stage2Data;
-  
-  if (blockBufs.size() < 4) {
-    log("%u P2 Not enough GPU memory. Please wait for GCD\n", E);
-  } else {
-  
-  u32 nBufs = blockBufs.size();
-  log("%u P2 using %u buffers of %.1f MB each\n", E, nBufs, N / (1024.0f * 1024) * sizeof(double));
-  
-  queue->finish();
-  logTimeKernels();
-  Timer timer;
-  
-  u32 prevJ = jset[beginPos];
-  for (u32 pos = beginPos; pos < 2880; pos += nBufs) {
-    u32 nUsedBufs = min(nBufs, 2880 - pos);
-    for (u32 i = 0; i < nUsedBufs; ++i) {
-      int delta = jset[pos + i] - prevJ;
-      prevJ = jset[pos + i];
-      assert((delta & 1) == 0);
-      for (int steps = delta / 2; steps > 0; --steps) { little.step(buf1); }
-      blockBufs[i] << little.C;
-    }
-
-    queue->finish();
-    // logTimeKernels();
-    float setup = timer.deltaSecs();
-
-    u32 nSelected = 0;
-    bool first = true;
-    for (const auto& selected : allSelected) {
-      if (first) {
-        big = bigStart;
-        first = false;
-      } else {
-        big.step(buf1);
-      }
-      for (u32 i = 0; i < nUsedBufs; ++i) {
-        if (selected[pos + i]) {
-          ++nSelected;
-          carryFused(buf1, bufAcc);
-          tW(bufAcc, buf1);
-          tailMulDelta(buf1, bufAcc, big.C, blockBufs[i]);
-          tH(bufAcc, buf1);
-        }
-      }
-      queue->finish();
-      if (gcdFuture.valid() && gcdFuture.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready) {
-        string gcd = gcdFuture.get();
-        log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-        if (!gcd.empty()) { return gcd; }
-      }
-    }
-
-    if (pos + nBufs < 2880) { P2State{E, B1, B2, pos + nBufs, bufAcc.read()}.save(); }
-    log("%u P2 %4u/2880: %u primes; setup %5.2f s, %7.3f ms/prime\n", E, pos + nUsedBufs, nSelected, setup, timer.deltaSecs() * 1000.f / (nSelected + 1));
-    logTimeKernels();
-  }
-
-  fftW(buf1, bufAcc);
-  carryA(bufData, buf1);
-  carryB(bufData);
-  stage2Data = readData();
-  }
-
-  if (gcdFuture.valid()) {
-    string gcd = gcdFuture.get();
-    log("%u P1 GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-    if (!gcd.empty()) { return gcd; }
-  }
-  
-  return stage2Data;
-}
-*/
