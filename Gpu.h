@@ -26,6 +26,8 @@ using double2 = pair<double, double>;
 
 namespace fs = std::filesystem;
 
+inline u64 residue(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
+
 struct PRPResult {
   string factor;
   bool isPrime{};
@@ -184,7 +186,6 @@ public:
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);
-  static u64 residue(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
   
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry);

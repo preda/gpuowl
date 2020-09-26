@@ -220,8 +220,8 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
   // if PRP force carry64 when carry32 might exceed 0x70000000
   // if P-1 force carry64 when carry32 might exceed a very conservative 0x6C000000
   // when using carryFusedMul during P-1 mul-by-3, force carry64 when carry32 might exceed 0x6C000000 / 3.
-  if (FFTConfig::getMaxCarry32(N, E) > (isPm1 ? 0x6C00 : 0x7000)) { defines.push_back({"CARRY64", 1}); }
-  if (isPm1 && FFTConfig::getMaxCarry32(N, E) > 0x6C00 / 3) { defines.push_back({"CARRYM64", 1}); }
+  if (true || FFTConfig::getMaxCarry32(N, E) > (isPm1 ? 0x6C00 : 0x7000)) { defines.push_back({"CARRY64", 1}); }
+  if (true || (isPm1 && FFTConfig::getMaxCarry32(N, E) > 0x6C00 / 3)) { defines.push_back({"CARRYM64", 1}); }
 
   // If we are near the maximum exponent for this FFT, then we may need to set some chain #defines
   // to reduce the round off errors.
@@ -931,18 +931,18 @@ void Gpu::printRoundoff(u32 E) {
   log("Roundoff: N=%u, mean %f, SD %f, CV %f, max %f, z %.1f (pErr %f%%)\n",
       roundN, avg, sdev, sdev / avg, m, z, p * 100);
 
-#if 0
+  // #if 0
   u32 carryN = carry[3];
-  u32 carryAvg = carryN ? read64(&carry[0]) / carryN : 0;
+  u32 carryAvg = carryN ? *(u64*)&carry[0] / carryN : 0;
   u32 carryMax = carry[2];
   
   u32 carryMulN = carryMul[3];
-  u32 carryMulAvg = carryMulN ? read64(&carryMul[0]) / carryMulN : 0;
+  u32 carryMulAvg = carryMulN ? *(u64*)&carryMul[0] / carryMulN : 0;
   u32 carryMulMax = carryMul[2];
 
   log("Carry: N=%u, max %x, avg %x; CarryM: N=%u, max %x, avg %x\n",
       carryN, carryMax, carryAvg, carryMulN, carryMulMax, carryMulAvg);
-#endif
+  // #endif
 }
 
 void Gpu::accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
@@ -1014,66 +1014,42 @@ class B1Accumulator {
     u32 n = bufs.size();
     assert(n > 1 && engaged.size() == n);
     
-    u32 nEngaged = std::accumulate(engaged.begin(), engaged.end(), 0);
-
+    Timer timer;    
     Words ret;
 
-    Timer timer;
+    u32 nEngaged = std::accumulate(engaged.begin(), engaged.end(), 0);
+    
     if (nEngaged == 0) {
       ret.resize((E-1)/32 +1);
       ret[0] = 1;
     } else {
-      if (nEngaged > 1 || !engaged[0]) {
-        Buffer<int>* pBuf = engaged[n-1] ? &bufs[n - 1] : nullptr;
-        
-        for (int i = n-2; i > 0; --i) {
-          if (engaged[i]) {
-            if (pBuf) { gpu->mul(bufs[i], *pBuf); }
-            pBuf = &bufs[i];
-          }
-          if (pBuf) {
-            if (engaged[n-1]) {
-              gpu->mul(bufs[n-1], *pBuf);
-            } else {
-              bufs[n-1] << *pBuf;
-              engaged[n-1] = true;
-            }
-          }
+      int last = n - 1;
+      while (!engaged[last]) { --last; }
+      assert(last >= 0);
+      
+      if (last >= 1) {
+        if (engaged[last - 1]) {
+          gpu->mul(bufs[last - 1], bufs[last]);
+        } else {
+          bufs[last - 1] << bufs[last];
         }
-        assert(engaged[n-1]);
-        
-        gpu->square(bufs[n-1]);
-    
-        if (engaged[0]) {
-          if (pBuf) { gpu->mul(bufs[0], *pBuf); }
-          pBuf = &bufs[0];
+
+        for (int i = last - 2; i >= 0; --i) {
+          gpu->mul(bufs[last], bufs[last - 1]);
+          if (engaged[i]) { gpu->mul(bufs[last - 1], bufs[i]); }
         }
-        
-        gpu->mul(bufs[0], *pBuf, bufs[n-1]);
-        engaged.clear();
-        engaged.resize(n);
-        engaged[0] = true;
+        gpu->square(bufs[last]);
+        gpu->mul(bufs[0], bufs[last - 1], bufs[last]);
       }
-
-      assert(engaged[0]);
-      ret = gpu->readAndCompress(bufs[0]);     
+      
+      engaged[0] = true;
+      for (u32 i = 1; i < n; ++i) { engaged[i] = false; }
+      ret = gpu->readAndCompress(bufs[0]);
     }
-
+    
     log("B1 fold(%u) (%u set) took %.2fs\n", n, nEngaged, timer.deltaSecs());
     return ret;
   }
-
-    /*
-    if (!engaged[n - 1]) { bufs[n - 1].set(1); }
-    Buffer<int>* pBuf = &bufs[n - 1];
-    for (int i = n-2; i > 0; --i) {      
-      if (engaged[i]) {
-        gpu->mul(bufs[i], *pBuf);
-        pBuf = &bufs[i];
-      }
-      gpu->mul(bufs[n-1], *pBuf);
-    }
-    */
 
   Gpu* gpu;
   Saver* saver;
@@ -1093,7 +1069,7 @@ private:
 
 public:
   B1Accumulator(Gpu* gpu, Saver* saver, u32 E, u32 b1, u32 maxBufs)
-    : gpu{gpu}, saver{saver}, E{E}, b1{b1}, nBits{powerSmoothBits(E, b1)}, maxBufs{maxBufs} {
+    : gpu{gpu}, saver{saver}, E{E}, b1{b1}, nBits{powerSmoothBits(E, b1)}, maxBufs{maxBufs} { //681
     assert(maxBufs > 0);
     log("B1=%u (%u bits)\n", b1, nBits);
   }
@@ -1107,6 +1083,7 @@ public:
       assert(k < nBits + 1000);
       
       vector<u32> data = fold();
+      log("B1 at %u res64 %016lx\n", k, residue(data));
       saver->save(b1, k, {nextK, data});
       if (nextK == 0) {
         release();
@@ -1173,6 +1150,8 @@ public:
       bufs[sum] << data;
       engaged[sum] = true;
     }
+    // u32 nEngaged = std::accumulate(engaged.begin(), engaged.end(), 0);
+    // log("* %u [%u] #%u\n", kAt, sum, nEngaged);
   }
 };
 
@@ -1252,6 +1231,8 @@ template<typename Future> bool wait(const Future& f) {
 template<typename Pm1Plan>
 void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
   assert(b1 && b2 && b2 > b1);
+
+  bool printStats = args.flags.count("STATS");
 
   u32 doneB2 = saver->loadP2(b1);
   if (doneB2 >= b2) {
@@ -1357,9 +1338,19 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture) {
       queue->finish();
     }
       
-    bool doLog = atEnd || block % (100 * blockMulti) == 0;
+    bool doLog = atEnd || block % (50 * blockMulti) == 0;
       
     if (doLog) {
+      if (printStats) { printRoundoff(E); }
+
+      {
+        fftW(buf1, bufAcc);
+        carryA(bufP2Data, buf1);
+        carryB(bufP2Data);
+        Words p2Data = readAndCompress(bufP2Data);
+        log("B2 at %u res64 %016lx\n", block, residue(p2Data));
+      }
+            
       u32 n = selected.size();
       log("P2 : B2 %u/%u (%2.0f%%); %u muls, %.0f us/mul\n", blockEndB2, b2, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
       nSelected = 0;
@@ -1472,7 +1463,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
   // We continue beyound kEnd: up to the next multiple of 1024 if proof is enabled (kProofEnd), and up to the next blockSize
   u32 kEndEnd = roundUp(proofSet.kProofEnd(kEnd), blockSize);
 
-  bool displayRoundoff = args.flags.count("STATS");
+  bool printStats = args.flags.count("STATS");
 
   bool skipNextCheckUpdate = false;
 
@@ -1493,13 +1484,11 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
       modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
     }
 
-    u32 nextK = k + 1;
-    assert(b1Acc.wantK() == 0 || b1Acc.wantK() >= nextK);
-    bool leadOut = (nextK % blockSize == 0) || nextK == persistK || nextK == kEnd || nextK == b1Acc.wantK() || useLongCarry;
-
+    ++k; // !! early inc
+    assert(b1Acc.wantK() == 0 || b1Acc.wantK() >= k);
+    bool leadOut = (k % blockSize == 0) || k == persistK || k == kEnd || k == b1Acc.wantK() || useLongCarry;
     coreStep(bufData, bufData, leadIn, leadOut, false);
-    leadIn = leadOut;
-    ++k;
+    leadIn = leadOut;    
     
     if (k == persistK) {
       proofSet.save(k, readData());
@@ -1543,7 +1532,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
       bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
 
       if (doCheck) {
-        if (displayRoundoff) { printRoundoff(E); }
+        if (printStats) { printRoundoff(E); }
       
         u64 res64 = dataResidue();
         PRPState prpState{k, blockSize, res64, readCheck(), nErrors};
