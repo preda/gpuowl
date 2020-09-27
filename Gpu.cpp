@@ -1307,6 +1307,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 
     const u32 blockEndB2 = (startBlock + block) * Pm1Plan::D + Pm1Plan::D/2;
     
+    
     for (u32 i = 0; i < Pm1Plan::J; ++i) {
       if (bits[i]) {
         ++nSelected;
@@ -1319,31 +1320,19 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     
     big.step(buf1);
 
-    bool atEnd = block == selected.size() - 1;
-    if (atEnd) { wait(gcdFuture); }
-    
-    if (finished(gcdFuture)) {
-      string factor = gcdFuture.get();
-      if (!factor.empty()) {
-        log("P2 %u GCD FACTOR %s\n", E, factor.c_str());
-        gcdFuture = async([factor](){ return factor; });
-        return;
-      } else {
-        log("P2 %u GCD no factor yet..\n", E);
-      }
-    }
-
     if (block % blockMulti == 0) {
       if (!args.noSpin) { spin(); }      
       queue->finish();
     }
-
-    bool doStop = signal.stopRequested();
+    
+    bool doStop = signal.stopRequested();    
+    bool atEnd = block == selected.size() - 1;
     bool doLog = atEnd || doStop || block % (50 * blockMulti) == 0;
       
     if (doLog) {
       if (printStats) { printRoundoff(E); }
 
+#if 0
       {
         fftW(buf1, bufAcc);
         carryA(bufP2Data, buf1);
@@ -1351,6 +1340,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         Words p2Data = readAndCompress(bufP2Data);
         log("B2 at %u res64 %016lx\n", block, residue(p2Data));
       }
+#endif 
             
       u32 n = selected.size();
       log("P2 : B2 %u/%u (%2.0f%%); %u muls, %.0f us/mul\n", blockEndB2, b2, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
@@ -1376,13 +1366,25 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         Words p2Data = readAndCompress(bufP2Data);
         gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
           string factor = GCD(E, p2Data, 0);
-          if (!factor.empty()) { return factor; }
           saver->saveP2(b1, blockEndB2);
-          return ""s;
-        });
+          return factor;
+        });        
       }
     }
-    if (doStop) { break; }
+    
+    if (atEnd || doStop) { wait(gcdFuture); }
+      
+    if (finished(gcdFuture)) {
+      string factor = gcdFuture.get();
+      if (!factor.empty()) {
+        log("P2 %u GCD FACTOR %s\n", E, factor.c_str());
+        gcdFuture = async([factor](){ return factor; });
+        return;
+      } else {
+        log("P2 %u GCD no factor yet..\n", E);
+        if (doStop) { throw "stop requested"; }
+      }
+    }
   }
   queue->finish();
 }
@@ -1408,14 +1410,6 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
   {
     PRPState loaded = saver.loadPRP(args.blockSize);
     b1Acc.load(loaded.k);
-
-    if (b1 && !b1Acc.wantK()) {
-      doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture, signal);
-      if (finished(gcdFuture)) {
-        string factor = gcdFuture.get();        
-        if (!factor.empty()) { return {factor}; }
-      }
-    }
     
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
     
@@ -1435,6 +1429,14 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
   }
 
   assert(blockSize > 0 && 10000 % blockSize == 0);
+
+  if (b1 && !b1Acc.wantK()) {
+    doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture, signal);
+    if (finished(gcdFuture)) {
+      string factor = gcdFuture.get();        
+      if (!factor.empty()) { return {factor}; }
+    }
+  }
   
   u32 checkStep = checkStepForErrors(args.logStep, nErrors);
 
