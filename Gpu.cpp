@@ -1228,6 +1228,17 @@ template<typename Future> bool wait(const Future& f) {
   }
 }
 
+void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {
+  LogContext pushContext{"P2"};
+  
+  u32 bufSize = N * sizeof(double);
+  if (AllocTrac::availableBytes() / bufSize - 5 >= Pm1Plan<2310>::J) {
+    doP2<Pm1Plan<2310>>(saver, b1, b2, gcdFuture, signal);
+  } else {
+    doP2<Pm1Plan<210>>(saver, b1, b2, gcdFuture, signal);
+  }
+}
+
 template<typename Pm1Plan>
 void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {
   assert(b1 && b2 && b2 > b1);
@@ -1236,7 +1247,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 
   u32 doneB2 = saver->loadP2(b1);
   if (doneB2 >= b2) {
-    log("P2(%u,%u) already finished\n", b1, b2);
+    log("(%u,%u) already finished\n", b1, b2);
     return;
   }
   
@@ -1247,8 +1258,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   assert(startBlock > 0);
   assert(!selected.empty());
   
-  log("%u P2(B1=%u,B2=%u,D=%u) from B2=%u : %u blocks starting at %u\n",
-      E, b1, b2, Pm1Plan::D, doneB2, u32(selected.size()), startBlock);
+  log("B1=%u, B2=%u, D=%u from B2=%u : %u blocks starting at %u\n",
+      b1, b2, Pm1Plan::D, doneB2, u32(selected.size()), startBlock);
 
   Timer timer;
   
@@ -1343,7 +1354,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 #endif 
             
       u32 n = selected.size();
-      log("P2 : B2 %u/%u (%2.0f%%); %u muls, %.0f us/mul\n", blockEndB2, b2, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
+      log("%8u/%u (%3.0f%%); %u muls, %.0f us/mul\n", blockEndB2, b2, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
       nSelected = 0;
       
       bool prevPastHalfway = pastHalfway;
@@ -1377,11 +1388,11 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     if (finished(gcdFuture)) {
       string factor = gcdFuture.get();
       if (!factor.empty()) {
-        log("P2 %u GCD FACTOR %s\n", E, factor.c_str());
+        log("GCD factor: %s\n", factor.c_str());
         gcdFuture = async([factor](){ return factor; });
         return;
       } else {
-        log("P2 %u GCD no factor yet..\n", E);
+        log("GCD no factor yet..\n");
         if (doStop) { throw "stop requested"; }
       }
     }
@@ -1436,7 +1447,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
   assert(blockSize > 0 && 10000 % blockSize == 0);
 
   if (b1 && !b1Acc.wantK()) {
-    doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture, signal);
+    doP2(&saver, b1, b2, gcdFuture, signal);
     if (finished(gcdFuture)) {
       string factor = gcdFuture.get();        
       if (!factor.empty()) { return {factor}; }
@@ -1567,7 +1578,7 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
             gcdFuture = async(launch::async, GCD, E, b1Data, 1);
 
             if (!b1Acc.wantK() && !doStop) {
-              doP2<Pm1Plan<2310>>(&saver, b1, b2, gcdFuture, signal);              
+              doP2(&saver, b1, b2, gcdFuture, signal);              
             }
           }
           

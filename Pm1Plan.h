@@ -98,7 +98,7 @@ public:
     assert(sum(bits) == 0); // all primes covered.
   
     u32 total = nSingle + nDouble;
-    log("P2(B1=%u, B2=%u, D=%u): %u primes in [%u, %u], selected %u (%.1f%%) (%u doubles + %u singles)\n",
+    log("B1=%u, B2=%u, D=%u: %u primes in [%u, %u], selected %u (%.1f%%) (%u doubles + %u singles)\n",
         B1, B2, D, nPrimes, tweakB1, tweakB2, total, total / float(nPrimes) * 100, nDouble, nSingle);
     return {beginBlock, selected};
   }

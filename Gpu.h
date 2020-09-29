@@ -172,6 +172,8 @@ class Gpu {
 
   template<typename Pm1Plan>
   void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
+
+  void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
   
 public:
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
