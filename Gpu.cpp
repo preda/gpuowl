@@ -1422,8 +1422,8 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
     bool ok = (res64 == loaded.res64);
 
     std::string expected = " (expected "s + hex(loaded.res64) + ")";
-    log("%u %2s %8d loaded: blockSize %d, %s%s\n",
-        E, ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
+    log("%2s %8d loaded: blockSize %d, %s%s\n",
+        ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
     
     if (!ok) { throw "error on load"; }
 

@@ -72,7 +72,7 @@ void Args::printHelp() {
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc <size>   : limit GPU memory usage to size, which is a value with suffix M for MB and G for GB.
-                     e.g. -maxAlloc 2048M or -maxAlloc 2G
+                     e.g. -maxAlloc 2048M or -maxAlloc 3.5G
 -save <N>          : specify the number of savefiles to keep (default 10).
 -yield             : enable work-around for CUDA busy wait taking up one CPU core
 -nospin            : disable progress spinner
@@ -163,11 +163,8 @@ void Args::parse(string line) {
     else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxAlloc" || key == "-maxalloc") {
       assert(!s.empty());
-      if (s.back() == 'G') {
-        maxAlloc = size_t(stoi(s)) << 30;
-      } else {      
-        maxAlloc = size_t(stoi(s)) << 20;
-      }
+      u32 multiple = (s.back() == 'G') ? (1u << 30) : (1u << 20);
+      maxAlloc = size_t(stod(s) * multiple + .5);
     }
     else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
