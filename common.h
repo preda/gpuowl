@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include "log.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -16,14 +18,6 @@ static_assert(sizeof(u8)  == 1, "size u8");
 static_assert(sizeof(u32) == 4, "size u32");
 static_assert(sizeof(u64) == 8, "size u64");
 
-#ifdef __GNUC__
-void log(const char *fmt, ...) __attribute__ ((format(printf, 1, 2)));
-#else
-void log(const char *fmt, ...);
-#endif
-
-void initLog();
-void initLog(const char *);
 
 using namespace std;
 namespace std::filesystem{};
