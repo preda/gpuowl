@@ -2,13 +2,13 @@
 
 #include "Args.h"
 #include "Task.h"
-// #include "Background.h"
 #include "Worktodo.h"
 #include "common.h"
 #include "File.h"
 #include "version.h"
 #include "AllocTrac.h"
 #include "typeName.h"
+#include "log.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -37,7 +37,6 @@ static void readConfig(Args& args, const fs::path& path, bool doLog) {
 int main(int argc, char **argv) {
   initLog();
   log("gpuowl %s\n", VERSION);
-  // Background background;
 
   int exitCode = 0;
 

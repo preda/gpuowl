@@ -6,11 +6,11 @@
 #include "Args.h"
 #include "File.h"
 #include "GmpUtil.h"
-#include "Background.h"
 #include "Worktodo.h"
 #include "checkpoint.h"
 #include "version.h"
 #include "ProofSet.h"
+#include "log.h"
 
 #include <cstdio>
 #include <cmath>
@@ -131,6 +131,8 @@ void Task::adjustBounds(Args& args) {
 }
 
 void Task::execute(const Args& args) {
+  LogContext pushContext(std::to_string(exponent));
+  
   if (kind == VERIFY) {
     Proof proof = Proof::load(verifyPath);
     auto gpu = Gpu::make(proof.E, args);
@@ -143,7 +145,7 @@ void Task::execute(const Args& args) {
   auto gpu = Gpu::make(exponent, args);
   auto fftSize = gpu->getFFTSize();
 
-  if (kind == PRP) {    
+  if (kind == PRP) {
     auto [factor, isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(exponent, args, B1, B2);
 
     if (B1) {

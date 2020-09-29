@@ -6,7 +6,7 @@
 
 vector<File> logFiles;
 string globalCpuName;
-string logContext;
+string context;
 
 void initLog() { logFiles.emplace_back(stdout, "stdout"); }
 
@@ -32,7 +32,7 @@ void log(const char *fmt, ...) {
   vsnprintf(buf, sizeof(buf), fmt, va);
   va_end(va);
   
-  string prefix = shortTimeStr() + (globalCpuName.empty() ? "" : " ") + globalCpuName;
+  string prefix = shortTimeStr() + (globalCpuName.empty() ? "" : " "s + globalCpuName) + context;
 
   std::unique_lock lock(logMutex);
   for (auto &f : logFiles) {
@@ -41,4 +41,16 @@ void log(const char *fmt, ...) {
     fflush(f.get());
 #endif
   }
+}
+
+LogContext::LogContext(const string& s) {
+  assert(!s.empty() && (s.find(' ') == string::npos));
+  context = context + ' ' + s;
+}
+
+LogContext::~LogContext() {
+  assert(!context.empty());
+  auto spacePos = context.rfind(' ');
+  assert(spacePos != string::npos);
+  context = context.substr(0, spacePos);
 }

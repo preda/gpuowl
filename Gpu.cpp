@@ -786,23 +786,23 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
   return string(buf);
 }
 
-static string makeLogStr(u32 E, string_view status, u32 k, u64 res, float secsPerIt, u32 nIters) {
+static string makeLogStr(string_view status, u32 k, u64 res, float secsPerIt, u32 nIters) {
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%u %2s %8d %6.2f%%; %4.0f us/it; ETA %s; %s",
-           E, status.data(), k, k / float(nIters) * 100,
+  snprintf(buf, sizeof(buf), "%2s %8d %6.2f%%; %4.0f us/it; ETA %s; %s",
+           status.data(), k, k / float(nIters) * 100,
            secsPerIt * 1'000'000, getETA(k, nIters, secsPerIt).c_str(),
            hex(res).c_str());
   return buf;
 }
 
 static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors) {
-  log("%s%s\n", makeLogStr(E, checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
+  log("%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
 [[maybe_unused]] static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
-  log("%s\n", makeLogStr(E, "P1", k, res, secsPerIt, nIters).c_str());
+  log("%s\n", makeLogStr("P1", k, res, secsPerIt, nIters).c_str());
 }
 
 [[maybe_unused]] static void logPm1Stage2(u32 E, float ratioComplete) {
