@@ -44,7 +44,6 @@ vector<u32> Saver::listIterations(const string& prefix, const string& ext) {
       }
     }
   }
-  // std::sort(ret.begin(), ret.end());
   return ret;
 }
 
@@ -73,16 +72,6 @@ Saver::Saver(u32 E, u32 nKeep, vector<u32> b1s) : E{E}, nKeep{max(nKeep, 4u)}, b
     minValPRP.push({value(k), k});
     lastK = max(lastK, k);
   }
-
-  /*
-  if (!b1s.empty()) {
-    iterations = listIterations(to_string(E) + '-' + to_string(b1s.back()) + '-', ".p2");
-    for (u32 k : iterations) {
-      minValP2.push({value(k), k});
-      lastB2 = max(lastK, k);
-    }
-  }
-  */
 }
 
 void Saver::del(u32 k) {
@@ -102,21 +91,6 @@ void Saver::savedPRP(u32 k) {
   minValPRP.push({value(k), k});
 }
 
-/*
-void Saver::savedP2(u32 b2) {
-  assert(!b1s.empty());
-  
-  assert(b2 >= lastB2);
-  lastB2 = b2;
-  while (minValP2.size() >= nKeep) {
-    auto kDel = minValP2.top().second;
-    minValP2.pop();
-    fs::remove(pathP2(b1s.back(), kDel), noThrow());
-  }
-  minValP2.push({value(b2), b2});
-}
-*/
-
 namespace {
 
 vector<u32> makeVect(u32 size, u32 elem0) {
@@ -131,7 +105,7 @@ vector<u32> makeVect(u32 size, u32 elem0) {
 
 PRPState Saver::loadPRP(u32 iniBlockSize) {
   if (lastK == 0) {
-    log("PRP starting from the beginning\n");
+    log("PRP starting from beginning\n");
     u32 blockSize = iniBlockSize ? iniBlockSize : 500;
     return {0, blockSize, 3, makeVect(nWords(E), 1), 0};
   } else {

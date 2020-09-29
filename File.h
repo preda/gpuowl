@@ -16,6 +16,10 @@
 #include <string>
 #include <optional>
 
+#if defined(_WIN32) || defined(__WIN32__)
+#include <io.h>
+#endif
+
 namespace fs = std::filesystem;
 
 class File {
@@ -59,10 +63,12 @@ public:
       fflush(f);
       if (sync) {
         std::thread{[f=f, name=name]() {
-          Timer timer;
+#if defined(_WIN32) || defined(__WIN32__)
+          _commit(fileno(f));
+#else
           fdatasync(fileno(f));
+#endif
           fclose(f);
-          // log("syncing '%s' took %.0f ms\n", name.c_str(), timer.deltaSecs() * 1000);
         }}.detach();      
       } else {
         fclose(f);
