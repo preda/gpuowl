@@ -417,7 +417,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
 
   float bitsPerWord = E / float(N);
-  log("%u FFT: %s %s (%.2f bpw)\n", E, numberK(N).c_str(), config.spec().c_str(), bitsPerWord);
+  log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord);
 
   if (bitsPerWord > 20) {
     log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
@@ -429,7 +429,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
     throw "FFT size too large";
   }
 
-  log("Expected maximum carry32: %X0000\n", config.getMaxCarry32(N, E));
+  // log("Expected maximum carry32: %X0000\n", config.getMaxCarry32(N, E));
 
   bool useLongCarry = (bitsPerWord < 10.5f) || (args.carry == Args::CARRY_LONG);
 
@@ -1392,7 +1392,12 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
   u32 k = 0, blockSize = 0, nErrors = 0;
 
-  if (!args.maxAlloc) { log("Use -maxAlloc <MBytes> to bound GPU memory usage\n"); }
+  if (!args.maxAlloc) {
+    log("Use -maxAlloc to limit GPU memory usage; see -h\n");
+    throw "missing -maxAlloc";
+  }
+
+  log("maxAlloc: %.1f GB\n", args.maxAlloc * (1.0f / (1 << 30)));
 
   u32 power = -1;
   u32 startK = 0;

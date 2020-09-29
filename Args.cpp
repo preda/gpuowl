@@ -71,7 +71,8 @@ void Args::printHelp() {
 -tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored.
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
--maxAlloc          : limit GPU memory usage to this value in MB (needed on non-AMD GPUs)
+-maxAlloc <size>   : limit GPU memory usage to size, which is a value with suffix M for MB and G for GB.
+                     e.g. -maxAlloc 2048M or -maxAlloc 2G
 -save <N>          : specify the number of savefiles to keep (default 10).
 -yield             : enable work-around for CUDA busy wait taking up one CPU core
 -nospin            : disable progress spinner
@@ -160,7 +161,14 @@ void Args::parse(string line) {
       }
     }
     else if (key == "-results") { resultsFile = s; }
-    else if (key == "-maxAlloc" || key == "-maxalloc") { maxAlloc = size_t(stoi(s)) << 20; }
+    else if (key == "-maxAlloc" || key == "-maxalloc") {
+      assert(!s.empty());
+      if (s.back() == 'G') {
+        maxAlloc = size_t(stoi(s)) << 30;
+      } else {      
+        maxAlloc = size_t(stoi(s)) << 20;
+      }
+    }
     else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
