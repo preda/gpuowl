@@ -91,7 +91,7 @@ def nPrimesBetween(B1, B2):
     assert(B2 >= B1)
     return primepi(B2) - primepi(B1)
 
-def workForBounds(B1, B2, useTrick, factorB1=1.1, factorB2=1.35):
+def workForBounds(B1, B2, useTrick, factorB1=1.01, factorB2=1.05):
     # 1.442 is an approximation of log(powerSmooth(N))/N, the bitlen-expansion of powerSmooth().
     # 0.85 is an estimation of the ratio of primes remaining after "pairing" in second stage.
     w1 = B1 * 1.442 * factorB1

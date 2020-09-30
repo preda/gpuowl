@@ -115,7 +115,7 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) c
 
 void Task::adjustBounds(Args& args) {
   if (kind == PRP && (wantsPm1 || args.B1 || args.B2)) {
-    if (B1 == 0) { B1 = args.B1 ? args.B1 : (u32(exponent * 1e-7f + .5f) * 500'000); }
+    if (B1 == 0) { B1 = args.B1 ? args.B1 : (u32(float(exponent) / 15'000'000 + .5f) * 1'000'000); }
     if (B2 == 0) { B2 = args.B2 ? args.B2 : (B1 * args.B2_B1_ratio); }
     /*
     if (B1 < 10000) {
