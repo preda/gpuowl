@@ -75,8 +75,6 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
 }
 
 void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const string& proofPath) const {
-  assert(B1 == 0 && B2 == 0);
-
   vector<string> fields{json("res64", Hex{res64}),
                         json("residue-type", 1),
                         json("errors", vector<string>{json("gerbicz", nErrors)}),
@@ -146,14 +144,7 @@ void Task::execute(const Args& args) {
   auto fftSize = gpu->getFFTSize();
 
   if (kind == PRP) {
-    auto [factor, isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(exponent, args, B1, B2);
-
-    if (B1) {
-      writeResultPM1(args, factor, fftSize);
-    } else {
-      assert(factor.empty());
-    }
-    
+    auto [factor, isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(args, *this);
     if (factor.empty()) {
       writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
     }

@@ -11,6 +11,7 @@
 #include "GmpUtil.h"
 #include "AllocTrac.h"
 #include "Queue.h"
+#include "Task.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -1338,7 +1339,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     
     bool doStop = signal.stopRequested();    
     bool atEnd = block == selected.size() - 1;
-    bool doLog = atEnd || doStop || block % (50 * blockMulti) == 0;
+    bool doLog = atEnd || doStop || block % (200 * blockMulti) == 0;
       
     if (doLog) {
       if (printStats) { printRoundoff(E); }
@@ -1361,7 +1362,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       pastHalfway = block >= selected.size() / 2;
       
       bool atHalfway = !prevPastHalfway && pastHalfway;
-      bool itsBeenAWhile = block % (500 * blockMulti) == 0;
+      bool itsBeenAWhile = block % (2000 * blockMulti) == 0;
       
       bool doGCD = atEnd || doStop || ((itsBeenAWhile || atHalfway) && !gcdFuture.valid());
         
@@ -1400,7 +1401,10 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   queue->finish();
 }
 
-PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
+PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
+  u32 E = task.exponent;
+  u32 b1 = task.B1;
+  u32 b2 = task.B2;
   u32 k = 0, blockSize = 0, nErrors = 0;
 
   if (!args.maxAlloc) {
@@ -1545,11 +1549,16 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
         log("Stopping, please wait..\n");
         signal.release();
       }
+
+      if (doStop) { wait(gcdFuture); }
       
-      if (finished(gcdFuture) || (doStop && wait(gcdFuture))) {
-        string gcd = gcdFuture.get();
-        log("%u GCD: %s\n", E, gcd.empty() ? "no factor" : gcd.c_str());
-        if (!gcd.empty()) { return {gcd}; }        
+      if (finished(gcdFuture)) {
+        string factor = gcdFuture.get();
+        log("Final GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
+        task.writeResultPM1(args, factor, getFFTSize());
+        if (!factor.empty()) {
+          return {factor};
+        }
       }
 
       bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
@@ -1587,10 +1596,6 @@ PRPResult Gpu::isPrimePRP(u32 E, const Args &args, u32 b1, u32 b2) {
             if (proofSet.power > 0) {
               proofPath = proofSet.computeProof(this).save(args.proofResultDir);
               log("PRP-Proof '%s' generated\n", proofPath.string().c_str());
-              if (!args.keepProof) {
-                log("Proof: cleaning up temporary storage\n");
-                proofSet.cleanup();
-              }
             }
             return {"", isPrime, finalRes64, nErrors, proofPath.string()};
           }

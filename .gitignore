@@ -23,3 +23,6 @@ cmake-build-*/
 .d
 gpuowl-expanded.cl
 gpuowl.exe
+__pycache__
+core
+pm1/pm1

@@ -41,8 +41,12 @@ def sendOne(line):
     if "Error code" in res:
         begin = res.find("Error code")
         end   = res.find("</div>", begin)
-        print(res[begin:end], '\n')
-        return False
+        text = res[begin:end]
+        print(text)
+        already = text.startswith('Error code: 40, error text: This computer has already sent in this PRP result')
+        if already:
+            print('Already sent, will not retry')
+        return already
     else:
         begin = res.find("CPU credit is")
         end   = res.find("</div>", begin);

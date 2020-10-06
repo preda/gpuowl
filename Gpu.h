@@ -22,6 +22,7 @@ struct PRPResult;
 struct PRPState;
 class Saver;
 class Signal;
+class Task;
 
 using double2 = pair<double, double>;
 
@@ -208,7 +209,7 @@ public:
   vector<u32> readCheck() { return readAndCompress(bufCheck); }
   vector<u32> readData() { return readAndCompress(bufData); }
 
-  PRPResult isPrimePRP(u32 E, const Args& args, u32 b1, u32 b2 = 0);
+  PRPResult isPrimePRP(const Args& args, const Task& task);
 
   // std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
   

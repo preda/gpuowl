@@ -36,7 +36,7 @@ struct Task {
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const string&) const;
   void writeResultPM1(const Args&, const std::string& factor, u32 fftSize) const;
 
-  string kindStr() const { return kind == PRP ? "PRP" : "LL"; } // kind == PM1 ? "PFactor"
+  string kindStr() const { return "PRP"; }
   
   operator string() const {
     string prefix;
