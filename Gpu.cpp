@@ -1242,7 +1242,9 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 
 template<typename Pm1Plan>
 void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {
-  assert(b1 && b2 && b2 > b1);
+  if (!b1) { return; }
+  
+  assert(b2 && b2 > b1);
 
   bool printStats = args.flags.count("STATS");
 
@@ -1250,6 +1252,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   if (doneB2 >= b2) {
     log("(%u,%u) already finished\n", b1, b2);
     return;
+  } else {
+    log("(%u,%u) will continue from B2=%u\n", b1, b2, doneB2);
   }
   
   auto [nextK, p1Data] = saver->loadP1(b1);
@@ -1364,18 +1368,15 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       bool atHalfway = !prevPastHalfway && pastHalfway;
       bool itsBeenAWhile = block % (2000 * blockMulti) == 0;
       
-      bool doGCD = atEnd || doStop || ((itsBeenAWhile || atHalfway) && !gcdFuture.valid());
+      bool doGCD = atEnd || ((itsBeenAWhile || atHalfway) && !gcdFuture.valid());
         
       if (doGCD) {
-        if (doStop) {
-          log("Stopping, wait for GCD..\n");
-        } else {
-          log("Starting %s GCD\n", atEnd ? "final" : "intermediary");
-        }
+        log("Starting GCD\n");
         fftW(buf1, bufAcc);
         carryA(bufP2Data, buf1);
         carryB(bufP2Data);
         Words p2Data = readAndCompress(bufP2Data);
+        assert(!gcdFuture.valid());
         gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
           string factor = GCD(E, p2Data, 0);
           saver->saveP2(b1, blockEndB2);
@@ -1383,19 +1384,24 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         });        
       }
     }
+
+    if (doStop) { wait(gcdFuture); }
     
-    if (atEnd || doStop) { wait(gcdFuture); }
-      
     if (finished(gcdFuture)) {
       string factor = gcdFuture.get();
+      log("GCD : %s\n", factor.empty() ? "no factor" : factor.c_str());
+      
       if (!factor.empty()) {
-        log("GCD factor: %s\n", factor.c_str());
+        assert(!gcdFuture.valid());
         gcdFuture = async([factor](){ return factor; });
         return;
-      } else {
-        log("GCD no factor yet..\n");
-        if (doStop) { throw "stop requested"; }
       }
+    }
+
+    if (doStop) {
+      assert(!gcdFuture.valid());
+      queue->finish();
+      throw "stop requested";
     }
   }
   queue->finish();
@@ -1449,14 +1455,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   }
 
   assert(blockSize > 0 && 10000 % blockSize == 0);
-
-  if (b1 && !b1Acc.wantK()) {
-    doP2(&saver, b1, b2, gcdFuture, signal);
-    if (finished(gcdFuture)) {
-      string factor = gcdFuture.get();        
-      if (!factor.empty()) { return {factor}; }
-    }
-  }
   
   u32 checkStep = checkStepForErrors(args.logStep, nErrors);
 
@@ -1563,6 +1561,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
       bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
 
+      bool didP2 = false;
+      
       if (doCheck) {
         if (printStats) { printRoundoff(E); }
       
@@ -1576,19 +1576,19 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           double timeWithoutSave = itTimer.reset(k);
                     
           Words b1Data = b1Acc.save(k);
-          b1JustFinished = false;
 
           if (k < kEnd) { saver.save(prpState); }
           doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
                     
           if (!b1Data.empty()) {
-            log("%u : B1 completed. Starting GCD\n", k);
+            log("B1 completed. Starting GCD\n");
             assert(!gcdFuture.valid());
             gcdFuture = async(launch::async, GCD, E, b1Data, 1);
+          }
 
-            if (!b1Acc.wantK() && !doStop) {
-              doP2(&saver, b1, b2, gcdFuture, signal);              
-            }
+          if (!doStop && !didP2 && !b1Acc.wantK()) {
+            doP2(&saver, b1, b2, gcdFuture, signal);
+            didP2 = true;
           }
           
           if (k >= kEndEnd) {
@@ -1613,6 +1613,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         
         if (doStop) {
           assert(!gcdFuture.valid());
+          queue->finish();
           throw "stop requested";
         }
         

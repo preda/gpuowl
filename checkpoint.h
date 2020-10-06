@@ -96,7 +96,7 @@ public:
   PRPState loadPRP(u32 iniBlockSize);  
   void save(const PRPState& state);
 
-  P1State loadP1(u32 b1) { return loadP1(b1, lastK); }
+  P1State loadP1(u32 b1);
   void save(u32 b1, u32 k, const P1State& state);
 
   u32 loadP2(u32 b1);

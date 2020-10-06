@@ -156,6 +156,17 @@ void Saver::save(const PRPState& state) {
 
 // --- P1 ---
 
+P1State Saver::loadP1(u32 b1) {
+  auto iterations = listIterations(to_string(E) + '-' + to_string(b1) + '-', ".p1");
+  if (iterations.empty()) {
+    log("Can't find any .p1 savefile for B1=%u\n", b1);
+    throw "no P1 savefile";
+  } else {
+    u32 maxK = *std::max_element(iterations.begin(), iterations.end());
+    return loadP1(b1, maxK);
+  }
+}
+
 P1State Saver::loadP1(u32 b1, u32 k) {
   fs::path path = pathP1(b1, k);
   File fi = File::openRead(path, true);
