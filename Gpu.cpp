@@ -1317,14 +1317,13 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   constexpr const u32 blockMulti = 2310 / Pm1Plan::D;
   assert(blockMulti > 0);
 
-  bool pastHalfway = false;
-
+  Timer sinceLastGCD;
+  
   for (u32 block = 0; block < selected.size(); ++block) {
     const auto& bits = selected[block];
 
     const u32 blockEndB2 = (startBlock + block) * Pm1Plan::D + Pm1Plan::D/2;
-    
-    
+        
     for (u32 i = 0; i < Pm1Plan::J; ++i) {
       if (bits[i]) {
         ++nSelected;
@@ -1362,33 +1361,12 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       u32 n = selected.size();
       log("%8u/%u (%3.0f%%); %u muls, %.0f us/mul\n", blockEndB2, b2, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
       nSelected = 0;
-      
-      bool prevPastHalfway = pastHalfway;
-      pastHalfway = block >= selected.size() / 2;
-      
-      bool atHalfway = !prevPastHalfway && pastHalfway;
-      bool itsBeenAWhile = block % (2000 * blockMulti) == 0;
-      
-      bool doGCD = atEnd || ((itsBeenAWhile || atHalfway) && !gcdFuture.valid());
-        
-      if (doGCD) {
-        log("Starting GCD\n");
-        fftW(buf1, bufAcc);
-        carryA(bufP2Data, buf1);
-        carryB(bufP2Data);
-        Words p2Data = readAndCompress(bufP2Data);
-        assert(!gcdFuture.valid());
-        gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
-          string factor = GCD(E, p2Data, 0);
-          saver->saveP2(b1, blockEndB2);
-          return factor;
-        });        
-      }
     }
 
-    if (doStop) { wait(gcdFuture); }
+    if (doStop || atEnd) { wait(gcdFuture); }
     
     if (finished(gcdFuture)) {
+      sinceLastGCD.reset();
       string factor = gcdFuture.get();
       log("GCD : %s\n", factor.empty() ? "no factor" : factor.c_str());
       
@@ -1404,6 +1382,23 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       queue->finish();
       throw "stop requested";
     }
+    
+    bool doGCD = atEnd || (!gcdFuture.valid() && sinceLastGCD.elapsedSecs() > 300);
+    
+    if (doGCD) {
+      log("Starting GCD\n");
+      fftW(buf1, bufAcc);
+      carryA(bufP2Data, buf1);
+      carryB(bufP2Data);
+      Words p2Data = readAndCompress(bufP2Data);
+      assert(!gcdFuture.valid());
+      gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
+        string factor = GCD(E, p2Data, 0);
+        saver->saveP2(b1, blockEndB2);
+        return factor;
+      });        
+    }    
+
   }
   queue->finish();
 }
