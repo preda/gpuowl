@@ -137,7 +137,7 @@ PRPState Saver::loadPRPAux(u32 k) {
   return {k, blockSize, res64, check, nErrors};
 }
 
-void Saver::save(const PRPState& state) {
+void Saver::savePRP(const PRPState& state) {
   assert(state.check.size() == nWords(E));
   u32 k = state.k;
   
@@ -145,7 +145,7 @@ void Saver::save(const PRPState& state) {
   {
     File fo = File::openWrite(path);
 
-    if (fprintf(fo.get(), PRP_v12, E, k, state.blockSize, state.res64, state.nErrors, crc32(state.check)) <= 0) {
+    if (fo.printf(PRP_v12, E, k, state.blockSize, state.res64, state.nErrors, crc32(state.check)) <= 0) {
       throw(ios_base::failure("can't write header"));
     }    
     fo.write(state.check);
@@ -155,17 +155,6 @@ void Saver::save(const PRPState& state) {
 }
 
 // --- P1 ---
-
-P1State Saver::loadP1(u32 b1) {
-  auto iterations = listIterations(to_string(E) + '-' + to_string(b1) + '-', ".p1");
-  if (iterations.empty()) {
-    log("Can't find any .p1 savefile for B1=%u\n", b1);
-    throw "no P1 savefile";
-  } else {
-    u32 maxK = *std::max_element(iterations.begin(), iterations.end());
-    return loadP1(b1, maxK);
-  }
-}
 
 P1State Saver::loadP1(u32 b1, u32 k) {
   fs::path path = pathP1(b1, k);
@@ -181,19 +170,48 @@ P1State Saver::loadP1(u32 b1, u32 k) {
   return {nextK, fi.readWithCRC<u32>(nWords(E), crc)};
 }
 
-void Saver::save(u32 b1, u32 k, const P1State& state) {
+void Saver::saveP1(u32 b1, u32 k, const P1State& state) {
   assert(state.data.size() == nWords(E));
   assert(state.nextK == 0 || state.nextK >= k);
 
   {
     File fo = File::openWrite(pathP1(b1, k));
-    if (fprintf(fo.get(), P1_v2, E, b1, k, state.nextK, crc32(state.data)) <= 0) {
+    if (fo.printf(P1_v2, E, b1, k, state.nextK, crc32(state.data)) <= 0) {
       throw(ios_base::failure("can't write header"));
     }
     fo.write(state.data);
   }
 
   loadP1(b1, k);
+}
+
+// --- P1Final ---
+
+vector<u32> Saver::loadP1Final(u32 b1) {
+  fs::path path = pathP1Final(b1);
+  File fi = File::openRead(path, true);
+  string header = fi.readLine();
+  u32 fileE, fileB1, crc;
+  if (sscanf(header.c_str(), P1Final_v1, &fileE, &fileB1, &crc) != 3) {
+    log("In file '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
+    throw "bad savefile";
+  }
+  
+  assert(fileE == E && fileB1 == b1);
+  return fi.readWithCRC<u32>(nWords(E), crc);
+}
+
+void Saver::saveP1Final(u32 b1, const vector<u32>& data) {
+  assert(data.size() == nWords(E));
+  {
+    File fo = File::openWrite(pathP1Final(b1));
+    if (fo.printf(P1Final_v1, E, b1, crc32(data)) <= 0) {
+      throw(ios_base::failure("can't write header"));
+    }
+    fo.write(data);
+  }
+
+  loadP1Final(b1);
 }
 
 // --- P2 ---

@@ -60,6 +60,7 @@ public:
 
   ~File() {
     if (f) {
+      // if (sync) { log("sync '%s'\n", name.c_str()); }
       fflush(f);
       if (sync) {
         std::thread{[f=f, name=name]() {

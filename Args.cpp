@@ -227,9 +227,7 @@ void Args::parse(string line) {
   if (jacobiStep < 100'000 && !logStep) { logStep = jacobiStep; }
   if (jacobiStep && ((logStep && jacobiStep % logStep) || (!logStep && jacobiStep % 100'000))) {
     log("jacobi step (%u) must be a multiple of log step (%u)\n", jacobiStep, logStep);
-  }
-    
-  File::openAppend(resultsFile);  // verify that it's possible to write results
+  }    
 }
 
 void Args::setDefaults() {
@@ -252,4 +250,6 @@ void Args::setDefaults() {
     log("The tmpDir '%s' does not exist\n", tmpDir.string().c_str());
     throw "tmpDir does not exist";
   }
+
+  File::openAppend(resultsFile);  // verify that it's possible to write results
 }

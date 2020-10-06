@@ -1103,8 +1103,10 @@ public:
       
       vector<u32> data = fold();
       // log("B1 at %u res64 %016lx\n", k, residue(data));
-      saver->save(b1, k, {nextK, data});
+
+      saver->saveP1(b1, k, {nextK, data});
       if (nextK == 0) {
+        saver->saveP1Final(b1, data);
         release();
         return data;
       }
@@ -1113,7 +1115,7 @@ public:
   }
   
   void load(u32 k) {
-    if (!b1 || k > nBits) {
+    if (!b1 || k >= nBits) {
       release();
       nextK = 0;
       return;
@@ -1126,7 +1128,7 @@ public:
       return;
     }
 
-    auto [loadNextK, data] = saver->loadP1(b1);
+    auto [loadNextK, data] = saver->loadP1(b1, k);
     nextK = loadNextK;
     if (!nextK) {
       release();
@@ -1256,8 +1258,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     log("(%u,%u) will continue from B2=%u\n", b1, b2, doneB2);
   }
   
-  auto [nextK, p1Data] = saver->loadP1(b1);
-  assert(nextK == 0);
+  auto p1Data = saver->loadP1Final(b1);
 
   auto [startBlock, selected] = Pm1Plan::makePm1Plan(b1, doneB2, b2);
   assert(startBlock > 0);
@@ -1499,6 +1500,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   assert(checkStep % blockSize == 0);
 
   bool b1JustFinished = false;
+  bool didP2 = false;
   
   while (true) {
     assert(k < kEndEnd);
@@ -1552,20 +1554,22 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       
       if (finished(gcdFuture)) {
         string factor = gcdFuture.get();
-        log("Final GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
-        task.writeResultPM1(args, factor, getFFTSize());
+        log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
+        if (didP2) {
+          task.writeResultPM1(args, factor, getFFTSize());
+        }
         if (!factor.empty()) {
           return {factor};
         }
       }
 
       bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
-
-      bool didP2 = false;
       
       if (doCheck) {
         if (printStats) { printRoundoff(E); }
-      
+
+        b1JustFinished = false;
+        
         u64 res64 = dataResidue();
         PRPState prpState{k, blockSize, res64, readCheck(), nErrors};
         bool ok = this->doCheck(blockSize, buf1, buf2, buf3);        
@@ -1577,7 +1581,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
                     
           Words b1Data = b1Acc.save(k);
 
-          if (k < kEnd) { saver.save(prpState); }
+          if (k < kEnd) { saver.savePRP(prpState); }
           doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
                     
           if (!b1Data.empty()) {
