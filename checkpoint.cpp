@@ -64,9 +64,7 @@ float Saver::value(u32 k) {
   return (1u << __builtin_ctz(k)) / float(dist);
 }
 
-Saver::Saver(u32 E, u32 nKeep, vector<u32> b1s) : E{E}, nKeep{max(nKeep, 4u)}, b1s{b1s} {
-  std::sort(b1s.begin(), b1s.end());
-  
+Saver::Saver(u32 E, u32 nKeep, u32 b1) : E{E}, nKeep{max(nKeep, 5u)}, b1{b1} {
   vector<u32> iterations = listIterations(to_string(E) + '-', ".prp");
   for (u32 k : iterations) {
     minValPRP.push({value(k), k});
@@ -76,8 +74,8 @@ Saver::Saver(u32 E, u32 nKeep, vector<u32> b1s) : E{E}, nKeep{max(nKeep, 4u)}, b
 
 void Saver::del(u32 k) {
   // log("Note: deleting savefile %u\n", k);
-  fs::remove(pathPRP(k), noThrow());
-  for (u32 b1 : b1s) { fs::remove(pathP1(b1, k), noThrow()); }
+  fs::remove(pathPRP(k), noThrow()); 
+  fs::remove(pathP1(k), noThrow());
 }
 
 void Saver::savedPRP(u32 k) {
@@ -156,8 +154,8 @@ void Saver::savePRP(const PRPState& state) {
 
 // --- P1 ---
 
-P1State Saver::loadP1(u32 b1, u32 k) {
-  fs::path path = pathP1(b1, k);
+P1State Saver::loadP1(u32 k) {
+  fs::path path = pathP1(k);
   File fi = File::openRead(path, true);
   string header = fi.readLine();
   u32 fileE, fileB1, fileK, nextK, crc;
@@ -170,25 +168,25 @@ P1State Saver::loadP1(u32 b1, u32 k) {
   return {nextK, fi.readWithCRC<u32>(nWords(E), crc)};
 }
 
-void Saver::saveP1(u32 b1, u32 k, const P1State& state) {
+void Saver::saveP1(u32 k, const P1State& state) {
   assert(state.data.size() == nWords(E));
   assert(state.nextK == 0 || state.nextK >= k);
 
   {
-    File fo = File::openWrite(pathP1(b1, k));
+    File fo = File::openWrite(pathP1(k));
     if (fo.printf(P1_v2, E, b1, k, state.nextK, crc32(state.data)) <= 0) {
       throw(ios_base::failure("can't write header"));
     }
     fo.write(state.data);
   }
 
-  loadP1(b1, k);
+  loadP1(k);
 }
 
 // --- P1Final ---
 
-vector<u32> Saver::loadP1Final(u32 b1) {
-  fs::path path = pathP1Final(b1);
+vector<u32> Saver::loadP1Final() {
+  fs::path path = pathP1Final();
   File fi = File::openRead(path, true);
   string header = fi.readLine();
   u32 fileE, fileB1, crc;
@@ -201,23 +199,23 @@ vector<u32> Saver::loadP1Final(u32 b1) {
   return fi.readWithCRC<u32>(nWords(E), crc);
 }
 
-void Saver::saveP1Final(u32 b1, const vector<u32>& data) {
+void Saver::saveP1Final(const vector<u32>& data) {
   assert(data.size() == nWords(E));
   {
-    File fo = File::openWrite(pathP1Final(b1));
+    File fo = File::openWrite(pathP1Final());
     if (fo.printf(P1Final_v1, E, b1, crc32(data)) <= 0) {
       throw(ios_base::failure("can't write header"));
     }
     fo.write(data);
   }
 
-  loadP1Final(b1);
+  loadP1Final();
 }
 
 // --- P2 ---
 
-u32 Saver::loadP2(u32 b1) {
-  fs::path path = pathP2(b1);
+u32 Saver::loadP2() {
+  fs::path path = pathP2();
   File fi = File::openRead(path);
   if (!fi) {
     return 0;
@@ -233,9 +231,9 @@ u32 Saver::loadP2(u32 b1) {
   }
 }
 
-void Saver::saveP2(u32 b1, u32 b2) {
-  File fo = File::openWrite(pathP2(b1));
-  if (fprintf(fo.get(), P2_v2, E, b1, b2) <= 0) {
+void Saver::saveP2(u32 b2) {
+  File fo = File::openWrite(pathP2());
+  if (fo.printf(P2_v2, E, b1, b2) <= 0) {
     throw(ios_base::failure("can't write header"));
   }
 }

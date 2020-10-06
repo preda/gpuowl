@@ -1087,8 +1087,8 @@ private:
   vector<bool> engaged;
 
 public:
-  B1Accumulator(Gpu* gpu, Saver* saver, u32 E, u32 b1, u32 maxBufs)
-    : gpu{gpu}, saver{saver}, E{E}, b1{b1}, nBits{powerSmoothBits(E, b1)}, maxBufs{maxBufs} { //681
+  B1Accumulator(Gpu* gpu, Saver* saver, u32 E, u32 maxBufs)
+    : gpu{gpu}, saver{saver}, E{E}, b1{saver->b1}, nBits{powerSmoothBits(E, b1)}, maxBufs{maxBufs} { //681
     assert(maxBufs > 0);
     log("B1=%u (%u bits)\n", b1, nBits);
   }
@@ -1104,9 +1104,9 @@ public:
       vector<u32> data = fold();
       // log("B1 at %u res64 %016lx\n", k, residue(data));
 
-      saver->saveP1(b1, k, {nextK, data});
+      saver->saveP1(k, {nextK, data});
       if (nextK == 0) {
-        saver->saveP1Final(b1, data);
+        saver->saveP1Final(data);
         release();
         return data;
       }
@@ -1128,7 +1128,7 @@ public:
       return;
     }
 
-    auto [loadNextK, data] = saver->loadP1(b1, k);
+    auto [loadNextK, data] = saver->loadP1(k);
     nextK = loadNextK;
     if (!nextK) {
       release();
@@ -1250,7 +1250,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 
   bool printStats = args.flags.count("STATS");
 
-  u32 doneB2 = saver->loadP2(b1);
+  u32 doneB2 = saver->loadP2();
   if (doneB2 >= b2) {
     log("(%u,%u) already finished\n", b1, b2);
     return;
@@ -1258,7 +1258,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     log("(%u,%u) will continue from B2=%u\n", b1, b2, doneB2);
   }
   
-  auto p1Data = saver->loadP1Final(b1);
+  auto p1Data = saver->loadP1Final();
 
   auto [startBlock, selected] = Pm1Plan::makePm1Plan(b1, doneB2, b2);
   assert(startBlock > 0);
@@ -1394,7 +1394,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       assert(!gcdFuture.valid());
       gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
         string factor = GCD(E, p2Data, 0);
-        saver->saveP2(b1, blockEndB2);
+        saver->saveP2(blockEndB2);
         return factor;
       });        
     }    
@@ -1423,8 +1423,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   assert(maxBufs >= 13);              // too-low-memory.
   const u32 b1MaxBufs = maxBufs - 5;  // Keep a small reserve of free RAM.
 
-  Saver saver{E, args.nSavefiles, {b1}};
-  B1Accumulator b1Acc{this, &saver, E, b1, b1MaxBufs};
+  Saver saver{E, args.nSavefiles, b1};
+  B1Accumulator b1Acc{this, &saver, E, b1MaxBufs};
   future<string> gcdFuture;
   Signal signal;
   

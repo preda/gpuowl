@@ -44,18 +44,13 @@ class Saver {
   static constexpr const char *P2_v2 = "OWL P2 2 %u %u %u\n";  
 
   // ----
-  
-  const u32 E;
-  const u32 nKeep;
-  const vector<u32> b1s;
-  
+
   u32 lastK = 0;
   
   using T = pair<float, u32>;
   using Heap = priority_queue<T, std::vector<T>, std::greater<T>>;
   Heap minValPRP;
   
-  const fs::path base = fs::current_path() / to_string(E);
 
   float value(u32 k);
   void del(u32 k);
@@ -71,31 +66,36 @@ class Saver {
   }
 
   fs::path pathPRP(u32 k) const         { return makePath(to_string(E), k, ".prp"); }
-  fs::path pathP1(u32 b1, u32 k) const  { return makePath(to_string(E) + '-' + to_string(b1), k, ".p1"); }
-  fs::path pathP1Final(u32 b1) const  { return base / (to_string(E) + '-' + to_string(b1) + ".p1final"); }
-  fs::path pathP2(u32 b1) const { return base / (to_string(E) + '-' + to_string(b1) + ".p2"); }
+  fs::path pathP1(u32 k) const  { return makePath(to_string(E) + '-' + to_string(b1), k, ".p1"); }
+  fs::path pathP1Final() const  { return base / (to_string(E) + '-' + to_string(b1) + ".p1final"); }
+  fs::path pathP2() const { return base / (to_string(E) + '-' + to_string(b1) + ".p2"); }
 
   void savedPRP(u32 k);
 
   PRPState loadPRPAux(u32 k);
   vector<u32> listIterations(const string& prefix, const string& ext);
-  
-  // P1State loadP1(u32 b1, u32 k);
 
+  const u32 E;
+  const fs::path base = fs::current_path() / to_string(E);
+  const u32 nKeep;
+  
 public:
-  Saver(u32 E, u32 nKeep, vector<u32> b1s);
+  const u32 b1;
+
+  
+  Saver(u32 E, u32 nKeep, u32 b1);
 
   static void cleanup(u32 E);
 
   PRPState loadPRP(u32 iniBlockSize);  
   void savePRP(const PRPState& state);
 
-  P1State loadP1(u32 b1, u32 k);
-  void saveP1(u32 b1, u32 k, const P1State& state);
+  P1State loadP1(u32 k);
+  void saveP1(u32 k, const P1State& state);
 
-  vector<u32> loadP1Final(u32 b1);
-  void saveP1Final(u32 b1, const vector<u32>& data);
+  vector<u32> loadP1Final();
+  void saveP1Final(const vector<u32>& data);
   
-  u32 loadP2(u32 b1);
-  void saveP2(u32 b1, u32 b2);  
+  u32 loadP2();
+  void saveP2(u32 b2);  
 };
