@@ -1052,6 +1052,24 @@ class B1Accumulator {
     return ret;
   }
 
+  pair<u32,u32> findFirstPop(u32 start) {
+    u32 sum = 0;
+    for (u32 i = start; i < bits.size(); ++i) {
+      if (bits[i]) {
+        u32 n = i - start;
+        assert(n < 64);
+        u64 delta = u64(1) << n;
+        if (sum + delta >= bufs.size()) {
+          return {i, sum};
+        } else {
+          sum += delta;
+        }
+      }
+    }
+    return {0, sum};
+  }
+
+
   Gpu* gpu;
   Saver* saver;
   
@@ -1084,7 +1102,7 @@ public:
       assert(k < nBits + 1000);
       
       vector<u32> data = fold();
-      log("B1 at %u res64 %016lx\n", k, residue(data));
+      // log("B1 at %u res64 %016lx\n", k, residue(data));
       saver->save(b1, k, {nextK, data});
       if (nextK == 0) {
         release();
@@ -1119,40 +1137,22 @@ public:
     gpu->writeIn(bufs[0], data);
     engaged[0] = true;
   }
-
+  
   void step(u32 kAt, Buffer<int>& data) {
     assert(nextK && kAt == nextK);
     assert(nextK < bits.size() && bits[nextK]);
-
-    u32 sum = 0;    
-    u32 i = nextK + 1;    
-    for (; i < bits.size(); ++i) {
-      if (bits[i]) {
-        u32 n = i - nextK - 1;
-        u32 delta = 1u << n;
-        if (n > 31 || sum + delta >= bufs.size()) {
-          break;
-        } else {
-          sum += delta;
-        }
-      }
-    }
-    assert(sum < bufs.size());
-    assert(i <= bits.size());
+    assert(engaged.size() == bufs.size());
     
-    nextK = (i == bits.size()) ? 0 : i;
-
+    auto [nextPop, sum] = findFirstPop(nextK + 1);
+    nextK = nextPop;
     assert(nextK == 0 || bits[nextK]);
 
-    assert(engaged.size() == bufs.size());
     if (engaged[sum]) {
       gpu->mul(bufs[sum], data);
     } else {
       bufs[sum] << data;
       engaged[sum] = true;
     }
-    // u32 nEngaged = std::accumulate(engaged.begin(), engaged.end(), 0);
-    // log("* %u [%u] #%u\n", kAt, sum, nEngaged);
   }
 };
 
