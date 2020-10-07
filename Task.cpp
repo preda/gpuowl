@@ -116,13 +116,8 @@ void Task::adjustBounds(Args& args) {
     if (B1 == 0 && args.B1) { B1 = args.B1; }
     if (B2 == 0 && args.B2) { B2 = args.B2; }
 
-    if (B1 == 0) {
-      B1 = B2 ? B2 / args.B2_B1_ratio : (u32(float(exponent) / 10'000'000 + .5f) * 500'000);
-    }
-
-    if (B2 == 0) {
-      B2 = B1 * args.B2_B1_ratio;
-    }
+    if (B1 == 0) { B1 = u32(float(exponent) / 10'000'000 + .5f) * 500'000; }
+    if (B2 == 0) { B2 = B1 * args.B2_B1_ratio; }
 
     if (B1 < 10000) {
       log("B1=%u too small, adjusted to %u\n", B1, 10000);
