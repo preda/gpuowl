@@ -22,9 +22,6 @@ std::optional<Task> parse(const std::string& line) {
   u32 wantsPm1 = 0;
   u32 B1 = 0, B2 = 0;
 
-  // char buf[256];
-  // if (sscanf(line.c_str(), "Verify=%255s", buf) == 1) { return Task{Task::VERIFY, .verifyPath=buf}; }
-
   string tail = line;
   
   if (sscanf(tail.c_str(), "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2

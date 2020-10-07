@@ -74,7 +74,7 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
 
 }
 
-void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const string& proofPath) const {
+void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const {
   vector<string> fields{json("res64", Hex{res64}),
                         json("residue-type", 1),
                         json("errors", vector<string>{json("gerbicz", nErrors)}),

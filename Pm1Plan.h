@@ -16,10 +16,8 @@ template<> constexpr bool isRelPrime<2310>(u32 j) { return isRelPrime<210>(j) &&
 
 template<u32 D> constexpr u32 getJ();
 
-template<> constexpr u32 getJ<210>() { return 1 * 2 * 4 * 6 / 2; } //  24
-static_assert(getJ<210>() == 24);
-
-template<> constexpr u32 getJ<2310>() { return getJ<210>() * 10; } // 240
+template<> constexpr u32 getJ<210>() { return 1 * 2 * 4 * 6 / 2; }
+template<> constexpr u32 getJ<2310>() { return getJ<210>() * 10; }
 static_assert(getJ<2310>() == 240);
 
 // Simple Erathostene's sieve.

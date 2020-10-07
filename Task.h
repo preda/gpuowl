@@ -33,7 +33,7 @@ struct Task {
   
   void execute(const Args& args);
 
-  void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const string&) const;
+  void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;
   void writeResultPM1(const Args&, const std::string& factor, u32 fftSize) const;
 
   string kindStr() const { return "PRP"; }
