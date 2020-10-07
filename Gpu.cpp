@@ -477,10 +477,10 @@ void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp
 void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3) {
     fftP(tmp1, inA);
     tW(tmp2, tmp1);
-    tailMul(tmp1, tmp2, inB);
+    tailMul(tmp1, inB, tmp2);
     tH(tmp2, tmp1);
     fftW(tmp1, tmp2);
-    if (mul3) { carryM(out, buf1); } else { carryA(out, buf1); }
+    if (mul3) { carryM(out, tmp1); } else { carryA(out, tmp1); }
     carryB(out);
 }
 
@@ -496,6 +496,12 @@ void Gpu::modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<do
 void Gpu::mul(Buffer<int>& io, Buffer<int>& inA, Buffer<int>& inB) { modMul(io, inA, inB, buf1, buf2, buf3); }
 
 void Gpu::mul(Buffer<int>& io, Buffer<int>& inB) { mul(io, io, inB); }
+
+void Gpu::mul(Buffer<int>& io, Buffer<double>& buf1) {
+  // We know that coreStep() stores double output in buf1; so we're going to use buf2 & buf3 for temps.
+  // tW(buf2, buf1);
+  mul(io, io, buf1, buf2, buf3, false);
+}
 
 void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   assert(blockSize > 0);
@@ -722,22 +728,24 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
 }
 
 void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3) {
-  if (leadIn) { fftP(buf1, in); }
+  if (leadIn) {
+    fftP(buf2, in);
+    tW(buf1, buf2);    
+  }
   
-  tW(buf2, buf1);
-
-  tailSquare(buf1, buf2);
+  tailSquare(buf2, buf1);
   
-  tH(buf2, buf1);
+  tH(buf1, buf2);
 
   if (leadOut) {
-    fftW(buf1, buf2);    
-    if (mul3) { carryM(out, buf1); } else { carryA(out, buf1); }    
+    fftW(buf2, buf1);
+    if (mul3) { carryM(out, buf2); } else { carryA(out, buf2); }
     carryB(out);
   } else {
     assert(!useLongCarry);
-    if (mul3) { carryFusedMul(buf1, buf2); } else { carryFused(buf1, buf2); }
-  }  
+    if (mul3) { carryFusedMul(buf2, buf1); } else { carryFused(buf2, buf1); }
+    tW(buf1, buf2);
+  }
 }
 
 u32 Gpu::modSqLoop(Buffer<int>& io, u32 from, u32 to) {
@@ -1139,6 +1147,23 @@ public:
     gpu->writeIn(bufs[0], data);
     engaged[0] = true;
   }
+
+  void step(u32 kAt, Buffer<double>& data) {
+    assert(nextK && kAt == nextK);
+    assert(nextK < bits.size() && bits[nextK]);
+    assert(engaged.size() == bufs.size());
+    
+    auto [nextPop, sum] = findFirstPop(nextK + 1);
+    nextK = nextPop;
+    assert(nextK == 0 || bits[nextK]);
+
+    if (!engaged[sum]) {
+      bufs[sum].set(1);
+      engaged[sum] = true;
+    }
+    
+    gpu->mul(bufs[sum], data);
+  }
   
   void step(u32 kAt, Buffer<int>& data) {
     assert(nextK && kAt == nextK);
@@ -1149,6 +1174,13 @@ public:
     nextK = nextPop;
     assert(nextK == 0 || bits[nextK]);
 
+    /*
+    if (!engaged[sum]) {
+      bufs[sum].set(1);
+      engaged[sum] = true;
+    }
+    */
+    
     if (engaged[sum]) {
       gpu->mul(bufs[sum], data);
     } else {
@@ -1508,7 +1540,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
     ++k; // !! early inc
     assert(b1Acc.wantK() == 0 || b1Acc.wantK() >= k);
-    bool leadOut = (k % blockSize == 0) || k == persistK || k == kEnd || k == b1Acc.wantK() || useLongCarry;
+    bool leadOut = (k % blockSize == 0) || k == persistK || k == kEnd || useLongCarry; // || k == b1Acc.wantK();
     coreStep(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;    
     
@@ -1526,7 +1558,11 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     if (k == b1Acc.wantK()) {
-      b1Acc.step(k, bufData);
+      if (leadOut) {
+        b1Acc.step(k, bufData);
+      } else {
+        b1Acc.step(k, buf1);
+      }
       if (!b1Acc.wantK()) {
         b1JustFinished = true;
       } else {

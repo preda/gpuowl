@@ -179,6 +179,7 @@ class Gpu {
 public:
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<int>& inB);
+  void mul(Buffer<int>& io, Buffer<double>& inB);
   void square(Buffer<int>& data);
 
   void finish() { queue->finish(); }
