@@ -121,8 +121,6 @@ class Gpu {
   Buffer<double> buf1;
   Buffer<double> buf2;
   Buffer<double> buf3;
-
-  const Args& args;
   
   vector<int> readSmall(Buffer<int>& buf, u32 start);
 
@@ -177,6 +175,8 @@ class Gpu {
   void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
   
 public:
+  const Args& args;
+  
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<double>& inB);

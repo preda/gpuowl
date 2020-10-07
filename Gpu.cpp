@@ -12,6 +12,7 @@
 #include "AllocTrac.h"
 #include "Queue.h"
 #include "Task.h"
+#include "Memlock.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -981,6 +982,8 @@ void Gpu::square(Buffer<int>& data) {
 namespace {
 
 class B1Accumulator {
+  std::optional<Memlock> memlock;
+  
   u32 findFirstBitSet() const {
     assert(!bits.empty());
     for (u32 i = 0, end = bits.size(); i < end; ++i) { if (bits[i]) { return i; } }
@@ -993,8 +996,10 @@ class B1Accumulator {
     // log("B1 %u: releasing %u bits\n", b1, u32(bits.size()));
     
     if (!bufs.empty()) {
+      assert(memlock);
       log("B1 %u: releasing %u buffers\n", b1, u32(bufs.size()));
       bufs.clear();
+      memlock.reset();
     }
 
     engaged.clear();
@@ -1008,6 +1013,8 @@ class B1Accumulator {
     }
 
     if (bufs.empty()) {
+      assert(!memlock);
+      memlock.emplace(gpu->args.masterDir, u32(gpu->args.device));
       assert(engaged.empty());
       bufs = gpu->makeBufVector(maxBufs);        
       log("B1: allocating %u buffers\n", maxBufs);
@@ -1299,8 +1306,9 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   log("B1=%u, B2=%u, D=%u from B2=%u : %u blocks starting at %u\n",
       b1, b2, Pm1Plan::D, doneB2, u32(selected.size()), startBlock);
 
+  Memlock memlock{args.masterDir, u32(args.device)};
   Timer timer;
-  
+
   vector<Buffer<double>> blockBufs;
   for (u32 i = 0; i < Pm1Plan::J; ++i) { blockBufs.emplace_back(queue, "p2Buf-"s + std::to_string(i), N); }
   log("Allocated %u P2 buffers\n", Pm1Plan::J);
