@@ -70,8 +70,8 @@ class Gpu {
   Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
 
-  Kernel multiply;
-  Kernel multiplyDelta;
+  Kernel kernelMultiply;
+  Kernel kernelMultiplyDelta;
   Kernel tailFusedSquare;
   Kernel tailFusedMulDelta;
   Kernel tailFusedMulLow;
@@ -140,7 +140,11 @@ class Gpu {
   
   vector<u32> writeBase(const vector<u32> &v);
 
-  void multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
+  // Both "io" and "in" are in "low" position
+  void multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
+
+  // Only "in" is in "low" position
+  // void multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
 
   void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
   

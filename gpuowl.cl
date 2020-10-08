@@ -3228,10 +3228,10 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
 }
 //}}
 
-//== MULTIPLY NAME=multiply, MULTIPLY_DELTA=0
+//== MULTIPLY NAME=kernelMultiply, MULTIPLY_DELTA=0
 
 #if NO_P2_FUSED_TAIL
-//== MULTIPLY NAME=multiplyDelta, MULTIPLY_DELTA=1
+//== MULTIPLY NAME=kernelMultiplyDelta, MULTIPLY_DELTA=1
 #endif
 
 

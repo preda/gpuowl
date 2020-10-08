@@ -309,8 +309,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(transposeH,   (W/64) * (BIG_H/64)),
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
-  LOAD(multiply,      hN / SMALL_H),
-  LOAD(multiplyDelta, hN / SMALL_H),
+  LOAD(kernelMultiply,      hN / SMALL_H),
+  LOAD(kernelMultiplyDelta, hN / SMALL_H),
   LOAD(tailFusedSquare,   hN / SMALL_H / 2),
   LOAD(tailFusedMulDelta, hN / SMALL_H / 2),
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
@@ -470,7 +470,7 @@ void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp
   } else {
     fftHin(out, inTmp);
     fftHin(inTmp, in);
-    multiply(out, inTmp);
+    kernelMultiply(out, inTmp);
     fftHout(out);
   }
 }
@@ -569,7 +569,7 @@ void Gpu::tH(Buffer<double>& out, Buffer<double>& in) {
 void Gpu::tailMulDelta(Buffer<double>& out, Buffer<double>& in, Buffer<double>& bufA, Buffer<double>& bufB) {
   if (args.uses("NO_P2_FUSED_TAIL")) {
     fftHin(out, in);
-    multiplyDelta(out, bufA, bufB);
+    kernelMultiplyDelta(out, bufA, bufB);
     fftHout(out);
   } else {
     tailFusedMulDelta(out, in, bufA, bufB);
@@ -979,7 +979,7 @@ void Gpu::square(Buffer<int>& data) {
 }
 
 // io *= in; with buffers in low position.
-void Gpu::multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp) {
+void Gpu::multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp) {
   // multiply(io, in); fftHout(io);
   tailMulLowLow(io, in);
   tH(tmp, io);
@@ -1024,8 +1024,8 @@ struct SquaringSet {
   }
 
   void step(Buffer<double>& bufTmp) {
-    gpu.multiplyLow(C, B, bufTmp);
-    gpu.multiplyLow(B, A, bufTmp);
+    gpu.multiplyLowLow(C, B, bufTmp);
+    gpu.multiplyLowLow(B, A, bufTmp);
   }
 
 private:
