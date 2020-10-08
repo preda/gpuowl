@@ -980,13 +980,23 @@ void Gpu::square(Buffer<int>& data) {
 
 // io *= in; with buffers in low position.
 void Gpu::multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp) {
-  // multiply(io, in); fftHout(io);
   tailMulLowLow(io, in);
   tH(tmp, io);
   doCarry(io, tmp);
   tW(tmp, io);
   fftHin(io, tmp);
 }
+
+/*
+// "out" and "inB" are in low position.
+void Gpu::multiplyLow(Buffer<double>& out, const Buffer<double>& inA, const Buffer<double>& inB, Buffer<double>& tmp) {
+  tailFusedMulLow(out, inA, inB);
+  tH(tmp, out);
+  doCarry(out, tmp);
+  tW(tmp, out);
+  fftHin(out, tmp);
+}
+*/
 
 struct SquaringSet {  
   std::string name;
@@ -1009,11 +1019,12 @@ struct SquaringSet {
     : SquaringSet(gpu, N, name) {
     
     gpu.exponentiateLow(C, bufBase, exponents[0], bufTmp, bufTmp2);
-    gpu.exponentiateLow(B, bufBase, exponents[1], bufTmp, bufTmp2);
-    if (exponents[2] == exponents[1]) {
-      A << B;
+    gpu.exponentiateLow(A, bufBase, exponents[2], bufTmp, bufTmp2);    
+    
+    if (exponents[1] == exponents[2]) {
+      B << A;
     } else {
-      gpu.exponentiateLow(A, bufBase, exponents[2], bufTmp, bufTmp2);
+      gpu.exponentiateLow(B, bufBase, exponents[1], bufTmp, bufTmp2);
     }
   }
 

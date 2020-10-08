@@ -17,9 +17,14 @@ error_code& noThrow() {
 }
 
 Memlock::Memlock(fs::path base, u32 device) : lock{base / ("memlock-"s + to_string(device))} {
+
+  bool first = true;
   while (!fs::create_directory(lock, noThrow())) {
-    log("Waiting for memory lock '%s'\n", lock.string().c_str());
-    std::this_thread::sleep_for(std::chrono::seconds(120));
+    if (first) {
+      log("Waiting for memory lock '%s'\n", lock.string().c_str());
+      first = false;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(15));
   }
   log("Aquired memory lock '%s'\n", lock.string().c_str());
 }
