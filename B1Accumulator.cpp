@@ -41,7 +41,7 @@ vector<u32> B1Accumulator::fold() {
   u32 n = bufs.size();
   assert(n > 1 && engaged.size() == n);
     
-  Timer timer;    
+  // Timer timer;    
   Words ret;
 
   u32 nEngaged = std::accumulate(engaged.begin(), engaged.end(), 0);
@@ -74,7 +74,7 @@ vector<u32> B1Accumulator::fold() {
     ret = gpu->readAndCompress(bufs[0]);
   }
     
-  log("B1 fold(%u) (%u set) took %.2fs\n", n, nEngaged, timer.deltaSecs());
+  // log("B1 fold(%u) (%u set) took %.2fs\n", n, nEngaged, timer.deltaSecs());
   return ret;
 }
 

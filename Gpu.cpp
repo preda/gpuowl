@@ -805,9 +805,22 @@ static string makeLogStr(string_view status, u32 k, u64 res, float secsPerIt, u3
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors) {
-  log("%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
-      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
+static string formatBound(u32 b) {
+  if (b >= 1'000'000 && b % 1'000'000 == 0) {
+    return to_string(b / 1'000'000) + 'M';
+  } else if (b >= 500'000 && b % 100'000 == 0) {
+    return to_string(float(b)/1'000'000) + 'M';
+  } else {
+    return to_string(b);
+  }
+}
+
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, u32 nBitsP1 = 0, u32 B1 = 0) {
+  char buf[64] = {0};
+  if (k < nBitsP1) { snprintf(buf, sizeof(buf), " ; P1(%s) %2.1f%%", formatBound(B1).c_str(), float(k) * 100 / nBitsP1); }
+  
+  log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
+      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), buf);
 }
 
 [[maybe_unused]] static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
@@ -987,17 +1000,6 @@ void Gpu::multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<do
   fftHin(io, tmp);
 }
 
-/*
-// "out" and "inB" are in low position.
-void Gpu::multiplyLow(Buffer<double>& out, const Buffer<double>& inA, const Buffer<double>& inB, Buffer<double>& tmp) {
-  tailFusedMulLow(out, inA, inB);
-  tH(tmp, out);
-  doCarry(out, tmp);
-  tW(tmp, out);
-  fftHin(out, tmp);
-}
-*/
-
 struct SquaringSet {  
   std::string name;
   u32 N;
@@ -1071,12 +1073,13 @@ template<typename Future> bool wait(const Future& f) {
 }
 
 void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {
-  LogContext pushContext{"P2"};
+  LogContext pushContext{"P2("s + formatBound(b1) + ',' + formatBound(b2) + ')'};
   
   u32 bufSize = N * sizeof(double);
   if (AllocTrac::availableBytes() / bufSize - 5 >= Pm1Plan<2310>::J) {
     doP2<Pm1Plan<2310>>(saver, b1, b2, gcdFuture, signal);
   } else {
+    log("Warning: not enough memory for efficient P2. Increase -maxAlloc if possible\n");
     doP2<Pm1Plan<210>>(saver, b1, b2, gcdFuture, signal);
   }
 }
@@ -1200,7 +1203,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 #endif 
             
       u32 n = selected.size();
-      log("%8u/%u (%3.0f%%); %u muls, %.0f us/mul\n", blockEndB2, b2, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
+      log("%9u (%3.0f%%); %u muls, %4.0f us/mul\n", blockEndB2, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
       nSelected = 0;
     }
 
@@ -1224,7 +1227,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       throw "stop requested";
     }
     
-    bool doGCD = atEnd || (!gcdFuture.valid() && sinceLastGCD.elapsedSecs() > 300);
+    bool doGCD = atEnd || (!gcdFuture.valid() && sinceLastGCD.elapsedSecs() > 600);
     
     if (doGCD) {
       log("Starting GCD\n");
@@ -1422,7 +1425,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           Words b1Data = b1Acc.save(k);
 
           if (k < kEnd) { saver.savePRP(prpState); }
-          doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors);
+          
+          doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
                     
           if (!b1Data.empty()) {
             log("B1 completed. Starting GCD\n");
