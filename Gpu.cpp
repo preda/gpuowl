@@ -1094,11 +1094,12 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 
   u32 doneB2 = saver->loadP2();
   if (doneB2 >= b2) {
-    log("(%u,%u) already finished\n", b1, b2);
+    log("already finished\n");
     return;
-  } else {
-    log("(%u,%u) will continue from B2=%u\n", b1, b2, doneB2);
   }
+
+  if (!doneB2) { doneB2 = b1; }
+  assert(doneB2 >= b1);
   
   auto p1Data = saver->loadP1Final();
 
@@ -1106,15 +1107,14 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   assert(startBlock > 0);
   assert(!selected.empty());
   
-  log("B1=%u, B2=%u, D=%u from B2=%u : %u blocks starting at %u\n",
-      b1, b2, Pm1Plan::D, doneB2, u32(selected.size()), startBlock);
+  log("D=%u; from B2=%u : %u blocks starting at %u\n", Pm1Plan::D, doneB2, u32(selected.size()), startBlock);
 
   Memlock memlock{args.masterDir, u32(args.device)};
   Timer timer;
 
   vector<Buffer<double>> blockBufs;
   for (u32 i = 0; i < Pm1Plan::J; ++i) { blockBufs.emplace_back(queue, "p2Buf-"s + std::to_string(i), N); }
-  log("Allocated %u P2 buffers\n", Pm1Plan::J);
+  log("Allocated %u buffers\n", Pm1Plan::J);
 
   Buffer<double> bufAcc{queue, "Acc", N};  // Second-stage accumulator.
   Buffer<int> bufP2Data{queue, "p2Data", N};
