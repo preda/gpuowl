@@ -817,7 +817,7 @@ static string formatBound(u32 b) {
 
 static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, u32 nBitsP1 = 0, u32 B1 = 0) {
   char buf[64] = {0};
-  if (k < nBitsP1) { snprintf(buf, sizeof(buf), " ; P1(%s) %2.1f%%", formatBound(B1).c_str(), float(k) * 100 / nBitsP1); }
+  if (k < nBitsP1) { snprintf(buf, sizeof(buf), " | P1(%s) %2.1f%%", formatBound(B1).c_str(), float(k) * 100 / nBitsP1); }
   
   log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), buf);

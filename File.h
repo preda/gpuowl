@@ -26,7 +26,7 @@ class File {
   FILE* f = nullptr;
   bool sync = false;
   
-  File(const fs::path &path, const string& mode, bool doLog, bool syncOnClose = false) : name{path.string()} {
+  File(const fs::path &path, const string& mode, bool doLog, bool syncOnClose) : name{path.string()} {
     f = fopen(name.c_str(), mode.c_str());
     if (!f && doLog) {
       log("Can't open '%s' (mode '%s')\n", name.c_str(), mode.c_str());
@@ -42,9 +42,9 @@ class File {
   }
 
 public:
-  static File openRead(const fs::path& name, bool doThrow = false) { return File{name, "rb", doThrow}; }
-  static File openWrite(const fs::path &name) { return File{name, "wb", true, true}; }
-  static File openAppend(const fs::path &name) { return File{name, "ab", true, true}; }
+  static File openRead(const fs::path& name, bool doThrow = false) { return File{name, "rb", doThrow, false}; }
+  static File openWrite(const fs::path &name, bool sync = true) { return File{name, "wb", true, sync}; }
+  static File openAppend(const fs::path &name, bool sync = true) { return File{name, "ab", true, sync}; }
   
   static void append(const fs::path& name, std::string_view text) { File::openAppend(name).write(text); }
 

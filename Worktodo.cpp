@@ -8,7 +8,6 @@
 #include "Args.h"
 
 #include <cassert>
-#include <cstring>
 #include <string>
 #include <optional>
 
@@ -52,9 +51,6 @@ std::optional<Task> parse(const std::string& line) {
   return std::nullopt;
 }
 
-void remove(const std::string& s) { ::remove(s.c_str()); }
-void rename(const std::string& a, const std::string& b) { ::rename(a.c_str(), b.c_str()); }
-
 fs::path operator+(fs::path p, const std::string& tail) {
   p += tail;
   return p;
@@ -64,7 +60,7 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   assert(!targetLine.empty());
   bool lineDeleted = false;
   {
-    auto fo{File::openWrite(fileName + "-tmp")};
+    auto fo{File::openWrite(fileName + "-tmp", false)};
     for (const string& line : File::openRead(fileName, true)) {
       if (!lineDeleted && line == targetLine) {
         lineDeleted = true;
@@ -78,9 +74,9 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
     log("'%s': could not find the line '%s' to delete\n", fileName.string().c_str(), targetLine.c_str());
     return false;
   }
-  remove(fileName + "-bak");
-  rename(fileName, fileName + "-bak");
-  rename(fileName + "-tmp", fileName);  
+  fs::remove(fileName + "-bak");
+  fs::rename(fileName, fileName + "-bak");
+  fs::rename(fileName + "-tmp", fileName);  
   return true;
 }
 
@@ -113,28 +109,6 @@ std::optional<Task> Worktodo::getTask(Args &args) {
   }
   
   return std::nullopt;
-}
-
-void Worktodo::deletePRP(u32 exponent) {
-  std::string fileName = "worktodo.txt";
-  bool changed = false;
-  {
-    auto fo{File::openWrite(fileName + "-tmp")};
-    for (const string& line : File::openRead(fileName, true)) {
-      if (optional<Task> task = parse(line); task && task->exponent == exponent && task->kind == Task::PRP) {
-        changed = true;
-        log("task removed: \"%s\"\n", rstripNewline(line).c_str());
-      } else {
-        fo.write(line);
-      }
-    }
-  }
-
-  if (changed) {
-    remove(fileName + "-bak");
-    rename(fileName, fileName + "-bak");
-    rename(fileName + "-tmp", fileName);  
-  }
 }
 
 bool Worktodo::deleteTask(const Task &task) {
