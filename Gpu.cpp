@@ -588,16 +588,6 @@ void Gpu::writeIn(Buffer<int>& buf, const vector<i32>& words) {
   transposeIn(buf, bufAux);
 }
 
-// io *= in; with buffers in low position.
-void Gpu::multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp) {
-  // multiply(io, in); fftHout(io);
-  tailMulLowLow(io, in);
-  tH(tmp, io);
-  doCarry(io, tmp);
-  tW(tmp, io);
-  fftHin(io, tmp);
-}
-
 namespace {
 class IterationTimer {
   Timer timer;
@@ -649,7 +639,7 @@ Words Gpu::expExp2(const Words& A, u32 n) {
 
 // A:= A^h * B
 void Gpu::expMul(Buffer<i32>& A, u64 h, Buffer<i32>& B) {
-  exponentiateHigh(A, h, buf1, buf2, buf3);
+  exponentiate(A, h, buf1, buf2, buf3);
   modMul(A, A, B, buf1, buf2, buf3);
 }
 
@@ -661,45 +651,41 @@ Words Gpu::expMul(const Words& A, u64 h, const Words& B) {
   return readData();
 }
 
-void Gpu::exponentiateHigh(Buffer<int>& bufInOut, u64 exp, Buffer<double>& bufBaseLow, Buffer<double>& buf1, Buffer<double>& buf2) {
+void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   if (exp == 0) {
     bufInOut.set(1);
   } else if (exp > 1) {
-    fftP(buf1, bufInOut);
-    tW(buf2, buf1);
-    fftHin(bufBaseLow, buf2);
-    exponentiateCore(buf1, bufBaseLow, exp, buf2);
-    fftW(buf2, buf1);
-    carryA(bufInOut, buf2);
+    fftP(buf2, bufInOut);
+    tW(buf3, buf2);
+    fftHin(buf1, buf3);
+    exponentiateCore(buf2, buf1, exp, buf3);
+    fftW(buf3, buf2);
+    carryA(bufInOut, buf3);
     carryB(bufInOut);
   }
 }
 
 // All buffers are in "low" position.
-void Gpu::exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp, Buffer<double>& tmp2) {
+void Gpu::exponentiate(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1) {
+  assert(exp > 1);
+  exponentiateCore(out, base, exp, tmp1);
+  doCarry(tmp1, out);
+  tW(out, tmp1);
+}
+
+// All buffers are in "low" position.
+void Gpu::exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1, Buffer<double>& tmp2) {
   assert(exp > 0);
   if (exp == 1) {
-    out << base;    
+    out << base;
   } else {
-    exponentiateCore(out, base, exp, tmp);
-    doCarry(tmp, out);
-    tW(tmp2, tmp);
+    exponentiate(tmp2, base, exp, tmp1);
     fftHin(out, tmp2);
   }
 }
 
-static bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
-
-// does either carrryFused() or the expanded version depending on useLongCarry
-void Gpu::doCarry(Buffer<double>& out, Buffer<double>& in) {
-  if (useLongCarry) {
-    fftW(out, in);
-    carryA(in, out);
-    carryB(in);
-    fftP(out, in);
-  } else {
-    carryFused(out, in);
-  }
+namespace {
+bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
 }
 
 // See "left-to-right binary exponentiation" on wikipedia
@@ -726,6 +712,18 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
     tW(out, tmp);
     tailSquare(tmp, out);
     tH(out, tmp);
+  }
+}
+
+// does either carrryFused() or the expanded version depending on useLongCarry
+void Gpu::doCarry(Buffer<double>& out, Buffer<double>& in) {
+  if (useLongCarry) {
+    fftW(out, in);
+    carryA(in, out);
+    carryB(in);
+    fftP(out, in);
+  } else {
+    carryFused(out, in);
   }
 }
 
@@ -980,6 +978,16 @@ void Gpu::square(Buffer<int>& data) {
   square(data, buf1, buf2);
 }
 
+// io *= in; with buffers in low position.
+void Gpu::multiplyLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp) {
+  // multiply(io, in); fftHout(io);
+  tailMulLowLow(io, in);
+  tH(tmp, io);
+  doCarry(io, tmp);
+  tW(tmp, io);
+  fftHin(io, tmp);
+}
+
 struct SquaringSet {  
   std::string name;
   u32 N;
@@ -1125,7 +1133,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     }
   }
 
-  exponentiateLow(buf1, buf3, Pm1Plan::D * Pm1Plan::D, buf2, buf3); // base^(D^2)  
+  // Warn: hack: the use of buf1 below as both output and temporary relies on the implementation of exponentiateLow().
+  exponentiateLow(buf1, buf3, Pm1Plan::D * Pm1Plan::D, buf1, buf2); // base^(D^2)  
   SquaringSet big{*this, N, buf1, buf2, buf3, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "big"};
   
   queue->finish();
