@@ -982,6 +982,22 @@ void Gpu::square(Buffer<int>& data) {
 namespace {
 
 class B1Accumulator {
+public:
+  const u32 E;
+  const u32 b1;
+  const u32 nBits;
+
+private:
+  Gpu* gpu;
+  Saver* saver;
+
+  u32 maxBufs;  
+  u32 nextK = 0;
+  
+  vector<bool> bits;
+  vector<Buffer<i32>> bufs;
+  vector<bool> engaged;
+  
   std::optional<Memlock> memlock;
   
   u32 findFirstBitSet() const {
@@ -1084,26 +1100,9 @@ class B1Accumulator {
     return {0, sum};
   }
 
-
-  Gpu* gpu;
-  Saver* saver;
-  
-public:
-  const u32 E;
-  const u32 b1;
-  const u32 nBits;
-
-private:
-  u32 maxBufs;  
-  u32 nextK = 0;
-  
-  vector<bool> bits;
-  vector<Buffer<i32>> bufs;
-  vector<bool> engaged;
-
 public:
   B1Accumulator(Gpu* gpu, Saver* saver, u32 E, u32 maxBufs)
-    : gpu{gpu}, saver{saver}, E{E}, b1{saver->b1}, nBits{powerSmoothBits(E, b1)}, maxBufs{maxBufs} { //681
+    : E{E}, b1{saver->b1}, nBits{powerSmoothBits(E, b1)}, gpu{gpu}, saver{saver}, maxBufs{maxBufs} { //681
     assert(maxBufs > 0);
     log("B1=%u (%u bits)\n", b1, nBits);
   }
@@ -1155,7 +1154,8 @@ public:
     engaged[0] = true;
   }
 
-  void step(u32 kAt, Buffer<double>& data) {
+  template<typename T>
+  void step(u32 kAt, Buffer<T>& data) {
     assert(nextK && kAt == nextK);
     assert(nextK < bits.size() && bits[nextK]);
     assert(engaged.size() == bufs.size());
@@ -1170,30 +1170,6 @@ public:
     }
     
     gpu->mul(bufs[sum], data);
-  }
-  
-  void step(u32 kAt, Buffer<int>& data) {
-    assert(nextK && kAt == nextK);
-    assert(nextK < bits.size() && bits[nextK]);
-    assert(engaged.size() == bufs.size());
-    
-    auto [nextPop, sum] = findFirstPop(nextK + 1);
-    nextK = nextPop;
-    assert(nextK == 0 || bits[nextK]);
-
-    /*
-    if (!engaged[sum]) {
-      bufs[sum].set(1);
-      engaged[sum] = true;
-    }
-    */
-    
-    if (engaged[sum]) {
-      gpu->mul(bufs[sum], data);
-    } else {
-      bufs[sum] << data;
-      engaged[sum] = true;
-    }
   }
 };
 
