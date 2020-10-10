@@ -517,7 +517,7 @@ vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
       allZero &= !v;
     }
 
-    if (sum != expectedSum) {
+    if (sum != expectedSum || (allZero && nRetry == 0)) {
       log("GPU -> Host read #%d failed (check %x vs %x)\n", nRetry, unsigned(sum), unsigned(expectedSum));
     } else {
       if (allZero) {
@@ -530,6 +530,9 @@ vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
   }
   throw "Persistent read errors: GPU->Host";
 }
+
+vector<u32> Gpu::readCheck() { return readAndCompress(bufCheck); }
+vector<u32> Gpu::readData() { return readAndCompress(bufData); }
 
 void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp) {
   if (true) {
@@ -1139,6 +1142,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 
   bool printStats = args.flags.count("STATS");
 
+ retry:
   u32 doneB2 = saver->loadP2();
   if (doneB2 >= b2) {
     log("already finished\n");
@@ -1282,14 +1286,17 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       carryA(bufP2Data, buf1);
       carryB(bufP2Data);
       Words p2Data = readAndCompress(bufP2Data);
+      if (p2Data.empty()) {
+        log("P2 error ZERO, will move back\n");
+        goto retry;
+      }
       assert(!gcdFuture.valid());
       gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
         string factor = GCD(E, p2Data, 0);
         saver->saveP2(blockEndB2);
         return factor;
       });        
-    }    
-
+    }
   }
   queue->finish();
 }
@@ -1400,7 +1407,12 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     leadIn = leadOut;    
     
     if (k == persistK) {
-      proofSet.save(k, readData());
+      Words data = readData();
+      if (data.empty()) {
+        log("Data error ZERO\n");
+        goto reload;
+      }
+      proofSet.save(k, data);
       persistK = proofSet.firstPersistAt(k + 1);
     }
 
@@ -1457,9 +1469,16 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         b1JustFinished = false;
         
         u64 res64 = dataResidue();
-        PRPState prpState{k, blockSize, res64, readCheck(), nErrors};
-        bool ok = this->doCheck(blockSize, buf1, buf2, buf3);        
+        bool ok = false;
         
+        Words check = readCheck();
+        if (check.empty()) {
+          log("Check error ZERO\n");
+          ok = false;
+        } else {
+          ok = this->doCheck(blockSize, buf1, buf2, buf3);
+        }
+                
         if (ok) {
           nSeqErrors = 0;      
           skipNextCheckUpdate = true;
@@ -1467,7 +1486,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
                     
           Words b1Data = b1Acc.save(k);
 
-          if (k < kEnd) { saver.savePRP(prpState); }
+          if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res64, check, nErrors}); }
           
           doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
                     

@@ -212,8 +212,8 @@ public:
 
   void logTimeKernels();
 
-  vector<u32> readCheck() { return readAndCompress(bufCheck); }
-  vector<u32> readData() { return readAndCompress(bufData); }
+  vector<u32> readCheck();
+  vector<u32> readData();
 
   PRPResult isPrimePRP(const Args& args, const Task& task);
 
