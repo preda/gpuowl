@@ -179,6 +179,8 @@ class Gpu {
   
 public:
   const Args& args;
+
+  Words fold(vector<Buffer<int>>& bufs);
   
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<int>& inB);

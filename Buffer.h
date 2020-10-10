@@ -125,5 +125,5 @@ public:
   operator vector<T>() const { return read(); }
 
   // async read
-  void operator>>(vector<T>& out) const { readAsync(out); }
+  // void operator>>(vector<T>& out) const { readAsync(out); }
 };

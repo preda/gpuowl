@@ -14,6 +14,7 @@
 #include "Task.h"
 #include "Memlock.h"
 #include "B1Accumulator.h"
+#include "util.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -409,6 +410,61 @@ vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   return bufSmallOut.read(128);
 }
 
+Words Gpu::fold(vector<Buffer<int>>& bufs) {
+  assert(!bufs.empty());
+
+  for (int retry = 0; retry < 2; ++retry) {
+    {
+      Buffer<double> A{queue, "A", N};
+      Buffer<double> B{queue, "B", N};      
+      {
+        Buffer<int>& last = bufs.back();
+        fftP(buf3, last);
+        tW(B, buf3);
+        fftHin(A, B);
+      }
+
+      u32 n = bufs.size();
+      for (int i = n - 2; i >= 0; --i) {
+        Buffer<int>& buf = bufs[i];
+        fftP(buf3, buf);
+        tW(buf2, buf3);
+        tailFusedMulLow(A, buf2, A);
+        tH(buf3, A);
+        doCarry(A, buf3);
+        tW(buf3, A);
+        fftHin(A, buf3);
+
+        if (i == 0) {
+          tailSquare(buf3, B);
+          tH(B, buf3);
+          doCarry(buf3, B);
+          tW(B, buf3);
+        }
+    
+        tailFusedMulLow(buf3, B, A);
+        tH(B, buf3);
+    
+        if (i == 0) {
+          fftW(buf3, B);          
+          break;
+        } else {
+          doCarry(buf3, B);
+          tW(B, buf3);
+        }
+      }
+    }
+
+    Buffer<int> C{queue, "C", N};
+    carryA(C, buf3);
+    carryB(C);
+    Words folded = readAndCompress(C);
+    if (!folded.empty()) { return folded; }
+    log("P1 fold() error ZERO, will retry\n");
+  }
+  return {};
+}
+
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   FFTConfig config = getFFTConfig(E, args.fftSpec);
   u32 WIDTH        = config.width;
@@ -447,21 +503,32 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
   for (int nRetry = 0; nRetry < 3; ++nRetry) {
     sum64(bufSumOut, u32(buf.size * sizeof(int)), buf);
+    
     vector<u64> expectedVect(1);
-    bufSumOut >> expectedVect;
+    bufSumOut.readAsync(expectedVect);
     vector<int> data = readOut(buf);
     u64 expectedSum = expectedVect[0];
+    
     u64 sum = 0;
+    bool allZero = true;
     for (auto it = data.begin(), end = data.end(); it < end; it += 2) {
-      sum += u32(*it) | (u64(*(it + 1)) << 32);
+      u64 v = u32(*it) | (u64(*(it + 1)) << 32);
+      sum += v;
+      allZero &= !v;
     }
+
     if (sum != expectedSum) {
       log("GPU -> Host read #%d failed (check %x vs %x)\n", nRetry, unsigned(sum), unsigned(expectedSum));
     } else {
-      return compactBits(std::move(data),  E);
+      if (allZero) {
+        log("Read ZERO\n");
+        return {};
+      } else {
+        return compactBits(std::move(data),  E);
+      }
     }
   }
-  throw "GPU -> Host persistent read errors";
+  throw "Persistent read errors: GPU->Host";
 }
 
 void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp) {
@@ -805,16 +872,6 @@ static string makeLogStr(string_view status, u32 k, u64 res, float secsPerIt, u3
   return buf;
 }
 
-static string formatBound(u32 b) {
-  if (b >= 1'000'000 && b % 1'000'000 == 0) {
-    return to_string(b / 1'000'000) + 'M';
-  } else if (b >= 500'000 && b % 100'000 == 0) {
-    return to_string(float(b)/1'000'000) + 'M';
-  } else {
-    return to_string(b);
-  }
-}
-
 static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, u32 nBitsP1 = 0, u32 B1 = 0) {
   char buf[64] = {0};
   if (k < nBitsP1) { snprintf(buf, sizeof(buf), " | P1(%s) %2.1f%%", formatBound(B1).c_str(), float(k) * 100 / nBitsP1); }
@@ -1049,16 +1106,6 @@ private:
   }
 };
 
-u32 Gpu::maxBuffers() {
-  u32 smallBufSize = N * 4; // "small buf" of ints
-  size_t availableBytes = AllocTrac::availableBytes();
-  u32 maxBufs = (availableBytes + smallBufSize / 2) / smallBufSize;
-
-  float MB = 1 / (1024.0f*1024.0f);
-  log("Space for %u B1 buffers (available mem %.1f MB, buf size %.1f MB)\n",  maxBufs, availableBytes * MB, smallBufSize * MB);
-  return maxBufs;
-}
-
 template<typename Future> bool finished(const Future& f) {
   return f.valid() && f.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready;
 }
@@ -1263,12 +1310,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 power = -1;
   u32 startK = 0;
 
-  const u32 maxBufs = maxBuffers();
-  assert(maxBufs >= 13);              // too-low-memory.
-  const u32 b1MaxBufs = maxBufs - 5;  // Keep a small reserve of free RAM.
-
   Saver saver{E, args.nSavefiles, b1};
-  B1Accumulator b1Acc{this, &saver, E, b1MaxBufs};
+  B1Accumulator b1Acc{this, &saver, E};
   future<string> gcdFuture;
   Signal signal;
   

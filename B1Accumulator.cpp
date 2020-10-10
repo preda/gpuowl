@@ -7,13 +7,11 @@
 #include "GmpUtil.h"
 #include "Args.h"
 #include "checkpoint.h"
+#include "util.h"
 
-#include <numeric>
-
-B1Accumulator::B1Accumulator(Gpu* gpu, Saver* saver, u32 E, u32 maxBufs)
-  : E{E}, b1{saver->b1}, nBits{powerSmoothBits(E, b1)}, gpu{gpu}, saver{saver}, maxBufs{maxBufs} { //681
-  assert(maxBufs > 0);
-  log("B1=%u (%u bits)\n", b1, nBits);
+B1Accumulator::B1Accumulator(Gpu* gpu, Saver* saver, u32 E)
+  : E{E}, b1{saver->b1}, nBits{powerSmoothBits(E, b1)}, gpu{gpu}, saver{saver}, N{gpu->getFFTSize()} {
+  log("P1(%s) %u bits\n", formatBound(b1).c_str(), nBits);
 }
 
 void B1Accumulator::alloc() {
@@ -23,59 +21,52 @@ void B1Accumulator::alloc() {
       // log("powerSmooth(%u), %u bits, took %.2fs (CPU)\n", b1, u32(bits.size()), timer.elapsedSecs());
     }
 
-    if (bufs.empty()) {
+    if (bufs.empty()) {      
       assert(!memlock);
       memlock.emplace(gpu->args.masterDir, u32(gpu->args.device));
-      assert(engaged.empty());
-      bufs = gpu->makeBufVector(maxBufs);        
-      // log("B1: allocating %u buffers\n", maxBufs);
+
+      u32 nBufs = AllocTrac::availableBytes() / (N * sizeof(i32)) - 5;
+      assert(nBufs >= 16);
+
+      log("P1(%s) using %u buffers\n", formatBound(b1).c_str(), nBufs);
+      bufs = gpu->makeBufVector(nBufs);
     }
 
-    engaged.clear();
-    engaged.resize(maxBufs);
+    for (Buffer<int>& buf : bufs) { buf.set(1); }
+}
+
+void B1Accumulator::release() {
+  if (!bits.empty()) { bits.clear(); }
+  
+  if (!bufs.empty()) {
+    assert(memlock);
+    bufs.clear();
+    log("P1(%s) released %u buffers\n", formatBound(b1).c_str(), u32(bufs.size()));
+    memlock.reset();
+  }
 }
 
 vector<u32> B1Accumulator::fold() {
   if (b1 == 0) { return {}; }
-    
-  u32 n = bufs.size();
-  assert(n > 1 && engaged.size() == n);
-    
-  // Timer timer;    
-  Words ret;
+  assert(!bufs.empty());  
+  return gpu->fold(bufs);
+}
 
-  u32 nEngaged = std::accumulate(engaged.begin(), engaged.end(), 0);
-    
-  if (nEngaged == 0) {
-    ret.resize((E-1)/32 +1);
-    ret[0] = 1;
-  } else {
-    int last = n - 1;
-    while (!engaged[last]) { --last; }
-    assert(last >= 0);
-      
-    if (last >= 1) {
-      if (engaged[last - 1]) {
-        gpu->mul(bufs[last - 1], bufs[last]);
+pair<u32,u32> B1Accumulator::findFirstPop(u32 start) {
+  u32 sum = 0;
+  for (u32 i = start; i < bits.size(); ++i) {
+    if (bits[i]) {
+      u32 n = i - start;
+      assert(n < 64);
+      u64 delta = u64(1) << n;
+      if (sum + delta >= bufs.size()) {
+        return {i, sum};
       } else {
-        bufs[last - 1] << bufs[last];
+        sum += delta;
       }
-
-      for (int i = last - 2; i >= 0; --i) {
-        gpu->mul(bufs[last], bufs[last - 1]);
-        if (engaged[i]) { gpu->mul(bufs[last - 1], bufs[i]); }
-      }
-      gpu->square(bufs[last]);
-      gpu->mul(bufs[0], bufs[last - 1], bufs[last]);
     }
-      
-    engaged[0] = true;
-    for (u32 i = 1; i < n; ++i) { engaged[i] = false; }
-    ret = gpu->readAndCompress(bufs[0]);
   }
-    
-  // log("B1 fold(%u) (%u set) took %.2fs\n", n, nEngaged, timer.deltaSecs());
-  return ret;
+  return {0, sum};
 }
 
 vector<u32> B1Accumulator::save(u32 k) {
@@ -95,6 +86,13 @@ vector<u32> B1Accumulator::save(u32 k) {
     return {};
 }
 
+u32 B1Accumulator::findFirstBitSet() const {
+  assert(!bits.empty());
+  for (u32 i = 0, end = bits.size(); i < end; ++i) { if (bits[i]) { return i; } }
+  assert(false);
+  return 0;
+}
+
 void B1Accumulator::load(u32 k) {
     if (!b1 || k >= nBits) {
       release();
@@ -104,8 +102,12 @@ void B1Accumulator::load(u32 k) {
 
     if (k == 0) {
       alloc();
+      auto data = fold();
+      if (data.empty()) { throw "P1 fold ZERO"; }
+      // log("%u %u %u %u\n", data[0], data[1], data[2], data[3]); 
+      assert(data[0] == 1 && data[1] == 0 && data[2] == 0 && data[3] == 0);
       nextK = findFirstBitSet();
-      log("Starting B1=%u, first bit %u\n", b1, nextK);
+      log("P1(%s) starting\n", formatBound(b1).c_str());
       return;
     }
 
@@ -118,24 +120,19 @@ void B1Accumulator::load(u32 k) {
 
     alloc();
     gpu->writeIn(bufs[0], data);
-    engaged[0] = true;
+
+    assert(fold() == data);
 }
 
 template<typename T>
 void B1Accumulator::step(u32 kAt, Buffer<T>& data) {
   assert(nextK && kAt == nextK);
   assert(nextK < bits.size() && bits[nextK]);
-  assert(engaged.size() == bufs.size());
   
   auto [nextPop, sum] = findFirstPop(nextK + 1);
   nextK = nextPop;
   assert(nextK == 0 || bits[nextK]);
   
-  if (!engaged[sum]) {
-    bufs[sum].set(1);
-    engaged[sum] = true;
-  }
-    
   gpu->mul(bufs[sum], data);
 }
 

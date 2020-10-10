@@ -26,7 +26,7 @@ Memlock::Memlock(fs::path base, u32 device) : lock{base / ("memlock-"s + to_stri
     }
     std::this_thread::sleep_for(std::chrono::seconds(15));
   }
-  log("Aquired memory lock '%s'\n", lock.string().c_str());
+  log("Acquired memory lock '%s'\n", lock.string().c_str());
 }
 
 Memlock::~Memlock() {
