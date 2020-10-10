@@ -1440,8 +1440,10 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     if (k % blockSize == 0) {
       if (!args.noSpin) { spin(); }
 
-      queue->finish();
+      u64 res64 = dataResidue(); // implies finish()
 
+      if (k % 10000 == 0 && k % checkStep != 0) { log("   %8d                                    %s\n", k, hex(res64).c_str()); }
+      
       bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
       if (doStop) {
         log("Stopping, please wait..\n");
@@ -1461,14 +1463,13 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         }
       }
 
-      bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
+      bool doCheck = !res64 || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
       
       if (doCheck) {
         if (printStats) { printRoundoff(E); }
 
         b1JustFinished = false;
         
-        u64 res64 = dataResidue();
         bool ok = false;
         
         Words check = readCheck();
