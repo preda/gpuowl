@@ -83,7 +83,7 @@ public:
   const u32 b1;
 
   
-  Saver(u32 E, u32 nKeep, u32 b1);
+  Saver(u32 E, u32 nKeep, u32 b1, u32 startFrom);
 
   static void cleanup(u32 E);
 

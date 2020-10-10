@@ -1310,7 +1310,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 power = -1;
   u32 startK = 0;
 
-  Saver saver{E, args.nSavefiles, b1};
+  Saver saver{E, args.nSavefiles, b1, args.startFrom};
   B1Accumulator b1Acc{this, &saver, E};
   future<string> gcdFuture;
   Signal signal;

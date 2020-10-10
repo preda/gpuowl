@@ -72,7 +72,8 @@ void Args::printHelp() {
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc <size>   : limit GPU memory usage to size, which is a value with suffix M for MB and G for GB.
                      e.g. -maxAlloc 2048M or -maxAlloc 3.5G
--save <N>          : specify the number of savefiles to keep (default 10).
+-save <N>          : specify the number of savefiles to keep (default 12).
+-from <iteration>  : start at the given iteration instead of the most recent saved iteration
 -yield             : enable work-around for CUDA busy wait taking up one CPU core
 -nospin            : disable progress spinner
 -use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
@@ -207,6 +208,8 @@ void Args::parse(string line) {
       binaryFile = s;
     } else if (key == "-save") {
       nSavefiles = stoi(s);      
+    } else if (key == "-from") {
+      startFrom = stoi(s);
     } else {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";

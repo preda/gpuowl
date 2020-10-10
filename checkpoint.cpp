@@ -64,11 +64,13 @@ float Saver::value(u32 k) {
   return (1u << __builtin_ctz(k)) / float(dist);
 }
 
-Saver::Saver(u32 E, u32 nKeep, u32 b1) : E{E}, nKeep{max(nKeep, 5u)}, b1{b1} {
+Saver::Saver(u32 E, u32 nKeep, u32 b1, u32 startFrom) : E{E}, nKeep{max(nKeep, 5u)}, b1{b1} {
   vector<u32> iterations = listIterations(to_string(E) + '-', ".prp");
   for (u32 k : iterations) {
-    minValPRP.push({value(k), k});
-    lastK = max(lastK, k);
+    if (k <= startFrom) {
+      minValPRP.push({value(k), k});
+      lastK = max(lastK, k);
+    }
   }
 }
 
