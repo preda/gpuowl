@@ -55,7 +55,6 @@ void Args::printHelp() {
 -fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
 -block <value>     : PRP GEC block size, or LL iteration-block size. Must divide 10'000.
 -log <step>        : log every <step> iterations. Multiple of 10'000.
--jacobi <step>     : (LL-only): do Jacobi check every <step> iterations. Default 1'000'000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -B1                : P-1 B1 bound
 -B2                : P-1 B2 bound
@@ -197,11 +196,6 @@ void Args::parse(string line) {
         log("BlockSize %u must divide 10'000\n", blockSize);
         throw "invalid block size";
       }
-    } else if (key == "-jacobi") {
-      jacobiStep = stoi(s);
-      if (jacobiStep <= 0 || jacobiStep % 10000) {
-        throw "invalid jacobi step";
-      }
     } else if (key == "-use") {
       string ss = s;
       std::replace(ss.begin(), ss.end(), ',', ' ');
@@ -223,11 +217,6 @@ void Args::parse(string line) {
     log("log step (%u) must be a multiple of 10'000\n", logStep);
     throw "invalid log step";
   }
-
-  if (jacobiStep < 100'000 && !logStep) { logStep = jacobiStep; }
-  if (jacobiStep && ((logStep && jacobiStep % logStep) || (!logStep && jacobiStep % 100'000))) {
-    log("jacobi step (%u) must be a multiple of log step (%u)\n", jacobiStep, logStep);
-  }    
 }
 
 void Args::setDefaults() {

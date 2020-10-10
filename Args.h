@@ -50,7 +50,6 @@ public:
   int carry = CARRY_AUTO;
   u32 blockSize = 0;
   u32 logStep   = 0;
-  u32 jacobiStep = 0;
   string fftSpec;
 
   u32 B1 = 0;
