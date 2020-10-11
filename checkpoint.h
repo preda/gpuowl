@@ -76,7 +76,9 @@ class Saver {
 
   PRPState loadPRPAux(u32 k);
   vector<u32> listIterations(const string& prefix, const string& ext);
-
+  vector<u32> listIterations();
+  void scan(u32 upToK = u32(-1));
+  
   const u32 E;
   const fs::path base = fs::current_path() / to_string(E);
   const u32 nKeep;
@@ -99,5 +101,8 @@ public:
   void saveP1Final(const vector<u32>& data);
   
   u32 loadP2();
-  void saveP2(u32 b2);  
+  void saveP2(u32 b2);
+
+  // Will delete all PRP & P-1 savefiles at iteration kBad up to currentK as bad.
+  void deleteBadSavefiles(u32 kBad, u32 currentK);
 };

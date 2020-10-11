@@ -48,6 +48,10 @@ vector<u32> Saver::listIterations(const string& prefix, const string& ext) {
   return ret;
 }
 
+vector<u32> Saver::listIterations() {
+  return listIterations(to_string(E) + '-', ".prp");  
+}
+
 void Saver::cleanup(u32 E, const Args& args) {
   fs::path here = fs::current_path();
   fs::path trash = args.masterDir.empty() ? here / "trashbin" : (args.masterDir / "trashbin");
@@ -82,14 +86,34 @@ float Saver::value(u32 k) {
 }
 
 Saver::Saver(u32 E, u32 nKeep, u32 b1, u32 startFrom) : E{E}, nKeep{max(nKeep, 5u)}, b1{b1} {
-  vector<u32> iterations = listIterations(to_string(E) + '-', ".prp");
+  scan(startFrom);
+}
+
+void Saver::scan(u32 upToK) {
+  lastK = 0;
+  minValPRP = {};
+  
+  vector<u32> iterations = listIterations();
   for (u32 k : iterations) {
-    if (k <= startFrom) {
+    if (k <= upToK) {
       minValPRP.push({value(k), k});
       lastK = max(lastK, k);
     }
   }
 }
+
+void Saver::deleteBadSavefiles(u32 kBad, u32 currentK) {
+  assert(kBad <= currentK);
+  vector<u32> iterations = listIterations();
+  for (u32 k : iterations) {
+    if (k >= kBad && k <= currentK) {
+      log("Deleting savefile @ %u\n", k);
+      del(k);
+    }
+  }
+  scan(kBad);
+}
+
 
 void Saver::del(u32 k) {
   // log("Note: deleting savefile %u\n", k);
