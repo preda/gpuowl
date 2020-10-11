@@ -35,7 +35,7 @@ private:
   void alloc();
   void release();
   
-  vector<u32> fold();
+
 
   pair<u32,u32> findFirstPop(u32 start);
 
@@ -46,6 +46,7 @@ public:
   u32 wantK() const { return nextK; }
   
   vector<u32> save(u32 k);
+  vector<u32> fold();
   
   void load(u32 k);
   

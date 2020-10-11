@@ -868,10 +868,9 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
 static string makeLogStr(string_view status, u32 k, u64 res, float secsPerIt, u32 nIters) {
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%2s %8d %6.2f%%; %4.0f us/it; ETA %s; %s",
-           status.data(), k, k / float(nIters) * 100,
-           secsPerIt * 1'000'000, getETA(k, nIters, secsPerIt).c_str(),
-           hex(res).c_str());
+  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it; ETA %s",
+           status.data(), k, k / float(nIters) * 100, hex(res).c_str(),
+           secsPerIt * 1'000'000, getETA(k, nIters, secsPerIt).c_str());
   return buf;
 }
 
@@ -1180,7 +1179,10 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   doCarry(buf3, bufAcc);
   tW(buf1, buf3);
   fftHin(buf3, buf1);
-
+  
+  assert(!gcdFuture.valid());
+  log("Starting P1 GCD\n");
+  gcdFuture = async(launch::async, [E=E, p1Data=std::move(p1Data)]() { return GCD(E, p1Data, 1); });
   p1Data.clear();
   
   {
@@ -1320,6 +1322,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   Saver saver{E, args.nSavefiles, b1, args.startFrom};
   B1Accumulator b1Acc{this, &saver, E};
   future<string> gcdFuture;
+  future<u32> jacobiFuture;
   Signal signal;
   
  reload:
@@ -1333,7 +1336,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     bool ok = (res64 == loaded.res64);
 
     std::string expected = " (expected "s + hex(loaded.res64) + ")";
-    log("%2s %8d loaded: blockSize %d, %s%s\n",
+    log("%2s %9u loaded: blockSize %d, %s%s\n",
         ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
     
     if (!ok) { throw "error on load"; }
@@ -1341,7 +1344,15 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     k = loaded.k;
     blockSize = loaded.blockSize;
     if (nErrors == 0) { nErrors = loaded.nErrors; }
-    assert(nErrors >= loaded.nErrors);    
+    assert(nErrors >= loaded.nErrors);
+  }
+
+  if (k) {
+    Words b1Data = b1Acc.fold();
+    if (!b1Data.empty()) {
+      log("P1 %9u starting on-load Jacobi check\n", k);
+      jacobiFuture = async(launch::async, [k, E, b1Data = std::move(b1Data)](){ return (jacobi(E, b1Data) == 1) ? 0 : k; });
+    }
   }
 
   assert(blockSize > 0 && 10000 % blockSize == 0);
@@ -1393,6 +1404,19 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   while (true) {
     assert(k < kEndEnd);
 
+    if (finished(jacobiFuture)) {
+      u32 badK = jacobiFuture.get();
+      if (badK) {
+        log("P1 Jacobi check failed @ %u\n", badK);
+        if (badK < k) {
+          saver.deleteBadSavefiles(badK, k);
+          goto reload;
+        }
+      } else {
+        log("P1 Jacobi check OK\n");
+      }
+    }
+    
     if (skipNextCheckUpdate) {
       skipNextCheckUpdate = false;
     } else if (k % blockSize == 0) {
@@ -1437,7 +1461,9 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
       u64 res64 = dataResidue(); // implies finish()
 
-      if (k % 10000 == 0 && k % checkStep != 0) { log("   %8d                                    %s\n", k, hex(res64).c_str()); }
+      if (k % 10000 == 0 && k % checkStep != 0) {
+        log("   %9u %6.2f%% %s\n", k, k / float(kEndEnd) * 100, hex(res64).c_str());
+      }
       
       bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
       if (doStop) {
@@ -1458,7 +1484,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         }
       }
 
-      bool b1JustFinished = !b1Acc.wantK() && !didP2;
+      bool b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
       bool doCheck = !res64 || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
       
       if (doCheck) {
@@ -1484,14 +1510,34 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res64, check, nErrors}); }
           
           doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
-                    
-          if (!b1Data.empty()) {
+
+          if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0))) {
+            log("P1 %9u starting Jacobi check\n", k);
+            if (wait(jacobiFuture)) {
+              u32 badK = jacobiFuture.get();
+              if (badK) {
+                log("P1 Jacobi check failed @ %u\n", badK);
+                if (badK < k) {
+                  saver.deleteBadSavefiles(badK, k);
+                  goto reload;
+                }
+              } else {
+                log("P1 Jacobi check OK\n");
+              }
+            }
+            assert(!jacobiFuture.valid());
+            jacobiFuture = async(launch::async, [k, E, b1Data = std::move(b1Data)](){ return (jacobi(E, b1Data) == 1) ? 0 : k; });
+          }
+
+          /*
+          if (b1Completed) {
             log("P1 completed, starting GCD\n");
             assert(!gcdFuture.valid());
             gcdFuture = async(launch::async, GCD, E, b1Data, 1);
           }
+          */
 
-          if (!doStop && !didP2 && !b1Acc.wantK()) {
+          if (!doStop && !didP2 && !b1Acc.wantK() && !jacobiFuture.valid()) {
             doP2(&saver, b1, b2, gcdFuture, signal);
             didP2 = true;
           }

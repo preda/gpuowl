@@ -40,13 +40,15 @@ void B1Accumulator::release() {
   
   if (!bufs.empty()) {
     assert(memlock);
+    log("P1(%s) releasing %u buffers\n", formatBound(b1).c_str(), u32(bufs.size()));
     bufs.clear();
-    log("P1(%s) released %u buffers\n", formatBound(b1).c_str(), u32(bufs.size()));
     memlock.reset();
   }
 }
 
 vector<u32> B1Accumulator::fold() {
+  if (!b1 || bufs.empty()) { return {}; }
+  
   assert(b1);
   assert(!bufs.empty());  
   return gpu->fold(bufs);
@@ -76,12 +78,12 @@ vector<u32> B1Accumulator::save(u32 k) {
       vector<u32> data = fold();
       // log("B1 at %u res64 %016lx\n", k, residue(data));
 
-      saver->saveP1(k, {nextK, data});
+      saver->saveP1(k, {nextK, data});      
       if (nextK == 0) {
         saver->saveP1Final(data);
         release();
-        return data;
       }
+      return data;
     }
     return {};
 }

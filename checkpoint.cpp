@@ -107,13 +107,12 @@ void Saver::deleteBadSavefiles(u32 kBad, u32 currentK) {
   vector<u32> iterations = listIterations();
   for (u32 k : iterations) {
     if (k >= kBad && k <= currentK) {
-      log("Deleting savefile @ %u\n", k);
+      log("Deleting bad savefile @ %u\n", k);
       del(k);
     }
   }
   scan(kBad);
 }
-
 
 void Saver::del(u32 k) {
   // log("Note: deleting savefile %u\n", k);
