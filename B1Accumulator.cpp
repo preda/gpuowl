@@ -47,7 +47,7 @@ void B1Accumulator::release() {
 }
 
 vector<u32> B1Accumulator::fold() {
-  if (b1 == 0) { return {}; }
+  assert(b1);
   assert(!bufs.empty());  
   return gpu->fold(bufs);
 }

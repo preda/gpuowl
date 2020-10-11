@@ -1145,7 +1145,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
  retry:
   u32 doneB2 = saver->loadP2();
   if (doneB2 >= b2) {
-    log("already finished\n");
+    // log("already finished\n");
     return;
   }
 
@@ -1388,7 +1388,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   assert(k % blockSize == 0);
   assert(checkStep % blockSize == 0);
 
-  bool b1JustFinished = false;
   bool didP2 = false;
   
   while (true) {
@@ -1430,11 +1429,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       } else {
         b1Acc.step(k, buf1);
       }
-      if (!b1Acc.wantK()) {
-        b1JustFinished = true;
-      } else {
-        assert(b1Acc.wantK() > k);
-      }
+      assert(!b1Acc.wantK() || b1Acc.wantK() > k);
     }
     
     if (k % blockSize == 0) {
@@ -1463,13 +1458,12 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         }
       }
 
+      bool b1JustFinished = !b1Acc.wantK() && !didP2;
       bool doCheck = !res64 || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
       
       if (doCheck) {
         if (printStats) { printRoundoff(E); }
 
-        b1JustFinished = false;
-        
         bool ok = false;
         
         Words check = readCheck();
@@ -1492,7 +1486,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
                     
           if (!b1Data.empty()) {
-            log("B1 completed. Starting GCD\n");
+            log("P1 completed, starting GCD\n");
             assert(!gcdFuture.valid());
             gcdFuture = async(launch::async, GCD, E, b1Data, 1);
           }

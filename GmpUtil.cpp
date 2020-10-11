@@ -75,7 +75,7 @@ vector<bool> powerSmoothMSB(u32 exp, u32 B1) { return bitsMSB(powerSmooth(exp, B
 vector<bool> powerSmoothLSB(u32 exp, u32 B1) { return bitsLSB(powerSmooth(exp, B1)); }
 
 int jacobi(u32 exp, const std::vector<u32>& words) {
-  mpz_class w = mpz(words) - 2;
+  mpz_class w = mpz(words);
   mpz_class m = (mpz_class{1} << exp) - 1;
   return mpz_jacobi(w.get_mpz_t(), m.get_mpz_t());
 }

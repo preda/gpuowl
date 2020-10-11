@@ -3,6 +3,7 @@
 #include "checkpoint.h"
 #include "File.h"
 #include "Blake2.h"
+#include "Args.h"
 
 #include <filesystem>
 #include <functional>
@@ -47,10 +48,9 @@ vector<u32> Saver::listIterations(const string& prefix, const string& ext) {
   return ret;
 }
 
-void Saver::cleanup(u32 E) {
+void Saver::cleanup(u32 E, const Args& args) {
   fs::path here = fs::current_path();
-  
-  fs::path trash = here / "trashbin";
+  fs::path trash = args.masterDir.empty() ? here / "trashbin" : (args.masterDir / "trashbin");
   fs::remove_all(trash, noThrow());
   fs::create_directory(trash, noThrow());
   fs::rename(here / to_string(E), trash / to_string(E), noThrow());
@@ -61,7 +61,24 @@ void Saver::cleanup(u32 E) {
 float Saver::value(u32 k) {
   assert(k > 0);
   u32 dist = (k < E) ? (E - k) : 1;
-  return (1u << __builtin_ctz(k)) / float(dist);
+  u32 nice = 1;
+
+  while (k % 10 == 0) {
+    k /= 10;
+    nice *= 10;
+  }
+
+  if (k % 5 == 0) {
+    k /= 5;
+    nice *= 5;
+  }
+  
+  while (k % 2 == 0) {
+    k /= 2;
+    nice *= 2;
+  }
+  
+  return nice / float(dist);
 }
 
 Saver::Saver(u32 E, u32 nKeep, u32 b1, u32 startFrom) : E{E}, nKeep{max(nKeep, 5u)}, b1{b1} {

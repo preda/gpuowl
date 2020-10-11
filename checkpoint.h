@@ -10,6 +10,8 @@
 #include <cinttypes>
 #include <queue>
 
+class Args;
+
 struct PRPState {
   u32 k{};
   u32 blockSize{};
@@ -85,7 +87,7 @@ public:
   
   Saver(u32 E, u32 nKeep, u32 b1, u32 startFrom);
 
-  static void cleanup(u32 E);
+  static void cleanup(u32 E, const Args& args);
 
   PRPState loadPRP(u32 iniBlockSize);  
   void savePRP(const PRPState& state);

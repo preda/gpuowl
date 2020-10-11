@@ -153,6 +153,6 @@ void Task::execute(const Args& args) {
     }
     
     Worktodo::deleteTask(*this);
-    if (!isPrime) { Saver::cleanup(exponent); }
+    if (!isPrime) { Saver::cleanup(exponent, args); }
   }
 }
