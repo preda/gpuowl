@@ -23,6 +23,7 @@
 #include <future>
 #include <optional>
 #include <numeric>
+#include <bitset>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -1121,97 +1122,89 @@ template<typename Future> bool wait(const Future& f) {
   }
 }
 
-void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {
+void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {  
+  if (!b1) { return; }
+  assert(b2 && b2 > b1);
+  if (saver->loadP2() >= b2) {
+    // log("already finished\n");
+    return;
+  }
+  
   LogContext pushContext{"P2("s + formatBound(b1) + ',' + formatBound(b2) + ')'};
   
   u32 bufSize = N * sizeof(double);
-  if (AllocTrac::availableBytes() / bufSize - 5 >= Pm1Plan<2310>::J) {
-    doP2<Pm1Plan<2310>>(saver, b1, b2, gcdFuture, signal);
-  } else {
-    log("Warning: not enough memory for efficient P2. Increase -maxAlloc if possible\n");
-    doP2<Pm1Plan<210>>(saver, b1, b2, gcdFuture, signal);
-  }
-}
-
-template<typename Pm1Plan>
-void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {
-  if (!b1) { return; }
+  u32 nBufs = AllocTrac::availableBytes() / bufSize - 5;
+  Pm1Plan plan{nBufs};
   
-  assert(b2 && b2 > b1);
-
   bool printStats = args.flags.count("STATS");
 
  retry:
   u32 doneB2 = saver->loadP2();
-  if (doneB2 >= b2) {
-    // log("already finished\n");
-    return;
-  }
-
   if (!doneB2) { doneB2 = b1; }
-  assert(doneB2 >= b1);
-  
-  auto p1Data = saver->loadP1Final();
+  assert(b1 <= doneB2 && doneB2 < b2);
 
-  auto [startBlock, selected] = Pm1Plan::makePm1Plan(b1, doneB2, b2);
+  auto [startBlock, selected] = plan.makePlan(b1, doneB2, b2);
   assert(startBlock > 0);
   assert(!selected.empty());
+  log("D=%u; from B2=%u : %u blocks starting at %u\n", plan.D, doneB2, u32(selected.size()), startBlock);
   
-  log("D=%u; from B2=%u : %u blocks starting at %u\n", Pm1Plan::D, doneB2, u32(selected.size()), startBlock);
 
+  
   Memlock memlock{args.masterDir, u32(args.device)};
   Timer timer;
 
   vector<Buffer<double>> blockBufs;
-  for (u32 i = 0; i < Pm1Plan::J; ++i) { blockBufs.emplace_back(queue, "p2Buf-"s + std::to_string(i), N); }
-  log("Allocated %u buffers\n", Pm1Plan::J);
+  vector<u32>& jset = plan.jset;
+  assert(jset.size() >= 24 && jset[0] == 1);
+  for (u32 j : jset) { blockBufs.emplace_back(queue, "p2-"s + std::to_string(j), N); }
+  log("Allocated %u buffers\n", u32(jset.size()));
 
   Buffer<double> bufAcc{queue, "Acc", N};  // Second-stage accumulator.
   Buffer<int> bufP2Data{queue, "p2Data", N};
-  
-  writeIn(bufP2Data, p1Data);
-  fftP(buf2, bufP2Data);
-  tW(buf1, buf2);
-  tailSquare(buf2, buf1);
-  tH(bufAcc, buf2);  // Save bufAcc for later use as accumulator
 
-  // buf3 takes "data" in low position, used in initializing the SquaringSets below.
-  doCarry(buf3, bufAcc);
-  tW(buf1, buf3);
-  fftHin(buf3, buf1);
-  
-  assert(!gcdFuture.valid());
-  log("Starting P1 GCD\n");
-  gcdFuture = async(launch::async, [E=E, p1Data=std::move(p1Data)]() { return GCD(E, p1Data, 1); });
-  p1Data.clear();
-  
   {
-    constexpr auto jset = Pm1Plan::getJset();
-    static_assert(jset[0] == 1);
-    
-    u32 beginJ = 1; // jset[0]
+    Words p1Data = saver->loadP1Final();
+    writeIn(bufP2Data, p1Data);
+    fftP(buf2, bufP2Data);
+    tW(buf1, buf2);
+    tailSquare(buf2, buf1);
+    tH(bufAcc, buf2);  // Save bufAcc for later use as accumulator
+
+    // buf3 takes "data" in low position, used in initializing the SquaringSets below.
+    doCarry(buf3, bufAcc);
+    tW(buf1, buf3);
+    fftHin(buf3, buf1);
+  
+    assert(!gcdFuture.valid());
+    log("Starting P1 GCD\n");
+    gcdFuture = async(launch::async, [E=E, p1Data=std::move(p1Data)]() { return GCD(E, p1Data, 1); });
+  }
+
+  {
+    u32 beginJ = jset[0];
+    assert(beginJ == 1);
     SquaringSet little{*this, N, buf3, buf1, buf2, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
     
-    for (u32 i = 0; i < Pm1Plan::J; ++i) {
+    for (u32 i = 0; i < jset.size(); ++i) {
       int delta = i ? jset[i] - jset[i-1] : 0;
       assert(delta % 2 == 0);
       for (int step = delta / 2; step > 0; --step) { little.step(buf1); }
-      blockBufs[i] << little.C;    
+      blockBufs[i] << little.C;
     }
   }
 
   // Warn: hack: the use of buf1 below as both output and temporary relies on the implementation of exponentiateLow().
-  exponentiateLow(buf1, buf3, Pm1Plan::D * Pm1Plan::D, buf1, buf2); // base^(D^2)  
+  exponentiateLow(buf1, buf3, plan.D * plan.D, buf1, buf2); // base^(D^2)  
   SquaringSet big{*this, N, buf1, buf2, buf3, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "big"};
   
   queue->finish();
-  log("Setup %u P2 buffers in %.1f ms\n", Pm1Plan::J, timer.deltaSecs() * 1000);
+  log("Setup %u P2 buffers in %.1f ms\n", u32(jset.size()), timer.deltaSecs() * 1000);
 
   // ----
 
   u32 nSelected = 0;
 
-  constexpr const u32 blockMulti = 2310 / Pm1Plan::D;
+  const u32 blockMulti = 2310 / plan.D;
   assert(blockMulti > 0);
 
   Timer sinceLastGCD;
@@ -1219,9 +1212,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   for (u32 block = 0; block < selected.size(); ++block) {
     const auto& bits = selected[block];
 
-    const u32 blockEndB2 = (startBlock + block) * Pm1Plan::D + Pm1Plan::D/2;
-        
-    for (u32 i = 0; i < Pm1Plan::J; ++i) {
+    for (u32 i = 0; i < jset.size(); ++i) {
       if (bits[i]) {
         ++nSelected;
         doCarry(buf1, bufAcc);
@@ -1241,7 +1232,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     bool doStop = signal.stopRequested();    
     bool atEnd = block == selected.size() - 1;
     bool doLog = atEnd || doStop || block % (200 * blockMulti) == 0;
-      
+
+    u32 blockEnd = (startBlock + block) * plan.D + jset.back();
     if (doLog) {
       if (printStats) { printRoundoff(E); }
 
@@ -1256,7 +1248,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 #endif 
             
       u32 n = selected.size();
-      log("%9u (%3.0f%%); %u muls, %4.0f us/mul\n", blockEndB2, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
+      log("%9u (%3.0f%%); %u muls, %4.0f us/mul\n", blockEnd, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
       nSelected = 0;
     }
 
@@ -1293,15 +1285,17 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         goto retry;
       }
       assert(!gcdFuture.valid());
-      gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEndB2]() {
+      gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEnd]() {
         string factor = GCD(E, p2Data, 0);
-        saver->saveP2(blockEndB2);
+        saver->saveP2(blockEnd);
         return factor;
       });        
     }
   }
   queue->finish();
 }
+
+// ----
 
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 E = task.exponent;
