@@ -61,7 +61,6 @@ void Args::printHelp() {
 -rB2               : ratio of B2 to B1. Default %u, used only if B2 is not explicitly set
 -cleanup           : delete save files at end of run
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
--pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -verify <file>     : verify PRP-proof contained in <file>
 -proof <power>     : Valid <power> values are 6 to 9.
                      By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
@@ -82,6 +81,9 @@ void Args::printHelp() {
 -device <N>        : select a specific device:
 )", B2_B1_ratio);
 
+  // Undocumented:
+  // -D <value>         : specify the P2 "D" value, one of: 210, 330, 420, 462, 660, 770, 924, 1540, 2310.
+  
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
     printf("%2u %s : %s %s\n", i, getUUID(i).c_str(), getLongInfo(deviceIds[i]).c_str(), isAmdGpu(deviceIds[i]) ? "AMD" : "not-AMD");
@@ -169,7 +171,6 @@ void Args::parse(string line) {
     else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
-    else if (key == "-pm1" || key == "-PM1") { pm1Exp = stoll(s); }
     else if (key == "-B1" || key == "-b1") { B1 = stoi(s); }
     else if (key == "-B2" || key == "-b2") { B2 = stoi(s); }
     else if (key == "-rB2") { B2_B1_ratio = stoi(s); }
@@ -210,6 +211,8 @@ void Args::parse(string line) {
       nSavefiles = stoi(s);      
     } else if (key == "-from") {
       startFrom = stoi(s);
+    } else if (key == "-D") {
+      D = stoi(s);
     } else {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";

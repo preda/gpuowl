@@ -1134,7 +1134,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   
   u32 bufSize = N * sizeof(double);
   u32 nBufs = AllocTrac::availableBytes() / bufSize - 5;
-  Pm1Plan plan{nBufs};
+  Pm1Plan plan{args, nBufs, b1, b2};
+  auto selected = plan.makePlan();  
   
   bool printStats = args.flags.count("STATS");
 
@@ -1143,19 +1144,18 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   if (!doneB2) { doneB2 = b1; }
   assert(b1 <= doneB2 && doneB2 < b2);
 
-  auto [startBlock, selected] = plan.makePlan(b1, doneB2, b2);
-  assert(startBlock > 0);
-  assert(!selected.empty());
-  log("D=%u; from B2=%u : %u blocks starting at %u\n", plan.D, doneB2, u32(selected.size()), startBlock);
+  u32 startBlock = plan.getStartBlock(doneB2);
   
-
+  assert(0 < startBlock && startBlock < selected.size());
+  log("D=%u; from B2=%u : %u blocks starting at %u\n", plan.D, doneB2, u32(selected.size()) - startBlock, startBlock);
   
   Memlock memlock{args.masterDir, u32(args.device)};
   Timer timer;
 
   vector<Buffer<double>> blockBufs;
-  vector<u32>& jset = plan.jset;
+  const vector<u32>& jset = plan.jset;
   assert(jset.size() >= 24 && jset[0] == 1);
+  
   for (u32 j : jset) { blockBufs.emplace_back(queue, "p2-"s + std::to_string(j), N); }
   log("Allocated %u buffers\n", u32(jset.size()));
 
@@ -1204,12 +1204,11 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 
   u32 nSelected = 0;
 
-  const u32 blockMulti = 2310 / plan.D;
-  assert(blockMulti > 0);
+  const u32 blockMulti = 10;
 
   Timer sinceLastGCD;
   
-  for (u32 block = 0; block < selected.size(); ++block) {
+  for (u32 block = startBlock; block < selected.size(); ++block) {
     const auto& bits = selected[block];
 
     for (u32 i = 0; i < jset.size(); ++i) {
@@ -1233,7 +1232,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     bool atEnd = block == selected.size() - 1;
     bool doLog = atEnd || doStop || block % (200 * blockMulti) == 0;
 
-    u32 blockEnd = (startBlock + block) * plan.D + jset.back();
+    u32 blockEnd = min(b2, block * plan.D + jset.back());
     if (doLog) {
       if (printStats) { printRoundoff(E); }
 
@@ -1246,9 +1245,11 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         log("B2 at %u res64 %016lx\n", block, residue(p2Data));
       }
 #endif 
-            
-      u32 n = selected.size();
-      log("%9u (%3.0f%%); %u muls, %4.0f us/mul\n", blockEnd, (block + 1) * (100.0f / n), nSelected, timer.deltaSecs() / nSelected * 1e6);
+      
+      u32 doneBlocks = block - startBlock + 1;
+      u32 totalBlocks = selected.size() - startBlock;
+      float percent = doneBlocks * 100.0f / totalBlocks;
+      log("%9u (%3.0f%%); %u muls, %4.0f us/mul\n", blockEnd, percent, nSelected, timer.deltaSecs() / nSelected * 1e6);
       nSelected = 0;
     }
 
