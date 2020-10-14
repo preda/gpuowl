@@ -176,6 +176,7 @@ class Gpu {
   void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
 
   void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
+  bool verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64>& sums);
   
 public:
   const Args& args;

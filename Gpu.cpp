@@ -1122,6 +1122,22 @@ template<typename Future> bool wait(const Future& f) {
   }
 }
 
+bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64>& sums) {
+  Timer timer;
+  assert(bufs.size() == sums.size());
+  bool ok = true;
+  for (u32 i = 0, end = bufs.size(); i < end; ++i) {
+    sum64(bufSumOut, N * 8, bufs[i]);
+    u64 sum = bufSumOut.read()[0];
+    if (sum != sums[i]) {
+      log("EE checksum mismatch in precomputed buf #%u: %" PRIx64 " vs. %" PRIx64 "\n", i, sum, sums[i]);
+      ok = false;
+    }
+  }
+  log("%s buffer validation took %.1fs\n", ok ? "OK" : "EE", timer.deltaSecs());
+  return ok;
+}
+
 void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {  
   if (!b1) { return; }
   assert(b2 && b2 > b1);
@@ -1162,8 +1178,15 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   Buffer<double> bufAcc{queue, "Acc", N};  // Second-stage accumulator.
   Buffer<int> bufP2Data{queue, "p2Data", N};
 
+  u64 res64LittleA = 0;
+  
   {
     Words p1Data = saver->loadP1Final();
+
+    writeIn(bufP2Data, p1Data);
+    exponentiate(bufP2Data, u64(4) * jset.back() * jset.back(), buf1, buf2, buf3);
+    res64LittleA = bufResidue(bufP2Data);
+
     writeIn(bufP2Data, p1Data);
     fftP(buf2, bufP2Data);
     tW(buf1, buf2);
@@ -1180,9 +1203,37 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     gcdFuture = async(launch::async, [E=E, p1Data=std::move(p1Data)]() { return GCD(E, p1Data, 1); });
   }
 
+  vector<u64> blockChecksum(blockBufs.size());
+  
   {
     u32 beginJ = jset[0];
-    assert(beginJ == 1);
+    assert(beginJ == 1);    
+    SquaringSet little{*this, N, buf3, buf1, buf2, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
+    
+    for (u32 i = 0; i < jset.size(); ++i) {
+      int delta = i ? jset[i] - jset[i-1] : 0;
+      assert(delta % 2 == 0);
+      for (int step = delta / 2; step > 0; --step) { little.step(buf1); }
+      blockBufs[i] << little.C;
+      sum64(bufSumOut, N * 8, blockBufs[i]);
+      blockChecksum[i] = bufSumOut.read()[0];
+    }
+
+    tailSquareLow(buf1, little.C);
+    tH(buf2, buf1);
+    fftW(buf1, buf2);
+    carryA(bufP2Data, buf1);
+    carryB(bufP2Data);
+    u64 res64LittleB = bufResidue(bufP2Data);
+    if (res64LittleA != res64LittleB) {
+      log("EE mismatch after little steps: %s vs. %s\n", hex(res64LittleB).c_str(), hex(res64LittleA).c_str());
+      goto retry;
+    }
+  }
+
+  // Let's do it once more to validate the checksums.
+  {
+    u32 beginJ = jset[0];
     SquaringSet little{*this, N, buf3, buf1, buf2, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
     
     for (u32 i = 0; i < jset.size(); ++i) {
@@ -1191,14 +1242,16 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       for (int step = delta / 2; step > 0; --step) { little.step(buf1); }
       blockBufs[i] << little.C;
     }
+    if (!verifyP2Checksums(blockBufs, blockChecksum)) { goto retry; }
   }
+  
 
   // Warn: hack: the use of buf1 below as both output and temporary relies on the implementation of exponentiateLow().
   exponentiateLow(buf1, buf3, plan.D * plan.D, buf1, buf2); // base^(D^2)  
   SquaringSet big{*this, N, buf1, buf2, buf3, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "big"};
   
   queue->finish();
-  log("Setup %u P2 buffers in %.1f ms\n", u32(jset.size()), timer.deltaSecs() * 1000);
+  log("Setup %u P2 buffers in %.1fs\n", u32(jset.size()), timer.deltaSecs());
 
   // ----
 
@@ -1276,6 +1329,9 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     bool doGCD = atEnd || (!gcdFuture.valid() && sinceLastGCD.elapsedSecs() > 600);
     
     if (doGCD) {
+      if (!verifyP2Checksums(blockBufs, blockChecksum)) {
+        goto retry;
+      }
       log("Starting GCD\n");
       fftW(buf1, bufAcc);
       carryA(bufP2Data, buf1);
