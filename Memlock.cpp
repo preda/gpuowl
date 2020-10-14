@@ -3,6 +3,7 @@
 #include "Memlock.h"
 #include "File.h"
 #include "common.h"
+#include "Signal.h"
 
 #include <thread>
 #include <chrono>
@@ -17,15 +18,15 @@ error_code& noThrow() {
 }
 
 Memlock::Memlock(fs::path base, u32 device) : lock{base / ("memlock-"s + to_string(device))} {
-
-  bool first = true;
-  while (!fs::create_directory(lock, noThrow())) {
-    if (first) {
-      log("Waiting for memory lock '%s'\n", lock.string().c_str());
-      first = false;
-    }
-    std::this_thread::sleep_for(std::chrono::seconds(15));
+  if (!fs::create_directory(lock, noThrow())) {
+    log("Waiting for memory lock '%s'\n", lock.string().c_str());
+    Signal signal;
+    do {
+      std::this_thread::sleep_for(std::chrono::seconds(5));
+      if (signal.stopRequested()) { throw "stop requested"; }
+    } while (!fs::create_directory(lock, noThrow()));
   }
+  
   log("Acquired memory lock '%s'\n", lock.string().c_str());
 }
 
