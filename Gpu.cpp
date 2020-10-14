@@ -1405,6 +1405,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         log("P1 Jacobi check failed @ %u\n", badK);
         if (badK < k) {
           saver.deleteBadSavefiles(badK, k);
+          ++nErrors;
           goto reload;
         }
       } else {
@@ -1428,6 +1429,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       Words data = readData();
       if (data.empty()) {
         log("Data error ZERO\n");
+        ++nErrors;
         goto reload;
       }
       proofSet.save(k, data);
@@ -1514,6 +1516,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
                 log("P1 Jacobi check failed @ %u\n", badK);
                 if (badK < k) {
                   saver.deleteBadSavefiles(badK, k);
+                  ++nErrors;
                   goto reload;
                 }
               } else {
