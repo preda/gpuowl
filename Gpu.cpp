@@ -1123,7 +1123,7 @@ template<typename Future> bool wait(const Future& f) {
 }
 
 bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64>& sums) {
-  Timer timer;
+  // Timer timer;
   assert(bufs.size() == sums.size());
   bool ok = true;
   for (u32 i = 0, end = bufs.size(); i < end; ++i) {
@@ -1134,7 +1134,7 @@ bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64
       ok = false;
     }
   }
-  log("%s buffer validation took %.1fs\n", ok ? "OK" : "EE", timer.deltaSecs());
+  // log("%s buffer validation took %.1fs\n", ok ? "OK" : "EE", timer.deltaSecs());
   return ok;
 }
 
@@ -1150,7 +1150,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   
   u32 bufSize = N * sizeof(double);
   u32 nBufs = AllocTrac::availableBytes() / bufSize - 5;
-  Pm1Plan plan{args, nBufs, b1, b2};
+  Pm1Plan plan{args.D, nBufs, b1, b2};
   auto selected = plan.makePlan();  
   
   bool printStats = args.flags.count("STATS");
