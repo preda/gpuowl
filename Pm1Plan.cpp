@@ -185,7 +185,7 @@ u32 Pm1Plan::hit(const vector<bool>& primes, u32 a) {
     || primes[r=reduce<17>(a)]
     || primes[r=reduce<19>(a)]
     || primes[r=reduce<23>(a)]
-    // || primes[r=reduce<29>(a)]
+    || primes[r=reduce<29>(a)]
     ? r : 0;
 }
 
@@ -221,45 +221,79 @@ vector<Pm1Plan::BitBlock> Pm1Plan::makePlan(PlanStats* stats) {
 
   vector<BitBlock> selected(endBlock);
 
-  u32 nPair = 0;      // Simple pairing: both points at block*D +/- j are primes.
-  u32 nFancyPair = 0; // Fancy pairing: of block*D +/- j, one point is prime and the other is a multiple of a prime.
-
-  // Iterating down improves (a tiny bit) pairing vs. iterating up, by extracting more fancy pairs.
-  for (u32 block = endBlock - 1; block >= beginBlock; --block) {
-    BitBlock& blockBits = selected[block];
-      
-    for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
-      // We check each pair of values (a,b) that can be covered with one MUL.
-      u32 j = jset[pos];
-      u32 a = block * D - j;
-      u32 b = block * D + j;
-
-      if (u32 p1 = 0, p2 = 0; (p1 = hit(primes, a)) && (p2 = hit(primes, b))) {
-        assert(p1 && p2 && (p1 != p2));
-        // log("%u %u\n", p1, p2);
-        ++nPair;
-        assert(primes.at(p1) && primes.at(p2) && (p1 != p2));
-        primes[p1] = primes[p2] = false;
-        assert(!blockBits[pos]);
-        blockBits[pos] = true;
-      }
-    }
-  }
+  u32 nPair = 0, nSingle = 0;
   
-  u32 nSingle = 0;  // Leftover primes that could not be paired (single).
-  // The block iteration order does not matter for singles.
+  for (int rep = 4; rep > 0; --rep) {
+    
+    vector<bool> oneHit(primes.size()), twoHit(primes.size());
+    // triHit(primes.size());
+
   for (u32 block = beginBlock; block < endBlock; ++block) {
-    BitBlock& blockBits = selected[block];
+    u32 base = block * D;
     
     for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
       u32 j = jset[pos];
-      u32 a = block * D - j;
-      u32 b = block * D + j;
+      u32 a = base - j;
+      u32 b = base + j;
+      
+      u32 p1 = 0, p2 = 0;
+      if ((p1 = hit(primes, a)) && (p2 = hit(primes, b))) {
+        assert(p1 != p2);
+        if (oneHit[p1]) {
+          twoHit[p1] = true;
+        } else {
+          oneHit[p1] = true;
+        }
 
-      if (u32 p1 = 0, p2 = 0; (p1 = hit(primes, a)) || (p2 = hit(primes, b))) {
-        assert(!(p1 && p2) && (p1 || p2) && (p1 != p2));
-        ++nSingle;
-        assert((primes.at(p1) || primes.at(p2)) && !(primes[p1] && primes[p2]));
+        if (oneHit[p2]) {
+          twoHit[p2] = true;
+        } else {
+          oneHit[p2] = true;
+        }
+      }
+    }
+  }
+
+  u32 oldPair = nPair;
+  
+  for (u32 block = endBlock - 1; block >= beginBlock; --block) {
+    BitBlock& blockBits = selected[block];
+    u32 base = block * D;
+    
+    for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
+      u32 j = jset[pos];
+      u32 a = base - j;
+      u32 b = base + j;
+
+      u32 p1 = 0, p2 = 0;
+      if ((p1 = hit(primes, a)) && (p2 = hit(primes, b))
+          && (!twoHit[p1] || !twoHit[p2])) {
+        assert(p1 != p2);
+        ++nPair;
+        primes[p1] = primes[p2] = false;
+        assert(!blockBits[pos]);
+        blockBits[pos] = true;
+      }
+    }
+  }
+  log("#%u : %u pairs\n", rep, nPair - oldPair);
+  }
+
+  
+  for (u32 block = endBlock - 1; block >= beginBlock; --block) {
+  // for (u32 block = beginBlock; block < endBlock; ++block) {
+    BitBlock& blockBits = selected[block];
+    u32 base = block * D;
+    
+    for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
+      u32 j = jset[pos];
+      u32 a = base - j;
+      u32 b = base + j;
+
+      u32 p1 = 0, p2 = 0;
+      if ((p1 = hit(primes, a)) && (p2 = hit(primes, b))) {  
+        assert(p1 != p2);
+        ++nPair;
         primes[p1] = primes[p2] = false;
         assert(!blockBits[pos]);
         blockBits[pos] = true;
@@ -267,24 +301,60 @@ vector<Pm1Plan::BitBlock> Pm1Plan::makePlan(PlanStats* stats) {
     }
   }
 
+  u32 oldPair = nPair;
+  u32 oldSingle = nSingle;
+  
+  for (u32 block = endBlock - 1; block >= beginBlock; --block) {
+    BitBlock& blockBits = selected[block];
+    u32 base = block * D;
+    
+    for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
+      u32 j = jset[pos];
+      u32 a = base - j;
+      u32 b = base + j;
+
+      u32 p1 = hit(primes, a);
+      u32 p2 = hit(primes, b);
+      if (p1 || p2) {
+        assert(p1 != p2);
+        if (p1 && p2) {
+          ++nPair;
+        } else {
+          ++nSingle;
+        }
+        primes[p1] = primes[p2] = false;
+        assert(!blockBits[pos]);
+        blockBits[pos] = true;
+      }
+    }
+  }
+  log("#  : %u pairs, %u singles\n", nPair - oldPair, nSingle - oldSingle);
+  
+  // log("left %u\n", sum(primes));
+  // for (u32 i = 0, end = primes.size(); i < end; ++i) { if (primes[i]) { log("%u\n", i); }}
+  
   assert(sum(primes) == 0);  // all primes covered.
   // log("%u %u %u %u\n", nPair, nFancyPair, nSingle, nPrimes);
-  assert((nPair + nFancyPair) * 2 + nSingle == nPrimes);  // the counts agree with the number of primes.
+  assert(nPair * 2 + nSingle == nPrimes);  // the counts agree with the number of primes.
 
+  u32 oldBegin = beginBlock;
+  while (selected[beginBlock].none()) { ++beginBlock; }
+  log("Skipped %u blocks\n", beginBlock - oldBegin);
+  
   u32 nBlocks = endBlock - beginBlock;
 
   // The block transition cost is approximated as 2 MULs.
-  float cost = nPair + nFancyPair + nSingle + 2 * nBlocks;
+  float cost = nPair + nSingle + 2 * nBlocks;
   float percentPaired = 100 * (1 - nSingle / float(nPrimes));
 
   u32 firstPrime = primeAfter(B1);
-  log("D=%u: %u primes in [%u, %u]: cost %.2fM (pair: %u + %u, single: %u, (%.0f%% paired), blocks: %u)\n",
+  log("D=%u: %u primes in [%u, %u]: cost %.2fM (pair: %u, single: %u, (%.0f%% paired), blocks: %u)\n",
       D, nPrimes, firstPrime, lastPrime,
       cost * (1.0f / 1'000'000),
-      nPair, nFancyPair, nSingle, percentPaired, nBlocks);
+      nPair, nSingle, percentPaired, nBlocks);
 
   if (stats) {
-    *stats = {nPrimes, firstPrime, lastPrime, cost, {nPair + nFancyPair}, nSingle, nBlocks};
+    *stats = {nPrimes, firstPrime, lastPrime, cost, {nPair}, nSingle, nBlocks};
   }
   
   return selected;
