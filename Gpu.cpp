@@ -1146,6 +1146,28 @@ bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64
   return ok;
 }
 
+bool Gpu::verifyP2Block(u32 D, const Words& p1Data, u32 block, const Buffer<double>& bigC, Buffer<int>& bufP2Data) {
+  Timer timer;
+  tailSquareLow(buf1, bigC);
+  tH(buf2, buf1);
+  fftW(buf1, buf2);
+  carryA(bufP2Data, buf1);
+  carryB(bufP2Data);
+  u64 resA = bufResidue(bufP2Data);
+
+  writeIn(bufP2Data, p1Data);
+  exponentiate(bufP2Data, u64(4 * D * D) * block * block, buf1, buf2, buf3);
+  u64 resB = bufResidue(bufP2Data);
+
+  bool ok = (resA == resB);
+  if (ok) {
+    log("OK @%u: %016" PRIx64 " (%.1fs)\n", block, resA, timer.deltaSecs());
+  } else {
+    log("EE @%u: %016" PRIx64 " vs. %016" PRIx64 " (%.1fs)\n", block, resA, resB, timer.deltaSecs());
+  }
+  return ok;
+}
+
 void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {  
   if (!b1) { return; }
   assert(b2 && b2 > b1);
@@ -1154,13 +1176,14 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   u32 nBuf = AllocTrac::availableBytes() / bufSize - 5;
   u32 D = Pm1Plan::getD(args.D, nBuf);
   LogContext pushContext{"P2("s + formatBound(b1) + ',' + formatBound(b2) + ")"};
-  log("D=%u, nBuf=%u\n", D, nBuf);
-  
+
   if (saver->loadP2(b2, D, nBuf) == u32(-1)) {
     // log("already finished\n");
     return;
   }
-  
+
+  log("D=%u, nBuf=%u\n", D, nBuf);
+    
   Pm1Plan plan{args.D, nBuf, b1, b2};
   
   log("Generating P2 plan, please wait..\n");
@@ -1188,10 +1211,10 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   Buffer<int> bufP2Data{queue, "p2Data", N};
 
   u64 res64LittleA = 0;
+
+  Words p1Data = saver->loadP1Final();
   
   {
-    Words p1Data = saver->loadP1Final();
-
     writeIn(bufP2Data, p1Data);
     exponentiate(bufP2Data, u64(4) * jset.back() * jset.back(), buf1, buf2, buf3);
     res64LittleA = bufResidue(bufP2Data);
@@ -1209,7 +1232,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   
     assert(!gcdFuture.valid());
     log("Starting P1 GCD\n");
-    gcdFuture = async(launch::async, [E=E, p1Data=std::move(p1Data)]() { return GCD(E, p1Data, 1); });
+    gcdFuture = async(launch::async, [E=E, p1Data]() { return GCD(E, p1Data, 1); });
   }
 
   vector<u64> blockChecksum(blockBufs.size());
@@ -1262,6 +1285,11 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   queue->finish();
   log("Setup %u P2 buffers in %.1fs\n", u32(jset.size()), timer.deltaSecs());
 
+  bool ok = verifyP2Block(plan.D, p1Data, startBlock, big.C, bufP2Data);
+  if (!ok) {
+    log("Initial block verification failed\n");
+    throw "EE P2 initial verification";
+  }
   
   // ----
 
@@ -1359,6 +1387,9 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     
     if (doGCD) {
       if (!verifyP2Checksums(blockBufs, blockChecksum)) {
+        goto retry;
+      }
+      if (!verifyP2Block(plan.D, p1Data, block + 1, big.C, bufP2Data)) {
         goto retry;
       }
       log("Starting GCD\n");

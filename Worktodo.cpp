@@ -24,7 +24,8 @@ std::optional<Task> parse(const std::string& line) {
   string tail = line;
   
   if (sscanf(tail.c_str(), "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2
-      || sscanf(tail.c_str(), "B1=%u;%n", &B1, &pos) == 1) {
+      || sscanf(tail.c_str(), "B1=%u;%n", &B1, &pos) == 1
+      || sscanf(tail.c_str(), "B2=%u;%n", &B2, &pos) == 1) {
     tail = tail.substr(pos);
   }
 
