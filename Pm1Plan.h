@@ -7,14 +7,6 @@
 #include <vector>
 #include <bitset>
 
-struct PlanStats {
-  u32 nPrimes, firstPrime, lastPrime;
-  float cost;
-  vector<u32> nPairs;
-  u32 nSingle;
-  u32 nBlocks;
-};
-
 class Pm1Plan {
   static constexpr const u32 MAX_BUFS = 1024;
 
@@ -71,5 +63,5 @@ public:
   // Returns a sequence of BitBlocks, one entry per block starting with block=0.
   // Each BitBlock has a bit set if the corresponding buffer is selected for multiplication.
   // Also return beginBlock.
-  pair<u32, vector<BitBlock>> makePlan(PlanStats* stats = nullptr);
+  pair<u32, vector<BitBlock>> makePlan();
 };

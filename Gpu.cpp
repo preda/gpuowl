@@ -855,15 +855,23 @@ u64 Gpu::bufResidue(Buffer<int> &buf) {
   return residueFromRaw(N, E, readBuf);
 }
 
-static string getETA(u32 step, u32 total, float secsPerStep) {
-  // assert(step <= total);
-  int etaMins = (total - step) * secsPerStep * (1 / 60.f) + .5f;
+static string formatETA(u32 secs) {
+  u32 etaMins = (secs + 30) / 60;
   int days  = etaMins / (24 * 60);
   int hours = etaMins / 60 % 24;
   int mins  = etaMins % 60;
   char buf[64];
-  snprintf(buf, sizeof(buf), "%dd %02d:%02d", days, hours, mins);
-  return string(buf);
+  if (days) {
+    snprintf(buf, sizeof(buf), "%dd %02d:%02d", days, hours, mins);
+  } else {
+    snprintf(buf, sizeof(buf), "%02d:%02d", hours, mins);
+  }
+  return string(buf);  
+}
+
+static string getETA(u32 step, u32 total, float secsPerStep) {
+  u32 etaSecs = max(0u, u32((total - step) * secsPerStep));
+  return formatETA(etaSecs);
 }
 
 static string makeLogStr(string_view status, u32 k, u64 res, float secsPerIt, u32 nIters) {
@@ -1141,6 +1149,7 @@ bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64
 void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {  
   if (!b1) { return; }
   assert(b2 && b2 > b1);
+  
   u32 bufSize = N * sizeof(double);
   u32 nBuf = AllocTrac::availableBytes() / bufSize - 5;
   u32 D = Pm1Plan::getD(args.D, nBuf);
@@ -1153,6 +1162,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   }
   
   Pm1Plan plan{args.D, nBuf, b1, b2};
+  
+  log("Generating P2 plan, please wait..\n");
   auto [beginBlock, selected] = plan.makePlan();
   
   bool printStats = args.flags.count("STATS");
@@ -1258,7 +1269,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   const u32 blockMulti = 20;
 
   Timer sinceLastGCD;
-
+  Timer sinceStart;
+  
   for (u32 block = startBlock; block < selected.size(); ++block) {
     const auto& bits = selected[block];
 
@@ -1300,11 +1312,17 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       u32 nDone = block + 1 - beginBlock;
       u32 nBlocks = selected.size() - beginBlock;
       float percent = nDone * 100.0f / nBlocks;
-      log("%5.1f%% %u muls, %4.0f us/mul\n", percent, nMuls, timer.deltaSecs() / nMuls * 1e6);
+
+      u32 etaSecs = sinceStart.elapsedSecs() * (selected.size() - block) / (block - startBlock);
+      
+      log("%5.1f%% %5u muls, %4.0f us/mul, ETA %s\n", percent, nMuls, timer.deltaSecs() / nMuls * 1e6, formatETA(etaSecs).c_str());
       nMuls = 0;
     }
 
-    if (nStop || atEnd) { wait(gcdFuture); }
+    if ((nStop || atEnd) && gcdFuture.valid()) {
+      log("waiting for GCD..\n");
+      wait(gcdFuture);
+    }
     
     if (finished(gcdFuture)) {
       sinceLastGCD.reset();

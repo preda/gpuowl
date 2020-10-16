@@ -216,9 +216,7 @@ void Pm1Plan::scan(const vector<bool>& primes, u32 beginBlock, vector<BitBlock>&
   }
 }
 
-pair<u32, vector<Pm1Plan::BitBlock>> Pm1Plan::makePlan(PlanStats* stats) {
-  log("Generating P2 plan, please wait..\n");
-  
+pair<u32, vector<Pm1Plan::BitBlock>> Pm1Plan::makePlan() {  
   // In the unlikely case that either B1 or B2 is prime:
   // B1 was included in P1, so excluded in P2.
   // B2 is included in P2.
@@ -314,10 +312,6 @@ pair<u32, vector<Pm1Plan::BitBlock>> Pm1Plan::makePlan(PlanStats* stats) {
       D, nPrimes, firstPrime, lastPrime,
       cost * (1.0f / 1'000'000),
       nPair, nSingle, percentPaired, nBlocks);
-
-  if (stats) {
-    *stats = {nPrimes, firstPrime, lastPrime, cost, {nPair}, nSingle, nBlocks};
-  }
   
   return {beginBlock, selected};
 }

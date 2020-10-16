@@ -29,8 +29,7 @@ int main(int argc, char** argv) {
   for (u32 D : {210, 330, 420, 462, 660, 770, 924, 1540, 2310}) {    
     if (nBuf >= Pm1Plan::minBufsFor(D)) {
       Pm1Plan plan{D, nBuf, B1, B2, vector{primeBits}};
-      PlanStats stats;
-      plan.makePlan(&stats);
+      plan.makePlan();
     }
   }  
 }
