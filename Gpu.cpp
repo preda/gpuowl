@@ -1262,21 +1262,28 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   queue->finish();
   log("Setup %u P2 buffers in %.1fs\n", u32(jset.size()), timer.deltaSecs());
 
+  
   // ----
 
-  u32 nMuls = 0;
-
-  const u32 blockMulti = 20;
-
-  Timer sinceLastGCD;
-  Timer sinceStart;
+  u32 doneMuls = (startBlock - beginBlock) * 2;
+  for (u32 b = beginBlock; b < startBlock; ++b) { doneMuls += selected[b].count(); }
   
+  u32 leftMuls = (selected.size() - startBlock) * 2;
+  for (u32 b = startBlock; b < selected.size(); ++b) { leftMuls += selected[b].count(); }
+
+  log("MULs: done %u, left %u; %.1f%%\n", doneMuls, leftMuls, doneMuls * 100.0f / (doneMuls + leftMuls));
+  
+  timer.reset();
+
+  u32 nMuls = 0;
+  const u32 blockMulti = 20;
+  Timer sinceLastGCD;
+
   for (u32 block = startBlock; block < selected.size(); ++block) {
     const auto& bits = selected[block];
 
     for (u32 i = 0; i < jset.size(); ++i) {
       if (bits[i]) {
-        ++nMuls;
         doCarry(buf1, bufAcc);
         tW(bufAcc, buf1);
         tailMulDelta(buf1, bufAcc, big.C, blockBufs[i]);
@@ -1284,7 +1291,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       }
     }
 
-    nMuls += 2; // big.step() is 2 MULs
+    nMuls += bits.count() + 2;
     big.step(buf1);
 
     if (block % blockMulti == 0) {
@@ -1308,15 +1315,16 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         log("B2 at %u res64 %016lx\n", block, residue(p2Data));
       }
 #endif 
-      
-      u32 nDone = block + 1 - beginBlock;
-      u32 nBlocks = selected.size() - beginBlock;
-      float percent = nDone * 100.0f / nBlocks;
 
-      u32 etaSecs = sinceStart.elapsedSecs() * (selected.size() - block) / (block - startBlock);
-      
-      log("%5.1f%% %5u muls, %4.0f us/mul, ETA %s\n", percent, nMuls, timer.deltaSecs() / nMuls * 1e6, formatETA(etaSecs).c_str());
-      nMuls = 0;
+      if (nMuls >= 100) {
+        doneMuls += nMuls;
+        leftMuls -= nMuls;
+        float percent = doneMuls * 100.0f / (doneMuls + leftMuls);
+        float secs = timer.deltaSecs();
+        u32 etaSecs = secs * leftMuls / nMuls;
+        log("%5.1f%% %5u muls, %4.0f us/mul, ETA %s\n", percent, nMuls, secs / nMuls * 1e6, formatETA(etaSecs).c_str());
+        nMuls = 0;
+      }
     }
 
     if ((nStop || atEnd) && gcdFuture.valid()) {
