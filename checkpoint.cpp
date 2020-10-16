@@ -256,26 +256,41 @@ void Saver::saveP1Final(const vector<u32>& data) {
 
 // --- P2 ---
 
-u32 Saver::loadP2() {
+u32 Saver::loadP2(u32 b2, u32 D, u32 nBuf) {
   fs::path path = pathP2();
   File fi = File::openRead(path);
   if (!fi) {
     return 0;
-  } else {    
-    string header = fi.readLine();    
-    u32 fileE, fileB1, b2;    
-    if (sscanf(header.c_str(), P2_v2, &fileE, &fileB1, &b2) != 3) {
-      log("In file '%s' wrong header '%s'\n", fi.name.c_str(), header.c_str());
+  } else {
+    string header = fi.readLine();
+    u32 fileE, fileB1, fileB2, fileD, fileNBuf, nextBlock;
+
+    if (sscanf(header.c_str(), P2_v2, &fileE, &fileB1, &fileB2) == 3) {
+      assert(fileE == E && fileB1 == b1);
+      if (fileB2 >= b2) {
+        return u32(-1); // P2 finished.
+      } else {
+        log("Finish P2 with old savefile format before upgrading\n");
+        throw("P2 savefile version upgrade");
+      }
+    }
+    
+    if (sscanf(header.c_str(), P2_v3, &fileE, &fileB1, &fileB2, &fileD, &fileNBuf, &nextBlock) != 6) {
+      log("In file '%s' wrong header '%s'\n", fi.name.c_str(), header.c_str());      
       throw "bad savefile";
     }
     assert(fileE == E && fileB1 == b1);
-    return b2;
+    if (fileB2 != b2 || fileD != D || fileNBuf != nBuf) {
+      log("P2 savefile has: B2=%u, D=%u, nBuf=%u\n", fileB2, fileD, fileNBuf);
+      throw("P2 savefile mismatch");
+    }
+    return nextBlock;
   }
 }
 
-void Saver::saveP2(u32 b2) {
+void Saver::saveP2(u32 b2, u32 D, u32 nBuf, u32 nextBlock) {
   File fo = File::openWrite(pathP2());
-  if (fo.printf(P2_v2, E, b1, b2) <= 0) {
+  if (fo.printf(P2_v3, E, b1, b2, D, nBuf, nextBlock) <= 0) {
     throw(ios_base::failure("can't write header"));
   }
 }

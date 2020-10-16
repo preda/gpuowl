@@ -9,6 +9,6 @@ public:
   Signal();
   ~Signal();
   
-  bool stopRequested();
+  unsigned stopRequested();
   void release();
 };

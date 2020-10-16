@@ -4,9 +4,9 @@
 
 #include <signal.h>
 
-static volatile int stop = 0;
+static volatile unsigned stop = 0;
 static void (*oldHandler)(int) = 0;
-static void myHandler(int dummy) { stop = 1; }
+static void myHandler(int dummy) { ++stop; }
 
 Signal::Signal() {
   if (!oldHandler) {
@@ -18,7 +18,7 @@ Signal::Signal() {
 
 Signal::~Signal() { release(); }
 
-bool Signal::stopRequested() { return stop; }
+unsigned Signal::stopRequested() { return stop; }
 
 void Signal::release() {
   if (isOwner) {

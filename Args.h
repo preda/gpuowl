@@ -54,7 +54,7 @@ public:
 
   u32 B1 = 0;
   u32 B2 = 0;
-  u32 B2_B1_ratio = 20;
+  u32 B2_B1_ratio = 30;
   u32 D = 0;
   
   u32 prpExp = 0;

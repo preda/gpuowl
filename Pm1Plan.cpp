@@ -136,8 +136,8 @@ u32 Pm1Plan::minBufsFor(u32 D) {
 u32 Pm1Plan::reduce(u32 pos) const { return ::reduce(D, B1, pos); }
 template<u32 F> u32 Pm1Plan::reduce(u32 pos) const { return ::reduce<F>(B1, pos); }
 
-Pm1Plan::Pm1Plan(u32 D, u32 nBuf, u32 B1, u32 B2, vector<bool>&& primeBits)
-  : nBuf{nBuf}, primeBits{std::move(primeBits)}, D{D ? D : (nBuf >= minBufsFor(330) ? 330 : 210)}, B1{B1}, B2{B2}, jset{makeJset()} {
+Pm1Plan::Pm1Plan(u32 argsD, u32 nBuf, u32 B1, u32 B2, vector<bool>&& primeBits)
+  : nBuf{nBuf}, primeBits{std::move(primeBits)}, D{getD(argsD, nBuf)}, B1{B1}, B2{B2}, jset{makeJset()} {
   nBuf = min(nBuf, MAX_BUFS);
   // log("D=%u, J=%u, nBuf=%u\n", D, minBufsFor(D), nBuf);
   
@@ -146,7 +146,7 @@ Pm1Plan::Pm1Plan(u32 D, u32 nBuf, u32 B1, u32 B2, vector<bool>&& primeBits)
   assert(B1 < B2);
 
   // Extend the primeBits vector with guard zero bits, so that makePlan() does not read past-the-end.
-  for (u32 i = 0; i < jset.back() + 1; ++i) { this->primeBits.push_back(false); }
+  for (u32 i = 0; i < 2 * jset.back() + 1; ++i) { this->primeBits.push_back(false); }
 }
 
 Pm1Plan::Pm1Plan(u32 D, u32 nBuf, u32 B1, u32 B2) : Pm1Plan{D, nBuf, B1, B2, sieve(B1, B2)} {
@@ -171,11 +171,6 @@ u32 Pm1Plan::primeBefore(u32 b) const {
   return b;
 }
 
-u32 Pm1Plan::getStartBlock(u32 doneB2) const {
-  // "doneB2" was already done, so start with the prime following it.
-  return lowerBlock(primeAfter(doneB2));
-}
-
 // Returns the prime hit by "a", or 0.
 u32 Pm1Plan::hit(const vector<bool>& primes, u32 a) {
   u32 r = 0;
@@ -186,6 +181,12 @@ u32 Pm1Plan::hit(const vector<bool>& primes, u32 a) {
     || primes[r=reduce<19>(a)]
     || primes[r=reduce<23>(a)]
     || primes[r=reduce<29>(a)]
+#if 0
+    || primes[r=reduce<31>(a)]
+    || primes[r=reduce<37>(a)]
+    || primes[r=reduce<41>(a)]
+    || primes[r=reduce<43>(a)]
+#endif
     ? r : 0;
 }
 
@@ -195,7 +196,29 @@ u32 Pm1Plan::lowerBlock(u32 b) const { return (b + jset.back()) / D; }
 // The smallest block that cover "b" (the final block).
 u32 Pm1Plan::upperBlock(u32 b) const { return (b - jset.back()) / D + 1; }
 
-vector<Pm1Plan::BitBlock> Pm1Plan::makePlan(PlanStats* stats) {
+template<typename Fun>
+void Pm1Plan::scan(const vector<bool>& primes, u32 beginBlock, vector<BitBlock>& selected, Fun fun) {
+  for (u32 block = selected.size() - 1; block >= beginBlock; --block) {
+    BitBlock& blockBits = selected[block];
+    const u32 base = block * D;
+    
+    for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
+      u32 j = jset[pos];
+      u32 a = base - j;
+      u32 b = base + j;      
+      u32 p1 = hit(primes, a);
+      u32 p2 = hit(primes, b);
+      if (fun(p1, p2)) {
+        assert(!blockBits[pos]);
+        blockBits[pos] = true;
+      }
+    }
+  }
+}
+
+pair<u32, vector<Pm1Plan::BitBlock>> Pm1Plan::makePlan(PlanStats* stats) {
+  log("Generating P2 plan, please wait..\n");
+  
   // In the unlikely case that either B1 or B2 is prime:
   // B1 was included in P1, so excluded in P2.
   // B2 is included in P2.
@@ -203,14 +226,14 @@ vector<Pm1Plan::BitBlock> Pm1Plan::makePlan(PlanStats* stats) {
   u32 lastPrime = primeBefore(B2 + 1);
   u32 lastBlock   = upperBlock(lastPrime);
   u32 lastCovered = lastBlock * D + jset.back();
+  // log("last %u %u %u %u %u\n", lastPrime, lastBlock, lastCovered, u32(primeBits.size()), jset.back());
+  assert(lastCovered < primeBits.size());
 
   // All primes <= cutValue can be transposed by mulitplying with firstMissingFactor.
   u32 cutValue = lastCovered / firstMissingFactor(D);
   u32 startValue = max(primeAfter(B1), primeAfter(cutValue));
   
   u32 beginBlock = lowerBlock(startValue);
-  // log("cut %u beginBlock %u\n", startValue, beginBlock);
-
   u32 endBlock = lastBlock + 1;
 
   assert(beginBlock < endBlock);
@@ -223,123 +246,62 @@ vector<Pm1Plan::BitBlock> Pm1Plan::makePlan(PlanStats* stats) {
 
   u32 nPair = 0, nSingle = 0;
   
-  for (int rep = 4; rep > 0; --rep) {
+  for (int rep = 0; rep < 4; ++rep) {
     
     vector<bool> oneHit(primes.size()), twoHit(primes.size());
-    // triHit(primes.size());
 
-  for (u32 block = beginBlock; block < endBlock; ++block) {
-    u32 base = block * D;
-    
-    for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
-      u32 j = jset[pos];
-      u32 a = base - j;
-      u32 b = base + j;
-      
-      u32 p1 = 0, p2 = 0;
-      if ((p1 = hit(primes, a)) && (p2 = hit(primes, b))) {
+    scan(primes, beginBlock, selected, [&oneHit, &twoHit](u32 p1, u32 p2) {
+      if (p1 && p2) {
         assert(p1 != p2);
         if (oneHit[p1]) {
-          twoHit[p1] = true;
+          twoHit.at(p1) = true;
         } else {
-          oneHit[p1] = true;
+          oneHit.at(p1) = true;
         }
 
         if (oneHit[p2]) {
-          twoHit[p2] = true;
+          twoHit.at(p2) = true;
         } else {
-          oneHit[p2] = true;
+          oneHit.at(p2) = true;
         }
       }
-    }
-  }
+      return false;
+    });
 
-  u32 oldPair = nPair;
-  
-  for (u32 block = endBlock - 1; block >= beginBlock; --block) {
-    BitBlock& blockBits = selected[block];
-    u32 base = block * D;
-    
-    for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
-      u32 j = jset[pos];
-      u32 a = base - j;
-      u32 b = base + j;
-
-      u32 p1 = 0, p2 = 0;
-      if ((p1 = hit(primes, a)) && (p2 = hit(primes, b))
-          && (!twoHit[p1] || !twoHit[p2])) {
-        assert(p1 != p2);
+    scan(primes, beginBlock, selected, [&primes, &oneHit, &twoHit, &nPair](u32 p1, u32 p2) {
+      if (p1 && p2 && (!twoHit[p1] || !twoHit[p2])) {
         ++nPair;
         primes[p1] = primes[p2] = false;
-        assert(!blockBits[pos]);
-        blockBits[pos] = true;
+        return true;
+      } else {
+        return false;
       }
+    });
+  }
+
+  scan(primes, beginBlock, selected, [&primes, &nPair](u32 p1, u32 p2) {
+    if (p1 && p2) {
+      ++nPair;
+      primes[p1] = primes[p2] = false;
+      return true;
+    } else {
+      return false;
     }
-  }
-  log("#%u : %u pairs\n", rep, nPair - oldPair);
-  }
-
+  });
   
-  for (u32 block = endBlock - 1; block >= beginBlock; --block) {
-  // for (u32 block = beginBlock; block < endBlock; ++block) {
-    BitBlock& blockBits = selected[block];
-    u32 base = block * D;
-    
-    for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
-      u32 j = jset[pos];
-      u32 a = base - j;
-      u32 b = base + j;
-
-      u32 p1 = 0, p2 = 0;
-      if ((p1 = hit(primes, a)) && (p2 = hit(primes, b))) {  
-        assert(p1 != p2);
-        ++nPair;
-        primes[p1] = primes[p2] = false;
-        assert(!blockBits[pos]);
-        blockBits[pos] = true;
-      }
+  scan(primes, beginBlock, selected, [&primes, &nSingle](u32 p1, u32 p2) {
+    if (p1 || p2) {
+      assert(!(p1 && p2));
+      ++nSingle;
+      primes[p1] = primes[p2] = false;
+      return true;
+    } else {
+      return false;
     }
-  }
-
-  u32 oldPair = nPair;
-  u32 oldSingle = nSingle;
+  });
   
-  for (u32 block = endBlock - 1; block >= beginBlock; --block) {
-    BitBlock& blockBits = selected[block];
-    u32 base = block * D;
-    
-    for (u32 pos = 0, end = jset.size(); pos < end; ++pos) {
-      u32 j = jset[pos];
-      u32 a = base - j;
-      u32 b = base + j;
-
-      u32 p1 = hit(primes, a);
-      u32 p2 = hit(primes, b);
-      if (p1 || p2) {
-        assert(p1 != p2);
-        if (p1 && p2) {
-          ++nPair;
-        } else {
-          ++nSingle;
-        }
-        primes[p1] = primes[p2] = false;
-        assert(!blockBits[pos]);
-        blockBits[pos] = true;
-      }
-    }
-  }
-  log("#  : %u pairs, %u singles\n", nPair - oldPair, nSingle - oldSingle);
-  
-  // log("left %u\n", sum(primes));
-  // for (u32 i = 0, end = primes.size(); i < end; ++i) { if (primes[i]) { log("%u\n", i); }}
-  
-  assert(sum(primes) == 0);  // all primes covered.
-  // log("%u %u %u %u\n", nPair, nFancyPair, nSingle, nPrimes);
-  assert(nPair * 2 + nSingle == nPrimes);  // the counts agree with the number of primes.
-
-  u32 oldBegin = beginBlock;
-  while (selected[beginBlock].none()) { ++beginBlock; }
-  log("Skipped %u blocks\n", beginBlock - oldBegin);
+  assert(sum(primes) == 0);  // all primes are covered.
+  assert(nPair * 2 + nSingle == nPrimes);
   
   u32 nBlocks = endBlock - beginBlock;
 
@@ -357,5 +319,5 @@ vector<Pm1Plan::BitBlock> Pm1Plan::makePlan(PlanStats* stats) {
     *stats = {nPrimes, firstPrime, lastPrime, cost, {nPair}, nSingle, nBlocks};
   }
   
-  return selected;
+  return {beginBlock, selected};
 }

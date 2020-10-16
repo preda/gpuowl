@@ -1130,7 +1130,7 @@ bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64
     sum64(bufSumOut, N * 8, bufs[i]);
     u64 sum = bufSumOut.read()[0];
     if (sum != sums[i]) {
-      log("EE checksum mismatch in precomputed buf #%u: %" PRIx64 " vs. %" PRIx64 "\n", i, sum, sums[i]);
+      log("EE checksum mismatch in P2 buf #%u: %" PRIx64 " vs. %" PRIx64 "\n", i, sum, sums[i]);
       ok = false;
     }
   }
@@ -1141,29 +1141,27 @@ bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64
 void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {  
   if (!b1) { return; }
   assert(b2 && b2 > b1);
-  if (saver->loadP2() >= b2) {
+  u32 bufSize = N * sizeof(double);
+  u32 nBuf = AllocTrac::availableBytes() / bufSize - 5;
+  u32 D = Pm1Plan::getD(args.D, nBuf);
+  LogContext pushContext{"P2("s + formatBound(b1) + ',' + formatBound(b2) + ")"};
+  log("D=%u, nBuf=%u\n", D, nBuf);
+  
+  if (saver->loadP2(b2, D, nBuf) == u32(-1)) {
     // log("already finished\n");
     return;
   }
   
-  LogContext pushContext{"P2("s + formatBound(b1) + ',' + formatBound(b2) + ')'};
-  
-  u32 bufSize = N * sizeof(double);
-  u32 nBufs = AllocTrac::availableBytes() / bufSize - 5;
-  Pm1Plan plan{args.D, nBufs, b1, b2};
-  auto selected = plan.makePlan();  
+  Pm1Plan plan{args.D, nBuf, b1, b2};
+  auto [beginBlock, selected] = plan.makePlan();
   
   bool printStats = args.flags.count("STATS");
 
  retry:
-  u32 doneB2 = saver->loadP2();
-  if (!doneB2) { doneB2 = b1; }
-  assert(b1 <= doneB2 && doneB2 < b2);
-
-  u32 startBlock = plan.getStartBlock(doneB2);
-  
-  assert(0 < startBlock && startBlock < selected.size());
-  log("D=%u; from B2=%u : %u blocks starting at %u\n", plan.D, doneB2, u32(selected.size()) - startBlock, startBlock);
+  u32 startBlock = saver->loadP2(b2, D, nBuf);
+  if (!startBlock) { startBlock = beginBlock; }
+  assert(beginBlock <= startBlock && startBlock < selected.size());
+  log("%u blocks: %u - %u; start from %u\n", u32(selected.size()) - beginBlock, beginBlock, u32(selected.size()) - 1, startBlock);
   
   Memlock memlock{args.masterDir, u32(args.device)};
   Timer timer;
@@ -1255,25 +1253,26 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 
   // ----
 
-  u32 nSelected = 0;
+  u32 nMuls = 0;
 
-  const u32 blockMulti = 10;
+  const u32 blockMulti = 20;
 
   Timer sinceLastGCD;
-  
+
   for (u32 block = startBlock; block < selected.size(); ++block) {
     const auto& bits = selected[block];
 
     for (u32 i = 0; i < jset.size(); ++i) {
       if (bits[i]) {
-        ++nSelected;
+        ++nMuls;
         doCarry(buf1, bufAcc);
         tW(bufAcc, buf1);
         tailMulDelta(buf1, bufAcc, big.C, blockBufs[i]);
         tH(bufAcc, buf1);
       }
     }
-    
+
+    nMuls += 2; // big.step() is 2 MULs
     big.step(buf1);
 
     if (block % blockMulti == 0) {
@@ -1281,11 +1280,10 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       queue->finish();
     }
     
-    bool doStop = signal.stopRequested();    
+    u32 nStop = signal.stopRequested();    
     bool atEnd = block == selected.size() - 1;
-    bool doLog = atEnd || doStop || block % (200 * blockMulti) == 0;
+    bool doLog = atEnd || nStop || block % (20 * blockMulti) == 0;
 
-    u32 blockEnd = min(b2, block * plan.D + jset.back());
     if (doLog) {
       if (printStats) { printRoundoff(E); }
 
@@ -1299,14 +1297,14 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       }
 #endif 
       
-      u32 doneBlocks = block - startBlock + 1;
-      u32 totalBlocks = selected.size() - startBlock;
-      float percent = doneBlocks * 100.0f / totalBlocks;
-      log("%9u (%3.0f%%); %u muls, %4.0f us/mul\n", blockEnd, percent, nSelected, timer.deltaSecs() / nSelected * 1e6);
-      nSelected = 0;
+      u32 nDone = block + 1 - beginBlock;
+      u32 nBlocks = selected.size() - beginBlock;
+      float percent = nDone * 100.0f / nBlocks;
+      log("%5.1f%% %u muls, %4.0f us/mul\n", percent, nMuls, timer.deltaSecs() / nMuls * 1e6);
+      nMuls = 0;
     }
 
-    if (doStop || atEnd) { wait(gcdFuture); }
+    if (nStop || atEnd) { wait(gcdFuture); }
     
     if (finished(gcdFuture)) {
       sinceLastGCD.reset();
@@ -1318,15 +1316,20 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         gcdFuture = async([factor](){ return factor; });
         return;
       }
+
+      if (nStop) {
+        queue->finish();
+        throw "stop requested";
+      }
     }
 
-    if (doStop) {
+    if (nStop > 1) {
       assert(!gcdFuture.valid());
       queue->finish();
       throw "stop requested";
     }
     
-    bool doGCD = atEnd || (!gcdFuture.valid() && sinceLastGCD.elapsedSecs() > 600);
+    bool doGCD = nStop || atEnd || (!gcdFuture.valid() && sinceLastGCD.elapsedSecs() > 600);
     
     if (doGCD) {
       if (!verifyP2Checksums(blockBufs, blockChecksum)) {
@@ -1342,9 +1345,10 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         goto retry;
       }
       assert(!gcdFuture.valid());
-      gcdFuture = async(launch::async, [E=E, b1, block, p2Data=std::move(p2Data), saver, blockEnd]() {
+      const u32 nextBlock = atEnd ? u32(-1) : block;
+      gcdFuture = async(launch::async, [E=E, b2, D, nBuf, nextBlock, p2Data=std::move(p2Data), saver]() {
         string factor = GCD(E, p2Data, 0);
-        saver->saveP2(blockEnd);
+        saver->saveP2(b2, D, nBuf, nextBlock);
         return factor;
       });        
     }

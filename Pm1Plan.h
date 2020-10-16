@@ -17,6 +17,9 @@ struct PlanStats {
 
 class Pm1Plan {
   static constexpr const u32 MAX_BUFS = 1024;
+
+public:
+  using BitBlock = bitset<MAX_BUFS>;
   
   const u32 nBuf;  // number of precomputed "big" GPU buffers
 
@@ -44,15 +47,17 @@ class Pm1Plan {
   // Returns the prime hit by "a", or 0.
   u32 hit(const vector<bool>& primes, u32 a);
 
+  template<typename Fun>
+  void scan(const vector<bool>& primes, u32 beginBlock, vector<Pm1Plan::BitBlock>& selected, Fun fun);
+  
 public:
   static u32 minBufsFor(u32 D);
+  static u32 getD(u32 argsD, u32 nBufs) { return argsD ? argsD : (nBufs >= minBufsFor(330) ? 330 : 210); }
 
   // Simple Erathostene's sieve restricted to the range [B1, B2].
   // Returns a vector of bits.
   // Only the bits between B1 and B2 are set where there is a prime.
   static vector<bool> sieve(u32 B1, u32 B2);
-  
-  using BitBlock = bitset<MAX_BUFS>;
 
   const u32 D;
   const u32 B1;
@@ -65,8 +70,6 @@ public:
 
   // Returns a sequence of BitBlocks, one entry per block starting with block=0.
   // Each BitBlock has a bit set if the corresponding buffer is selected for multiplication.
-  vector<BitBlock> makePlan(PlanStats* stats = nullptr);
-
-  // The first block to use, given that all primes <= doneB2 have been tested.
-  u32 getStartBlock(u32 doneB2) const;
+  // Also return beginBlock.
+  pair<u32, vector<BitBlock>> makePlan(PlanStats* stats = nullptr);
 };

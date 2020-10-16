@@ -41,9 +41,12 @@ class Saver {
 
   // E, B1, CRC
   static constexpr const char *P1Final_v1 = "OWL P1F 1 %u %u %u\n";
-  
+
   // E, B1, B2
-  static constexpr const char *P2_v2 = "OWL P2 2 %u %u %u\n";  
+  static constexpr const char *P2_v2 = "OWL P2 2 %u %u %u\n";
+  
+  // E, B1, B2, D, nBuf, nextBlock
+  static constexpr const char *P2_v3 = "OWL P2 3 %u %u %u %u %u %u\n";
 
   // ----
 
@@ -100,8 +103,8 @@ public:
   vector<u32> loadP1Final();
   void saveP1Final(const vector<u32>& data);
   
-  u32 loadP2();
-  void saveP2(u32 b2);
+  u32 loadP2(u32 b2, u32 D, u32 nBuf);
+  void saveP2(u32 b2, u32 D, u32 nBuf, u32 nextBlock);
 
   // Will delete all PRP & P-1 savefiles at iteration kBad up to currentK as bad.
   void deleteBadSavefiles(u32 kBad, u32 currentK);

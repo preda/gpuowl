@@ -22,6 +22,9 @@ gpuowl-win.exe: ${OBJS}
 	${LINK} -static
 	strip $@
 
+D:	D.o Pm1Plan.o log.o common.o timeutil.o
+	$(CXX) -o $@ $^ ${LDFLAGS}
+
 clean:
 	rm -f ${OBJS} gpuowl gpuowl-win.exe
 
@@ -47,3 +50,4 @@ gpuowl-wrap.cpp: gpuowl-expanded.cl head.txt tail.txt
 FORCE:
 
 include $(wildcard $(patsubst %,$(DEPDIR)/%.d,$(basename $(SRCS))))
+include $(wildcard $(patsubst %,$(DEPDIR)/%.d,$(basename D.cpp)))
