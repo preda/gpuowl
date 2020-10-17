@@ -280,8 +280,14 @@ u32 Saver::loadP2(u32 b2, u32 D, u32 nBuf) {
       throw "bad savefile";
     }
     assert(fileE == E && fileB1 == b1);
+    
+    if (nextBlock == u32(-1)) {
+      // if P2 already finished, don't check exact match.
+      return nextBlock;
+    }
+    
     if (fileB2 != b2 || fileD != D || fileNBuf != nBuf) {
-      log("P2 savefile has: B2=%u, D=%u, nBuf=%u\n", fileB2, fileD, fileNBuf);
+      log("P2 savefile has: B2=%u, D=%u, nBuf=%u vs. B2=%u, D=%u, nBuf=%u\n", fileB2, fileD, fileNBuf, b2, D, nBuf);
       throw("P2 savefile mismatch");
     }
     return nextBlock;
