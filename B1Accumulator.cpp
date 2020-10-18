@@ -95,6 +95,17 @@ u32 B1Accumulator::findFirstBitSet() const {
   return 0;
 }
 
+void B1Accumulator::verifyRoundtrip(const Words& expected) {
+  auto dataBack = fold();
+  if (dataBack.empty()) {
+    throw "P1 fold ZERO";
+  }
+  if (dataBack != expected) {
+    log("fold() does not roundtrip: %016" PRIx64 " vs. %016" PRIx64 "\n", res64(dataBack), res64(expected));
+    throw "fold roundtrip";
+  }
+}
+
 void B1Accumulator::load(u32 k) {
     if (!b1 || k >= nBits) {
       release();
@@ -104,10 +115,8 @@ void B1Accumulator::load(u32 k) {
 
     if (k == 0) {
       alloc();
-      auto data = fold();
-      if (data.empty()) { throw "P1 fold ZERO"; }
-      // log("%u %u %u %u\n", data[0], data[1], data[2], data[3]); 
-      assert(data[0] == 1 && data[1] == 0 && data[2] == 0 && data[3] == 0);
+      verifyRoundtrip(makeWords(E, 1));
+
       nextK = findFirstBitSet();
       log("P1(%s) starting\n", formatBound(b1).c_str());
       return;
@@ -122,13 +131,7 @@ void B1Accumulator::load(u32 k) {
 
     alloc();
     gpu->writeIn(bufs[0], data);
-
-    // Verify data roundtrip
-    Words dataBack = fold();
-    if (data != dataBack) {
-      log("fold() does not roundtrip: %016" PRIx64 " vs. %016" PRIx64 "\n", res64(dataBack), res64(data));
-      throw "fold roundtrip";
-    }
+    verifyRoundtrip(data);
 }
 
 template<typename T>

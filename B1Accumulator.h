@@ -35,10 +35,9 @@ private:
   void alloc();
   void release();
   
-
-
   pair<u32,u32> findFirstPop(u32 start);
-
+  void verifyRoundtrip(const Words& expected);
+  
 public:
   B1Accumulator(Gpu* gpu, Saver* saver, u32 E);
   ~B1Accumulator() { release(); }
