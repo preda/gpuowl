@@ -123,7 +123,12 @@ void B1Accumulator::load(u32 k) {
     alloc();
     gpu->writeIn(bufs[0], data);
 
-    assert(fold() == data);
+    // Verify data roundtrip
+    Words dataBack = fold();
+    if (data != dataBack) {
+      log("fold() does not roundtrip: %016" PRIx64 " vs. %016" PRIx64 "\n", res64(dataBack), res64(data));
+      throw "fold roundtrip";
+    }
 }
 
 template<typename T>

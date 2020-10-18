@@ -147,9 +147,6 @@ public:
     }
     return ok;
   }
-
-private:
-  static u64 res64(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
 };
 
 class ProofCache {

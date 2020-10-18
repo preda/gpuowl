@@ -417,7 +417,7 @@ Words Gpu::fold(vector<Buffer<int>>& bufs) {
   for (int retry = 0; retry < 2; ++retry) {
     {
       Buffer<double> A{queue, "A", N};
-      Buffer<double> B{queue, "B", N};      
+      Buffer<double> B{queue, "B", N};
       {
         Buffer<int>& last = bufs.back();
         fftP(buf3, last);
