@@ -137,10 +137,7 @@ u32 Pm1Plan::reduce(u32 pos) const { return ::reduce(D, B1, pos); }
 template<u32 F> u32 Pm1Plan::reduce(u32 pos) const { return ::reduce<F>(B1, pos); }
 
 Pm1Plan::Pm1Plan(u32 argsD, u32 nBuf, u32 B1, u32 B2, vector<bool>&& primeBits)
-  : nBuf{nBuf}, primeBits{std::move(primeBits)}, D{getD(argsD, nBuf)}, B1{B1}, B2{B2}, jset{makeJset()} {
-  nBuf = min(nBuf, MAX_BUFS);
-  // log("D=%u, J=%u, nBuf=%u\n", D, minBufsFor(D), nBuf);
-  
+  : nBuf{min(nBuf, MAX_BUFS)}, primeBits{std::move(primeBits)}, D{getD(argsD, nBuf)}, B1{B1}, B2{B2}, jset{makeJset()} {
   assert(nBuf >= 24);
   assert(nBuf >= minBufsFor(D));
   assert(B1 < B2);
