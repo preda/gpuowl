@@ -64,11 +64,6 @@ G_H        "group height"
 
 #define OVERLOAD __attribute__((overloadable))
 
-#if __OPENCL_VERSION__ < 200
-#pragma message "GpuOwl requires OpenCL 200, found " STR(__OPENCL_VERSION__)
-// #error OpenCL >= 2.0 required
-#endif
-
 #pragma OPENCL FP_CONTRACT ON
 
 #ifdef cl_khr_fp64
