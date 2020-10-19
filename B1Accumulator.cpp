@@ -102,8 +102,17 @@ void B1Accumulator::verifyRoundtrip(const Words& expected) {
   if (dataBack.empty()) {
     throw "P1 fold ZERO";
   }
+  
+  assert(dataBack.size() == expected.size());
+  
   if (dataBack != expected) {
-    log("fold() does not roundtrip: %016" PRIx64 " vs. %016" PRIx64 "\n", res64(dataBack), res64(expected));
+    u32 i = 0;
+    for (u32 i = 0; i < expected.size(); ++i) {
+      if (dataBack[i] != expected[i]) { break; }
+    }
+    assert(i < expected.size());
+    
+    log("fold() does not roundtrip: word %u: %08x vs. %08x\n", i, dataBack[i], expected[i]);
     throw "fold roundtrip";
   }
 }
