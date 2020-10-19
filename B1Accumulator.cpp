@@ -104,15 +104,16 @@ void B1Accumulator::verifyRoundtrip(const Words& expected) {
   }
   
   assert(dataBack.size() == expected.size());
-  
+
   if (dataBack != expected) {
-    u32 i = 0;
-    for (u32 i = 0; i < expected.size(); ++i) {
-      if (dataBack[i] != expected[i]) { break; }
+    for (u32 i = 0, nErr = 0; i < expected.size() && nErr < 20; ++i) {
+      if (dataBack[i] != expected[i]) {
+        ++nErr;
+        log("[%u] %08x != %08x\n", i, dataBack[i], expected[i]);
+      }
     }
-    assert(i < expected.size());
     
-    log("fold() does not roundtrip: word %u: %08x vs. %08x\n", i, dataBack[i], expected[i]);
+    log("fold() does not roundtrip\n");
     throw "fold roundtrip";
   }
 }
