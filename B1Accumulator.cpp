@@ -9,6 +9,8 @@
 #include "checkpoint.h"
 #include "util.h"
 
+#include <tuple>
+
 B1Accumulator::B1Accumulator(Gpu* gpu, Saver* saver, u32 E)
   : E{E}, b1{saver->b1}, nBits{powerSmoothBits(E, b1)}, gpu{gpu}, saver{saver}, N{gpu->getFFTSize()} {
   log("P1(%s) %u bits\n", formatBound(b1).c_str(), nBits);
@@ -106,32 +108,57 @@ void B1Accumulator::verifyRoundtrip(const Words& expected) {
   }
 }
 
+namespace {
+
+Words randomWords(u32 E, u32 seed) {
+  assert(E % 32);
+  u32 n = (E - 1) / 32 + 1;
+  Words words(n);
+  for (u32 i = 0; i < n - 1; ++i) {
+    seed *= 4294967291;
+    words[i] = seed;
+  }
+  seed *= 4294967291;
+  words[n-1] = seed & ((1 << (E % 32)) - 1);
+  return words;
+}
+
+}
+
 void B1Accumulator::load(u32 k) {
-    if (!b1 || k >= nBits) {
-      release();
-      nextK = 0;
-      return;
-    }
+  if (!b1 || k >= nBits) {
+    release();
+    nextK = 0;
+    return;
+  }
 
-    if (k == 0) {
-      alloc();
-      verifyRoundtrip(makeWords(E, 1));
-
-      nextK = findFirstBitSet();
-      log("P1(%s) starting\n", formatBound(b1).c_str());
-      return;
-    }
-
-    auto [loadNextK, data] = saver->loadP1(k);
-    nextK = loadNextK;
-    if (!nextK) {
-      release();
-      return;
-    }
-
+  Words data;
+  
+  if (k == 0) {
     alloc();
-    gpu->writeIn(bufs[0], data);
-    verifyRoundtrip(data);
+
+    // Timer timer;
+    for (u32 i = 0; i < 5; ++i) {
+      data = randomWords(E, (i + 1));
+      gpu->writeIn(bufs[0], data);
+      verifyRoundtrip(data);
+    }
+    // log("fold() check took %.1fs\n", timer.elapsedSecs());
+    
+    nextK = findFirstBitSet();
+    data = makeWords(E, 1);
+  } else {
+    std::tie(nextK, data) = saver->loadP1(k);    
+  }
+
+  if (!nextK) {
+    release();
+    return;
+  }
+  
+  alloc();
+  gpu->writeIn(bufs[0], data);
+  verifyRoundtrip(data);
 }
 
 template<typename T>

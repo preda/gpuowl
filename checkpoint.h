@@ -20,10 +20,14 @@ struct PRPState {
   u32 nErrors{};
 };
 
+
+using P1State = pair<u32, Words>;
+/*
 struct P1State {
   u32 nextK{};
   vector<u32> data;
 };
+*/
 
 class Saver {
   // E, k, block-size, res64, nErrors

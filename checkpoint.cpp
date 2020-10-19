@@ -211,15 +211,17 @@ P1State Saver::loadP1(u32 k) {
 }
 
 void Saver::saveP1(u32 k, const P1State& state) {
-  assert(state.data.size() == nWords(E));
-  assert(state.nextK == 0 || state.nextK >= k);
+  auto& [nextK, data] = state;
+
+  assert(data.size() == nWords(E));
+  assert(nextK == 0 || nextK >= k);
 
   {
     File fo = File::openWrite(pathP1(k));
-    if (fo.printf(P1_v2, E, b1, k, state.nextK, crc32(state.data)) <= 0) {
+    if (fo.printf(P1_v2, E, b1, k, nextK, crc32(data)) <= 0) {
       throw(ios_base::failure("can't write header"));
     }
-    fo.write(state.data);
+    fo.write(data);
   }
 
   loadP1(k);

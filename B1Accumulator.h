@@ -44,11 +44,13 @@ public:
 
   u32 wantK() const { return nextK; }
   
-  vector<u32> save(u32 k);
-  vector<u32> fold();
-  
+  vector<u32> save(u32 k);  
   void load(u32 k);
-  
+
+  vector<u32> fold();
+
+  // The step() can be invoked with either a "small" buffer or a "big" buffer depending on what
+  // PRP happens to have on hand.
   template<typename T>
   void step(u32 kAt, Buffer<T>& data);
 };
