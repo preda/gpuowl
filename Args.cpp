@@ -53,7 +53,7 @@ void Args::printHelp() {
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
 -fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
--block <value>     : PRP GEC block size, or LL iteration-block size. Must divide 10'000.
+-block <value>     : PRP error-check block size. Must divide 10'000.
 -log <step>        : log every <step> iterations. Multiple of 10'000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -B1                : P-1 B1 bound

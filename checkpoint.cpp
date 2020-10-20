@@ -146,7 +146,7 @@ vector<u32> makeVect(u32 size, u32 elem0) {
 PRPState Saver::loadPRP(u32 iniBlockSize) {
   if (lastK == 0) {
     log("PRP starting from beginning\n");
-    u32 blockSize = iniBlockSize ? iniBlockSize : 500;
+    u32 blockSize = iniBlockSize ? iniBlockSize : 400;
     return {0, blockSize, 3, makeVect(nWords(E), 1), 0};
   } else {
     return loadPRPAux(lastK);

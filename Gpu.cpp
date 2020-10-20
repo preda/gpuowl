@@ -1485,7 +1485,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   bool skipNextCheckUpdate = false;
 
   u32 persistK = proofSet.firstPersistAt(k + 1);
-  bool leadIn = true;  
+  bool leadIn = true;
 
   assert(k % blockSize == 0);
   assert(checkStep % blockSize == 0);
@@ -1512,12 +1512,26 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     if (skipNextCheckUpdate) {
       skipNextCheckUpdate = false;
     } else if (k % blockSize == 0) {
-      modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+      if (leadIn) {
+        modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+      } else {
+        mul(bufCheck, buf1);
+      }
     }
 
     ++k; // !! early inc
     assert(b1Acc.wantK() == 0 || b1Acc.wantK() >= k);
-    bool leadOut = (k % blockSize == 0) || k == persistK || k == kEnd || useLongCarry; // || k == b1Acc.wantK();
+
+    bool doStop = false;
+    bool b1JustFinished = false;
+
+    if (k % blockSize == 0) {
+      doStop = signal.stopRequested() || (args.iters && k - startK >= args.iters);
+      b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
+    }
+    
+    bool leadOut = doStop || b1JustFinished || (k % 10000 == 0) || k == persistK || k == kEnd || useLongCarry;
+
     coreStep(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;    
     
@@ -1548,127 +1562,121 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       }
       assert(!b1Acc.wantK() || b1Acc.wantK() > k);
     }
-    
-    if (k % blockSize == 0) {
-      if (!args.noSpin) { spin(); }
 
-      u64 res64 = dataResidue(); // implies finish()
-      bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
-      bool b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
-      bool doCheck = !res64 || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
-      
-      if (k % 10000 == 0 && !doCheck) {
-        float secsPerIt = iterationTimer.reset(k);
-        log("   %9u %6.2f%% %s %4.0f us/it\n",
-            k, k / float(kEndEnd) * 100, hex(res64).c_str(), secsPerIt * 1'000'000);
+    if (!leadOut) {
+      if (k % blockSize == 0) {
+        finish();
+        if (!args.noSpin) { spin(); }
       }
-      
-      if (doStop) {
-        log("Stopping, please wait..\n");
-        signal.release();
-        wait(gcdFuture);
-      }
-      
-      if (finished(gcdFuture)) {
-        string factor = gcdFuture.get();
-        log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
-        if (didP2) {
-          task.writeResultPM1(args, factor, getFFTSize());
-        }
-        if (!factor.empty()) {
-          return {factor};
-        }
-      }
-      
-      if (doCheck) {
-        if (printStats) { printRoundoff(E); }
+      continue;
+    }
 
-        float secsPerIt = iterationTimer.reset(k);
+    u64 res64 = dataResidue(); // implies finish()
+    bool doCheck = !res64 || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+      
+    if (k % 10000 == 0 && !doCheck) {
+      float secsPerIt = iterationTimer.reset(k);
+      log("   %9u %6.2f%% %s %4.0f us/it\n",
+          k, k / float(kEndEnd) * 100, hex(res64).c_str(), secsPerIt * 1'000'000);
+    }
+      
+    if (doStop) {
+      log("Stopping, please wait..\n");
+      signal.release();
+      wait(gcdFuture);
+    }
+      
+    if (finished(gcdFuture)) {
+      string factor = gcdFuture.get();
+      log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
+      if (didP2) {
+        task.writeResultPM1(args, factor, getFFTSize());
+      }
+      if (!factor.empty()) {
+        return {factor};
+      }
+    }
+      
+    if (doCheck) {
+      if (printStats) { printRoundoff(E); }
+
+      float secsPerIt = iterationTimer.reset(k);
         
-        bool ok = false;
+      bool ok = false;
 
-        Words check = readCheck();
-        if (check.empty()) {
-          log("Check error ZERO\n");
-          ok = false;
-        } else {
-          ok = this->doCheck(blockSize, buf1, buf2, buf3);
-        }
+      Words check = readCheck();
+      if (check.empty()) {
+        log("Check error ZERO\n");
+        ok = false;
+      } else {
+        ok = this->doCheck(blockSize, buf1, buf2, buf3);
+      }
 
-        float secsCheck = iterationTimer.reset(k);
+      float secsCheck = iterationTimer.reset(k);
         
-        if (ok) {
-          nSeqErrors = 0;      
-          skipNextCheckUpdate = true;
+      if (ok) {
+        nSeqErrors = 0;      
+        skipNextCheckUpdate = true;
                     
-          Words b1Data = b1Acc.save(k);
+        Words b1Data = b1Acc.save(k);
 
-          if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res64, check, nErrors}); }
+        if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res64, check, nErrors}); }
 
-          float secsSave = iterationTimer.reset(k);
+        float secsSave = iterationTimer.reset(k);
           
-          doBigLog(E, k, res64, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
+        doBigLog(E, k, res64, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
 
-          if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0))) {
-            log("P1 %9u starting Jacobi check\n", k);
-            if (wait(jacobiFuture)) {
-              u32 badK = jacobiFuture.get();
-              if (badK) {
-                log("P1 Jacobi check failed @ %u\n", badK);
-                if (badK < k) {
-                  saver.deleteBadSavefiles(badK, k);
-                  ++nErrors;
-                  goto reload;
-                }
-              } else {
-                log("P1 Jacobi check OK\n");
+        if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0))) {
+          log("P1 %9u starting Jacobi check\n", k);
+          if (wait(jacobiFuture)) {
+            u32 badK = jacobiFuture.get();
+            if (badK) {
+              log("P1 Jacobi check failed @ %u\n", badK);
+              if (badK < k) {
+                saver.deleteBadSavefiles(badK, k);
+                ++nErrors;
+                goto reload;
               }
+            } else {
+              log("P1 Jacobi check OK\n");
             }
-            assert(!jacobiFuture.valid());
-            jacobiFuture = async(launch::async, [k, E, b1Data = std::move(b1Data)](){ return (jacobi(E, b1Data) == 1) ? 0 : k; });
           }
+          assert(!jacobiFuture.valid());
+          jacobiFuture = async(launch::async, [k, E, b1Data = std::move(b1Data)](){ return (jacobi(E, b1Data) == 1) ? 0 : k; });
+        }
 
-          /*
-          if (b1Completed) {
-            log("P1 completed, starting GCD\n");
-            assert(!gcdFuture.valid());
-            gcdFuture = async(launch::async, GCD, E, b1Data, 1);
-          }
-          */
-
-          if (!doStop && !didP2 && !b1Acc.wantK() && !jacobiFuture.valid()) {
-            doP2(&saver, b1, b2, gcdFuture, signal);
-            didP2 = true;
-          }
+        if (!doStop && !didP2 && !b1Acc.wantK() && !jacobiFuture.valid()) {
+          doP2(&saver, b1, b2, gcdFuture, signal);
+          didP2 = true;
+        }
           
-          if (k >= kEndEnd) {
-            fs::path proofPath;
-            if (proofSet.power > 0) {
-              proofPath = proofSet.computeProof(this).save(args.proofResultDir);
-              log("PRP-Proof '%s' generated\n", proofPath.string().c_str());
-            }
-            return {"", isPrime, finalRes64, nErrors, proofPath.string()};
+        if (k >= kEndEnd) {
+          fs::path proofPath;
+          if (proofSet.power > 0) {
+            proofPath = proofSet.computeProof(this).save(args.proofResultDir);
+            log("PRP-Proof '%s' generated\n", proofPath.string().c_str());
           }
-        } else {
-          doBigLog(E, k, res64, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
-          ++nErrors;
-          if (++nSeqErrors > 2) {
-            log("%d sequential errors, will stop.\n", nSeqErrors);
-            throw "too many errors";
-          }
-          if (!doStop) { goto reload; }
+          return {"", isPrime, finalRes64, nErrors, proofPath.string()};
         }
-        
-        logTimeKernels();
-        
-        if (doStop) {
-          assert(!gcdFuture.valid());
-          queue->finish();
-          throw "stop requested";
+      } else {
+        doBigLog(E, k, res64, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
+        ++nErrors;
+        if (++nSeqErrors > 2) {
+          log("%d sequential errors, will stop.\n", nSeqErrors);
+          throw "too many errors";
         }
-        
-        iterationTimer.reset(k);
+        if (!doStop) { goto reload; }
       }
+        
+      logTimeKernels();
+        
+      if (doStop) {
+        assert(!gcdFuture.valid());
+        queue->finish();
+        throw "stop requested";
+      }
+        
+      iterationTimer.reset(k);
     }
   }
 }
