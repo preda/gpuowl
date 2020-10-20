@@ -660,22 +660,23 @@ void Gpu::writeIn(Buffer<int>& buf, const vector<i32>& words) {
 }
 
 namespace {
+
 class IterationTimer {
   Timer timer;
   u32 kStart;
+  const u32 blockSize;
 
-  double secsPerIt(double secs, u32 k) const { return secs / std::max(k - kStart, 1u); }
-  
 public:
-  IterationTimer(u32 kStart) : kStart(kStart) {}
+  IterationTimer(u32 kStart, u32 blockSize) : kStart(kStart), blockSize{blockSize} {
+    assert(kStart % blockSize == 0);
+  }
   
-  // double at(u32 k) const { return secsPerIt(timer.elapsed(), k); }
-  
-  double reset(u32 k) {
-    double secs = timer.deltaSecs();
-    double ret = secsPerIt(secs, k);
-    kStart = k;
-    return ret;
+  pair<float, float> reset(u32 k, bool didCheck = false) {
+    float secs = timer.deltaSecs();
+
+    u32 its = max(1u, k - kStart);
+    kStart = k;    
+    return {secs / its, secs / (its + its / blockSize + (didCheck ? blockSize : 0))};
   }
 };
 
@@ -694,7 +695,7 @@ Words Gpu::expExp2(const Words& A, u32 n) {
   u32 logStep = 20000;
   
   writeData(A);
-  IterationTimer timer{0};
+  IterationTimer timer{0, blockSize};
   u32 k = 0;
   while (true) {
     u32 its = std::min(blockSize, n - k);
@@ -702,7 +703,8 @@ Words Gpu::expExp2(const Words& A, u32 n) {
     k += its;
     spin();
     queue->finish();
-    if (k % logStep == 0) { log("%u / %u, %.0f us/it\n", k, n, timer.reset(k) * 1'000'000.f); }
+    auto [secsPerIt, secsPerMul] = timer.reset(k);
+    if (k % logStep == 0) { log("%u / %u, %.0f us/it\n", k, n, secsPerIt * 1'000'000); }
     if (k >= n) { break; }
   }
   return readData();
@@ -874,41 +876,21 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
   return formatETA(etaSecs);
 }
 
-static string makeLogStr(string_view status, u32 k, u64 res, float secsPerIt, u32 nIters) {
+static string makeLogStr(string_view status, u32 k, u64 res, float secsPerIt, float secsPerMul, u32 nIters) {
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it; ETA %s",
+  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it, %4.0f us/MUL; ETA %s",
            status.data(), k, k / float(nIters) * 100, hex(res).c_str(),
-           secsPerIt * 1'000'000, getETA(k, nIters, secsPerIt).c_str());
+           secsPerIt * 1'000'000, secsPerMul * 1'000'000, getETA(k, nIters, secsPerIt).c_str());
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, double secsPerIt, u32 nIters, u32 nErrors, u32 nBitsP1 = 0, u32 B1 = 0) {
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsPerMul, u32 nIters, u32 nErrors, u32 nBitsP1 = 0, u32 B1 = 0) {
   char buf[64] = {0};
   if (k < nBitsP1) { snprintf(buf, sizeof(buf), " | P1(%s) %2.1f%%", formatBound(B1).c_str(), float(k) * 100 / nBitsP1); }
   
-  log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
+  log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsPerMul, nIters).c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), buf);
-}
-
-[[maybe_unused]] static void logPm1Stage1(u32 E, u32 k, u64 res, float secsPerIt, u32 nIters) {
-  log("%s\n", makeLogStr("P1", k, res, secsPerIt, nIters).c_str());
-}
-
-[[maybe_unused]] static void logPm1Stage2(u32 E, float ratioComplete) {
-  char buf[256];
-  snprintf(buf, sizeof(buf), "%u %2s %5.2f%%\n", E, "P2", ratioComplete * 100);
-}
-
-[[maybe_unused]] int nFitBufs(cl_device_id device, size_t bufSize) {
-  // log("availableBytes %lu\n", AllocTrac::availableBytes());
-  int n = AllocTrac::availableBytes() / bufSize;  
-  if (hasFreeMemInfo(device)) {
-    // log("freemem %lu\n", getFreeMem(device));
-    int n2 = (i64(getFreeMem(device)) - 256 * 1024 * 1024) / bufSize;
-    n = std::min(n, n2);
-  }
-  return n;
 }
 
 bool Gpu::equals9(const Words& a) {
@@ -1490,7 +1472,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   int nSeqErrors = 0;
 
   bool isPrime = false;
-  IterationTimer itTimer{startK};
+  IterationTimer iterationTimer{startK, blockSize};
 
   u64 finalRes64 = 0;
 
@@ -1576,7 +1558,9 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       u64 res64 = dataResidue(); // implies finish()
 
       if (k % 10000 == 0 && k % checkStep != 0) {
-        log("   %9u %6.2f%% %s\n", k, k / float(kEndEnd) * 100, hex(res64).c_str());
+        auto [secsPerIt, secsPerMul] = iterationTimer.reset(k);
+        log("   %9u %6.2f%% %s; %4.0f us/it, %4.0f us/MUL\n",
+            k, k / float(kEndEnd) * 100, hex(res64).c_str(), secsPerIt * 1'000'000, secsPerMul * 1'000'000);
       }
       
       bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
@@ -1617,13 +1601,13 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         if (ok) {
           nSeqErrors = 0;      
           skipNextCheckUpdate = true;
-          double timeWithoutSave = itTimer.reset(k);
+          auto [secsPerIt, secsPerMul] = iterationTimer.reset(k, true);
                     
           Words b1Data = b1Acc.save(k);
 
           if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res64, check, nErrors}); }
           
-          doBigLog(E, k, res64, ok, timeWithoutSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
+          doBigLog(E, k, res64, ok, secsPerIt, secsPerMul, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
 
           if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0))) {
             log("P1 %9u starting Jacobi check\n", k);
@@ -1666,7 +1650,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
             return {"", isPrime, finalRes64, nErrors, proofPath.string()};
           }
         } else {
-          doBigLog(E, k, res64, ok, itTimer.reset(k), kEndEnd, nErrors);
+          auto [secsPerIt, secsPerMul] = iterationTimer.reset(k);
+          doBigLog(E, k, res64, ok, secsPerIt, secsPerMul, kEndEnd, nErrors);
           ++nErrors;
           if (++nSeqErrors > 2) {
             log("%d sequential errors, will stop.\n", nSeqErrors);
@@ -1683,7 +1668,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           throw "stop requested";
         }
         
-        itTimer.reset(k);
+        iterationTimer.reset(k);
       }
     }
   }
