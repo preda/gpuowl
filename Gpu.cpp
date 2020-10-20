@@ -1394,6 +1394,20 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
 
 // ----
 
+namespace {
+
+struct JacobiResult {
+  bool ok;
+  u32 k;
+  u64 res64;
+};
+
+JacobiResult doJacobiCheck(u32 E, const Words& data, u32 k) {
+  return {jacobi(E, data) == 1, k, res64(data)};
+}
+
+}
+
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 E = task.exponent;
   u32 b1 = task.B1;
@@ -1413,7 +1427,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   Saver saver{E, args.nSavefiles, b1, args.startFrom};
   B1Accumulator b1Acc{this, &saver, E};
   future<string> gcdFuture;
-  future<u32> jacobiFuture;
+  future<JacobiResult> jacobiFuture;
   Signal signal;
   
  reload:
@@ -1441,8 +1455,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   if (k) {
     Words b1Data = b1Acc.fold();
     if (!b1Data.empty()) {
-      log("P1 %9u starting on-load Jacobi check\n", k);
-      jacobiFuture = async(launch::async, [k, E, b1Data = std::move(b1Data)](){ return (jacobi(E, b1Data) == 1) ? 0 : k; });
+      // log("P1 %9u starting on-load Jacobi check\n", k);
+      jacobiFuture = async(launch::async, doJacobiCheck, E, std::move(b1Data), k);
     }
   }
 
@@ -1496,16 +1510,14 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     assert(k < kEndEnd);
 
     if (finished(jacobiFuture)) {
-      u32 badK = jacobiFuture.get();
-      if (badK) {
-        log("P1 Jacobi check failed @ %u\n", badK);
-        if (badK < k) {
-          saver.deleteBadSavefiles(badK, k);
+      auto [ok, jacobiK, res64] = jacobiFuture.get();
+      log("P1 Jacobi %s @ %u %016" PRIx64 "\n", ok ? "OK" : "EE", jacobiK, res64);      
+      if (!ok) {
+        if (jacobiK < k) {
+          saver.deleteBadSavefiles(jacobiK, k);
           ++nErrors;
           goto reload;
         }
-      } else {
-        log("P1 Jacobi check OK\n");
       }
     }
     
@@ -1626,23 +1638,9 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           
         doBigLog(E, k, res64, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
 
-        if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0))) {
-          log("P1 %9u starting Jacobi check\n", k);
-          if (wait(jacobiFuture)) {
-            u32 badK = jacobiFuture.get();
-            if (badK) {
-              log("P1 Jacobi check failed @ %u\n", badK);
-              if (badK < k) {
-                saver.deleteBadSavefiles(badK, k);
-                ++nErrors;
-                goto reload;
-              }
-            } else {
-              log("P1 Jacobi check OK\n");
-            }
-          }
-          assert(!jacobiFuture.valid());
-          jacobiFuture = async(launch::async, [k, E, b1Data = std::move(b1Data)](){ return (jacobi(E, b1Data) == 1) ? 0 : k; });
+        if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0)) && !jacobiFuture.valid()) {
+          // log("P1 %9u starting Jacobi check\n", k);
+          jacobiFuture = async(launch::async, doJacobiCheck, E, std::move(b1Data), k);
         }
 
         if (!doStop && !didP2 && !b1Acc.wantK() && !jacobiFuture.valid()) {
