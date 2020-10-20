@@ -1461,6 +1461,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   assert(blockSize > 0 && 10000 % blockSize == 0);
   
   u32 checkStep = checkStepForErrors(args.logStep, nErrors);
+  assert(checkStep % 10000 == 0);
 
   if (!startK) { startK = k; }
 
@@ -1540,7 +1541,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
     }
     
-    bool leadOut = doStop || b1JustFinished || (k % 10000 == 0) || k == persistK || k == kEnd || useLongCarry;
+    bool leadOut = doStop || b1JustFinished || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
 
     coreStep(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;    
