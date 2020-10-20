@@ -882,9 +882,12 @@ static string makeLogStr(string_view status, u32 k, u64 res, float secsPerIt, fl
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, float secsSave, u32 nIters, u32 nErrors, u32 nBitsP1 = 0, u32 B1 = 0) {
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, float secsSave, u32 nIters, u32 nErrors, u32 nBitsP1, u32 B1, u64 resP1) {
   char buf[64] = {0};
-  if (k < nBitsP1) { snprintf(buf, sizeof(buf), " | P1(%s) %2.1f%%", formatBound(B1).c_str(), float(k) * 100 / nBitsP1); }
+  if (k < nBitsP1) {
+    snprintf(buf, sizeof(buf), " | P1(%s) %2.1f%% ETA %s %016" PRIx64,
+             formatBound(B1).c_str(), float(k) * 100 / nBitsP1, getETA(k, nBitsP1, secsPerIt).c_str(), resP1);
+  }
   
   log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, secsSave, nIters).c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), buf);
@@ -1635,7 +1638,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
         float secsSave = iterationTimer.reset(k);
           
-        doBigLog(E, k, res64, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1);
+        doBigLog(E, k, res64, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, ::res64(b1Data));
 
         if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0)) && !jacobiFuture.valid()) {
           // log("P1 %9u starting Jacobi check\n", k);
@@ -1656,7 +1659,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           return {"", isPrime, finalRes64, nErrors, proofPath.string()};
         }
       } else {
-        doBigLog(E, k, res64, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
+        doBigLog(E, k, res64, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, 0);
         ++nErrors;
         if (++nSeqErrors > 2) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
