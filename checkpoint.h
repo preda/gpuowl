@@ -21,13 +21,7 @@ struct PRPState {
 };
 
 
-using P1State = pair<u32, Words>;
-/*
-struct P1State {
-  u32 nextK{};
-  vector<u32> data;
-};
-*/
+using P1State = pair<u32, Words>; // nextK, data
 
 class Saver {
   // E, k, block-size, res64, nErrors

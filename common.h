@@ -29,7 +29,7 @@ string rstripNewline(string s);
 
 using Words = vector<u32>;
 
-inline u64 res64(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
+inline u64 res64(const Words& words) { return words.empty() ? 0 : ((u64(words[1]) << 32) | words[0]); }
 
 inline Words makeWords(u32 E, u32 value) {
   Words ret((E-1)/32 +1);
