@@ -1414,13 +1414,11 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 b2 = task.B2;
   u32 k = 0, blockSize = 0, nErrors = 0;
 
-  if (!args.maxAlloc) {
-    log("Use -maxAlloc to limit GPU memory usage; see -h\n");
-    throw "missing -maxAlloc";
-  }
-
   log("maxAlloc: %.1f GB\n", args.maxAlloc * (1.0f / (1 << 30)));
-
+  if (!args.maxAlloc) {
+    log("You should use -maxAlloc if your GPU has more that 4GB memory. See help '-h'\n");
+  }
+  
   u32 power = -1;
   u32 startK = 0;
 
