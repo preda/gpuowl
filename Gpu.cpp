@@ -1556,14 +1556,17 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       if (!args.noSpin) { spin(); }
 
       u64 res64 = dataResidue(); // implies finish()
-
-      if (k % 10000 == 0 && k % checkStep != 0) {
+      bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
+      bool b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
+      bool doCheck = !res64 || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
+      
+      if (k % 10000 == 0 && !doCheck) {
         auto [secsPerIt, secsPerMul] = iterationTimer.reset(k);
-        log("   %9u %6.2f%% %s; %4.0f us/it, %4.0f us/MUL\n",
+        log("   %9u %6.2f%% %s %4.0f us/it, %4.0f us/MUL\n",
             k, k / float(kEndEnd) * 100, hex(res64).c_str(), secsPerIt * 1'000'000, secsPerMul * 1'000'000);
       }
       
-      bool doStop = signal.stopRequested() || (args.iters && k - startK == args.iters);
+
       if (doStop) {
         log("Stopping, please wait..\n");
         signal.release();
@@ -1581,9 +1584,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           return {factor};
         }
       }
-
-      bool b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
-      bool doCheck = !res64 || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize) || b1JustFinished;
       
       if (doCheck) {
         if (printStats) { printRoundoff(E); }
