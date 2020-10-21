@@ -78,9 +78,12 @@ vector<u32> B1Accumulator::save(u32 k) {
       // assert(k < nBits + 2000); // the Jacobi check may delay the save() a lot such that this assert doesn't hold.
       
       vector<u32> data = fold();
-      // log("B1 at %u res64 %016lx\n", k, residue(data));
 
-      saver->saveP1(k, {nextK, data});      
+      if (data.empty()) {
+        throw Reload{};
+      }
+
+      saver->saveP1(k, {nextK, data});
       if (nextK == 0) {
         saver->saveP1Final(data);
         release();

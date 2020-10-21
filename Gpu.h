@@ -38,6 +38,9 @@ struct PRPResult {
   fs::path proofPath{};
 };
 
+struct Reload {
+};
+
 class Gpu {
   friend class SquaringSet;
   u32 E;

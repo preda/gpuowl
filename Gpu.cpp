@@ -1631,8 +1631,13 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       if (ok) {
         nSeqErrors = 0;      
         skipNextCheckUpdate = true;
-                    
-        Words b1Data = b1Acc.save(k);
+
+        Words b1Data;
+        try {
+          b1Data = b1Acc.save(k);
+        } catch (Reload&) {
+          goto reload;
+        }
 
         if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res64, check, nErrors}); }
 
