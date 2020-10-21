@@ -75,7 +75,7 @@ pair<u32,u32> B1Accumulator::findFirstPop(u32 start) {
 
 vector<u32> B1Accumulator::save(u32 k) {
     if (!bufs.empty()) {
-      assert(k < nBits + 2000);
+      // assert(k < nBits + 2000); // the Jacobi check may delay the save() a lot such that this assert doesn't hold.
       
       vector<u32> data = fold();
       // log("B1 at %u res64 %016lx\n", k, residue(data));
