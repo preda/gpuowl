@@ -22,13 +22,6 @@
 namespace fs = std::filesystem;
 
 struct ProofUtil {
-  static Words makeWords(u32 E, u32 init) {
-    u32 nWords = (E - 1) / 32 + 1;
-    Words x(nWords);
-    x[0] = init;
-    return x;
-  }
-
   static array<u64, 4> hashWords(u32 E, const Words& words) { return std::move(SHA3{}.update(words.data(), (E-1)/8+1)).finish(); }
   static array<u64, 4> hashWords(u32 E, array<u64, 4> prefix, const Words& words) {
     return std::move(SHA3{}.update(prefix).update(words.data(), (E-1)/8+1)).finish();
@@ -116,7 +109,7 @@ public:
 
     bool isPrime = false;
     {
-      Words A{ProofUtil::makeWords(E, 3)};
+      Words A{makeWords(E, 3)};
       log("proof: doing %d iterations\n", topK - E + 1);
       A = gpu->expExp2(A, topK - E + 1);
       isPrime = (A == B);
@@ -124,7 +117,7 @@ public:
       //    isPrime ? "probable prime" : "composite", res64(B), res64(A));
     }
 
-    Words A{ProofUtil::makeWords(E, 3)};
+    Words A{makeWords(E, 3)};
     
     auto hash = ProofUtil::hashWords(E, B);
     
@@ -283,7 +276,7 @@ public:
     assert(power > 0);
     
     Words B = load(topK);
-    Words A = ProofUtil::makeWords(E, 3);
+    Words A = makeWords(E, 3);
 
     vector<Words> middles;
     vector<u64> hashes;
