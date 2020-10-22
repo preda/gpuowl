@@ -1,6 +1,6 @@
 // GpuOwl Mersenne primality tester; Copyright (C) Mihai Preda.
 
-#include "checkpoint.h"
+#include "Saver.h"
 #include "File.h"
 #include "Blake2.h"
 #include "Args.h"
@@ -67,21 +67,16 @@ float Saver::value(u32 k) {
   u32 dist = (k < E) ? (E - k) : 1;
   u32 nice = 1;
 
-  while (k % 10 == 0) {
-    k /= 10;
-    nice *= 10;
-  }
-
-  if (k % 5 == 0) {
-    k /= 5;
-    nice *= 5;
-  }
-  
   while (k % 2 == 0) {
     k /= 2;
     nice *= 2;
   }
   
+  while (k % 5 == 0) {
+    k /= 5;
+    nice *= 5;
+  }
+    
   return nice / float(dist);
 }
 

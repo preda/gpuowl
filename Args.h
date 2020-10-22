@@ -62,7 +62,7 @@ public:
   size_t maxAlloc = 0;
 
   u32 iters = 0;
-  u32 nSavefiles = 12;
+  u32 nSavefiles = 20;
   u32 startFrom = u32(-1);
   
   void printHelp();

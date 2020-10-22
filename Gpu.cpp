@@ -3,7 +3,7 @@
 #include "Gpu.h"
 #include "Proof.h"
 #include "Pm1Plan.h"
-#include "checkpoint.h"
+#include "Saver.h"
 #include "state.h"
 #include "Args.h"
 #include "Signal.h"

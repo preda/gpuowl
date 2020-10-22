@@ -7,7 +7,7 @@
 #include "File.h"
 #include "GmpUtil.h"
 #include "Worktodo.h"
-#include "checkpoint.h"
+#include "Saver.h"
 #include "version.h"
 #include "Proof.h"
 #include "log.h"
