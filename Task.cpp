@@ -9,7 +9,7 @@
 #include "Worktodo.h"
 #include "checkpoint.h"
 #include "version.h"
-#include "ProofSet.h"
+#include "Proof.h"
 #include "log.h"
 
 #include <cstdio>

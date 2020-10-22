@@ -1,7 +1,7 @@
 // Copyright Mihai Preda and George Woltman.
 
 #include "Gpu.h"
-#include "ProofSet.h"
+#include "Proof.h"
 #include "Pm1Plan.h"
 #include "checkpoint.h"
 #include "state.h"

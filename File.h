@@ -207,14 +207,6 @@ public:
     return data;
   }
   
-  /*
-  template<typename T>
-  bool read(vector<T>* data, u32 nWords) {
-    data->resize(nWords);
-    return readNoThrow(data->data(), nWords * sizeof(T));
-  }
-  */
-
   u32 readUpTo(void* data, u32 nUpToBytes) { return fread(data, 1, nUpToBytes, get()); }
   
   string readAll() {
