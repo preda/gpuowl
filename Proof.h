@@ -3,15 +3,20 @@
 #pragma once
 
 #include "File.h"
+#include "ProofCache.h"
 #include "common.h"
-
-#include <unordered_map>
 
 namespace fs = std::filesystem;
 
 class Gpu;
 
-namespace ProofUtil {
+struct ProofInfo {
+  u32 power;
+  u32 exp;
+  string md5;
+};
+
+namespace proof {
 
 array<u64, 4> hashWords(u32 E, const Words& words);
 
@@ -19,13 +24,9 @@ array<u64, 4> hashWords(u32 E, array<u64, 4> prefix, const Words& words);
 
 string fileHash(const fs::path& filePath);
 
-}
+ProofInfo getInfo(const fs::path& proofFile);
 
-struct ProofInfo {
-  u32 power;
-  u32 exp;
-  string md5;
-};
+}
 
 class Proof {  
 public:
@@ -41,100 +42,12 @@ public:
     NUMBER=M216091\n
   */
   static const constexpr char* HEADER = "PRP PROOF\nVERSION=1\nHASHSIZE=64\nPOWER=%u\nNUMBER=M%u%c";
-  
-  static ProofInfo getInfo(const fs::path& proofFile) {
-    string hash = ProofUtil::fileHash(proofFile);
-    File fi = File::openRead(proofFile, true);
-    u32 E = 0, power = 0;
-    char c = 0;
-    if (fi.scanf(HEADER, &power, &E, &c) != 3 || c != '\n') {
-      log("Proof file '%s' has invalid header\n", proofFile.string().c_str());
-      throw "Invalid proof header";
-    }
-    return {power, E, hash};
-  }
-  
-  fs::path save(const fs::path& proofResultDir) {
-    string strE = to_string(E);
-    u32 power = middles.size();
-    fs::path fileName = proofResultDir / (strE + '-' + to_string(power) + ".proof");
-    File fo = File::openWrite(fileName);
-    fo.printf(HEADER, power, E, '\n');
-    fo.write(B.data(), (E-1)/8+1);
-    for (const Words& w : middles) { fo.write(w.data(), (E-1)/8+1); }
-    return fileName;
-  }
 
-  static Proof load(const fs::path& path) {
-    File fi = File::openRead(path, true);
-    u32 E = 0, power = 0;
-    char c = 0;
-    if (fi.scanf(HEADER, &power, &E, &c) != 3 || c != '\n') {
-      log("Proof file '%s' has invalid header\n", path.string().c_str());
-      throw "Invalid proof header";
-    }
-    u32 nBytes = (E - 1) / 8 + 1;
-    Words B = fi.readBytesLE(nBytes);
-    vector<Words> middles;
-    for (u32 i = 0; i < power; ++i) { middles.push_back(fi.readBytesLE(nBytes)); }
-    return {E, B, middles};
-  }
+  static Proof load(const fs::path& path);
   
+  fs::path save(const fs::path& proofResultDir);
+
   bool verify(Gpu *gpu);
-};
-
-class ProofCache {
-  std::unordered_map<u32, Words> pending;
-  fs::path proofPath;
-  
-  bool write(u32 k, const Words& words) {
-    File f = File::openWrite(proofPath / to_string(k));
-    try {
-      f.write(words);
-      f.write<u32>({crc32(words)});
-      return true;
-    } catch (fs::filesystem_error& e) {
-      return false;
-    }
-  }
-
-  Words read(u32 E, u32 k) const {
-    File f = File::openRead(proofPath / to_string(k), true);
-    vector<u32> words = f.read<u32>(E / 32 + 2);
-    u32 checksum = words.back();
-    words.pop_back();
-    if (checksum != crc32(words)) {
-      log("checksum %x (expected %x) in '%s'\n", crc32(words), checksum, f.name.c_str());
-      throw fs::filesystem_error{"checksum mismatch", {}};
-    }
-    return words;
-  }
-
-
-  void flush() {
-    for (auto it = pending.cbegin(), end = pending.cend(); it != end && write(it->first, it->second); it = pending.erase(it));
-    if (!pending.empty()) {
-      log("Could not write %u residues under '%s' -- hurry make space!\n", u32(pending.size()), proofPath.string().c_str());
-    }
-  }
-  
-public:
-  ProofCache(const fs::path& proofPath) : proofPath{proofPath} {}
-  
-  ~ProofCache() { flush(); }
-  
-  void save(u32 k, const Words& words) {
-    if (pending.empty() && write(k, words)) { return; }    
-    pending[k] = words;
-    flush();
-  }
-
-  Words load(u32 E, u32 k) const {
-    auto it = pending.find(k);
-    return (it == pending.end()) ? read(E, k) : it->second;
-  }
-
-  void clear() { pending.clear(); }
 };
 
 class ProofSet {

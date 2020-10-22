@@ -1,7 +1,7 @@
 // Copyright (C) Mihai Preda.
 
 #include "Proof.h"
-
+#include "ProofCache.h"
 #include "Sha3Hash.h"
 #include "MD5.h"
 #include "Gpu.h"
@@ -18,7 +18,7 @@
 #endif
 
 
-namespace ProofUtil {
+namespace proof {
 
 array<u64, 4> hashWords(u32 E, const Words& words) {
   return std::move(SHA3{}.update(words.data(), (E-1)/8+1)).finish();
@@ -37,6 +37,46 @@ string fileHash(const fs::path& filePath) {
   return std::move(h).finish();
 }
 
+ProofInfo getInfo(const fs::path& proofFile) {
+  string hash = proof::fileHash(proofFile);
+  File fi = File::openRead(proofFile, true);
+  u32 E = 0, power = 0;
+  char c = 0;
+  if (fi.scanf(Proof::HEADER, &power, &E, &c) != 3 || c != '\n') {
+    log("Proof file '%s' has invalid header\n", proofFile.string().c_str());
+    throw "Invalid proof header";
+  }
+  return {power, E, hash};
+}
+
+}
+
+// ---- Proof ----
+
+fs::path Proof::save(const fs::path& proofResultDir) {
+  string strE = to_string(E);
+  u32 power = middles.size();
+  fs::path fileName = proofResultDir / (strE + '-' + to_string(power) + ".proof");
+  File fo = File::openWrite(fileName);
+  fo.printf(HEADER, power, E, '\n');
+  fo.write(B.data(), (E-1)/8+1);
+  for (const Words& w : middles) { fo.write(w.data(), (E-1)/8+1); }
+  return fileName;
+}
+
+Proof Proof::load(const fs::path& path) {
+  File fi = File::openRead(path, true);
+  u32 E = 0, power = 0;
+  char c = 0;
+  if (fi.scanf(HEADER, &power, &E, &c) != 3 || c != '\n') {
+    log("Proof file '%s' has invalid header\n", path.string().c_str());
+    throw "Invalid proof header";
+  }
+  u32 nBytes = (E - 1) / 8 + 1;
+  Words B = fi.readBytesLE(nBytes);
+  vector<Words> middles;
+  for (u32 i = 0; i < power; ++i) { middles.push_back(fi.readBytesLE(nBytes)); }
+  return {E, B, middles};
 }
 
 bool Proof::verify(Gpu *gpu) {
@@ -60,11 +100,11 @@ bool Proof::verify(Gpu *gpu) {
 
   Words A{makeWords(E, 3)};
     
-  auto hash = ProofUtil::hashWords(E, B);
+  auto hash = proof::hashWords(E, B);
     
   for (u32 i = 0; i < power; ++i) {
     Words& M = middles[i];
-    hash = ProofUtil::hashWords(E, hash, M);
+    hash = proof::hashWords(E, hash, M);
     u64 h = hash[0];
     A = gpu->expMul(A, h, M);
     B = gpu->expMul(M, h, B);
@@ -82,6 +122,8 @@ bool Proof::verify(Gpu *gpu) {
   return ok;
 }
 
+// ---- ProofSet ----
+
 Proof ProofSet::computeProof(Gpu *gpu) {
   assert(power > 0);
     
@@ -91,7 +133,7 @@ Proof ProofSet::computeProof(Gpu *gpu) {
   vector<Words> middles;
   vector<u64> hashes;
 
-  auto hash = ProofUtil::hashWords(E, B);
+  auto hash = proof::hashWords(E, B);
 
   vector<Buffer<i32>> bufVect = gpu->makeBufVector(power);
     
@@ -111,7 +153,7 @@ Proof ProofSet::computeProof(Gpu *gpu) {
     }
     assert(bufIt == bufVect.begin() + 1);
     middles.push_back(gpu->readAndCompress(bufVect.front()));
-    hash = ProofUtil::hashWords(E, hash, middles.back());
+    hash = proof::hashWords(E, hash, middles.back());
     hashes.push_back(hash[0]);
   }
   return Proof{E, std::move(B), std::move(middles)};
