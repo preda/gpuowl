@@ -7,7 +7,6 @@
 #include "GmpUtil.h"
 #include "Args.h"
 #include "checkpoint.h"
-#include "util.h"
 
 #include <tuple>
 

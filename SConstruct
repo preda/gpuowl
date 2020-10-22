@@ -6,13 +6,13 @@ env['ENV']['TERM'] = os.environ['TERM']
 
 #DefaultEnvironment(CXX='g++-9')
 
-srcs = 'Pm1Plan.cpp util.cpp B1Accumulator.cpp Memlock.cpp log.cpp md5.cpp sha3.cpp AllocTrac.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp gpuowl-wrap.cpp'.split()
+srcs = 'Pm1Plan.cpp B1Accumulator.cpp Memlock.cpp log.cpp md5.cpp sha3.cpp AllocTrac.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp gpuowl-wrap.cpp'.split()
 
 AlwaysBuild(Command('version.inc', [], 'echo \\"`git describe --tags --long --dirty --always`\\" > $TARGETS'))
 AlwaysBuild(Command('gpuowl-expanded.cl', ['gpuowl.cl'], './tools/expand.py < gpuowl.cl > gpuowl-expanded.cl'))
 AlwaysBuild(Command('gpuowl-wrap.cpp', ['gpuowl-expanded.cl'], 'cat head.txt gpuowl-expanded.cl tail.txt > gpuowl-wrap.cpp'))
 
-LIBPATH=['/opt/rocm-3.3.0/opencl/lib/x86_64', '/opt/rocm-3.5.0/opencl/lib']
+LIBPATH=['/opt/rocm/opencl/lib', '/opt/rocm-3.3.0/opencl/lib/x86_64', '/opt/rocm-3.5.0/opencl/lib']
 
 #config = '-g'
 config = '-g -O2'

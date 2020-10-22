@@ -42,3 +42,5 @@ inline u32 roundUp(u32 x, u32 multiple) { return ((x - 1) / multiple + 1) * mult
 u32 crc32(const void* data, size_t size);
 
 inline u32 crc32(const std::vector<u32>& words) { return crc32(words.data(), sizeof(words[0]) * words.size()); }
+
+std::string formatBound(u32 b);

@@ -14,7 +14,6 @@
 #include "Task.h"
 #include "Memlock.h"
 #include "B1Accumulator.h"
-#include "util.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
