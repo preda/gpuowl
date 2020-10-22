@@ -4,17 +4,19 @@
 #include "File.h"
 
 bool ProofCache::write(u32 k, const Words& words) {
-  File f = File::openWrite(proofPath / to_string(k));
   try {
+    File f = File::openWrite(proofPath / to_string(k));
     f.write(words);
     f.write<u32>({crc32(words)});
-    return true;
   } catch (fs::filesystem_error& e) {
     return false;
   }
+
+  assert(words == read(k));
+  return true;
 }
 
-Words ProofCache::read(u32 E, u32 k) const {
+Words ProofCache::read(u32 k) const {
   File f = File::openRead(proofPath / to_string(k), true);
   vector<u32> words = f.read<u32>(E / 32 + 2);
   u32 checksum = words.back();

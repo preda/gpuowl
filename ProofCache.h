@@ -10,17 +10,18 @@
 namespace fs = std::filesystem;
 
 class ProofCache {
+  const u32 E;
   std::unordered_map<u32, Words> pending;
   fs::path proofPath;
   
   bool write(u32 k, const Words& words);
 
-  Words read(u32 E, u32 k) const;
+  Words read(u32 k) const;
 
   void flush();
   
 public:
-  ProofCache(const fs::path& proofPath) : proofPath{proofPath} {}
+  ProofCache(u32 E, const fs::path& proofPath) : E{E}, proofPath{proofPath} {}
   
   ~ProofCache() { flush(); }
   
@@ -30,9 +31,9 @@ public:
     flush();
   }
 
-  Words load(u32 E, u32 k) const {
+  Words load(u32 k) const {
     auto it = pending.find(k);
-    return (it == pending.end()) ? read(E, k) : it->second;
+    return (it == pending.end()) ? read(k) : it->second;
   }
 
   void clear() { pending.clear(); }

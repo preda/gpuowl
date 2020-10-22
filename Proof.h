@@ -51,12 +51,15 @@ public:
 };
 
 class ProofSet {
+public:
+  const u32 E;
+  
+private:  
   fs::path exponentDir;
   fs::path proofPath{exponentDir / "proof"};
-  ProofCache cache{proofPath};
+  ProofCache cache{E, proofPath};
   
 public:
-  u32 E;
   u32 power;
   u32 topK{roundUp(E, (1 << power))};
   u32 step{topK / (1 << power)};
@@ -74,7 +77,7 @@ public:
     return 0;
   }
   
-  ProofSet(const fs::path& tmpDir, u32 E, u32 power) : exponentDir(tmpDir / to_string(E)), E{E}, power{power} {
+  ProofSet(const fs::path& tmpDir, u32 E, u32 power) : E{E}, exponentDir(tmpDir / to_string(E)), power{power} {
     assert(E & 1); // E is supposed to be prime
     assert(topK % step == 0);
     assert(topK / step == (1u << power));
@@ -107,7 +110,7 @@ public:
   Words load(u32 k) const {
     assert(k > 0 && k <= topK);
     assert(k % step == 0);
-    return cache.load(E, k);
+    return cache.load(k);
   }
         
   bool isValidTo(u32 limitK) const {
