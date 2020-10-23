@@ -59,7 +59,6 @@ void Args::printHelp() {
 -B1                : P-1 B1 bound
 -B2                : P-1 B2 bound
 -rB2               : ratio of B2 to B1. Default %u, used only if B2 is not explicitly set
--cleanup           : delete save files at end of run
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -verify <file>     : verify PRP-proof contained in <file>
 -proof <power>     : By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
@@ -190,7 +189,6 @@ void Args::parse(string line) {
     else if (key == "-dir") { dir = s; }
     else if (key == "-yield") { cudaYield = true; }
     else if (key == "-nospin") { noSpin = true; }
-    else if (key == "-cleanup") { cleanup = true; }
     else if (key == "-carry") {
       if (s == "short" || s == "long") {
         carry = s == "short" ? CARRY_SHORT : CARRY_LONG;
