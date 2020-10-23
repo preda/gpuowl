@@ -1474,7 +1474,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   if (!startK) { startK = k; }
 
   if (power == u32(-1)) {
-    power = ProofSet::effectivePower(args.tmpDir, E, args.proofPow, startK);  
+    power = ProofSet::effectivePower(args.tmpDir, E, args.proofPow, startK);
     if (!power) {
       log("Proof disabled because of missing checkpoints\n");
     } else if (power != args.proofPow) {

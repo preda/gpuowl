@@ -169,7 +169,7 @@ public:
     if (!ok) { return ""; }  // EOF or error
     string line = buf;
     if (line.empty() || line.back() != '\n') {
-      log("%s : line \"%s\" does not end with a newline", name.c_str(), line.c_str());
+      log("%s : line \"%s\" does not end with a newline\n", name.c_str(), line.c_str());
       throw "lines must end with newline";
     }
     return line;
