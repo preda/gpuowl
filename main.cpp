@@ -36,7 +36,7 @@ static void readConfig(Args& args, const fs::path& path, bool doLog) {
 
 int main(int argc, char **argv) {
   initLog();
-  log("gpuowl %s\n", VERSION);
+  // log("GpuOwl VERSION %s\n", VERSION);
 
   int exitCode = 0;
 
@@ -48,6 +48,8 @@ int main(int argc, char **argv) {
       if (!args.dir.empty()) { fs::current_path(args.dir); }
       initLog("gpuowl.log");
     }
+
+    log("GpuOwl VERSION %s\n", VERSION);
 
     fs::path poolDir = [&mainLine](){
                          Args args;
