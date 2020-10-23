@@ -39,11 +39,13 @@ public:
   bool safeMath = false;
 
   u32 proofPow = 8;
+  u32 proofVerify = 9;
 
   fs::path resultsFile = "results.txt";
   fs::path masterDir;
   fs::path tmpDir = ".";
   fs::path proofResultDir = "proof";
+  // fs::path proofBadDir = "bad-proof";
   
   bool keepProof = false;
 

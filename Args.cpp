@@ -65,6 +65,7 @@ void Args::printHelp() {
 -proof <power>     : By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
                      A lower power reduces disk space requirements but increases the verification cost.
                      A proof of power 9 uses 6GB of disk space for a 100M exponent and enables faster verification.
+-autoverify <power> : Self-verify proofs generated with at least this power. Default 9.
 -tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored.
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
@@ -130,11 +131,17 @@ void Args::parse(string line) {
     else if (key == "-proof") {
       int power = 0;
       if (s.empty() || (power = stoi(s)) < 1 || power > 10) {
-        log("-proof expects <power> 1 - 10 (found '%s')\n", s.c_str());
+        log("-proof expects <power> 1-10 (found '%s')\n", s.c_str());
         throw "-proof <power>";
       }
       proofPow = power;
       assert(proofPow > 0);
+    } else if (key == "-autoverify") {
+      if (s.empty()) {
+        log("-autoverify expects <power>\n");
+        throw "-autoverify <power>";
+      }
+      proofVerify = stoi(s);
     } else if (key == "-tmpDir" || key == "-tmpdir") {
       if (s.empty()) {
         log("-tmpDir needs <dir>\n");

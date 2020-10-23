@@ -1502,7 +1502,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   assert(k < kEnd);
 
   // We continue beyound kEnd: up to the next multiple of 1024 if proof is enabled (kProofEnd), and up to the next blockSize
-  // u32 kEndEnd = roundUp(proofSet.kProofEnd(kEnd), blockSize);
   u32 kEndEnd = roundUp(kEnd, blockSize);
 
   bool printStats = args.flags.count("STATS");
@@ -1665,12 +1664,23 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         }
           
         if (k >= kEndEnd) {
-          fs::path proofPath;
-          if (proofSet.power > 0) {
-            proofPath = proofSet.computeProof(this).save(args.proofResultDir);
-            log("PRP-Proof '%s' generated\n", proofPath.string().c_str());
-          }
-          return {"", isPrime, finalRes64, nErrors, proofPath.string()};
+          Memlock memlock{args.masterDir, u32(args.device)};
+
+          for (int retry = 0; retry < 2; ++retry) {
+            Proof proof = proofSet.computeProof(this);
+            bool verify = proofSet.power >= args.proofVerify;
+            bool ok = !verify || proof.verify(this);
+            if (verify) { log("Proof self-verification %s\n", ok ? "OK" : "FAILED"); }
+            if (ok) {
+              fs::path proofPath = proof.save(args.proofResultDir);
+              log("Proof '%s' generated\n", proofPath.string().c_str());              
+              return {"", isPrime, finalRes64, nErrors, proofPath.string()};              
+            } else if (retry > 0) {
+              fs::path proofPath = proof.save(args.proofResultDir);
+              log("Bad proof '%s' generated, investigate why\n", proofPath.string().c_str());
+              throw "bad proof";
+            }
+          }          
         }
       } else {
         doBigLog(E, k, res64, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, 0);

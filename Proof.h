@@ -78,7 +78,5 @@ public:
 
   Words load(u32 k) const;
         
-  // bool isComplete() const { return isValidTo(E); }
-  
   Proof computeProof(Gpu *gpu);
 };
