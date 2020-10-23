@@ -42,7 +42,7 @@ ProofInfo getInfo(const fs::path& proofFile) {
   File fi = File::openRead(proofFile, true);
   u32 E = 0, power = 0;
   char c = 0;
-  if (fi.scanf(Proof::HEADER, &power, &E, &c) != 3 || c != '\n') {
+  if (fi.scanf(Proof::HEADER_v2, &power, &E, &c) != 3 || c != '\n') {
     log("Proof file '%s' has invalid header\n", proofFile.string().c_str());
     throw "Invalid proof header";
   }
@@ -58,7 +58,7 @@ fs::path Proof::save(const fs::path& proofResultDir) {
   u32 power = middles.size();
   fs::path fileName = proofResultDir / (strE + '-' + to_string(power) + ".proof");
   File fo = File::openWrite(fileName);
-  fo.printf(HEADER, power, E, '\n');
+  fo.printf(HEADER_v2, power, E, '\n');
   fo.write(B.data(), (E-1)/8+1);
   for (const Words& w : middles) { fo.write(w.data(), (E-1)/8+1); }
   return fileName;
@@ -68,7 +68,7 @@ Proof Proof::load(const fs::path& path) {
   File fi = File::openRead(path, true);
   u32 E = 0, power = 0;
   char c = 0;
-  if (fi.scanf(HEADER, &power, &E, &c) != 3 || c != '\n') {
+  if (fi.scanf(HEADER_v2, &power, &E, &c) != 3 || c != '\n') {
     log("Proof file '%s' has invalid header\n", path.string().c_str());
     throw "Invalid proof header";
   }
@@ -80,38 +80,38 @@ Proof Proof::load(const fs::path& path) {
 }
 
 bool Proof::verify(Gpu *gpu) {
+  log("B         %016" PRIx64 "\n", res64(B));
+  for (u32 i = 0; i < middles.size(); ++i) {
+    log("Middle[%u] %016" PRIx64 "\n", i, res64(middles[i]));
+  }
+  
   u32 power = middles.size();
   assert(power > 0);
 
-  u32 topK = roundUp(E, (1 << power));
-  assert(topK % (1 << power) == 0);
-  assert(topK > E);
-  u32 step = topK / (1 << power);
-
-  bool isPrime = false;
-  {
-    Words A{makeWords(E, 3)};
-    log("proof: doing %d iterations\n", topK - E + 1);
-    A = gpu->expExp2(A, topK - E + 1);
-    isPrime = (A == B);
-    // log("the proof indicates %s (%016" PRIx64 " vs. %016" PRIx64 " for a PRP)\n",
-    //    isPrime ? "probable prime" : "composite", res64(B), res64(A));
-  }
+  bool isPrime = (B == makeWords(E, 9));
 
   Words A{makeWords(E, 3)};
     
   auto hash = proof::hashWords(E, B);
-    
-  for (u32 i = 0; i < power; ++i) {
+
+  u32 span = E;
+  for (u32 i = 0; i < power; ++i, span = (span + 1) / 2) {
     Words& M = middles[i];
     hash = proof::hashWords(E, hash, M);
-    u64 h = hash[0];
+    u64 h = hash[0];    
     A = gpu->expMul(A, h, M);
-    B = gpu->expMul(M, h, B);
+    
+    if (span % 2) {
+      B = gpu->expMul2(M, h, B);
+    } else {
+      B = gpu->expMul(M, h, B);
+    }
+
+    log("%u : A %016" PRIx64 ", M %016" PRIx64 ", B %016" PRIx64 ", h %016" PRIx64 "\n", i, res64(A), res64(M), res64(B), h); 
   }
     
-  log("proof verification: doing %d iterations\n", step);
-  A = gpu->expExp2(A, step);
+  log("proof verification: doing %d iterations\n", span);
+  A = gpu->expExp2(A, span);
 
   bool ok = (A == B);
   if (ok) {
@@ -124,10 +124,76 @@ bool Proof::verify(Gpu *gpu) {
 
 // ---- ProofSet ----
 
-Proof ProofSet::computeProof(Gpu *gpu) {
+ProofSet::ProofSet(const fs::path& tmpDir, u32 E, u32 power)
+  : E{E}, power{power}, exponentDir(tmpDir / to_string(E)) {
+  
+  assert(E & 1); // E is supposed to be prime
   assert(power > 0);
     
-  Words B = load(topK);
+  fs::create_directory(exponentDir);
+  fs::create_directory(proofPath);
+
+  for (u32 span = (E + 1) / 2; spans.size() < power; span = (span + 1) / 2) { spans.push_back(span); }
+
+  points.push_back(0);
+  for (u32 p = 0; p < power; ++p) {
+    u32 s = spans[p];
+    for (u32 i = 0, end = points.size(); i < end; ++i) {
+      points.push_back(points[i] + s);
+    }
+  }
+
+  assert(points.size() == (1u << power));
+    
+  sorted = points;
+  std::sort(sorted.begin(), sorted.end());
+
+  sorted.erase(sorted.begin());
+  assert(sorted.back() < E);
+  sorted.push_back(E);
+  assert(sorted.size() == (1u << power));
+}
+
+bool ProofSet::canDo(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
+  assert(power > 0 && power <= 10);
+  return ProofSet{tmpDir, E, power}.isValidTo(currentK);
+}
+
+u32 ProofSet::effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
+  for (u32 p = power; p > 0; --p) {
+    log("validating proof residues for power %u\n", p);
+    if (canDo(tmpDir, E, p, currentK)) { return p; }      
+  }
+  assert(false);
+}
+    
+bool ProofSet::isValidTo(u32 limitK) const {
+  for (u32 k : sorted) {
+    if (k > limitK) { break; }
+    try { load(k); } catch (...) { return false; }
+  }
+  return true;
+}
+
+u32 ProofSet::next(u32 k) const {
+  auto it = upper_bound(sorted.begin(), sorted.end(), k);
+  return (it == sorted.end()) ? u32(-1) : *it;
+}
+
+void ProofSet::save(u32 k, const Words& words) {
+  assert(k > 0 && k <= E);
+  assert(k == *lower_bound(sorted.begin(), sorted.end(), k));
+  cache.save(k, words);
+}
+
+Words ProofSet::load(u32 k) const {
+  assert(k > 0 && k <= E);
+  assert(k == *lower_bound(sorted.begin(), sorted.end(), k));
+  return cache.load(k);
+}
+
+Proof ProofSet::computeProof(Gpu *gpu) {
+  Words B = load(E);
   Words A = makeWords(E, 3);
 
   vector<Words> middles;
@@ -136,16 +202,19 @@ Proof ProofSet::computeProof(Gpu *gpu) {
   auto hash = proof::hashWords(E, B);
 
   vector<Buffer<i32>> bufVect = gpu->makeBufVector(power);
-    
+
   for (u32 p = 0; p < power; ++p) {
     auto bufIt = bufVect.begin();
     assert(p == hashes.size());
-    log("proof: building level %d, hash %016" PRIx64 "\n", (p + 1), hash[0]);
-    u32 s = topK / (1 << (p + 1));
-    for (int i = 0; i < (1 << p); ++i) {
-      Words w = load(s * (2 * i + 1));
+    u32 s = (1u << (power - p));
+    for (u32 i = 0; i < (1u << p); ++i) {
+      u32 idx = s/2 - 1 + i * s;
+      Words w = load(sorted[idx]);
+      // log("loaded %u %u\n", idx, sorted[idx]);
+
       gpu->writeIn(*bufIt++, w);
-      for (int k = 0; i & (1 << k); ++k) {
+      for (u32 k = 0; i & (1u << k); ++k) {
+        assert(k <= p - 1);
         --bufIt;
         u64 h = hashes[p - 1 - k];
         gpu->expMul(*(bufIt - 1), h, *bufIt);
@@ -155,6 +224,8 @@ Proof ProofSet::computeProof(Gpu *gpu) {
     middles.push_back(gpu->readAndCompress(bufVect.front()));
     hash = proof::hashWords(E, hash, middles.back());
     hashes.push_back(hash[0]);
+
+    log("proof level %u : M %016" PRIx64 ", h %016" PRIx64 "\n", p, res64(middles.back()), hashes.back()); 
   }
   return Proof{E, std::move(B), std::move(middles)};
 }

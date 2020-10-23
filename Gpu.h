@@ -229,6 +229,9 @@ public:
   // return A^h * B
   Words expMul(const Words& A, u64 h, const Words& B);
 
+  // return A^h * B^2
+  Words expMul2(const Words& A, u64 h, const Words& B);
+
   // A:= A^h * B
   void expMul(Buffer<i32>& A, u64 h, Buffer<i32>& B);
   

@@ -226,7 +226,7 @@ pair<u32, vector<Pm1Plan::BitBlock>> Pm1Plan::makePlan() {
 
   // All primes <= cutValue can be transposed by mulitplying with firstMissingFactor.
   u32 cutValue = lastCovered / firstMissingFactor(D);
-  u32 startValue = max(primeAfter(B1), primeAfter(cutValue));
+  u32 startValue = max(primeAfter(B1), cutValue + 1);
   
   u32 beginBlock = lowerBlock(startValue);
   u32 endBlock = lastBlock + 1;

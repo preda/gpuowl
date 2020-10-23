@@ -720,6 +720,12 @@ Words Gpu::expMul(const Words& A, u64 h, const Words& B) {
   return readData();
 }
 
+Words Gpu::expMul2(const Words& A, u64 h, const Words& B) {
+  expMul(A, h, B);
+  modMul(bufData, bufData, bufCheck, buf1, buf2, buf3);
+  return readData();
+}
+
 void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   if (exp == 0) {
     bufInOut.set(1);
@@ -1489,17 +1495,21 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u64 finalRes64 = 0;
 
   // We extract the res64 at kEnd.
-  const u32 kEnd = E; // Type-1 per http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
+  // For M=2^E-1, residue "type-3" == 3^(M+1), and residue "type-1" == type-3 / 9,
+  // See http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
+  // For both type-1 and type-3 we need to do E squarings (as M+1==2^E).
+  const u32 kEnd = E;
   assert(k < kEnd);
 
   // We continue beyound kEnd: up to the next multiple of 1024 if proof is enabled (kProofEnd), and up to the next blockSize
-  u32 kEndEnd = roundUp(proofSet.kProofEnd(kEnd), blockSize);
+  // u32 kEndEnd = roundUp(proofSet.kProofEnd(kEnd), blockSize);
+  u32 kEndEnd = roundUp(kEnd, blockSize);
 
   bool printStats = args.flags.count("STATS");
 
   bool skipNextCheckUpdate = false;
 
-  u32 persistK = proofSet.firstPersistAt(k + 1);
+  u32 persistK = proofSet.next(k);
   bool leadIn = true;
 
   assert(k % blockSize == 0);
@@ -1556,7 +1566,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         goto reload;
       }
       proofSet.save(k, data);
-      persistK = proofSet.firstPersistAt(k + 1);
+      persistK = proofSet.next(k);
     }
 
     if (k == kEnd) {
