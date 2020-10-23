@@ -133,25 +133,24 @@ ProofSet::ProofSet(const fs::path& tmpDir, u32 E, u32 power)
   fs::create_directory(exponentDir);
   fs::create_directory(proofPath);
 
+  vector<u32> spans;
   for (u32 span = (E + 1) / 2; spans.size() < power; span = (span + 1) / 2) { spans.push_back(span); }
 
   points.push_back(0);
-  for (u32 p = 0; p < power; ++p) {
-    u32 s = spans[p];
+  for (u32 p = 0, span = (E + 1) / 2; p < power; ++p, span = (span + 1) / 2) {
     for (u32 i = 0, end = points.size(); i < end; ++i) {
-      points.push_back(points[i] + s);
+      points.push_back(points[i] + span);
     }
   }
 
   assert(points.size() == (1u << power));
     
-  sorted = points;
-  std::sort(sorted.begin(), sorted.end());
+  std::sort(points.begin(), points.end());
 
-  sorted.erase(sorted.begin());
-  assert(sorted.back() < E);
-  sorted.push_back(E);
-  assert(sorted.size() == (1u << power));
+  points.erase(points.begin());
+  assert(points.back() < E);
+  points.push_back(E);
+  assert(points.size() == (1u << power));
 }
 
 bool ProofSet::canDo(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
@@ -168,7 +167,7 @@ u32 ProofSet::effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 curre
 }
     
 bool ProofSet::isValidTo(u32 limitK) const {
-  for (u32 k : sorted) {
+  for (u32 k : points) {
     if (k > limitK) { break; }
     try { load(k); } catch (...) { return false; }
   }
@@ -176,19 +175,19 @@ bool ProofSet::isValidTo(u32 limitK) const {
 }
 
 u32 ProofSet::next(u32 k) const {
-  auto it = upper_bound(sorted.begin(), sorted.end(), k);
-  return (it == sorted.end()) ? u32(-1) : *it;
+  auto it = upper_bound(points.begin(), points.end(), k);
+  return (it == points.end()) ? u32(-1) : *it;
 }
 
 void ProofSet::save(u32 k, const Words& words) {
   assert(k > 0 && k <= E);
-  assert(k == *lower_bound(sorted.begin(), sorted.end(), k));
+  assert(k == *lower_bound(points.begin(), points.end(), k));
   cache.save(k, words);
 }
 
 Words ProofSet::load(u32 k) const {
   assert(k > 0 && k <= E);
-  assert(k == *lower_bound(sorted.begin(), sorted.end(), k));
+  assert(k == *lower_bound(points.begin(), points.end(), k));
   return cache.load(k);
 }
 
@@ -206,12 +205,9 @@ Proof ProofSet::computeProof(Gpu *gpu) {
   for (u32 p = 0; p < power; ++p) {
     auto bufIt = bufVect.begin();
     assert(p == hashes.size());
-    u32 s = (1u << (power - p));
+    u32 s = (1u << (power - p - 1));
     for (u32 i = 0; i < (1u << p); ++i) {
-      u32 idx = s/2 - 1 + i * s;
-      Words w = load(sorted[idx]);
-      // log("loaded %u %u\n", idx, sorted[idx]);
-
+      Words w = load(points[s * (i * 2 + 1) - 1]);
       gpu->writeIn(*bufIt++, w);
       for (u32 k = 0; i & (1u << k); ++k) {
         assert(k <= p - 1);

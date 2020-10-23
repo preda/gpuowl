@@ -36,12 +36,11 @@ public:
 
   /*Example header:
     PRP PROOF\n
-    VERSION=1\n
+    VERSION=2\n
     HASHSIZE=64\n
     POWER=8\n
     NUMBER=M216091\n
   */
-  static const constexpr char* HEADER_v1 = "PRP PROOF\nVERSION=1\nHASHSIZE=64\nPOWER=%u\nNUMBER=M%u%c";
   static const constexpr char* HEADER_v2 = "PRP PROOF\nVERSION=2\nHASHSIZE=64\nPOWER=%u\nNUMBER=M%u%c";
 
   static Proof load(const fs::path& path);
@@ -61,9 +60,7 @@ private:
   fs::path proofPath{exponentDir / "proof"};
   ProofCache cache{E, proofPath};
 
-  vector<u32> spans;
-  vector<u32> points;
-  vector<u32> sorted;  
+  vector<u32> points;  
   
   bool isValidTo(u32 limitK) const;
 
