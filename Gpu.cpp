@@ -1419,7 +1419,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 E = task.exponent;
   u32 b1 = task.B1;
   u32 b2 = task.B2;
-  u32 k = 0, blockSize = 0, nErrors = 0;
+  u32 k = 0, blockSize = 0;
+  u32 nErrors = 0;
 
   log("maxAlloc: %.1f GB\n", args.maxAlloc * (1.0f / (1 << 30)));
   if (!args.maxAlloc) {
@@ -1434,6 +1435,12 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   future<string> gcdFuture;
   future<JacobiResult> jacobiFuture;
   Signal signal;
+
+  // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.
+  std::optional<u64> lastFailedRes64;
+
+  // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
+  int nSeqErrors = 0;
   
  reload:
   {
@@ -1443,14 +1450,18 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
     
     u64 res64 = dataResidue();
-    bool ok = (res64 == loaded.res64);
-
-    std::string expected = " (expected "s + hex(loaded.res64) + ")";
-    log("%2s %9u loaded: blockSize %d, %s%s\n",
-        ok ? "OK" : "EE", loaded.k, loaded.blockSize, hex(res64).c_str(), ok ? "" : expected.c_str());
+    if (res64 == loaded.res64) {
+      log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res64);
+      // On the OK branch do not clear lastFailedRes64 -- we still want to compare it with the GEC check.
+    } else {
+      log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", loaded.k, res64, loaded.res64);
+      if (lastFailedRes64 && res64 == *lastFailedRes64) {
+        throw "error on load";
+      }
+      lastFailedRes64 = res64;
+      goto reload;
+    }
     
-    if (!ok) { throw "error on load"; }
-
     k = loaded.k;
     blockSize = loaded.blockSize;
     if (nErrors == 0) { nErrors = loaded.nErrors; }
@@ -1484,9 +1495,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   }
   
   ProofSet proofSet{args.tmpDir, E, power};
-
-  // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
-  int nSeqErrors = 0;
 
   bool isPrime = false;
   IterationTimer iterationTimer{startK};
@@ -1622,21 +1630,17 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       if (printStats) { printRoundoff(E); }
 
       float secsPerIt = iterationTimer.reset(k);
-        
-      bool ok = false;
 
       Words check = readCheck();
-      if (check.empty()) {
-        log("Check error ZERO\n");
-        ok = false;
-      } else {
-        ok = this->doCheck(blockSize, buf1, buf2, buf3);
-      }
+      if (check.empty()) { log("Check read ZERO\n"); }
+
+      bool ok = !check.empty() && this->doCheck(blockSize, buf1, buf2, buf3);
 
       float secsCheck = iterationTimer.reset(k);
         
       if (ok) {
-        nSeqErrors = 0;      
+        nSeqErrors = 0;
+        lastFailedRes64.reset();
         skipNextCheckUpdate = true;
 
         Words b1Data;
@@ -1688,6 +1692,11 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
           throw "too many errors";
         }
+        if (lastFailedRes64 && res64 == *lastFailedRes64) {
+          log("Consistent error %016" PRIx64 ", will stop.\n", res64);
+          throw "consistent error";
+        }
+        lastFailedRes64 = res64;
         if (!doStop) { goto reload; }
       }
         
