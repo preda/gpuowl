@@ -2,7 +2,6 @@
 
 #include "timeutil.h"
 #include "File.h"
-#include "AllocTrac.h"
 #include "clwrap.h"
 
 #include <cstdio>
@@ -295,7 +294,7 @@ cl_kernel makeKernel(cl_program program, const char *name) {
 cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr) {
   int err;
   cl_mem buf = clCreateBuffer(context, kind, size, (void *) ptr, &err);
-  if (err == CL_OUT_OF_RESOURCES || err == CL_MEM_OBJECT_ALLOCATION_FAILURE) { throw gpu_bad_alloc(size); }
+  if (err == CL_OUT_OF_RESOURCES || err == CL_MEM_OBJECT_ALLOCATION_FAILURE) { throw bad_alloc{}; }
   
   CHECK2(err, "clCreateBuffer");
   return buf;

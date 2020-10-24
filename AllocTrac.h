@@ -9,6 +9,7 @@
 
 using namespace std::string_literals;
 
+/*
 class gpu_bad_alloc : public std::bad_alloc {
   std::string w;
   
@@ -18,6 +19,7 @@ public:
 
   const char *what() const noexcept override { return w.c_str(); }
 };
+*/
 
 class AllocTrac {
   static std::atomic<size_t> totalAlloc;  
@@ -29,7 +31,10 @@ public:
   AllocTrac() = default;
   AllocTrac(size_t size) : size(size) {
     if (size) {
-      if (totalAlloc + size >= maxAlloc) { throw gpu_bad_alloc("Reached GPU maxAlloc limit " + std::to_string(maxAlloc >> 20) + " MB"); }
+      if (totalAlloc + size >= maxAlloc) {
+        log("Reached GPU maxAlloc limit %.1f GB\n", float(maxAlloc) / (1024 * 1024 * 1024));
+        throw bad_alloc();
+      }
       totalAlloc += size;
       // log("alloc %lu total %lu limit %lu\n", size, size_t(totalAlloc), maxAlloc);
     }

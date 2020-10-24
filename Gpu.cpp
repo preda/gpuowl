@@ -206,7 +206,7 @@ struct Define {
   operator string() const { return str; }
 };
 
-cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
+cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
   if (!args.safeMath) { clArgs += " -cl-unsafe-math-optimizations"; }
   const bool isPm1 = true;
@@ -218,7 +218,6 @@ cl_program compile(const Args& args, cl_context context, u32 N, u32 E, u32 WIDTH
      {"MIDDLE", MIDDLE},
     };
 
-  cl_device_id id = getDevice(args.device);
   if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
 
   // if PRP force carry64 when carry32 might exceed 0x70000000
@@ -287,7 +286,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   timeKernels(timeKernels),
   device(device),
   context{device},
-  program(compile(args, context.get(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW)),
+  program(compile(args, context.get(), device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW)),
   queue(Queue::make(context, timeKernels, args.cudaYield)),
 
   // Specifies size in number of workgroups
@@ -1155,7 +1154,7 @@ bool Gpu::verifyP2Block(u32 D, const Words& p1Data, u32 block, const Buffer<doub
   return ok;
 }
 
-void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {  
+void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {
   if (!b1) { return; }
   assert(b2 && b2 > b1);
   
@@ -1389,7 +1388,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         goto retry;
       }
       assert(!gcdFuture.valid());
-      const u32 nextBlock = atEnd ? u32(-1) : block;
+      const u32 nextBlock = atEnd ? u32(-1) : (block + 1);
       gcdFuture = async(launch::async, [E=E, b2, D, nBuf, nextBlock, p2Data=std::move(p2Data), saver]() {
         string factor = GCD(E, p2Data, 0);
         saver->saveP2(b2, D, nBuf, nextBlock);

@@ -36,7 +36,7 @@ static void readConfig(Args& args, const fs::path& path, bool doLog) {
 
 int main(int argc, char **argv) {
   initLog();
-  // log("GpuOwl VERSION %s\n", VERSION);
+  log("GpuOwl VERSION %s\n", VERSION);
 
   int exitCode = 0;
 
