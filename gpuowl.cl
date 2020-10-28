@@ -568,10 +568,6 @@ Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
 // Propagate carry this many pairs of words.
 #define CARRY_LEN 16
 
-//
-// More miscellaneous macros
-//
-
 T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
 T2 addsub_m2(T2 a) { return U2(add1_m2(a.x, a.y), sub1_m2(a.x, a.y)); }
 
@@ -1686,12 +1682,6 @@ void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   for (i32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
 }
 
-void tabMul2(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
-  u32 me = get_local_id(0);
-  u32 mask = f - 1;
-  for (i32 i = 0; i < n - 1; ++i) { u[i + 1] = mul(u[i + 1], trig[WG + (me & ~mask) + i * WG]); }
-}
-
 void shuflAndMul(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
   shufl(WG, lds, u, n, f);
   tabMul(WG, trig, u, n, f);
@@ -2576,8 +2566,8 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
 
 // This is our fastest version - used when we are not worried about round off error.
 // Maximum multiply chain length equals MIDDLE.
-  T2 w = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
-  T2 base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+  T2 w = slowTrig(g * SMALL_HEIGHT, ND / 2, WIDTH * SMALL_HEIGHT);
+  T2 base = slowTrig(g * me, ND / 2, WIDTH * SMALL_HEIGHT) * factor;
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, w);

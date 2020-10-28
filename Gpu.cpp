@@ -202,7 +202,6 @@ struct Define {
     assert(labelAndVal.find('=') != string::npos);
   }
   
-
   operator string() const { return str; }
 };
 
