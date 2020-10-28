@@ -86,6 +86,14 @@ KERNEL(256) readHwTrig(global float2* outCosSin) {
 
 // See Fast-Two-Sum and Two-Sum in
 // "Extended-Precision Floating-Point Numbers for GPU Computation" by Andrew Thall
+
+// Fast: assumes |a| >= |b|; cost: 3 ADD
+float2 fastTwoSum(float a, float b) {
+  float s = a + b;
+  return U2(s, b - (s - a));
+}
+
+// cost: 6 ADD
 float2 twoSum(float a, float b) {
   float s = a + b;
 #if 0
@@ -101,26 +109,31 @@ float2 twoSum(float a, float b) {
   return U2(s, e);
 }
 
-// See Two-Product in the A. Thall paper above.
+// See Two-Product-FMA in the A. Thall paper above.
 float2 twoMul(float a, float b) {
   float x = a * b;
   float e = fma(a, b, -x);
   return U2(x, e);
 }
 
+// cost: 20 ADD !!
 OVERLOAD T sum(T a, T b) {
-  T t = twoSum(a.x, b.x);
-  return U2(t.x, a.y + b.y + t.y);
+  T s = twoSum(a.x, b.x);
+  T t = twoSum(a.y, b.y);
+  s = fastTwoSum(s.x, s.y + t.x);
+  s = fastTwoSum(s.x, s.y + t.y);
+  return s;
+  // U2(s.x, a.y + b.y + t.y);
 }
 
 OVERLOAD T mul(T a, T b) {
   float2 t = twoMul(a.x, b.x);
-  return U2(t.x, fma(a.x, b.y, fma(a.y, b.x, t.y)));
+  return U2(t.x, fma(a.y, b.y, fma(a.x, b.y, fma(a.y, b.x, t.y))));
 }
 
 OVERLOAD T sq(T a) {
   float2 t = twoMul(a.x, a.x);
-  return U2(t.x, fma(a.x, a.y * 2, t.y));
+  return U2(t.x, fma(a.y, a.y, fma(a.x * 2, a.y, t.y)));
 }
 
 #define X2(a, b) { T2 t = a; a = sum(t, b); b = sum(t, -b); }

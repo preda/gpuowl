@@ -218,7 +218,7 @@ Gpu::Gpu() :
 
 #if 1
   srandom(3);
-  vector<float2> initial = init(ND*2, 15);
+  vector<float2> initial = init(ND*2, 17);
 #else
   vector<float2> initial(ND*2);
   initial[0] = {5, 0};
