@@ -19,6 +19,7 @@
 
 using double2 = pair<double, double>;
 using float2 = pair<float, float>;
+using float4 = pair<float2, float2>;
 
 class Gpu {
   u32 ND;

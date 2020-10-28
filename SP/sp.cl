@@ -15,7 +15,7 @@ typedef ulong u64;
 #define ND (WIDTH * BIG_HEIGHT)
 #define TRIG_STEP ((float) (-1.0 / ND))
 
-global float2 TRIG[ND];
+global float4 TRIG[ND];
 
 #if WIDTH == 1024 || WIDTH == 256
 #define NW 4
@@ -42,7 +42,7 @@ global float2 TRIG[ND];
 #define OVERLOAD __attribute__((overloadable))
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(256) copyTrig(const global float2* in) {
+KERNEL(256) copyTrig(const global float4* in) {
   u32 gid = get_global_id(0);
   for (u32 n = 0; n < ND; n += get_global_size(0)) {
     TRIG[n + gid] = in[n + gid];
@@ -69,10 +69,13 @@ float hwCos(float x) {
 }
 
 T2 cosSin(u32 k) {
-  if (k >= ND) { printf("*** %u\n", k); }
+  assert(k < ND);
+  return TRIG[k];
+  /*
   float a = k * TRIG_STEP;
   float2 delta = TRIG[k];
   return (T2)(hwCos(a), delta.x, hwSin(a), delta.y);
+  */
 }
 
 KERNEL(256) readHwTrig(global float2* outCosSin) {
@@ -85,7 +88,7 @@ KERNEL(256) readHwTrig(global float2* outCosSin) {
 // "Extended-Precision Floating-Point Numbers for GPU Computation" by Andrew Thall
 float2 twoSum(float a, float b) {
   float s = a + b;
-#if 1
+#if 0
   if (fabs(b) > fabs(a)) { float t = a; a = b; b = t; }
   float e = b - (s - a);
 #elif 0

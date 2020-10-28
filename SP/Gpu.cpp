@@ -86,40 +86,6 @@ template<typename To, typename From> To pun(From from) {
 
 }
 
-// Specifies size in number of workgroups
-// #define LOAD(name, nGroups) name{program.get(), queue, device, nGroups, #name}
-// Specifies size in "work size": workSize == nGroups * groupSize
-// #define LOAD_WS(name, workSize) name{program.get(), queue, device, #name, workSize}  
-
-/*
-string Gpu::makeTrigDelta() {
-  string emptyTrigDelta = "global ulong trigDelta[] = {};\n";
-  string source = emptyTrigDelta + SP_SRC;
-  
-  Holder<cl_program> program{compile(context.get(), device, ND, source)};
-  Kernel readHwTrig{program.get(), queue, device, "readHwTrig", ND};  
-  HostAccessBuffer<float2> bufReadTrig{queue, "readTrig", ND};
-  readHwTrig(bufReadTrig);
-  vector<float2> v = bufReadTrig.read();
-
-  string trigDelta = "global ulong trigDelta[] = {\n";
-  
-  for (u32 k = 0; k < ND; ++k) {
-    long double angle = - M_PIl * 2 * k / ND;
-    long double ls = sinl(angle);
-    long double lc = cosl(angle);
-    float2 delta{lc - v[k].first, ls - v[k].second};
-
-    u64 x = pun<u64>(delta);
-    // printf("%3u %016" PRIx64 "\n", k, x);
-    trigDelta += toLiteral(x) + ",";
-    if ((k % 8) == 7) { trigDelta += '\n'; }
-  }
-  trigDelta += "\n};\n";
-  return trigDelta;
-}
-*/
-
 string Gpu::readTrigTable() {
   string emptyTrig = "global float2 TRIG[] = {};\n";
   string source = emptyTrig + SP_SRC;
@@ -134,21 +100,6 @@ string Gpu::readTrigTable() {
   
   for (u32 k = 0; k <= ND; ++k) {
     table += "{"s + toLiteral(v[k].first) + "," + toLiteral(v[k].second) + "},";
-    if ((k % 8) == 7) { table += '\n'; }
-  }
-  table += "};\n";
-  return table;
-}
-  
-string makeTrigTableStr(u32 ND) {
-  string table = "global float2 TRIG[] = {\n";
-  
-  for (u32 k = 0; k <= ND; ++k) {
-    assert(ND % 2 == 0);
-    long double angle = - M_PIl * k / (ND / 2);
-    long double lc = cosl(angle);
-    long double ls = sinl(angle);
-    table += "{"s + toLiteral(float(lc)) + "," + toLiteral(float(ls)) + "},";
     if ((k % 8) == 7) { table += '\n'; }
   }
   table += "};\n";
@@ -187,11 +138,17 @@ vector<float2> makeDeltaTable(u32 ND, const vector<float2>& hwTrig) {
   return ret;
 }
 
-vector<float2> makeTrigTable(u32 ND) {
-  vector<float2> ret;
-  for (u32 k = 0; k <= ND; ++k) { ret.push_back(root1<float>(ND, k)); }
-  printf("Last %g %g\n", ret.back().first, ret.back().second);
-  ret.pop_back();
+float2 toFF(long double x) {
+  float a = x;
+  return {a, x - a};
+}
+
+vector<float4> makeTrigTable(u32 ND) {
+  vector<float4> ret;
+  for (u32 k = 0; k < ND; ++k) {
+    auto [c, s] = root1<long double>(ND, k);
+    ret.push_back({toFF(c), toFF(s)});
+  }
   return ret;
 }
 
@@ -246,13 +203,17 @@ Gpu::Gpu() :
   HostAccessBuffer<float2> buf1{queue, "buf1", ND * 2};
   HostAccessBuffer<float2> buf2{queue, "buf2", ND * 2};
   
-  HostAccessBuffer<float2> trigBuf{queue, "trig", ND};
+  HostAccessBuffer<float4> trigBuf{queue, "trig", ND};
 
+  /*
   Kernel readHwTrig{program.get(), queue, device, "readHwTrig", ND};
   readHwTrig(trigBuf);
   vector<float2> hwTrig = trigBuf.read();
   vector<float2> deltaTrig = makeDeltaTable(ND, hwTrig);
   trigBuf.write(deltaTrig);
+  */
+
+  trigBuf.write(makeTrigTable(ND));
   copyTrig(trigBuf);
 
 #if 1
