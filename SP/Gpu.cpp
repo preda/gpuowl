@@ -155,16 +155,17 @@ string makeTrigTableStr(u32 ND) {
   return table;
 }
 
-float2 root1(u32 N, u32 k) {
+template<typename T>
+pair<T, T> root1(u32 N, u32 k) {
   assert(k <= N);
   if (k >= N/2) {
-    auto [c, s] = root1(N, k - N/2);
+    auto [c, s] = root1<T>(N, k - N/2);
     return {-c, -s};
   } else if (k > N/4) {
-    auto [c, s] = root1(N, N/2 - k);
+    auto [c, s] = root1<T>(N, N/2 - k);
     return {-c, s};
   } else if (k > N/8) {
-    auto [c, s] = root1(N, N/4 - k);
+    auto [c, s] = root1<T>(N, N/4 - k);
     return {-s, -c};
   } else {
     assert(!(N&7));
@@ -175,28 +176,28 @@ float2 root1(u32 N, u32 k) {
   }
 }
 
+vector<float2> makeDeltaTable(u32 ND, const vector<float2>& hwTrig) {
+  assert(hwTrig.size() == ND);
+  vector<float2> ret(ND);
+  for (u32 k = 0; k < ND; ++k) {
+    auto [c, s] = root1<long double>(ND, k);
+    auto [cf, sf] = hwTrig[k];
+    ret[k] = {c - cf, s - sf};
+  }
+  return ret;
+}
+
 vector<float2> makeTrigTable(u32 ND) {
   vector<float2> ret;
-  for (u32 k = 0; k <= ND; ++k) {
-    ret.push_back(root1(ND, k));
-    /*
-    assert(ND % 2 == 0);
-    u32 d = gcd(k, ND/2);
-    long double angle = - M_PIl * (k/d) / (ND / 2 / d);
-    long double lc = cosl(angle);
-    long double ls = sinl(angle);
-    if (k == ND) { printf("* %g %.20g\n", double(ls), double(angle)); }
-    ret.push_back({float(lc), float(ls)});
-    */
-  }
+  for (u32 k = 0; k <= ND; ++k) { ret.push_back(root1<float>(ND, k)); }
   printf("Last %g %g\n", ret.back().first, ret.back().second);
   ret.pop_back();
   return ret;
 }
 
-vector<float> init(u32 n, u32 bits) {
+vector<float2> init(u32 n, u32 bits) {
   assert(bits >= 2 && bits < 32);
-  vector<float> ret(n);
+  vector<float2> ret(n);
   for (u32 i = 0; i < n; ++i) {
     i32 x;
     do {
@@ -204,7 +205,7 @@ vector<float> init(u32 n, u32 bits) {
     } while (x == (1 << (bits - 1)));
     
     x = (x << (32 - bits)) >> (32 - bits);
-    ret[i] = x;
+    ret[i] = {x, 0};
   }
   return ret;
 }
@@ -242,31 +243,34 @@ Gpu::Gpu() :
 
   Kernel square{program.get(), queue, device, "square", ND / 2};
   
-  HostAccessBuffer<float> buf1{queue, "buf1", ND * 2};
-  HostAccessBuffer<float> buf2{queue, "buf2", ND * 2};
+  HostAccessBuffer<float2> buf1{queue, "buf1", ND * 2};
+  HostAccessBuffer<float2> buf2{queue, "buf2", ND * 2};
   
   HostAccessBuffer<float2> trigBuf{queue, "trig", ND};
-  trigBuf.write(makeTrigTable(ND));
+
+  Kernel readHwTrig{program.get(), queue, device, "readHwTrig", ND};
+  readHwTrig(trigBuf);
+  vector<float2> hwTrig = trigBuf.read();
+  vector<float2> deltaTrig = makeDeltaTable(ND, hwTrig);
+  trigBuf.write(deltaTrig);
   copyTrig(trigBuf);
 
-  srandom(2);
-  
 #if 1
-  vector<float> initial = init(ND*2, 5);
+  srandom(3);
+  vector<float2> initial = init(ND*2, 15);
 #else
-  vector<float> initial(ND*2);
-  initial[0] = 5;
-  initial[1] = -3;
+  vector<float2> initial(ND*2);
+  initial[0] = {5, 0};
+  initial[1] = {-3, 0};
   // initial[2] = -7;
   // initial[3] = 7;
   // initial[4] = -5;
 #endif
   
-  vector<float> v = initial;
+  vector<float2> v = initial;
 
   // for (u32 i = 0; i < ND*2; ++i) { printf("%u %f\n", i, v[i]); }  
-  
-  
+    
   buf1.write(v);
 
   transposeIn(buf2, buf1);  
@@ -289,13 +293,13 @@ Gpu::Gpu() :
   v = buf2.read();
 
   for (u32 i = 1; i < ND*2; i+=2) {
-    v[i] = - v[i];
+    v[i] = {-v[i].first, -v[i].second};
   }
 
   double maxErr = 0;
   long double sumErr = 0;
   for (u32 i = 0; i < ND*2; ++i) {
-    double x = double(v[i]) / (ND * 4);
+    double x = (double(v[i].first) + v[i].second) / (ND * 4);
 
     // double err = abs(x - initial[i]);
     double err = abs(x - rint(x));
@@ -304,29 +308,4 @@ Gpu::Gpu() :
     // if (abs(x) > 1e-3) { printf("%u %f\n", i, x); }
   }
   printf("max %g avg %g\n", maxErr, double(sumErr / (ND*2)));
-  
-  
-  /*
-  for (u32 k = 0; k < ND; ++k) {
-    long double angle = - M_PIl * 2 * k / ND;
-    long double lc = cosl(angle);
-    long double ls = sinl(angle);
-    double c = lc;
-    double s = ls;
-    double ec = v[k].first  - lc;
-    double es = v[k].second - ls;
-    double ec1 = c - lc;
-    double es1 = s - ls;
-
-    float c1 = lc;
-    float c2 = lc - c1;
-    float s1 = ls;
-    float s2 = ls - s1;
-    double cc = c1 + double(c2);
-    double ss = s1 + double(s2);
-    double ec2 = cc - lc;
-    double es2 = ss - ls;
-    printf("%20g %20g  |  %20g %20g  |  %20g %20g\n", ec, es, ec1, es1, ec2, es2);
-  }
-  */
 }

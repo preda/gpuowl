@@ -3,9 +3,6 @@ typedef uint u32;
 typedef long i64;
 typedef ulong u64;
 
-typedef float T;
-typedef float2 T2;
-
 #if DEBUG
 #define assert(condition) if (!(condition)) { printf("assert(%s) failed at line %d\n", STR(condition), __LINE__ - 1); }
 // __builtin_trap();
@@ -45,15 +42,19 @@ global float2 TRIG[ND];
 #define OVERLOAD __attribute__((overloadable))
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(256) copyTrig(const global T2* in) {
+KERNEL(256) copyTrig(const global float2* in) {
   u32 gid = get_global_id(0);
   for (u32 n = 0; n < ND; n += get_global_size(0)) {
     TRIG[n + gid] = in[n + gid];
   }
 }
 
+typedef float2 T;
+typedef float4 T2;
+
 // OVERLOAD double2 U2(double x, double y) { return (double2) (x, y); }
 OVERLOAD T2 U2(T x, T y) { return (T2) (x, y); }
+OVERLOAD T U2(float x, float y) { return (T) (x, y); }
 
 float hwSin(float x) {
   float out;
@@ -69,13 +70,9 @@ float hwCos(float x) {
 
 T2 cosSin(u32 k) {
   if (k >= ND) { printf("*** %u\n", k); }
-  
-#if 0
   float a = k * TRIG_STEP;
-  return U2(hwCos(a), hwSin(a));
-#else
-  return TRIG[k];
-#endif
+  float2 delta = TRIG[k];
+  return (T2)(hwCos(a), delta.x, hwSin(a), delta.y);
 }
 
 KERNEL(256) readHwTrig(global float2* outCosSin) {
@@ -84,23 +81,72 @@ KERNEL(256) readHwTrig(global float2* outCosSin) {
   outCosSin[k] = (float2) (hwCos(a), hwSin(a));
 }
 
-#define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
-#define SWAP(a, b) { T2 t = a; a = b; b = t; }
-
-T2 sq(T2 a) { return U2(fma(a.x, a.x, - a.y * a.y), a.x * a.y * 2); }
-
-// Complex mul
-OVERLOAD T2 mul(T2 a, T2 b) { return U2(fma(a.x, b.x, - a.y * b.y), fma(a.x, b.y, a.y * b.x)); }
-
-OVERLOAD T2 mul(T2 a, T2 b, T2 c) {
-  c.x = fma(a.y, b.y, -c.x);
-  c.y = fma(a.y, b.x, c.y);
-  return U2(fma(a.x, b.x, -c.x), fma(a.x, b.y, c.y));
+// See Fast-Two-Sum and Two-Sum in
+// "Extended-Precision Floating-Point Numbers for GPU Computation" by Andrew Thall
+float2 twoSum(float a, float b) {
+  float s = a + b;
+#if 1
+  if (fabs(b) > fabs(a)) { float t = a; a = b; b = t; }
+  float e = b - (s - a);
+#elif 0
+  float e = ((fabs(a) >= fabs(b)) ? b - (s - a) : (a - (s - b)));
+#else
+  float b1 = s - a;
+  float a1 = s - b1;
+  float e = (b - b1) + (a - a1);
+#endif
+  return U2(s, e);
 }
 
-T2 mul_t4(T2 a) { return U2(a.y, -a.x); }
-T2 mul_t8(T2 a) { return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2_F; }
-T2 mul_3t8(T2 a) { return U2(a.x - a.y, a.x + a.y) * - M_SQRT1_2_F; }
+// See Two-Product in the A. Thall paper above.
+float2 twoMul(float a, float b) {
+  float x = a * b;
+  float e = fma(a, b, -x);
+  return U2(x, e);
+}
+
+OVERLOAD T sum(T a, T b) {
+  T t = twoSum(a.x, b.x);
+  return U2(t.x, a.y + b.y + t.y);
+}
+
+OVERLOAD T mul(T a, T b) {
+  float2 t = twoMul(a.x, b.x);
+  return U2(t.x, fma(a.x, b.y, fma(a.y, b.x, t.y)));
+}
+
+OVERLOAD T sq(T a) {
+  float2 t = twoMul(a.x, a.x);
+  return U2(t.x, fma(a.x, a.y * 2, t.y));
+}
+
+#define X2(a, b) { T2 t = a; a = sum(t, b); b = sum(t, -b); }
+#define SWAP(a, b) { T2 t = a; a = b; b = t; }
+
+// Complex sum
+OVERLOAD T2 sum(T2 a, T2 b) { return U2(sum(a.xy, b.xy), sum(a.zw, b.zw)); }
+
+// Complex mul
+OVERLOAD T2 mul(T2 a, T2 b) {
+  return U2(sum(mul(a.xy, b.xy), -mul(a.zw, b.zw)), sum(mul(a.xy, b.zw), mul(a.zw, b.xy)));
+}
+
+// Complex sq
+OVERLOAD T2 sq(T2 a) { return U2(sum(sq(a.xy), -sq(a.zw)), mul(a.xy, a.zw) * 2); }
+
+// Complex mul with real.
+OVERLOAD T2 mul(T2 a, T b) {
+  return U2(mul(a.xy, b), mul(a.zw, b));
+}
+
+// Complex multiply-add
+OVERLOAD T2 mul(T2 a, T2 b, T2 c) { return sum(mul(a, b), c); }
+
+#define M_SQRT1_2_FF (float2) (0.70710676908493041992f, 1.2101617485882343317e-08f)
+
+T2 mul_t4(T2 a)  { return U2(a.zw, -a.xy); }
+T2 mul_t8(T2 a)  { return mul(U2(sum(a.xy,  a.zw), sum(-a.xy, a.zw)),  M_SQRT1_2_FF); }
+T2 mul_3t8(T2 a) { return mul(U2(sum(a.xy, -a.zw), sum( a.xy, a.zw)), -M_SQRT1_2_FF); }
 
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
@@ -140,13 +186,13 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
     
   local T* lds = (local T*) lds2;
 
-  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i].x; }
+  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i].xy; }
   bar();
-  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  for (u32 i = 0; i < n; ++i) { u[i].xy = lds[i * WG + me]; }
   bar();
-  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i].y; }
+  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i].zw; }
   bar();
-  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+  for (u32 i = 0; i < n; ++i) { u[i].zw = lds[i * WG + me]; }
 }
 
 void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
@@ -156,22 +202,19 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 mask = f - 1;
   assert((mask & (mask + 1)) == 0);
   
-  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].xy; }
   bar();
-  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  for (u32 i = 0; i < n; ++i) { u[i].xy = lds[i * WG + me]; }
   bar();
-  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].zw; }
   bar();
-  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+  for (u32 i = 0; i < n; ++i) { u[i].zw = lds[i * WG + me]; }
 }
 
 void tabMul(u32 WG, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
 
   for (u32 i = 1; i < n; ++i) { u[i] = mul(u[i], cosSin(ND / WG / n * i * (me & ~(f - 1)))); }
-
-  // u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
-  // cosSin((ND / WG) * i * (me / f) * f);
 }
 
 void shuflAndMul(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
@@ -198,8 +241,6 @@ void fft256w(local T2 *lds, T2 *u) {
 void fft256h(local T2 *lds, T2 *u) {
   u32 me = get_local_id(0);
   fft4(u);
-  // for (int i = 0; i < 3; ++i) { u[1 + i] = mul(u[1 + i], trig[64 + 64 * i + me]); }
-  // shufl2(64, lds,  u, 4, 1);
   shuflAndMul2(64, lds, u, 4, 1);
   bar();
   fft4(u);
@@ -266,8 +307,6 @@ void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
 void write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base) {
   for (u32 i = 0; i < N; ++i) { out[base + i * WG + (u32) get_local_id(0)] = u[i]; }
 }
-
-// #define WIDTH 1024
 
 void fft_WIDTH(local T2 *lds, T2 *u) {
 #if WIDTH == 256
@@ -341,12 +380,6 @@ KERNEL(256) transposeIn(global T2* out, const global T2* in) {
   local T2 lds[4096];
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
-
-/*
-void middleMul(T2 *u, u32 s) {
-  // nop for MIDDLE==1
-}
-*/
 
 void middleMul2(T2 *u, u32 g, u32 me) {
 #if MIDDLE != 1
@@ -507,19 +540,22 @@ KERNEL(G_H) fftHout(global T2* io) {
   write(G_H, NH, u, io, 0);
 }
 
-T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
+T2 addsub(T2 a) { return U2(sum(a.xy, a.zw), sum(a.xy, -a.zw)); }
 
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 T2 foo2(T2 a, T2 b) {
   a = addsub(a);
   b = addsub(b);
-  return addsub(U2(a.x * b.x, a.y * b.y));
+  return addsub(U2(mul(a.xy, b.xy), mul(a.zw, b.zw)));
 }
 
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
-T2 foo(T2 a) { return foo2(a, a); }
+T2 foo(T2 a) {
+  a = addsub(a);
+  return addsub(U2(sq(a.xy), sq(a.zw)));
+}
 
-T2 conjugate(T2 a) { return U2(a.x, -a.y); }
+T2 conjugate(T2 a) { return U2(a.xy, -a.zw); }
 
 KERNEL(SMALL_HEIGHT / 2) square(global T2* io) {
   uint W = SMALL_HEIGHT;
@@ -529,7 +565,7 @@ KERNEL(SMALL_HEIGHT / 2) square(global T2* io) {
   uint me = get_local_id(0);
 
   if (line1 == 0 && me == 0) {
-    io[0]     = foo(conjugate(io[0])) * 2;
+    io[0]     = foo(conjugate(io[0])) * 2;  // MUL by powers of 2 is simple
     io[W / 2] = sq(conjugate(io[W / 2])) * 4;
     return;
   }

@@ -1,7 +1,7 @@
 gpuowl
 version.inc
-gpuowl-wrap.cpp
-gpuowl-wrap.cl
+*-wrap.cpp
+*-wrap.cl
 version.new
 config.txt
 gpuowl.log
