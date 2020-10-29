@@ -61,8 +61,8 @@ cl_program compile(cl_context context, cl_device_id id, u32 ND, const string& so
   // defines.push_back({"ND", ND});
   // defines.push_back({"TRIG_STEP", float(-1 / (long double) ND)});
   
-  assert(ND == 1024 * 1024);
-  defines.push_back({"WIDTH", 1024});
+  assert(ND == 4096 * 1024);
+  defines.push_back({"WIDTH", 4096});
   defines.push_back({"MIDDLE", 1});
   defines.push_back({"SMALL_HEIGHT", 1024});
 
@@ -168,7 +168,7 @@ vector<float2> init(u32 n, u32 bits) {
 }
   
 Gpu::Gpu() :
-  ND{1024 * 1024},
+  ND{4096 * 1024},
   device{getDevice(1)},
   context{device},
   queue{Queue::make(context, false, false)}
@@ -184,13 +184,14 @@ Gpu::Gpu() :
   string source = trigTable + SP_SRC;
   Holder<cl_program> program{compile(context.get(), device, ND, source)};
 
-  Kernel copyTrig{program.get(), queue, device, "copyTrig",  1024};
+  Kernel writeTrig{program.get(), queue, device, "writeTrig",  1024};
+  Kernel writeDelta{program.get(), queue, device, "writeDelta",  1024};
   
   Kernel  transposeIn{program.get(), queue, device, "transposeIn",  ND / 16};
   Kernel transposeOut{program.get(), queue, device, "transposeOut", ND / 16};
   
-  Kernel fftWin{program.get(), queue, device, "fftWin", ND / 4};
-  Kernel fftWout{program.get(), queue, device, "fftWout", ND / 4};
+  Kernel fftWin{program.get(), queue, device, "fftWin", ND / 8};
+  Kernel fftWout{program.get(), queue, device, "fftWout", ND / 8};
   
   Kernel fftHIn{program.get(), queue, device, "fftHin", ND / 4};
   Kernel fftHout{program.get(), queue, device, "fftHout", ND / 4};
@@ -203,22 +204,22 @@ Gpu::Gpu() :
   HostAccessBuffer<float2> buf1{queue, "buf1", ND * 2};
   HostAccessBuffer<float2> buf2{queue, "buf2", ND * 2};
   
-  HostAccessBuffer<float4> trigBuf{queue, "trig", ND};
+  HostAccessBuffer<float4> trigBuf4{queue, "trig4", ND};
+  HostAccessBuffer<float2> trigBuf2{queue, "trig2", ND};
 
-  /*
   Kernel readHwTrig{program.get(), queue, device, "readHwTrig", ND};
-  readHwTrig(trigBuf);
-  vector<float2> hwTrig = trigBuf.read();
+  readHwTrig(trigBuf2);
+  vector<float2> hwTrig = trigBuf2.read();
   vector<float2> deltaTrig = makeDeltaTable(ND, hwTrig);
-  trigBuf.write(deltaTrig);
-  */
-
-  trigBuf.write(makeTrigTable(ND));
-  copyTrig(trigBuf);
+  trigBuf2.write(deltaTrig);
+  writeDelta(trigBuf2);
+  
+  trigBuf4.write(makeTrigTable(ND));
+  writeTrig(trigBuf4);
 
 #if 1
   srandom(3);
-  vector<float2> initial = init(ND*2, 17);
+  vector<float2> initial = init(ND*2, 16);
 #else
   vector<float2> initial(ND*2);
   initial[0] = {5, 0};
@@ -264,6 +265,9 @@ Gpu::Gpu() :
 
     // double err = abs(x - initial[i]);
     double err = abs(x - rint(x));
+    if (isnan(err)) {
+      log("nan %u %g\n", i, x);
+    }
     sumErr += err;
     maxErr = max(err, maxErr);
     // if (abs(x) > 1e-3) { printf("%u %f\n", i, x); }

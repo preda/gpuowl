@@ -16,6 +16,7 @@ typedef ulong u64;
 #define TRIG_STEP ((float) (-1.0 / ND))
 
 global float4 TRIG[ND];
+global float2 DELTA[ND];
 
 #if WIDTH == 1024 || WIDTH == 256
 #define NW 4
@@ -42,10 +43,17 @@ global float4 TRIG[ND];
 #define OVERLOAD __attribute__((overloadable))
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(256) copyTrig(const global float4* in) {
+KERNEL(256) writeTrig(const global float4* in) {
   u32 gid = get_global_id(0);
   for (u32 n = 0; n < ND; n += get_global_size(0)) {
     TRIG[n + gid] = in[n + gid];
+  }
+}
+
+KERNEL(256) writeDelta(const global float2* in) {
+  u32 gid = get_global_id(0);
+  for (u32 n = 0; n < ND; n += get_global_size(0)) {
+    DELTA[n + gid] = in[n + gid];
   }
 }
 
@@ -70,12 +78,13 @@ float hwCos(float x) {
 
 T2 cosSin(u32 k) {
   assert(k < ND);
+#if 0
   return TRIG[k];
-  /*
+#else
   float a = k * TRIG_STEP;
-  float2 delta = TRIG[k];
+  float2 delta = DELTA[k];
   return (T2)(hwCos(a), delta.x, hwSin(a), delta.y);
-  */
+#endif
 }
 
 KERNEL(256) readHwTrig(global float2* outCosSin) {
@@ -116,28 +125,51 @@ float2 twoMul(float a, float b) {
   return U2(x, e);
 }
 
-// cost: 20 ADD !!
+#define X2(a, b) { T2 t = a; a = sum(t, b); b = sum(t, -b); }
+#define SWAP(a, b) { T2 t = a; a = b; b = t; }
+
+// assumes |a| >= |b|. 14 ADD.
+T fastSum(T a, T b) {
+  T s = fastTwoSum(a.x, b.x);
+  T t = fastTwoSum(a.y, b.y);
+  s = fastTwoSum(s.x, s.y + t.x);
+  s = fastTwoSum(s.x, s.y + t.y);                 
+  return s;
+}
+
 OVERLOAD T sum(T a, T b) {
+#if 1
+  return (fabs(a.x) >= fabs(b.x)) ? fastSum(a, b) : fastSum(b, a);  
+  // { T tmp = a; a = b; b = tmp; }  
+#else
+  // 20 ADD
   T s = twoSum(a.x, b.x);
   T t = twoSum(a.y, b.y);
   s = fastTwoSum(s.x, s.y + t.x);
   s = fastTwoSum(s.x, s.y + t.y);
   return s;
-  // U2(s.x, a.y + b.y + t.y);
+#endif
 }
 
 OVERLOAD T mul(T a, T b) {
   float2 t = twoMul(a.x, b.x);
-  return U2(t.x, fma(a.y, b.y, fma(a.x, b.y, fma(a.y, b.x, t.y))));
+  t.y = fma(a.x, b.y, fma(a.y, b.x, t.y));
+  t = fastTwoSum(t.x, t.y);
+  t.y = fma(a.y, b.y, t.y);
+  // t = fastTwoSum(t.x, t.y);
+  return t;
+  // return U2(t.x, fma(a.y, b.y, fma(a.x, b.y, fma(a.y, b.x, t.y))));
 }
 
 OVERLOAD T sq(T a) {
   float2 t = twoMul(a.x, a.x);
-  return U2(t.x, fma(a.y, a.y, fma(a.x * 2, a.y, t.y)));
+  t.y = fma(a.x * 2, a.y, t.y);
+  // t = fastTwoSum(t.x, t.y);
+  t.y = fma(a.y, a.y, t.y);
+  t = fastTwoSum(t.x, t.y);
+  return t;
+  // return U2(t.x, fma(a.y, a.y, fma(a.x * 2, a.y, t.y)));
 }
-
-#define X2(a, b) { T2 t = a; a = sum(t, b); b = sum(t, -b); }
-#define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
 // Complex sum
 OVERLOAD T2 sum(T2 a, T2 b) { return U2(sum(a.xy, b.xy), sum(a.zw, b.zw)); }
