@@ -2374,7 +2374,7 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 }
 
 // fftPremul: weight words with "A" (for IBDWT) followed by FFT.
-KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) A, Trig smallTrig) {
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T) A, Trig smallTrig) {
   local T2 lds[WIDTH / 2];
 
   T2 u[NW];
@@ -2390,7 +2390,11 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) A, Trig smallTrig) {
   for (i32 i = 0; i < NW; ++i) {
     u32 p = G_W * i + me;
     // u32 hk = g + BIG_HEIGHT * p;
-    u[i] = weight(in[p], A[p]);
+    u[i].x = in[p].x * A[p];
+    double w2 = optionalHalve(A[p] * (WEIGHT_STEP_MINUS_1 + 1));
+    u[i].y = in[p].y * w2;
+    
+    // u[i] = weight(in[p], A[p]);
   }
   ENABLE_MUL2();
 
@@ -2742,7 +2746,7 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
 // Input is conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32) extras, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32) extras, P(u32) roundOut, P(u32) carryStats) {
   ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2758,7 +2762,13 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T2) A, CP(u32
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
     bool b1 = isBigWord(extra);
     bool b2 = isBigWord(reduce(extra + STEP));
-    T2 x = conjugate(in[p]) * A[p];
+
+    u32 k = ND + WIDTH - 1 - p;
+    double w1 = A[k] * 0.5;
+    T x1 = in[p].x * w1;
+    double w2 = optionalDouble(w1 * (IWEIGHT_STEP_MINUS_1 + 1));    
+    T x2 = in[p].y * -w2;
+    T2 x = U2(x1, x2);
     
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(in[p]), A[p]));

@@ -106,7 +106,7 @@ static ConstBuffer<u32> genExtras(const Context& context, u32 E, u32 W, u32 H, u
 
 struct Weights {
   vector<double> aTab;
-  vector<double> iTab;
+  // vector<double> iTab;
   vector<double> groupWeights;
   vector<double> threadWeights;
   vector<u32> bits;
@@ -127,22 +127,38 @@ static double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
 static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
 
-  vector<double> aTab, iTab;
-  aTab.reserve(N);
-  iTab.reserve(N);
+  vector<double> aTab;
+  aTab.reserve(N/2 + W);
+  // vector<double> iTab;
+  // iTab.reserve(N);
 
   for (u32 line = 0; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
-      for (u32 rep = 0; rep < 2; ++rep) {
+      for (u32 rep = 0; rep < 1; ++rep) {
         long double a = weight(N, E, H, line, col, rep);
         // Double the weight and inverse weight so that optionalHalve and optionalDouble can save one instruction
         aTab.push_back(2.0 * a);
-        iTab.push_back(2.0 * boundUnderOne(1 / a));
+        // iTab.push_back(2.0 / a);
       }
     }
   }
-  assert(aTab.size() == size_t(N) && iTab.size() == size_t(N));
 
+  for (u32 i = 1; i < W; ++i) { aTab.push_back(aTab[i]); }
+  aTab.push_back(4.0);
+
+  assert(aTab.size() == size_t(N/2 + W));
+  
+  /*
+  assert(iTab.size() == size_t(N/2));
+  for (u32 p = 0; p < N/2; ++p) {
+    u32 k = N/2 + W - 1 - p;
+    if (abs(iTab[p] - aTab[k] * 0.5) > 1e-15) {
+      printf("p %u k %u %.20e %.20e\n", p, k, iTab[p], aTab[k]*0.5);
+      assert(false);
+    }
+  }
+  */
+  
   u32 groupWidth = W / nW;
 
   vector<double> groupWeights;
@@ -175,7 +191,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
     }
   }
 
-  return Weights{aTab, iTab, groupWeights, threadWeights, bits};
+  return Weights{aTab, /*iTab,*/ groupWeights, threadWeights, bits};
 }
 
 
@@ -329,7 +345,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufTrigH{genSmallTrig(context, SMALL_H, nH)},
   bufTrigM{genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
   bufWeightA{context, "weightA", weights.aTab},
-  bufWeightI{context, "weightI", weights.iTab},
+  // bufWeightI{context, "weightI", weights.iTab},
   bufBits{context, "bits", weights.bits},
   bufExtras{genExtras(context, E, W, BIG_H, nW)},
   bufGroupWeights{context, "groupWeights", weights.groupWeights},
@@ -360,8 +376,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleIn.setFixedArgs(2, bufTrigM);
   fftMiddleOut.setFixedArgs(2, bufTrigM);
     
-  carryA.setFixedArgs( 2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMax);
-  carryM.setFixedArgs(2, bufCarry, bufWeightI, bufExtras, bufRoundoff, bufCarryMulMax);
+  carryA.setFixedArgs(2, bufCarry, bufWeightA, bufExtras, bufRoundoff, bufCarryMax);
+  carryM.setFixedArgs(2, bufCarry, bufWeightA, bufExtras, bufRoundoff, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufExtras);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);

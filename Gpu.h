@@ -96,7 +96,7 @@ class Gpu {
 
   // Weight constant buffers, with the direct and inverse weights. N x double.
   ConstBuffer<double> bufWeightA;      // Direct weights.
-  ConstBuffer<double> bufWeightI;      // Inverse weights.
+  // ConstBuffer<double> bufWeightI;      // Inverse weights.
 
   ConstBuffer<u32> bufBits;
   ConstBuffer<u32> bufExtras;
