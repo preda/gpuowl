@@ -15,7 +15,7 @@ AlwaysBuild(Command('sp-wrap.cpp', ['sp.cl'], 'cat head.txt sp.cl tail.txt > sp-
 
 LIBPATH=['/opt/rocm/opencl/lib', '/opt/rocm-3.3.0/opencl/lib/x86_64', '/opt/rocm-3.5.0/opencl/lib']
 
-config = '-g'
+config = '-g -fconcepts'
 #config = '-g -O2'
 #-fsanitize=address'
 # -fstack-protector-strong -static-libasan'

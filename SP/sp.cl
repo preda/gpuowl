@@ -118,7 +118,7 @@ float2 twoSum(float a, float b) {
   return U2(s, e);
 }
 
-// See Two-Product-FMA in the A. Thall paper above.
+// See Two-Product-FMA in the A. Thall paper above. 2 MUL
 float2 twoMul(float a, float b) {
   float x = a * b;
   float e = fma(a, b, -x);
@@ -151,6 +151,7 @@ OVERLOAD T sum(T a, T b) {
 #endif
 }
 
+// 5 MUL + 3 ADD
 OVERLOAD T mul(T a, T b) {
   float2 t = twoMul(a.x, b.x);
   t.y = fma(a.x, b.y, fma(a.y, b.x, t.y));
@@ -159,6 +160,14 @@ OVERLOAD T mul(T a, T b) {
   // t = fastTwoSum(t.x, t.y);
   return t;
   // return U2(t.x, fma(a.y, b.y, fma(a.x, b.y, fma(a.y, b.x, t.y))));
+}
+
+// 3 MUL
+OVERLOAD T mul(T a, float b) {
+  float2 t = twoMul(a.x, b);
+  t.y = fma(a.y, b, t.y);
+  // t = fastTwoSum(t.x, t.y);
+  return t;
 }
 
 OVERLOAD T sq(T a) {

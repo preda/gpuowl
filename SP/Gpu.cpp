@@ -3,6 +3,7 @@
 #include "Gpu.h"
 #include "AllocTrac.h"
 #include "Queue.h"
+#include "state.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -166,7 +167,42 @@ vector<float2> init(u32 n, u32 bits) {
   }
   return ret;
 }
-  
+
+template<typename T> T to(long double x) { return x; }
+
+template<>
+float2 to(long double x) { return {x, x - float(x)}; }
+
+template<typename T>
+struct Weights {
+  vector<T> direct;
+  vector<T> inverse;
+
+  static Weights make(u32 E, u32 N) {
+    vector<T> aTab, iTab;
+    aTab.reserve(N);
+    iTab.reserve(N);
+    for (u32 k = 0; k < N; ++k) {
+      auto w = exp2l(extra(N, E, k) / (long double) N);
+      aTab.push_back(to<T>(w));
+      iTab.push_back(to<T>(1 / w));
+    }
+    return {aTab, iTab};
+  }
+};
+
+float2 mul(float2 a, double b) {
+  double c = (double(a.first) + a.second) * b;
+  return {c, c - float(c)};
+}
+
+float2 mul(float2 a, float2 b) {
+  double aa = double(a.first) + a.second;
+  double bb = double(b.first) + b.second;
+  double c = aa * bb;
+  return to<float2>(c);
+}
+
 Gpu::Gpu() :
   ND{4096 * 1024},
   device{getDevice(1)},
@@ -217,6 +253,18 @@ Gpu::Gpu() :
   trigBuf4.write(makeTrigTable(ND));
   writeTrig(trigBuf4);
 
+
+  auto [direct, inverse] = Weights<double>::make(100627453, 2*ND);
+  for (u32 k = 1; k < 2*ND; ++k) {
+    // double w = direct[k];
+    double i1 = inverse[k];
+    double i2 = direct[2*ND - k] / 2;
+    if (abs(i1 - i2) > 1e-15) {
+      printf("%u %e %e\n", k, i1, i2);
+    }
+     
+  }
+  
 #if 1
   srandom(3);
   vector<float2> initial = init(ND*2, 16);
@@ -231,6 +279,10 @@ Gpu::Gpu() :
   
   vector<float2> v = initial;
 
+  auto weights = Weights<float2>::make(100627453, 2*ND);
+  
+  for (u32 k = 0; k < 2*ND; ++k) { v[k] = mul(v[k], weights.direct[k]); }
+  
   // for (u32 i = 0; i < ND*2; ++i) { printf("%u %f\n", i, v[i]); }  
     
   buf1.write(v);
@@ -257,6 +309,8 @@ Gpu::Gpu() :
   for (u32 i = 1; i < ND*2; i+=2) {
     v[i] = {-v[i].first, -v[i].second};
   }
+
+  for (u32 k = 0; k < 2*ND; ++k) { v[k] = mul(v[k], weights.inverse[k]); }
 
   double maxErr = 0;
   long double sumErr = 0;
