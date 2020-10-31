@@ -2361,7 +2361,7 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   write(G_H, NH, u, io, 0);
 }
 
-// fftPremul: weight words with "A" (for IBDWT) followed by FFT.
+// fftPremul: weight words with IBDWT weights followed by FFT-width.
 KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T) A, Trig smallTrig) {
   local T2 lds[WIDTH / 2];
 
@@ -2377,12 +2377,9 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T) A, Trig smallTrig) {
 
   for (i32 i = 0; i < NW; ++i) {
     u32 p = G_W * i + me;
-    // u32 hk = g + BIG_HEIGHT * p;
     u[i].x = in[p].x * A[p];
     double w2 = optionalHalve(mul_by_const_plus_1(A[p], WEIGHT_STEP_MINUS_1));
     u[i].y = in[p].y * w2;
-    
-    // u[i] = weight(in[p], A[p]);
   }
   ENABLE_MUL2();
 
@@ -2855,50 +2852,30 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   float roundMax = 0;
   u32 carryMax = 0;
 
-  const double TWO_TO_MINUS_1_8TH_MINUS_1 = -0.08299595679532876825645840520586; // 2^-0.125 - 1.0
-  const double TWO_TO_MINUS_2_8TH_MINUS_1 = -0.15910358474628545696887452376679; // 2^-0.25 - 1.0
-  const double TWO_TO_MINUS_3_8TH_MINUS_1 = -0.22889458729602958819385406895463; // 2^-0.375 - 1.0
-  const double TWO_TO_MINUS_4_8TH_MINUS_1 = -0.29289321881345247559915563789515; // 2^-0.5 - 1.0
-  const double TWO_TO_MINUS_5_8TH_MINUS_1 = -0.35158022267449516703312294110377; // 2^-0.625 - 1.0
-  const double TWO_TO_MINUS_6_8TH_MINUS_1 = -0.40539644249863946664125001471976; // 2^-0.75 - 1.0
-  const double TWO_TO_MINUS_7_8TH_MINUS_1 = -0.45474613366737117039649467211965; // 2^-0.875 - 1.0
-  const double TWO_TO_MINUS_1_8TH = 0.91700404320467123174354159479414; // 2^-0.125
-  const double TWO_TO_MINUS_2_8TH = 0.84089641525371454303112547623321; // 2^-0.25
-  const double TWO_TO_MINUS_3_8TH = 0.77110541270397041180614593104537; // 2^-0.375
-  const double TWO_TO_MINUS_4_8TH = 0.70710678118654752440084436210485; // 2^-0.5
-  const double TWO_TO_MINUS_5_8TH = 0.64841977732550483296687705889623; // 2^-0.625
-  const double TWO_TO_MINUS_6_8TH = 0.59460355750136053335874998528024; // 2^-0.75
-  const double TWO_TO_MINUS_7_8TH = 0.54525386633262882960350532788035; // 2^-0.875
+  const double TWO_TO_MINUS_N_8TH_MINUS_1[8] = {
+    0,                                   // 2^-(0/8) - 1
+    -0.08299595679532876825645840520586, // 2^-(1/8) - 1
+    -0.15910358474628545696887452376679, // 2^-(2/8) - 1
+    -0.22889458729602958819385406895463, // 2^-(3/8) - 1
+    -0.29289321881345247559915563789515, // 2^-(4/8) - 1
+    -0.35158022267449516703312294110377, // 2^-(5/8) - 1
+    -0.40539644249863946664125001471976, // 2^-(6/8) - 1
+    -0.45474613366737117039649467211965, // 2^-(7/8) - 1
+  };
+  
+  // Apply the inverse weights
 
-// Apply the inverse weights
-
+  T invBase = optionalDouble(weights.x);
+  
   for (i32 i = 0; i < NW; ++i) {
-    T baseInvWeight, invWeight, invWeight2;
-    if (i == 0) invWeight = baseInvWeight = optionalDouble(weights.x);
-#if MAX_ACCURACY
-    else if (((i * STEP) % NW) * (8 / NW) == 1) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_1_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 2) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_2_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 3) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_3_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 4) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_4_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 5) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_5_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 6) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_6_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 7) invWeight = optionalDouble(mul_by_const_plus_1(baseInvWeight, TWO_TO_MINUS_7_8TH_MINUS_1));
-#else
-    else if ((STEP % NW) * (8 / NW) == 1) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_1_8TH);
-    else if ((STEP % NW) * (8 / NW) == 2) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_2_8TH);
-    else if ((STEP % NW) * (8 / NW) == 3) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_3_8TH);
-    else if ((STEP % NW) * (8 / NW) == 4) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_4_8TH);
-    else if ((STEP % NW) * (8 / NW) == 5) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_5_8TH);
-    else if ((STEP % NW) * (8 / NW) == 6) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_6_8TH);
-    else if ((STEP % NW) * (8 / NW) == 7) invWeight = optionalDouble(invWeight * TWO_TO_MINUS_7_8TH);
-#endif
-    invWeight2 = optionalDouble(mul_by_const_plus_1(invWeight, IWEIGHT_STEP_MINUS_1));
+    T invWeight1 = i == 0 ? invBase : optionalDouble(mul_by_const_plus_1(invBase, TWO_TO_MINUS_N_8TH_MINUS_1[(i * STEP % NW) * (8 / NW)]));
+    T invWeight2 = optionalDouble(mul_by_const_plus_1(invWeight1, IWEIGHT_STEP_MINUS_1));
 
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight, invWeight2)));
 #endif
 
-    u[i] = conjugate(u[i]) * U2(invWeight, invWeight2);
+    u[i] = conjugate(u[i]) * U2(invWeight1, invWeight2);
   }
 
   // Generate our output carries
@@ -2957,47 +2934,23 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     wu[i] = carryFinal(wu[i], carry[i], test(b, 2 * i));
   }
 
-// Apply the weights, converting from integers back to doubles
-
-  const double TWO_TO_1_8TH_MINUS_1 = 0.0905077326652576592070106557607; // 2^0.125 - 1.0
-  const double TWO_TO_2_8TH_MINUS_1 = 0.1892071150027210667174999705605; // 2^0.25 - 1.0
-  const double TWO_TO_3_8TH_MINUS_1 = 0.2968395546510096659337541177925; // 2^0.375 - 1.0
-  const double TWO_TO_4_8TH_MINUS_1 = 0.4142135623730950488016887242097; // 2^0.5 - 1.0
-  const double TWO_TO_5_8TH_MINUS_1 = 0.5422108254079408236122918620907; // 2^0.625 - 1.0
-  const double TWO_TO_6_8TH_MINUS_1 = 0.6817928305074290860622509524664; // 2^0.75 - 1.0
-  const double TWO_TO_7_8TH_MINUS_1 = 0.8340080864093424634870831895883; // 2^0.875 - 1.0
-  const double TWO_TO_1_8TH = 1.0905077326652576592070106557607; // 2^0.125
-  const double TWO_TO_2_8TH = 1.1892071150027210667174999705605; // 2^0.25
-  const double TWO_TO_3_8TH = 1.2968395546510096659337541177925; // 2^0.375
-  const double TWO_TO_4_8TH = 1.4142135623730950488016887242097; // 2^0.5
-  const double TWO_TO_5_8TH = 1.5422108254079408236122918620907; // 2^0.625
-  const double TWO_TO_6_8TH = 1.6817928305074290860622509524664; // 2^0.75
-  const double TWO_TO_7_8TH = 1.8340080864093424634870831895883; // 2^0.875
-
+  const double TWO_TO_N_8TH_MINUS_1[8] = {
+    0,                                 // 2^(0/8) - 1
+    0.0905077326652576592070106557607, // 2^(1/8) - 1
+    0.1892071150027210667174999705605, // 2^(2/8) - 1
+    0.2968395546510096659337541177925, // 2^(3/8) - 1
+    0.4142135623730950488016887242097, // 2^(4/8) - 1
+    0.5422108254079408236122918620907, // 2^(5/8) - 1
+    0.6817928305074290860622509524664, // 2^(6/8) - 1
+    0.8340080864093424634870831895883, // 2^(7/8) - 1
+  };
+  
+  T base = optionalHalve(weights.y);
+  
   for (i32 i = 0; i < NW; ++i) {
-    T baseWeight, weight, weight2;
-    if (i == 0) weight = baseWeight = optionalHalve(weights.y);
-#if MAX_ACCURACY
-    else if (((i * STEP) % NW) * (8 / NW) == 1) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_1_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 2) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_2_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 3) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_3_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 4) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_4_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 5) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_5_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 6) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_6_8TH_MINUS_1));
-    else if (((i * STEP) % NW) * (8 / NW) == 7) weight = optionalHalve(mul_by_const_plus_1(baseWeight, TWO_TO_7_8TH_MINUS_1));
-#else
-    else if ((STEP % NW) * (8 / NW) == 1) weight = optionalHalve(weight * TWO_TO_1_8TH);
-    else if ((STEP % NW) * (8 / NW) == 2) weight = optionalHalve(weight * TWO_TO_2_8TH);
-    else if ((STEP % NW) * (8 / NW) == 3) weight = optionalHalve(weight * TWO_TO_3_8TH);
-    else if ((STEP % NW) * (8 / NW) == 4) weight = optionalHalve(weight * TWO_TO_4_8TH);
-    else if ((STEP % NW) * (8 / NW) == 5) weight = optionalHalve(weight * TWO_TO_5_8TH);
-    else if ((STEP % NW) * (8 / NW) == 6) weight = optionalHalve(weight * TWO_TO_6_8TH);
-    else if ((STEP % NW) * (8 / NW) == 7) weight = optionalHalve(weight * TWO_TO_7_8TH);
-#endif
-    weight2 = optionalHalve(mul_by_const_plus_1(weight, WEIGHT_STEP_MINUS_1));
-
-    u[i].x = (double) wu[i].x * weight;
-    u[i].y = (double) wu[i].y * weight2;
+    T weight1 = i == 0 ? base : optionalHalve(mul_by_const_plus_1(base, TWO_TO_N_8TH_MINUS_1[(i * STEP % NW) * (8 / NW)]));
+    T weight2 = optionalHalve(mul_by_const_plus_1(weight1, WEIGHT_STEP_MINUS_1));
+    u[i] = U2(wu[i].x, wu[i].y) * U2(weight1, weight2);
   }
 
 // Clear carry ready flag for next iteration
