@@ -35,7 +35,7 @@ public:
   bool timeKernels = false;
   bool cudaYield = false;
   bool noSpin = false;
-  bool safeMath = false;
+  bool safeMath = true;
 
   u32 proofPow = 8;
   u32 proofVerify = 9;
