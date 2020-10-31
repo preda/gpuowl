@@ -282,7 +282,7 @@ T mul1_m2(T x, T y) {
 }
 
 // Multiply by (1+const).
-T mul_by_const_plus_1(T x, const T y) { return fma(x, y, x); }
+T mul_by_const_plus_1(T x, const T y) { return x * y + x; }
 
 T mad1(T x, T y, T z) { return x * y + z; }
 
@@ -2379,7 +2379,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T) A, Trig smallTrig) {
     u32 p = G_W * i + me;
     // u32 hk = g + BIG_HEIGHT * p;
     u[i].x = in[p].x * A[p];
-    double w2 = optionalHalve(A[p] * (WEIGHT_STEP_MINUS_1 + 1));
+    double w2 = optionalHalve(mul_by_const_plus_1(A[p], WEIGHT_STEP_MINUS_1));
     u[i].y = in[p].y * w2;
     
     // u[i] = weight(in[p], A[p]);
@@ -2754,7 +2754,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32)
     u32 k = ND + WIDTH - 1 - p;
     double w1 = A[k] * 0.5;
     T x1 = in[p].x * w1;
-    double w2 = optionalDouble(w1 * (IWEIGHT_STEP_MINUS_1 + 1));    
+    double w2 = optionalDouble(mul_by_const_plus_1(w1, IWEIGHT_STEP_MINUS_1));
     T x2 = in[p].y * -w2;
     T2 x = U2(x1, x2);
     
