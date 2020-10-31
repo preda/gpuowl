@@ -281,20 +281,8 @@ T mul1_m2(T x, T y) {
 #endif
 }
 
-// Force generation of an FMA instruction where second argument is a constant.
-// (as fma() is not necesarilly preserved with -cl-fast-relaxed-math )
-T forced_fma_by_const(T x, const T y, T z) {
-#if HAS_ASM
-  double out;
-  __asm("v_fma_f64 %0, %1, %2, %3" : "=v"(out) : "v"(x), "s"(y), "v"(z));
-  return out;
-#else
-  return fma(x, y, z);
-#endif
-}
-
 // Multiply by (1+const).
-T mul_by_const_plus_1(T x, const T y) { return forced_fma_by_const(x, y, x); }
+T mul_by_const_plus_1(T x, const T y) { return fma(x, y, x); }
 
 T mad1(T x, T y, T z) { return x * y + z; }
 
@@ -1863,7 +1851,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma_by_const(x, S0, r);
+  return fma(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -1896,7 +1884,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma_by_const(x, S0, r);
+  return fma(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -1931,7 +1919,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma_by_const(x, S0, r);
+  return fma(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -1964,7 +1952,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma_by_const(x, S0, r);
+  return fma(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -1997,7 +1985,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma_by_const(x, S0, r);
+  return fma(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -2030,7 +2018,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma_by_const(x, S0, r);
+  return fma(x, S0, r);
 }
 
 double kcospi(double k, double n) {
@@ -2063,7 +2051,7 @@ double ksinpi(double k, const double n) {
   double x = k * (multiplier / n);
   double z = x * x;
   double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return forced_fma_by_const(x, S0, r);
+  return fma(x, S0, r);
 }
 
 double kcospi(double k, double n) {
