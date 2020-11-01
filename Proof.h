@@ -45,8 +45,10 @@ public:
 
   static Proof load(const fs::path& path);
   
-  fs::path save(const fs::path& proofResultDir) const;
+  void save(const fs::path& proofResultDir) const;
 
+  fs::path file(const fs::path& proofDir) const;
+  
   bool verify(Gpu *gpu) const;
 };
 
@@ -78,5 +80,5 @@ public:
 
   Words load(u32 k) const;
         
-  Proof computeProof(Gpu *gpu);
+  Proof computeProof(Gpu *gpu) const;
 };

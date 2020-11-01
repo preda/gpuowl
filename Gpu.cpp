@@ -1431,6 +1431,29 @@ JacobiResult doJacobiCheck(u32 E, const Words& data, u32 k) {
 
 }
 
+fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
+  Memlock memlock{args.masterDir, u32(args.device)};
+  
+  for (int retry = 0; retry < 2; ++retry) {
+    Proof proof = proofSet.computeProof(this);
+    fs::path tmpFile = proof.file(args.proofToVerifyDir);
+    proof.save(tmpFile);
+            
+    fs::path proofFile = proof.file(args.proofResultDir);            
+    bool doVerify = proofSet.power >= args.proofVerify;
+    bool ok = !doVerify || Proof::load(tmpFile).verify(this);
+    if (doVerify) { log("Proof '%s' verification %s\n", tmpFile.string().c_str(), ok ? "OK" : "FAILED"); }
+    if (ok) {
+      error_code noThrow;
+      fs::remove(proofFile, noThrow);
+      fs::rename(tmpFile, proofFile);
+      log("Proof '%s' generated\n", proofFile.string().c_str());
+      return proofFile;
+    }
+  }
+  throw "bad proof generation";
+}
+
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 E = task.exponent;
   u32 b1 = task.B1;
@@ -1683,24 +1706,10 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         }
           
         if (k >= kEndEnd) {
-          Memlock memlock{args.masterDir, u32(args.device)};
-
-          for (int retry = 0; retry < 2; ++retry) {
-            Proof proof = proofSet.computeProof(this);
-            bool verify = proofSet.power >= args.proofVerify;
-            bool ok = !verify || proof.verify(this);
-            if (verify) { log("Proof self-verification %s\n", ok ? "OK" : "FAILED"); }
-            if (ok) {
-              fs::path proofPath = proof.save(args.proofResultDir);
-              log("Proof '%s' generated\n", proofPath.string().c_str());              
-              return {"", isPrime, finalRes64, nErrors, proofPath.string()};              
-            } else if (retry > 0) {
-              fs::path proofPath = proof.save(args.proofResultDir);
-              log("Bad proof '%s' generated, investigate why\n", proofPath.string().c_str());
-              throw "bad proof";
-            }
-          }          
+          fs::path proofFile = saveProof(args, proofSet);
+          return {"", isPrime, finalRes64, nErrors, proofFile.string()};          
         }
+        
       } else {
         doBigLog(E, k, res64, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, 0);
         ++nErrors;

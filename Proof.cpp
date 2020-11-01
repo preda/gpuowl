@@ -53,15 +53,18 @@ ProofInfo getInfo(const fs::path& proofFile) {
 
 // ---- Proof ----
 
-fs::path Proof::save(const fs::path& proofResultDir) const {
+fs::path Proof::file(const fs::path& proofDir) const {
   string strE = to_string(E);
   u32 power = middles.size();
-  fs::path fileName = proofResultDir / (strE + '-' + to_string(power) + ".proof");
-  File fo = File::openWrite(fileName);
+  return proofDir / (strE + '-' + to_string(power) + ".proof");  
+}
+
+void Proof::save(const fs::path& proofFile) const {
+  File fo = File::openWrite(proofFile);
+  u32 power = middles.size();
   fo.printf(HEADER_v2, power, E, '\n');
   fo.write(B.data(), (E-1)/8+1);
   for (const Words& w : middles) { fo.write(w.data(), (E-1)/8+1); }
-  return fileName;
 }
 
 Proof Proof::load(const fs::path& path) {
@@ -192,7 +195,7 @@ Words ProofSet::load(u32 k) const {
   return cache.load(k);
 }
 
-Proof ProofSet::computeProof(Gpu *gpu) {
+Proof ProofSet::computeProof(Gpu *gpu) const {
   Words B = load(E);
   Words A = makeWords(E, 3);
 

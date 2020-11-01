@@ -244,10 +244,12 @@ void Args::setDefaults() {
   if (!masterDir.empty()) {
     assert(masterDir.is_absolute());
     if (proofResultDir.is_relative()) { proofResultDir = masterDir / proofResultDir; }
+    if (proofToVerifyDir.is_relative()) { proofToVerifyDir = masterDir / proofToVerifyDir; }
     if (resultsFile.is_relative()) { resultsFile = masterDir / resultsFile; }
   }
 
   fs::create_directory(proofResultDir);
+  fs::create_directory(proofToVerifyDir);
 
   if (!fs::exists(tmpDir)) {
     log("The tmpDir '%s' does not exist\n", tmpDir.string().c_str());

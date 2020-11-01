@@ -45,6 +45,7 @@ public:
   fs::path masterDir;
   fs::path tmpDir = ".";
   fs::path proofResultDir = "proof";
+  fs::path proofToVerifyDir = "proof-tmp";
   // fs::path proofBadDir = "bad-proof";
   
   bool keepProof = false;
