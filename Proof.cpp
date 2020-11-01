@@ -53,7 +53,7 @@ ProofInfo getInfo(const fs::path& proofFile) {
 
 // ---- Proof ----
 
-fs::path Proof::save(const fs::path& proofResultDir) {
+fs::path Proof::save(const fs::path& proofResultDir) const {
   string strE = to_string(E);
   u32 power = middles.size();
   fs::path fileName = proofResultDir / (strE + '-' + to_string(power) + ".proof");
@@ -79,7 +79,7 @@ Proof Proof::load(const fs::path& path) {
   return {E, B, middles};
 }
 
-bool Proof::verify(Gpu *gpu) {
+bool Proof::verify(Gpu *gpu) const {
   log("B         %016" PRIx64 "\n", res64(B));
   for (u32 i = 0; i < middles.size(); ++i) {
     log("Middle[%u] %016" PRIx64 "\n", i, res64(middles[i]));

@@ -45,9 +45,9 @@ public:
 
   static Proof load(const fs::path& path);
   
-  fs::path save(const fs::path& proofResultDir);
+  fs::path save(const fs::path& proofResultDir) const;
 
-  bool verify(Gpu *gpu);
+  bool verify(Gpu *gpu) const;
 };
 
 class ProofSet {
