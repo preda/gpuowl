@@ -91,12 +91,13 @@ bool Proof::verify(Gpu *gpu) {
   bool isPrime = (B == makeWords(E, 9));
 
   Words A{makeWords(E, 3)};
-    
+  Words B{this->B};
+  
   auto hash = proof::hashWords(E, B);
 
   u32 span = E;
   for (u32 i = 0; i < power; ++i, span = (span + 1) / 2) {
-    Words& M = middles[i];
+    const Words& M = middles[i];
     hash = proof::hashWords(E, hash, M);
     u64 h = hash[0];    
     A = gpu->expMul(A, h, M);
