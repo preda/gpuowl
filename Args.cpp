@@ -71,6 +71,7 @@ void Args::printHelp() {
 -maxAlloc <size>   : limit GPU memory usage to size, which is a value with suffix M for MB and G for GB.
                      e.g. -maxAlloc 2048M or -maxAlloc 3.5G
 -save <N>          : specify the number of savefiles to keep (default 12).
+-noclean           : do not delete data after the test is complete.
 -from <iteration>  : start at the given iteration instead of the most recent saved iteration
 -yield             : enable work-around for CUDA busy wait taking up one CPU core
 -nospin            : disable progress spinner
@@ -126,8 +127,11 @@ void Args::parse(string line) {
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
     // log("key '%s'\n", key.c_str());
-    if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
-    else if (key == "-proof") {
+    if (key == "-h" || key == "--help") {
+      printHelp(); throw "help";
+    } else if (key == "-noclean") {
+      clean = false;
+    } else if (key == "-proof") {
       int power = 0;
       if (s.empty() || (power = stoi(s)) < 1 || power > 10) {
         log("-proof expects <power> 1-10 (found '%s')\n", s.c_str());

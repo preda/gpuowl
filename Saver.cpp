@@ -53,11 +53,13 @@ vector<u32> Saver::listIterations() {
 }
 
 void Saver::cleanup(u32 E, const Args& args) {
-  fs::path here = fs::current_path();
-  fs::path trash = args.masterDir.empty() ? here / "trashbin" : (args.masterDir / "trashbin");
-  fs::remove_all(trash, noThrow());
-  fs::create_directory(trash, noThrow());
-  fs::rename(here / to_string(E), trash / to_string(E), noThrow());
+  if (args.clean) {
+    fs::path here = fs::current_path();
+    fs::path trash = here / "trashbin";
+    fs::remove_all(trash, noThrow());
+    fs::create_directory(trash, noThrow());
+    fs::rename(here / to_string(E), trash / to_string(E), noThrow());
+  }
   
   // fs::remove_all(base, noThrow);  // redundant
 }
