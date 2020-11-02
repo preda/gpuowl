@@ -165,14 +165,14 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   for (u32 group = 0; group < H; ++group) {
     long double w = weight(N, E, H, group, 0, 0);
     // Double the weight and inverse weight so that optionalHalve and optionalDouble can save one instruction
-    groupWeights.push_back(2.0 * boundUnderOne(1.0 / w));
-    groupWeights.push_back(2.0 * w);
+    groupWeights.push_back(2 * boundUnderOne(1 / w));
+    groupWeights.push_back(2 * w);
   }
   
   vector<double> threadWeights;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
-    threadWeights.push_back(invWeight(N, E, H, 0, thread, 0) - 1.0);
-    threadWeights.push_back(weight(N, E, H, 0, thread, 0) - 1.0);
+    threadWeights.push_back(invWeight(N, E, H, 0, thread, 0) - 1);
+    threadWeights.push_back(weight(N, E, H, 0, thread, 0) - 1);
   }
 
   vector<u32> bits;
@@ -289,6 +289,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, genWeights(E, W, BIG_H, nW)}
 {}
 
+#define CARRY_LEN 8
+
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          cl_device_id device, bool timeKernels, bool useLongCarry, Weights&& weights) :
   E(E),
@@ -318,9 +320,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(fftHout, hN / SMALL_H),
   LOAD_WS(fftMiddleIn,  hN / (BIG_H / SMALL_H)),
   LOAD_WS(fftMiddleOut, hN / (BIG_H / SMALL_H)),
-  LOAD_WS(carryA,  hN / 16),
-  LOAD_WS(carryM,  hN / 16),
-  LOAD_WS(carryB,  hN / 16),
+  LOAD_WS(carryA,  hN / CARRY_LEN),
+  LOAD_WS(carryM,  hN / CARRY_LEN),
+  LOAD_WS(carryB,  hN / CARRY_LEN),
   LOAD(transposeW,   (W/64) * (BIG_H/64)),
   LOAD(transposeH,   (W/64) * (BIG_H/64)),
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
@@ -498,8 +500,8 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
     throw "FFT size too small";
   }
 
-  if (bitsPerWord < 1.5) {
-    log("FFT size too large for exponent (%.2f bits/word).\n", bitsPerWord);
+  if (bitsPerWord < FFTConfig::MIN_BPW) {
+    log("FFT size too large for exponent (%.2f bits/word < %.2f bits/word).\n", bitsPerWord, FFTConfig::MIN_BPW);
     throw "FFT size too large";
   }
 

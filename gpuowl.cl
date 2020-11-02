@@ -554,7 +554,7 @@ Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
 }
 
 // Propagate carry this many pairs of words.
-#define CARRY_LEN 16
+#define CARRY_LEN 8
 
 T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
 T2 addsub_m2(T2 a) { return U2(add1_m2(a.x, a.y), sub1_m2(a.x, a.y)); }
