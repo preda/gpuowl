@@ -265,8 +265,8 @@ T mul1_m2(T x, T y) {
 #endif
 }
 
-// Multiply by (1+const).
-T mul_by_const_plus_1(T x, const T y) { return x * y + x; }
+// x * (y + 1);
+T fancyMul(T x, const T y) { return fma(x, y, x); }
 
 T mad1(T x, T y, T z) { return x * y + z; }
 
@@ -2358,7 +2358,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T) A, Trig smallTrig) {
   for (i32 i = 0; i < NW; ++i) {
     u32 p = G_W * i + me;
     u[i].x = in[p].x * A[p];
-    double w2 = optionalHalve(mul_by_const_plus_1(A[p], WEIGHT_STEP_MINUS_1));
+    double w2 = optionalHalve(fancyMul(A[p], WEIGHT_STEP_MINUS_1));
     u[i].y = in[p].y * w2;
   }
   ENABLE_MUL2();
@@ -2732,7 +2732,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32)
     u32 k = ND + WIDTH - 1 - p;
     double w1 = A[k] * 0.5;
     T x1 = in[p].x * w1;
-    double w2 = optionalDouble(mul_by_const_plus_1(w1, IWEIGHT_STEP_MINUS_1));
+    double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP_MINUS_1));
     T x2 = in[p].y * -w2;
     T2 x = U2(x1, x2);
     
@@ -2829,15 +2829,22 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   float roundMax = 0;
   u32 carryMax = 0;
 
-  const double TWO_TO_MINUS_N_8TH_MINUS_1[8] = {
-    0,                                   // 2^-(0/8) - 1
-    -0.08299595679532876825645840520586, // 2^-(1/8) - 1
-    -0.15910358474628545696887452376679, // 2^-(2/8) - 1
-    -0.22889458729602958819385406895463, // 2^-(3/8) - 1
-    -0.29289321881345247559915563789515, // 2^-(4/8) - 1
-    -0.35158022267449516703312294110377, // 2^-(5/8) - 1
-    -0.40539644249863946664125001471976, // 2^-(6/8) - 1
-    -0.45474613366737117039649467211965, // 2^-(7/8) - 1
+  // 2^-(k/NW) - 1 for k in [0..NW)
+  const double TWO_TO_MINUS_NTH[NW] = {
+    0,
+#if NW == 4
+    -0.15910358474628545696887452376679,
+    -0.29289321881345247559915563789515,
+    -0.40539644249863946664125001471976,
+#else
+    -0.08299595679532876825645840520586,
+    -0.15910358474628545696887452376679,
+    -0.22889458729602958819385406895463,
+    -0.29289321881345247559915563789515,
+    -0.35158022267449516703312294110377,
+    -0.40539644249863946664125001471976,
+    -0.45474613366737117039649467211965,
+#endif
   };
   
   // Apply the inverse weights
@@ -2845,8 +2852,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   T invBase = optionalDouble(weights.x);
   
   for (i32 i = 0; i < NW; ++i) {
-    T invWeight1 = i == 0 ? invBase : optionalDouble(mul_by_const_plus_1(invBase, TWO_TO_MINUS_N_8TH_MINUS_1[(i * STEP % NW) * (8 / NW)]));
-    T invWeight2 = optionalDouble(mul_by_const_plus_1(invWeight1, IWEIGHT_STEP_MINUS_1));
+    T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, TWO_TO_MINUS_NTH[i * STEP % NW]));
+    T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP_MINUS_1));
 
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight, invWeight2)));
@@ -2911,22 +2918,29 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     wu[i] = carryFinal(wu[i], carry[i], test(b, 2 * i));
   }
 
-  const double TWO_TO_N_8TH_MINUS_1[8] = {
-    0,                                 // 2^(0/8) - 1
-    0.0905077326652576592070106557607, // 2^(1/8) - 1
-    0.1892071150027210667174999705605, // 2^(2/8) - 1
-    0.2968395546510096659337541177925, // 2^(3/8) - 1
-    0.4142135623730950488016887242097, // 2^(4/8) - 1
-    0.5422108254079408236122918620907, // 2^(5/8) - 1
-    0.6817928305074290860622509524664, // 2^(6/8) - 1
-    0.8340080864093424634870831895883, // 2^(7/8) - 1
+  // 2^(k/NW) - 1 for k in [0..NW)
+  const double TWO_TO_NTH[NW] = {
+    0,
+#if NW == 4
+    0.1892071150027210667174999705605,
+    0.4142135623730950488016887242097,
+    0.6817928305074290860622509524664,
+#else
+    0.0905077326652576592070106557607,
+    0.1892071150027210667174999705605,
+    0.2968395546510096659337541177925,
+    0.4142135623730950488016887242097,
+    0.5422108254079408236122918620907,
+    0.6817928305074290860622509524664,
+    0.8340080864093424634870831895883,
+#endif
   };
   
   T base = optionalHalve(weights.y);
   
   for (i32 i = 0; i < NW; ++i) {
-    T weight1 = i == 0 ? base : optionalHalve(mul_by_const_plus_1(base, TWO_TO_N_8TH_MINUS_1[(i * STEP % NW) * (8 / NW)]));
-    T weight2 = optionalHalve(mul_by_const_plus_1(weight1, WEIGHT_STEP_MINUS_1));
+    T weight1 = i == 0 ? base : optionalHalve(fancyMul(base, TWO_TO_NTH[i * STEP % NW]));
+    T weight2 = optionalHalve(fancyMul(weight1, WEIGHT_STEP_MINUS_1));
     u[i] = U2(wu[i].x, wu[i].y) * U2(weight1, weight2);
   }
 
