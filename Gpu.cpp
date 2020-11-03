@@ -36,6 +36,8 @@ static_assert(sizeof(double2) == 16, "size double2");
 static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
 // static_assert(sinl(M_PI) != sin(M_PI));
 
+#define CARRY_LEN 8
+
 // Returns the primitive root of unity of order N, to the power k.
 static double2 root1(u32 N, u32 k) {
   assert(k < N);
@@ -88,20 +90,8 @@ static ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u3
   return {context, "middleTrig", tab};
 }
 
-static u32 kAt(u32 H, u32 line, u32 col, u32 rep) {
-  return (line + col * H) * 2 + rep;
-}
-
-static ConstBuffer<u32> genExtras(const Context& context, u32 E, u32 W, u32 H, u32 nW) {
-  u32 N = 2u * W * H;
-  vector<u32> extras;
-  u32 groupWidth = W / nW;
-  for (u32 line = 0; line < H; ++line) {
-    for (u32 thread = 0; thread < groupWidth; ++thread) {
-      extras.push_back(extra(N, E, kAt(H, line, thread, 0)));
-    }
-  }
-  return {context, "extras", extras};
+static u32 kAt(u32 H, u32 line, u32 col) {
+  return (line + col * H) * 2;
 }
 
 struct Weights {
@@ -109,17 +99,18 @@ struct Weights {
   // vector<double> iTab;
   vector<double> groupWeights;
   vector<double> threadWeights;
-  vector<u32> bits;
+  vector<u32> bitsCF;
+  vector<u32> bitsC;
 };
 
 static long double weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   long double iN = 1 / (long double) N;
-  return exp2l(extra(N, E, kAt(H, line, col, rep)) * iN);
+  return exp2l(extra(N, E, kAt(H, line, col) + rep) * iN);
 }
 
 static long double invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   long double iN = 1 / (long double) N;
-  return exp2l(- (extra(N, E, kAt(H, line, col, rep)) * iN));
+  return exp2l(- (extra(N, E, kAt(H, line, col) + rep) * iN));
 }
 
 static double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
@@ -183,15 +174,35 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
       for (u32 bitoffset = 0; bitoffset < 32; bitoffset += nW*2, ++thread) {
         for (u32 block = 0; block < nW; ++block) {
           for (u32 rep = 0; rep < 2; ++rep) {
-            if (isBigWord(N, E, kAt(H, line, block * groupWidth + thread, rep))) { b.set(bitoffset + block * 2 + rep); }
+            if (isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + rep)) { b.set(bitoffset + block * 2 + rep); }
           }        
 	}
       }
       bits.push_back(b.to_ulong());
     }
   }
+  assert(bits.size() == N / 32);
+  
+  vector<u32> bitsC;
+  
+  for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
+    for (u32 gx = 0; gx < nW; ++gx) {
+      for (u32 thread = 0; thread < groupWidth; ) {
+        std::bitset<32> b;
+        for (u32 bitoffset = 0; bitoffset < 32; bitoffset += CARRY_LEN * 2, ++thread) {
+          for (u32 block = 0; block < CARRY_LEN; ++block) {
+            for (u32 rep = 0; rep < 2; ++rep) {
+              if (isBigWord(N, E, kAt(H, gy * CARRY_LEN + block, gx * groupWidth + thread) + rep)) { b.set(bitoffset + block * 2 + rep); }
+            }
+          }
+        }
+        bitsC.push_back(b.to_ulong());
+      }
+    }
+  }
+  assert(bitsC.size() == N / 32);
 
-  return Weights{aTab, /*iTab,*/ groupWeights, threadWeights, bits};
+  return Weights{aTab, /*iTab,*/ groupWeights, threadWeights, bits, bitsC};
 }
 
 
@@ -285,8 +296,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, genWeights(E, W, BIG_H, nW)}
 {}
 
-#define CARRY_LEN 8
-
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          cl_device_id device, bool timeKernels, bool useLongCarry, Weights&& weights) :
   E(E),
@@ -343,9 +352,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufTrigH{genSmallTrig(context, SMALL_H, nH)},
   bufTrigM{genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
   bufWeightA{context, "weightA", weights.aTab},
-  // bufWeightI{context, "weightI", weights.iTab},
-  bufBits{context, "bits", weights.bits},
-  bufExtras{genExtras(context, E, W, BIG_H, nW)},
+  bufBits{context, "bits", weights.bitsCF},
+  bufBitsC{context, "bitsC", weights.bitsC},
   bufGroupWeights{context, "groupWeights", weights.groupWeights},
   bufThreadWeights{context, "threadWeights", weights.threadWeights},
   bufData{queue, "data", N},
@@ -374,9 +382,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleIn.setFixedArgs(2, bufTrigM);
   fftMiddleOut.setFixedArgs(2, bufTrigM);
     
-  carryA.setFixedArgs(2, bufCarry, bufWeightA, bufExtras, bufRoundoff, bufCarryMax);
-  carryM.setFixedArgs(2, bufCarry, bufWeightA, bufExtras, bufRoundoff, bufCarryMulMax);
-  carryB.setFixedArgs(1, bufCarry, bufExtras);
+  carryA.setFixedArgs(2, bufCarry, bufWeightA, bufBitsC, bufRoundoff, bufCarryMax);
+  carryM.setFixedArgs(2, bufCarry, bufWeightA, bufBitsC, bufRoundoff, bufCarryMulMax);
+  carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
   tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);

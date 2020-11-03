@@ -100,7 +100,7 @@ class Gpu {
   // ConstBuffer<double> bufWeightI;      // Inverse weights.
 
   ConstBuffer<u32> bufBits;
-  ConstBuffer<u32> bufExtras;
+  ConstBuffer<u32> bufBitsC;
   ConstBuffer<double> bufGroupWeights;
   ConstBuffer<double> bufThreadWeights;
   

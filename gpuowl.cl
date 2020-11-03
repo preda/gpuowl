@@ -229,9 +229,10 @@ T2 U2(T a, T b) { return (T2)(a, b); }
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 #define STEP (NWORDS - (EXP % NWORDS))
-bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
+// bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
+// u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
 u32 bitlen(bool b) { return EXP / NWORDS + b; }
-u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
+
 
 T add1_m2(T x, T y) {
 #if !NO_OMOD
@@ -2710,7 +2711,7 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
 // Input is conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32) extras, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
   ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2720,13 +2721,14 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32)
   CarryABM carry = 0;  
   float roundMax = 0;
   u32 carryMax = 0;
+
+  // Split 32 bits into CARRY_LEN groups of 2 bits.
+#define GPW (16 / CARRY_LEN)
+  u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
+#undef GPW
   
-  u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    bool b1 = isBigWord(extra);
-    bool b2 = isBigWord(reduce(extra + STEP));
-
     u32 k = ND + WIDTH - 1 - p;
     double w1 = A[k] * 0.5;
     T x1 = in[p].x * w1;
@@ -2739,11 +2741,10 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32)
 #endif
     
 #if DO_MUL3
-    out[p] = carryPairMul(x, &carry, b1, b2, carry, &carryMax, MUST_BE_EXACT);
+    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax, MUST_BE_EXACT);
 #else
-    out[p] = carryPair(x, &carry, b1, b2, carry, &carryMax, MUST_BE_EXACT);
+    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax, MUST_BE_EXACT);
 #endif
-    extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
   carryOut[G_W * g + me] = carry;
 
@@ -2756,16 +2757,17 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32)
 //== CARRYA NAME=carryA,DO_MUL3=0
 //== CARRYA NAME=carryM,DO_MUL3=1
 
-KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) extras) {
+KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);  
   u32 gx = g % NW;
   u32 gy = g / NW;
 
-  ENABLE_MUL2();
+  // Split 32 bits into CARRY_LEN groups of 2 bits.
+#define GPW (16 / CARRY_LEN)
+  u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
+#undef GPW
 
-  u32 extra = reduce(extras[G_W * CARRY_LEN * gy + me] + (u32) (2u * BIG_HEIGHT * G_W * (u64) STEP % NWORDS) * gx % NWORDS);
-  
   u32 step = G_W * gx + WIDTH * CARRY_LEN * gy;
   io += step;
 
@@ -2779,9 +2781,8 @@ KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) extras) {
 
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = i * WIDTH + me;
-    io[p] = carryWord(io[p], &carry, isBigWord(extra), isBigWord(reduce(extra + STEP)));
+    io[p] = carryWord(io[p], &carry, test(b, 2 * i), test(b, 2 * i + 1));
     if (!carry) { return; }
-    extra = reduce(extra + (u32) (2u * STEP % NWORDS));
   }
 }
 
@@ -2803,14 +2804,11 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   
   readCarryFusedLine(in, u, line);
 
-#if NW == 4
-  u32 b = bits[G_W / 4 * line + me / 4];
-  b = b >> ((me & 3) * 8);
-#else
-  u32 b = bits[G_W / 2 * line + me / 2];
-  b = b >> ((me & 1) * 16);
-#endif
-
+  // Split 32 bits into NW groups of 2 bits.
+#define GPW (16 / NW)
+  u32 b = bits[(G_W * line + me) / GPW] >> (me % GPW * (2 * NW));
+#undef GPW
+  
   ENABLE_MUL2();
   fft_WIDTH(lds, u, smallTrig);
 
