@@ -205,7 +205,7 @@ string getBinary(cl_program program) {
 }
 
 void dumpBinary(cl_program program, const string &fileName) {
-  File::openWriteWaitsync(fileName).write(getBinary(program));
+  File::openWrite(fileName).write(getBinary(program));
 }
 
 static cl_program loadSource(cl_context context, const string &source) {

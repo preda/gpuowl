@@ -60,7 +60,7 @@ fs::path Proof::file(const fs::path& proofDir) const {
 }
 
 void Proof::save(const fs::path& proofFile) const {
-  File fo = File::openWriteWaitsync(proofFile);
+  File fo = File::openWrite(proofFile);
   u32 power = middles.size();
   fo.printf(HEADER_v2, power, E, '\n');
   fo.write(B.data(), (E-1)/8+1);

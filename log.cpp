@@ -11,7 +11,7 @@ string context;
 void initLog() { logFiles.emplace_back(stdout, "stdout"); }
 
 void initLog(const char *logName) {
-  auto fo = File::openAppendNowaitsync(logName);
+  auto fo = File::openAppend(logName);
 #if defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
     setlinebuf(fo.get());
 #endif

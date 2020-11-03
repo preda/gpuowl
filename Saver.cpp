@@ -180,7 +180,7 @@ void Saver::savePRP(const PRPState& state) {
   
   fs::path path = pathPRP(k);
   {
-    File fo = File::openWriteNowaitsync(path);
+    File fo = File::openWrite(path);
 
     if (fo.printf(PRP_v12, E, k, state.blockSize, state.res64, state.nErrors, crc32(state.check)) <= 0) {
       throw(ios_base::failure("can't write header"));
@@ -214,7 +214,7 @@ void Saver::saveP1(u32 k, const P1State& state) {
   assert(nextK == 0 || nextK >= k);
 
   {
-    File fo = File::openWriteNowaitsync(pathP1(k));
+    File fo = File::openWrite(pathP1(k));
     if (fo.printf(P1_v2, E, b1, k, nextK, crc32(data)) <= 0) {
       throw(ios_base::failure("can't write header"));
     }
@@ -243,7 +243,7 @@ vector<u32> Saver::loadP1Final() {
 void Saver::saveP1Final(const vector<u32>& data) {
   assert(data.size() == nWords(E));
   {
-    File fo = File::openWriteNowaitsync(pathP1Final());
+    File fo = File::openWrite(pathP1Final());
     if (fo.printf(P1Final_v1, E, b1, crc32(data)) <= 0) {
       throw(ios_base::failure("can't write header"));
     }
@@ -294,7 +294,7 @@ u32 Saver::loadP2(u32 b2, u32 D, u32 nBuf) {
 }
 
 void Saver::saveP2(u32 b2, u32 D, u32 nBuf, u32 nextBlock) {
-  File fo = File::openWriteNowaitsync(pathP2());
+  File fo = File::openWrite(pathP2());
   if (fo.printf(P2_v3, E, b1, b2, D, nBuf, nextBlock) <= 0) {
     throw(ios_base::failure("can't write header"));
   }

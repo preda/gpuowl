@@ -61,7 +61,7 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   assert(!targetLine.empty());
   bool lineDeleted = false;
   {
-    auto fo{File::openWriteWaitsync(fileName + "-tmp")};
+    auto fo{File::openWrite(fileName + "-tmp")};
     for (const string& line : File::openReadThrow(fileName)) {
       if (!lineDeleted && line == targetLine) {
         lineDeleted = true;
@@ -103,7 +103,7 @@ std::optional<Task> Worktodo::getTask(Args &args) {
   if (!args.masterDir.empty()) {
     fs::path globalWorktodo = args.masterDir / worktodoTxt;
     if (optional<Task> task = firstGoodTask(globalWorktodo)) {
-      File::appendWaitsync(worktodoTxt, task->line);
+      File::append(worktodoTxt, task->line);
       deleteLine(globalWorktodo, task->line);
       goto again;
     }

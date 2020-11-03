@@ -256,5 +256,5 @@ void Args::setDefaults() {
     throw "tmpDir does not exist";
   }
 
-  File::openAppendWaitsync(resultsFile);  // verify that it's possible to write results
+  File::openAppend(resultsFile);  // verify that it's possible to write results
 }

@@ -5,7 +5,7 @@
 
 bool ProofCache::write(u32 k, const Words& words) {
   try {
-    File f = File::openWriteNowaitsync(proofPath / to_string(k));
+    File f = File::openWrite(proofPath / to_string(k));
     f.write(words);
     f.write<u32>({crc32(words)});
   } catch (fs::filesystem_error& e) {

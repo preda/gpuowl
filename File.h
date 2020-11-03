@@ -24,11 +24,10 @@ namespace fs = std::filesystem;
 
 class File {
   FILE* f = nullptr;
-  const bool backgroundSync;
   const bool readOnly;
   
-  File(const fs::path &path, const string& mode, bool throwOnError, bool backgroundSync = false)
-    : backgroundSync{backgroundSync}, readOnly{mode == "rb"}, name{path.string()} {    
+  File(const fs::path &path, const string& mode, bool throwOnError)
+    : readOnly{mode == "rb"}, name{path.string()} {    
     assert(readOnly || throwOnError);
     
     f = fopen(name.c_str(), mode.c_str());
@@ -44,7 +43,8 @@ class File {
     if (!readNoThrow(data, nBytes)) { throw(std::ios_base::failure(name + ": can't read")); }
   }
 
-  static void datasync(FILE *f) {
+  void datasync() {
+    fflush(f);
 #if defined(_WIN32) || defined(__WIN32__)
     _commit(fileno(f));
 #else
@@ -58,20 +58,15 @@ public:
   static File openRead(const fs::path& name) { return File{name, "rb", false}; }
   static File openReadThrow(const fs::path& name) { return File{name, "rb", true}; }
   
-  static File openWriteWaitsync(const fs::path& name) { return File{name, "wb", true}; }
-  static File openWriteNowaitsync(const fs::path& name) { return File{name, "wb", true, true}; }
+  static File openWrite(const fs::path& name) { return File{name, "wb", true}; }
   
-  static File openAppendWaitsync(const fs::path &name) { return File{name, "ab", true}; }
-  static File openAppendNowaitsync(const fs::path &name) { return File{name, "ab", true, true}; }
+  static File openAppend(const fs::path &name) { return File{name, "ab", true}; }
   
-  static void appendWaitsync(const fs::path& name, std::string_view text) { File::openAppendWaitsync(name).write(text); }
+  static void append(const fs::path& name, std::string_view text) { File::openAppend(name).write(text); }
 
-  File(FILE* f, const string& name) : f{f}, backgroundSync{false}, readOnly{false}, name{name} {
-  }
+  File(FILE* f, const string& name) : f{f}, readOnly{false}, name{name} {}
   
-  File(File&& other) : f{other.f}, backgroundSync{other.backgroundSync}, readOnly{other.readOnly}, name{other.name} {
-    other.f = nullptr;
-  }
+  File(File&& other) : f{other.f}, readOnly{other.readOnly}, name{other.name} { other.f = nullptr; }
   
   File(const File& other) = delete;
   File& operator=(const File& other) = delete;
@@ -79,17 +74,10 @@ public:
 
   ~File() {
     if (!f) { return; }
-    
-    if (readOnly) {
-      fclose(f);
-    } else {
-      fflush(f);
-      if (backgroundSync) {
-        std::thread{[f=f]() { datasync(f); fclose(f); }}.detach();      
-      } else {
-        datasync(f); fclose(f);
-      }
-    }
+
+    if (!readOnly) { datasync(); }
+
+    fclose(f);
     f = nullptr;
   }
   
