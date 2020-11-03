@@ -225,7 +225,6 @@ struct Define {
 cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
   if (!args.safeMath) { clArgs += " -cl-unsafe-math-optimizations"; }
-  const bool isPm1 = true;
   
   vector<Define> defines =
     {{"EXP", E},
@@ -236,11 +235,8 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
 
   if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
 
-  // if PRP force carry64 when carry32 might exceed 0x70000000
-  // if P-1 force carry64 when carry32 might exceed a very conservative 0x6C000000
-  // when using carryFusedMul during P-1 mul-by-3, force carry64 when carry32 might exceed 0x6C000000 / 3.
-  if (true || FFTConfig::getMaxCarry32(N, E) > (isPm1 ? 0x6C00 : 0x7000)) { defines.push_back({"CARRY64", 1}); }
-  if (true || (isPm1 && FFTConfig::getMaxCarry32(N, E) > 0x6C00 / 3)) { defines.push_back({"CARRYM64", 1}); }
+  // Force carry64 when carry32 might exceed a very conservative 0x6C000000
+  if (FFTConfig::getMaxCarry32(N, E) > 0x6C00) { defines.push_back({"CARRY64", 1}); }
 
   // If we are near the maximum exponent for this FFT, then we may need to set some chain #defines
   // to reduce the round off errors.

@@ -22,9 +22,6 @@ NEWEST_FFT5
 CARRY32 <AMD default for PRP when appropriate>
 CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
 
-CARRYM32
-CARRYM64 <default>
-
 ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>          // Our own sin/cos implementation
 ROCM_SLOWTRIG                   // Use ROCm's private reduced-argument sin/cos
@@ -98,18 +95,10 @@ G_H        "group height"
 #error Conflict: both CARRY32 and CARRY64 requested
 #endif
 
-#if CARRYM32 && CARRYM64
-#error Conflict: both CARRYM32 and CARRYM64 requested
-#endif
-
 #if !CARRY32 && !CARRY64
 #if AMDGPU
 #define CARRY32 1
 #endif
-#endif
-
-#if !CARRYM32 && !CARRYM64
-#define CARRYM64 1
 #endif
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
@@ -233,13 +222,7 @@ typedef double2 T2;
 typedef i32 Word;
 typedef int2 Word2;
 
-// Because the carry output of both carryA and carryM is consummed by carryB,
-// we can use 32-bit in carry A/B/M only when carryA and carryM agree.
-#if CARRY32 && CARRYM32
-typedef i32 CarryABM;
-#else
 typedef i64 CarryABM;
-#endif
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
@@ -505,29 +488,15 @@ typedef i32 CFcarry;
 typedef i64 CFcarry;
 #endif
 
-#if CARRYM32
-typedef i32 CFMcarry;
-#else
 typedef i64 CFMcarry;
-#endif
 
 u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 
 //{{ carries
 Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
   iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x, inCarry), &midCarry, b1, exactness);
-  Word b = carryStep(doubleToLong(u.y, midCarry), outCarry, b2, MUST_BE_EXACT);
-#if STATS
-  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
-#endif
-  return (Word2) (a, b);
-}
-
-Word2 OVERLOAD carryPairMul(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
-  iCARRY midCarry;
-  Word a = carryStep(3 * doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1, exactness);
-  Word b = carryStep(3 * doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
+  Word a = carryStep(doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1, exactness);
+  Word b = carryStep(doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
 #if STATS
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
@@ -545,6 +514,16 @@ Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
 
 //== carries CARRY=32
 //== carries CARRY=64
+
+Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
+  i64 midCarry;
+  Word a = carryStep(3 * doubleToLong(u.x, (i64) 0) + inCarry, &midCarry, b1, exactness);
+  Word b = carryStep(3 * doubleToLong(u.y, (i64) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
+#if STATS
+  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
+#endif
+  return (Word2) (a, b);
+}
 
 // Carry propagation from word and carry.
 Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
