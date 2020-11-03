@@ -29,7 +29,7 @@ array<u64, 4> hashWords(u32 E, array<u64, 4> prefix, const Words& words) {
 }
 
 string fileHash(const fs::path& filePath) {
-  File fi = File::openRead(filePath, true);
+  File fi = File::openReadThrow(filePath);
   char buf[64 * 1024];
   MD5 h;
   u32 size = 0;
@@ -39,7 +39,7 @@ string fileHash(const fs::path& filePath) {
 
 ProofInfo getInfo(const fs::path& proofFile) {
   string hash = proof::fileHash(proofFile);
-  File fi = File::openRead(proofFile, true);
+  File fi = File::openReadThrow(proofFile);
   u32 E = 0, power = 0;
   char c = 0;
   if (fi.scanf(Proof::HEADER_v2, &power, &E, &c) != 3 || c != '\n') {
@@ -60,7 +60,7 @@ fs::path Proof::file(const fs::path& proofDir) const {
 }
 
 void Proof::save(const fs::path& proofFile) const {
-  File fo = File::openWrite(proofFile);
+  File fo = File::openWriteWaitsync(proofFile);
   u32 power = middles.size();
   fo.printf(HEADER_v2, power, E, '\n');
   fo.write(B.data(), (E-1)/8+1);
@@ -68,7 +68,7 @@ void Proof::save(const fs::path& proofFile) const {
 }
 
 Proof Proof::load(const fs::path& path) {
-  File fi = File::openRead(path, true);
+  File fi = File::openReadThrow(path);
   u32 E = 0, power = 0;
   char c = 0;
   if (fi.scanf(HEADER_v2, &power, &E, &c) != 3 || c != '\n') {

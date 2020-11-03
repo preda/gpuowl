@@ -69,7 +69,7 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
   fields += tailFields(AID, args);
   string s = json(std::move(fields));
   log("%s\n", s.c_str());
-  File::append(args.resultsFile, s + '\n');
+  File::appendWaitsync(args.resultsFile, s + '\n');
 }
 
 }

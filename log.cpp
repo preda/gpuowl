@@ -11,12 +11,11 @@ string context;
 void initLog() { logFiles.emplace_back(stdout, "stdout"); }
 
 void initLog(const char *logName) {
-  if (auto fo = File::openAppend(logName)) {
+  auto fo = File::openAppendNowaitsync(logName);
 #if defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
     setlinebuf(fo.get());
 #endif
-    logFiles.push_back(std::move(fo));
-  }
+  logFiles.push_back(std::move(fo));
 }
 
 string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }

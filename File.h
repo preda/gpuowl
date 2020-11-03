@@ -24,15 +24,18 @@ namespace fs = std::filesystem;
 
 class File {
   FILE* f = nullptr;
-  bool sync = false;
+  const bool backgroundSync;
+  const bool readOnly;
   
-  File(const fs::path &path, const string& mode, bool doLog, bool syncOnClose) : name{path.string()} {
+  File(const fs::path &path, const string& mode, bool throwOnError, bool backgroundSync = false)
+    : backgroundSync{backgroundSync}, readOnly{mode == "rb"}, name{path.string()} {    
+    assert(readOnly || throwOnError);
+    
     f = fopen(name.c_str(), mode.c_str());
-    if (!f && doLog) {
+    if (!f && throwOnError) {
       log("Can't open '%s' (mode '%s')\n", name.c_str(), mode.c_str());
       throw(fs::filesystem_error("can't open file"s, path, {}));
     }
-    if (syncOnClose) { sync = true; }
   }
 
   bool readNoThrow(void* data, u32 nBytes) { return fread(data, nBytes, 1, get()); }
@@ -41,41 +44,53 @@ class File {
     if (!readNoThrow(data, nBytes)) { throw(std::ios_base::failure(name + ": can't read")); }
   }
 
+  static void datasync(FILE *f) {
+#if defined(_WIN32) || defined(__WIN32__)
+    _commit(fileno(f));
+#else
+    fdatasync(fileno(f));
+#endif
+  }
+  
 public:
-  static File openRead(const fs::path& name, bool doThrow = false) { return File{name, "rb", doThrow, false}; }
-  static File openWrite(const fs::path &name, bool sync = true) { return File{name, "wb", true, sync}; }
-  static File openAppend(const fs::path &name, bool sync = true) { return File{name, "ab", true, sync}; }
-  
-  static void append(const fs::path& name, std::string_view text) { File::openAppend(name).write(text); }
-
-  
   const std::string name;
+
+  static File openRead(const fs::path& name) { return File{name, "rb", false}; }
+  static File openReadThrow(const fs::path& name) { return File{name, "rb", true}; }
   
-  File(FILE* f, const string& name) : f{f}, name{name} {}
-  File(File&& other) : f{other.f}, name{other.name} { other.f = nullptr; }
+  static File openWriteWaitsync(const fs::path& name) { return File{name, "wb", true}; }
+  static File openWriteNowaitsync(const fs::path& name) { return File{name, "wb", true, true}; }
+  
+  static File openAppendWaitsync(const fs::path &name) { return File{name, "ab", true}; }
+  static File openAppendNowaitsync(const fs::path &name) { return File{name, "ab", true, true}; }
+  
+  static void appendWaitsync(const fs::path& name, std::string_view text) { File::openAppendWaitsync(name).write(text); }
+
+  File(FILE* f, const string& name) : f{f}, backgroundSync{false}, readOnly{false}, name{name} {
+  }
+  
+  File(File&& other) : f{other.f}, backgroundSync{other.backgroundSync}, readOnly{other.readOnly}, name{other.name} {
+    other.f = nullptr;
+  }
   
   File(const File& other) = delete;
   File& operator=(const File& other) = delete;
   File& operator=(File&& other) = delete;
 
   ~File() {
-    if (f) {
-      // if (sync) { log("sync '%s'\n", name.c_str()); }
+    if (!f) { return; }
+    
+    if (readOnly) {
+      fclose(f);
+    } else {
       fflush(f);
-      if (sync) {
-        std::thread{[f=f, name=name]() {
-#if defined(_WIN32) || defined(__WIN32__)
-          _commit(fileno(f));
-#else
-          fdatasync(fileno(f));
-#endif
-          fclose(f);
-        }}.detach();      
+      if (backgroundSync) {
+        std::thread{[f=f]() { datasync(f); fclose(f); }}.detach();      
       } else {
-        fclose(f);
+        datasync(f); fclose(f);
       }
-      f = nullptr;
     }
+    f = nullptr;
   }
   
   class It {
