@@ -247,6 +247,17 @@ string toLiteral(double value) {
   return s;
 }
 
+template<typename T>
+string toLiteral(vector<T> v) {
+  assert(!v.empty());
+  string s = "{";
+  for (auto x : v) {
+    s += toLiteral(x) + ",";
+  }
+  s += "}";
+  return s;
+}
+
 struct Define {
   const string str;
 
@@ -288,9 +299,13 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   defines.push_back({"WEIGHT_STEP_MINUS_1", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
   defines.push_back({"IWEIGHT_STEP_MINUS_1", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
 
+  vector<double> iweights;
+  iweights.push_back(0);
   for (u32 i = 1; i < CARRY_LEN; ++i) {
-    defines.push_back({"IWEIGHT_"s + to_string(2*i), double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1)});
+    iweights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
+    // defines.push_back({"IWEIGHT_"s + to_string(2*i), double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1)});
   }
+  defines.push_back({"IWEIGHTS", iweights});
   
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
@@ -433,15 +448,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarryMax.zero();
   bufCarryMulMax.zero();
 
-  /*
-  vector<float> v;
-  for (int i = 0; i < 256; ++i) { v.push_back(i / float(1024 * 1024)); }
-  HostAccessBuffer<float> testBuf{queue, "test", 256};
-  testBuf.write(v);
-  testKernel(testBuf);
-  v = testBuf.read();
-  for (int i = 0; i < 256; ++i) { printf("%.20f\n", v[i]); }
-  */  
+  // for (u32 i = 1; i < 8; ++i) { printf("%s\n", toLiteral(double(exp2l((i / 8.0)) - 1)).c_str()); }
 }
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
