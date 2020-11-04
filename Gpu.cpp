@@ -23,6 +23,7 @@
 #include <optional>
 #include <numeric>
 #include <bitset>
+#include <limits>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -99,6 +100,8 @@ struct Weights {
   // vector<double> iTab;
   vector<double> groupWeights;
   vector<double> threadWeights;
+  vector<double> groupWeightsInv;
+  vector<double> groupWeightsDir;
   vector<u32> bitsCF;
   vector<u32> bitsC;
 };
@@ -166,6 +169,25 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
     threadWeights.push_back(weight(N, E, H, 0, thread, 0) - 1);
   }
 
+  vector<double> groupWeightsInv;
+  vector<double> groupWeightsDir;
+  for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
+    for (u32 gx = 0; gx < nW; ++gx) {
+      long double w = weight(N, E, H, gy * CARRY_LEN, gx * groupWidth, 0);
+      groupWeightsInv.push_back(2 * boundUnderOne(1 / w));
+      groupWeightsDir.push_back(2 * w);
+    }
+  }
+
+  /*
+  vector<double> threadWeightsInv;
+  vector<double> threadWeightsDir;
+  for (u32 thread = 0; thread < groupWidth; ++thread) {
+    threadWeights.push_back(invWeight(N, E, H, 0, thread, 0) - 1);
+    threadWeights.push_back(weight(N, E, H, 0, thread, 0) - 1);
+  }
+  */
+  
   vector<u32> bits;
   
   for (u32 line = 0; line < H; ++line) {
@@ -202,7 +224,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{aTab, /*iTab,*/ groupWeights, threadWeights, bits, bitsC};
+  return Weights{aTab, groupWeights, threadWeights, groupWeightsInv, groupWeightsDir, bits, bitsC};
 }
 
 
@@ -214,9 +236,15 @@ string toLiteral(u32 value) { return to_string(value) + 'u'; }
 string toLiteral(i32 value) { return to_string(value); }
 [[maybe_unused]] string toLiteral(u64 value) { return to_string(value) + "ul"; }
 string toLiteral(double value) {
-  char buf[32];
-  snprintf(buf, sizeof(buf), "%a", value);
-  return buf;
+  std::ostringstream ss;
+  ss << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
+  string s = std::move(ss).str();
+
+  // verify correct roundtrip
+  [[maybe_unused]] double back = 0;
+  sscanf(s.c_str(), "%lf", &back);
+  assert(back == value);
+  return s;
 }
 
 struct Define {
@@ -260,6 +288,10 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   defines.push_back({"WEIGHT_STEP_MINUS_1", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
   defines.push_back({"IWEIGHT_STEP_MINUS_1", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
 
+  for (u32 i = 1; i < CARRY_LEN; ++i) {
+    defines.push_back({"IWEIGHT_"s + to_string(2*i), double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1)});
+  }
+  
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
     auto pos = flag.find('=');
@@ -356,6 +388,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufBitsC{context, "bitsC", weights.bitsC},
   bufGroupWeights{context, "groupWeights", weights.groupWeights},
   bufThreadWeights{context, "threadWeights", weights.threadWeights},
+  bufGroupWeightsInv{context, "groupWeightsInv", weights.groupWeightsInv},
+  bufGroupWeightsDir{context, "groupWeightsDir", weights.groupWeightsDir},
   bufData{queue, "data", N},
   bufAux{queue, "aux", N},
   bufCheck{queue, "check", N},
@@ -382,8 +416,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleIn.setFixedArgs(2, bufTrigM);
   fftMiddleOut.setFixedArgs(2, bufTrigM);
     
-  carryA.setFixedArgs(2, bufCarry, bufWeightA, bufBitsC, bufRoundoff, bufCarryMax);
-  carryM.setFixedArgs(2, bufCarry, bufWeightA, bufBitsC, bufRoundoff, bufCarryMulMax);
+  carryA.setFixedArgs(2, bufCarry, bufGroupWeightsInv, bufThreadWeights, bufBitsC, bufRoundoff, bufCarryMax);
+  carryM.setFixedArgs(2, bufCarry, bufGroupWeightsInv, bufThreadWeights, bufBitsC, bufRoundoff, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);

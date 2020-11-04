@@ -103,6 +103,8 @@ class Gpu {
   ConstBuffer<u32> bufBitsC;
   ConstBuffer<double> bufGroupWeights;
   ConstBuffer<double> bufThreadWeights;
+  ConstBuffer<double> bufGroupWeightsInv;
+  ConstBuffer<double> bufGroupWeightsDir;
   
   // "integer word" buffers. These are "small buffers": N x int.
   HostAccessBuffer<int> bufData;   // Main int buffer with the words.

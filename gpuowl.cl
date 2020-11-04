@@ -266,7 +266,8 @@ T mul1_m2(T x, T y) {
 }
 
 // x * (y + 1);
-T fancyMul(T x, const T y) { return fma(x, y, x); }
+OVERLOAD T fancyMul(T x, const T y) { return fma(x, y, x); }
+OVERLOAD T2 fancyMul(T2 x, const T2 y) { return fma(x, y, x); }
 
 T mad1(T x, T y, T z) { return x * y + z; }
 
@@ -2708,10 +2709,10 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
 }
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
-// Input is conjugated and inverse-weighted.
+// Input arrives conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) groupWeights, CP(T2) threadWeights, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
   ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2726,15 +2727,31 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) A, CP(u32)
 #define GPW (16 / CARRY_LEN)
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
+
+  T base = optionalDouble(fancyMul(groupWeights[g], threadWeights[me].x));
+
+  // 2^-(2*k/ND) - 1 for k in [0..CARRY_LEN).
+  const double IWEIGHT_STEP[CARRY_LEN] = {
+    0,
+    IWEIGHT_2,
+    IWEIGHT_4,
+    IWEIGHT_6,
+    IWEIGHT_8,
+    IWEIGHT_10,
+    IWEIGHT_12,
+    IWEIGHT_14,
+  };
   
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    u32 k = ND + WIDTH - 1 - p;
-    double w1 = A[k] * 0.5;
-    T x1 = in[p].x * w1;
+    double w1 = i == 0 ? base : optionalDouble(fancyMul(base, IWEIGHT_STEP[i]));
     double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP_MINUS_1));
+    T2 x = conjugate(in[p]) * U2(w1, w2);
+    /*
+    T x1 = in[p].x * w1;
     T x2 = in[p].y * -w2;
     T2 x = U2(x1, x2);
+    */
     
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(in[p]), A[p]));
@@ -2815,8 +2832,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   Word2 wu[NW];
-  // For one (or more) bits of precision, Gpu.cpp subtract 1.0 from thread weights and we use fma here rather than a multiply
-  T2 weights = fma(groupWeights[line], threadWeights[me], groupWeights[line]);
+  T2 weights = fancyMul(groupWeights[line], threadWeights[me]);
 
 #if CF_MUL
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
