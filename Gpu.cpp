@@ -96,12 +96,9 @@ static u32 kAt(u32 H, u32 line, u32 col) {
 }
 
 struct Weights {
-  vector<double> aTab;
-  // vector<double> iTab;
-  vector<double> groupWeights;
-  vector<double> threadWeights;
-  vector<double> groupWeightsInv;
-  vector<double> groupWeightsDir;
+  vector<double> groupWeightsIF;
+  vector<double> threadWeightsIF;
+  vector<double> groupWeightsI;
   vector<u32> bitsCF;
   vector<u32> bitsC;
 };
@@ -120,73 +117,33 @@ static double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
 
 static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
-
-  vector<double> aTab;
-  aTab.reserve(N/2 + W);
-  // vector<double> iTab;
-  // iTab.reserve(N);
-
-  for (u32 line = 0; line < H; ++line) {
-    for (u32 col = 0; col < W; ++col) {
-      for (u32 rep = 0; rep < 1; ++rep) {
-        long double a = weight(N, E, H, line, col, rep);
-        // Double the weight and inverse weight so that optionalHalve and optionalDouble can save one instruction
-        aTab.push_back(2.0 * a);
-        // iTab.push_back(2.0 / a);
-      }
-    }
-  }
-
-  for (u32 i = 1; i < W; ++i) { aTab.push_back(aTab[i]); }
-  aTab.push_back(4.0);
-
-  assert(aTab.size() == size_t(N/2 + W));
-  
-  /*
-  assert(iTab.size() == size_t(N/2));
-  for (u32 p = 0; p < N/2; ++p) {
-    u32 k = N/2 + W - 1 - p;
-    if (abs(iTab[p] - aTab[k] * 0.5) > 1e-15) {
-      printf("p %u k %u %.20e %.20e\n", p, k, iTab[p], aTab[k]*0.5);
-      assert(false);
-    }
-  }
-  */
   
   u32 groupWidth = W / nW;
 
-  vector<double> groupWeights;
+  // group weights Inverse + Forward
+  vector<double> groupWeightsIF;
   for (u32 group = 0; group < H; ++group) {
     long double w = weight(N, E, H, group, 0, 0);
     // Double the weight and inverse weight so that optionalHalve and optionalDouble can save one instruction
-    groupWeights.push_back(2 * boundUnderOne(1 / w));
-    groupWeights.push_back(2 * w);
-  }
-  
-  vector<double> threadWeights;
-  for (u32 thread = 0; thread < groupWidth; ++thread) {
-    threadWeights.push_back(invWeight(N, E, H, 0, thread, 0) - 1);
-    threadWeights.push_back(weight(N, E, H, 0, thread, 0) - 1);
+    groupWeightsIF.push_back(2 * boundUnderOne(1 / w));
+    groupWeightsIF.push_back(2 * w);
   }
 
-  vector<double> groupWeightsInv;
-  vector<double> groupWeightsDir;
+  // Inverse + Forward
+  vector<double> threadWeightsIF;
+  for (u32 thread = 0; thread < groupWidth; ++thread) {
+    threadWeightsIF.push_back(invWeight(N, E, H, 0, thread, 0) - 1);
+    threadWeightsIF.push_back(weight(N, E, H, 0, thread, 0) - 1);
+  }
+
+  // Inverse only. Also the group order matches CarryA/M (not fftP/CarryFused).
+  vector<double> groupWeightsI;
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
     for (u32 gx = 0; gx < nW; ++gx) {
       long double w = weight(N, E, H, gy * CARRY_LEN, gx * groupWidth, 0);
-      groupWeightsInv.push_back(2 * boundUnderOne(1 / w));
-      groupWeightsDir.push_back(2 * w);
+      groupWeightsI.push_back(2 * boundUnderOne(1 / w));
     }
   }
-
-  /*
-  vector<double> threadWeightsInv;
-  vector<double> threadWeightsDir;
-  for (u32 thread = 0; thread < groupWidth; ++thread) {
-    threadWeights.push_back(invWeight(N, E, H, 0, thread, 0) - 1);
-    threadWeights.push_back(weight(N, E, H, 0, thread, 0) - 1);
-  }
-  */
   
   vector<u32> bits;
   
@@ -224,7 +181,7 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{aTab, groupWeights, threadWeights, groupWeightsInv, groupWeightsDir, bits, bitsC};
+  return Weights{groupWeightsIF, threadWeightsIF, groupWeightsI, bits, bitsC};
 }
 
 
@@ -235,15 +192,17 @@ namespace {
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
 string toLiteral(i32 value) { return to_string(value); }
 [[maybe_unused]] string toLiteral(u64 value) { return to_string(value) + "ul"; }
+
 string toLiteral(double value) {
   std::ostringstream ss;
-  ss << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
+  ss << setprecision(numeric_limits<double>::max_digits10) << value;
   string s = std::move(ss).str();
 
   // verify correct roundtrip
   [[maybe_unused]] double back = 0;
   sscanf(s.c_str(), "%lf", &back);
   assert(back == value);
+  
   return s;
 }
 
@@ -299,13 +258,11 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   defines.push_back({"WEIGHT_STEP_MINUS_1", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
   defines.push_back({"IWEIGHT_STEP_MINUS_1", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
 
-  vector<double> iweights;
-  iweights.push_back(0);
-  for (u32 i = 1; i < CARRY_LEN; ++i) {
-    iweights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
-    // defines.push_back({"IWEIGHT_"s + to_string(2*i), double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1)});
+  vector<double> iWeights;
+  for (u32 i = 0; i < 2*CARRY_LEN; ++i) {
+    iWeights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, i) - 1);
   }
-  defines.push_back({"IWEIGHTS", iweights});
+  defines.push_back({"IWEIGHTS", iWeights});
   
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
@@ -398,13 +355,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufTrigW{genSmallTrig(context, W, nW)},
   bufTrigH{genSmallTrig(context, SMALL_H, nH)},
   bufTrigM{genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
-  bufWeightA{context, "weightA", weights.aTab},
   bufBits{context, "bits", weights.bitsCF},
   bufBitsC{context, "bitsC", weights.bitsC},
-  bufGroupWeights{context, "groupWeights", weights.groupWeights},
-  bufThreadWeights{context, "threadWeights", weights.threadWeights},
-  bufGroupWeightsInv{context, "groupWeightsInv", weights.groupWeightsInv},
-  bufGroupWeightsDir{context, "groupWeightsDir", weights.groupWeightsDir},
+  bufGroupWeights{context, "groupWeights", weights.groupWeightsIF},
+  bufThreadWeights{context, "threadWeights", weights.threadWeightsIF},
+  bufGroupWeightsI{context, "groupWeightsI", weights.groupWeightsI},
   bufData{queue, "data", N},
   bufAux{queue, "aux", N},
   bufCheck{queue, "check", N},
@@ -424,15 +379,15 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   program.reset();
   carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
-  fftP.setFixedArgs(2, bufWeightA, bufTrigW);
+  fftP.setFixedArgs(2, bufGroupWeights, bufThreadWeights, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
   fftMiddleIn.setFixedArgs(2, bufTrigM);
   fftMiddleOut.setFixedArgs(2, bufTrigM);
     
-  carryA.setFixedArgs(2, bufCarry, bufGroupWeightsInv, bufThreadWeights, bufBitsC, bufRoundoff, bufCarryMax);
-  carryM.setFixedArgs(2, bufCarry, bufGroupWeightsInv, bufThreadWeights, bufBitsC, bufRoundoff, bufCarryMulMax);
+  carryA.setFixedArgs(2, bufCarry, bufGroupWeightsI, bufThreadWeights, bufBitsC, bufRoundoff, bufCarryMax);
+  carryM.setFixedArgs(2, bufCarry, bufGroupWeightsI, bufThreadWeights, bufBitsC, bufRoundoff, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);

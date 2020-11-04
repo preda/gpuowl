@@ -2343,24 +2343,43 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 }
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
-KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T) A, Trig smallTrig) {
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) groupWeights, CP(T2) threadWeights, Trig smallTrig) {
   local T2 lds[WIDTH / 2];
 
   T2 u[NW];
   u32 g = get_group_id(0);
 
   u32 step = WIDTH * g;
-  A   += step;
   in  += step;
   out += step;
 
   u32 me = get_local_id(0);
 
+  // 2^(k/NW) - 1 for k in [0..NW)
+  const double TWO_TO_NTH[NW] = {
+    0,
+#if NW == 4
+    0.18920711500272105,
+    0.41421356237309503,
+    0.68179283050742912,
+#else
+    0.090507732665257662,
+    0.18920711500272105,
+    0.29683955465100964,
+    0.41421356237309503,
+    0.54221082540794086,
+    0.68179283050742912,
+    0.83400808640934243,
+#endif
+  };
+  
+  T base = optionalHalve(fancyMul(groupWeights[g].y, threadWeights[me].y));
+
   for (i32 i = 0; i < NW; ++i) {
+    T w1 = i == 0 ? base : optionalHalve(fancyMul(base, TWO_TO_NTH[i * STEP % NW]));
+    T w2 = optionalHalve(fancyMul(w1, WEIGHT_STEP_MINUS_1));
     u32 p = G_W * i + me;
-    u[i].x = in[p].x * A[p];
-    double w2 = optionalHalve(fancyMul(A[p], WEIGHT_STEP_MINUS_1));
-    u[i].y = in[p].y * w2;
+    u[i] = U2(in[p].x, in[p].y) * U2(w1, w2);
   }
   ENABLE_MUL2();
 
@@ -2731,18 +2750,13 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) groupWeigh
   T base = optionalDouble(fancyMul(groupWeights[g], threadWeights[me].x));
 
   // 2^-(2*k/ND) - 1 for k in [0..CARRY_LEN).
-  const double IWEIGHT_STEP[CARRY_LEN] = IWEIGHTS;
+  const double IWEIGHT_STEP[2*CARRY_LEN] = IWEIGHTS;
   
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    double w1 = i == 0 ? base : optionalDouble(fancyMul(base, IWEIGHT_STEP[i]));
-    double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP_MINUS_1));
+    double w1 = i == 0 ? base : optionalDouble(fancyMul(base, IWEIGHT_STEP[2*i]));
+    double w2 = optionalDouble(fancyMul(base, IWEIGHT_STEP[2*i + 1]));
     T2 x = conjugate(in[p]) * U2(w1, w2);
-    /*
-    T x1 = in[p].x * w1;
-    T x2 = in[p].y * -w2;
-    T2 x = U2(x1, x2);
-    */
     
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(in[p]), A[p]));

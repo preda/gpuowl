@@ -95,16 +95,12 @@ class Gpu {
   ConstBuffer<double2> bufTrigH;
   ConstBuffer<double2> bufTrigM;
 
-  // Weight constant buffers, with the direct and inverse weights. N x double.
-  ConstBuffer<double> bufWeightA;      // Direct weights.
-  // ConstBuffer<double> bufWeightI;      // Inverse weights.
+  ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
+  ConstBuffer<u32> bufBitsC; // bigWord bits aligned for CarryA/M
 
-  ConstBuffer<u32> bufBits;
-  ConstBuffer<u32> bufBitsC;
-  ConstBuffer<double> bufGroupWeights;
-  ConstBuffer<double> bufThreadWeights;
-  ConstBuffer<double> bufGroupWeightsInv;
-  ConstBuffer<double> bufGroupWeightsDir;
+  ConstBuffer<double> bufGroupWeights;  // Inverse + Forward
+  ConstBuffer<double> bufThreadWeights; // Inv + Fwd
+  ConstBuffer<double> bufGroupWeightsI; // Inverse only
   
   // "integer word" buffers. These are "small buffers": N x int.
   HostAccessBuffer<int> bufData;   // Main int buffer with the words.
