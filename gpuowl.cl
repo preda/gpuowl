@@ -223,7 +223,8 @@ typedef int2 Word2;
 
 typedef i64 CarryABM;
 
-global T2 TRIG[ND];
+// global T2 TRIG_N[ND];
+global T2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
@@ -2094,8 +2095,8 @@ double2 reducedCosSin(i32 k, i32 n) {
 // Inverse trigonometric direction is chosen as an FFT convention.
 double2 slowTrig(u32 k, u32 n, u32 kBound) {
   assert(n % 8 == 0);
-  assert(k < kBound);           // kBound actually bounds k
-  assert(kBound <= 2 * n);      // angle <= 2 tau
+  assert(k < kBound);       // kBound actually bounds k
+  assert(kBound <= 2 * n);  // angle <= 2 tau
 
 #if ORIG_SLOWTRIG
   return openclSlowTrig(k, n/2);
@@ -2123,9 +2124,38 @@ double2 slowTrig(u32 k, u32 n, u32 kBound) {
 #endif
 }
 
-double2 slowTrig_BH(u32 k, u32 kBound)  { return slowTrig(k, BIG_HEIGHT, kBound); }
-double2 slowTrig_2SH(u32 k, u32 kBound) { return slowTrig(k, 2 * SMALL_HEIGHT, kBound); }
 double2 slowTrig_N(u32 k, u32 kBound)   { return slowTrig(k, ND, kBound); }
+double2 slowTrig_BH(u32 k, u32 kBound)  { return slowTrig(k, BIG_HEIGHT, kBound); }
+
+double2 slowTrig_2SH(u32 k, u32 kBound) {
+  // return slowTrig(k, 2 * SMALL_HEIGHT, kBound);
+  const u32 n = 2 * SMALL_HEIGHT;
+  
+  assert(n % 8 == 0);
+  assert(k < kBound);       // kBound actually bounds k
+  assert(kBound <= 2 * n);  // angle <= 2 tau
+
+  if (kBound > n && k >= n) { k -= n; }
+  assert(k < n);
+
+  bool negate = kBound > n/2 && k >= n/2;
+  if (negate) { k -= n/2; }
+  
+  bool negateCos = kBound > n / 4 && k >= n / 4;
+  if (negateCos) { k = n/2 - k; }
+  
+  bool flip = kBound > n / 8 && k > n / 8;
+  if (flip) { k = n / 4 - k; }
+
+  assert(k <= n / 8);
+  double2 r = TRIG_2SH[k];
+
+  if (flip) { r = -swap(r); }
+  if (negateCos) { r.x = -r.x; }
+  if (negate) { r = -r; }
+  return U2(r.x, r.y);
+}
+
 
 // transpose LDS 64 x 64.
 void transposeLDS(local T *lds, T2 *u) {
@@ -2187,11 +2217,8 @@ typedef CP(T2) Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(256) writeTrig(const global T2* in) {
-  u32 gid = get_global_id(0);
-  for (u32 k = 0; k < ND; k += get_global_size(0)) {
-    TRIG[gid + k] = in[gid + k];
-  }
+KERNEL(64) writeTrigSH(u32 size, const global T2* in) {  
+  for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_2SH[k] = in[k]; }
 }
 
 // Read 64 Word2 starting at position 'startDword'.

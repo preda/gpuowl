@@ -91,10 +91,11 @@ static ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u3
   return {context, "middleTrig", tab};
 }
 
-static vector<double2> makeBigTrig(u32 hN) {
+static vector<double2> makeTrig(u32 n) {
+  assert(n % 8 == 0);
   vector<double2> tab;
-  tab.reserve(hN);
-  for (u32 k = 0; k < hN; ++k) { tab.push_back(root1(hN, k)); }
+  tab.reserve(n/8 + 1);
+  for (u32 k = 0; k <= n/8; ++k) { tab.push_back(root1(n, k)); }
   return tab;
 }
 
@@ -384,12 +385,12 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 {
 
   {
-    log("start gen trig\n");
-    ConstBuffer<double2> bufBigTrig{context, "bigTrig", makeBigTrig(hN)};
-    Kernel writeTrig{program.get(), queue, device, "writeTrig", hN / 4};
-    writeTrig(bufBigTrig);
+    // log("start gen trig\n");
+    ConstBuffer<double2> bufTrig{context, "trig", makeTrig(2 * SMALL_H)};
+    Kernel writeTrigSH{program.get(), queue, device, 32, "writeTrigSH"};
+    writeTrigSH(SMALL_H / 4 + 1, bufTrig);
     finish();
-    log("wrote trig\n");
+    // log("wrote trig\n");
   }
   
   // dumpBinary(program.get(), "isa.bin");
