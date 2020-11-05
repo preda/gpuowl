@@ -356,7 +356,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
   LOAD(sum64, 256),
-  // LOAD(testKernel, 1),
 #undef LOAD_WS
 #undef LOAD
 
@@ -385,14 +384,17 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 {
 
   {
-    // log("start gen trig\n");
     ConstBuffer<double2> bufTrig{context, "trig", makeTrig(2 * SMALL_H)};
-    Kernel writeTrigSH{program.get(), queue, device, 32, "writeTrigSH"};
-    writeTrigSH(SMALL_H / 4 + 1, bufTrig);
+    Kernel{program.get(), queue, device, 32, "writeTrigSH"}(2 * SMALL_H / 8 + 1, bufTrig);
     finish();
-    // log("wrote trig\n");
   }
-  
+
+  {
+    ConstBuffer<double2> bufTrig{context, "trig", makeTrig(BIG_H)};
+    Kernel{program.get(), queue, device, 32, "writeTrigBH"}(BIG_H / 8 + 1, bufTrig);
+    finish();
+  }
+
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
   carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
