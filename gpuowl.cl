@@ -24,7 +24,6 @@ CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
 
 ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>          // Our own sin/cos implementation
-ROCM_SLOWTRIG                   // Use ROCm's private reduced-argument sin/cos
 
 DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
 STATS      enable stats about roundoff distribution and carry magnitude
@@ -223,6 +222,8 @@ typedef i32 Word;
 typedef int2 Word2;
 
 typedef i64 CarryABM;
+
+global T2 TRIG[ND];
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
@@ -1648,7 +1649,9 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 
 void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-  for (i32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[me / f + i * (WG / f)]); }
+  for (i32 i = 1; i < n; ++i) {
+    u[i] = mul(u[i], trig[me / f + i * (WG / f)]);
+  }
 }
 
 void shuflAndMul(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
@@ -1774,22 +1777,6 @@ double2 openclSlowTrig(i32 k, i32 n) {
   double s = sincos(M_PI / n * k, &c);
   return U2(c, -s);
 }
-
-#if ROCM_SLOWTRIG
-// ROCm OCML sin/cos which expect reduced argument.
-// These are faster than openclSlowTrig() because they skip the argument reduction.
-struct scret { double s; double c; };
-extern struct scret __ocmlpriv_sincosred2_f64(double x, double y);
-extern struct scret __ocmlpriv_sincosred_f64(double x);
-double2 ocmlCosSin(double x) {
-  // This has very similar accuracy and performance to our kCosSin(), and is affected by the same "mistify" bug.
-  // struct scret r = __ocmlpriv_sincosred2_f64(x, 0);
-  struct scret r = __ocmlpriv_sincosred_f64(x);
-  return U2(r.c, r.s);
-}
-#endif
-
-
 
 // Crappy little routine to centralize the workaround to a ROCM 3.1 optimizer bug
 
@@ -2099,45 +2086,46 @@ double kcospi(double k, double n) {
 
 double2 reducedCosSin(i32 k, i32 n) {
   assert(k <= n / 4);
-#if ROCM_SLOWTRIG
-  return ocmlCosSin((double)k * (M_PI / (double)n));
-#else
-  return U2(kcospi((double)k, (double)n), ksinpi((double)k, (double)n));
-#endif
+  return U2(kcospi((double)k, (double)n), -ksinpi((double)k, (double)n));
+  // return TRIG[k * (ND / 2 / n)];
 }
 
-// Returns e^(-i * pi * k/n)
-double2 slowTrig(i32 k, i32 n, i32 kBound) {
-  assert(n % 4 == 0);
-  assert(k >= 0);
+// Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
+// Inverse trigonometric direction is chosen as an FFT convention.
+double2 slowTrig(u32 k, u32 n, u32 kBound) {
+  assert(n % 8 == 0);
   assert(k < kBound);           // kBound actually bounds k
-  assert(kBound <= 4 * n);      // angle <= 4*pi
+  assert(kBound <= 2 * n);      // angle <= 2 tau
 
 #if ORIG_SLOWTRIG
-  return openclSlowTrig(k, n);
+  return openclSlowTrig(k, n/2);
 #else
 
-  if (kBound > 2 * n && k >= 2 * n) { k -= 2 * n; }
-  assert(k < 2 * n);
+  if (kBound > n && k >= n) { k -= n; }
+  assert(k < n);
 
-  bool negate = kBound > n && k >= n;
-  if (negate) { k -= n; }
+  bool negate = kBound > n/2 && k >= n/2;
+  if (negate) { k -= n/2; }
   
-  bool negateCos = kBound > n / 2 && k >= n / 2;
-  if (negateCos) { k = n - k; }
+  bool negateCos = kBound > n / 4 && k >= n / 4;
+  if (negateCos) { k = n/2 - k; }
   
-  bool flip = kBound > n / 4 && k > n / 4;
-  if (flip) { k = n / 2 - k; }
+  bool flip = kBound > n / 8 && k > n / 8;
+  if (flip) { k = n / 4 - k; }
 
-  assert(k <= n / 4);
-  double2 r = reducedCosSin(k, n);
+  assert(k <= n / 8);
+  double2 r = reducedCosSin(k, n/2);
 
-  if (flip) { r = swap(r); }
+  if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }
   if (negate) { r = -r; }
-  return U2(r.x, -r.y);  
+  return U2(r.x, r.y);
 #endif
 }
+
+double2 slowTrig_BH(u32 k, u32 kBound)  { return slowTrig(k, BIG_HEIGHT, kBound); }
+double2 slowTrig_2SH(u32 k, u32 kBound) { return slowTrig(k, 2 * SMALL_HEIGHT, kBound); }
+double2 slowTrig_N(u32 k, u32 kBound)   { return slowTrig(k, ND, kBound); }
 
 // transpose LDS 64 x 64.
 void transposeLDS(local T *lds, T2 *u) {
@@ -2198,6 +2186,13 @@ void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out)
 typedef CP(T2) Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
+
+KERNEL(256) writeTrig(const global T2* in) {
+  u32 gid = get_global_id(0);
+  for (u32 k = 0; k < ND; k += get_global_size(0)) {
+    TRIG[gid + k] = in[gid + k];
+  }
+}
 
 // Read 64 Word2 starting at position 'startDword'.
 KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
@@ -2436,10 +2431,10 @@ void middleMul(T2 *u, u32 s, Trig trig) {
 
 // This is our slowest version - used when we are extremely worried about round off error.
 // Maximum multiply chain length is 1.
-  T2 w = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  T2 w = slowTrig_BH(s, SMALL_HEIGHT);
   WADD(1, w);
   if ((MIDDLE - 2) % 3) {
-    T2 base = slowTrig(s * 2, BIG_HEIGHT / 2, SMALL_HEIGHT * 2);
+    T2 base = slowTrig_BH(s * 2, SMALL_HEIGHT * 2);
     WADD(2, base);
     if ((MIDDLE - 2) % 3 == 2) {
       WADD(3, base);
@@ -2447,7 +2442,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
     }
   }
   for (i32 i = (MIDDLE - 2) % 3 + 3; i < MIDDLE; i += 3) {
-    T2 base = slowTrig(s * i, BIG_HEIGHT / 2, SMALL_HEIGHT * i);
+    T2 base = slowTrig_BH(s * i, SMALL_HEIGHT * i);
     WADD(i - 1, base);
     WADD(i, base);
     WADD(i + 1, base);
@@ -2459,7 +2454,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
 
 // This is our second and third fastest versions - used when we are somewhat worried about round off error.
 // Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
-  T2 w = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  T2 w = slowTrig_BH(s, SMALL_HEIGHT);
   WADD(1, w);
   WADD(2, sq(w));
   i32 group_start, group_size;
@@ -2470,7 +2465,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
     group_size = MIDDLE - 3;
 #endif
     i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig(s * midpoint, BIG_HEIGHT / 2, SMALL_HEIGHT * midpoint);
+    T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint);
     T2 base2 = base;
     WADD(midpoint, base);
     for (i32 i = 1; i <= group_size / 2; ++i) {
@@ -2490,7 +2485,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
   
 #else
   
-  T2 w = slowTrig(s, BIG_HEIGHT / 2, SMALL_HEIGHT);
+  T2 w = slowTrig_BH(s, SMALL_HEIGHT);
   WADD(1, w);
   T2 base = sq(w);
   for (i32 i = 2; i < MIDDLE; ++i) {
@@ -2508,9 +2503,9 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
 
 // This is our slowest version - used when we are extremely worried about round off error.
 // Maximum multiply chain length is 1.
-  T2 w = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  T2 w = slowTrig_N(g * SMALL_HEIGHT, ND / MIDDLE);
   if (MIDDLE % 3) {
-    T2 base = slowTrig(g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT) * factor;
+    T2 base = slowTrig_N(g * me, ND / MIDDLE) * factor;
     WADD(0, base);
     if (MIDDLE % 3 == 2) {
       WADD(1, base);
@@ -2518,7 +2513,7 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
     }
   }
   for (i32 i = MIDDLE % 3 + 1; i < MIDDLE; i += 3) {
-    T2 base = slowTrig(g * SMALL_HEIGHT * i + g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT * (i + 1)) * factor;
+    T2 base = slowTrig_N(g * SMALL_HEIGHT * i + g * me, ND / MIDDLE * (i + 1)) * factor;
     WADD(i - 1, base);
     WADD(i, base);
     WADD(i + 1, base);
@@ -2530,7 +2525,7 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
 
 // This is our second and third fastest versions - used when we are somewhat worried about round off error.
 // Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
-  T2 w = slowTrig(g * SMALL_HEIGHT, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT);
+  T2 w = slowTrig_N(g * SMALL_HEIGHT, ND / MIDDLE);
   i32 group_start, group_size;
   for (group_start = 0; group_start < MIDDLE; group_start += group_size) {
 #if MM2_CHAIN == 2
@@ -2539,7 +2534,7 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
     group_size = MIDDLE;
 #endif
     i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig(g * SMALL_HEIGHT * midpoint + g * me, BIG_HEIGHT * WIDTH / 2, WIDTH * SMALL_HEIGHT * (midpoint + 1)) * factor;
+    T2 base = slowTrig_N(g * SMALL_HEIGHT * midpoint + g * me, ND / MIDDLE * (midpoint + 1)) * factor;
     T2 base2 = base;
     WADD(midpoint, base);
     for (i32 i = 1; i <= group_size / 2; ++i) {
@@ -2555,8 +2550,8 @@ void middleMul2(T2 *u, u32 g, u32 me, double factor) {
 
 // This is our fastest version - used when we are not worried about round off error.
 // Maximum multiply chain length equals MIDDLE.
-  T2 w = slowTrig(g * SMALL_HEIGHT, ND / 2, WIDTH * SMALL_HEIGHT);
-  T2 base = slowTrig(g * me, ND / 2, WIDTH * SMALL_HEIGHT) * factor;
+  T2 w = slowTrig_N(g * SMALL_HEIGHT, ND/MIDDLE);
+  T2 base = slowTrig_N(g * me, ND/MIDDLE) * factor;
   for (i32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], base);
     base = mul(base, w);
@@ -3171,7 +3166,7 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
   T2 c = in[k];
   T2 d = in[v];
 #endif
-  onePairMul(a, b, c, d, swap_squared(slowTrig(me * H + line1, W * H / 2, W * H / 4)));
+  onePairMul(a, b, c, d, swap_squared(slowTrig_N(me * H + line1, ND / 4)));
   io[k] = a;
   io[v] = b;
 }
@@ -3215,16 +3210,16 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);    
-    pairSq(NH/2, u,   u + NH/2, slowTrig(me, W / 2, W / 4), true);
+    pairSq(NH/2, u,   u + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2), true);
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, slowTrig(1 + 2 * me, W, W / 2), false);
+    pairSq(NH/2, v,   v + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2), false);
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, slowTrig(line1 + me * H, ND / 2, ND / 4), false);
+    pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / 4), false);
     reverseLine(G_H, lds, v);
   }
 
@@ -3309,19 +3304,19 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   if (line1 == 0) {
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig(me, W / 2, W / 4), true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2), true);
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
 
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
-    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig(1 + 2 * me, W, W / 2), false);
+    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2), false);
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig(line1 + me * H, W * H / 2, W * H / 4), false);
+    pairMul(NH, u, v, p, q, slowTrig_N(line1 + me * H, ND / 4), false);
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }

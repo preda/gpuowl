@@ -91,6 +91,13 @@ static ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u3
   return {context, "middleTrig", tab};
 }
 
+static vector<double2> makeBigTrig(u32 hN) {
+  vector<double2> tab;
+  tab.reserve(hN);
+  for (u32 k = 0; k < hN; ++k) { tab.push_back(root1(hN, k)); }
+  return tab;
+}
+
 static u32 kAt(u32 H, u32 line, u32 col) {
   return (line + col * H) * 2;
 }
@@ -375,6 +382,16 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   buf3{queue, "buf3", N},
   args{args}
 {
+
+  {
+    log("start gen trig\n");
+    ConstBuffer<double2> bufBigTrig{context, "bigTrig", makeBigTrig(hN)};
+    Kernel writeTrig{program.get(), queue, device, "writeTrig", hN / 4};
+    writeTrig(bufBigTrig);
+    finish();
+    log("wrote trig\n");
+  }
+  
   // dumpBinary(program.get(), "isa.bin");
   program.reset();
   carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
