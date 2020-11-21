@@ -2071,9 +2071,19 @@ double kcospi(u32 k, u32 n) {
 
 #endif
 
-double2 reducedCosSin(u32 k, u32 n) {
-  assert(k <= n / 8);
-  return U2(kcospi(k, n/2), -ksinpi(k, n/2));
+double2 coreCosSin(u32 km, u32 N, double8 COSTAB, double8 SINTAB) {
+  return U2(0, 0);
+}
+
+// N represents a full circle, so N/2 is pi radians and N/8 is pi/4 radians.
+double2 reducedCosSin(u32 k, u32 N) {
+  assert(k <= N/8);
+#if 0 && MIDDLE == 11
+  
+  
+#else
+  return U2(kcospi(k, N/2), -ksinpi(k, N/2));
+#endif
 }
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
@@ -2807,7 +2817,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) groupWeigh
     T2 x = conjugate(in[p]) * U2(w1, w2);
     
 #if STATS
-    roundMax = max(roundMax, roundoff(conjugate(in[p]), A[p]));
+    roundMax = max(roundMax, roundoff(conjugate(in[p]), U2(w1, w2)));
 #endif
     
 #if DO_MUL3
@@ -2926,7 +2936,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP_MINUS_1));
 
 #if STATS
-    roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight, invWeight2)));
+    roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight1, invWeight2)));
 #endif
 
     u[i] = conjugate(u[i]) * U2(invWeight1, invWeight2);
