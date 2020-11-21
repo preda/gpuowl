@@ -1781,23 +1781,9 @@ double2 openclSlowTrig(i32 k, i32 n) {
   return U2(c, -s);
 }
 
-// Crappy little routine to centralize the workaround to a ROCM 3.1 optimizer bug
-
-double internal_kcos(double x, double z, double C0, const double C1, const double C2, const double C3, const double C4, const double C5, const double C6) {
+double internal_kcos(double z, double C0, const double C1, const double C2, const double C3, const double C4, const double C5, const double C6) {
   double r = (((((C6 * z + C5) * z + C4) * z + C3) * z + C2) * z + C1) * z + C0;
-#if WORKAROUND
-  // The condition below is never hit,
-  // it is here just to workaround a ROCm 3.1 maddening codegen bug.
-  if (as_int2(x).y == -1) { return x; }  
-#endif
-#if HAS_ASM
-  // the raw v_fma_f64 below seems to improve VGPR allocation on ROCm 3.3.0
-  double out;
-  __asm("v_fma_f64 %0, %1, %2, 1.0" : "=v"(out) : "v"(r), "v"(z));
-  return out;
-#else
-  return r * z + 1;
-#endif
+  return fma(r, z, 1);
 }
 
 #if ULTRA_TRIG
@@ -1858,9 +1844,8 @@ double ksinpi(double k, const double n) {
   return fma(x, S0, r);
 }
 
-double kcospi(double k, double n) {
+double kcospi(u32 k, u32 n) {
   const double multiplier = 539.0,
-//C00 = +9.99999999999999999969670443201471068399669429945726867342133369e-01,
   C0 = -1.698604300737185693048465825427633266769E-5,
   C1 = 4.808760950804748019121160356966644623911E-11,
   C2 = -5.445454688158452834881141960218009821120E-17,
@@ -1870,8 +1855,7 @@ double kcospi(double k, double n) {
   C6 = -5.928989282444938427562078649290929437781E-43;
   double x = k * (multiplier / n);
   double z = x * x;
-//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1.0);
-  return internal_kcos(x, z, C0, C1, C2, C3, C4, C5, C6);
+  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1);
 }
 
 // This should be the best choice for MIDDLE=11.  For reasons I cannot explain, the Sun coefficients beat this
@@ -2055,7 +2039,7 @@ double kcospi(double k, double n) {
  * is preserved.
  * ====================================================
  */
-double ksinpi(double k, const double n) {
+double ksinpi(u32 k, u32 n) {
   // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
   // Excellent accuracy in [-pi/4, pi/4]
   const double
@@ -2065,32 +2049,31 @@ double ksinpi(double k, const double n) {
   S4 = +0x1.71de3796cde01p-19, // +2.75573161037288024585e-06 3ec71de3'796cde01
   S5 = -0x1.ae600b42fdfa7p-26, // -2.50511320680216983368e-08 be5ae600'b42fdfa7
   S6 = +0x1.5e0b2f9a43bb8p-33; // +1.59181443044859141215e-10 3de5e0b2'f9a43bb8
-  double x = k * M_PI / n;
+  double x = k * (M_PI / n);
   double z = x * x;
-  return (((((S6 * z + S5) * z + S4) * z + S3) * z + S2) * z + S1) * z * x + x;
+  return fma(fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1), z * x, x);;
 }
 
-double kcospi(double k, double n) {
+double kcospi(u32 k, u32 n) {
   // Coefficients from http://www.netlib.org/fdlibm/k_cos.c
-  const double 
+  const double
+  C0  = -0.5,
   C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
   C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
   C3  =  2.48015872894767294178e-05, /* 0x3EFA01A0, 0x19CB1590 */
   C4  = -2.75573143513906633035e-07, /* 0xBE927E4F, 0x809C52AD */
   C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
   C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
-  double x = k * M_PI / n;
+  double x = k * (M_PI / n);
   double z = x * x;
-//  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, -0.5), z, 1.0);
-  return internal_kcos(x, z, -0.5, C1, C2, C3, C4, C5, C6);
+  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1);
 }
 
 #endif
 
-double2 reducedCosSin(i32 k, i32 n) {
-  assert(k <= n / 4);
-  return U2(kcospi((double)k, (double)n), -ksinpi((double)k, (double)n));
-  // return TRIG[k * (ND / 2 / n)];
+double2 reducedCosSin(u32 k, u32 n) {
+  assert(k <= n / 8);
+  return U2(kcospi(k, n/2), -ksinpi(k, n/2));
 }
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
@@ -2117,7 +2100,7 @@ double2 slowTrig(u32 k, u32 n, u32 kBound) {
   if (flip) { k = n / 4 - k; }
 
   assert(k <= n / 8);
-  double2 r = reducedCosSin(k, n/2);
+  double2 r = reducedCosSin(k, n);
 
   if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }
