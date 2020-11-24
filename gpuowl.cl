@@ -1829,33 +1829,25 @@ double kcospi(double k, double n) {
 
 #elif MIDDLE == 11
 
-double ksinpi(double k, const double n) {
-  const double multiplier = 539.0,
-  S0 = 5.828557798867890962106671347852646585212E-3,
-  S1 = -3.300137781417411531540293347302792710111E-8,
-  S2 = 5.605628228532181378177505648548736745005E-14,
-  S3 = -4.534163910132042597715347205657402108321E-20,
-  S4 = 2.139374635723981645104361937982862431407E-26,
-  S5 = -6.606817992842764145822571551568922079087E-33,
-  S6 = 1.424123767080045593573893583992121444025E-39;
-  double x = k * (multiplier / n);
+double ksinpi(u32 k, u32 n) {
+  // const double S[] = {0.005492294848933205,-2.761278944626038e-08,4.1647407612374865e-14,-2.9912063263788177e-20,1.2532031863362935e-26,-3.4364949357849832e-33,6.5816772637974481e-40, 143 * 4};
+  
+  const double S[] = {5.828557798867890962106671347852646585212E-3,-3.300137781417411531540293347302792710111E-8,5.605628228532181378177505648548736745005E-14,-4.534163910132042597715347205657402108321E-20,2.139374635723981645104361937982862431407E-26,-6.606817992842764145822571551568922079087E-33,1.424123767080045593573893583992121444025E-39, 539};
+  
+  double x = S[7] / n * k;
   double z = x * x;
-  double r = fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1) * (z * x);
-  return fma(x, S0, r);
+  double r = fma(fma(fma(fma(fma(S[6], z, S[5]), z, S[4]), z, S[3]), z, S[2]), z, S[1]) * z * x;
+  return fma(x, S[0], r);
 }
 
 double kcospi(u32 k, u32 n) {
-  const double multiplier = 539.0,
-  C0 = -1.698604300737185693048465825427633266769E-5,
-  C1 = 4.808760950804748019121160356966644623911E-11,
-  C2 = -5.445454688158452834881141960218009821120E-17,
-  C3 = 3.303454552210884737625467277247980235463E-23,
-  C4 = -1.246946859168030175920542131923003412512E-29,
-  C5 = 3.209016057314560700103210242948787629348E-36,
-  C6 = -5.928989282444938427562078649290929437781E-43;
-  double x = k * (multiplier / n);
+  // const double C[] = {-1.5082651353809108e-05,3.7914395310092582e-11,-3.8123307049954028e-17,2.0535733847563737e-23,-6.8829596395036851e-30,1.5727926864212422e-36,-2.5737325744028274e-43, 143 * 4};
+  
+  const double C[] = {-1.698604300737185693048465825427633266769E-5,4.808760950804748019121160356966644623911E-11,-5.445454688158452834881141960218009821120E-17,3.303454552210884737625467277247980235463E-23,-1.246946859168030175920542131923003412512E-29,3.209016057314560700103210242948787629348E-36,-5.928989282444938427562078649290929437781E-43, 539};
+
+  double x = C[7] / n * k;
   double z = x * x;
-  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1);
+  return fma(fma(fma(fma(fma(fma(fma(C[6], z, C[5]), z, C[4]), z, C[3]), z, C[2]), z, C[1]), z, C[0]), z, 1);
 }
 
 // This should be the best choice for MIDDLE=11.  For reasons I cannot explain, the Sun coefficients beat this
@@ -2040,50 +2032,33 @@ double kcospi(double k, double n) {
  * ====================================================
  */
 double ksinpi(u32 k, u32 n) {
+  // const double S[] = {-0.16666666666666455,0.0083333333332988729,-0.00019841269816529426,2.7557310051600518e-06,-2.5050279451232251e-08,1.5872611854244144e-10};
+
   // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
-  // Excellent accuracy in [-pi/4, pi/4]
-  const double
-  S1 = -0x1.5555555555555p-3,  // -1.66666666666666657415e-01 bfc55555'55555555
-  S2 = +0x1.1111111110bb3p-7,  // +8.33333333333094970763e-03 3f811111'11110bb3
-  S3 = -0x1.a01a019e83e5cp-13, // -1.98412698367611268872e-04 bf2a01a0'19e83e5c
-  S4 = +0x1.71de3796cde01p-19, // +2.75573161037288024585e-06 3ec71de3'796cde01
-  S5 = -0x1.ae600b42fdfa7p-26, // -2.50511320680216983368e-08 be5ae600'b42fdfa7
-  S6 = +0x1.5e0b2f9a43bb8p-33; // +1.59181443044859141215e-10 3de5e0b2'f9a43bb8
-  double x = k * (M_PI / n);
+  const double S[] = {-1.66666666666666657415e-01,8.33333333333094970763e-03,-1.98412698367611268872e-04,+2.75573161037288024585e-06,-2.50511320680216983368e-08,+1.59181443044859141215e-10};
+  
+  double x = M_PI / n * k;
   double z = x * x;
-  return fma(fma(fma(fma(fma(fma(S6, z, S5), z, S4), z, S3), z, S2), z, S1), z * x, x);;
+  return fma(fma(fma(fma(fma(fma(S[5], z, S[4]), z, S[3]), z, S[2]), z, S[1]), z, S[0]) * z, x, x);
 }
 
 double kcospi(u32 k, u32 n) {
+  // const double C[] = {-0.5,0.041666666666665589,-0.0013888888888779014,2.4801587246942509e-05,-2.7557304501248813e-07,2.0874583610048953e-09,-1.1307548621486489e-11};
+
   // Coefficients from http://www.netlib.org/fdlibm/k_cos.c
-  const double
-  C0  = -0.5,
-  C1  =  4.16666666666666019037e-02, /* 0x3FA55555, 0x5555554C */
-  C2  = -1.38888888888741095749e-03, /* 0xBF56C16C, 0x16C15177 */
-  C3  =  2.48015872894767294178e-05, /* 0x3EFA01A0, 0x19CB1590 */
-  C4  = -2.75573143513906633035e-07, /* 0xBE927E4F, 0x809C52AD */
-  C5  =  2.08757232129817482790e-09, /* 0x3E21EE9E, 0xBDB4B1C4 */
-  C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
-  double x = k * (M_PI / n);
+  const double C[] = {-0.5,4.16666666666666019037e-02,-1.38888888888741095749e-03,2.48015872894767294178e-05,-2.75573143513906633035e-07,2.08757232129817482790e-09,-1.13596475577881948265e-11};
+  
+  double x = M_PI / n * k;
   double z = x * x;
-  return fma(fma(fma(fma(fma(fma(fma(C6, z, C5), z, C4), z, C3), z, C2), z, C1), z, C0), z, 1);
+  return fma(fma(fma(fma(fma(fma(fma(C[6], z, C[5]), z, C[4]), z, C[3]), z, C[2]), z, C[1]), z, C[0]), z, 1);
 }
 
 #endif
-
-double2 coreCosSin(u32 km, u32 N, double8 COSTAB, double8 SINTAB) {
-  return U2(0, 0);
-}
 
 // N represents a full circle, so N/2 is pi radians and N/8 is pi/4 radians.
 double2 reducedCosSin(u32 k, u32 N) {
   assert(k <= N/8);
-#if 0 && MIDDLE == 11
-  
-  
-#else
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
-#endif
 }
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
@@ -2734,6 +2709,8 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   // Finally, roundoff errors are sometimes improved if we use the next lower double precision
   // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
   double factor = 1.0 / (4 * 4 * NWORDS);
+
+#if 0
 #if MAX_ACCURACY && (MIDDLE == 4 || MIDDLE == 5 || MIDDLE == 10 || MIDDLE == 11 || MIDDLE == 13)
   long tmp = as_long(factor);
   tmp--;
@@ -2742,6 +2719,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   long tmp = as_long(factor);
   tmp -= 2;
   factor = as_double(tmp);
+#endif
 #endif
 
   middleMul2(u, starty + my, startx + mx, factor);
