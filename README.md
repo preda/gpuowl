@@ -104,7 +104,7 @@ To build simply invoke "make" (or look inside the Makefile for a manual build).
 ## See \"gpuowl -h\" for the command line options.
 
 ## Self-test
-Simply start GpuOwl with any valid exponent, and the built-in error checking kicks in, validating the computation. If you start seeing output lines with "OK", than it's working correctly. "EE" lines indicate computation errors.
+Simply start GpuOwl with any valid exponent, and the built-in error checking kicks in, validating the computation. If you start seeing output lines with "OK", then it's working correctly. "EE" lines indicate computation errors.
 
 ## Command-line Arguments
 ```
