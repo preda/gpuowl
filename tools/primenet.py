@@ -83,7 +83,7 @@ workTypes = dict(PRP=150, PM1=4, LL_DC=101, PRP_DC=151, PRP_WORLD_RECORD=152, PR
 parser = argparse.ArgumentParser()
 parser.add_argument('-u', dest='username', default='', help="Primenet user name")
 parser.add_argument('-p', dest='password', help="Primenet password")
-parser.add_argument('-t', dest='timeout',  type=int, default=3600, help="Seconds to sleep between updates")
+parser.add_argument('-t', dest='timeout',  type=int, default=1800, help="Seconds to sleep between updates")
 parser.add_argument('--dirs', metavar='DIR', nargs='+', help="GpuOwl directories to scan", default=".")
 parser.add_argument('--tasks', dest='nTasks', type=int, default=None, help='Number of tasks to fetch ahead')
 
@@ -152,6 +152,8 @@ while True:
         except urllib.error.URLError as e:
             print(e)
         except requests.exceptions.ConnectionError as e:
+            print(e)
+        except requests.exceptions.RequestException as e:
             print(e)
 
     if timeout == 0:

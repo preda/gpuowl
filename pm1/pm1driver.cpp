@@ -18,5 +18,5 @@ int main(int argc, char*argv[]) {
   u32 B2 = atoi(argv[4]);
 
   auto [p1, p2] = pm1(exponent, factored, B1, B2);
-  printf("%.2f%% (first-stage %.2f%%, second-stage %.2f%%)\n", (p1 + p2)*100, p1*100, p2*100);
+  printf("%.3f%% (first-stage %.3f%%, second-stage %.3f%%)\n", (p1 + p2)*100, p1*100, p2*100);
 }
