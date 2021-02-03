@@ -1,12 +1,18 @@
-#include "pm1prob.h"
 #include <cmath>
 #include <cstdlib>
+#include <cstdint>
 #include <cassert>
+#include <cstdio>
+
 #include <tuple>
-// #include <cstdio>
+#include <utility>
+#include <string>
+#include <vector>
+#include <array>
 
 using namespace std;
-using u32 = unsigned;
+using u32 = uint32_t;
+using u64 = uint64_t;
 
 // Table of values of Dickman's "rho" function for argument from 2 in steps of 1/40.
 // Was generated using dickman_rho() in SageMath (see https://sagecell.sagemath.org/ or https://cocalc.com/ )
@@ -74,7 +80,9 @@ double pSecondStage(double alpha, double beta) {
 }
 
 // Returns the probability of PM1(B1,B2) success for a Mersenne 2^exponent -1 already TF'ed to factoredUpTo.
-std::pair<double, double> pm1(unsigned exponent, unsigned factoredUpTo, unsigned B1, unsigned B2) {
+std::pair<double, double> pm1(double exponent, u32 factoredUpTo, u32 B1, u32 B2) {
+  // printf("%u %u\n", B1, B2);
+  
   // Mersenne factors have special form 2*k*p+1 for M(p)
   // so sustract log2(exponent) + 1 to obtain the magnitude of the "k" part.
   double takeAwayBits = log2(exponent) + 1;
@@ -89,26 +97,152 @@ std::pair<double, double> pm1(unsigned exponent, unsigned factoredUpTo, unsigned
   // so log2(middle) is n + log2(1 + 2^SLICE_WIDTH) - 1.
   constexpr double SLICE_MIDDLE = log2(1 + exp2(SLICE_WIDTH)) - 1;
   
-  // The bit-size of a representative factor from the current slice.
-  double bitsFactor = factoredUpTo + SLICE_MIDDLE - takeAwayBits;
-
-  double bitsB1 = log2(B1);
-  double bitsB2 = log2(B2);
-  
-  double alpha = bitsFactor / bitsB1;
+  const double bitsB1 = log2(B1);
+  const double bitsB2 = log2(B2);  
   const double beta  = bitsB2 / bitsB1;
   assert(beta >= 1);
-  
+
   double sum1 = 0;
   double sum2 = 0;
-
-  for (double bitPos = factoredUpTo + SLICE_MIDDLE; bitPos < BIT_END; alpha += SLICE_WIDTH / bitsB1, bitPos += SLICE_WIDTH) {
+  
+  for (double bitPos = factoredUpTo + SLICE_MIDDLE, alpha = (bitPos - takeAwayBits) / bitsB1; bitPos < BIT_END; bitPos += SLICE_WIDTH, alpha += SLICE_WIDTH / bitsB1) {
     double sliceProb = SLICE_WIDTH / bitPos;
     double p1 = pFirstStage(alpha) * sliceProb;
     double p2 = pSecondStage(alpha, beta) * sliceProb;
     double p = p1 + p2;
     sum1 += fma(p1, -sum1, p1);
     sum2 += fma(p,  -sum2, p);
+    // printf("%f %f %f\n", bitPos, p1, p2);
   }
   return {sum1, sum2 - sum1};
+}
+
+// Approximation of the number of primes <= n.
+// The correction term "-1.06" was determined experimentally to improve the approximation.
+double primepi(double n) { return (n > 0) ? n / (log(n) - 1.06) : 0; }
+
+double nPrimesBetween(double B1, double B2) { return (B2 <= B1) ? 0 : (primepi(B2) - primepi(B1)); }
+
+// factorBias indicates how much a factor is desired, e.g.:
+// factorBias == 1 indicates that a factor has the same value as a PRP "composite" status.
+// factorBias == 2 indicates that a factor has double the value of a PRP "composite" status.
+double work(double exponent, u32 factored, double B1, double B2, double factorBias) {
+  const constexpr double factorP1 = 1.4 / 9, factorP2 = 0.7;  
+  
+  auto [p1, p2] = pm1(exponent, factored, B1, B2);
+  // printf("%f %f %f %f\n", B1, B2, p1, p2);
+  double iterationsP1 = 1.442 * B1;
+  double workP1 = iterationsP1 * (1 + factorP1);
+  double workP2 = factorP2 * nPrimesBetween(B1, B2);
+
+  // The two branches below are equivalent (achieve the same bounds)
+  #if 0
+  double workAfterP1 = p2 * (workP2 / 2) + (1 - p2) * (workP2 + exponent * factorBias - iterationsP1);
+  double w = workP1 + (1 - p1) * workAfterP1;
+  #else
+  double bonus = (factorBias - 1) * exponent;
+  double workAfterP1 = p2 * (workP2 / 2 - bonus) + (1 - p2) * (workP2 + exponent - iterationsP1);
+  double w = workP1 - p1 * bonus + (1 - p1) * workAfterP1;
+  #endif
+  return w;
+}
+
+tuple<double, double> stageWork(double exponent, u32 factored, double B1, double B2) {
+  const constexpr double factorP1 = 1.4 / 9, factorP2 = 0.7;
+  auto [p1, p2] = pm1(exponent, factored, B1, B2);
+  double iterationsP1 = 1.442 * B1;
+  double workP1 = iterationsP1 * factorP1;
+  double workP2 = factorP2 * nPrimesBetween(B1, B2);
+  return {workP1 / exponent, workP2 / exponent};
+}
+
+const constexpr u32 B1s[] = {500000, 550000, 600000, 650000, 700000, 750000, 800000, 900000, 1000000, 1100000, 1200000, 1300000, 1400000, 1500000, 1600000, 1700000, 1800000, 2000000, 2200000, 2400000, 2600000, 2800000, 3000000, 3200000, 3400000, 3600000, 4000000, 4500000, 5000000, 5500000, 6000000, 6500000, 7000000, 7500000, 8000000, 9000000, 10000000, 11000000, 12000000, 13000000, 14000000, 15000000};
+
+std::pair<double, double> scanBounds(double exponent, u32 factored, double factorBias, u32 fixedB1 = 0, u32 fixedB2 = 0) {
+  vector<u32> b1s, b2s;
+  
+  if (fixedB1) {
+    b1s.push_back(fixedB1);
+  } else {
+    for (u32 b : B1s) { b1s.push_back(b); }
+  }
+  
+  if (fixedB2) {
+    b2s.push_back(fixedB2);    
+  } else {
+    for (u32 b : B1s) { b2s.push_back(b * 20); }
+  }
+
+  double best = 1e20;
+  u32 bestB1 = 0, bestB2 = 0;
+  for (u32 b2 : b2s) {
+    for (u32 b1 : b1s) {
+      if (b1 <= b2) {
+        if (double w = work(exponent, factored, b1, b2, factorBias); w < best) {
+          best = w;
+          bestB1 = b1;
+          bestB2 = b2;
+        }
+      }
+    }
+  }
+  return {bestB1, bestB2};
+}
+
+static u32 parse(const string& s) {
+  u32 len = s.size();
+  assert(len);
+  char c = s[len - 1];
+  u32 multiple = (c == 'M' || c == 'm') ? 1'000'000 : ((c == 'K' || c == 'k') ? 1000 : 1);
+  return atof(s.c_str()) * multiple;
+}
+
+void printBounds(double exponent, double factored, double B1, double B2) {
+  auto [p1, p2] = pm1(exponent, factored, B1, B2);
+  auto [p3, p4] = pm1(exponent, factored, B2, B2);
+  assert(p4 == 0);
+  double p = p1 + p2;
+  auto [w1, w2] = stageWork(exponent, factored, B1, B2);
+  printf("B1=%.1fM B2=%5.1fM | %.3f%% (%.3f%% + %.3f%%) | work %.3f%% (%.3f%% + %.3f%%) | B2/B1=%.0f, tail %.3f%%\n",
+         B1/1'000'000, B2/1'000'000, p * 100, p1 * 100, p2 * 100, (w1 + w2) * 100, w1 * 100, w2 * 100, B2 / B1, (p3 - p) * 100);
+}
+
+int main(int argc, char*argv[]) {
+  if (argc < 3) {
+    printf(R"(Usage: %s <exponent> <factoredTo> [-B1 <B1>] [-B2 <B2>] [-bias <factor-bias>]
+Examples:
+%s 100M 76
+%s 102M 76 -B1 2.8M -B2 150M
+%s 102.5M 77 -bias 1.5
+)", argv[0], argv[0], argv[0], argv[0]);
+    return 1;
+  }
+  
+  u32 exponent = parse(argv[1]);
+  u32 factored = parse(argv[2]);
+  u32 B1 = 0, B2 = 0;
+  double factorBias = -1;
+  
+  int pos = 3;
+  while (pos + 1 < argc) {  
+    if ("-B1"s == argv[pos]) {
+      B1 = parse(argv[pos + 1]);
+    } else if ("-B2"s == argv[pos]) {
+      B2 = parse(argv[pos + 1]);
+    } else if ("-bias"s == argv[pos]) {
+      factorBias = atof(argv[pos + 1]);
+      assert(factorBias > 0);
+    } else {
+      printf("Unrecognized '%s'\n", argv[pos]);
+      --pos;
+    }
+    pos += 2;    
+  }
+
+  auto points = factorBias > 0 ? vector{factorBias} : vector{1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0};
+  
+  for (double bias : points) {
+    auto [bestB1, bestB2] = scanBounds(exponent, factored, bias, B1, B2);
+    printBounds(exponent, factored, bestB1, bestB2);
+  }
 }

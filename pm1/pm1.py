@@ -132,7 +132,7 @@ class ProbSum:
         return self.prod
     
 class PM1:
-    SLICE_WIDTH = 0.5
+    SLICE_WIDTH = 0.25
     MIDDLE_SHIFT = log2(1 + 2**SLICE_WIDTH) - 1
 
 
@@ -157,12 +157,13 @@ class PM1:
         beta = bitsB2 / bitsB1
         assert(beta >= 1)
         
-        invSliceProb = self.factoredTo / self.SLICE_WIDTH + 0.5
+        invSliceProb = (self.factoredTo + self.MIDDLE_SHIFT) / self.SLICE_WIDTH
         acc = ProbSum()
         
-        while invSliceProb * self.SLICE_WIDTH < 300:
+        while invSliceProb * self.SLICE_WIDTH < 175:
             p1, p2 = probs(alpha, beta)
             sliceProb = 1 / invSliceProb
+            # print(invSliceProb * self.SLICE_WIDTH, p1 * sliceProb, p2 * sliceProb)
             acc.add(p1 * sliceProb, p2 * sliceProb)
             alpha += alphaStep
             invSliceProb += 1
@@ -170,11 +171,12 @@ class PM1:
         return acc.get()
 
     def work(self, B1, B2):
-        factorP1 = 1.1
+        factorP1 = 1.2
         factorP2 = 0.7
         penalty = 1 + self.nfPenalty
         p1, p = self.pm1(B1, B2)
         p2 = p - p1
+        # print(p1, p2)
         iterationsP1 = B1 * 1.442
 
         workP1 = iterationsP1 * factorP1
@@ -189,6 +191,8 @@ class PM1:
         w2 = (1 - p1) * workAfterP1
         w = workP1 + w2
         iexp = 1 / self.exponent
+        # print(w * iexp)
+        # print(1 - (w * iexp - self.nfPenalty))
         return (w * iexp, (workP1 - iterationsP1) * iexp, workP2 * iexp)
     
     def gain(self, B1, B2):
@@ -198,7 +202,7 @@ class PM1:
     def walk(self, B1=None, B2=None, debug=None):
         fixB1, fixB2 = B1, B2
         b1s = [fixB1] if fixB1 else niceRange(500000, 10000000)
-        b2s = [fixB2] if fixB2 else niceRange(10000000, 250000000)
+        b2s = [fixB2] if fixB2 else niceRange(10000000, 300000000)
         debug and print(b1s, b2s)
 
         allBest = -100
@@ -218,7 +222,7 @@ class PM1:
             if best >= allBest:
                 allBest = best
                 bounds = (bestB1, B2)
-        debug and print(bounds, allBest)
+        debug and print(bounds, allBest)        
         return bounds
 
     def printResult(self, bounds):
@@ -301,7 +305,8 @@ if __name__ == "__main__":
             args = args[1:]
 
     c = PM1(exponent, factored, useMergedP1, noFactorPenalty)
-    bounds = (B1, B2) if B1 and B2 else c.walk(B1, B2, debug)
+    bounds = (B1, B2) if (B1 and B2) else c.walk(B1, B2, debug)
+    print(bounds)
     c.printResult(bounds)
     # print(c.expectedWork(B1, B2))
             
