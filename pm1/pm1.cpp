@@ -81,13 +81,11 @@ double pSecondStage(double alpha, double beta) {
 
 // Returns the probability of PM1(B1,B2) success for a Mersenne 2^exponent -1 already TF'ed to factoredUpTo.
 std::pair<double, double> pm1(double exponent, u32 factoredUpTo, u32 B1, u32 B2) {
-  // printf("%u %u\n", B1, B2);
-  
   // Mersenne factors have special form 2*k*p+1 for M(p)
   // so sustract log2(exponent) + 1 to obtain the magnitude of the "k" part.
   double takeAwayBits = log2(exponent) + 1;
 
-  // We consider factors of bit-size up to BIT_END (the total contribution of larger factors being negligeable)
+  // We consider factors of bit-size up to BIT_END -- the total contribution of larger factors being negligeable.
   constexpr double BIT_END = 175;
   
   // We walk the bit-range [factoredUpTo, BIT_END] in steps of SLICE_WIDTH bits.
@@ -112,7 +110,6 @@ std::pair<double, double> pm1(double exponent, u32 factoredUpTo, u32 B1, u32 B2)
     double p = p1 + p2;
     sum1 += fma(p1, -sum1, p1);
     sum2 += fma(p,  -sum2, p);
-    // printf("%f %f %f\n", bitPos, p1, p2);
   }
   return {sum1, sum2 - sum1};
 }
@@ -126,42 +123,44 @@ double nPrimesBetween(double B1, double B2) { return (B2 <= B1) ? 0 : (primepi(B
 // factorBias indicates how much a factor is desired, e.g.:
 // factorBias == 1 indicates that a factor has the same value as a PRP "composite" status.
 // factorBias == 2 indicates that a factor has double the value of a PRP "composite" status.
-double work(double exponent, u32 factored, double B1, double B2, double factorBias) {
-  const constexpr double factorP1 = 1.4 / 9, factorP2 = 0.7;  
+double work(double exponent, u32 factored, double B1, double B2, double factorBias, bool legacyP1) {
+  const double factorP1 = legacyP1 ? 1.05 : (1.4 / 9);
+  const double factorP2 = 0.7;
   
   auto [p1, p2] = pm1(exponent, factored, B1, B2);
   double iterationsP1 = 1.442 * B1;
-  double workP1 = iterationsP1 * (1 + factorP1);
+  double workP1 = legacyP1 ? iterationsP1 * factorP1 : (iterationsP1 * (1 + factorP1));
   double workP2 = factorP2 * nPrimesBetween(B1, B2);
-
 
   double bonus = (factorBias - 1) * exponent;
   
-  // The two alternatives below are equivalent (achieve the same bounds)
+  // The two alternatives below are equivalent (achieve exactly the same bounds)
   #if 1
-  double workAfterP1 = p2 * (workP2 / 2) + (1 - p2) * (workP2 + exponent + bonus - iterationsP1);
+  double workAfterP1 = p2 * (workP2 / 2) + (1 - p2) * (workP2 + exponent + bonus - (legacyP1 ? 0 : iterationsP1));
   double w = workP1 + (1 - p1) * workAfterP1;
   
   #else
-  double workAfterP1 = p2 * (workP2 / 2 - bonus) + (1 - p2) * (workP2 + exponent - iterationsP1);
+  double workAfterP1 = p2 * (workP2 / 2 - bonus) + (1 - p2) * (workP2 + exponent - (legacyp1 ? 0 : iterationsP1));
   double w = workP1 - p1 * bonus + (1 - p1) * workAfterP1;
   #endif
   
   return w;
 }
 
-tuple<double, double> stageWork(double exponent, u32 factored, double B1, double B2) {
-  const constexpr double factorP1 = 1.4 / 9, factorP2 = 0.7;
+// Returns work for stage-1, stage-2 in the negative (no factor found) case, as a percent of one PRP test.
+tuple<double, double> stageWork(double exponent, u32 factored, double B1, double B2, bool legacyP1) {
+  const double factorP1 = legacyP1 ? 1.05 : (1.4 / 9);
+  const double factorP2 = 0.7;
   double iterationsP1 = 1.442 * B1;
   double workP1 = iterationsP1 * factorP1;
   double workP2 = factorP2 * nPrimesBetween(B1, B2);
   return {workP1 / exponent, workP2 / exponent};
 }
 
-const constexpr double B1s[] = {0.500000, 0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.5, 1.7, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 25, 30};
-const constexpr double B2s[] = {10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 200, 220, 250, 270, 300, 400, 500, 600, 700, 800};
+const constexpr double B1s[] = {0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.7, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30};
+const constexpr double B2s[] = {10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 180, 200, 220, 250, 300, 350, 400, 500, 600, 700, 800};
 
-std::pair<double, double> scanBounds(double exponent, u32 factored, double factorBias, u32 fixedB1 = 0, u32 fixedB2 = 0) {
+std::pair<double, double> scanBounds(double exponent, u32 factored, double factorBias, u32 fixedB1, u32 fixedB2, bool useLegacyP1 = false) {
   vector<double> b1s, b2s;
   
   if (fixedB1) {
@@ -181,7 +180,7 @@ std::pair<double, double> scanBounds(double exponent, u32 factored, double facto
   for (u32 b2 : b2s) {
     for (u32 b1 : b1s) {
       if (b1 <= b2) {
-        if (double w = work(exponent, factored, b1, b2, factorBias); w < best) {
+        if (double w = work(exponent, factored, b1, b2, factorBias, useLegacyP1); w < best) {
           best = w;
           bestB1 = b1;
           bestB2 = b2;
@@ -200,24 +199,25 @@ static u32 parse(const string& s) {
   return atof(s.c_str()) * multiple;
 }
 
-void printBounds(double exponent, double factored, double B1, double B2) {
+void printBounds(double exponent, double factored, double B1, double B2, bool useLegacyP1 = false) {
   auto [p1, p2] = pm1(exponent, factored, B1, B2);
   auto [p3, p4] = pm1(exponent, factored, B2, B2);
   assert(p4 == 0);
   double p = p1 + p2;
-  auto [w1, w2] = stageWork(exponent, factored, B1, B2);
-  printf("B1=%4.1fM B2=%3.0fM | %.3f%% (%.3f%% + %.3f%%) | work %.3f%% (%.3f%% + %.3f%%) | B2/B1=%2.0f, tail %.3f%%\n",
-         B1/1'000'000, B2/1'000'000, p * 100, p1 * 100, p2 * 100, (w1 + w2) * 100, w1 * 100, w2 * 100, B2 / B1, (p3 - p) * 100);
+  auto [w1, w2] = stageWork(exponent, factored, B1, B2, useLegacyP1);
+  printf("B1=%4.1fM B2=%3.0fM | %.3f%% (%.3f%% + %.3f%%) | work %.3f%% (%.3f%% + %.3f%%) | B2/B1=%2.0f, misses %.2f%% of B2-smooth factors\n",
+         B1/1'000'000, B2/1'000'000, p * 100, p1 * 100, p2 * 100, (w1 + w2) * 100, w1 * 100, w2 * 100, B2 / B1, (p3 - p) / p3 * 100);
 }
 
 int main(int argc, char*argv[]) {
   if (argc < 3) {
-    printf(R"(Usage: %s <exponent> <factoredTo> [-B1 <B1>] [-B2 <B2>] [-bias <factor-bias>]
+    printf(R"(Usage: %s <exponent> <factoredTo> [-legacy] [-B1 <B1>] [-B2 <B2>] [-bias <factor-bias>]
 Examples:
 %s 100M 76
-%s 102M 76 -B1 2.8M -B2 150M
-%s 102.5M 77 -bias 1.5
-)", argv[0], argv[0], argv[0], argv[0]);
+%s 105M 76 -legacy
+%s 102M 76 -B2 100M
+%s 102M 77 -B1 3M
+)", argv[0], argv[0], argv[0], argv[0], argv[0]);
     return 1;
   }
   
@@ -225,30 +225,36 @@ Examples:
   u32 factored = parse(argv[2]);
   u32 B1 = 0, B2 = 0;
   double factorBias = -1;
+  bool useLegacy = false;
   
   int pos = 3;
-  while (pos + 1 < argc) {  
-    if ("-B1"s == argv[pos]) {
-      B1 = parse(argv[pos + 1]);
-    } else if ("-B2"s == argv[pos]) {
-      B2 = parse(argv[pos + 1]);
-    } else if ("-bias"s == argv[pos]) {
-      factorBias = atof(argv[pos + 1]);
-      assert(factorBias > 0);
+  while (pos < argc) {
+    if ("-legacy"s == argv[pos]) {
+      useLegacy = true;
+      ++pos;
+    } else if (pos + 1 < argc) {    
+      if ("-B1"s == argv[pos]) {
+        B1 = parse(argv[pos + 1]);
+      } else if ("-B2"s == argv[pos]) {
+        B2 = parse(argv[pos + 1]);
+      } else if ("-bias"s == argv[pos]) {
+        factorBias = atof(argv[pos + 1]);
+        assert(factorBias > 0);
+      }
+      pos += 2;
     } else {
       printf("Unrecognized '%s'\n", argv[pos]);
-      --pos;
+      ++pos;
     }
-    pos += 2;    
   }
 
   if (B1 && B2) {
-    printBounds(exponent, factored, B1, B2);
+    printBounds(exponent, factored, B1, B2, useLegacy);
   } else {
-    auto points = factorBias > 0 ? vector{factorBias} : vector{1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0};
+    auto points = factorBias > 0 ? vector{factorBias} : vector{1.2, 2.0, 3.0, 4.0, 5.0, 6.0};
     for (double bias : points) {
-      auto [bestB1, bestB2] = scanBounds(exponent, factored, bias, B1, B2);
-      printBounds(exponent, factored, bestB1, bestB2);
+      auto [bestB1, bestB2] = scanBounds(exponent, factored, bias, B1, B2, useLegacy);
+      printBounds(exponent, factored, bestB1, bestB2, useLegacy);
     }
   }
 }
