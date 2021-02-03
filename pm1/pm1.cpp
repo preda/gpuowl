@@ -158,21 +158,22 @@ tuple<double, double> stageWork(double exponent, u32 factored, double B1, double
   return {workP1 / exponent, workP2 / exponent};
 }
 
-const constexpr u32 B1s[] = {500000, 550000, 600000, 650000, 700000, 750000, 800000, 900000, 1000000, 1100000, 1200000, 1300000, 1400000, 1500000, 1600000, 1700000, 1800000, 2000000, 2200000, 2400000, 2600000, 2800000, 3000000, 3200000, 3400000, 3600000, 4000000, 4500000, 5000000, 5500000, 6000000, 6500000, 7000000, 7500000, 8000000, 9000000, 10000000, 11000000, 12000000, 13000000, 14000000, 15000000};
+const constexpr double B1s[] = {0.500000, 0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.5, 1.7, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 25, 30};
+const constexpr double B2s[] = {10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 200, 220, 250, 270, 300, 400, 500, 600, 700, 800};
 
 std::pair<double, double> scanBounds(double exponent, u32 factored, double factorBias, u32 fixedB1 = 0, u32 fixedB2 = 0) {
-  vector<u32> b1s, b2s;
+  vector<double> b1s, b2s;
   
   if (fixedB1) {
     b1s.push_back(fixedB1);
   } else {
-    for (u32 b : B1s) { b1s.push_back(b); }
+    for (auto b : B1s) { b1s.push_back(b * 1'000'000); }
   }
   
   if (fixedB2) {
     b2s.push_back(fixedB2);    
   } else {
-    for (u32 b : B1s) { b2s.push_back(b * 20); }
+    for (auto b : B2s) { b2s.push_back(b * 1'000'000); }
   }
 
   double best = 1e20;
@@ -205,7 +206,7 @@ void printBounds(double exponent, double factored, double B1, double B2) {
   assert(p4 == 0);
   double p = p1 + p2;
   auto [w1, w2] = stageWork(exponent, factored, B1, B2);
-  printf("B1=%.1fM B2=%5.1fM | %.3f%% (%.3f%% + %.3f%%) | work %.3f%% (%.3f%% + %.3f%%) | B2/B1=%.0f, tail %.3f%%\n",
+  printf("B1=%4.1fM B2=%3.0fM | %.3f%% (%.3f%% + %.3f%%) | work %.3f%% (%.3f%% + %.3f%%) | B2/B1=%2.0f, tail %.3f%%\n",
          B1/1'000'000, B2/1'000'000, p * 100, p1 * 100, p2 * 100, (w1 + w2) * 100, w1 * 100, w2 * 100, B2 / B1, (p3 - p) * 100);
 }
 
@@ -241,10 +242,13 @@ Examples:
     pos += 2;    
   }
 
-  auto points = factorBias > 0 ? vector{factorBias} : vector{1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0};
-  
-  for (double bias : points) {
-    auto [bestB1, bestB2] = scanBounds(exponent, factored, bias, B1, B2);
-    printBounds(exponent, factored, bestB1, bestB2);
+  if (B1 && B2) {
+    printBounds(exponent, factored, B1, B2);
+  } else {
+    auto points = factorBias > 0 ? vector{factorBias} : vector{1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0};
+    for (double bias : points) {
+      auto [bestB1, bestB2] = scanBounds(exponent, factored, bias, B1, B2);
+      printBounds(exponent, factored, bestB1, bestB2);
+    }
   }
 }
