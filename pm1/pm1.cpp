@@ -47,7 +47,7 @@ double rho(double x) {
   if (x < 2)  { return 1 - log(x); }
   x = (x - 2) * 40;
   int pos = x;
-  constexpr u32 SIZE = sizeof(rhotab)/sizeof(rhotab[0]);
+  constexpr int SIZE = sizeof(rhotab)/sizeof(rhotab[0]);
   assert(pos + 1 < SIZE);
   double dummy;
   double f = modf(x, &dummy);
@@ -130,26 +130,28 @@ double work(double exponent, u32 factored, double B1, double B2, double factorBi
   const constexpr double factorP1 = 1.4 / 9, factorP2 = 0.7;  
   
   auto [p1, p2] = pm1(exponent, factored, B1, B2);
-  // printf("%f %f %f %f\n", B1, B2, p1, p2);
   double iterationsP1 = 1.442 * B1;
   double workP1 = iterationsP1 * (1 + factorP1);
   double workP2 = factorP2 * nPrimesBetween(B1, B2);
 
-  // The two branches below are equivalent (achieve the same bounds)
-  #if 0
-  double workAfterP1 = p2 * (workP2 / 2) + (1 - p2) * (workP2 + exponent * factorBias - iterationsP1);
-  double w = workP1 + (1 - p1) * workAfterP1;
-  #else
+
   double bonus = (factorBias - 1) * exponent;
+  
+  // The two alternatives below are equivalent (achieve the same bounds)
+  #if 1
+  double workAfterP1 = p2 * (workP2 / 2) + (1 - p2) * (workP2 + exponent + bonus - iterationsP1);
+  double w = workP1 + (1 - p1) * workAfterP1;
+  
+  #else
   double workAfterP1 = p2 * (workP2 / 2 - bonus) + (1 - p2) * (workP2 + exponent - iterationsP1);
   double w = workP1 - p1 * bonus + (1 - p1) * workAfterP1;
   #endif
+  
   return w;
 }
 
 tuple<double, double> stageWork(double exponent, u32 factored, double B1, double B2) {
   const constexpr double factorP1 = 1.4 / 9, factorP2 = 0.7;
-  auto [p1, p2] = pm1(exponent, factored, B1, B2);
   double iterationsP1 = 1.442 * B1;
   double workP1 = iterationsP1 * factorP1;
   double workP2 = factorP2 * nPrimesBetween(B1, B2);
