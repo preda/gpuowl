@@ -120,16 +120,23 @@ double primepi(double n) { return (n > 0) ? n / (log(n) - 1.06) : 0; }
 
 double nPrimesBetween(double B1, double B2) { return (B2 <= B1) ? 0 : (primepi(B2) - primepi(B1)); }
 
+// Update the values below to set the P1/P2 performance on different hardware/software.
+// The values given seem to match GpuOwl performance on RadeonVII on wavefront (100M) exponents.
+const constexpr double
+  factorP1Legacy = 1.05,
+  factorP1Merged = 1.12,
+  factorP2 = 0.7;
+
+
 // factorBias indicates how much a factor is desired, e.g.:
 // factorBias == 1 indicates that a factor has the same value as a PRP "composite" status.
 // factorBias == 2 indicates that a factor has double the value of a PRP "composite" status.
 double work(double exponent, u32 factored, double B1, double B2, double factorBias, bool legacyP1) {
-  const double factorP1 = legacyP1 ? 1.05 : (1.4 / 9);
-  const double factorP2 = 0.7;
+  const double factorP1 = legacyP1 ? factorP1Legacy : factorP1Merged;
   
   auto [p1, p2] = pm1(exponent, factored, B1, B2);
   double iterationsP1 = 1.442 * B1;
-  double workP1 = legacyP1 ? iterationsP1 * factorP1 : (iterationsP1 * (1 + factorP1));
+  double workP1 = iterationsP1 * factorP1;
   double workP2 = factorP2 * nPrimesBetween(B1, B2);
 
   double bonus = (factorBias - 1) * exponent;
@@ -149,11 +156,19 @@ double work(double exponent, u32 factored, double B1, double B2, double factorBi
 
 // Returns work for stage-1, stage-2 in the negative (no factor found) case, as a percent of one PRP test.
 tuple<double, double> stageWork(double exponent, u32 factored, double B1, double B2, bool legacyP1) {
-  const double factorP1 = legacyP1 ? 1.05 : (1.4 / 9);
-  const double factorP2 = 0.7;
+  const double factorP1 = legacyP1 ? factorP1Legacy: (factorP1Merged - 1);
+
+  auto [p1, p2] = pm1(exponent, factored, B1, B2);
+  
   double iterationsP1 = 1.442 * B1;
+  // workP1 is always paid in full.
   double workP1 = iterationsP1 * factorP1;
-  double workP2 = factorP2 * nPrimesBetween(B1, B2);
+
+  // fullWorkP2 is second-stage work when no factor is found.
+  double fullWorkP2 = factorP2 * nPrimesBetween(B1, B2);
+
+  double workP2 = (1 - p1) * (1 - p2/2) * fullWorkP2;
+  
   return {workP1 / exponent, workP2 / exponent};
 }
 
@@ -244,14 +259,18 @@ Examples:
       pos += 2;
     } else {
       printf("Unrecognized '%s'\n", argv[pos]);
-      ++pos;
+      return 2;
     }
   }
 
+  string args;
+  for (int i = 1; i < argc; ++i) { args += " "s + argv[i]; }
+  printf("%s\n", args.c_str() + 1);
+  
   if (B1 && B2) {
     printBounds(exponent, factored, B1, B2, useLegacy);
   } else {
-    auto points = factorBias > 0 ? vector{factorBias} : vector{1.2, 2.0, 3.0, 4.0, 5.0, 6.0};
+    auto points = factorBias > 0 ? vector{factorBias} : vector{1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
     for (double bias : points) {
       auto [bestB1, bestB2] = scanBounds(exponent, factored, bias, B1, B2, useLegacy);
       printBounds(exponent, factored, bestB1, bestB2, useLegacy);
