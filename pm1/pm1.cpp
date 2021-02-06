@@ -125,7 +125,7 @@ double nPrimesBetween(double B1, double B2) { return (B2 <= B1) ? 0 : (primepi(B
 const constexpr double
   factorP1Legacy = 1.05,
   factorP1Merged = 1.12,
-  factorP2 = 0.7;
+  factorP2 = 0.72;
 
 
 // factorBias indicates how much a factor is desired, e.g.:
@@ -172,8 +172,8 @@ tuple<double, double> stageWork(double exponent, u32 factored, double B1, double
   return {workP1 / exponent, workP2 / exponent};
 }
 
-const constexpr double B1s[] = {0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.7, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30};
-const constexpr double B2s[] = {10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 180, 200, 220, 250, 300, 350, 400, 500, 600, 700, 800};
+const constexpr double B1s[] = {0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.5, 1.7, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 40, 50, 100};
+const constexpr double B2s[] = {10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 180, 200, 220, 250, 300, 400, 500, 600, 800, 1000, 2000, 4000};
 
 std::pair<double, double> scanBounds(double exponent, u32 factored, double factorBias, u32 fixedB1, u32 fixedB2, bool useLegacyP1 = false) {
   vector<double> b1s, b2s;
