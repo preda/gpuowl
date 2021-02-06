@@ -29,3 +29,8 @@ inline mpz_class mpz64(u64 h) {
   ret += u32(h);
   return ret;
 }
+
+// Split the "k" of a P-1 factor of the form 2*k*exponent +1 into subfactors.
+vector<u32> factorize(const string& str, u32 exponent, u32 B1, u32 B2);
+
+double log2(const string& str);

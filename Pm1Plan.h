@@ -47,7 +47,9 @@ public:
   static u32 getD(u32 argsD, u32 nBufs) { return argsD ? argsD : (nBufs >= minBufsFor(330) ? 330 : 210); }
 
   // Simple Erathostene's sieve restricted to the range [B1, B2].
-  // Returns a vector of bits.
+  // Returns a vector of bits, with the bit corresponding to a prime set.
+  static vector<bool> sieve(u32 bound) { return sieve(1, bound); }
+  
   // Only the bits between B1 and B2 are set where there is a prime.
   static vector<bool> sieve(u32 B1, u32 B2);
 

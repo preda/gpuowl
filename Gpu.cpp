@@ -1679,12 +1679,11 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     if (finished(gcdFuture)) {
       string factor = gcdFuture.get();
       log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
-      if (didP2) {
-        task.writeResultPM1(args, factor, getFFTSize());
-      }
-      if (!factor.empty()) {
-        return {factor};
-      }
+      
+      assert(didP2);
+      if (didP2) { task.writeResultPM1(args, factor, getFFTSize()); }
+      
+      if (!factor.empty()) { return {factor}; }
     }
       
     if (doCheck) {

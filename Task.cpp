@@ -99,13 +99,23 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) c
   assert(B1);
   bool hasFactor = !factor.empty();
 
-  // An approximation: if no factor is found, we know stage2 was done. Otherwise be 'conservative' and assume not done.
-  bool didStage2 = !hasFactor;
+  u32 reportB2 = B2;
+  if (hasFactor) {
+    auto factors = factorize(factor, exponent, B1, B2);
+    if (factors.empty()) {
+      log("Error attempting to split '%s'\n", factor.c_str());
+    } else {
+      reportB2 = factors.back();
+      assert(reportB2 <= B2);
+      string fstr;
+      for (u32 f : factors) { fstr += ", "s + to_string(f); }
+      log("%s %.1f bits%s\n", factor.c_str(), log2(factor), fstr.c_str());
+    }    
+  }
 
-  string bounds = "\"B1\":"s + to_string(B1) + (didStage2 ? ", \"B2\":"s + to_string(B2) : "");
   writeResult(exponent, "PM1", hasFactor ? "F" : "NF", AID, args,
               {json("B1", B1),
-               didStage2 ? json("B2", B2) : "",
+               (reportB2 > B1) ? json("B2", reportB2) : "",
                json("fft-length", fftSize),
                factor.empty() ? "" : (json("factors") + ':' + "[\""s + factor + "\"]")
               });

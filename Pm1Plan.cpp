@@ -6,7 +6,7 @@
 #include <numeric>
 
 vector<bool> Pm1Plan::sieve(u32 B1, u32 B2) {
-  assert(2 < B1 && B1 < B2);
+  assert(B1 && B1 < B2);
   vector<bool> bits(B2 + 1);
   bits[0] = bits[1] = true;
   for (u32 p = 0; p <= B2; ++p) {

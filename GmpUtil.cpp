@@ -1,5 +1,6 @@
 // Copyright (C) Mihai Preda.
 
+#include "Pm1Plan.h"
 #include "GmpUtil.h"
 
 #include <gmp.h>
@@ -33,6 +34,40 @@ mpz_class powerSmooth(u32 exp, u32 B1) {
 
 u32 sizeBits(mpz_class a) { return mpz_sizeinbase(a.get_mpz_t(), 2); }
 
+}
+
+double log2(const string& str) {
+  mpz_class n{str};
+  long int e = 0;
+  double d = mpz_get_d_2exp(&e, n.get_mpz_t());
+  return e + log2(d);
+}
+
+vector<u32> factorize(const string& str, u32 exponent, u32 B1, u32 B2) {
+  vector<u32> factors;
+  mpz_class n{str};
+  n -= 1;
+  n /= 2;
+  
+  assert(mpz_divisible_ui_p(n.get_mpz_t(), exponent));
+  n /= exponent;
+  
+  vector<bool> isPrime = Pm1Plan::sieve(B1);
+  for (u32 p = 2; p <= B1; ++p) {
+    if (isPrime[p]) {
+      while(mpz_divisible_ui_p(n.get_mpz_t(), p)) {
+        factors.push_back(p);
+        n /= p;
+      }
+      if (n == 1) { break; }
+    }
+  }
+  if (n <= B2) {
+    factors.push_back(n.get_ui());
+  } else {
+    return {};
+  }
+  return factors;
 }
 
 u32 powerSmoothBits(u32 exp, u32 B1) {
