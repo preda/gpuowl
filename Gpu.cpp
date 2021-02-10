@@ -313,44 +313,33 @@ int ulps(float a, float b) {
   return delta;
 }
 
-/*
-u64 tweakF32(float f) {
-  u32 b = as<u32>(f);
-  i32 e = (b >> 23) & 0xff;
-  e = e - 127 + 1023;
-  // u32 up = (b & 0x80000000) | 0x70000000 | ((b & 0x7fffffff) >> 3);
-  u32 up = (b & 0x80000000) | (e << 20) | ((b & 0x07ffffff) >> 3);
-  u32 down = b << 29;
-  [[maybe_unused]] u64 r = (u64(up) << 32) | down;
-  u64 r1 = as<u64>(double(f));
-  // if (r != r1) { log("%lx %lx\n", r, r1); }
-  // assert(r == r1);
-  return r1;
-}
-*/
-
-}
-/*
-string Gpu::readTrigTable() {
-  string source = R"(
-)";
+vector<pair<i32, i32>> deltaTable(const vector<double2>& v, const vector<double2>& ref) {
+  assert(v.size() == ref.size());
+  vector<pair<i32, i32>> deltas;
   
-  Holder<cl_program> program{compile(context.get(), device, ND, source)};
-  Kernel readHwTrig{program.get(), queue, device, "readHwTrig", ND};  
-  HostAccessBuffer<float2> bufReadTrig{queue, "readTrig", ND};
-  readHwTrig(bufReadTrig);
-  vector<float2> v = bufReadTrig.read();
+  for (u32 i = 0; i < ref.size(); ++i) {
+    i32 d1, d2;
+    {
+      u64 a = as<u64>(v[i].first);
+      u64 b = as<u64>(ref[i].first);
+      d1 = i64(b - a);
+      assert(as<double>(a + d1) == as<double>(b));      
+    }
 
-  string table = "global float2 HW[] = {\n";
-  
-  for (u32 k = 0; k <= ND; ++k) {
-    table += "{"s + toLiteral(v[k].first) + "," + toLiteral(v[k].second) + "},";
-    if ((k % 8) == 7) { table += '\n'; }
+    {
+      u64 a = as<u64>(double(v[i].second));
+      u64 b = as<u64>(ref[i].second);
+      d2 = i64(b - a);
+      // if (as<double>(a + d2) != as<double>(b)) { log("%u %lx %lx %lx\n", i, a, b, i64(b - a)); }
+      assert(as<double>(a + d2) == as<double>(b));
+    }    
+
+    deltas.push_back({d1, d2});
   }
-  table += "};\n";
-  return table;
+  return deltas;
 }
-*/
+
+}
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          cl_device_id device, bool timeKernels, bool useLongCarry)
@@ -407,7 +396,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
   LOAD(sum64, 256),
-  LOAD_WS(readHwTrig, SMALL_H / 4 + 64),
 #undef LOAD_WS
 #undef LOAD
 
@@ -461,51 +449,32 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarryMax.zero();
   bufCarryMulMax.zero();
 
-  HostAccessBuffer<double2> bufReadTrig{queue, "readTrig", SMALL_H/4 + 64};
-  readHwTrig(bufReadTrig);
-  vector<double2> v = bufReadTrig.read();
-  log("size %u : %f %f %f %f\n", u32(v.size()), get<0>(v.front()), get<1>(v.front()), get<0>(v[SMALL_H/4]), get<1>(v[SMALL_H/4]));
-
-  vector<double2> ref = makeTrig<double>(2 * SMALL_H);
-  vector<pair<i32, i32>> deltas;
-  for (u32 i = 0; i < ref.size(); ++i) {
-    i32 d1, d2;
-    {
-      u64 a = as<u64>(v[i].first);
-      u64 b = as<u64>(ref[i].first);
-      d1 = i64(b - a);
-      assert(as<double>(a + d1) == as<double>(b));      
-      // mCos = max(mCos, u64(abs(delta)));
-    }
-
-    {
-      u64 a = as<u64>(double(v[i].second));
-      u64 b = as<u64>(ref[i].second);
-      d2 = i64(b - a);
-      // if (as<double>(a + d2) != as<double>(b)) { log("%u %lx %lx %lx\n", i, a, b, i64(b - a)); }
-      assert(as<double>(a + d2) == as<double>(b));
-      // mSin = max(mSin, u64(abs(delta)));
-    }    
-
-    deltas.push_back({d1, d2});
-    
-    /*
-    int ucos = ulps(get<0>(v[i]), get<0>(ref[i]));
-    int usin = ulps(get<1>(v[i]), get<1>(ref[i]));
-    if (abs(ucos) > maxCos) { maxCos = abs(ucos); cosPos = i; }
-    if (abs(usin) > maxSin) { maxSin = abs(usin); sinPos = i; }
-    */
+  vector<double2> readTrigSH, readTrigBH;
+  {
+    HostAccessBuffer<double2>
+    bufSH{queue, "readTrig", SMALL_H/4 + 1},
+    bufBH{queue, "readTrigBH", BIG_H/8 + 1};
+    Kernel{program.get(), queue, device, 32, "readHwTrig"}(bufSH, bufBH);
+    readTrigSH = bufSH.read();
+    readTrigBH = bufBH.read();
   }
   
+  // readHwTrig(bufReadTrig);
+  // vector<double2> v = bufReadTrig.read();
+  // log("size %u : %f %f %f %f\n", u32(v.size()), get<0>(v.front()), get<1>(v.front()), get<0>(v[SMALL_H/4]), get<1>(v[SMALL_H/4]));
+
   {
-    assert(deltas.size() == SMALL_H / 4 + 1);
-    ConstBuffer<pair<i32, i32>> bufTrig{context, "trig", deltas};
+    auto deltasSH = deltaTable(readTrigSH, makeTrig<double>(2 * SMALL_H));
+    assert(deltasSH.size() == SMALL_H / 4 + 1);
+    ConstBuffer<pair<i32, i32>> bufTrig{context, "trig", deltasSH};
     Kernel{program.get(), queue, device, 32, "writeTrigSH"}(2 * SMALL_H / 8 + 1, bufTrig);
     finish();
   }
 
   {
-    ConstBuffer<double2> bufTrig{context, "trig", makeTrig<double>(BIG_H)};
+    auto deltasBH = deltaTable(readTrigBH, makeTrig<double>(BIG_H));
+    assert(deltasBH.size() == BIG_H / 8 + 1);
+    ConstBuffer<pair<i32, i32>> bufTrig{context, "trig", deltasBH};
     Kernel{program.get(), queue, device, 32, "writeTrigBH"}(BIG_H / 8 + 1, bufTrig);
     finish();
   }

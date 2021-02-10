@@ -225,7 +225,7 @@ typedef i64 CarryABM;
 
 // global T2 TRIG_N[ND];
 global int2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-global T2 TRIG_BH[BIG_HEIGHT / 8 + 1];
+global int2 TRIG_BH[BIG_HEIGHT / 8 + 1];
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
@@ -1907,7 +1907,7 @@ double2 slowTrig(u32 k, u32 n, u32 kBound) {
   bool negateCos = kBound > n / 4 && k >= n / 4;
   if (negateCos) { k = n/2 - k; }
   
-  bool flip = kBound > n / 8 && k > n / 8;
+  bool flip = kBound > n / 8 + 1 && k > n / 8;
   if (flip) { k = n / 4 - k; }
 
   assert(k <= n / 8);
@@ -1921,40 +1921,6 @@ double2 slowTrig(u32 k, u32 n, u32 kBound) {
 }
 
 double2 slowTrig_N(u32 k, u32 kBound)   { return slowTrig(k, ND, kBound); }
-
-double2 slowTrig_BH(u32 k, u32 kBound)  {
-#if 1
-  // if (k % MIDDLE == 0) { return slowTrig_2SH(k / MIDDLE * 2, kBound * 2); }
-  
-  return slowTrig(k, BIG_HEIGHT, kBound);
-#else
-  const u32 n = BIG_HEIGHT;
-  
-  assert(n % 8 == 0);
-  assert(k < kBound);       // kBound actually bounds k
-  assert(kBound <= 2 * n);  // angle <= 2 tau
-
-  if (kBound > n && k >= n) { k -= n; }
-  assert(k < n);
-
-  bool negate = kBound > n/2 && k >= n/2;
-  if (negate) { k -= n/2; }
-  
-  bool negateCos = kBound > n / 4 && k >= n / 4;
-  if (negateCos) { k = n/2 - k; }
-  
-  bool flip = kBound > n / 8 && k > n / 8;
-  if (flip) { k = n / 4 - k; }
-
-  assert(k <= n / 8);
-  double2 r = TRIG_BH[k];
-
-  if (flip) { r = -swap(r); }
-  if (negateCos) { r.x = -r.x; }
-  if (negate) { r = -r; }
-  return r;
-#endif
-}
 
 float fastSinSP(u32 k, u32 tau, u32 M) {
   // These DP coefs are optimized for computing sin(2*pi*x) with x in [0, 1/8].
@@ -2007,6 +1973,50 @@ float fastCosSP(u32 k, u32 tau) {
 #endif
 }
 
+double2 slowTrig_BH(u32 k, u32 kBound)  {
+#if 0
+  // if (k % MIDDLE == 0) { return slowTrig_2SH(k / MIDDLE * 2, kBound * 2); }
+  return slowTrig(k, BIG_HEIGHT, kBound);
+#else
+  
+  const u32 n = BIG_HEIGHT;
+  
+  assert(n % 8 == 0);
+  assert(k < kBound);       // kBound actually bounds k
+  assert(kBound <= 2 * n);  // angle <= 2 tau
+
+  if (kBound > n && k >= n) { k -= n; }
+  assert(k < n);
+
+  bool negate = kBound > n/2 && k >= n/2;
+  if (negate) { k -= n/2; }
+  
+  bool negateCos = kBound > n / 4 && k >= n / 4;
+  if (negateCos) { k = n/2 - k; }
+  
+  bool flip = kBound > n / 8 + 1 && k > n / 8;
+  if (flip) { k = n / 4 - k; }
+
+  assert(k <= n / 8);
+
+  int2 deltas = TRIG_BH[k];
+  float cf = fastCosSP(k, BIG_HEIGHT);
+  double c = as_double(as_ulong((double) cf) + deltas.x);
+  
+  float sf = fastSinSP(k, BIG_HEIGHT, MIDDLE);
+  double s = as_double(as_ulong((double) sf) + deltas.y);
+
+  double2 r = (double2)(c, s);
+  
+  // double2 r = TRIG_BH[k];
+
+  if (flip) { r = -swap(r); }
+  if (negateCos) { r.x = -r.x; }
+  if (negate) { r = -r; }
+  return r;
+#endif
+}
+
 double2 slowTrig_2SH(u32 k, u32 kBound) {
 #if 0
   return slowTrig(k, 2 * SMALL_HEIGHT, kBound);
@@ -2026,7 +2036,7 @@ double2 slowTrig_2SH(u32 k, u32 kBound) {
   bool negateCos = kBound > n / 4 && k >= n / 4;
   if (negateCos) { k = n/2 - k; }
   
-  bool flip = kBound > n / 8 && k > n / 8;
+  bool flip = kBound > n / 8 + 1 && k > n / 8;
   if (flip) { k = n / 4 - k; }
 
   assert(k <= n / 8);
@@ -2113,7 +2123,7 @@ KERNEL(64) writeTrigSH(u32 size, const global int2* in) {
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_2SH[k] = in[k]; }
 }
 
-KERNEL(64) writeTrigBH(u32 size, const global T2* in) {  
+KERNEL(64) writeTrigBH(u32 size, const global int2* in) {  
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_BH[k] = in[k]; }
 }
 
@@ -3266,12 +3276,17 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
 
-KERNEL(64) readHwTrig(global double2* outCosSin) {
+KERNEL(64) readHwTrig(global double2* outSH, global double2* outBH) {
+  for (u32 k = get_global_id(0); k <= SMALL_HEIGHT / 4; k += get_global_size(0)) { outSH[k] = slowTrig_2SH(k, SMALL_HEIGHT/4+1); }
+  
+  for (u32 k = get_global_id(0); k <= BIG_HEIGHT / 8; k += get_global_size(0)) { outBH[k] = slowTrig_BH(k, BIG_HEIGHT/8+1); }
+    
+  /*
   u32 k = get_global_id(0);
   if (k <= SMALL_HEIGHT / 4) {
     outCosSin[k] = slowTrig_2SH(k, SMALL_HEIGHT / 2);
   }
-  // (fastCosSP(k, ND), hwSin(k));
+  */
 }
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
