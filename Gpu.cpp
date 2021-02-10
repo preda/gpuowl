@@ -40,16 +40,18 @@ static_assert(sizeof(long double) > sizeof(double), "long double offers extended
 #define CARRY_LEN 8
 
 // Returns the primitive root of unity of order N, to the power k.
-static double2 root1(u32 N, u32 k) {
+
+template<typename T>
+static pair<T, T> root1(u32 N, u32 k) {
   assert(k < N);
   if (k >= N/2) {
-    auto [c, s] = root1(N, k - N/2);
+    auto [c, s] = root1<T>(N, k - N/2);
     return {-c, -s};
   } else if (k > N/4) {
-    auto [c, s] = root1(N, N/2 - k);
+    auto [c, s] = root1<T>(N, N/2 - k);
     return {-c, s};
   } else if (k > N/8) {
-    auto [c, s] = root1(N, N/4 - k);
+    auto [c, s] = root1<T>(N, N/4 - k);
     return {-s, -c};
   } else {
     assert(!(N&7));
@@ -63,7 +65,7 @@ static double2 root1(u32 N, u32 k) {
 static double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   for (u32 line = 1; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
-      *p++ = root1(W * H, line * col);
+      *p++ = root1<double>(W * H, line * col);
       // if(abs((p-1)->first) < 1e-16) { printf("%u %u %u %u %g\n", line, col, W, H, (p-1)->first); }
     }
   }
@@ -91,11 +93,12 @@ static ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u3
   return {context, "middleTrig", tab};
 }
 
-static vector<double2> makeTrig(u32 n) {
+template<typename T>
+static vector<pair<T, T>> makeTrig(u32 n) {
   assert(n % 8 == 0);
-  vector<double2> tab;
+  vector<pair<T, T>> tab;
   tab.reserve(n/8 + 1);
-  for (u32 k = 0; k <= n/8; ++k) { tab.push_back(root1(n, k)); }
+  for (u32 k = 0; k <= n/8; ++k) { tab.push_back(root1<T>(n, k)); }
   return tab;
 }
 
@@ -301,12 +304,60 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   return program;
 }
 
+int ulps(float a, float b) {
+  if (a == 0 && b == 0) { return 0; }
+  u32 aa = as<u32>(a);
+  u32 bb = as<u32>(b);  
+  bool sameSign = (aa >> 31) == (bb >> 31);
+  i32 delta = sameSign ? bb - aa : (bb + aa);
+  return delta;
 }
+
+/*
+u64 tweakF32(float f) {
+  u32 b = as<u32>(f);
+  i32 e = (b >> 23) & 0xff;
+  e = e - 127 + 1023;
+  // u32 up = (b & 0x80000000) | 0x70000000 | ((b & 0x7fffffff) >> 3);
+  u32 up = (b & 0x80000000) | (e << 20) | ((b & 0x07ffffff) >> 3);
+  u32 down = b << 29;
+  [[maybe_unused]] u64 r = (u64(up) << 32) | down;
+  u64 r1 = as<u64>(double(f));
+  // if (r != r1) { log("%lx %lx\n", r, r1); }
+  // assert(r == r1);
+  return r1;
+}
+*/
+
+}
+/*
+string Gpu::readTrigTable() {
+  string source = R"(
+)";
+  
+  Holder<cl_program> program{compile(context.get(), device, ND, source)};
+  Kernel readHwTrig{program.get(), queue, device, "readHwTrig", ND};  
+  HostAccessBuffer<float2> bufReadTrig{queue, "readTrig", ND};
+  readHwTrig(bufReadTrig);
+  vector<float2> v = bufReadTrig.read();
+
+  string table = "global float2 HW[] = {\n";
+  
+  for (u32 k = 0; k <= ND; ++k) {
+    table += "{"s + toLiteral(v[k].first) + "," + toLiteral(v[k].second) + "},";
+    if ((k % 8) == 7) { table += '\n'; }
+  }
+  table += "};\n";
+  return table;
+}
+*/
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          cl_device_id device, bool timeKernels, bool useLongCarry)
   : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, genWeights(E, W, BIG_H, nW)}
 {}
+
+using float2 = pair<float, float>;
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          cl_device_id device, bool timeKernels, bool useLongCarry, Weights&& weights) :
@@ -356,6 +407,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(isNotZero, 256),
   LOAD(isEqual, 256),
   LOAD(sum64, 256),
+  LOAD_WS(readHwTrig, SMALL_H / 4 + 64),
 #undef LOAD_WS
 #undef LOAD
 
@@ -382,21 +434,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   buf3{queue, "buf3", N},
   args{args}
 {
-
-  {
-    ConstBuffer<double2> bufTrig{context, "trig", makeTrig(2 * SMALL_H)};
-    Kernel{program.get(), queue, device, 32, "writeTrigSH"}(2 * SMALL_H / 8 + 1, bufTrig);
-    finish();
-  }
-
-  {
-    ConstBuffer<double2> bufTrig{context, "trig", makeTrig(BIG_H)};
-    Kernel{program.get(), queue, device, 32, "writeTrigBH"}(BIG_H / 8 + 1, bufTrig);
-    finish();
-  }
-
   // dumpBinary(program.get(), "isa.bin");
-  program.reset();
   carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
   fftP.setFixedArgs(2, bufGroupWeights, bufThreadWeights, bufTrigW);
@@ -423,6 +461,92 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarryMax.zero();
   bufCarryMulMax.zero();
 
+  HostAccessBuffer<double2> bufReadTrig{queue, "readTrig", SMALL_H/4 + 64};
+  readHwTrig(bufReadTrig);
+  vector<double2> v = bufReadTrig.read();
+  log("size %u : %f %f %f %f\n", u32(v.size()), get<0>(v.front()), get<1>(v.front()), get<0>(v[SMALL_H/4]), get<1>(v[SMALL_H/4]));
+
+  vector<double2> ref = makeTrig<double>(2 * SMALL_H);
+  vector<pair<i32, i32>> deltas;
+  for (u32 i = 0; i < ref.size(); ++i) {
+    i32 d1, d2;
+    {
+      u64 a = as<u64>(v[i].first);
+      u64 b = as<u64>(ref[i].first);
+      d1 = i64(b - a);
+      assert(as<double>(a + d1) == as<double>(b));      
+      // mCos = max(mCos, u64(abs(delta)));
+    }
+
+    {
+      u64 a = as<u64>(double(v[i].second));
+      u64 b = as<u64>(ref[i].second);
+      d2 = i64(b - a);
+      // if (as<double>(a + d2) != as<double>(b)) { log("%u %lx %lx %lx\n", i, a, b, i64(b - a)); }
+      assert(as<double>(a + d2) == as<double>(b));
+      // mSin = max(mSin, u64(abs(delta)));
+    }    
+
+    deltas.push_back({d1, d2});
+    
+    /*
+    int ucos = ulps(get<0>(v[i]), get<0>(ref[i]));
+    int usin = ulps(get<1>(v[i]), get<1>(ref[i]));
+    if (abs(ucos) > maxCos) { maxCos = abs(ucos); cosPos = i; }
+    if (abs(usin) > maxSin) { maxSin = abs(usin); sinPos = i; }
+    */
+  }
+  
+  {
+    assert(deltas.size() == SMALL_H / 4 + 1);
+    ConstBuffer<pair<i32, i32>> bufTrig{context, "trig", deltas};
+    Kernel{program.get(), queue, device, 32, "writeTrigSH"}(2 * SMALL_H / 8 + 1, bufTrig);
+    finish();
+  }
+
+  {
+    ConstBuffer<double2> bufTrig{context, "trig", makeTrig<double>(BIG_H)};
+    Kernel{program.get(), queue, device, 32, "writeTrigBH"}(BIG_H / 8 + 1, bufTrig);
+    finish();
+  }
+
+  program.reset();
+  
+  /*
+  vector<float2> ref = makeTrig<float>(hN);
+
+  u32 maxCos = 0, maxSin = 0, cosPos = 0, sinPos = 0;
+  u64 mCos = 0, mSin = 0;
+  u32 n1 = 0, n2 = 0;
+  for (u32 i = 0; i < ref.size(); ++i) {
+    int ucos = ulps(get<0>(v[i]), get<0>(ref[i]));
+    int usin = ulps(get<1>(v[i]), get<1>(ref[i]));
+    if (abs(ucos) > maxCos) { maxCos = abs(ucos); cosPos = i; }
+    if (abs(usin) > maxSin) { maxSin = abs(usin); sinPos = i; }
+
+    {
+      u64 a = as<u64>(double(v[i].first));
+      u64 b = as<u64>(refD[i].first);
+      i64 delta = i64(b - a);
+      if (as<double>(a + delta) != as<double>(b)) { ++n1; }
+      
+      mCos = max(mCos, u64(abs(delta)));
+    }
+
+    {
+      if (i) {
+      u64 a = as<u64>(double(v[i].second));
+      u64 b = as<u64>(refD[i].second);
+      i64 delta = i64(b - a);
+      if (as<double>(a + delta) != as<double>(b)) { ++n2; }
+      
+      mSin = max(mSin, u64(abs(delta)));
+      }
+    }
+  }
+  log("Max ulps %u (%u), %u (%u), %lx %lx, %u %u\n", maxCos, cosPos, maxSin, sinPos, mCos, mSin, n1, n2);
+  */
+  
   // for (u32 i = 1; i < 8; ++i) { printf("%s\n", toLiteral(double(exp2l((i / 8.0)) - 1)).c_str()); }
 }
 

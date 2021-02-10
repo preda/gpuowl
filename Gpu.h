@@ -87,6 +87,7 @@ class Gpu {
   Kernel isNotZero;
   Kernel isEqual;
   Kernel sum64;
+  Kernel readHwTrig;
   
   // Kernel testKernel;
 

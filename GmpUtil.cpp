@@ -59,7 +59,7 @@ vector<u32> factorize(const string& str, u32 exponent, u32 B1, u32 B2) {
         factors.push_back(p);
         n /= p;
       }
-      if (n == 1) { break; }
+      if (n == 1) { return factors; }
     }
   }
   if (n <= B2) {

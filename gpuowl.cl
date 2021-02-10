@@ -224,9 +224,8 @@ typedef int2 Word2;
 typedef i64 CarryABM;
 
 // global T2 TRIG_N[ND];
-global T2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
+global int2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
 global T2 TRIG_BH[BIG_HEIGHT / 8 + 1];
-
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
@@ -1922,7 +1921,6 @@ double2 slowTrig(u32 k, u32 n, u32 kBound) {
 }
 
 double2 slowTrig_N(u32 k, u32 kBound)   { return slowTrig(k, ND, kBound); }
-double2 slowTrig_2SH(u32 k, u32 kBound);
 
 double2 slowTrig_BH(u32 k, u32 kBound)  {
 #if 1
@@ -1958,6 +1956,57 @@ double2 slowTrig_BH(u32 k, u32 kBound)  {
 #endif
 }
 
+float fastSinSP(u32 k, u32 tau, u32 M) {
+  // These DP coefs are optimized for computing sin(2*pi*x) with x in [0, 1/8].
+  double R[4] = {6.2831852886262363, -41.341663358481057, 81.592672353579971, -75.407767034374388};
+
+  // We divide the DP coefficients by the corresponding power of M, and *afterwards* truncate them to SP.
+  // These constants are all computed compile-time.
+  float S[4] = {
+      R[0] / M,
+      R[1] / (((double)M)*M*M),
+      R[2] / (((double)M)*M*M*M*M),
+      R[3] / (((double)M)*M*M*M*M*M*M)
+      };
+
+  // Because we took the M out, we can scale k with a power of two, i.e. without loss of precision.
+  assert(tau % M == 0);
+  assert(((tau / M) & (tau / M - 1)) == 0); // (tau/M is a power of 2)
+  float x = (-(float)k) / (tau / M);
+  float z = x * x;
+  return fma(x, S[0], fma(fma(S[3], z, S[2]), z, S[1]) * x * z); // 1ulp on [0, 1/8].
+
+  // sinpi() does argument reduction and a bunch of unnecessary stuff.
+  // return sinpi(2 * x);
+}
+
+/*
+float fasterSinSP(u32 k, u32 tau, u32 M) {
+#if HAS_ASM
+  float x = (-1.0f / tau) * k;  
+  float out;
+  //v_sin_f32 has 10upls error on [0, pi/4] (R7)
+  __asm("v_sin_f32_e32 %0, %1" : "=v"(out) : "v" (x));
+  return out;  
+#else
+  return fastSinSP(k, tau, M);
+#endif
+}
+*/
+
+float fastCosSP(u32 k, u32 tau) {
+  float x = (-1.0f / tau) * k;
+  
+#if HAS_ASM
+  // On our intended range, [0, pi/4], v_cos_f32 seems to have 2ulps precision which is good enough.
+  float out;
+  __asm("v_cos_f32_e32 %0, %1" : "=v"(out) : "v" (x));
+  return out;  
+#else
+  return cospi(2 * x);
+#endif
+}
+
 double2 slowTrig_2SH(u32 k, u32 kBound) {
 #if 0
   return slowTrig(k, 2 * SMALL_HEIGHT, kBound);
@@ -1981,7 +2030,17 @@ double2 slowTrig_2SH(u32 k, u32 kBound) {
   if (flip) { k = n / 4 - k; }
 
   assert(k <= n / 8);
-  double2 r = TRIG_2SH[k];
+
+  int2 deltas = TRIG_2SH[k];
+  float cf = fastCosSP(k, 2 * SMALL_HEIGHT);
+  double c = as_double(as_ulong((double) cf) + deltas.x);
+  
+  float sf = fastSinSP(k, 2 * SMALL_HEIGHT, 1);
+  double s = as_double(as_ulong((double) sf) + deltas.y);
+
+  double2 r = (double2)(c, s);
+  
+  // double2 r = TRIG_2SH[k];
 
   if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }
@@ -1989,7 +2048,6 @@ double2 slowTrig_2SH(u32 k, u32 kBound) {
   return r;
 #endif
 }
-
 
 // transpose LDS 64 x 64.
 void transposeLDS(local T *lds, T2 *u) {
@@ -2051,7 +2109,7 @@ typedef CP(T2) Trig;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(64) writeTrigSH(u32 size, const global T2* in) {  
+KERNEL(64) writeTrigSH(u32 size, const global int2* in) {
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_2SH[k] = in[k]; }
 }
 
@@ -3208,14 +3266,16 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
 
+KERNEL(64) readHwTrig(global double2* outCosSin) {
+  u32 k = get_global_id(0);
+  if (k <= SMALL_HEIGHT / 4) {
+    outCosSin[k] = slowTrig_2SH(k, SMALL_HEIGHT / 2);
+  }
+  // (fastCosSP(k, ND), hwSin(k));
+}
+
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
-
-float hwSin(float x) {
-  float out;
-  __asm volatile ("v_sin_f32 %0, %1" : "=v"(out) : "v" (x));
-  return out;
-}
  
 KERNEL(256) testKernel(global float* io) {
   u32 me = get_local_id(0);
