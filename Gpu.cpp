@@ -304,9 +304,9 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   return program;
 }
 
-vector<pair<i32, i32>> deltaTable(const vector<double2>& v, const vector<double2>& ref) {
+vector<u64> deltaTable(const vector<double2>& v, const vector<double2>& ref) {
   assert(v.size() == ref.size());
-  vector<pair<i32, i32>> deltas;
+  vector<u64> deltas;
 
   i64 maxCos = 0, maxSin = 0;
   u32 nMaxCos = 0, nMaxSin = 0;
@@ -350,7 +350,7 @@ vector<pair<i32, i32>> deltaTable(const vector<double2>& v, const vector<double2
       assert(as<double>(a + deltaSin) == as<double>(b));
     }
     
-    deltas.push_back({deltaCos, deltaSin});
+    deltas.push_back(as<u64>(pair<i32, i32>{deltaCos, deltaSin}));
   }
   
   log("trig fixup: %u points, max cos %c0x%08x x %u, max sin %c0x%08x x %u\n",
@@ -484,7 +484,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   {
     auto deltasSH = deltaTable(readTrigSH, makeTrig<double>(2 * SMALL_H));
     assert(deltasSH.size() == SMALL_H / 4 + 1);
-    ConstBuffer<pair<i32, i32>> bufTrig{context, "trig", deltasSH};
+    ConstBuffer<u64> bufTrig{context, "trig", deltasSH};
     Kernel{program.get(), queue, device, 32, "writeTrigSH"}(2 * SMALL_H / 8 + 1, bufTrig);
     finish();
   }
@@ -492,7 +492,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   {
     auto deltasBH = deltaTable(readTrigBH, makeTrig<double>(BIG_H));
     assert(deltasBH.size() == BIG_H / 8 + 1);
-    ConstBuffer<pair<i32, i32>> bufTrig{context, "trig", deltasBH};
+    ConstBuffer<u64> bufTrig{context, "trig", deltasBH};
     Kernel{program.get(), queue, device, 32, "writeTrigBH"}(BIG_H / 8 + 1, bufTrig);
     finish();
   }
@@ -500,7 +500,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   {
     auto deltasN = deltaTable(readTrigN, makeTrig<double>(hN));
     assert(deltasN.size() == hN / 8 + 1);
-    ConstBuffer<pair<i32, i32>> bufTrig{context, "trig", deltasN};
+    ConstBuffer<u64> bufTrig{context, "trig", deltasN};
     Kernel{program.get(), queue, device, 32, "writeTrigN"}(hN / 8 + 1, bufTrig);
     finish();
   }

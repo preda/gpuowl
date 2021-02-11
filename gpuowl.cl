@@ -1970,33 +1970,33 @@ float fastCosSP(u32 k, u32 tau) {
 
 #if TABLE_TRIG
 
-global int2 TRIG_N[ND / 8 + 1];
-global int2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-global int2 TRIG_BH[BIG_HEIGHT / 8 + 1];
+global ulong TRIG_N[ND / 8 + 1];
+global ulong TRIG_2SH[SMALL_HEIGHT / 4 + 1];
+global ulong TRIG_BH[BIG_HEIGHT / 8 + 1];
 
 #endif
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(64) writeTrigSH(u32 size, const global int2* in) {
+KERNEL(64) writeTrigSH(u32 size, const global ulong* in) {
 #if TABLE_TRIG
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_2SH[k] = in[k]; }
 #endif
 }
 
-KERNEL(64) writeTrigBH(u32 size, const global int2* in) {
+KERNEL(64) writeTrigBH(u32 size, const global ulong* in) {
 #if TABLE_TRIG
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_BH[k] = in[k]; }
 #endif
 }
 
-KERNEL(64) writeTrigN(u32 size, const global int2* in) {
+KERNEL(64) writeTrigN(u32 size, const global ulong* in) {
 #if TABLE_TRIG
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_N[k] = in[k]; }
 #endif
 }
 
-double2 tableTrig(u32 k, u32 n, u32 kBound, global int2* fixupTable, u32 middle) {
+double2 tableTrig(u32 k, u32 n, u32 kBound, global ulong* fixupTable, u32 middle) {
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
   assert(kBound <= 2 * n);  // angle <= 2 tau
@@ -2015,7 +2015,7 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global int2* fixupTable, u32 middle)
 
   assert(k <= n / 8);
 
-  int2 deltas = fixupTable[k];
+  int2 deltas = as_int2(fixupTable[k]);
   float cf = fastCosSP(k, n);
   double c = as_double(as_ulong((double) cf) + deltas.x);
   
