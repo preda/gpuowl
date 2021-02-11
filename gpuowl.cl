@@ -24,6 +24,7 @@ CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
 
 ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>          // Our own sin/cos implementation
+TABLE_TRIG use precomputed trig table lookup. Requires more memory bandwidth but less DP compute, and provides perfect precision.
 
 DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
 STATS      enable stats about roundoff distribution and carry magnitude
@@ -222,10 +223,6 @@ typedef i32 Word;
 typedef int2 Word2;
 
 typedef i64 CarryABM;
-
-// global T2 TRIG_N[ND];
-global int2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-global int2 TRIG_BH[BIG_HEIGHT / 8 + 1];
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
@@ -1920,8 +1917,6 @@ double2 slowTrig(u32 k, u32 n, u32 kBound) {
 #endif
 }
 
-double2 slowTrig_N(u32 k, u32 kBound)   { return slowTrig(k, ND, kBound); }
-
 float fastSinSP(u32 k, u32 tau, u32 M) {
   // These DP coefs are optimized for computing sin(2*pi*x) with x in [0, 1/8].
   double R[4] = {6.2831852886262363, -41.341663358481057, 81.592672353579971, -75.407767034374388};
@@ -1973,14 +1968,35 @@ float fastCosSP(u32 k, u32 tau) {
 #endif
 }
 
-double2 slowTrig_BH(u32 k, u32 kBound)  {
-#if 0
-  // if (k % MIDDLE == 0) { return slowTrig_2SH(k / MIDDLE * 2, kBound * 2); }
-  return slowTrig(k, BIG_HEIGHT, kBound);
-#else
-  
-  const u32 n = BIG_HEIGHT;
-  
+#if TABLE_TRIG
+
+global int2 TRIG_N[ND / 8 + 1];
+global int2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
+global int2 TRIG_BH[BIG_HEIGHT / 8 + 1];
+
+#endif
+
+#define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
+
+KERNEL(64) writeTrigSH(u32 size, const global int2* in) {
+#if TABLE_TRIG
+  for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_2SH[k] = in[k]; }
+#endif
+}
+
+KERNEL(64) writeTrigBH(u32 size, const global int2* in) {
+#if TABLE_TRIG
+  for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_BH[k] = in[k]; }
+#endif
+}
+
+KERNEL(64) writeTrigN(u32 size, const global int2* in) {
+#if TABLE_TRIG
+  for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_N[k] = in[k]; }
+#endif
+}
+
+double2 tableTrig(u32 k, u32 n, u32 kBound, global int2* fixupTable, u32 middle) {
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
   assert(kBound <= 2 * n);  // angle <= 2 tau
@@ -1999,63 +2015,42 @@ double2 slowTrig_BH(u32 k, u32 kBound)  {
 
   assert(k <= n / 8);
 
-  int2 deltas = TRIG_BH[k];
-  float cf = fastCosSP(k, BIG_HEIGHT);
+  int2 deltas = fixupTable[k];
+  float cf = fastCosSP(k, n);
   double c = as_double(as_ulong((double) cf) + deltas.x);
   
-  float sf = fastSinSP(k, BIG_HEIGHT, MIDDLE);
+  float sf = fastSinSP(k, n, middle);
   double s = as_double(as_ulong((double) sf) + deltas.y);
 
   double2 r = (double2)(c, s);
-  
-  // double2 r = TRIG_BH[k];
 
   if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }
   if (negate) { r = -r; }
   return r;
+}
+
+double2 slowTrig_N(u32 k, u32 kBound)   {
+#if TABLE_TRIG
+  return tableTrig(k, ND, kBound, TRIG_N, MIDDLE);
+#else
+  return slowTrig(k, ND, kBound);
+#endif
+}
+
+double2 slowTrig_BH(u32 k, u32 kBound)  {
+#if TABLE_TRIG
+  return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH, MIDDLE);
+#else
+  return slowTrig(k, BIG_HEIGHT, kBound);
 #endif
 }
 
 double2 slowTrig_2SH(u32 k, u32 kBound) {
-#if 0
-  return slowTrig(k, 2 * SMALL_HEIGHT, kBound);
+#if TABLE_TRIG
+  return tableTrig(k, 2*SMALL_HEIGHT, kBound, TRIG_2SH, 1);
 #else
-  const u32 n = 2 * SMALL_HEIGHT;
-  
-  assert(n % 8 == 0);
-  assert(k < kBound);       // kBound actually bounds k
-  assert(kBound <= 2 * n);  // angle <= 2 tau
-
-  if (kBound > n && k >= n) { k -= n; }
-  assert(k < n);
-
-  bool negate = kBound > n/2 && k >= n/2;
-  if (negate) { k -= n/2; }
-  
-  bool negateCos = kBound > n / 4 && k >= n / 4;
-  if (negateCos) { k = n/2 - k; }
-  
-  bool flip = kBound > n / 8 + 1 && k > n / 8;
-  if (flip) { k = n / 4 - k; }
-
-  assert(k <= n / 8);
-
-  int2 deltas = TRIG_2SH[k];
-  float cf = fastCosSP(k, 2 * SMALL_HEIGHT);
-  double c = as_double(as_ulong((double) cf) + deltas.x);
-  
-  float sf = fastSinSP(k, 2 * SMALL_HEIGHT, 1);
-  double s = as_double(as_ulong((double) sf) + deltas.y);
-
-  double2 r = (double2)(c, s);
-  
-  // double2 r = TRIG_2SH[k];
-
-  if (flip) { r = -swap(r); }
-  if (negateCos) { r.x = -r.x; }
-  if (negate) { r = -r; }
-  return r;
+  return slowTrig(k, 2 * SMALL_HEIGHT, kBound);
 #endif
 }
 
@@ -2116,16 +2111,6 @@ void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out)
 #define P(x) global x * restrict
 #define CP(x) const P(x)
 typedef CP(T2) Trig;
-
-#define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
-
-KERNEL(64) writeTrigSH(u32 size, const global int2* in) {
-  for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_2SH[k] = in[k]; }
-}
-
-KERNEL(64) writeTrigBH(u32 size, const global int2* in) {  
-  for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_BH[k] = in[k]; }
-}
 
 // Read 64 Word2 starting at position 'startDword'.
 KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
@@ -3276,17 +3261,12 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
 
-KERNEL(64) readHwTrig(global double2* outSH, global double2* outBH) {
+KERNEL(64) readHwTrig(global double2* outSH, global double2* outBH, global double2* outN) {
   for (u32 k = get_global_id(0); k <= SMALL_HEIGHT / 4; k += get_global_size(0)) { outSH[k] = slowTrig_2SH(k, SMALL_HEIGHT/4+1); }
   
   for (u32 k = get_global_id(0); k <= BIG_HEIGHT / 8; k += get_global_size(0)) { outBH[k] = slowTrig_BH(k, BIG_HEIGHT/8+1); }
-    
-  /*
-  u32 k = get_global_id(0);
-  if (k <= SMALL_HEIGHT / 4) {
-    outCosSin[k] = slowTrig_2SH(k, SMALL_HEIGHT / 2);
-  }
-  */
+
+  for (u32 k = get_global_id(0); k <= ND / 8; k += get_global_size(0)) { outN[k] = slowTrig_N(k, ND/8 + 1); }
 }
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize

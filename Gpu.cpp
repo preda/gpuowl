@@ -304,38 +304,57 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   return program;
 }
 
-int ulps(float a, float b) {
-  if (a == 0 && b == 0) { return 0; }
-  u32 aa = as<u32>(a);
-  u32 bb = as<u32>(b);  
-  bool sameSign = (aa >> 31) == (bb >> 31);
-  i32 delta = sameSign ? bb - aa : (bb + aa);
-  return delta;
-}
-
 vector<pair<i32, i32>> deltaTable(const vector<double2>& v, const vector<double2>& ref) {
   assert(v.size() == ref.size());
   vector<pair<i32, i32>> deltas;
+
+  i64 maxCos = 0, maxSin = 0;
+  u32 nMaxCos = 0, nMaxSin = 0;
   
   for (u32 i = 0; i < ref.size(); ++i) {
-    i32 d1, d2;
-    {
+    i32 deltaCos, deltaSin;
+    
+    if (v[i].first == ref[i].first) {
+      deltaCos = 0;
+    } else {      
       u64 a = as<u64>(v[i].first);
       u64 b = as<u64>(ref[i].first);
-      d1 = i64(b - a);
-      assert(as<double>(a + d1) == as<double>(b));      
+      i64 d = i64(b - a);
+      
+      if (abs(d) > abs(maxCos)) {
+        maxCos = d; nMaxCos = 1;
+      } else if (abs(d) == abs(maxCos)) {
+        ++nMaxCos;
+      }
+      
+      deltaCos = d;
+      if (d != deltaCos) { log("cos() delta %lx at %u too large, disable TABLE_TRIG\n", d, i); }
+      assert(as<double>(a + deltaCos) == as<double>(b));
     }
 
-    {
+    if (v[i].second == ref[i].second) {
+      deltaSin = 0;
+    } else {
       u64 a = as<u64>(double(v[i].second));
       u64 b = as<u64>(ref[i].second);
-      d2 = i64(b - a);
-      // if (as<double>(a + d2) != as<double>(b)) { log("%u %lx %lx %lx\n", i, a, b, i64(b - a)); }
-      assert(as<double>(a + d2) == as<double>(b));
-    }    
-
-    deltas.push_back({d1, d2});
+      i64 d = i64(b - a);
+      
+      if (abs(d) > abs(maxSin)) {
+        maxSin = d; nMaxSin = 1;
+      } else if (abs(d) == abs(maxSin)) {
+        ++nMaxSin;
+      }
+      
+      deltaSin = d;
+      if (d != deltaSin) { log("sin() delta %lx at %u too large, disable TABLE_TRIG\n", d, i); }
+      assert(as<double>(a + deltaSin) == as<double>(b));
+    }
+    
+    deltas.push_back({deltaCos, deltaSin});
   }
+  
+  log("trig fixup: %u points, max cos %c0x%08x x %u, max sin %c0x%08x x %u\n",
+      u32(deltas.size()), maxCos < 0 ? '-' : '+', u32(abs(maxCos)), nMaxCos, maxSin < 0 ?'-':'+', u32(abs(maxSin)), nMaxSin);
   return deltas;
 }
 
@@ -449,20 +468,19 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarryMax.zero();
   bufCarryMulMax.zero();
 
-  vector<double2> readTrigSH, readTrigBH;
+  vector<double2> readTrigSH, readTrigBH, readTrigN;
   {
     HostAccessBuffer<double2>
-    bufSH{queue, "readTrig", SMALL_H/4 + 1},
-    bufBH{queue, "readTrigBH", BIG_H/8 + 1};
-    Kernel{program.get(), queue, device, 32, "readHwTrig"}(bufSH, bufBH);
+      bufSH{queue, "readTrig", SMALL_H/4 + 1},
+      bufBH{queue, "readTrigBH", BIG_H/8 + 1},
+      bufN{queue, "readTrigN", hN/8+1};
+        
+    Kernel{program.get(), queue, device, 32, "readHwTrig"}(bufSH, bufBH, bufN);
     readTrigSH = bufSH.read();
     readTrigBH = bufBH.read();
+    readTrigN = bufN.read();
   }
   
-  // readHwTrig(bufReadTrig);
-  // vector<double2> v = bufReadTrig.read();
-  // log("size %u : %f %f %f %f\n", u32(v.size()), get<0>(v.front()), get<1>(v.front()), get<0>(v[SMALL_H/4]), get<1>(v[SMALL_H/4]));
-
   {
     auto deltasSH = deltaTable(readTrigSH, makeTrig<double>(2 * SMALL_H));
     assert(deltasSH.size() == SMALL_H / 4 + 1);
@@ -479,44 +497,15 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
     finish();
   }
 
-  program.reset();
-  
-  /*
-  vector<float2> ref = makeTrig<float>(hN);
-
-  u32 maxCos = 0, maxSin = 0, cosPos = 0, sinPos = 0;
-  u64 mCos = 0, mSin = 0;
-  u32 n1 = 0, n2 = 0;
-  for (u32 i = 0; i < ref.size(); ++i) {
-    int ucos = ulps(get<0>(v[i]), get<0>(ref[i]));
-    int usin = ulps(get<1>(v[i]), get<1>(ref[i]));
-    if (abs(ucos) > maxCos) { maxCos = abs(ucos); cosPos = i; }
-    if (abs(usin) > maxSin) { maxSin = abs(usin); sinPos = i; }
-
-    {
-      u64 a = as<u64>(double(v[i].first));
-      u64 b = as<u64>(refD[i].first);
-      i64 delta = i64(b - a);
-      if (as<double>(a + delta) != as<double>(b)) { ++n1; }
-      
-      mCos = max(mCos, u64(abs(delta)));
-    }
-
-    {
-      if (i) {
-      u64 a = as<u64>(double(v[i].second));
-      u64 b = as<u64>(refD[i].second);
-      i64 delta = i64(b - a);
-      if (as<double>(a + delta) != as<double>(b)) { ++n2; }
-      
-      mSin = max(mSin, u64(abs(delta)));
-      }
-    }
+  {
+    auto deltasN = deltaTable(readTrigN, makeTrig<double>(hN));
+    assert(deltasN.size() == hN / 8 + 1);
+    ConstBuffer<pair<i32, i32>> bufTrig{context, "trig", deltasN};
+    Kernel{program.get(), queue, device, 32, "writeTrigN"}(hN / 8 + 1, bufTrig);
+    finish();
   }
-  log("Max ulps %u (%u), %u (%u), %lx %lx, %u %u\n", maxCos, cosPos, maxSin, sinPos, mCos, mSin, n1, n2);
-  */
   
-  // for (u32 i = 1; i < 8; ++i) { printf("%s\n", toLiteral(double(exp2l((i / 8.0)) - 1)).c_str()); }
+  program.reset();
 }
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
