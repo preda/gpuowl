@@ -24,6 +24,17 @@ CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
 
 ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>          // Our own sin/cos implementation
+
+Below, TT refers to "table trig" and refers to a precomputed cos/sin table in conjuction with fast SP trig.
+TT required more memory access but less compute, and provides perfect sin/cos precision.
+As the GPU is usually memory-starved anyway, TT usually does not increase performance, except for GPUs with slow DP,
+or for small tables. There are 3 precomputed tables, named TT1 to TT3 in order of increasing size.
+
+TT1 <default on> enable the smallest trig table
+TT2 <default on> enable the medium trig table
+TT3 <default off> enabel the large trig table
+NO_TT1,NO_TT2 disable the respective trig tables.
+
 TABLE_TRIG use precomputed trig table lookup. Requires more memory bandwidth but less DP compute, and provides perfect precision.
 
 DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
@@ -89,6 +100,14 @@ G_H        "group height"
 #if !HAS_ASM
 // disable everything that depends on ASM
 #define NO_OMOD 1
+#endif
+
+#if HAS_ASM && !NO_TT1
+#define TT1 1
+#endif
+
+#if HAS_ASM && !NO_TT2
+#define TT2 1
 #endif
 
 #if CARRY32 && CARRY64
@@ -1941,7 +1960,6 @@ float fastSinSP(u32 k, u32 tau, u32 M) {
   // return sinpi(2 * x);
 }
 
-/*
 float fasterSinSP(u32 k, u32 tau, u32 M) {
 #if HAS_ASM
   float x = (-1.0f / tau) * k;  
@@ -1953,7 +1971,6 @@ float fasterSinSP(u32 k, u32 tau, u32 M) {
   return fastSinSP(k, tau, M);
 #endif
 }
-*/
 
 float fastCosSP(u32 k, u32 tau) {
   float x = (-1.0f / tau) * k;
@@ -1968,30 +1985,34 @@ float fastCosSP(u32 k, u32 tau) {
 #endif
 }
 
-#if TABLE_TRIG
-
-global ulong TRIG_N[ND / 8 + 1];
+#if TT1
 global ulong TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-global ulong TRIG_BH[BIG_HEIGHT / 8 + 1];
+#endif
 
+#if TT2
+global ulong TRIG_BH[BIG_HEIGHT / 8 + 1];
+#endif
+
+#if TT3
+global ulong TRIG_N[ND / 8 + 1];
 #endif
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 KERNEL(64) writeTrigSH(u32 size, const global ulong* in) {
-#if TABLE_TRIG
+#if TT1
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_2SH[k] = in[k]; }
 #endif
 }
 
 KERNEL(64) writeTrigBH(u32 size, const global ulong* in) {
-#if TABLE_TRIG
+#if TT2
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_BH[k] = in[k]; }
 #endif
 }
 
 KERNEL(64) writeTrigN(u32 size, const global ulong* in) {
-#if TABLE_TRIG
+#if TT3
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_N[k] = in[k]; }
 #endif
 }
@@ -2031,7 +2052,7 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global ulong* fixupTable, u32 middle
 }
 
 double2 slowTrig_N(u32 k, u32 kBound)   {
-#if TABLE_TRIG
+#if TT3
   return tableTrig(k, ND, kBound, TRIG_N, MIDDLE);
 #else
   return slowTrig(k, ND, kBound);
@@ -2039,7 +2060,7 @@ double2 slowTrig_N(u32 k, u32 kBound)   {
 }
 
 double2 slowTrig_BH(u32 k, u32 kBound)  {
-#if TABLE_TRIG
+#if TT2
   return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH, MIDDLE);
 #else
   return slowTrig(k, BIG_HEIGHT, kBound);
@@ -2047,8 +2068,8 @@ double2 slowTrig_BH(u32 k, u32 kBound)  {
 }
 
 double2 slowTrig_2SH(u32 k, u32 kBound) {
-#if TABLE_TRIG
-  return tableTrig(k, 2*SMALL_HEIGHT, kBound, TRIG_2SH, 1);
+#if TT1
+  return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH, 1);
 #else
   return slowTrig(k, 2 * SMALL_HEIGHT, kBound);
 #endif

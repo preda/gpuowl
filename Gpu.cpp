@@ -312,11 +312,11 @@ vector<u64> deltaTable(const vector<double2>& v, const vector<double2>& ref) {
   u32 nMaxCos = 0, nMaxSin = 0;
   
   for (u32 i = 0; i < ref.size(); ++i) {
-    i32 deltaCos, deltaSin;
+    // i32 deltaCos, deltaSin;
+
+    int bcos = 0, bsin = 0;
     
-    if (v[i].first == ref[i].first) {
-      deltaCos = 0;
-    } else {      
+    if (v[i].first != ref[i].first) {
       u64 a = as<u64>(v[i].first);
       u64 b = as<u64>(ref[i].first);
       i64 d = i64(b - a);
@@ -326,15 +326,13 @@ vector<u64> deltaTable(const vector<double2>& v, const vector<double2>& ref) {
       } else if (abs(d) == abs(maxCos)) {
         ++nMaxCos;
       }
-      
-      deltaCos = d;
-      if (d != deltaCos) { log("cos() delta %lx at %u too large, disable TABLE_TRIG\n", d, i); }
-      assert(as<double>(a + deltaCos) == as<double>(b));
+
+      bcos = d;
+      if (bcos != d) { log("cos-delta %lx at %u too large, tweak TABLE_TRIG\n", d, i); }
+      assert(as<double>(a + bcos) == as<double>(b));
     }
 
-    if (v[i].second == ref[i].second) {
-      deltaSin = 0;
-    } else {
+    if (v[i].second != ref[i].second) {
       u64 a = as<u64>(double(v[i].second));
       u64 b = as<u64>(ref[i].second);
       i64 d = i64(b - a);
@@ -344,17 +342,19 @@ vector<u64> deltaTable(const vector<double2>& v, const vector<double2>& ref) {
       } else if (abs(d) == abs(maxSin)) {
         ++nMaxSin;
       }
-      
-      deltaSin = d;
-      if (d != deltaSin) { log("sin() delta %lx at %u too large, disable TABLE_TRIG\n", d, i); }
-      assert(as<double>(a + deltaSin) == as<double>(b));
+
+      bsin = d;
+      if (bsin != d) { log("sin-delta %lx at %u too large, tweak TABLE_TRIG\n", d, i); }
+      assert(as<double>(a + bsin) == as<double>(b));
     }
     
-    deltas.push_back(as<u64>(pair<i32, i32>{deltaCos, deltaSin}));
+    u64 packed = as<u64>(pair<i32, i32>{bcos, bsin});
+    deltas.push_back(packed);
   }
   
-  log("trig fixup: %u points, max cos %c0x%08x x %u, max sin %c0x%08x x %u\n",
-      u32(deltas.size()), maxCos < 0 ? '-' : '+', u32(abs(maxCos)), nMaxCos, maxSin < 0 ?'-':'+', u32(abs(maxSin)), nMaxSin);
+  log("trig table : %u points, max cos %c0x%lx x %u, max sin %c0x%lx x %u\n",
+      u32(deltas.size()), maxCos < 0 ? '-' : '+', abs(maxCos), nMaxCos, maxSin < 0 ?'-':'+', abs(maxSin), nMaxSin);
+  
   return deltas;
 }
 
