@@ -24,6 +24,7 @@
 #include <numeric>
 #include <bitset>
 #include <limits>
+#include <iomanip>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -206,7 +207,7 @@ string toLiteral(i32 value) { return to_string(value); }
 
 string toLiteral(double value) {
   std::ostringstream ss;
-  ss << setprecision(numeric_limits<double>::max_digits10) << value;
+  ss << std::setprecision(numeric_limits<double>::max_digits10) << value;
   string s = std::move(ss).str();
 
   // verify correct roundtrip
