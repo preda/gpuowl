@@ -245,6 +245,69 @@ typedef i64 CarryABM;
 
 T2 U2(T a, T b) { return (T2)(a, b); }
 
+
+// ---- SP ----
+
+// See Fast-Two-Sum and Two-Sum in
+// "Extended-Precision Floating-Point Numbers for GPU Computation" by Andrew Thall
+
+// Fast: assumes |a| >= |b|; cost: 3 ADD
+OVERLOAD float2 fastTwoSum(float a, float b) {
+  float s = a + b;
+  return (float2) (s, b - (s - a));
+}
+
+// cost: 6 ADD. Does not require ordering (a, b), unlike fastTwoSum().
+float2 twoSum(float a, float b) {
+  float s = a + b;
+#if 0
+  if (fabs(b) > fabs(a)) { float t = a; a = b; b = t; }
+  // if ((as_uint(b) << 1) > (as_uint(a) << 1)) { float t = a; a = b; b = t; }
+  float e = b - (s - a);
+#elif 0
+  float e = ((fabs(a) >= fabs(b)) ? b - (s - a) : (a - (s - b)));
+#else
+  float b1 = s - a;
+  float a1 = s - b1;
+  float e = (b - b1) + (a - a1);
+#endif
+  return (float2) (s, e);
+}
+
+
+// Assumes |a| >= |b|
+OVERLOAD float2 fastSum(float2 a, float2 b) {
+  float2 s = fastTwoSum(a.x, b.x);
+  float2 t = fastTwoSum(a.y, b.y);
+  s = fastTwoSum(s.x, t.x + s.y);
+  s = fastTwoSum(s.x, t.y + s.y);
+}
+
+// See https://web.mit.edu/tabbott/Public/quaddouble-debian/qd-2.3.4-old/docs/qd.pdf , Figure 10.
+// Assumes |a| >= |b|
+// 15 ADDs
+OVERLOAD float3 fastSum(float3 a, float3 b) {
+  float2 s = fastTwoSum(a.x, b.x);
+  float2 t = fastTwoSum(a.y, b.y);
+  float2 u = twoSum(s.y, t.x);
+  return (float3) (s.x, u.x, a.z + b.z + t.y + u.y);
+}
+
+// 21 ADDs
+OVERLOAD float3 sum(float3 a, float3 b) {
+#if 1
+  float2 s = twoSum(a.x, b.x);
+  float2 t = twoSum(a.y, b.y);
+  float2 u = twoSum(s.y, t.x);
+  return (float3) (s.x, u.x, a.z + b.z + t.y + u.y);
+#else
+
+#endif
+}
+
+// ------------
+
+
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 #define STEP (NWORDS - (EXP % NWORDS))
@@ -3289,7 +3352,7 @@ KERNEL(64) readHwTrig(global double2* outSH, global double2* outBH, global doubl
 
   for (u32 k = get_global_id(0); k <= ND / 8; k += get_global_size(0)) { outN[k] = slowTrig_N(k, ND/8 + 1); }
 }
-
+ 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
  
