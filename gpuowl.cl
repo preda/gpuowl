@@ -251,58 +251,40 @@ T2 U2(T a, T b) { return (T2)(a, b); }
 // See Fast-Two-Sum and Two-Sum in
 // "Extended-Precision Floating-Point Numbers for GPU Computation" by Andrew Thall
 
-// Fast: assumes |a| >= |b|; cost: 3 ADD
-OVERLOAD float2 fastTwoSum(float a, float b) {
+// 3 ADDs. Requires |a| >= |b|
+OVERLOAD float2 fastSum(float a, float b) {
   float s = a + b;
   return (float2) (s, b - (s - a));
 }
 
-// cost: 6 ADD. Does not require ordering (a, b), unlike fastTwoSum().
-float2 twoSum(float a, float b) {
-  float s = a + b;
+// 6 ADDs
+float2 sum(float a, float b) {
 #if 0
   if (fabs(b) > fabs(a)) { float t = a; a = b; b = t; }
-  // if ((as_uint(b) << 1) > (as_uint(a) << 1)) { float t = a; a = b; b = t; }
-  float e = b - (s - a);
+  return fastSum(a, b);
 #elif 0
-  float e = ((fabs(a) >= fabs(b)) ? b - (s - a) : (a - (s - b)));
+  return (fabs(a) >= fabs(b)) ? fastSum(a, b) : fastSum(b, a);
 #else
+  // No branch but twice the ADDs.
+  float s = a + b;
   float b1 = s - a;
   float a1 = s - b1;
   float e = (b - b1) + (a - a1);
-#endif
   return (float2) (s, e);
-}
-
-
-// Assumes |a| >= |b|
-OVERLOAD float2 fastSum(float2 a, float2 b) {
-  float2 s = fastTwoSum(a.x, b.x);
-  float2 t = fastTwoSum(a.y, b.y);
-  s = fastTwoSum(s.x, t.x + s.y);
-  s = fastTwoSum(s.x, t.y + s.y);
-}
-
-// See https://web.mit.edu/tabbott/Public/quaddouble-debian/qd-2.3.4-old/docs/qd.pdf , Figure 10.
-// Assumes |a| >= |b|
-// 15 ADDs
-OVERLOAD float3 fastSum(float3 a, float3 b) {
-  float2 s = fastTwoSum(a.x, b.x);
-  float2 t = fastTwoSum(a.y, b.y);
-  float2 u = twoSum(s.y, t.x);
-  return (float3) (s.x, u.x, a.z + b.z + t.y + u.y);
-}
-
-// 21 ADDs
-OVERLOAD float3 sum(float3 a, float3 b) {
-#if 1
-  float2 s = twoSum(a.x, b.x);
-  float2 t = twoSum(a.y, b.y);
-  float2 u = twoSum(s.y, t.x);
-  return (float3) (s.x, u.x, a.z + b.z + t.y + u.y);
-#else
-
 #endif
+  
+  // Eqivalent (?)
+  // float2 s1 = fastSum(a, b);
+  // float2 s2 = fastSum(b, a);
+  // return (float2) (s1.x, s1.y + s2.y);
+}
+
+// 21 ADDs. See https://web.mit.edu/tabbott/Public/quaddouble-debian/qd-2.3.4-old/docs/qd.pdf , Figure 10.
+OVERLOAD float3 sum(float3 a, float3 b) {  
+  float2 c0 = sum(a.x, b.x);
+  float2 t1 = sum(a.y, b.y);
+  float2 c1 = sum(t1.x, c0.y);
+  return (float3) (c0.x, c1.x, a.z + b.z + t1.y + c1.y);
 }
 
 // ------------
@@ -2000,7 +1982,8 @@ double2 slowTrig(u32 k, u32 n, u32 kBound) {
 }
 
 float fastSinSP(u32 k, u32 tau, u32 M) {
-  // These DP coefs are optimized for computing sin(2*pi*x) with x in [0, 1/8].
+  // These DP coefs are optimized for computing sin(2*pi*x) with x in [0, 1/8], using
+  // sin(2*pi*x) = R[0]*x + R[1]*x^3 + R[2]*x^5 + R[3]*x^7
   double R[4] = {6.2831852886262363, -41.341663358481057, 81.592672353579971, -75.407767034374388};
 
   // We divide the DP coefficients by the corresponding power of M, and *afterwards* truncate them to SP.
@@ -2049,38 +2032,38 @@ float fastCosSP(u32 k, u32 tau) {
 }
 
 #if TT1
-global ulong TRIG_2SH[SMALL_HEIGHT / 4 + 1];
+global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
 #endif
 
 #if TT2
-global ulong TRIG_BH[BIG_HEIGHT / 8 + 1];
+global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
 #endif
 
 #if TT3
-global ulong TRIG_N[ND / 8 + 1];
+global double2 TRIG_N[ND / 8 + 1];
 #endif
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(64) writeTrigSH(u32 size, const global ulong* in) {
+KERNEL(64) writeTrigSH(u32 size, const global double2* in) {
 #if TT1
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_2SH[k] = in[k]; }
 #endif
 }
 
-KERNEL(64) writeTrigBH(u32 size, const global ulong* in) {
+KERNEL(64) writeTrigBH(u32 size, const global double2* in) {
 #if TT2
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_BH[k] = in[k]; }
 #endif
 }
 
-KERNEL(64) writeTrigN(u32 size, const global ulong* in) {
+KERNEL(64) writeTrigN(u32 size, const global double2* in) {
 #if TT3
   for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_N[k] = in[k]; }
 #endif
 }
 
-double2 tableTrig(u32 k, u32 n, u32 kBound, global ulong* fixupTable, u32 middle) {
+double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable, u32 middle) {
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
   assert(kBound <= 2 * n);  // angle <= 2 tau
@@ -2099,14 +2082,7 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global ulong* fixupTable, u32 middle
 
   assert(k <= n / 8);
 
-  int2 deltas = as_int2(fixupTable[k]);
-  float cf = fastCosSP(k, n);
-  double c = as_double(as_ulong((double) cf) + deltas.x);
-  
-  float sf = fastSinSP(k, n, middle);
-  double s = as_double(as_ulong((double) sf) + deltas.y);
-
-  double2 r = (double2)(c, s);
+  double2 r = trigTable[k];
 
   if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }

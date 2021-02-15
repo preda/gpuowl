@@ -483,25 +483,25 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   }
   
   {
-    auto deltasSH = deltaTable(readTrigSH, makeTrig<double>(2 * SMALL_H));
+    vector<double2> deltasSH = makeTrig<double>(2 * SMALL_H);
     assert(deltasSH.size() == SMALL_H / 4 + 1);
-    ConstBuffer<u64> bufTrig{context, "trig", deltasSH};
+    ConstBuffer<double2> bufTrig{context, "trig", deltasSH};
     Kernel{program.get(), queue, device, 32, "writeTrigSH"}(2 * SMALL_H / 8 + 1, bufTrig);
     finish();
   }
 
   {
-    auto deltasBH = deltaTable(readTrigBH, makeTrig<double>(BIG_H));
+    vector<double2> deltasBH = makeTrig<double>(BIG_H);
     assert(deltasBH.size() == BIG_H / 8 + 1);
-    ConstBuffer<u64> bufTrig{context, "trig", deltasBH};
+    ConstBuffer<double2> bufTrig{context, "trig", deltasBH};
     Kernel{program.get(), queue, device, 32, "writeTrigBH"}(BIG_H / 8 + 1, bufTrig);
     finish();
   }
 
   {
-    auto deltasN = deltaTable(readTrigN, makeTrig<double>(hN));
+    vector<double2> deltasN = makeTrig<double>(hN);
     assert(deltasN.size() == hN / 8 + 1);
-    ConstBuffer<u64> bufTrig{context, "trig", deltasN};
+    ConstBuffer<double2> bufTrig{context, "trig", deltasN};
     Kernel{program.get(), queue, device, 32, "writeTrigN"}(hN / 8 + 1, bufTrig);
     finish();
   }
