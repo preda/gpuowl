@@ -2031,6 +2031,15 @@ float fastCosSP(u32 k, u32 tau) {
 #endif
 }
 
+
+#if SP
+
+global float4 SP_TRIG_2SH[2 * SMALL_HEIGHT / 8 + 1];
+global float4 SP_TRIG_BH[BIG_HEIGHT / 8 + 1];
+global float4 SP_TRIG_N[ND / 8 + 1];
+
+#endif
+
 #if TT1
 global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
 #endif
@@ -2045,21 +2054,25 @@ global double2 TRIG_N[ND / 8 + 1];
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(64) writeTrigSH(u32 size, const global double2* in) {
+KERNEL(64) writeSPTrig(global float4* trig2Sh, global float4* trigBh, global float4* trigN) {
+#if SP
+  for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_2SH[k] = trig2Sh[k]; }
+  for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_BH[k] = trigBh[k]; }
+  for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { SP_TRIG_N[k] = trigN[k]; }
+#endif
+}
+
+KERNEL(64) writeDPTrig(global double2* trig2Sh, global double2* trigBh, global float4* trigN) {
 #if TT1
-  for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_2SH[k] = in[k]; }
+  for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_2SH[k] = trig2Sh[k]; }
 #endif
-}
 
-KERNEL(64) writeTrigBH(u32 size, const global double2* in) {
-#if TT2
-  for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_BH[k] = in[k]; }
+#if TT2  
+  for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_BH[k] = trigBh[k]; }
 #endif
-}
 
-KERNEL(64) writeTrigN(u32 size, const global double2* in) {
 #if TT3
-  for (u32 k = get_global_id(0); k < size; k += get_global_size(0)) { TRIG_N[k] = in[k]; }
+  for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { TRIG_N[k] = trigN[k]; }
 #endif
 }
 
