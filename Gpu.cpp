@@ -25,6 +25,7 @@
 #include <bitset>
 #include <limits>
 #include <iomanip>
+#include <quadmath.h>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -58,8 +59,8 @@ static pair<T, T> root1(u32 N, u32 k) {
     assert(!(N&7));
     assert(k <= N/8);
     N /= 2;
-    long double angle = - M_PIl * k / N;
-    return {cosl(angle), sinl(angle)};    
+    __float128 angle = - M_PIq * k / N;
+    return {cosf128(angle), sinf128(angle)};
   }
 }
 
@@ -305,58 +306,40 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   return program;
 }
 
-vector<u64> deltaTable(const vector<double2>& v, const vector<double2>& ref) {
-  assert(v.size() == ref.size());
-  vector<u64> deltas;
+float2 fixup(float hw, f128 ref, double& errBits) {
+  f128 r = ref - hw;
+  float c1 = r;
+  r -= c1;
+  
+  float c2 = r;
+  r -= c2;
 
-  i64 maxCos = 0, maxSin = 0;
-  u32 nMaxCos = 0, nMaxSin = 0;
+  // log("E : %f %f %f\n", double(ref), double(r), hw);
+  
+  if (r != 0 && ref != 0) {
+    double e = log2l(fabsl(ref)) - log2l(fabsl(r));
+    if (!(e >= 0)) { log("E : %f %f %f\n", double(ref), double(r), double(e)); }
+    assert(e >= 0);
+    if (e < errBits) {
+      errBits = e;
+    }
+  }
+  return {c1, c2};  
+}
+
+vector<pair<float2, float2>> trigFixup(const vector<float2>& hwTrig, const vector<pair<f128, f128>>& ref) {
+  assert(hwTrig.size() == ref.size());
+  vector<pair<float2, float2>> fixupVect;
+
+  double bitsCos = 1e20, bitsSin = 1e20;
   
   for (u32 i = 0; i < ref.size(); ++i) {
-    // i32 deltaCos, deltaSin;
-
-    int bcos = 0, bsin = 0;
-    
-    if (v[i].first != ref[i].first) {
-      u64 a = as<u64>(v[i].first);
-      u64 b = as<u64>(ref[i].first);
-      i64 d = i64(b - a);
-      
-      if (abs(d) > abs(maxCos)) {
-        maxCos = d; nMaxCos = 1;
-      } else if (abs(d) == abs(maxCos)) {
-        ++nMaxCos;
-      }
-
-      bcos = d;
-      if (bcos != d) { log("cos-delta %lx at %u too large, tweak TABLE_TRIG\n", d, i); }
-      assert(as<double>(a + bcos) == as<double>(b));
-    }
-
-    if (v[i].second != ref[i].second) {
-      u64 a = as<u64>(double(v[i].second));
-      u64 b = as<u64>(ref[i].second);
-      i64 d = i64(b - a);
-      
-      if (abs(d) > abs(maxSin)) {
-        maxSin = d; nMaxSin = 1;
-      } else if (abs(d) == abs(maxSin)) {
-        ++nMaxSin;
-      }
-
-      bsin = d;
-      if (bsin != d) { log("sin-delta %lx at %u too large, tweak TABLE_TRIG\n", d, i); }
-      assert(as<double>(a + bsin) == as<double>(b));
-    }
-    
-    u64 packed = as<u64>(pair<i32, i32>{bcos, bsin});
-    deltas.push_back(packed);
+    auto [hwCos, hwSin] = hwTrig[i];
+    auto [refCos, refSin] = ref[i];    
+    fixupVect.push_back({fixup(hwCos, refCos, bitsCos), fixup(hwSin, refSin, bitsSin)});
   }
-  
-  log("trig table : %u points, max cos %c0x%lx x %u, max sin %c0x%lx x %u\n",
-      u32(deltas.size()), maxCos < 0 ? '-' : '+', abs(maxCos), nMaxCos, maxSin < 0 ?'-':'+', abs(maxSin), nMaxSin);
-  
-  return deltas;
+  log("trig table : %u points, cos %f bits, sin %f bits\n", u32(fixupVect.size()), bitsCos, bitsSin);
+  return fixupVect;
 }
 
 }
@@ -469,9 +452,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarryMax.zero();
   bufCarryMulMax.zero();
 
-  vector<double2> readTrigSH, readTrigBH, readTrigN;
+  vector<float2> readTrigSH, readTrigBH, readTrigN;
   {
-    HostAccessBuffer<double2>
+    HostAccessBuffer<float2>
       bufSH{queue, "readTrig", SMALL_H/4 + 1},
       bufBH{queue, "readTrigBH", BIG_H/8 + 1},
       bufN{queue, "readTrigN", hN/8+1};
@@ -480,31 +463,15 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
     readTrigSH = bufSH.read();
     readTrigBH = bufBH.read();
     readTrigN = bufN.read();
+    trigFixup(readTrigSH, makeTrig<f128>(2 * SMALL_H));
+    trigFixup(readTrigBH, makeTrig<f128>(BIG_H));
+    trigFixup(readTrigN, makeTrig<f128>(hN));
   }
   
-  {
-    vector<double2> deltasSH = makeTrig<double>(2 * SMALL_H);
-    assert(deltasSH.size() == SMALL_H / 4 + 1);
-    ConstBuffer<double2> bufTrig{context, "trig", deltasSH};
-    Kernel{program.get(), queue, device, 32, "writeTrigSH"}(2 * SMALL_H / 8 + 1, bufTrig);
-    finish();
-  }
-
-  {
-    vector<double2> deltasBH = makeTrig<double>(BIG_H);
-    assert(deltasBH.size() == BIG_H / 8 + 1);
-    ConstBuffer<double2> bufTrig{context, "trig", deltasBH};
-    Kernel{program.get(), queue, device, 32, "writeTrigBH"}(BIG_H / 8 + 1, bufTrig);
-    finish();
-  }
-
-  {
-    vector<double2> deltasN = makeTrig<double>(hN);
-    assert(deltasN.size() == hN / 8 + 1);
-    ConstBuffer<double2> bufTrig{context, "trig", deltasN};
-    Kernel{program.get(), queue, device, 32, "writeTrigN"}(hN / 8 + 1, bufTrig);
-    finish();
-  }
+  Kernel{program.get(), queue, device, 32, "writeTrigSH"}(2 * SMALL_H / 8 + 1, ConstBuffer{context, "trig", makeTrig<double>(2 * SMALL_H)});
+  Kernel{program.get(), queue, device, 32, "writeTrigBH"}(BIG_H / 8 + 1,       ConstBuffer{context, "trig", makeTrig<double>(BIG_H)});
+  Kernel{program.get(), queue, device, 32, "writeTrigN"}(hN / 8 + 1,           ConstBuffer{context, "trig", makeTrig<double>(hN)});
+  finish();
   
   program.reset();
 }

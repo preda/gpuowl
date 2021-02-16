@@ -3321,12 +3321,18 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
 
-KERNEL(64) readHwTrig(global double2* outSH, global double2* outBH, global double2* outN) {
-  for (u32 k = get_global_id(0); k <= SMALL_HEIGHT / 4; k += get_global_size(0)) { outSH[k] = slowTrig_2SH(k, SMALL_HEIGHT/4+1); }
+KERNEL(64) readHwTrig(global float2* outSH, global float2* outBH, global float2* outN) {
+  for (u32 k = get_global_id(0); k <= SMALL_HEIGHT / 4; k += get_global_size(0)) {
+    outSH[k] = (float2) (fastCosSP(k, SMALL_HEIGHT * 2), fastSinSP(k, SMALL_HEIGHT * 2, 1));
+  }
   
-  for (u32 k = get_global_id(0); k <= BIG_HEIGHT / 8; k += get_global_size(0)) { outBH[k] = slowTrig_BH(k, BIG_HEIGHT/8+1); }
+  for (u32 k = get_global_id(0); k <= BIG_HEIGHT / 8; k += get_global_size(0)) {
+    outBH[k] = (float2) (fastCosSP(k, BIG_HEIGHT), fastSinSP(k, BIG_HEIGHT, MIDDLE));
+  }
 
-  for (u32 k = get_global_id(0); k <= ND / 8; k += get_global_size(0)) { outN[k] = slowTrig_N(k, ND/8 + 1); }
+  for (u32 k = get_global_id(0); k <= ND / 8; k += get_global_size(0)) {
+    outN[k] = (float2) (fastCosSP(k, ND), fastSinSP(k, ND, MIDDLE));
+  }
 }
  
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize

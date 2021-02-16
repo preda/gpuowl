@@ -26,6 +26,7 @@ class Task;
 class ProofSet;
 
 using double2 = pair<double, double>;
+using float2 = pair<float, float>;
 
 namespace fs = std::filesystem;
 

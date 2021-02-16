@@ -1,8 +1,8 @@
-CXXFLAGS = -Wall -O2 -std=c++17
+CXXFLAGS = -Wall -O2 -std=gnu++17
 
-LIBPATH = -L/opt/rocm/opencl/lib -L/opt/rocm-3.3.0/opencl/lib/x86_64 -L/opt/rocm-3.1.0/opencl/lib/x86_64 -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
+LIBPATH = -L/opt/rocm-4.0.0/opencl/lib -L/opt/rocm-3.3.0/opencl/lib/x86_64 -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
 
-LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
+LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread -lquadmath ${LIBPATH}
 
 LINK = $(CXX) -o $@ ${OBJS} ${LDFLAGS}
 
