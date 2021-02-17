@@ -245,8 +245,8 @@ typedef i64 CarryABM;
 
 typedef float3 T;
 typedef float6 TT;
-#define RE(a) ((float3) (a.s0, a.s1, a.s2))
-#define IM(a) ((float3) (a.s3, a.s4, a.s5))
+#define RE(a) (a.s012)
+#define IM(a) (a.s345)
 
 #else
 
@@ -261,20 +261,19 @@ typedef TT T2;
 
 TT U2(T a, T b) { return (TT) (a, b); }
 
-#if SP
 
-// ---- SP ----
+#if SP
 
 // See Fast-Two-Sum and Two-Sum in
 // "Extended-Precision Floating-Point Numbers for GPU Computation" by Andrew Thall
 
-// 3 ADDs. Requires |a| >= |b|
+// 3 ADD. Requires |a| >= |b|
 OVERLOAD float2 fastSum(float a, float b) {
   float s = a + b;
   return (float2) (s, b - (s - a));
 }
 
-// 6 ADDs
+// 6 ADD
 OVERLOAD float2 twoSum(float a, float b) {
 #if 0
   if (fabs(b) > fabs(a)) { float t = a; a = b; b = t; }
@@ -296,7 +295,7 @@ OVERLOAD float2 twoSum(float a, float b) {
   // return (float2) (s1.x, s1.y + s2.y);
 }
 
-// 21 ADDs. See https://web.mit.edu/tabbott/Public/quaddouble-debian/qd-2.3.4-old/docs/qd.pdf , Figure 10.
+// 21 ADD. See https://web.mit.edu/tabbott/Public/quaddouble-debian/qd-2.3.4-old/docs/qd.pdf , Figure 10.
 OVERLOAD float3 sum(float3 a, float3 b) {  
   float2 c0 = twoSum(a.x, b.x);
   float2 t1 = twoSum(a.y, b.y);
@@ -346,25 +345,19 @@ OVERLOAD float3 sq(float3 a) {
 // TODO: merge the ADD into the MUL
 float3 mad1(float3 a, float3 b, float3 c) { return sum(mul(a, b), c); }
 
-float3 neg(float3 a) { return (float3) (-a.x, -a.y, -a.z); }
-
-float3 sub(float3 a, float3 b) { return sum(a, neg(b)); }
+float3 sub(float3 a, float3 b) { return sum(a, -b); }
 
 #else
 
 // ---- DP ----
 
-double neg(double a) { return -a; }
-
 double sum(double a, double b) { return a + b; }
 
 double sub(double a, double b) { return a - b; }
 
-OVERLOAD double mul(double a, double b) { return a * b; }
-
-OVERLOAD double sq(double a) { return a * a; }
-
 double mad1(double x, double y, double z) { return x * y + z; }
+
+double mul(double x, double y) { return x * y; }
 
 #endif
 
@@ -431,7 +424,7 @@ T msb1_m2(T a, T b, T c) {
   __asm volatile("v_fma_f64 %0, %1, %2, -%3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
 #else
-  return 2 * mad1(a, b, neg(c));
+  return 2 * mad1(a, b, -c);
 #endif
 }
 
@@ -451,7 +444,7 @@ T msb1_m4(T a, T b, T c) {
   __asm volatile("v_fma_f64 %0, %1, %2, -%3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
 #else
-  return 4 * mad1(a, b, neg(c));
+  return 4 * mad1(a, b, -c);
 #endif
 }
 
@@ -459,15 +452,15 @@ T msb1_m4(T a, T b, T c) {
 #if SP
 
 // complex square
-OVERLOAD TT sq(TT a) { return U2(sub(sq(RE(a)), sq(IM(a))), mul1_m2(RE(a), IM(a))); }
+OVERLOAD TT sq(TT a) { return U2(sum(sq(RE(a)), -sq(IM(a))), 2 * mul(RE(a), IM(a))); }
 
 // complex mul
-OVERLOAD TT mul(TT a, TT b) { return U2(mad1(RE(a), RE(b), neg(mul(IM(a), IM(b)))), mad1(RE(a), IM(b), mul(IM(a), RE(b)))); }
+OVERLOAD TT mul(TT a, TT b) { return U2(mul(RE(a), RE(b)) - mul(IM(a), IM(b)), mul(RE(a), IM(b)) + mul(IM(a), RE(b))); }
 
 #else
 
 // complex square
-OVERLOAD TT sq(TT a) { return U2(mad1(a.x, a.x, - a.y * a.y), mul1_m2(a.x, a.y)); }
+OVERLOAD TT sq(TT a) { return U2(RE(a) * RE(a) - IM(a) * IM(a), mul1_m2(RE(a), IM(a))); }
 
 // complex mul
 OVERLOAD TT mul(TT a, TT b) { return U2(RE(a) * RE(b) - IM(a) * IM(b), RE(a) * IM(b) + IM(a) * RE(b)); }
@@ -484,31 +477,31 @@ u32 bitlen(bool b) { return EXP / NWORDS + b; }
 
 
 // complex add * 2
-T2 add_m2(TT a, TT b) { return U2(add1_m2(RE(a), RE(b)), add1_m2(IM(a), IM(b))); }
+TT add_m2(TT a, TT b) { return U2(add1_m2(RE(a), RE(b)), add1_m2(IM(a), IM(b))); }
 
 // complex mul * 2
-T2 mul_m2(T2 a, T2 b) { return U2(msb1_m2(a.x, b.x, a.y * b.y), mad1_m2(a.x, b.y, a.y * b.x)); }
+TT mul_m2(TT a, TT b) { return U2(mad1_m2(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m2(RE(a), IM(b), mul(IM(a), RE(b)))); }
 
 // complex mul * 4
-T2 mul_m4(T2 a, T2 b) { return U2(msb1_m4(a.x, b.x, a.y * b.y), mad1_m4(a.x, b.y, a.y * b.x)); }
+T2 mul_m4(T2 a, T2 b) { return U2(mad1_m4(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m4(RE(a), IM(b), mul(IM(a), RE(b)))); }
 
 // complex fma
-T2 mad_m1(T2 a, T2 b, T2 c) { return U2(mad1(a.x, b.x, mad1(a.y, -b.y, c.x)), mad1(a.x, b.y, mad1(a.y, b.x, c.y))); }
+T2 mad_m1(T2 a, T2 b, T2 c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), c.x)), mad1(RE(a), IM(b), mad1(IM(a), RE(b), c.y))); }
 
 // complex fma * 2
-T2 mad_m2(T2 a, T2 b, T2 c) { return U2(mad1_m2(a.x, b.x, mad1(a.y, -b.y, c.x)), mad1_m2(a.x, b.y, mad1(a.y, b.x, c.y))); }
+T2 mad_m2(T2 a, T2 b, T2 c) { return U2(mad1_m2(RE(a), RE(b), mad1(IM(a), -IM(b), c.x)), mad1_m2(RE(a), IM(b), mad1(IM(a), RE(b), c.y))); }
 
 
-T2 mul_t4(T2 a)  { return U2(a.y, -a.x); }                          // mul(a, U2( 0, -1)); }
-T2 mul_t8(T2 a)  { return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-T2 mul_3t8(T2 a) { return U2(a.x - a.y, a.x + a.y) * - M_SQRT1_2; } // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); }                          // mul(a, U2( 0, -1)); }
+T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
+T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; } // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
-T2 swap(T2 a) { return U2(a.y, a.x); }
-T2 conjugate(T2 a) { return U2(a.x, -a.y); }
+T2 swap(T2 a) { return U2(IM(a), RE(a)); }
+T2 conjugate(T2 a) { return U2(RE(a), -IM(a)); }
 
 void bar() { barrier(0); }
 
-T2 weight(Word2 a, T2 w) { return U2(a.x, a.y) * w; }
+T2 weight(Word2 a, T2 w) { return U2(RE(a), IM(a)) * w; }
 
 u32 bfi(u32 u, u32 mask, u32 bits) {
 #if HAS_ASM
@@ -703,20 +696,20 @@ Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
 // Propagate carry this many pairs of words.
 #define CARRY_LEN 8
 
-T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
-T2 addsub_m2(T2 a) { return U2(add1_m2(a.x, a.y), sub1_m2(a.x, a.y)); }
+T2 addsub(T2 a) { return U2(RE(a) + IM(a), RE(a) - IM(a)); }
+T2 addsub_m2(T2 a) { return U2(add1_m2(RE(a), IM(a)), sub1_m2(RE(a), IM(a))); }
 
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 T2 foo2(T2 a, T2 b) {
   a = addsub(a);
   b = addsub(b);
-  return addsub(U2(a.x * b.x, a.y * b.y));
+  return addsub(U2(RE(a) * RE(b), IM(a) * IM(b)));
 }
 
 T2 foo2_m2(T2 a, T2 b) {
   a = addsub(a);
   b = addsub(b);
-  return addsub_m2(U2(a.x * b.x, a.y * b.y));
+  return addsub_m2(U2(RE(a) * RE(b), IM(a) * IM(b)));
 }
 
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
@@ -724,15 +717,15 @@ T2 foo(T2 a) { return foo2(a, a); }
 T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
 // Same as X2(a, b), b = mul_t4(b)
-#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
+#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
 
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
 
 // Same as X2(a, conjugate(b))
-#define X2conjb(a, b) { T2 t = a; a.x = a.x + b.x; a.y = a.y - b.y; b.x = t.x - b.x; b.y = t.y + b.y; }
+#define X2conjb(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = IM(a) - IM(b); RE(b) = t.x - RE(b); IM(b) = t.y + IM(b); }
 
 // Same as X2(a, b), a = conjugate(a)
-#define X2conja(a, b) { T2 t = a; a.x = a.x + b.x; a.y = -a.y - b.y; b = t - b; }
+#define X2conja(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = -IM(a) - IM(b); b = t - b; }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
@@ -740,9 +733,9 @@ T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
 // Partial complex multiplies:  the mul by sin is delayed so that it can be later propagated to an FMA instruction
 // complex mul by cos-i*sin given cos/sin, sin
-T2 partial_cmul(T2 a, T c_over_s) { return U2(mad1(a.x, c_over_s, a.y), mad1(a.y, c_over_s, -a.x)); }
+T2 partial_cmul(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, IM(a)), mad1(IM(a), c_over_s, -RE(a))); }
 // complex mul by cos+i*sin given cos/sin, sin
-T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(a.x, c_over_s, -a.y), mad1(a.y, c_over_s, a.x)); }
+T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, -IM(a)), mad1(IM(a), c_over_s, RE(a))); }
 
 // a = c + sin * d; b = c - sin * d;
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; T2 t = c + d; b = c - d; a = t; }
@@ -751,11 +744,11 @@ T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(a.x, c_over_s, -a.y
 
 // a * conjugate(b)
 // saves one negation
-T2 mul_by_conjugate(T2 a, T2 b) { return U2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y); }
+T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a) * RE(b) - RE(a) * IM(b)); }
 
 // Combined complex mul and mul by conjugate.  Saves 4 multiplies compared to two complex mul calls. 
 void mul_and_mul_by_conjugate(T2 *res1, T2 *res2, T2 a, T2 b) {
-	T axbx = a.x * b.x; T axby = a.x * b.y; T aybx = a.y * b.x; T ayby = a.y * b.y;
+	T axbx = RE(a) * RE(b); T axby = RE(a) * IM(b); T aybx = IM(a) * RE(b); T ayby = IM(a) * IM(b);
 	res1->x = axbx - ayby; res1->y = axby + aybx;		// Complex mul
 	res2->x = axbx + ayby; res2->y = aybx - axby;		// Complex mul by conjugate
 }
@@ -786,13 +779,13 @@ void fft4(T2 *u) {
 #if NEWEST_FFT8
 
 // Attempt to get more FMA by delaying mul by SQRT1_2
-T2 mul_t8_delayed(T2 a)  { return U2(a.y + a.x, a.y - a.x); }
-#define X2_mul_3t8_delayed(a, b) { T2 t = a; a = t + b; t = b - t; b.x = t.x - t.y; b.y = t.x + t.y; }
+T2 mul_t8_delayed(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)); }
+#define X2_mul_3t8_delayed(a, b) { T2 t = a; a = t + b; t = b - t; RE(b) = t.x - t.y; IM(b) = t.x + t.y; }
 
 // Like X2 but second arg needs a multiplication by SQRT1_2
 #define X2_apply_SQRT1_2(a, b) { T2 t = a; \
-				 a.x = fma(b.x, M_SQRT1_2, t.x); a.y = fma(b.y, M_SQRT1_2, t.y); \
-				 b.x = fma(b.x, -M_SQRT1_2, t.x); b.y = fma(b.y, -M_SQRT1_2, t.y); }
+				 RE(a) = fma(RE(b), M_SQRT1_2, t.x); IM(a) = fma(IM(b), M_SQRT1_2, t.y); \
+				 RE(b) = fma(RE(b), -M_SQRT1_2, t.x); IM(b) = fma(IM(b), -M_SQRT1_2, t.y); }
 
 void fft4Core_delayed(T2 *u) {		// Same as fft4Core except u[1] and u[3] need to be multiplied by SQRT1_2
   X2(u[0], u[2]);
@@ -817,7 +810,7 @@ void fft8Core(T2 *u) {
 
 // Same as X2(a, b), b = mul_3t8(b)
 //#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; t.y *= M_SQRT1_2; b.x = t.x * M_SQRT1_2 - t.y; b.y = t.x * M_SQRT1_2 + t.y; }
-#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; b.x = (t.x - t.y) * M_SQRT1_2; b.y = (t.x + t.y) * M_SQRT1_2; }
+#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; RE(b) = (t.x - t.y) * M_SQRT1_2; IM(b) = (t.x + t.y) * M_SQRT1_2; }
 
 void fft8Core(T2 *u) {
   X2(u[0], u[4]);
