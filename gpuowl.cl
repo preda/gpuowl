@@ -245,15 +245,15 @@ typedef i64 CarryABM;
 
 typedef float3 T;
 typedef float6 TT;
-#define FIRST(a) ((float3) (a.s0, a.s1, a.s2))
-#define SECOND(a) ((float3) (a.s3, a.s4, a.s5))
+#define RE(a) ((float3) (a.s0, a.s1, a.s2))
+#define IM(a) ((float3) (a.s3, a.s4, a.s5))
 
 #else
 
 typedef double T;
 typedef double2 TT;
-#define FIRST(a) (a.x)
-#define SECOND(a) (a.y)
+#define RE(a) (a.x)
+#define IM(a) (a.y)
 
 #endif
 
@@ -412,7 +412,7 @@ OVERLOAD T fancyMul(T x, const T y) {
 }
 
 OVERLOAD TT fancyMul(TT x, const TT y) {
-  return U2(fancyMul(FIRST(x), FIRST(y)), fancyMul(SECOND(x), SECOND(y)));
+  return U2(fancyMul(RE(x), RE(y)), fancyMul(IM(x), IM(y)));
 }
 
 T mad1_m2(T a, T b, T c) {
@@ -459,10 +459,10 @@ T msb1_m4(T a, T b, T c) {
 #if SP
 
 // complex square
-OVERLOAD TT sq(TT a) { return U2(sub(sq(FIRST(a)), sq(SECOND(a))), mul1_m2(FIRST(a), SECOND(a))); }
+OVERLOAD TT sq(TT a) { return U2(sub(sq(RE(a)), sq(IM(a))), mul1_m2(RE(a), IM(a))); }
 
 // complex mul
-OVERLOAD TT mul(TT a, TT b) { return U2(mad1(FIRST(a), FIRST(b), neg(mul(SECOND(a), SECOND(b)))), mad1(FIRST(a), SECOND(b), mul(SECOND(a), FIRST(b)))); }
+OVERLOAD TT mul(TT a, TT b) { return U2(mad1(RE(a), RE(b), neg(mul(IM(a), IM(b)))), mad1(RE(a), IM(b), mul(IM(a), RE(b)))); }
 
 #else
 
@@ -470,7 +470,7 @@ OVERLOAD TT mul(TT a, TT b) { return U2(mad1(FIRST(a), FIRST(b), neg(mul(SECOND(
 OVERLOAD TT sq(TT a) { return U2(mad1(a.x, a.x, - a.y * a.y), mul1_m2(a.x, a.y)); }
 
 // complex mul
-OVERLOAD TT mul(TT a, TT b) { return U2(FIRST(a) * FIRST(b) - SECOND(a) * SECOND(b), FIRST(a) * SECOND(b) + SECOND(a) * FIRST(b)); }
+OVERLOAD TT mul(TT a, TT b) { return U2(RE(a) * RE(b) - IM(a) * IM(b), RE(a) * IM(b) + IM(a) * RE(b)); }
 
 #endif
 
@@ -484,7 +484,7 @@ u32 bitlen(bool b) { return EXP / NWORDS + b; }
 
 
 // complex add * 2
-T2 add_m2(TT a, TT b) { return U2(add1_m2(FIRST(a), FIRST(b)), add1_m2(SECOND(a), SECOND(b))); }
+T2 add_m2(TT a, TT b) { return U2(add1_m2(RE(a), RE(b)), add1_m2(IM(a), IM(b))); }
 
 // complex mul * 2
 T2 mul_m2(T2 a, T2 b) { return U2(msb1_m2(a.x, b.x, a.y * b.y), mad1_m2(a.x, b.y, a.y * b.x)); }
