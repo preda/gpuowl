@@ -25,15 +25,15 @@ CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
 ORIG_SLOWTRIG
 NEW_SLOWTRIG <default>          // Our own sin/cos implementation
 
-Below, TT refers to "table trig" and refers to a precomputed cos/sin table in conjuction with fast SP trig.
-TT required more memory access but less compute, and provides perfect sin/cos precision.
-As the GPU is usually memory-starved anyway, TT usually does not increase performance, except for GPUs with slow DP,
-or for small tables. There are 3 precomputed tables, named TT1 to TT3 in order of increasing size.
+Below, TTABLE refers to "table trig" and refers to a precomputed cos/sin table in conjuction with fast SP trig.
+TTABLE required more memory access but less compute, and provides perfect sin/cos precision.
+As the GPU is usually memory-starved anyway, TTABLE usually does not increase performance, except for GPUs with slow DP,
+or for small tables. There are 3 precomputed tables, named TTABLE1 to TTABLE3 in order of increasing size.
 
-TT1 <default on> enable the smallest trig table
-TT2 <default on> enable the medium trig table
-TT3 <default off> enabel the large trig table
-NO_TT1,NO_TT2 disable the respective trig tables.
+TTABLE1 <default on> enable the smallest trig table
+TTABLE2 <default on> enable the medium trig table
+TTABLE3 <default off> enabel the large trig table
+NO_TTABLE1,NO_TTABLE2 disable the respective trig tables.
 
 TABLE_TRIG use precomputed trig table lookup. Requires more memory bandwidth but less DP compute, and provides perfect precision.
 
@@ -102,12 +102,12 @@ G_H        "group height"
 #define NO_OMOD 1
 #endif
 
-#if HAS_ASM && !NO_TT1
-#define TT1 1
+#if HAS_ASM && !NO_TTABLE1
+#define TTABLE1 1
 #endif
 
-#if HAS_ASM && !NO_TT2
-#define TT2 1
+#if HAS_ASM && !NO_TTABLE2
+#define TTABLE2 1
 #endif
 
 #if CARRY32 && CARRY64
@@ -236,15 +236,32 @@ typedef int i32;
 typedef uint u32;
 typedef long i64;
 typedef ulong u64;
-typedef double T;
-typedef double2 T2;
+
 typedef i32 Word;
 typedef int2 Word2;
-
 typedef i64 CarryABM;
 
-T2 U2(T a, T b) { return (T2)(a, b); }
+#if SP
 
+typedef float3 T;
+typedef float6 TT;
+#define FIRST(a) ((float3) (a.s0, a.s1, a.s2))
+#define SECOND(a) ((float3) (a.s3, a.s4, a.s5))
+
+#else
+
+typedef double T;
+typedef double2 TT;
+#define FIRST(a) (a.x)
+#define SECOND(a) (a.y)
+
+#endif
+
+typedef TT T2;
+
+TT U2(T a, T b) { return (TT) (a, b); }
+
+#if SP
 
 // ---- SP ----
 
@@ -258,7 +275,7 @@ OVERLOAD float2 fastSum(float a, float b) {
 }
 
 // 6 ADDs
-float2 sum(float a, float b) {
+OVERLOAD float2 twoSum(float a, float b) {
 #if 0
   if (fabs(b) > fabs(a)) { float t = a; a = b; b = t; }
   return fastSum(a, b);
@@ -281,11 +298,73 @@ float2 sum(float a, float b) {
 
 // 21 ADDs. See https://web.mit.edu/tabbott/Public/quaddouble-debian/qd-2.3.4-old/docs/qd.pdf , Figure 10.
 OVERLOAD float3 sum(float3 a, float3 b) {  
-  float2 c0 = sum(a.x, b.x);
-  float2 t1 = sum(a.y, b.y);
-  float2 c1 = sum(t1.x, c0.y);
+  float2 c0 = twoSum(a.x, b.x);
+  float2 t1 = twoSum(a.y, b.y);
+  float2 c1 = twoSum(t1.x, c0.y);
   return (float3) (c0.x, c1.x, a.z + b.z + t1.y + c1.y);
 }
+
+// 2 MUL
+OVERLOAD float2 twoMul(float a, float b) {
+  float c = a * b;
+  float d = fma(a, b, -c);
+  return (float2) (c, d);
+}
+
+// 15 ADD + 9 MUL
+OVERLOAD float3 mul(float3 a, float3 b) {
+  float2 c = twoMul(a.x, b.x);
+  
+  float2 d0 = twoMul(a.x, b.y);
+  float2 d1 = twoMul(a.y, b.x);
+
+  float2 e0 = twoSum(d0.x, d1.x);
+  float2 e1 = twoSum(e0.x, c.y);
+  
+  float f = fma(a.x, b.z, d0.y + d1.y);
+  f = fma(a.y, b.y, f + e0.y);
+  f = fma(a.z, b.x, f + e1.y);
+
+#if 0
+  // e0 = sum(c.y, d0.x);
+  // e1 = sum(e0.x, d1.x);  
+  f = fma(a.z, b.x, fma(a.y, b.y, fma(a.x, b.z, d0.y))) + d1.y + e0.y + e1.y;
+#endif
+  
+  return (float3) (c.x, e1.x, f);
+}
+
+// 7 ADD + 6 MUL
+OVERLOAD float3 sq(float3 a) {
+  float2 c = twoMul(a.x, a.x);
+  float2 d = twoMul(a.x, a.y);
+  float2 e = twoSum(2 * d.x, c.y);
+  float f = fma(a.y, a.y, 2 * fma(a.x, a.z, d.y)) + e.y;
+  return (float3) (c.x, e.x, f);
+}
+
+// TODO: merge the ADD into the MUL
+float3 mad1(float3 a, float3 b, float3 c) { return sum(mul(a, b), c); }
+
+float3 neg(float3 a) { return (float3) (-a.x, -a.y, -a.z); }
+
+float3 sub(float3 a, float3 b) { return sum(a, neg(b)); }
+
+#else
+
+// ---- DP ----
+
+double neg(double a) { return -a; }
+
+double sum(double a, double b) { return a + b; }
+
+double sub(double a, double b) { return a - b; }
+
+OVERLOAD double mul(double a, double b) { return a * b; }
+
+double mad1(double x, double y, double z) { return x * y + z; }
+
+#endif
 
 // ------------
 
@@ -299,44 +378,53 @@ u32 bitlen(bool b) { return EXP / NWORDS + b; }
 
 
 T add1_m2(T x, T y) {
-#if !NO_OMOD
+#if !NO_OMOD && !SP
   T tmp;
    __asm volatile("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
    return tmp;
 #else
-   return 2 * (x + y);
+   return 2 * sum(x, y);
 #endif
 }
 
 T sub1_m2(T x, T y) {
-#if !NO_OMOD
+#if !NO_OMOD && !SP
   T tmp;
   __asm volatile("v_add_f64 %0, %1, -%2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
   return tmp;
 #else
-  return 2 * (x - y);
+  return 2 * sub(x, y);
 #endif
 }
 
 // x * y * 2
 T mul1_m2(T x, T y) {
-#if !NO_OMOD
+#if !NO_OMOD && !SP
   T tmp;
   __asm volatile("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
   return tmp;
 #else
-  return x * y * 2;
+  return 2 * mul(x, y);
 #endif
 }
 
-// x * (y + 1);
-OVERLOAD T fancyMul(T x, const T y) { return fma(x, y, x); }
-OVERLOAD T2 fancyMul(T2 x, const T2 y) { return fma(x, y, x); }
 
-T mad1(T x, T y, T z) { return x * y + z; }
+OVERLOAD T fancyMul(T x, const T y) {
+#if SP
+  // for SP we skip the "+1" trick.
+  return mul(x, y);
+#else
+  // x * (y + 1);
+  return fma(x, y, x);
+#endif
+}
+
+OVERLOAD TT fancyMul(TT x, const TT y) {
+  return U2(fancyMul(FIRST(x), FIRST(y)), fancyMul(SECOND(x), SECOND(y)));
+}
 
 T mad1_m2(T a, T b, T c) {
-#if !NO_OMOD
+#if !NO_OMOD && !SP
   double out;
   __asm volatile("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
@@ -346,17 +434,17 @@ T mad1_m2(T a, T b, T c) {
 }
 
 T msb1_m2(T a, T b, T c) {
-#if !NO_OMOD
+#if !NO_OMOD && !SP
   double out;
   __asm volatile("v_fma_f64 %0, %1, %2, -%3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
 #else
-  return 2 * mad1(a, b, -c);
+  return 2 * mad1(a, b, neg(c));
 #endif
 }
 
 T mad1_m4(T a, T b, T c) {
-#if !NO_OMOD
+#if !NO_OMOD && !SP
   double out;
   __asm volatile("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
@@ -366,23 +454,23 @@ T mad1_m4(T a, T b, T c) {
 }
 
 T msb1_m4(T a, T b, T c) {
-#if !NO_OMOD
+#if !NO_OMOD && !SP
   double out;
   __asm volatile("v_fma_f64 %0, %1, %2, -%3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
   return out;
 #else
-  return 4 * mad1(a, b, -c);
+  return 4 * mad1(a, b, neg(c));
 #endif
 }
 
 // complex add * 2
-T2 add_m2(T2 a, T2 b) { return U2(add1_m2(a.x, b.x), add1_m2(a.y, b.y)); }
+T2 add_m2(TT a, TT b) { return U2(add1_m2(FIRST(a), FIRST(b)), add1_m2(SECOND(a), SECOND(b))); }
 
 // complex square
 T2 sq(T2 a) { return U2(mad1(a.x, a.x, - a.y * a.y), mul1_m2(a.x, a.y)); }
 
 // complex mul
-T2 mul(T2 a, T2 b) { return U2(mad1(a.x, b.x, - a.y * b.y), mad1(a.x, b.y, a.y * b.x)); }
+OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad1(a.x, b.x, - a.y * b.y), mad1(a.x, b.y, a.y * b.x)); }
 
 // complex mul * 2
 T2 mul_m2(T2 a, T2 b) { return U2(msb1_m2(a.x, b.x, a.y * b.y), mad1_m2(a.x, b.y, a.y * b.x)); }
@@ -2040,15 +2128,15 @@ global float4 SP_TRIG_N[ND / 8 + 1];
 
 #endif
 
-#if TT1
+#if TTABLE1
 global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
 #endif
 
-#if TT2
+#if TTABLE2
 global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
 #endif
 
-#if TT3
+#if TTABLE3
 global double2 TRIG_N[ND / 8 + 1];
 #endif
 
@@ -2062,16 +2150,16 @@ KERNEL(64) writeSPTrig(global float4* trig2Sh, global float4* trigBh, global flo
 #endif
 }
 
-KERNEL(64) writeDPTrig(global double2* trig2Sh, global double2* trigBh, global float4* trigN) {
-#if TT1
+KERNEL(64) writeDPTrig(global double2* trig2Sh, global double2* trigBh, global double2* trigN) {
+#if TTABLE1
   for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_2SH[k] = trig2Sh[k]; }
 #endif
 
-#if TT2  
+#if TTABLE2  
   for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_BH[k] = trigBh[k]; }
 #endif
 
-#if TT3
+#if TTABLE3
   for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { TRIG_N[k] = trigN[k]; }
 #endif
 }
@@ -2104,7 +2192,7 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable, u32 middl
 }
 
 double2 slowTrig_N(u32 k, u32 kBound)   {
-#if TT3
+#if TTABLE3
   return tableTrig(k, ND, kBound, TRIG_N, MIDDLE);
 #else
   return slowTrig(k, ND, kBound);
@@ -2112,7 +2200,7 @@ double2 slowTrig_N(u32 k, u32 kBound)   {
 }
 
 double2 slowTrig_BH(u32 k, u32 kBound)  {
-#if TT2
+#if TTABLE2
   return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH, MIDDLE);
 #else
   return slowTrig(k, BIG_HEIGHT, kBound);
@@ -2120,7 +2208,7 @@ double2 slowTrig_BH(u32 k, u32 kBound)  {
 }
 
 double2 slowTrig_2SH(u32 k, u32 kBound) {
-#if TT1
+#if TTABLE1
   return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH, 1);
 #else
   return slowTrig(k, 2 * SMALL_HEIGHT, kBound);
