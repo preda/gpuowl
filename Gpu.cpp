@@ -37,14 +37,39 @@
 
 static_assert(sizeof(double2) == 16, "size double2");
 static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
-// static_assert(sinl(M_PI) != sin(M_PI));
 
-#define CARRY_LEN 8
+extern const char *CL_SOURCE;
+
+struct Weights {
+  vector<double> groupWeightsIF;
+  vector<double> threadWeightsIF;
+  vector<double> groupWeightsI;
+  vector<u32> bitsCF;
+  vector<u32> bitsC;
+};
+
+namespace {
+
+using float3 = tuple<float, float, float>;
+
+double relBits(double x, double ref) { return log2(fabs(ref)) - log2(fabs(x)); }
+
+float3 to3SP(f128 x) {
+  auto ref = x;
+  float a = x;
+  x -= a;
+  float b = x;
+  x -= b;
+  float c = x;
+  x -= c;
+  log("Convert to (%g,%g,%g) with %.2f bits\n", a, b, c, relBits(x, ref));
+  return {a, b, c};
+}
 
 // Returns the primitive root of unity of order N, to the power k.
 
 template<typename T>
-static pair<T, T> root1(u32 N, u32 k) {
+pair<T, T> root1(u32 N, u32 k) {
   assert(k < N);
   if (k >= N/2) {
     auto [c, s] = root1<T>(N, k - N/2);
@@ -64,7 +89,7 @@ static pair<T, T> root1(u32 N, u32 k) {
   }
 }
 
-static double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
+double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   for (u32 line = 1; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
       *p++ = root1<double>(W * H, line * col);
@@ -74,7 +99,7 @@ static double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   return p;
 }
 
-static ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
+ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
   vector<double2> tab(size);
   auto *p = tab.data() + radix;
   for (u32 w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
@@ -82,7 +107,7 @@ static ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 r
   return {context, "smallTrig", tab};
 }
 
-static ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
+ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
   vector<double2> tab;
   if (middle == 1) {
     tab.resize(1);
@@ -96,7 +121,7 @@ static ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u3
 }
 
 template<typename T>
-static vector<pair<T, T>> makeTrig(u32 n) {
+vector<pair<T, T>> makeTrig(u32 n) {
   assert(n % 8 == 0);
   vector<pair<T, T>> tab;
   tab.reserve(n/8 + 1);
@@ -104,31 +129,23 @@ static vector<pair<T, T>> makeTrig(u32 n) {
   return tab;
 }
 
-static u32 kAt(u32 H, u32 line, u32 col) {
-  return (line + col * H) * 2;
-}
+u32 kAt(u32 H, u32 line, u32 col) { return (line + col * H) * 2; }
 
-struct Weights {
-  vector<double> groupWeightsIF;
-  vector<double> threadWeightsIF;
-  vector<double> groupWeightsI;
-  vector<u32> bitsCF;
-  vector<u32> bitsC;
-};
-
-static long double weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+long double weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   long double iN = 1 / (long double) N;
   return exp2l(extra(N, E, kAt(H, line, col) + rep) * iN);
 }
 
-static long double invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+long double invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   long double iN = 1 / (long double) N;
   return exp2l(- (extra(N, E, kAt(H, line, col) + rep) * iN));
 }
 
-static double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
+double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
 
-static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
+#define CARRY_LEN 8
+
+Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
   
   u32 groupWidth = W / nW;
@@ -196,11 +213,6 @@ static Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
   return Weights{groupWeightsIF, threadWeightsIF, groupWeightsI, bits, bitsC};
 }
-
-
-extern const char *CL_SOURCE;
-
-namespace {
 
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
 string toLiteral(i32 value) { return to_string(value); }
@@ -314,16 +326,10 @@ float2 fixup(float hw, f128 ref, double& errBits) {
   float c2 = r;
   r -= c2;
 
-  // log("E : %f %f %f\n", double(ref), double(r), hw);
-  
-  if (r != 0 && ref != 0) {
-    double e = log2l(fabsl(ref)) - log2l(fabsl(r));
-    if (!(e >= 0)) { log("E : %f %f %f\n", double(ref), double(r), double(e)); }
-    assert(e >= 0);
-    if (e < errBits) {
-      errBits = e;
-    }
-  }
+  double e = relBits(r, ref);
+  if (e < 0) { log("E : %f %f %f\n", double(ref), double(r), double(e)); }
+  assert(!(e < 0));
+  if (e < errBits) { errBits = e; }
   return {c1, c2};  
 }
 
@@ -426,6 +432,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
+  to3SP(M_SQRT2q);
+  
   carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
   fftP.setFixedArgs(2, bufGroupWeights, bufThreadWeights, bufTrigW);
