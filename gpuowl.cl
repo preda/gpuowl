@@ -268,18 +268,30 @@ TT U2(T a, T b) { return (TT) (a, b); }
 // "Extended-Precision Floating-Point Numbers for GPU Computation" by Andrew Thall
 
 // 3 ADD. Requires |a| >= |b|
-OVERLOAD float2 fastSum(float a, float b) {
+OVERLOAD float2 quickTwoSum(float a, float b) {
   float s = a + b;
   return (float2) (s, b - (s - a));
+}
+
+OVERLOAD float quickTwoSum(float a, float b, float* e) {
+  float s = a + b;
+  *e = b - (s - a);
+  return s;
+}
+
+OVERLOAD float quickTwoSum(float a, float* b) {
+  float s = a + *b;
+  *b -= (s - a);
+  return s;
 }
 
 // 6 ADD
 OVERLOAD float2 twoSum(float a, float b) {
 #if 0
   if (fabs(b) > fabs(a)) { float t = a; a = b; b = t; }
-  return fastSum(a, b);
+  return quickTwoSum(a, b);
 #elif 0
-  return (fabs(a) >= fabs(b)) ? fastSum(a, b) : fastSum(b, a);
+  return (fabs(a) >= fabs(b)) ? quickTwoSum(a, b) : quickTwoSum(b, a);
 #else
   // No branch but twice the ADDs.
   float s = a + b;
@@ -295,13 +307,50 @@ OVERLOAD float2 twoSum(float a, float b) {
   // return (float2) (s1.x, s1.y + s2.y);
 }
 
+OVERLOAD float twoSum(float a, float b, float* e) {
+  float s = a + b;
+  float b1 = s - a;
+  float a1 = s - b1;
+  *e = (b - b1) + (a - a1);
+  return s;
+}
+
+// 16 ADD.
+float3 renormalize(float a, float b, float c, float d) {
+  c = quickTwoSum(c, &d);
+  b = quickTwoSum(b, &c);
+  a = quickTwoSum(a, &b);
+
+  c = quickTwoSum(c, &d);
+  b = quickTwoSum(b, &c);
+
+  return (float3) (a, b, c + d);  
+}
+
+// 54 ADD.
+OVERLOAD float3 sum(float3 u, float3 v) {
+  float a, b, c, d, e, f;
+  a = twoSum(u.x, v.x, &e);
+  
+  b = twoSum(u.y, v.y, &f);
+  b = twoSum(b, e, &e);
+
+  c = twoSum(u.z, v.z, &d);
+  c = twoSum(c, f, &f);
+  c = twoSum(c, e, &e);
+
+  return renormalize(a, b, c, d + (f + e));
+}
+
+/*
 // 21 ADD. See https://web.mit.edu/tabbott/Public/quaddouble-debian/qd-2.3.4-old/docs/qd.pdf , Figure 10.
-OVERLOAD float3 sum(float3 a, float3 b) {  
+OVERLOAD float3 sum(float3 a, float3 b) {
   float2 c0 = twoSum(a.x, b.x);
   float2 t1 = twoSum(a.y, b.y);
   float2 c1 = twoSum(t1.x, c0.y);
   return (float3) (c0.x, c1.x, a.z + b.z + t1.y + c1.y);
 }
+*/
 
 // 2 MUL
 OVERLOAD float2 twoMul(float a, float b) {
@@ -333,7 +382,23 @@ OVERLOAD float3 mul(float3 a, float3 b) {
   return (float3) (c.x, e1.x, f);
 }
 
-// 7 ADD + 6 MUL
+// 15 ADD + 8 MUL
+OVERLOAD float3 mul(float3 a, float2 b) {
+  float2 c = twoMul(a.x, b.x);
+  
+  float2 d0 = twoMul(a.x, b.y);
+  float2 d1 = twoMul(a.y, b.x);
+
+  float2 e0 = twoSum(d0.x, d1.x);
+  float2 e1 = twoSum(e0.x, c.y);
+  
+  f = fma(a.y, b.y, d0.y + d1.y + e0.y);
+  f = fma(a.z, b.x, f + e1.y);
+
+  return (float3) (c.x, e1.x, f);
+}
+
+// 9 ADD + 6 MUL
 OVERLOAD float3 sq(float3 a) {
   float2 c = twoMul(a.x, a.x);
   float2 d = twoMul(a.x, a.y);
@@ -345,7 +410,7 @@ OVERLOAD float3 sq(float3 a) {
 // TODO: merge the ADD into the MUL
 float3 mad1(float3 a, float3 b, float3 c) { return sum(mul(a, b), c); }
 
-float3 sub(float3 a, float3 b) { return sum(a, -b); }
+// float3 sub(float3 a, float3 b) { return sum(a, -b); }
 
 #else
 
@@ -353,7 +418,7 @@ float3 sub(float3 a, float3 b) { return sum(a, -b); }
 
 double sum(double a, double b) { return a + b; }
 
-double sub(double a, double b) { return a - b; }
+// double sub(double a, double b) { return a - b; }
 
 double mad1(double x, double y, double z) { return x * y + z; }
 
@@ -378,7 +443,7 @@ T sub1_m2(T x, T y) {
   __asm volatile("v_add_f64 %0, %1, -%2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
   return tmp;
 #else
-  return 2 * sub(x, y);
+  return 2 * sum(x, -y);
 #endif
 }
 
@@ -491,17 +556,54 @@ T2 mad_m1(T2 a, T2 b, T2 c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), R
 // complex fma * 2
 T2 mad_m2(T2 a, T2 b, T2 c) { return U2(mad1_m2(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1_m2(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
 
+T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
 
-T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); }                          // mul(a, U2( 0, -1)); }
-T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) * M_SQRT1_2; }   // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; } // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
-T2 swap(T2 a) { return U2(IM(a), RE(a)); }
+#if SP
+
+#define SP_SQRT1_2 (float3) (0.707106769,1.21016175e-08,-3.81403372e-16)
+
+T2 mul_t8(T2 a)  {
+  return U2(mul(sum(IM(a),  RE(a)), SP_SQRT1_2),
+            mul(sum(IM(a), -RE(a)), SP_SQRT1_2));
+}
+
+T2 mul_3t8(T2 a) {
+  return U2(mul(sum(IM(a), -RE(a)),  SP_SQRT1_2),
+            mul(sum(IM(a),  RE(a)), -SP_SQRT1_2));
+}
+
+#else
+
+T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
+T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+
+#endif
+
+
+T2 swap(T2 a)      { return U2(IM(a), RE(a)); }
 T2 conjugate(T2 a) { return U2(RE(a), -IM(a)); }
+
 
 void bar() { barrier(0); }
 
-T2 weight(Word2 a, T2 w) { return U2(RE(a), IM(a)) * w; }
+#if SP
+
+float2 fromWord(Word u) {
+  float a = u;
+  return (float2) (a, u - a); 
+}
+
+T2 weight(Word2 a, TT w) {
+  return U2(mul(RE(w), fromWord(RE(a))),
+            mul(IM(w), fromWord(IM(a))));
+}
+
+#else
+
+T2 weight(Word2 a, TT w) { return U2(RE(a), IM(a)) * w; }
+
+#endif
 
 u32 bfi(u32 u, u32 mask, u32 bits) {
 #if HAS_ASM
@@ -514,15 +616,25 @@ u32 bfi(u32 u, u32 mask, u32 bits) {
 #endif
 }
 
-double optionalDouble(double iw) {
+#if SP
+
+float3 optionalDouble(float3 iw) { return (iw.x < 1.0f) ? 2 * iw : iw; }
+
+float3 optionalHalve(float3 w) { return (w.x >= 4) ? 0.5f * w : w; }
+
+#else
+
+T optionalDouble(T iw) {
   // In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
   // because it allows us to implement this routine with a single OR instruction on the exponent.   The original implementation
   // where this routine took as input values from 0.25 to 1.0 required both an AND and an OR instruction on the exponent.
   // return iw <= 1.0 ? iw * 2 : iw;
   assert(iw > 0.5 && iw < 2);
   uint2 u = as_uint2(iw);
-  // u.y |= 0x00100000;
-  u.y = bfi(u.y, 0xffefffff, 0x00100000);
+  
+  u.y |= 0x00100000;
+  // u.y = bfi(u.y, 0xffefffff, 0x00100000);
+  
   return as_double(u);
 }
 
@@ -536,6 +648,8 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
   u.y = bfi(u.y, 0xffefffff, 0);
   return as_double(u);
 }
+
+#endif
 
 #if HAS_ASM
 i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }

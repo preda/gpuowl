@@ -52,20 +52,6 @@ namespace {
 
 using float3 = tuple<float, float, float>;
 
-double relBits(double x, double ref) { return log2(fabs(ref)) - log2(fabs(x)); }
-
-float3 to3SP(f128 x) {
-  auto ref = x;
-  float a = x;
-  x -= a;
-  float b = x;
-  x -= b;
-  float c = x;
-  x -= c;
-  log("Convert to (%g,%g,%g) with %.2f bits\n", a, b, c, relBits(x, ref));
-  return {a, b, c};
-}
-
 // Returns the primitive root of unity of order N, to the power k.
 
 template<typename T>
@@ -218,21 +204,22 @@ string toLiteral(u32 value) { return to_string(value) + 'u'; }
 string toLiteral(i32 value) { return to_string(value); }
 [[maybe_unused]] string toLiteral(u64 value) { return to_string(value) + "ul"; }
 
-string toLiteral(double value) {
+template<typename F>
+string toLiteral(F value) {
   std::ostringstream ss;
-  ss << std::setprecision(numeric_limits<double>::max_digits10) << value;
+  ss << std::setprecision(numeric_limits<F>::max_digits10) << value;
   string s = std::move(ss).str();
 
-  // verify correct roundtrip
-  [[maybe_unused]] double back = 0;
-  sscanf(s.c_str(), "%lf", &back);
+  // verify exact roundtrip
+  [[maybe_unused]] F back = 0;
+  sscanf(s.c_str(), (sizeof(F) == 4) ? "%f" : "%lf", &back);
   assert(back == value);
   
   return s;
 }
 
 template<typename T>
-string toLiteral(vector<T> v) {
+string toLiteral(const vector<T>& v) {
   assert(!v.empty());
   string s = "{";
   for (auto x : v) {
@@ -240,6 +227,11 @@ string toLiteral(vector<T> v) {
   }
   s += "}";
   return s;
+}
+
+string toLiteral(float3 v) {
+  auto [a, b, c] = v;
+  return "("s + toLiteral(a) + ',' + toLiteral(b) + ',' + toLiteral(c) + ')';
 }
 
 struct Define {
@@ -255,6 +247,21 @@ struct Define {
   
   operator string() const { return str; }
 };
+
+double relBits(double x, double ref) { return log2(fabs(ref)) - log2(fabs(x)); }
+
+float3 to3SP(f128 x) {
+  auto ref = x;
+  float a = x;
+  x -= a;
+  float b = x;
+  x -= b;
+  float c = x;
+  x -= c;
+  float3 ret{a, b, c};
+  log("Convert to %s with %.2f bits\n", toLiteral(ret).c_str(), relBits(x, ref));
+  return ret;
+}
 
 cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
@@ -432,7 +439,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
-  to3SP(M_SQRT2q);
+  to3SP(M_SQRT1_2q);
+
+  log("%lx\n", as<u64>(1.0));
   
   carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
