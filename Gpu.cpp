@@ -40,17 +40,23 @@ static_assert(sizeof(long double) > sizeof(double), "long double offers extended
 
 extern const char *CL_SOURCE;
 
+using float3 = tuple<float, float, float>;
+
 struct Weights {
   vector<double> groupWeightsIF;
+  vector<float3> groupWeightsIFSP;
+  
   vector<double> threadWeightsIF;
+  vector<float3> threadWeightsIFSP;
+  
   vector<double> groupWeightsI;
+  vector<float3> groupWeightsISP;
+  
   vector<u32> bitsCF;
   vector<u32> bitsC;
 };
 
 namespace {
-
-using float3 = tuple<float, float, float>;
 
 // Returns the primitive root of unity of order N, to the power k.
 
@@ -117,19 +123,21 @@ vector<pair<T, T>> makeTrig(u32 n) {
 
 u32 kAt(u32 H, u32 line, u32 col) { return (line + col * H) * 2; }
 
-long double weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
-  long double iN = 1 / (long double) N;
-  return exp2l(extra(N, E, kAt(H, line, col) + rep) * iN);
+auto weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  auto iN = 1 / (f128) N;
+  return exp2f128(iN * extra(N, E, kAt(H, line, col) + rep));
 }
 
-long double invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
-  long double iN = 1 / (long double) N;
-  return exp2l(- (extra(N, E, kAt(H, line, col) + rep) * iN));
+auto invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  auto iN = 1 / (f128) N;
+  return exp2f128(- iN * extra(N, E, kAt(H, line, col) + rep));
 }
 
 double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
 
 #define CARRY_LEN 8
+
+float3 to3SP(f128 x);
 
 Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
@@ -138,26 +146,38 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
   // group weights Inverse + Forward
   vector<double> groupWeightsIF;
+  vector<float3> groupWeightsIFSP;
   for (u32 group = 0; group < H; ++group) {
-    long double w = weight(N, E, H, group, 0, 0);
+    auto w = weight(N, E, H, group, 0, 0);
     // Double the weight and inverse weight so that optionalHalve and optionalDouble can save one instruction
-    groupWeightsIF.push_back(2 * boundUnderOne(1 / w));
+    auto iw = 1/w;    
+    groupWeightsIF.push_back(2 * boundUnderOne(iw));
     groupWeightsIF.push_back(2 * w);
+    groupWeightsIFSP.push_back(to3SP(2 * iw));
+    groupWeightsIFSP.push_back(to3SP(2 * w));
   }
 
   // Inverse + Forward
   vector<double> threadWeightsIF;
+  vector<float3> threadWeightsIFSP;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
-    threadWeightsIF.push_back(invWeight(N, E, H, 0, thread, 0) - 1);
-    threadWeightsIF.push_back(weight(N, E, H, 0, thread, 0) - 1);
+    auto iw = invWeight(N, E, H, 0, thread, 0);
+    threadWeightsIF.push_back(iw - 1);
+    threadWeightsIFSP.push_back(to3SP(iw));
+    auto w = weight(N, E, H, 0, thread, 0);
+    threadWeightsIF.push_back(w - 1);
+    threadWeightsIFSP.push_back(to3SP(w));
   }
 
   // Inverse only. Also the group order matches CarryA/M (not fftP/CarryFused).
   vector<double> groupWeightsI;
+  vector<float3> groupWeightsISP;
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
     for (u32 gx = 0; gx < nW; ++gx) {
-      long double w = weight(N, E, H, gy * CARRY_LEN, gx * groupWidth, 0);
-      groupWeightsI.push_back(2 * boundUnderOne(1 / w));
+      auto iw = invWeight(N, E, H, gy * CARRY_LEN, gx * groupWidth, 0);
+      groupWeightsI.push_back(2 * boundUnderOne(iw));
+      // float3 
+      groupWeightsISP.push_back(to3SP(2 * iw));
     }
   }
   
@@ -197,7 +217,7 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{groupWeightsIF, threadWeightsIF, groupWeightsI, bits, bitsC};
+  return Weights{groupWeightsIF, groupWeightsIFSP, threadWeightsIF, threadWeightsIFSP, groupWeightsI, groupWeightsISP, bits, bitsC};
 }
 
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
@@ -251,7 +271,7 @@ struct Define {
 double relBits(double x, double ref) { return log2(fabs(ref)) - log2(fabs(x)); }
 
 float3 to3SP(f128 x) {
-  auto ref = x;
+  // auto ref = x;
   float a = x;
   x -= a;
   float b = x;
@@ -259,7 +279,7 @@ float3 to3SP(f128 x) {
   float c = x;
   x -= c;
   float3 ret{a, b, c};
-  log("Convert to %s with %.2f bits\n", toLiteral(ret).c_str(), relBits(x, ref));
+  // log("Convert to %s with %.2f bits\n", toLiteral(ret).c_str(), relBits(x, ref));
   return ret;
 }
 
@@ -439,9 +459,18 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
-  to3SP(M_SQRT1_2q);
+  log("SQRT1_2 %s\n", toLiteral(to3SP(M_SQRT1_2q)).c_str());
 
-  log("%lx\n", as<u64>(1.0));
+  auto w1 = to3SP(exp2f128(1/ (f128) N)), w2 = to3SP(exp2f128((N - 1)/ (f128) N)), iw1 = to3SP(exp2f128(-1/ (f128) N)), iw2 = to3SP(exp2f128(-((N - 1)/ (f128) N)));
+  
+  log("W %s %s IW %s %s; %x %x %x %x\n",
+      toLiteral(w1).c_str(),
+      toLiteral(w2).c_str(),
+      toLiteral(iw1).c_str(),
+      toLiteral(iw2).c_str(),
+      as<u32>(get<0>(w1)), as<u32>(get<0>(w2)), as<u32>(get<0>(iw1)), as<u32>(get<0>(iw2)));
+
+  // log("%lx\n", as<u64>(1.0));
   
   carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
@@ -484,14 +513,17 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
     auto vBh = trigFixup(readTrigBH, makeTrig<f128>(BIG_H));
     auto vN  = trigFixup(readTrigN, makeTrig<f128>(hN));
 
-    Kernel{program.get(), queue, device, 32, "writeSPTrig"}(ConstBuffer{context, "sp1", vSh},
-                                                            ConstBuffer{context, "sp2", vBh},
-                                                            ConstBuffer{context, "sp3", vN});
+    Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "sp1", vSh},
+                                                             ConstBuffer{context, "sp2", vBh},
+                                                             ConstBuffer{context, "sp3", vN},
+                                                             
+                                                             ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
+                                                             ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
+                                                             ConstBuffer{context, "dp3", makeTrig<double>(hN)}
+                                                             
+                                                             );
   }
 
-  Kernel{program.get(), queue, device, 32, "writeDPTrig"}(ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
-                                                          ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
-                                                          ConstBuffer{context, "dp3", makeTrig<double>(hN)});
   finish();
   
   program.reset();
