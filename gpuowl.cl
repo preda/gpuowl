@@ -2550,14 +2550,19 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) groupWeights, CP(T2) threadWeig
 
   u32 me = get_local_id(0);
 
-  // 2^(k/NW) - 1 for k in [0..NW)
-  const double TWO_TO_NTH[NW] = {
-    0,
-#if NW == 4
-    0.18920711500272105,
-    0.41421356237309503,
-    0.68179283050742912,
+  // 2^(k/8) for k in [0..8)
+  const T TWO_TO_NTH[8] = {
+#if SP
+                           (1,0,0),
+                           (1.09050775,-1.30775399e-08,-2.52512433e-16),
+                           (1.18920708,3.79763527e-08,1.15004321e-15),
+                           (1.29683959,-4.01899953e-08,1.57969474e-15),
+                           (1.41421354,2.4203235e-08,-7.62806744e-16),
+                           (1.54221082,8.07090483e-09,-1.42546261e-16),
+                           (1.68179286,-2.47553267e-08,-5.84143725e-16),
+                           (1.8340081,-1.1239278e-08,-1.89213528e-16),
 #else
+    0,
     0.090507732665257662,
     0.18920711500272105,
     0.29683955465100964,
@@ -2571,7 +2576,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) groupWeights, CP(T2) threadWeig
   T base = optionalHalve(fancyMul(groupWeights[g].y, threadWeights[me].y));
 
   for (i32 i = 0; i < NW; ++i) {
-    T w1 = i == 0 ? base : optionalHalve(fancyMul(base, TWO_TO_NTH[i * STEP % NW]));
+    T w1 = i == 0 ? base : optionalHalve(fancyMul(base, TWO_TO_NTH[i * STEP % NW * (8 / NW)]));
     T w2 = optionalHalve(fancyMul(w1, WEIGHT_STEP_MINUS_1));
     u32 p = G_W * i + me;
     u[i] = U2(in[p].x, in[p].y) * U2(w1, w2);
@@ -3048,15 +3053,19 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   float roundMax = 0;
   u32 carryMax = 0;
 
-  // 2^-(k/NW) - 1 for k in [0..NW)
-  const double TWO_TO_MINUS_NTH[NW] = {
-    
+  // 2^-(k/8) - 1 for k in [0..8)
+  const T TWO_TO_MINUS_NTH[8] = {
+#if SP
+    (1,0,0),
+    (0.917004049,-5.61963898e-09,-9.46067642e-17),
+    (0.840896428,-1.23776633e-08,-2.92071863e-16),
+    (0.771105409,4.03545242e-09,-7.12731307e-17),
+    (0.707106769,1.21016175e-08,-3.81403372e-16),
+    (0.648419797,-2.00949977e-08,7.89847371e-16),
+    (0.594603539,1.89881764e-08,5.75021604e-16),
+    (0.545253873,-6.53876997e-09,-1.26256216e-16)
+#else                                 
     0,
-#if NW == 4
-    -0.15910358474628547,
-    -0.29289321881345248,
-    -0.40539644249863949,
-#else
     -0.082995956795328771,
     -0.15910358474628547,
     -0.2288945872960296,
@@ -3072,7 +3081,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   T invBase = optionalDouble(weights.x);
   
   for (i32 i = 0; i < NW; ++i) {
-    T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, TWO_TO_MINUS_NTH[i * STEP % NW]));
+    T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)]));
     T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP_MINUS_1));
 
 #if STATS

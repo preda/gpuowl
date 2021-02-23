@@ -459,6 +459,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
+  /*
   log("SQRT1_2 %s\n", toLiteral(to3SP(M_SQRT1_2q)).c_str());
 
   auto w1 = to3SP(exp2f128(1/ (f128) N)), w2 = to3SP(exp2f128((N - 1)/ (f128) N)), iw1 = to3SP(exp2f128(-1/ (f128) N)), iw2 = to3SP(exp2f128(-((N - 1)/ (f128) N)));
@@ -470,7 +471,13 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       toLiteral(iw2).c_str(),
       as<u32>(get<0>(w1)), as<u32>(get<0>(w2)), as<u32>(get<0>(iw1)), as<u32>(get<0>(iw2)));
 
+  for (u32 k = 0; k < 8; ++k) {
+    auto x = exp2f128( - (k / 8.0));
+    log("%d %s %s\n", k, toLiteral(to3SP(x)).c_str(), toLiteral(double(x - 1)).c_str());
+  }
+  
   // log("%lx\n", as<u64>(1.0));
+  */
   
   carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
