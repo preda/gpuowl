@@ -22,20 +22,8 @@ NEWEST_FFT5
 CARRY32 <AMD default for PRP when appropriate>
 CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
 
-ORIG_SLOWTRIG
-NEW_SLOWTRIG <default>          // Our own sin/cos implementation
-
-Below, TTABLE refers to "table trig" and refers to a precomputed cos/sin table in conjuction with fast SP trig.
-TTABLE required more memory access but less compute, and provides perfect sin/cos precision.
-As the GPU is usually memory-starved anyway, TTABLE usually does not increase performance, except for GPUs with slow DP,
-or for small tables. There are 3 precomputed tables, named TTABLE1 to TTABLE3 in order of increasing size.
-
-TTABLE1 <default on> enable the smallest trig table
-TTABLE2 <default on> enable the medium trig table
-TTABLE3 <default off> enabel the large trig table
-NO_TTABLE1,NO_TTABLE2 disable the respective trig tables.
-
-TABLE_TRIG use precomputed trig table lookup. Requires more memory bandwidth but less DP compute, and provides perfect precision.
+TRIG_COMPUTE=<n> (default 1), can be used to balance between compute and memory for trigonometrics. TRIG_COMPUTE=0 does more memory access, TRIG_COMPUTE=2 does more compute,
+and TRIG_COMPUTE=1 is in between.
 
 DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
 STATS      enable stats about roundoff distribution and carry magnitude
@@ -66,6 +54,10 @@ NH
 G_W        "group width"
 G_H        "group height"
  */
+
+#if !defined(TRIG_COMPUTE)
+#define TRIG_COMPUTE 1
+#endif
 
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
@@ -100,14 +92,6 @@ G_H        "group height"
 #if !HAS_ASM
 // disable everything that depends on ASM
 #define NO_OMOD 1
-#endif
-
-#if HAS_ASM && !NO_TTABLE1
-#define TTABLE1 1
-#endif
-
-#if HAS_ASM && !NO_TTABLE2
-#define TTABLE2 1
 #endif
 
 #if CARRY32 && CARRY64
@@ -148,10 +132,6 @@ G_H        "group height"
 
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
-
-#if !ORIG_SLOWTRIG && !NEW_SLOWTRIG
-#define NEW_SLOWTRIG 1
-#endif
 
 // 5M timings for MiddleOut & carryFused, ROCm 2.10, RadeonVII, sclk4, mem 1200
 // OUT_WG=256, OUT_SIZEX=4, OUT_SPACING=1 (old WorkingOut4) : 154 + 252 = 406 (but may be best on nVidia)
@@ -2044,12 +2024,6 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
   }
 }
 
-double2 openclSlowTrig(i32 k, i32 n) {
-  double c;
-  double s = sincos(M_PI / n * k, &c);
-  return U2(c, -s);
-}
-
 #if ULTRA_TRIG
 
 // These are ultra accurate routines.  We modified Ernst's qfcheb program and selected a multiplier such that
@@ -2157,16 +2131,46 @@ double2 reducedCosSin(u32 k, u32 N) {
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
-// Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
-// Inverse trigonometric direction is chosen as an FFT convention.
-double2 slowTrig(u32 k, u32 n, u32 kBound) {
+#if SP
+
+global float4 SP_TRIG_2SH[2 * SMALL_HEIGHT / 8 + 1];
+global float4 SP_TRIG_BH[BIG_HEIGHT / 8 + 1];
+global float4 SP_TRIG_N[ND / 8 + 1];
+
+#endif
+
+global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
+global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
+
+#if TRIG_COMPUTE == 0
+global double2 TRIG_N[ND / 8 + 1];
+#endif
+
+global double2 TRIG_W[WIDTH];
+
+/*
+double2 trigBH(u32 k) {
+  double2 cs1 = TRIG_BH[k / WIDTH];
+  double c1 = cs1.x;
+  double s1 = cs1.y;
+  
+  double2 cs2 = TRIG_W[k % WIDTH];
+  double c2 = cs2.x;
+  double s2 = cs2.y;
+
+  // cos(a+b) = cos(a)cos(b) - sin(a)sin(b)
+  // sin(a+b) = cos(a)sin(b) + sin(a)cos(b)
+  // c2 is stored with "-1" trick to increase accuracy, so we use fma(x,y,x) for x*(y+1)
+  double c = fma(-s1, s2, fma(c1, c2, c1));
+  double s = fma(c1, s2, fma(s1, c2, s1));
+  return (double2)(c, s);  
+}
+*/
+
+double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
   assert(kBound <= 2 * n);  // angle <= 2 tau
-
-#if ORIG_SLOWTRIG
-  return openclSlowTrig(k, n/2);
-#else
 
   if (kBound > n && k >= n) { k -= n; }
   assert(k < n);
@@ -2181,13 +2185,13 @@ double2 slowTrig(u32 k, u32 n, u32 kBound) {
   if (flip) { k = n / 4 - k; }
 
   assert(k <= n / 8);
-  double2 r = reducedCosSin(k, n);
+
+  double2 r = trigTable[k];
 
   if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }
   if (negate) { r = -r; }
   return r;
-#endif
 }
 
 float fastSinSP(u32 k, u32 tau, u32 M) {
@@ -2241,30 +2245,11 @@ float fastCosSP(u32 k, u32 tau) {
 }
 
 
-#if SP
-
-global float4 SP_TRIG_2SH[2 * SMALL_HEIGHT / 8 + 1];
-global float4 SP_TRIG_BH[BIG_HEIGHT / 8 + 1];
-global float4 SP_TRIG_N[ND / 8 + 1];
-
-#endif
-
-#if TTABLE1
-global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-#endif
-
-#if TTABLE2
-global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
-#endif
-
-#if TTABLE3
-global double2 TRIG_N[ND / 8 + 1];
-#endif
-
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, global float4 * trigNSP,
-                        global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP
+                        global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
+                        global double2* trigW
                         ) {
 #if SP
   for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_2SH[k] = trig2ShSP[k]; }
@@ -2272,20 +2257,23 @@ KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, glo
   for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { SP_TRIG_N[k] = trigNSP[k]; }
 #endif
 
-#if TTABLE1
   for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_2SH[k] = trig2ShDP[k]; }
-#endif
-
-#if TTABLE2  
   for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_BH[k] = trigBhDP[k]; }
-#endif
 
-#if TTABLE3
+#if TRIG_COMPUTE == 0
   for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { TRIG_N[k] = trigNDP[k]; }
 #endif
+
+  for (u32 k = get_global_id(0); k < WIDTH; k += get_global_size(0)) { TRIG_W[k] = trigW[k]; }
 }
 
-double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable, u32 middle) {
+double2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
+double2 slowTrig_BH(u32 k, u32 kBound)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
+
+// Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
+// Inverse trigonometric direction is chosen as an FFT convention.
+double2 slowTrig_N(u32 k, u32 kBound)   {
+  u32 n = ND;
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
   assert(kBound <= 2 * n);  // angle <= 2 tau
@@ -2304,36 +2292,34 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable, u32 middl
 
   assert(k <= n / 8);
 
-  double2 r = trigTable[k];
+#if TRIG_COMPUTE >= 2
+  double2 r = reducedCosSin(k, n);
+#elif TRIG_COMPUTE == 1
+  double2 cs1 = TRIG_BH[k / WIDTH];
+  double c1 = cs1.x;
+  double s1 = cs1.y;
+  
+  double2 cs2 = TRIG_W[k % WIDTH];
+  double c2 = cs2.x;
+  double s2 = cs2.y;
+
+  // cos(a+b) = cos(a)cos(b) - sin(a)sin(b)
+  // sin(a+b) = cos(a)sin(b) + sin(a)cos(b)
+  // c2 is stored with "-1" trick to increase accuracy, so we use fma(x,y,x) for x*(y+1)
+  double c = fma(-s1, s2, fma(c1, c2, c1));
+  double s = fma(c1, s2, fma(s1, c2, s1));
+  double2 r = (double2)(c, s);
+#elif TRIG_COMPUTE == 0
+  double2 r = TRIG_N[k];
+#else
+#error set TRIG_COMPUTE to 0, 1 or 2.
+#endif
 
   if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }
   if (negate) { r = -r; }
+  
   return r;
-}
-
-double2 slowTrig_N(u32 k, u32 kBound)   {
-#if TTABLE3
-  return tableTrig(k, ND, kBound, TRIG_N, MIDDLE);
-#else
-  return slowTrig(k, ND, kBound);
-#endif
-}
-
-double2 slowTrig_BH(u32 k, u32 kBound)  {
-#if TTABLE2
-  return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH, MIDDLE);
-#else
-  return slowTrig(k, BIG_HEIGHT, kBound);
-#endif
-}
-
-double2 slowTrig_2SH(u32 k, u32 kBound) {
-#if TTABLE1
-  return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH, 1);
-#else
-  return slowTrig(k, 2 * SMALL_HEIGHT, kBound);
-#endif
 }
 
 // transpose LDS 64 x 64.

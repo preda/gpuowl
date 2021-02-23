@@ -121,6 +121,16 @@ vector<pair<T, T>> makeTrig(u32 n) {
   return tab;
 }
 
+template<typename T>
+vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN) {
+  vector<pair<T, T>> tab;
+  for (u32 k = 0; k < W; ++k) {
+    auto[c, s] = root1<f128>(hN, k);
+    tab.push_back({c - 1, s});
+  }
+  return tab;
+}
+
 u32 kAt(u32 H, u32 line, u32 col) { return (line + col * H) * 2; }
 
 auto weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
@@ -526,8 +536,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
                                                              
                                                              ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
                                                              ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
-                                                             ConstBuffer{context, "dp3", makeTrig<double>(hN)}
-                                                             
+                                                             ConstBuffer{context, "dp3", makeTrig<double>(hN)},
+                                                             ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)}
                                                              );
   }
 
