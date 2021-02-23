@@ -22,7 +22,7 @@ NEWEST_FFT5
 CARRY32 <AMD default for PRP when appropriate>
 CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
 
-TRIG_COMPUTE=<n> (default 1), can be used to balance between compute and memory for trigonometrics. TRIG_COMPUTE=0 does more memory access, TRIG_COMPUTE=2 does more compute,
+TRIG_COMPUTE=<n> (default 2), can be used to balance between compute and memory for trigonometrics. TRIG_COMPUTE=0 does more memory access, TRIG_COMPUTE=2 does more compute,
 and TRIG_COMPUTE=1 is in between.
 
 DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
@@ -56,7 +56,7 @@ G_H        "group height"
  */
 
 #if !defined(TRIG_COMPUTE)
-#define TRIG_COMPUTE 1
+#define TRIG_COMPUTE 2
 #endif
 
 #define STR(x) XSTR(x)

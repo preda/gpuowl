@@ -77,7 +77,7 @@ pair<T, T> root1(u32 N, u32 k) {
     assert(k <= N/8);
     N /= 2;
     __float128 angle = - M_PIq * k / N;
-    return {cosf128(angle), sinf128(angle)};
+    return {cosq(angle), sinq(angle)};
   }
 }
 
@@ -135,12 +135,12 @@ u32 kAt(u32 H, u32 line, u32 col) { return (line + col * H) * 2; }
 
 auto weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   auto iN = 1 / (f128) N;
-  return exp2f128(iN * extra(N, E, kAt(H, line, col) + rep));
+  return exp2q(iN * extra(N, E, kAt(H, line, col) + rep));
 }
 
 auto invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   auto iN = 1 / (f128) N;
-  return exp2f128(- iN * extra(N, E, kAt(H, line, col) + rep));
+  return exp2q(- iN * extra(N, E, kAt(H, line, col) + rep));
 }
 
 double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
@@ -472,7 +472,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   /*
   log("SQRT1_2 %s\n", toLiteral(to3SP(M_SQRT1_2q)).c_str());
 
-  auto w1 = to3SP(exp2f128(1/ (f128) N)), w2 = to3SP(exp2f128((N - 1)/ (f128) N)), iw1 = to3SP(exp2f128(-1/ (f128) N)), iw2 = to3SP(exp2f128(-((N - 1)/ (f128) N)));
+  auto w1 = to3SP(exp2q(1/ (f128) N)), w2 = to3SP(exp2q((N - 1)/ (f128) N)), iw1 = to3SP(exp2q(-1/ (f128) N)), iw2 = to3SP(exp2q(-((N - 1)/ (f128) N)));
   
   log("W %s %s IW %s %s; %x %x %x %x\n",
       toLiteral(w1).c_str(),
@@ -482,7 +482,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       as<u32>(get<0>(w1)), as<u32>(get<0>(w2)), as<u32>(get<0>(iw1)), as<u32>(get<0>(iw2)));
 
   for (u32 k = 0; k < 8; ++k) {
-    auto x = exp2f128( - (k / 8.0));
+    auto x = exp2q( - (k / 8.0));
     log("%d %s %s\n", k, toLiteral(to3SP(x)).c_str(), toLiteral(double(x - 1)).c_str());
   }
   
