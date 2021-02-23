@@ -237,8 +237,6 @@ typedef double2 TT;
 
 #endif
 
-typedef TT T2;
-
 TT U2(T a, T b) { return (TT) (a, b); }
 
 
@@ -396,13 +394,13 @@ float3 mad1(float3 a, float3 b, float3 c) { return sum(mul(a, b), c); }
 
 // ---- DP ----
 
-double sum(double a, double b) { return a + b; }
+OVERLOAD double sum(double a, double b) { return a + b; }
 
 // double sub(double a, double b) { return a - b; }
 
-double mad1(double x, double y, double z) { return x * y + z; }
+OVERLOAD double mad1(double x, double y, double z) { return x * y + z; }
 
-double mul(double x, double y) { return x * y; }
+OVERLOAD double mul(double x, double y) { return x * y; }
 
 #endif
 
@@ -528,60 +526,62 @@ TT add_m2(TT a, TT b) { return U2(add1_m2(RE(a), RE(b)), add1_m2(IM(a), IM(b)));
 TT mul_m2(TT a, TT b) { return U2(mad1_m2(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m2(RE(a), IM(b), mul(IM(a), RE(b)))); }
 
 // complex mul * 4
-T2 mul_m4(T2 a, T2 b) { return U2(mad1_m4(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m4(RE(a), IM(b), mul(IM(a), RE(b)))); }
+TT mul_m4(TT a, TT b) { return U2(mad1_m4(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m4(RE(a), IM(b), mul(IM(a), RE(b)))); }
 
 // complex fma
-T2 mad_m1(T2 a, T2 b, T2 c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
+TT mad_m1(TT a, TT b, TT c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
 
 // complex fma * 2
-T2 mad_m2(T2 a, T2 b, T2 c) { return U2(mad1_m2(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1_m2(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
+TT mad_m2(TT a, TT b, TT c) { return U2(mad1_m2(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1_m2(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
 
-T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
+TT mul_t4(TT a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
 
 
 #if SP
 
 #define SP_SQRT1_2 (float3) (0.707106769,1.21016175e-08,-3.81403372e-16)
 
-T2 mul_t8(T2 a)  {
+TT mul_t8(TT a)  {
   return U2(mul(sum(IM(a),  RE(a)), SP_SQRT1_2),
             mul(sum(IM(a), -RE(a)), SP_SQRT1_2));
 }
 
-T2 mul_3t8(T2 a) {
+TT mul_3t8(TT a) {
   return U2(mul(sum(IM(a), -RE(a)),  SP_SQRT1_2),
             mul(sum(IM(a),  RE(a)), -SP_SQRT1_2));
 }
 
 #else
 
-T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+TT mul_t8(TT a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
+TT mul_3t8(TT a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
 #endif
 
 
-T2 swap(T2 a)      { return U2(IM(a), RE(a)); }
-T2 conjugate(T2 a) { return U2(RE(a), -IM(a)); }
+TT swap(TT a)      { return U2(IM(a), RE(a)); }
+TT conjugate(TT a) { return U2(RE(a), -IM(a)); }
 
 
 void bar() { barrier(0); }
 
 #if SP
 
+#error TODO
+
 float2 fromWord(Word u) {
   float a = u;
   return (float2) (a, u - a); 
 }
 
-T2 weight(Word2 a, TT w) {
+TT weight(Word2 a, TT w) {
   return U2(mul(RE(w), fromWord(RE(a))),
             mul(IM(w), fromWord(IM(a))));
 }
 
 #else
 
-T2 weight(Word2 a, TT w) { return U2(RE(a), IM(a)) * w; }
+TT weight(Word2 a, TT w) { return U2(RE(a), IM(a)) * w; }
 
 #endif
 
@@ -746,6 +746,8 @@ typedef i64 CFcarry;
 typedef i64 CFMcarry;
 
 u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
+
+typedef TT T2;
 
 //{{ carries
 Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
