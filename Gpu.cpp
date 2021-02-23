@@ -124,7 +124,7 @@ vector<pair<T, T>> makeTrig(u32 n) {
 template<typename T>
 vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN) {
   vector<pair<T, T>> tab;
-  for (u32 k = 0; k < W; ++k) {
+  for (u32 k = 0; k <= W/2; ++k) {
     auto[c, s] = root1<f128>(hN, k);
     tab.push_back({c - 1, s});
   }
@@ -259,7 +259,7 @@ string toLiteral(const vector<T>& v) {
   return s;
 }
 
-string toLiteral(float3 v) {
+[[maybe_unused]] string toLiteral(float3 v) {
   auto [a, b, c] = v;
   return "("s + toLiteral(a) + ',' + toLiteral(b) + ',' + toLiteral(c) + ')';
 }

@@ -2144,28 +2144,10 @@ global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
 
 #if TRIG_COMPUTE == 0
 global double2 TRIG_N[ND / 8 + 1];
+#elif TRIG_COMPUTE == 1
+global double2 TRIG_W[WIDTH / 2 + 1];
 #endif
 
-global double2 TRIG_W[WIDTH];
-
-/*
-double2 trigBH(u32 k) {
-  double2 cs1 = TRIG_BH[k / WIDTH];
-  double c1 = cs1.x;
-  double s1 = cs1.y;
-  
-  double2 cs2 = TRIG_W[k % WIDTH];
-  double c2 = cs2.x;
-  double s2 = cs2.y;
-
-  // cos(a+b) = cos(a)cos(b) - sin(a)sin(b)
-  // sin(a+b) = cos(a)sin(b) + sin(a)cos(b)
-  // c2 is stored with "-1" trick to increase accuracy, so we use fma(x,y,x) for x*(y+1)
-  double c = fma(-s1, s2, fma(c1, c2, c1));
-  double s = fma(c1, s2, fma(s1, c2, s1));
-  return (double2)(c, s);  
-}
-*/
 
 double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
   assert(n % 8 == 0);
@@ -2262,9 +2244,9 @@ KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, glo
 
 #if TRIG_COMPUTE == 0
   for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { TRIG_N[k] = trigNDP[k]; }
+#elif TRIG_COMPUTE == 1
+  for (u32 k = get_global_id(0); k <= WIDTH/2; k += get_global_size(0)) { TRIG_W[k] = trigW[k]; }
 #endif
-
-  for (u32 k = get_global_id(0); k < WIDTH; k += get_global_size(0)) { TRIG_W[k] = trigW[k]; }
 }
 
 double2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
@@ -2295,13 +2277,16 @@ double2 slowTrig_N(u32 k, u32 kBound)   {
 #if TRIG_COMPUTE >= 2
   double2 r = reducedCosSin(k, n);
 #elif TRIG_COMPUTE == 1
-  double2 cs1 = TRIG_BH[k / WIDTH];
+  u32 a = (k + WIDTH/2) / WIDTH;
+  i32 b = k - a * WIDTH;
+  
+  double2 cs1 = TRIG_BH[a];
   double c1 = cs1.x;
   double s1 = cs1.y;
   
-  double2 cs2 = TRIG_W[k % WIDTH];
+  double2 cs2 = TRIG_W[abs(b)];
   double c2 = cs2.x;
-  double s2 = cs2.y;
+  double s2 = (b < 0) ? -cs2.y : cs2.y; 
 
   // cos(a+b) = cos(a)cos(b) - sin(a)sin(b)
   // sin(a+b) = cos(a)sin(b) + sin(a)cos(b)
