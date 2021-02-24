@@ -43,9 +43,6 @@ extern const char *CL_SOURCE;
 using float3 = tuple<float, float, float>;
 
 struct Weights {
-  vector<double> groupWeightsIF;
-  vector<float3> groupWeightsIFSP;
-  
   vector<double> threadWeightsIF;
   vector<float3> threadWeightsIFSP;
   
@@ -153,19 +150,6 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   
   u32 groupWidth = W / nW;
 
-  // group weights Inverse + Forward
-  vector<double> groupWeightsIF;
-  vector<float3> groupWeightsIFSP;
-  for (u32 group = 0; group < H; ++group) {
-    auto w = weight(N, E, H, group, 0, 0);
-    // Double the weight and inverse weight so that optionalHalve and optionalDouble can save one instruction
-    auto iw = 1/w;    
-    groupWeightsIF.push_back(2 * boundUnderOne(iw));
-    groupWeightsIF.push_back(2 * w);
-    groupWeightsIFSP.push_back(to3SP(2 * iw));
-    groupWeightsIFSP.push_back(to3SP(2 * w));
-  }
-
   // Inverse + Forward
   vector<double> threadWeightsIF;
   vector<float3> threadWeightsIFSP;
@@ -227,7 +211,7 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{groupWeightsIF, groupWeightsIFSP, threadWeightsIF, threadWeightsIFSP, carryWeightsIF, carryWeightsIFSP, bits, bitsC};
+  return Weights{threadWeightsIF, threadWeightsIFSP, carryWeightsIF, carryWeightsIFSP, bits, bitsC};
 }
 
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
@@ -538,7 +522,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
                                                              ConstBuffer{context, "dp3", makeTrig<double>(hN)},
                                                              ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)},
 
-                                                             ConstBuffer{context, "w1", weights.groupWeightsIF},
                                                              ConstBuffer{context, "w2", weights.threadWeightsIF},
                                                              ConstBuffer{context, "w3", weights.carryWeightsIF}
                                                              );

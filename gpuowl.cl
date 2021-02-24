@@ -2150,7 +2150,6 @@ global double2 TRIG_N[ND / 8 + 1];
 global double2 TRIG_W[WIDTH / 2 + 1];
 #endif
 
-TT GROUP_WEIGHTS[BIG_HEIGHT];
 TT THREAD_WEIGHTS[G_W];
 TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
@@ -2237,7 +2236,7 @@ float fastCosSP(u32 k, u32 tau) {
 KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, global float4 * trigNSP,
                         global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
                         global double2* trigW,
-                        global double2* groupWeights, global double2* threadWeights, global double2* carryWeights
+                        global double2* threadWeights, global double2* carryWeights
                         ) {
 #if SP
   for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_2SH[k] = trig2ShSP[k]; }
@@ -2255,8 +2254,7 @@ KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, glo
 #endif
 
   // Weights
-  for (u32 k = get_global_id(0); k < BIG_HEIGHT; k += get_global_size(0)) { GROUP_WEIGHTS[k] = groupWeights[k]; }
-  for (u32 k = get_global_id(0); k < G_W; k += get_global_size(0))        { THREAD_WEIGHTS[k] = threadWeights[k]; }
+  for (u32 k = get_global_id(0); k < G_W; k += get_global_size(0)) { THREAD_WEIGHTS[k] = threadWeights[k]; }
   for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
 }
 
@@ -3054,9 +3052,15 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
+  const double IWEIGHT_STEP[2*CARRY_LEN] = IWEIGHTS;
+  const double FWEIGHT_STEP[CARRY_LEN] = FWEIGHTS;
+  
   Word2 wu[NW];
-  T2 weights = fancyMul(GROUP_WEIGHTS[line], THREAD_WEIGHTS[me]);
-  // weights = 
+  T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
+  weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(IWEIGHT_STEP[2 * (line % CARRY_LEN)], FWEIGHT_STEP[line % CARRY_LEN]));
+
+  // T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], U2(IWEIGHT_STEP[2 * (line % CARRY_LEN)], FWEIGHT_STEP[line % CARRY_LEN]));
+  // weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), THREAD_WEIGHTS[me]);
 
 #if CF_MUL
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
