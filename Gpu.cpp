@@ -182,11 +182,9 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   vector<double> groupWeightsI;
   vector<float3> groupWeightsISP;
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
-    for (u32 gx = 0; gx < nW; ++gx) {
-      auto iw = invWeight(N, E, H, gy * CARRY_LEN, gx * groupWidth, 0);
-      groupWeightsI.push_back(2 * boundUnderOne(iw));
-      groupWeightsISP.push_back(to3SP(2 * iw));
-    }
+    auto iw = invWeight(N, E, H, gy * CARRY_LEN, 0, 0);
+    groupWeightsI.push_back(2 * boundUnderOne(iw));
+    groupWeightsISP.push_back(to3SP(2 * iw));
   }
   
   vector<u32> bits;

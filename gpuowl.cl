@@ -2152,7 +2152,7 @@ global double2 TRIG_W[WIDTH / 2 + 1];
 
 TT GROUP_WEIGHTS[BIG_HEIGHT];
 TT THREAD_WEIGHTS[G_W];
-T CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN * NW];
+T CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
 double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
   assert(n % 8 == 0);
@@ -2257,7 +2257,7 @@ KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, glo
   // Weights
   for (u32 k = get_global_id(0); k < BIG_HEIGHT; k += get_global_size(0)) { GROUP_WEIGHTS[k] = groupWeights[k]; }
   for (u32 k = get_global_id(0); k < G_W; k += get_global_size(0))        { THREAD_WEIGHTS[k] = threadWeights[k]; }
-  for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN * NW; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
+  for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
 }
 
 double2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
@@ -2914,6 +2914,32 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
   }
 }
 
+T iweightStep(u32 i) {
+  // 2^-(k/8) - 1 for k in [0..8)
+  const T TWO_TO_MINUS_NTH[8] = {
+#if SP
+    (1,0,0),
+    (0.917004049,-5.61963898e-09,-9.46067642e-17),
+    (0.840896428,-1.23776633e-08,-2.92071863e-16),
+    (0.771105409,4.03545242e-09,-7.12731307e-17),
+    (0.707106769,1.21016175e-08,-3.81403372e-16),
+    (0.648419797,-2.00949977e-08,7.89847371e-16),
+    (0.594603539,1.89881764e-08,5.75021604e-16),
+    (0.545253873,-6.53876997e-09,-1.26256216e-16)
+#else                                 
+    0,
+    -0.082995956795328771,
+    -0.15910358474628547,
+    -0.2288945872960296,
+    -0.29289321881345248,
+    -0.35158022267449518,
+    -0.40539644249863949,
+    -0.45474613366737116,
+#endif
+  };
+  return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
+}
+
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
@@ -2934,7 +2960,9 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
 
-  T base = optionalDouble(fancyMul(CARRY_WEIGHTS[g], THREAD_WEIGHTS[me].x));
+  T base = optionalDouble(fancyMul(CARRY_WEIGHTS[gy], THREAD_WEIGHTS[me].x));
+  
+    base = optionalDouble(fancyMul(base, iweightStep(gx)));
 
   // 2^-(2*k/ND) - 1 for k in [0..CARRY_LEN).
   const double IWEIGHT_STEP[2*CARRY_LEN] = IWEIGHTS;
@@ -3036,36 +3064,14 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
   float roundMax = 0;
   u32 carryMax = 0;
-
-  // 2^-(k/8) - 1 for k in [0..8)
-  const T TWO_TO_MINUS_NTH[8] = {
-#if SP
-    (1,0,0),
-    (0.917004049,-5.61963898e-09,-9.46067642e-17),
-    (0.840896428,-1.23776633e-08,-2.92071863e-16),
-    (0.771105409,4.03545242e-09,-7.12731307e-17),
-    (0.707106769,1.21016175e-08,-3.81403372e-16),
-    (0.648419797,-2.00949977e-08,7.89847371e-16),
-    (0.594603539,1.89881764e-08,5.75021604e-16),
-    (0.545253873,-6.53876997e-09,-1.26256216e-16)
-#else                                 
-    0,
-    -0.082995956795328771,
-    -0.15910358474628547,
-    -0.2288945872960296,
-    -0.29289321881345248,
-    -0.35158022267449518,
-    -0.40539644249863949,
-    -0.45474613366737116,
-#endif
-  };
   
   // Apply the inverse weights
 
   T invBase = optionalDouble(weights.x);
   
-  for (i32 i = 0; i < NW; ++i) {
-    T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)]));
+  for (u32 i = 0; i < NW; ++i) {
+    // TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)]
+    T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, iweightStep(i)));
     T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP_MINUS_1));
 
 #if STATS
