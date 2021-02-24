@@ -2152,7 +2152,7 @@ global double2 TRIG_W[WIDTH / 2 + 1];
 
 TT GROUP_WEIGHTS[BIG_HEIGHT];
 TT THREAD_WEIGHTS[G_W];
-T CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
+TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
 double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
   assert(n % 8 == 0);
@@ -2237,7 +2237,7 @@ float fastCosSP(u32 k, u32 tau) {
 KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, global float4 * trigNSP,
                         global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
                         global double2* trigW,
-                        global double2* groupWeights, global double2* threadWeights, global double* carryWeights
+                        global double2* groupWeights, global double2* threadWeights, global double2* carryWeights
                         ) {
 #if SP
   for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_2SH[k] = trig2ShSP[k]; }
@@ -2556,8 +2556,11 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
     0.83400808640934243,
 #endif
   };
+
+  T FWEIGHT_STEP[CARRY_LEN] = FWEIGHTS;
   
-  T base = optionalHalve(fancyMul(GROUP_WEIGHTS[g].y, THREAD_WEIGHTS[me].y));
+  T base = optionalHalve(fancyMul(CARRY_WEIGHTS[g / CARRY_LEN].y, THREAD_WEIGHTS[me].y));
+  base = optionalHalve(fancyMul(base, FWEIGHT_STEP[g % CARRY_LEN]));
 
   for (i32 i = 0; i < NW; ++i) {
     T w1 = i == 0 ? base : optionalHalve(fancyMul(base, TWO_TO_NTH[i * STEP % NW * (8 / NW)]));
@@ -2960,7 +2963,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
 
-  T base = optionalDouble(fancyMul(CARRY_WEIGHTS[gy], THREAD_WEIGHTS[me].x));
+  T base = optionalDouble(fancyMul(CARRY_WEIGHTS[gy].x, THREAD_WEIGHTS[me].x));
   
     base = optionalDouble(fancyMul(base, iweightStep(gx)));
 
@@ -3053,6 +3056,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
   Word2 wu[NW];
   T2 weights = fancyMul(GROUP_WEIGHTS[line], THREAD_WEIGHTS[me]);
+  // weights = 
 
 #if CF_MUL
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;

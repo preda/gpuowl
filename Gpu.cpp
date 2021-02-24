@@ -49,8 +49,8 @@ struct Weights {
   vector<double> threadWeightsIF;
   vector<float3> threadWeightsIFSP;
   
-  vector<double> groupWeightsI;
-  vector<float3> groupWeightsISP;
+  vector<double> carryWeightsIF;
+  vector<float3> carryWeightsIFSP;
   
   vector<u32> bitsCF;
   vector<u32> bitsC;
@@ -179,12 +179,16 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
 
   // Inverse only. Also the group order matches CarryA/M (not fftP/CarryFused).
-  vector<double> groupWeightsI;
-  vector<float3> groupWeightsISP;
+  vector<double> carryWeightsIF;
+  vector<float3> carryWeightsIFSP;
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
     auto iw = invWeight(N, E, H, gy * CARRY_LEN, 0, 0);
-    groupWeightsI.push_back(2 * boundUnderOne(iw));
-    groupWeightsISP.push_back(to3SP(2 * iw));
+    carryWeightsIF.push_back(2 * boundUnderOne(iw));
+    carryWeightsIFSP.push_back(to3SP(2 * iw));
+    
+    auto w = weight(N, E, H, gy * CARRY_LEN, 0, 0);
+    carryWeightsIF.push_back(2 * w);
+    carryWeightsIFSP.push_back(to3SP(2 * w));
   }
   
   vector<u32> bits;
@@ -223,7 +227,7 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{groupWeightsIF, groupWeightsIFSP, threadWeightsIF, threadWeightsIFSP, groupWeightsI, groupWeightsISP, bits, bitsC};
+  return Weights{groupWeightsIF, groupWeightsIFSP, threadWeightsIF, threadWeightsIFSP, carryWeightsIF, carryWeightsIFSP, bits, bitsC};
 }
 
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
@@ -317,10 +321,12 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   defines.push_back({"IWEIGHT_STEP_MINUS_1", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
 
   vector<double> iWeights;
-  for (u32 i = 0; i < 2*CARRY_LEN; ++i) {
-    iWeights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, i) - 1);
-  }
+  for (u32 i = 0; i < 2*CARRY_LEN; ++i) { iWeights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, i) - 1); }
   defines.push_back({"IWEIGHTS", iWeights});
+
+  vector<double> fWeights;
+  for (u32 i = 0; i < CARRY_LEN; ++i) { fWeights.push_back(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1); }
+  defines.push_back({"FWEIGHTS", fWeights});
   
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
@@ -534,7 +540,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
                                                              ConstBuffer{context, "w1", weights.groupWeightsIF},
                                                              ConstBuffer{context, "w2", weights.threadWeightsIF},
-                                                             ConstBuffer{context, "w3", weights.groupWeightsI}                                                             
+                                                             ConstBuffer{context, "w3", weights.carryWeightsIF}
                                                              );
   }
 
