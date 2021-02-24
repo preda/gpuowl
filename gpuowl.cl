@@ -2517,20 +2517,7 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   write(G_H, NH, u, io, 0);
 }
 
-// fftPremul: weight words with IBDWT weights followed by FFT-width.
-KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
-  local T2 lds[WIDTH / 2];
-
-  T2 u[NW];
-  u32 g = get_group_id(0);
-
-  u32 step = WIDTH * g;
-  in  += step;
-  out += step;
-
-  u32 me = get_local_id(0);
-
-  // 2^(k/8) for k in [0..8)
+T fweightStep(u32 i) {
   const T TWO_TO_NTH[8] = {
 #if SP
     // 2^(k/8) for k in [0..8)
@@ -2555,13 +2542,56 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
 #endif
   };
 
+  return TWO_TO_NTH[i * STEP % NW * (8 / NW)];
+}
+
+T iweightStep(u32 i) {
+  const T TWO_TO_MINUS_NTH[8] = {
+#if SP
+    // 2^-(k/8) for k in [0..8)
+    (1,0,0),
+    (0.917004049,-5.61963898e-09,-9.46067642e-17),
+    (0.840896428,-1.23776633e-08,-2.92071863e-16),
+    (0.771105409,4.03545242e-09,-7.12731307e-17),
+    (0.707106769,1.21016175e-08,-3.81403372e-16),
+    (0.648419797,-2.00949977e-08,7.89847371e-16),
+    (0.594603539,1.89881764e-08,5.75021604e-16),
+    (0.545253873,-6.53876997e-09,-1.26256216e-16)
+#else
+    // 2^-(k/8) - 1 for k in [0..8)
+    0,
+    -0.082995956795328771,
+    -0.15910358474628547,
+    -0.2288945872960296,
+    -0.29289321881345248,
+    -0.35158022267449518,
+    -0.40539644249863949,
+    -0.45474613366737116,
+#endif
+  };
+  return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
+}
+
+// fftPremul: weight words with IBDWT weights followed by FFT-width.
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
+  local T2 lds[WIDTH / 2];
+
+  T2 u[NW];
+  u32 g = get_group_id(0);
+
+  u32 step = WIDTH * g;
+  in  += step;
+  out += step;
+
+  u32 me = get_local_id(0);
+
   T FWEIGHT_STEP[CARRY_LEN] = FWEIGHTS;
   
   T base = optionalHalve(fancyMul(CARRY_WEIGHTS[g / CARRY_LEN].y, THREAD_WEIGHTS[me].y));
   base = optionalHalve(fancyMul(base, FWEIGHT_STEP[g % CARRY_LEN]));
 
-  for (i32 i = 0; i < NW; ++i) {
-    T w1 = i == 0 ? base : optionalHalve(fancyMul(base, TWO_TO_NTH[i * STEP % NW * (8 / NW)]));
+  for (u32 i = 0; i < NW; ++i) {
+    T w1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
     T w2 = optionalHalve(fancyMul(w1, WEIGHT_STEP_MINUS_1));
     u32 p = G_W * i + me;
     u[i] = U2(in[p].x, in[p].y) * U2(w1, w2);
@@ -2915,32 +2945,6 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
   }
 }
 
-T iweightStep(u32 i) {
-  // 2^-(k/8) - 1 for k in [0..8)
-  const T TWO_TO_MINUS_NTH[8] = {
-#if SP
-    (1,0,0),
-    (0.917004049,-5.61963898e-09,-9.46067642e-17),
-    (0.840896428,-1.23776633e-08,-2.92071863e-16),
-    (0.771105409,4.03545242e-09,-7.12731307e-17),
-    (0.707106769,1.21016175e-08,-3.81403372e-16),
-    (0.648419797,-2.00949977e-08,7.89847371e-16),
-    (0.594603539,1.89881764e-08,5.75021604e-16),
-    (0.545253873,-6.53876997e-09,-1.26256216e-16)
-#else                                 
-    0,
-    -0.082995956795328771,
-    -0.15910358474628547,
-    -0.2288945872960296,
-    -0.29289321881345248,
-    -0.35158022267449518,
-    -0.40539644249863949,
-    -0.45474613366737116,
-#endif
-  };
-  return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
-}
-
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
@@ -3078,7 +3082,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   T invBase = optionalDouble(weights.x);
   
   for (u32 i = 0; i < NW; ++i) {
-    // TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)]
     T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, iweightStep(i)));
     T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP_MINUS_1));
 
@@ -3144,29 +3147,11 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   for (i32 i = 0; i < NW; ++i) {
     wu[i] = carryFinal(wu[i], carry[i], test(b, 2 * i));
   }
-
-  // 2^(k/NW) - 1 for k in [0..NW)
-  const double TWO_TO_NTH[NW] = {
-    0,
-#if NW == 4
-    0.18920711500272105,
-    0.41421356237309503,
-    0.68179283050742912,
-#else
-    0.090507732665257662,
-    0.18920711500272105,
-    0.29683955465100964,
-    0.41421356237309503,
-    0.54221082540794086,
-    0.68179283050742912,
-    0.83400808640934243,
-#endif
-  };
   
   T base = optionalHalve(weights.y);
   
-  for (i32 i = 0; i < NW; ++i) {
-    T weight1 = i == 0 ? base : optionalHalve(fancyMul(base, TWO_TO_NTH[i * STEP % NW]));
+  for (u32 i = 0; i < NW; ++i) {
+    T weight1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
     T weight2 = optionalHalve(fancyMul(weight1, WEIGHT_STEP_MINUS_1));
     u[i] = U2(wu[i].x, wu[i].y) * U2(weight1, weight2);
   }
