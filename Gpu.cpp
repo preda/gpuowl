@@ -85,7 +85,6 @@ double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   for (u32 line = 1; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
       *p++ = root1<double>(W * H, line * col);
-      // if(abs((p-1)->first) < 1e-16) { printf("%u %u %u %u %g\n", line, col, W, H, (p-1)->first); }
     }
   }
   return p;
@@ -186,7 +185,6 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
     for (u32 gx = 0; gx < nW; ++gx) {
       auto iw = invWeight(N, E, H, gy * CARRY_LEN, gx * groupWidth, 0);
       groupWeightsI.push_back(2 * boundUnderOne(iw));
-      // float3 
       groupWeightsISP.push_back(to3SP(2 * iw));
     }
   }
@@ -450,9 +448,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufTrigM{genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
   bufBits{context, "bits", weights.bitsCF},
   bufBitsC{context, "bitsC", weights.bitsC},
-  bufGroupWeights{context, "groupWeights", weights.groupWeightsIF},
-  bufThreadWeights{context, "threadWeights", weights.threadWeightsIF},
-  bufGroupWeightsI{context, "groupWeightsI", weights.groupWeightsI},
   bufData{queue, "data", N},
   bufAux{queue, "aux", N},
   bufCheck{queue, "check", N},
@@ -489,17 +484,17 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   // log("%lx\n", as<u64>(1.0));
   */
   
-  carryFused.setFixedArgs(  2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMax);
-  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufGroupWeights, bufThreadWeights, bufRoundoff, bufCarryMulMax);
-  fftP.setFixedArgs(2, bufGroupWeights, bufThreadWeights, bufTrigW);
+  carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMax);
+  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMulMax);
+  fftP.setFixedArgs(2, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
   fftMiddleIn.setFixedArgs(2, bufTrigM);
   fftMiddleOut.setFixedArgs(2, bufTrigM);
     
-  carryA.setFixedArgs(2, bufCarry, bufGroupWeightsI, bufThreadWeights, bufBitsC, bufRoundoff, bufCarryMax);
-  carryM.setFixedArgs(2, bufCarry, bufGroupWeightsI, bufThreadWeights, bufBitsC, bufRoundoff, bufCarryMulMax);
+  carryA.setFixedArgs(2, bufCarry, bufBitsC, bufRoundoff, bufCarryMax);
+  carryM.setFixedArgs(2, bufCarry, bufBitsC, bufRoundoff, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
@@ -537,7 +532,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
                                                              ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
                                                              ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
                                                              ConstBuffer{context, "dp3", makeTrig<double>(hN)},
-                                                             ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)}
+                                                             ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)},
+
+                                                             ConstBuffer{context, "w1", weights.groupWeightsIF},
+                                                             ConstBuffer{context, "w2", weights.threadWeightsIF},
+                                                             ConstBuffer{context, "w3", weights.groupWeightsI}                                                             
                                                              );
   }
 

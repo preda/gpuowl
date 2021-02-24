@@ -99,10 +99,6 @@ class Gpu {
   ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
   ConstBuffer<u32> bufBitsC; // bigWord bits aligned for CarryA/M
 
-  ConstBuffer<double> bufGroupWeights;  // Inverse + Forward
-  ConstBuffer<double> bufThreadWeights; // Inv + Fwd
-  ConstBuffer<double> bufGroupWeightsI; // Inverse only
-  
   // "integer word" buffers. These are "small buffers": N x int.
   HostAccessBuffer<int> bufData;   // Main int buffer with the words.
   HostAccessBuffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.

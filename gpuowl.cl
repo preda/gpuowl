@@ -2150,6 +2150,9 @@ global double2 TRIG_N[ND / 8 + 1];
 global double2 TRIG_W[WIDTH / 2 + 1];
 #endif
 
+TT GROUP_WEIGHTS[BIG_HEIGHT];
+TT THREAD_WEIGHTS[G_W];
+T CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN * NW];
 
 double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
   assert(n % 8 == 0);
@@ -2233,7 +2236,8 @@ float fastCosSP(u32 k, u32 tau) {
 
 KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, global float4 * trigNSP,
                         global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
-                        global double2* trigW
+                        global double2* trigW,
+                        global double2* groupWeights, global double2* threadWeights, global double* carryWeights
                         ) {
 #if SP
   for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_2SH[k] = trig2ShSP[k]; }
@@ -2249,6 +2253,11 @@ KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, glo
 #elif TRIG_COMPUTE == 1
   for (u32 k = get_global_id(0); k <= WIDTH/2; k += get_global_size(0)) { TRIG_W[k] = trigW[k]; }
 #endif
+
+  // Weights
+  for (u32 k = get_global_id(0); k < BIG_HEIGHT; k += get_global_size(0)) { GROUP_WEIGHTS[k] = groupWeights[k]; }
+  for (u32 k = get_global_id(0); k < G_W; k += get_global_size(0))        { THREAD_WEIGHTS[k] = threadWeights[k]; }
+  for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN * NW; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
 }
 
 double2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
@@ -2511,7 +2520,7 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 }
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
-KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) groupWeights, CP(T2) threadWeights, Trig smallTrig) {
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
   local T2 lds[WIDTH / 2];
 
   T2 u[NW];
@@ -2526,15 +2535,17 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) groupWeights, CP(T2) threadWeig
   // 2^(k/8) for k in [0..8)
   const T TWO_TO_NTH[8] = {
 #if SP
-                           (1,0,0),
-                           (1.09050775,-1.30775399e-08,-2.52512433e-16),
-                           (1.18920708,3.79763527e-08,1.15004321e-15),
-                           (1.29683959,-4.01899953e-08,1.57969474e-15),
-                           (1.41421354,2.4203235e-08,-7.62806744e-16),
-                           (1.54221082,8.07090483e-09,-1.42546261e-16),
-                           (1.68179286,-2.47553267e-08,-5.84143725e-16),
-                           (1.8340081,-1.1239278e-08,-1.89213528e-16),
+    // 2^(k/8) for k in [0..8)
+    (1,0,0),
+    (1.09050775,-1.30775399e-08,-2.52512433e-16),
+    (1.18920708,3.79763527e-08,1.15004321e-15),
+    (1.29683959,-4.01899953e-08,1.57969474e-15),
+    (1.41421354,2.4203235e-08,-7.62806744e-16),
+    (1.54221082,8.07090483e-09,-1.42546261e-16),
+    (1.68179286,-2.47553267e-08,-5.84143725e-16),
+    (1.8340081,-1.1239278e-08,-1.89213528e-16),
 #else
+    // 2^(k/8) -1 for k in [0..8)
     0,
     0.090507732665257662,
     0.18920711500272105,
@@ -2546,7 +2557,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, CP(T2) groupWeights, CP(T2) threadWeig
 #endif
   };
   
-  T base = optionalHalve(fancyMul(groupWeights[g].y, threadWeights[me].y));
+  T base = optionalHalve(fancyMul(GROUP_WEIGHTS[g].y, THREAD_WEIGHTS[me].y));
 
   for (i32 i = 0; i < NW; ++i) {
     T w1 = i == 0 ? base : optionalHalve(fancyMul(base, TWO_TO_NTH[i * STEP % NW * (8 / NW)]));
@@ -2907,7 +2918,7 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
 // Input arrives conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) groupWeights, CP(T2) threadWeights, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
   ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2923,7 +2934,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(T) groupWeigh
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
 
-  T base = optionalDouble(fancyMul(groupWeights[g], threadWeights[me].x));
+  T base = optionalDouble(fancyMul(CARRY_WEIGHTS[g], THREAD_WEIGHTS[me].x));
 
   // 2^-(2*k/ND) - 1 for k in [0..CARRY_LEN).
   const double IWEIGHT_STEP[2*CARRY_LEN] = IWEIGHTS;
@@ -2989,7 +3000,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
 // See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
 //{{ CARRY_FUSED
 KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits, CP(T2) groupWeights, CP(T2) threadWeights, P(u32) roundOut, P(u32) carryStats) {
+                 CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -3013,7 +3024,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   Word2 wu[NW];
-  T2 weights = fancyMul(groupWeights[line], threadWeights[me]);
+  T2 weights = fancyMul(GROUP_WEIGHTS[line], THREAD_WEIGHTS[me]);
 
 #if CF_MUL
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
