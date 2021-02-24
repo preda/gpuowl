@@ -73,7 +73,7 @@ void Args::printHelp() {
 -save <N>          : specify the number of savefiles to keep (default 12).
 -noclean           : do not delete data after the test is complete.
 -from <iteration>  : start at the given iteration instead of the most recent saved iteration
--yield             : enable work-around for CUDA busy wait taking up one CPU core
+-yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
 -nospin            : disable progress spinner
 -use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
 -unsafeMath        : use OpenCL -cl-unsafe-math-optimizations (use at your own risk)
