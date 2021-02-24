@@ -2541,7 +2541,6 @@ T fweightStep(u32 i) {
     0.83400808640934243,
 #endif
   };
-
   return TWO_TO_NTH[i * STEP % NW * (8 / NW)];
 }
 
@@ -2572,6 +2571,16 @@ T iweightStep(u32 i) {
   return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
 }
 
+T fweightUnitStep(u32 i) {
+  T FWEIGHT_STEP[] = FWEIGHTS;
+  return FWEIGHT_STEP[i];
+}
+
+T iweightUnitStep(u32 i) {
+  T IWEIGHT_STEP[] = IWEIGHTS;
+  return IWEIGHT_STEP[i];
+}
+
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
 KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
   local T2 lds[WIDTH / 2];
@@ -2585,10 +2594,8 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
 
   u32 me = get_local_id(0);
 
-  T FWEIGHT_STEP[CARRY_LEN] = FWEIGHTS;
-  
   T base = optionalHalve(fancyMul(CARRY_WEIGHTS[g / CARRY_LEN].y, THREAD_WEIGHTS[me].y));
-  base = optionalHalve(fancyMul(base, FWEIGHT_STEP[g % CARRY_LEN]));
+  base = optionalHalve(fancyMul(base, fweightUnitStep(g % CARRY_LEN)));
 
   for (u32 i = 0; i < NW; ++i) {
     T w1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
@@ -2969,13 +2976,10 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
   
     base = optionalDouble(fancyMul(base, iweightStep(gx)));
 
-  // 2^-(2*k/ND) - 1 for k in [0..CARRY_LEN).
-  const double IWEIGHT_STEP[2*CARRY_LEN] = IWEIGHTS;
-  
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    double w1 = i == 0 ? base : optionalDouble(fancyMul(base, IWEIGHT_STEP[2*i]));
-    double w2 = optionalDouble(fancyMul(base, IWEIGHT_STEP[2*i + 1]));
+    double w1 = i == 0 ? base : optionalDouble(fancyMul(base, iweightUnitStep(2*i)));
+    double w2 = optionalDouble(fancyMul(base, iweightUnitStep(2*i + 1)));
     T2 x = conjugate(in[p]) * U2(w1, w2);
     
 #if STATS
@@ -3056,12 +3060,9 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
-  const double IWEIGHT_STEP[2*CARRY_LEN] = IWEIGHTS;
-  const double FWEIGHT_STEP[CARRY_LEN] = FWEIGHTS;
-  
   Word2 wu[NW];
   T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
-  weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(IWEIGHT_STEP[2 * (line % CARRY_LEN)], FWEIGHT_STEP[line % CARRY_LEN]));
+  weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(2 * (line % CARRY_LEN)), fweightUnitStep(line % CARRY_LEN)));
 
   // T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], U2(IWEIGHT_STEP[2 * (line % CARRY_LEN)], FWEIGHT_STEP[line % CARRY_LEN]));
   // weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), THREAD_WEIGHTS[me]);
