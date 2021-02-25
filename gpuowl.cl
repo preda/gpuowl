@@ -2572,13 +2572,13 @@ T iweightStep(u32 i) {
 }
 
 T fweightUnitStep(u32 i) {
-  T FWEIGHT_STEP[] = FWEIGHTS;
-  return FWEIGHT_STEP[i];
+  T FWEIGHTS_[] = FWEIGHTS;
+  return FWEIGHTS_[i];
 }
 
 T iweightUnitStep(u32 i) {
-  T IWEIGHT_STEP[] = IWEIGHTS;
-  return IWEIGHT_STEP[i];
+  T IWEIGHTS_[] = IWEIGHTS;
+  return IWEIGHTS_[i];
 }
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
@@ -2599,7 +2599,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
 
   for (u32 i = 0; i < NW; ++i) {
     T w1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
-    T w2 = optionalHalve(fancyMul(w1, WEIGHT_STEP_MINUS_1));
+    T w2 = optionalHalve(fancyMul(w1, WEIGHT_STEP));
     u32 p = G_W * i + me;
     u[i] = U2(in[p].x, in[p].y) * U2(w1, w2);
   }
@@ -3064,9 +3064,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
   weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(2 * (line % CARRY_LEN)), fweightUnitStep(line % CARRY_LEN)));
 
-  // T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], U2(IWEIGHT_STEP[2 * (line % CARRY_LEN)], FWEIGHT_STEP[line % CARRY_LEN]));
-  // weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), THREAD_WEIGHTS[me]);
-
 #if CF_MUL
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
   CFMcarry carry[NW+1];
@@ -3084,7 +3081,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   
   for (u32 i = 0; i < NW; ++i) {
     T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, iweightStep(i)));
-    T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP_MINUS_1));
+    T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP));
 
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight1, invWeight2)));
@@ -3153,7 +3150,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   
   for (u32 i = 0; i < NW; ++i) {
     T weight1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
-    T weight2 = optionalHalve(fancyMul(weight1, WEIGHT_STEP_MINUS_1));
+    T weight2 = optionalHalve(fancyMul(weight1, WEIGHT_STEP));
     u[i] = U2(wu[i].x, wu[i].y) * U2(weight1, weight2);
   }
 

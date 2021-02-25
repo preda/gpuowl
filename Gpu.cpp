@@ -301,8 +301,8 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   if (max_accuracy) { defines.push_back({"MAX_ACCURACY", 1}); }
   if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }
 
-  defines.push_back({"WEIGHT_STEP_MINUS_1", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
-  defines.push_back({"IWEIGHT_STEP_MINUS_1", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
+  defines.push_back({"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
+  defines.push_back({"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
 
   vector<double> iWeights;
   for (u32 i = 0; i < 2*CARRY_LEN; ++i) { iWeights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, i) - 1); }
