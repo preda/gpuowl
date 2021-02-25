@@ -1436,6 +1436,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   u32 nMuls = 0;
   const u32 blockMulti = 20;
   Timer sinceLastGCD;
+  float lastGCDduration = 0;
 
   for (u32 block = startBlock; block < selected.size(); ++block) {
     const auto& bits = selected[block];
@@ -1491,7 +1492,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     }
     
     if (finished(gcdFuture)) {
-      sinceLastGCD.reset();
+      lastGCDduration = sinceLastGCD.deltaSecs();
       string factor = gcdFuture.get();
       log("GCD : %s\n", factor.empty() ? "no factor" : factor.c_str());
       
@@ -1513,7 +1514,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       throw "stop requested";
     }
     
-    bool doGCD = nStop || atEnd || (!gcdFuture.valid() && sinceLastGCD.elapsedSecs() > 600);
+    bool doGCD = nStop || atEnd || (!gcdFuture.valid() && sinceLastGCD.elapsedSecs() > max(600.0f, 10*lastGCDduration));
     
     if (doGCD) {
       if (!verifyP2Checksums(blockBufs, blockChecksum)) {
@@ -1528,7 +1529,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       carryB(bufP2Data);
       Words p2Data = readAndCompress(bufP2Data);
       if (p2Data.empty()) {
-        log("P2 error ZERO, will move back\n");
+        log("P2 error: ZERO, will retry\n");
         goto retry;
       }
       assert(!gcdFuture.valid());
@@ -1537,7 +1538,8 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
         string factor = GCD(E, p2Data, 0);
         saver->saveP2(b2, D, nBuf, nextBlock);
         return factor;
-      });        
+      });
+      sinceLastGCD.reset();
     }
   }
   queue->finish();
