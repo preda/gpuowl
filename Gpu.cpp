@@ -305,11 +305,12 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   defines.push_back({"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
 
   vector<double> iWeights;
-  for (u32 i = 0; i < 2*CARRY_LEN; ++i) { iWeights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, i) - 1); }
-  defines.push_back({"IWEIGHTS", iWeights});
-
   vector<double> fWeights;
-  for (u32 i = 0; i < CARRY_LEN; ++i) { fWeights.push_back(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1); }
+  for (u32 i = 0; i < CARRY_LEN; ++i) {
+    iWeights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
+    fWeights.push_back(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
+  }
+  defines.push_back({"IWEIGHTS", iWeights});
   defines.push_back({"FWEIGHTS", fWeights});
   
   string clSource = CL_SOURCE;

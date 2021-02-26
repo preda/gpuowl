@@ -2978,8 +2978,8 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
 
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    double w1 = i == 0 ? base : optionalDouble(fancyMul(base, iweightUnitStep(2*i)));
-    double w2 = optionalDouble(fancyMul(base, iweightUnitStep(2*i + 1)));
+    double w1 = i == 0 ? base : optionalDouble(fancyMul(base, iweightUnitStep(i)));
+    double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
     T2 x = conjugate(in[p]) * U2(w1, w2);
     
 #if STATS
@@ -3062,7 +3062,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
   Word2 wu[NW];
   T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
-  weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(2 * (line % CARRY_LEN)), fweightUnitStep(line % CARRY_LEN)));
+  weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(line % CARRY_LEN), fweightUnitStep(line % CARRY_LEN)));
 
 #if CF_MUL
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
