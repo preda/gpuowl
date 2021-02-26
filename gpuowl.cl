@@ -386,9 +386,7 @@ OVERLOAD float3 sq(float3 a) {
 }
 
 // TODO: merge the ADD into the MUL
-float3 mad1(float3 a, float3 b, float3 c) { return sum(mul(a, b), c); }
-
-// float3 sub(float3 a, float3 b) { return sum(a, -b); }
+OVERLOAD float3 mad1(float3 a, float3 b, float3 c) { return sum(mul(a, b), c); }
 
 #else
 
@@ -399,6 +397,7 @@ OVERLOAD double sum(double a, double b) { return a + b; }
 // double sub(double a, double b) { return a - b; }
 
 OVERLOAD double mad1(double x, double y, double z) { return x * y + z; }
+  // fma(x, y, z); }
 
 OVERLOAD double mul(double x, double y) { return x * y; }
 
@@ -461,16 +460,6 @@ T mad1_m2(T a, T b, T c) {
 #endif
 }
 
-T msb1_m2(T a, T b, T c) {
-#if !NO_OMOD && !SP
-  double out;
-  __asm volatile("v_fma_f64 %0, %1, %2, -%3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
-  return out;
-#else
-  return 2 * mad1(a, b, -c);
-#endif
-}
-
 T mad1_m4(T a, T b, T c) {
 #if !NO_OMOD && !SP
   double out;
@@ -481,32 +470,21 @@ T mad1_m4(T a, T b, T c) {
 #endif
 }
 
-T msb1_m4(T a, T b, T c) {
-#if !NO_OMOD && !SP
-  double out;
-  __asm volatile("v_fma_f64 %0, %1, %2, -%3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
-  return out;
-#else
-  return 4 * mad1(a, b, -c);
-#endif
-}
-
-
 #if SP
 
 // complex square
 OVERLOAD TT sq(TT a) { return U2(sum(sq(RE(a)), -sq(IM(a))), 2 * mul(RE(a), IM(a))); }
 
 // complex mul
-OVERLOAD TT mul(TT a, TT b) { return U2(mul(RE(a), RE(b)) - mul(IM(a), IM(b)), mul(RE(a), IM(b)) + mul(IM(a), RE(b))); }
+OVERLOAD TT mul(TT a, TT b) { return U2(mad1(RE(a), RE(b), -mul(IM(a), IM(b))), mad1(RE(a), IM(b), mul(IM(a), RE(b)))); }
 
 #else
 
 // complex square
-OVERLOAD TT sq(TT a) { return U2(RE(a) * RE(a) - IM(a) * IM(a), mul1_m2(RE(a), IM(a))); }
+OVERLOAD TT sq(TT a) { return U2(mad1(RE(a), RE(a), - IM(a) * IM(a)), mul1_m2(RE(a), IM(a))); }
 
 // complex mul
-OVERLOAD TT mul(TT a, TT b) { return U2(RE(a) * RE(b) - IM(a) * IM(b), RE(a) * IM(b) + IM(a) * RE(b)); }
+OVERLOAD TT mul(TT a, TT b) { return U2(mad1(RE(a), RE(b), - IM(a) * IM(b)), mad1(RE(a), IM(b), IM(a) * RE(b))); }
 
 #endif
 
