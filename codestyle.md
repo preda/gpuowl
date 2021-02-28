@@ -5,7 +5,7 @@ GpuOwl code style, C++ and OpenCL
 - open bracket on the same line
 - always curly-braces {} after if and else
 - no space between function name and open parens (e.g. in a function call)
-- one space between between if/while/for and open parens
+- one space between if/while/for and open parens
 
 Example:
 ```C++

@@ -1,10 +1,10 @@
-CXXFLAGS = -Wall -O2 -std=gnu++17
+CXXFLAGS = -Wall -g -O3 -std=gnu++17
 
 LIBPATH = -L/opt/rocm-4.0.0/opencl/lib -L/opt/rocm-3.3.0/opencl/lib/x86_64 -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
 
 LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread -lquadmath ${LIBPATH}
 
-LINK = $(CXX) -o $@ ${OBJS} ${LDFLAGS}
+LINK = $(CXX) $(CXXFLAGS) -o $@ ${OBJS} ${LDFLAGS}
 
 SRCS = ProofCache.cpp Proof.cpp Pm1Plan.cpp B1Accumulator.cpp Memlock.cpp log.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp gpuowl-wrap.cpp sha3.cpp md5.cpp
 OBJS = $(SRCS:%.cpp=%.o)
