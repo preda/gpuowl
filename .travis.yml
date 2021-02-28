@@ -1,0 +1,54 @@
+language: cpp
+
+matrix:
+  include:
+  - name: "Ubuntu 18.04 (gcc)"
+    os: linux
+    dist: bionic
+    compiler: gcc
+    virt: vm
+    before_script:
+      - sed -i 's/<filesystem>/<experimental\/filesystem>/' *.h *.cpp
+      - sed -i 's/std::filesystem/std::experimental::filesystem/' *.h *.cpp
+      - sed -i 's/assert(false);/abort();/' Pm1Plan.cpp
+  - name: "Ubuntu 18.04 (clang)"
+    os: linux
+    dist: bionic
+    compiler: clang
+    virt: vm
+    before_script:
+      - sed -i 's/<filesystem>/<experimental\/filesystem>/' *.h *.cpp
+      - sed -i 's/std::filesystem/std::experimental::filesystem/' *.h *.cpp
+  - name: "Ubuntu 20.04 (gcc)"
+    os: linux
+    dist: focal
+    compiler: gcc
+    virt: vm
+  - name: "Ubuntu 20.04 (clang)"
+    os: linux
+    dist: focal
+    compiler: clang
+    virt: vm
+  - name: "Windows"
+    os: windows
+    install: choco install python3 --version=3.8.8
+    env: PATH=/c/Python38:/c/Python38/Scripts:$PATH
+    script:
+      - mingw32-make gpuowl-win.exe
+      - ./gpuowl-win.exe -h
+  allow_failures:
+  - compiler: gcc
+    os: linux
+    dist: bionic
+  - compiler: clang
+  - os: windows
+
+install:
+  - sudo apt-get -yqq update
+  - sudo apt-get -yqq install cppcheck ocl-icd-* opencl-headers
+script:
+  - make -j "$(nproc)"
+  - ./gpuowl -h
+  - cppcheck --enable=all .
+  - bash -c 'shopt -s globstar; shellcheck -s bash **/*.sh || true'
+
