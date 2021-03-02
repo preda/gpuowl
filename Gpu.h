@@ -17,12 +17,13 @@
 #include <future>
 #include <filesystem>
 
-struct Args;
 struct PRPResult;
 struct PRPState;
+struct Task;
+
+class Args;
 class Saver;
 class Signal;
-class Task;
 class ProofSet;
 
 using double2 = pair<double, double>;
@@ -44,7 +45,7 @@ struct Reload {
 };
 
 class Gpu {
-  friend class SquaringSet;
+  friend struct SquaringSet;
   u32 E;
   u32 N;
 

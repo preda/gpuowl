@@ -20,5 +20,5 @@ public:
     return task;
   }
 
-  static Task makeVerify(Args& args, string path) { return Task{Task::VERIFY, .verifyPath=path}; }
+  static Task makeVerify(Args& args, string path) { return Task{.kind=Task::VERIFY, .verifyPath=path}; }
 };

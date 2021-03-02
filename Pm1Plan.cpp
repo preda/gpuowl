@@ -263,7 +263,7 @@ pair<u32, vector<Pm1Plan::BitBlock>> Pm1Plan::makePlan() {
       return false;
     });
 
-    scan(primes, beginBlock, selected, [&primes, &oneHit, &twoHit, &nPair](u32 p1, u32 p2) {
+    scan(primes, beginBlock, selected, [&primes, &twoHit, &nPair](u32 p1, u32 p2) {
       if (p1 && p2 && (!twoHit[p1] || !twoHit[p2])) {
         ++nPair;
         primes[p1] = primes[p2] = false;
