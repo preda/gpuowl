@@ -2312,7 +2312,6 @@ void transposeLDS(local T *lds, T2 *u) {
   }
 }
 
-
 void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out) {
   u32 GPW = W / 64, GPH = H / 64;
 
@@ -2321,30 +2320,17 @@ void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out)
   u32 gx = g / GPH;
   gx = (gy + gx) % GPW;
 
-  in   += gy * 64 * W + gx * 64;
-  out  += gy * 64     + gx * 64 * H;
-  
+  in   += 64 * W * gy + 64 * gx;
+  out  += 64 * gy + 64 * H * gx;
   u32 me = get_local_id(0);
-  u32 mx = me % 64;
-  u32 my = me / 64;
-  
-  Word2 u[16];
-
-  for (i32 i = 0; i < 16; ++i) { u[i] = in[(4 * i + my) * W + mx]; }
-
-  for (i32 i = 0; i < 16; ++i) {
-    u32 l = i * 4 + me / 64;
-    lds[l * 64 + (me + l) % 64 ] = u[i];
+  #pragma unroll 1
+  for (i32 i = 0; i < 64; ++i) {
+    lds[i * 64 + me] = in[i * W + me];
   }
   bar();
-  for (i32 i = 0; i < 16; ++i) {
-    u32 c = i * 4 + me / 64;
-    u32 l = me % 64;
-    u[i] = lds[l * 64 + (c + l) % 64];
-  }
-
-  for (i32 i = 0; i < 16; ++i) {
-    out[(4 * i + my) * H + mx] = u[i];
+  #pragma unroll 1
+  for (i32 i = 0; i < 64; ++i) {
+    out[i * H + me] = lds[me * 64 + i];
   }
 }
 
@@ -3148,13 +3134,13 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 //== CARRY_FUSED NAME=carryFusedMul, CF_MUL=1
 
 // from transposed to sequential.
-KERNEL(256) transposeOut(P(Word2) out, CP(Word2) in) {
+KERNEL(64) transposeOut(P(Word2) out, CP(Word2) in) {
   local Word2 lds[4096];
   transposeWords(WIDTH, BIG_HEIGHT, lds, in, out);
 }
 
 // from sequential to transposed.
-KERNEL(256) transposeIn(P(Word2) out, CP(Word2) in) {
+KERNEL(64) transposeIn(P(Word2) out, CP(Word2) in) {
   local Word2 lds[4096];
   transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
