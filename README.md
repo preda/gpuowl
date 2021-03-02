@@ -65,7 +65,7 @@ Let us consider the PRP test, to get an idea of what GpuOwl does under the hood.
 
 PRP uses what is called a _modular squaring_, computing f(x) = x^2 modulo M(p), starting from 3 (where x is an integer).
 
-The problem is in the size of the integer x that is to be squared, which about 100 million bits in size.
+The problem is in the size of the integer x that is to be squared, which is about 100 million bits in size.
 
 How do we compute efficiently the square of a 100 million bits integer? It turns out that one of the fastest multiplication algorithms
 for huge numbers consists in doing a convolution, which involves a direct and an inverse FFT transform, with a simple element-wise
@@ -155,7 +155,7 @@ Device numbers start at zero.
 -u USERNAME           Primenet user name
 -p PASSWORD           Primenet password
 -t TIMEOUT            Seconds to sleep between updates
---dirs DIR \[DIR ...\]  GpuOwl directories to scan
+--dirs DIR [DIR ...]  GpuOwl directories to scan
 --tasks NTASKS        Number of tasks to fetch ahead
--w \{PRP,PM1,LL_DC,PRP_DC,PRP_WORLD_RECORD,PRP_100M\}   GIMPS work type
+-w {PRP,PM1,LL_DC,PRP_DC,PRP_WORLD_RECORD,PRP_100M}   GIMPS work type
 ```
