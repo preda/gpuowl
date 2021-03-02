@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/preda/gpuowl.svg?branch=master)](https://travis-ci.org/preda/gpuowl)
+[![Build Status](https://travis-ci.com/preda/gpuowl.svg?branch=master)](https://travis-ci.com/preda/gpuowl)
 [![Actions Status](https://github.com/preda/gpuowl/workflows/CI/badge.svg?branch=master)](https://github.com/preda/gpuowl/actions)
 
 # GpuOwl

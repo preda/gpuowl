@@ -255,7 +255,7 @@ struct Define {
     assert(label.find('=') == string::npos);
   }
 
-  Define(const string& labelAndVal) : str{labelAndVal} {
+  explicit Define(const string& labelAndVal) : str{labelAndVal} {
     assert(labelAndVal.find('=') != string::npos);
   }
   
@@ -324,7 +324,7 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
     if (pos == string::npos) {
       defines.push_back({label, 1});
     } else {
-      defines.push_back(flag);
+      defines.push_back(Define{flag});
     }
   }
 
@@ -809,7 +809,7 @@ class IterationTimer {
   u32 kStart;
 
 public:
-  IterationTimer(u32 kStart) : kStart(kStart) { }
+  explicit IterationTimer(u32 kStart) : kStart(kStart) { }
   
   float reset(u32 k) {
     float secs = timer.deltaSecs();
@@ -1057,7 +1057,7 @@ static u32 mod3(const std::vector<u32> &words) {
 
 static void doDiv3(u32 E, Words& words) {
   u32 r = (3 - mod3(words)) % 3;
-  assert(0 <= r && r < 3);
+  assert(r < 3);
   int topBits = E % 32;
   assert(topBits > 0 && topBits < 32);
   {

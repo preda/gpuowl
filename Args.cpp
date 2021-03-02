@@ -123,7 +123,7 @@ static int getSeqId(const std::string& uid) {
   throw std::runtime_error("Could not find GPU with unique-id "s + uid);
 }
 
-void Args::parse(string line) {  
+void Args::parse(const string& line) {
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
     // log("key '%s'\n", key.c_str());
@@ -202,7 +202,7 @@ void Args::parse(string line) {
       }
     } else if (key == "-block") {
       blockSize = stoi(s);
-      if (blockSize <= 0 || 10000 % blockSize) {
+      if (10000 % blockSize) {
         log("BlockSize %u must divide 10'000\n", blockSize);
         throw "invalid block size";
       }

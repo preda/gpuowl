@@ -12,6 +12,6 @@ void initLog();
 void initLog(const char *);
 
 struct LogContext {
-  LogContext(const std::string& s);
+  explicit LogContext(const std::string& s);
   ~LogContext();
 };

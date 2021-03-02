@@ -16,7 +16,7 @@ public:
 
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
-  void parse(string line);
+  void parse(const string& line);
   void setDefaults();
   bool uses(const std::string& key) const { return flags.count(key); }
   

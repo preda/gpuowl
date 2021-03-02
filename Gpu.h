@@ -52,7 +52,6 @@ class Gpu {
   u32 hN, nW, nH, bufSize;
   u32 WIDTH;
   bool useLongCarry;
-  bool useMergedMiddle;
   bool timeKernels;
 
   cl_device_id device;

@@ -29,7 +29,7 @@ class AllocTrac {
   
 public:
   AllocTrac() = default;
-  AllocTrac(size_t size) : size(size) {
+  explicit AllocTrac(size_t size) : size(size) {
     if (size) {
       if (totalAlloc + size >= maxAlloc) {
         log("Reached GPU maxAlloc limit %.1f GB\n", float(maxAlloc) / (1024 * 1024 * 1024));
