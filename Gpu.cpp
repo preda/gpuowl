@@ -1376,7 +1376,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     for (u32 i = 0; i < jset.size(); ++i) {
       int delta = i ? jset[i] - jset[i-1] : 0;
       assert(delta % 2 == 0);
-      for (int step = delta / 2; step > 0; --step) { little.step(buf1); }
+      for (int s = delta / 2; s > 0; --s) { little.step(buf1); }
       blockBufs[i] << little.C;
       sum64(bufSumOut, N * 8, blockBufs[i]);
       blockChecksum[i] = bufSumOut.read()[0];
@@ -1402,7 +1402,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     for (u32 i = 0; i < jset.size(); ++i) {
       int delta = i ? jset[i] - jset[i-1] : 0;
       assert(delta % 2 == 0);
-      for (int step = delta / 2; step > 0; --step) { little.step(buf1); }
+      for (int s = delta / 2; s > 0; --s) { little.step(buf1); }
       blockBufs[i] << little.C;
     }
     if (!verifyP2Checksums(blockBufs, blockChecksum)) { goto retry; }
@@ -1619,16 +1619,16 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
     
-    u64 res64 = dataResidue();
-    if (res64 == loaded.res64) {
-      log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res64);
+    u64 res = dataResidue();
+    if (res == loaded.res64) {
+      log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res);
       // On the OK branch do not clear lastFailedRes64 -- we still want to compare it with the GEC check.
     } else {
-      log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", loaded.k, res64, loaded.res64);
-      if (lastFailedRes64 && res64 == *lastFailedRes64) {
+      log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", loaded.k, res, loaded.res64);
+      if (lastFailedRes64 && res == *lastFailedRes64) {
         throw "error on load";
       }
-      lastFailedRes64 = res64;
+      lastFailedRes64 = res;
       goto reload;
     }
     
@@ -1697,8 +1697,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     assert(k < kEndEnd);
 
     if (finished(jacobiFuture)) {
-      auto [ok, jacobiK, res64] = jacobiFuture.get();
-      log("P1 Jacobi %s @ %u %016" PRIx64 "\n", ok ? "OK" : "EE", jacobiK, res64);      
+      auto [ok, jacobiK, res] = jacobiFuture.get();
+      log("P1 Jacobi %s @ %u %016" PRIx64 "\n", ok ? "OK" : "EE", jacobiK, res);      
       if (!ok) {
         if (jacobiK < k) {
           saver.deleteBadSavefiles(jacobiK, k);
@@ -1770,13 +1770,13 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       continue;
     }
 
-    u64 res64 = dataResidue(); // implies finish()
-    bool doCheck = !res64 || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+    u64 res = dataResidue(); // implies finish()
+    bool doCheck = !res || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
       
     if (k % 10000 == 0 && !doCheck) {
       float secsPerIt = iterationTimer.reset(k);
       log("   %9u %6.2f%% %s %4.0f us/it\n",
-          k, k / float(kEndEnd) * 100, hex(res64).c_str(), secsPerIt * 1'000'000);
+          k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
     }
       
     if (doStop) {
@@ -1819,11 +1819,11 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           goto reload;
         }
 
-        if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res64, check, nErrors}); }
+        if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res, check, nErrors}); }
 
         float secsSave = iterationTimer.reset(k);
           
-        doBigLog(E, k, res64, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, ::res64(b1Data));
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, ::res64(b1Data));
 
         if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0)) && !jacobiFuture.valid()) {
           // log("P1 %9u starting Jacobi check\n", k);
@@ -1841,17 +1841,17 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         }
         
       } else {
-        doBigLog(E, k, res64, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, 0);
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, 0);
         ++nErrors;
         if (++nSeqErrors > 2) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
           throw "too many errors";
         }
-        if (lastFailedRes64 && res64 == *lastFailedRes64) {
-          log("Consistent error %016" PRIx64 ", will stop.\n", res64);
+        if (lastFailedRes64 && res == *lastFailedRes64) {
+          log("Consistent error %016" PRIx64 ", will stop.\n", res);
           throw "consistent error";
         }
-        lastFailedRes64 = res64;
+        lastFailedRes64 = res;
         if (!doStop) { goto reload; }
       }
         
