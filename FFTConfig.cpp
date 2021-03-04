@@ -104,12 +104,8 @@ FFTConfig FFTConfig::fromSpec(const string& spec) {
     return {width, middle, height};
   } else {
     u32 fftSize = parseInt(spec);
-    vector<FFTConfig> configs = genConfigs();
-    for (auto config : configs) {
-      if (config.fftSize() >= fftSize) {
-        return config;
-      }
-    }
+    vector<FFTConfig> configs = genConfigs();    
+    if (auto it = find_if(configs.begin(), configs.end(), [fftSize](const FFTConfig& c) { return c.fftSize() >= fftSize; }); it != configs.end()) { return *it; }
     log("Could not find a FFT config for '%s'\n", spec.c_str());
     throw "Invalid FFT spec";
   }
