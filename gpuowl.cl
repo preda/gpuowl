@@ -237,6 +237,8 @@ typedef double2 TT;
 
 #endif
 
+void bar() { barrier(0); }
+
 TT U2(T a, T b) { return (TT) (a, b); }
 
 
@@ -493,7 +495,7 @@ bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 #define STEP (NWORDS - (EXP % NWORDS))
 // bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
-// u32 reduce(u32 extra) { return extra < NWORDS ? extra : (extra - NWORDS); }
+
 u32 bitlen(bool b) { return EXP / NWORDS + b; }
 
 
@@ -536,12 +538,8 @@ TT mul_3t8(TT a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // 
 
 #endif
 
-
 TT swap(TT a)      { return U2(IM(a), RE(a)); }
 TT conjugate(TT a) { return U2(RE(a), -IM(a)); }
-
-
-void bar() { barrier(0); }
 
 #if SP
 
@@ -559,7 +557,7 @@ TT weight(Word2 a, TT w) {
 
 #else
 
-TT weight(Word2 a, TT w) { return U2(RE(a), IM(a)) * w; }
+TT weight(Word2 a, TT w) { return w * U2(RE(a), IM(a)); }
 
 #endif
 
@@ -618,6 +616,43 @@ i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 i32 xtract32(i64 x, u32 bits) { return ((i32) (x >> bits)); }
 #endif
+
+
+#if SP
+
+i32 split(float3 x, u32 nBits, i64 *outCarry) {
+  
+}
+
+OVERLOAD Word carryStep(T x, i64 inCarry, i64 *outCarry, bool isBigWord) {
+  u32 nBits = bitlen(isBigWord);
+  Word w = split(x, nBits, outCarry);
+  w = lowBits(inCarry + w, nBits);
+  *outCarry += (inCarry - w) >> nBits;
+  return w;
+}
+
+
+
+Word2 OVERLOAD carryPair(TT u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
+  iCARRY midCarry;
+  Word a = carryStep(doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1);
+  Word b = carryStep(doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2);
+
+  return (Word2) (a, b);
+}
+
+Word2 OVERLOAD carryFinal(Word2 u, i64 inCarry, bool b1) {
+  i32 tmpCarry;
+  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
+  u.y += tmpCarry;
+  return u;
+}
+
+
+#else
+
+
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
@@ -687,7 +722,7 @@ const bool CAN_BE_INEXACT = 1;
 Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord, bool exactness) {
   u32 nBits = bitlen(isBigWord);
   Word w = (exactness == MUST_BE_EXACT) ? lowBits(x, nBits) : ulowBits(x, nBits);
-  if (exactness == MUST_BE_EXACT) x -= w;
+  if (exactness == MUST_BE_EXACT) { x -= w; }
   *outCarry = x >> nBits;
   return w;
 }
@@ -702,7 +737,7 @@ Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord, bool exactness) {
 #else
   *outCarry = xtract32(x, nBits);
 #endif
-  if (exactness == MUST_BE_EXACT) *outCarry += (w < 0);
+  if (exactness == MUST_BE_EXACT) { *outCarry += (w < 0); }
   CARRY32_CHECK(*outCarry);
   return w;
 }
@@ -726,6 +761,8 @@ typedef i64 CFMcarry;
 u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 
 typedef TT T2;
+
+#endif // DP
 
 //{{ carries
 Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
@@ -2292,24 +2329,6 @@ double2 slowTrig_N(u32 k, u32 kBound)   {
   if (negate) { r = -r; }
   
   return r;
-}
-
-// transpose LDS 64 x 64.
-void transposeLDS(local T *lds, T2 *u) {
-  u32 me = get_local_id(0);
-  for (i32 b = 0; b < 2; ++b) {
-    if (b) { bar(); }
-    for (i32 i = 0; i < 16; ++i) {
-      u32 l = i * 4 + me / 64;
-      lds[l * 64 + (me + l) % 64 ] = ((T *)(u + i))[b];
-    }
-    bar();
-    for (i32 i = 0; i < 16; ++i) {
-      u32 c = i * 4 + me / 64;
-      u32 l = me % 64;
-      ((T *)(u + i))[b] = lds[l * 64 + (c + l) % 64];
-    }
-  }
 }
 
 void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out) {
