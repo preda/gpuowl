@@ -1022,11 +1022,11 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
   return formatETA(etaSecs);
 }
 
-static string makeLogStr(string_view status, u32 k, u64 res, float secsPerIt, float secsCheck, float secsSave, u32 nIters) {
+static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, float secsCheck, float secsSave, u32 nIters) {
   char buf[256];
   
   snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it + check %.2fs + save %.2fs; ETA %s",
-           status.data(), k, k / float(nIters) * 100, hex(res).c_str(),
+           status.c_str(), k, k / float(nIters) * 100, hex(res).c_str(),
            secsPerIt * 1'000'000, secsCheck, secsSave, getETA(k, nIters, secsPerIt).c_str());
   return buf;
 }
@@ -1479,10 +1479,10 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
       if (nMuls >= 100) {
         doneMuls += nMuls;
         leftMuls -= nMuls;
-        float percent = doneMuls * 100.0f / (doneMuls + leftMuls);
+        [[maybe_unused]] float percent = doneMuls * 100.0f / (doneMuls + leftMuls);
         float secs = timer.deltaSecs();
         u32 etaSecs = secs * leftMuls / nMuls;
-        log("%5.1f%% %5u muls, %4.0f us/mul, ETA %s\n", percent, nMuls, secs / nMuls * 1e6, formatETA(etaSecs).c_str());
+        log("%5.2f%% %4.0f ETA %s\n", percent, secs / nMuls * 1e6, formatETA(etaSecs).c_str());
         nMuls = 0;
       }
     }
@@ -1775,8 +1775,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       
     if (k % 10000 == 0 && !doCheck) {
       float secsPerIt = iterationTimer.reset(k);
-      log("   %9u %6.2f%% %s %4.0f us/it\n",
-          k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
+      // log("   %9u %6.2f%% %s %4.0f us/it\n", k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
+      log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
     }
       
     if (doStop) {

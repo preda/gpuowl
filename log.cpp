@@ -19,7 +19,7 @@ void initLog(const char *logName) {
 }
 
 string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
-string shortTimeStr() { return timeStr("%Y-%m-%d %H:%M:%S"); }
+string shortTimeStr() { return timeStr("%Y%m%d %H:%M:%S"); }
 
 void log(const char *fmt, ...) {
   static std::mutex logMutex;
