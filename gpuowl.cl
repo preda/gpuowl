@@ -3533,9 +3533,21 @@ KERNEL(64) readHwTrig(global float2* outSH, global float2* outBH, global float2*
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
  
-KERNEL(256) testKernel(global float* io) {
+KERNEL(256) testKernel(global long long* io) {
   u32 me = get_local_id(0);
-  io[me] = hwSin(io[me]);
+  // ulong x = io[me].x;
+  // ulong y = io[me].y;
+  // io[me].x = (((unsigned long long) x) * y) >> 64u;
+  /*
+  long2 xy = as_long2(io[me]);
+  long x = xy.x;
+  long y = xy.y;
+  
+  // long long x = io[me];
+  io[me] = ((long long) x) * y;
+  */
+
+  io[me] = io[me] + io[me + 1];
 }
 #endif
 
