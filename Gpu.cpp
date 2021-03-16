@@ -27,8 +27,13 @@
 #include <iomanip>
 #include <quadmath.h>
 
+#include "mpreal.h"
+
+using mpfr::mpreal;
+
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
+// 3.141592653589793238462643383279502884195
 #endif
 
 #ifndef M_PI
@@ -40,14 +45,46 @@ static_assert(sizeof(long double) > sizeof(double), "long double offers extended
 
 extern const char *CL_SOURCE;
 
-using float3 = tuple<float, float, float>;
+const constexpr trig_t TRIG_ONE = (u128(1) << 127) - 1;
+// TRIG_MINUS_ONE == - TRIG_ONE
+
+// WEIGHT is a value with 0 <= x < 1
+using weight_t = u128;
+const constexpr weight_t WEIGHT_ONE = u128(-1);
+
+static_assert(sizeof(long long) == 8);
+
+u128 toU128(mpreal x) {
+  assert(x >= 0 && x <= 1);
+  x = round(x << 128);
+  if ((x >> 128) == 1) { return u128(-1); }
+  x >>= 64;
+  u64 hi(x);
+  x -= hi;
+  u64 lo(x << 64);
+  return (u128(hi) << 64) | lo;
+}
+
+i128 toI128(const mpreal& x) {
+  assert(-1 <= x && x <= 1);
+  return toU128((x + 1) >> 1) - (u128(1) << 127);
+}
+
+/*
+weight_t toWeight(const mpreal& x) {
+  assert(0 <= x && x <= 1);
+  return (x == 1) ? WEIGHT_ONE : llround(x << 128);
+}
+
+trig_t toTrig(const mpreal& x) {
+  assert(-1 <= x && x <= 1);
+  return (x <= -1) ? -TRIG_ONE : ((x >= 1) ? TRIG_ONE : llround(x << 127));
+}
+*/
 
 struct Weights {
-  vector<double> threadWeightsIF;
-  vector<float3> threadWeightsIFSP;
-  
-  vector<double> carryWeightsIF;
-  vector<float3> carryWeightsIFSP;
+  vector<weight_t> threadWeightsIF;
+  vector<weight_t> carryWeightsIF;
   
   vector<u32> bitsCF;
   vector<u32> bitsC;
@@ -57,46 +94,49 @@ namespace {
 
 // Returns the primitive root of unity of order N, to the power k.
 
-template<typename T>
-pair<T, T> root1(u32 N, u32 k) {
+trig2_t root1(u32 N, u32 k) {
+  static const mpreal pi = mpfr::const_pi();
+  
   assert(k < N);
   if (k >= N/2) {
-    auto [c, s] = root1<T>(N, k - N/2);
+    auto [c, s] = root1(N, k - N/2);
     return {-c, -s};
   } else if (k > N/4) {
-    auto [c, s] = root1<T>(N, N/2 - k);
+    auto [c, s] = root1(N, N/2 - k);
     return {-c, s};
   } else if (k > N/8) {
-    auto [c, s] = root1<T>(N, N/4 - k);
+    auto [c, s] = root1(N, N/4 - k);
     return {-s, -c};
   } else {
     assert(!(N&7));
     assert(k <= N/8);
     N /= 2;
-    __float128 angle = - M_PIq * k / N;
-    return {cosq(angle), sinq(angle)};
+    auto angle = - pi / N * k;
+    mpreal s, c;
+    sin_cos(s, c, angle);
+    return {toI128(c), toI128(s)};
   }
 }
 
-double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
+trig2_t* smallTrigBlock(u32 W, u32 H, trig2_t *p) {
   for (u32 line = 1; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
-      *p++ = root1<double>(W * H, line * col);
+      *p++ = root1(W * H, line * col);
     }
   }
   return p;
 }
 
-ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
-  vector<double2> tab(size);
+ConstBuffer<trig2_t> genSmallTrig(const Context& context, u32 size, u32 radix) {
+  vector<trig2_t> tab(size);
   auto *p = tab.data() + radix;
   for (u32 w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
   assert(p - tab.data() == size);
   return {context, "smallTrig", tab};
 }
 
-ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
-  vector<double2> tab;
+ConstBuffer<trig2_t> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
+  vector<trig2_t> tab;
   if (middle == 1) {
     tab.resize(1);
   } else {  
@@ -108,42 +148,36 @@ ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middl
   return {context, "middleTrig", tab};
 }
 
-template<typename T>
-vector<pair<T, T>> makeTrig(u32 n) {
+vector<trig2_t> makeTrig(u32 n) {
   assert(n % 8 == 0);
-  vector<pair<T, T>> tab;
+  vector<trig2_t> tab;
   tab.reserve(n/8 + 1);
-  for (u32 k = 0; k <= n/8; ++k) { tab.push_back(root1<T>(n, k)); }
+  for (u32 k = 0; k <= n/8; ++k) { tab.push_back(root1(n, k)); }
   return tab;
 }
 
-template<typename T>
-vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN) {
-  vector<pair<T, T>> tab;
-  for (u32 k = 0; k <= W/2; ++k) {
-    auto[c, s] = root1<f128>(hN, k);
-    tab.push_back({c - 1, s});
-  }
+vector<trig2_t> makeTinyTrig(u32 W, u32 hN) {
+  vector<trig2_t> tab;
+  for (u32 k = 0; k <= W/2; ++k) { tab.push_back(root1(hN, k)); }
   return tab;
 }
 
 u32 kAt(u32 H, u32 line, u32 col) { return (line + col * H) * 2; }
 
-auto weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
-  auto iN = 1 / (f128) N;
-  return exp2q(iN * extra(N, E, kAt(H, line, col) + rep));
+// in [1, 2)
+mpreal weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  mpreal iN = mpreal{1} / N;
+  return exp2(iN * extra(N, E, kAt(H, line, col) + rep));
 }
 
-auto invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
-  auto iN = 1 / (f128) N;
-  return exp2q(- iN * extra(N, E, kAt(H, line, col) + rep));
+// in (1/2, 1]
+/*
+mpreal invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  return 1 / weight(N, E, H, line, col, rep);
 }
-
-double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
+*/
 
 #define CARRY_LEN 8
-
-float3 to3SP(f128 x);
 
 Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
@@ -151,28 +185,21 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 groupWidth = W / nW;
 
   // Inverse + Forward
-  vector<double> threadWeightsIF;
-  vector<float3> threadWeightsIFSP;
+  vector<weight_t> threadWeightsIF;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
-    auto iw = invWeight(N, E, H, 0, thread, 0);
-    threadWeightsIF.push_back(iw - 1);
-    threadWeightsIFSP.push_back(to3SP(iw));
     auto w = weight(N, E, H, 0, thread, 0);
-    threadWeightsIF.push_back(w - 1);
-    threadWeightsIFSP.push_back(to3SP(w));
+    auto iw = 1 / w;
+    threadWeightsIF.push_back(toU128(iw));
+    threadWeightsIF.push_back(toU128(w/2));
   }
 
   // Inverse only. Also the group order matches CarryA/M (not fftP/CarryFused).
-  vector<double> carryWeightsIF;
-  vector<float3> carryWeightsIFSP;
+  vector<weight_t> carryWeightsIF;
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
-    auto iw = invWeight(N, E, H, gy * CARRY_LEN, 0, 0);
-    carryWeightsIF.push_back(2 * boundUnderOne(iw));
-    carryWeightsIFSP.push_back(to3SP(2 * iw));
-    
     auto w = weight(N, E, H, gy * CARRY_LEN, 0, 0);
-    carryWeightsIF.push_back(2 * w);
-    carryWeightsIFSP.push_back(to3SP(2 * w));
+    auto iw = 1 / w;
+    carryWeightsIF.push_back(toU128(iw));
+    carryWeightsIF.push_back(toU128(w/2));
   }
   
   vector<u32> bits;
@@ -211,25 +238,23 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{threadWeightsIF, threadWeightsIFSP, carryWeightsIF, carryWeightsIFSP, bits, bitsC};
+  return Weights{threadWeightsIF, carryWeightsIF, bits, bitsC};
 }
 
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
 string toLiteral(i32 value) { return to_string(value); }
 [[maybe_unused]] string toLiteral(u64 value) { return to_string(value) + "ul"; }
 
-template<typename F>
-string toLiteral(F value) {
-  std::ostringstream ss;
-  ss << std::setprecision(numeric_limits<F>::max_digits10) << value;
-  string s = std::move(ss).str();
+[[maybe_unused]] string toLiteral(u128 v) {
+  char buf[128];
+  snprintf(buf, sizeof(buf), "0x%016lx%016lxULL", u64(v>>64), u64(v));
+  return buf;
+}
 
-  // verify exact roundtrip
-  [[maybe_unused]] F back = 0;
-  sscanf(s.c_str(), (sizeof(F) == 4) ? "%f" : "%lf", &back);
-  assert(back == value);
-  
-  return s;
+[[maybe_unused]] string toLiteral(i128 v) {
+  char buf[128];
+  snprintf(buf, sizeof(buf), "%c0x%016lx%016lxLL", v<0 ? '-':'+', u64(abs(v)>>64), u64(abs(v)));
+  return buf;
 }
 
 template<typename T>
@@ -241,11 +266,6 @@ string toLiteral(const vector<T>& v) {
   }
   s += "}";
   return s;
-}
-
-[[maybe_unused]] string toLiteral(float3 v) {
-  auto [a, b, c] = v;
-  return "("s + toLiteral(a) + ',' + toLiteral(b) + ',' + toLiteral(c) + ')';
 }
 
 struct Define {
@@ -262,22 +282,9 @@ struct Define {
   operator string() const { return str; }
 };
 
-double relBits(double x, double ref) { return log2(fabs(ref)) - log2(fabs(x)); }
-
-float3 to3SP(f128 x) {
-  // auto ref = x;
-  float a = x;
-  x -= a;
-  float b = x;
-  x -= b;
-  float c = x;
-  x -= c;
-  float3 ret{a, b, c};
-  // log("Convert to %s with %.2f bits\n", toLiteral(ret).c_str(), relBits(x, ref));
-  return ret;
-}
-
 cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
+  log("SQRT1_2 %s\n", toLiteral(toU128(sqrt(mpreal(0.5)))).c_str());
+  
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
   if (!args.safeMath) { clArgs += " -cl-unsafe-math-optimizations"; }
   
@@ -301,14 +308,20 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   if (max_accuracy) { defines.push_back({"MAX_ACCURACY", 1}); }
   if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }
 
-  defines.push_back({"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
-  defines.push_back({"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
+  {
+    auto w = weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1);
+    auto iw = 1 / w;
+    defines.push_back({"IWEIGHT_STEP", toU128(iw)});
+    defines.push_back({"WEIGHT_STEP", toU128(w/2)});
+  }
 
-  vector<double> iWeights;
-  vector<double> fWeights;
+  vector<u128> iWeights;
+  vector<u128> fWeights;
   for (u32 i = 0; i < CARRY_LEN; ++i) {
-    iWeights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
-    fWeights.push_back(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
+    auto w = weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i);
+    auto iw = 1 / w;
+    iWeights.push_back(toU128(iw));
+    fWeights.push_back(toU128(w/2));
   }
   defines.push_back({"IWEIGHTS", iWeights});
   defines.push_back({"FWEIGHTS", fWeights});
@@ -340,36 +353,6 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   if (!program) { throw "OpenCL compilation"; }
   // dumpBinary(program, "dump.bin");
   return program;
-}
-
-float2 fixup(float hw, f128 ref, double& errBits) {
-  f128 r = ref - hw;
-  float c1 = r;
-  r -= c1;
-  
-  float c2 = r;
-  r -= c2;
-
-  double e = relBits(r, ref);
-  if (e < 0) { log("E : %f %f %f\n", double(ref), double(r), double(e)); }
-  assert(!(e < 0));
-  if (e < errBits) { errBits = e; }
-  return {c1, c2};  
-}
-
-vector<pair<float2, float2>> trigFixup(const vector<float2>& hwTrig, const vector<pair<f128, f128>>& ref) {
-  assert(hwTrig.size() == ref.size());
-  vector<pair<float2, float2>> fixupVect;
-
-  double bitsCos = 1000, bitsSin = 1000;
-  
-  for (u32 i = 0; i < ref.size(); ++i) {
-    auto [hwCos, hwSin] = hwTrig[i];
-    auto [refCos, refSin] = ref[i];    
-    fixupVect.push_back({fixup(hwCos, refCos, bitsCos), fixup(hwSin, refSin, bitsSin)});
-  }
-  log("trig table : %u points, cos %.2f bits, sin %.2f bits\n", u32(fixupVect.size()), bitsCos, bitsSin);
-  return fixupVect;
 }
 
 }
@@ -453,25 +436,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
-  /*
-  log("SQRT1_2 %s\n", toLiteral(to3SP(M_SQRT1_2q)).c_str());
-
-  auto w1 = to3SP(exp2q(1/ (f128) N)), w2 = to3SP(exp2q((N - 1)/ (f128) N)), iw1 = to3SP(exp2q(-1/ (f128) N)), iw2 = to3SP(exp2q(-((N - 1)/ (f128) N)));
   
-  log("W %s %s IW %s %s; %x %x %x %x\n",
-      toLiteral(w1).c_str(),
-      toLiteral(w2).c_str(),
-      toLiteral(iw1).c_str(),
-      toLiteral(iw2).c_str(),
-      as<u32>(get<0>(w1)), as<u32>(get<0>(w2)), as<u32>(get<0>(iw1)), as<u32>(get<0>(iw2)));
-
-  for (u32 k = 0; k < 8; ++k) {
-    auto x = exp2q( - (k / 8.0));
-    log("%d %s %s\n", k, toLiteral(to3SP(x)).c_str(), toLiteral(double(x - 1)).c_str());
-  }
-  
-  // log("%lx\n", as<u64>(1.0));
-  */
+  //cout << mpfr::const_pi().toString() << ' ' << (asin(mpreal(1)) * 2).toString() << endl;
   
   carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMulMax);
@@ -499,34 +465,14 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarryMax.zero();
   bufCarryMulMax.zero();
 
-  vector<float2> readTrigSH, readTrigBH, readTrigN;
-  {
-    HostAccessBuffer<float2>
-      bufSH{queue, "readTrig", SMALL_H/4 + 1},
-      bufBH{queue, "readTrigBH", BIG_H/8 + 1},
-      bufN{queue, "readTrigN", hN/8+1};
-        
-    Kernel{program.get(), queue, device, 32, "readHwTrig"}(bufSH, bufBH, bufN);
-    readTrigSH = bufSH.read();
-    readTrigBH = bufBH.read();
-    readTrigN = bufN.read();
-    auto vSh = trigFixup(readTrigSH, makeTrig<f128>(2 * SMALL_H));
-    auto vBh = trigFixup(readTrigBH, makeTrig<f128>(BIG_H));
-    auto vN  = trigFixup(readTrigN, makeTrig<f128>(hN));
+  Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "mp1", makeTrig(2 * SMALL_H)},
+                                                           ConstBuffer{context, "mp2", makeTrig(BIG_H)},
+                                                           ConstBuffer{context, "mp3", makeTrig(hN)},                                                             
+                                                           ConstBuffer{context, "dp4", makeTinyTrig(W, hN)},
 
-    Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "sp1", vSh},
-                                                             ConstBuffer{context, "sp2", vBh},
-                                                             ConstBuffer{context, "sp3", vN},
-                                                             
-                                                             ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
-                                                             ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
-                                                             ConstBuffer{context, "dp3", makeTrig<double>(hN)},
-                                                             ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)},
-
-                                                             ConstBuffer{context, "w2", weights.threadWeightsIF},
-                                                             ConstBuffer{context, "w3", weights.carryWeightsIF}
-                                                             );
-  }
+                                                           ConstBuffer{context, "w2", weights.threadWeightsIF},
+                                                           ConstBuffer{context, "w3", weights.carryWeightsIF}
+                                                           );
 
   finish();
   

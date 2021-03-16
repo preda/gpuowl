@@ -29,6 +29,10 @@ class ProofSet;
 using double2 = pair<double, double>;
 using float2 = pair<float, float>;
 
+// TRIG is a signed value x with |x| < 1 as a signed 128-bit integer scaled such: (x << 127)
+using trig_t = i128;
+using trig2_t = pair<trig_t, trig_t>;
+
 namespace fs = std::filesystem;
 
 inline u64 residue(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
@@ -92,9 +96,9 @@ class Gpu {
   // Kernel testKernel;
 
   // Trigonometry constant buffers, used in FFTs.
-  ConstBuffer<double2> bufTrigW;
-  ConstBuffer<double2> bufTrigH;
-  ConstBuffer<double2> bufTrigM;
+  ConstBuffer<trig2_t> bufTrigW;
+  ConstBuffer<trig2_t> bufTrigH;
+  ConstBuffer<trig2_t> bufTrigM;
 
   ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
   ConstBuffer<u32> bufBitsC; // bigWord bits aligned for CarryA/M

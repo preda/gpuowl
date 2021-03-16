@@ -20,7 +20,7 @@ config = '-g -O2'
 #config = '-O2'
 
 flags = '-std=gnu++17 -Wall -pthread ' + config
-env.Program('gpuowl', srcs, LIBPATH=LIBPATH, LIBS=['amdocl64', 'gmp', 'stdc++fs', 'quadmath'], parse_flags=flags)
+env.Program('gpuowl', srcs, LIBPATH=LIBPATH, LIBS=['amdocl64', 'gmp', 'stdc++fs', 'quadmath', 'mpfr'], parse_flags=flags)
 # env.Program('D', ['D.cpp', 'Pm1Plan.cpp', 'log.cpp', 'common.cpp', 'timeutil.cpp'], parse_flags=flags)
 
 # Program('asm', 'asm.cpp clpp.cpp clwrap.cpp'.split(), LIBS=['OpenCL'], parse_flags='-std=c++17 -O2 -Wall -pthread')

@@ -113,12 +113,10 @@ FFTConfig FFTConfig::fromSpec(const string& spec) {
 
 vector<FFTConfig> FFTConfig::genConfigs() {
   vector<FFTConfig> configs;
-  for (u32 width : {256, 512, 1024, 4096}) {
-    for (u32 height : {256, 512, 1024}) {
-      for (u32 middle : {1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) {
-        if (middle > 1 || width * height < 512 * 512) {
-          configs.push_back({width, middle, height});
-        }
+  for (u32 width : {256, 1024}) {
+    for (u32 height : {256, 1024}) {
+      for (u32 middle : {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) {
+        configs.push_back({width, middle, height});
       }
     }
   }
