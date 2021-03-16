@@ -188,14 +188,6 @@ G_H        "group height"
 #endif
 #endif
 
-#if !IN_SPACING
-#if AMDGPU
-#define IN_SPACING 1
-#else
-#define IN_SPACING 1
-#endif
-#endif
-
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
 #else
@@ -2446,7 +2438,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
   // and the multiple of 320 component as (line % WIDTH) / 32
 
   u32 me = get_local_id(0);
-  u32 WG = IN_WG * IN_SPACING;
+  u32 WG = IN_WG;
   u32 SIZEY = WG / IN_SIZEX;
 
   in += line / WIDTH * WG;
@@ -2840,10 +2832,10 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
   local T lds[IN_WG * (MIDDLE <= 8 ? MIDDLE : ((MIDDLE + 1) / 2))];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
-  out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + (gy / IN_SPACING) * (MIDDLE * IN_WG * IN_SPACING) + (gy % IN_SPACING) * SIZEY;
-  out += (me / SIZEY) * (IN_SPACING * SIZEY) + (me % SIZEY);
+  out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG);
+  out += me;
 
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * (IN_WG * IN_SPACING)] = u[i]; }
+  for (i32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
 }
 
 KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
