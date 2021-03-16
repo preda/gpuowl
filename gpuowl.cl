@@ -164,14 +164,6 @@ G_H        "group height"
 #endif
 #endif
 
-
-// 5M timings for MiddleIn & tailFused, ROCm 2.10, RadeonVII, sclk4, mem 1200
-// IN_WG=256, IN_SIZEX=4, IN_SPACING=1 (old WorkingIn4) : 177 + 164 (but may be best on nVidia)
-// IN_WG=256, IN_SIZEX=8, IN_SPACING=1 (old WorkingIn3): 129 + 166 = 295
-// IN_WG=256, IN_SIZEX=32, IN_SPACING=1 (old WorkingIn5): 107 + 171 = 278  <- best
-// IN_WG=256, IN_SIZEX=8, IN_SPACING=2: 139 + 166 = 305
-// IN_WG=256, IN_SIZEX=32, IN_SPACING=4: 121 + 161 = 282
-
 #if !IN_WG
 #define IN_WG 256
 #endif
@@ -2358,7 +2350,7 @@ KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
   out[me] = in[WIDTH * y + x];
 }
 
-u32 transPos(u32 k, u32 width, u32 height) { return k / height + k % height * width; }
+u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * middle; }
 
 KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
   if (get_global_id(0) == 0) { out[0] = 0; }
@@ -2429,7 +2421,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 }
 
 // Read a line for tailFused or fftHin
-void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
+void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
   // We go to some length here to avoid dividing by MIDDLE in address calculations.
   // The transPos converted logical line number into physical memory line numbers
   // using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
@@ -2469,7 +2461,7 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   T2 u[NH];
   u32 g = get_group_id(0);
 
-  readTailFusedLine(in, u, g, transPos(g, MIDDLE, WIDTH));
+  readTailFusedLine(in, u, g);
   ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
 
@@ -2837,10 +2829,14 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
   local T lds[IN_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
-  out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG);
-  out += me;
+  // out += BIG_HEIGHT * startx + starty + BIG_HEIGHT * my + mx;
+  // for (u32 i = 0; i < MIDDLE; ++i) { out[i * SMALL_HEIGHT] = u[i]; }
+  
+  out += gx * (BIG_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG) + me;
+  for (i32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }  
 
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
+  // out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG);
+  // out += me;
 }
 
 KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
@@ -3372,8 +3368,8 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
   read(G_H, NH, v, in, memline2 * SMALL_HEIGHT);
 #else
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
+  readTailFusedLine(in, u, line1);
+  readTailFusedLine(in, v, line2);
   fft_HEIGHT(lds, u, smallTrig1);
   bar();
   fft_HEIGHT(lds, v, smallTrig1);
@@ -3439,16 +3435,16 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   ENABLE_MUL2();
   
 #if MUL_DELTA
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
+  readTailFusedLine(in, u, line1);
+  readTailFusedLine(in, v, line2);
   readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig1);
   bar();
   fft_HEIGHT(lds, v, smallTrig1);
 #elif MUL_LOW
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
+  readTailFusedLine(in, u, line1);
+  readTailFusedLine(in, v, line2);
   read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
   read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig1);
@@ -3460,10 +3456,10 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   read(G_H, NH, p, in, memline1 * SMALL_HEIGHT);
   read(G_H, NH, q, in, memline2 * SMALL_HEIGHT);
 #else
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
-  readTailFusedLine(a, p, line1, memline1);
-  readTailFusedLine(a, q, line2, memline2);
+  readTailFusedLine(in, u, line1);
+  readTailFusedLine(in, v, line2);
+  readTailFusedLine(a, p, line1);
+  readTailFusedLine(a, q, line2);
   fft_HEIGHT(lds, u, smallTrig1);
   bar();
   fft_HEIGHT(lds, v, smallTrig1);
