@@ -865,6 +865,10 @@ void fft4(T2 *u) {
   u[3] = t - u[3];
 }
 
+void fft2(T2* u) {
+  X2(u[0], u[1]);
+}
+
 #if !OLD_FFT8 && !NEWEST_FFT8 && !NEW_FFT8
 #define OLD_FFT8 1
 #endif
@@ -2580,6 +2584,8 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
 void fft_MIDDLE(T2 *u) {
 #if MIDDLE == 1
   // Do nothing
+#elif MIDDLE == 2
+  fft2(u);
 #elif MIDDLE == 3
   fft3(u);
 #elif MIDDLE == 4
