@@ -2,11 +2,8 @@
 
 /* List of user-serviceable -use flags and their effects
 
-NO_ASM : request to not use any inline __asm()
-NO_OMOD: do not use GCN output modifiers in __asm()
-
 OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
-IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 but needs testing>
+IN_WG,IN_SIZEX <AMD default is 256,32>  <nVidia default is 256,4 but needs testing>
 
 UNROLL_WIDTH <nVidia default>
 NO_UNROLL_WIDTH <AMD default>
@@ -56,7 +53,7 @@ G_H        "group height"
  */
 
 #if !defined(TRIG_COMPUTE)
-#define TRIG_COMPUTE 2
+#define TRIG_COMPUTE 1
 #endif
 
 #define STR(x) XSTR(x)
@@ -163,14 +160,6 @@ G_H        "group height"
 #endif
 #endif
 
-#if !IN_SPACING
-#if AMDGPU
-#define IN_SPACING 1
-#else
-#define IN_SPACING 1
-#endif
-#endif
-
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
 #else
@@ -188,10 +177,11 @@ typedef unsigned long long u128;
 
 typedef i64 Word;
 typedef long2 Word2;
-typedef i64 CarryABM;
+typedef i64 Carry;
+typedef u128 Weight;
 
 typedef struct {i128 x; i128 y} COMPLEX;
-typedef struct {u128 x; u128 y} WW;
+typedef struct {u128 x; u128 y} UCOMPLEX;
 
 COMPLEX C2(i128 x, i128 y) { return COMPLEX{x, y}; }
 
@@ -221,8 +211,9 @@ u128 mulHi128(u128 a, u128 b) { return mul128(hiU64(a), hiU64(b)) + mulHi64(hiU6
 // u128 OVERLOAD mulHi(u64 a, u128 b) { return mulWide(a, hi(b)) + mulHi(a, lo(b)); }
 // { return mulHi(widen(a) << 64, b); }
 
+COMPLEX shr(COMPLEX a, u32 shift) { return C2(a.x >> shift, a.y >> shift); }
 
-u128 OVERLOAD mulShifted(u128 a, u128 b, i32 shift) {
+u128 OVERLOAD mulShifted(u128 a, u128 b, u32 shift) {
   u32 n1 = clz((u32) (a >> 96));
   u32 n2 = clz((u32) (b >> 96));
   assert(n1 + n2 >= shift);
@@ -277,11 +268,13 @@ COMPLEX OVERLOAD mul(COMPLEX a, COMPLEX b, int shift) { return U2(mulShifted(a.x
 
 COMPLEX OVERLOAD mul(COMPLEX a, COMPLEX b) { return mul(a, b, 0); }
 
-COMPLEX OVERLOAD mul(COMPLEX a, i128 trig) { return C2(mulShifted(a.x, trig), mulShifted(a.y, trig)); }
+COMPLEX OVERLOAD mul(COMPLEX a, i128 factor) { return C2(mulShifted(a.x, factor), mulShifted(a.y, factor)); }
 
 COMPLEX OVERLOAD add(COMPLEX a, COMPLEX b) { return C2(a.x + b.x, a.y + b.y); }
 
 COMPLEX neg(COMPLEX a) { return C2(-a.x, -a.y); }
+
+COMPLEX mad(COMPLEX a, COMPLEX b, COMPLEX c) { return add(mul(a, b), c); }
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
@@ -301,7 +294,7 @@ COMPLEX swap(COMPLEX a)      { return U2(a.y, a.x); }
 COMPLEX conjugate(COMPLEX a) { return U2(a.x, -a.y); }
 
 
-i128 OVERLOAD weight(i64 a, u128 w) {
+i128 OVERLOAD weight(i64 a, Weight w) {
   bool neg = a < 0;
   u64 c = abs(a);
   u32 n = clz(c >> 32);
@@ -309,7 +302,7 @@ i128 OVERLOAD weight(i64 a, u128 w) {
   return neg ? -r : r;
 }
 
-COMPLEX OVERLOAD weight(Word2 a, WW w) { return U2(weight(a.x, w.x), weight(a.y, w.y)); }
+COMPLEX OVERLOAD weight(Word2 a, UCOMPLEX w) { return U2(weight(a.x, w.x), weight(a.y, w.y)); }
 
 // This routine works for both forward und inverse weight updating.
 // Forward weighs are represented halved, and must always have the leading bit 1 (w in [0.5, 1))
@@ -324,29 +317,20 @@ u128 updateWeight(u128 w, u128 step) {
 
 i64 lowBits(i64 u, u32 n) { return (u << (64 - n)) >> (64 - n); }
 
-i64 carryStep(i128 x, i64* outCarry, bool isBig) {
+Word carryStep(i128 x, i64* outCarry, bool isBig) {
   u32 nBits = bitlen(isBig);
-  assert((x >> (64 + nBits)) == 0 || (x >> (64 + nBits)) == 1); // check outCarry fits on 64bits
+  assert(nBits <= 64);
+  assert((x >> (64 + nBits)) == 0 || (x >> (64 + nBits)) == -1); // check outCarry fits on 64bits
   
   i64 w = lowBits(x, nBits);
   *outCarry = I64(x >> nBits) + (w < 0);
   return w;
 }
 
-
 Word2 carryPair(COMPLEX u, i64* outCarry, bool b1, bool b2, i64 inCarry) {
   i64 midCarry;
-  Word a = carryStep(x + inCarry, &midCarry, b1);
-  Word b = carryStep(y + midCarry, outCarry, b2);
-  return (Word2) (a, b);
-}
-
-
-Word2 OVERLOAD carryPair(TT u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
-  iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1);
-  Word b = carryStep(doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2);
-
+  Word a = carryStep(u.x + inCarry, &midCarry, b1);
+  Word b = carryStep(u.y + midCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
@@ -357,65 +341,7 @@ Word2 OVERLOAD carryFinal(Word2 u, i64 inCarry, bool b1) {
   return u;
 }
 
-
-#else
-
-Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord, bool exactness) {
-  u32 nBits = bitlen(isBigWord);
-  Word w = (exactness == MUST_BE_EXACT) ? lowBits(x, nBits) : ulowBits(x, nBits);
-  if (exactness == MUST_BE_EXACT) { x -= w; }
-  *outCarry = x >> nBits;
-  return w;
-}
-
-Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord, bool exactness) {
-  u32 nBits = bitlen(isBigWord);
-  Word w = (exactness == MUST_BE_EXACT) ? lowBits(x, nBits) : ulowBits(x, nBits);
-// If nBits could 20 or more we must be careful.  doubleToLong generated x as 13 bits of trash and 51-bit signed value.
-// If we right shift 20 bits we will shift some of the trash into outCarry.  First we must remove the trash bits.
-#if EXP / NWORDS >= 19
-  *outCarry = as_int2(x << 13).y >> (nBits - 19);
-#else
-  *outCarry = xtract32(x, nBits);
-#endif
-  if (exactness == MUST_BE_EXACT) { *outCarry += (w < 0); }
-  CARRY32_CHECK(*outCarry);
-  return w;
-}
-
-Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord, bool exactness) {
-  u32 nBits = bitlen(isBigWord);
-  Word w = lowBits(x, nBits);		// I believe this version is only called with MUST_BE_EXACT
-  *outCarry = (x - w) >> nBits;
-  CARRY32_CHECK(*outCarry);
-  return w;
-}
-
-typedef i64 CFcarry;
-typedef i64 CFMcarry;
-
-u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
-
-typedef TT T2;
-
-#endif // DP
-
-Word2 OVERLOAD carryPair(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
-  i64 midCarry;
-  Word a = carryStep(doubleToLong(u.x, (i64) 0) + inCarry, &midCarry, b1, exactness);
-  Word b = carryStep(doubleToLong(u.y, (i64) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
-#if STATS
-  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
-#endif
-  return (Word2) (a, b);
-}
-
-Word2 OVERLOAD carryFinal(Word2 u, i64 inCarry, bool b1) {
-  i32 tmpCarry;
-  u.x = carryStep(u.x + inCarry, &tmpCarry, b1, MUST_BE_EXACT);
-  u.y += tmpCarry;
-  return u;
-}
+// u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 
 Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
   i64 midCarry;
@@ -428,7 +354,7 @@ Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, 
 }
 
 // Carry propagation from word and carry.
-Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
+Word2 carryWord(Word2 a, Carry* carry, bool b1, bool b2) {
   a.x = carryStep(a.x + *carry, carry, b1, MUST_BE_EXACT);
   a.y = carryStep(a.y + *carry, carry, b2, MUST_BE_EXACT);
   return a;
@@ -437,8 +363,7 @@ Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
 // Propagate carry this many pairs of words.
 #define CARRY_LEN 8
 
-T2 addsub(T2 a) { return U2(RE(a) + IM(a), RE(a) - IM(a)); }
-T2 addsub_m2(T2 a) { return U2(add1_m2(RE(a), IM(a)), sub1_m2(RE(a), IM(a))); }
+T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
 
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 T2 foo2(T2 a, T2 b) {
@@ -447,6 +372,7 @@ T2 foo2(T2 a, T2 b) {
   return addsub(U2(RE(a) * RE(b), IM(a) * IM(b)));
 }
 
+T2 addsub_m2(T2 a) { return U2(add1_m2(RE(a), IM(a)), sub1_m2(RE(a), IM(a))); }
 T2 foo2_m2(T2 a, T2 b) {
   a = addsub(a);
   b = addsub(b);
@@ -458,11 +384,10 @@ T2 foo(T2 a) { return foo2(a, a); }
 T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
 
-#define X2(a, b) { COMPLEX t = a; a = t + b; b = t - b; }
+#define X2(a, b) { COMPLEX t = a; a.x += b.x; b.x = t.x - b.x; a.y += b.y; b.y = t.y - b.y; }
 
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { COMPLEX t = a; a.x += b.x; a.y += b.y; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
-
 
 // Same as X2(a, conjugate(b))
 #define X2conjb(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = IM(a) - IM(b); RE(b) = t.x - RE(b); IM(b) = t.y + IM(b); }
@@ -471,17 +396,6 @@ T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 #define X2conja(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = -IM(a) - IM(b); b = t - b; }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
-
-// a * conjugate(b)
-// saves one negation
-T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a) * RE(b) - RE(a) * IM(b)); }
-
-// Combined complex mul and mul by conjugate.  Saves 4 multiplies compared to two complex mul calls. 
-void mul_and_mul_by_conjugate(T2 *res1, T2 *res2, T2 a, T2 b) {
-	T axbx = RE(a) * RE(b); T axby = RE(a) * IM(b); T aybx = IM(a) * RE(b); T ayby = IM(a) * IM(b);
-	res1->x = axbx - ayby; res1->y = axby + aybx;		// Complex mul
-	res2->x = axbx + ayby; res2->y = aybx - axby;		// Complex mul by conjugate
-}
 
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
@@ -497,83 +411,16 @@ void fft4(T2 *u) {
   u[2] = u[0] - u[1];
   u[0] = u[0] + u[1];
   u[1] = t + u[3];
-  u[3] = t - u[3];
+  u[3] = t - u[3];  
+}
+
+void fft2(COMPLEX* u) {
+  X2(u[0], u[1]);
 }
 
 #if !OLD_FFT8 && !NEWEST_FFT8 && !NEW_FFT8
 #define OLD_FFT8 1
 #endif
-
-// In rocm 2.2 this is 53 f64 ops in testKernel -- one over optimal.  However, for me it is slower
-// than OLD_FFT8 when it used in "real" kernels.
-#if NEWEST_FFT8
-
-// Attempt to get more FMA by delaying mul by SQRT1_2
-T2 mul_t8_delayed(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)); }
-#define X2_mul_3t8_delayed(a, b) { T2 t = a; a = t + b; t = b - t; RE(b) = t.x - t.y; IM(b) = t.x + t.y; }
-
-// Like X2 but second arg needs a multiplication by SQRT1_2
-#define X2_apply_SQRT1_2(a, b) { T2 t = a; \
-				 RE(a) = fma(RE(b), M_SQRT1_2, t.x); IM(a) = fma(IM(b), M_SQRT1_2, t.y); \
-				 RE(b) = fma(RE(b), -M_SQRT1_2, t.x); IM(b) = fma(IM(b), -M_SQRT1_2, t.y); }
-
-void fft4Core_delayed(T2 *u) {		// Same as fft4Core except u[1] and u[3] need to be multiplied by SQRT1_2
-  X2(u[0], u[2]);
-  X2_mul_t4(u[1], u[3]);		// Still need to apply SQRT1_2
-  X2_apply_SQRT1_2(u[0], u[1]);
-  X2_apply_SQRT1_2(u[2], u[3]);
-}
-
-void fft8Core(T2 *u) {
-  X2(u[0], u[4]);
-  X2(u[1], u[5]);
-  X2_mul_t4(u[2], u[6]);
-  X2_mul_3t8_delayed(u[3], u[7]);	// u[7] needs mul by SQRT1_2
-  u[5] = mul_t8_delayed(u[5]);		// u[5] needs mul by SQRT1_2
-
-  fft4Core(u);
-  fft4Core_delayed(u + 4);
-}
-
-// In rocm 2.2 this is 57 f64 ops in testKernel -- an ugly five over optimal.
-#elif NEW_FFT8
-
-// Same as X2(a, b), b = mul_3t8(b)
-//#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; t.y *= M_SQRT1_2; b.x = t.x * M_SQRT1_2 - t.y; b.y = t.x * M_SQRT1_2 + t.y; }
-#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; RE(b) = (t.x - t.y) * M_SQRT1_2; IM(b) = (t.x + t.y) * M_SQRT1_2; }
-
-void fft8Core(T2 *u) {
-  X2(u[0], u[4]);
-  X2(u[1], u[5]);
-  X2_mul_t4(u[2], u[6]);
-  X2_mul_3t8(u[3], u[7]);
-  u[5] = mul_t8(u[5]);
-
-  fft4Core(u);
-  fft4Core(u + 4);
-}
-
-// In rocm 2.2 this is 54 f64 ops in testKernel -- two over optimal.
-#elif OLD_FFT8
-
-void fft8Core(T2 *u) {
-  X2(u[0], u[4]);
-  X2(u[1], u[5]);   u[5] = mul_t8(u[5]);
-  X2(u[2], u[6]);   u[6] = mul_t4(u[6]);
-  X2(u[3], u[7]);   u[7] = mul_3t8(u[7]);
-  fft4Core(u);
-  fft4Core(u + 4);
-}
-
-#endif
-
-void fft8(T2 *u) {
-  fft8Core(u);
-  // revbin [0, 4, 2, 6, 1, 5, 3, 7] undo
-  SWAP(u[1], u[4]);
-  SWAP(u[3], u[6]);
-}
-
 
 // FFT routines to implement the middle step
 
@@ -654,6 +501,7 @@ void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
     shuflAndMul(64, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
+  for (int i = 0; i < 4; ++i) { u[i] = shr(u[i], 4); }
 }
 
 void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
@@ -668,6 +516,7 @@ void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
   fft4(u);
   shuflAndMul2(64, lds, trig, u, 4, 16);
   fft4(u);
+  for (int i = 0; i < 4; ++i) { u[i] = shr(u[i], 4); }
 }
 
 // 256x4
@@ -679,6 +528,7 @@ void fft1Kw(local T2 *lds, T2 *u, const global T2 *trig) {
     shuflAndMul2(256, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
+  for (int i = 0; i < 4; ++i) { u[i] = shr(u[i], 5); }
 }
 
 void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
@@ -694,6 +544,7 @@ void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   bar();
   shuflAndMul(256, lds, trig, u, 4, 1);
   fft4(u);
+  for (int i = 0; i < 4; ++i) { u[i] = shr(u[i], 5); }
 }
 
 void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
@@ -711,123 +562,14 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
   }
 }
 
-#if ULTRA_TRIG
-
-// These are ultra accurate routines.  We modified Ernst's qfcheb program and selected a multiplier such that
-// a) k * multipler / n can be represented exactly as a double, and
-// b) x * x can be represented exactly as a double, and
-// c) the difference between S0 and C0 represented as a double vs infinite precision is minimized.
-// Note that condition (a) requires different multipliers for different MIDDLE values.
-
-#if MIDDLE <= 4 || MIDDLE == 6 || MIDDLE == 8 || MIDDLE == 12
-
-#define SIN_COEFS {0.013255665205020225,-3.8819803226819742e-07,3.4105654433606424e-12,-1.4268560139781677e-17,3.4821751757020666e-23,-5.5620764489252689e-29,6.2011635226098908e-35, 237}
-#define COS_COEFS {-8.7856330013791936e-05,1.2864557872487131e-09,-7.5348856128299892e-15,2.3642407019488875e-20,-4.6158547847666762e-26,6.1440808274170587e-32,-5.8714657758002626e-38, 237}
-
-#elif MIDDLE == 11
-
-#define SIN_COEFS {0.0058285577988678909,-3.3001377814174114e-08,5.6056282285321817e-14,-4.5341639101320423e-20,2.1393746357239815e-26,-6.6068179928427645e-33,1.4241237670800455e-39, 49*11}
-
-// {0.005492294848933205,-2.761278944626038e-08,4.1647407612374865e-14,-2.9912063263788177e-20,1.2532031863362935e-26,-3.4364949357849832e-33,6.5816772637974481e-40, 143 * 4};
-
-#define COS_COEFS {-1.6986043007371857e-05,4.8087609508047477e-11,-5.4454546881584527e-17,3.3034545522108849e-23,-1.2469468591680302e-29,3.2090160573145604e-36,-5.9289892824449386e-43, 49*11}
-
-// {-1.5082651353809108e-05,3.7914395310092582e-11,-3.8123307049954028e-17,2.0535733847563737e-23,-6.8829596395036851e-30,1.5727926864212422e-36,-2.5737325744028274e-43, 143 * 4};
-
-// This should be the best choice for MIDDLE=11.  For reasons I cannot explain, the Sun coefficients beat this
-// code.  We know this code works as it gives great results for MIDDLE=5 and MIDDLEE=10.
-#elif MIDDLE == 5 || MIDDLE == 10 || MIDDLE == 11
-
-#define SIN_COEFS {0.0033599921428767842,-6.3221316482145663e-09,3.5687001824123009e-15,-9.5926212207432193e-22,1.5041156546369205e-28,-1.5436222869257443e-35,1.1057341951605355e-42, 85 * 11}
-#define COS_COEFS {-5.6447736000968621e-06,5.3105781660583875e-12,-1.9984674288638241e-18,4.0288914910974918e-25,-5.0538167304629085e-32,4.3221291704923216e-39,-2.6537550015407366e-46, 85 * 11}
-
-#elif MIDDLE == 7 || MIDDLE == 14
-
-#define SIN_COEFS {0.0030120734933746819,-4.5545496673734544e-09,2.066077343547647e-15,-4.4630156850662332e-22,5.6237622654854882e-29,-4.6381134477150518e-36,2.6699656391050201e-43, 149 * 7}
-
-#define COS_COEFS {-4.5362933647451799e-06,3.4296595818385068e-12,-1.0371961336265129e-18,1.6803664055570525e-25,-1.6939185081650983e-32,1.1641940392856976e-39,-5.7443786570712859e-47, 149 * 7}
-
-#elif MIDDLE == 9
-
-#define SIN_COEFS {0.0032024389944850084,-5.4738305054252556e-09,2.8068750524532041e-15,-6.8538645985346134e-22,9.7625812823195236e-29,-9.1014309535685973e-36,5.9224934064240749e-43, 109*9}
-#define COS_COEFS {-5.1278077566990758e-06,4.3824020649438457e-12,-1.4981410201032161e-18,2.7436354064447543e-25,-3.1264070669243379e-32,2.4288963593034543e-39,-1.3547441195887408e-46,109*9}
-
-#elif MIDDLE == 13
-
-#define SIN_COEFS {0.0034036756810290284,-6.5719350793639721e-09,3.8067960700283384e-15,-1.0500419865908618e-21,1.6895475541832181e-28,-1.779303563885441e-35,1.3079151443222568e-42, 71*13}
-#define COS_COEFS {-5.7925040708142102e-06,5.5921839017331711e-12,-2.1595165343644285e-18,4.4675029669254463e-25,-5.7506718639750315e-32,5.0468065746580596e-39,-3.1797982320621979e-46, 71*13}
-
-#elif MIDDLE == 15
-
-#define SIN_COEFS {0.0032221463113741469,-5.5755089924509359e-09,2.8943099587177684e-15,-7.1546148933480147e-22,1.0316780436916074e-28,-9.7368389615915834e-36,6.4141878934890016e-43, 65*15}
-#define COS_COEFS {-5.1911134259510105e-06,4.4912764335147829e-12,-1.5543150262419615e-18,2.8816519982635366e-25,-3.3242175693980929e-32,2.6144580878684214e-39,-1.4762460824550342e-46, 65*15}
-
-#endif
-
-double ksinpi(u32 k, u32 n) {
-  const double S[] = SIN_COEFS;
-  
-  double x = S[7] / n * k;
-  double z = x * x;
-  double r = fma(fma(fma(fma(fma(S[6], z, S[5]), z, S[4]), z, S[3]), z, S[2]), z, S[1]) * (z * x);
-  return fma(x, S[0], r);
-}
-
-#else
-
-// Copyright notice of original k_cos, k_sin from which our ksin/kcos evolved:
-/* ====================================================
- * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
- *
- * Developed at SunSoft, a Sun Microsystems, Inc. business.
- * Permission to use, copy, modify, and distribute this
- * software is freely granted, provided that this notice 
- * is preserved.
- * ====================================================
- */
-
-// Coefficients from http://www.netlib.org/fdlibm/k_cos.c
-#define COS_COEFS {-0.5,0.041666666666666602,-0.001388888888887411,2.4801587289476729e-05,-2.7557314351390663e-07,2.0875723212981748e-09,-1.1359647557788195e-11, M_PI}
-
-// Experimental: const double C[] = {-0.5,0.041666666666665589,-0.0013888888888779014,2.4801587246942509e-05,-2.7557304501248813e-07,2.0874583610048953e-09,-1.1307548621486489e-11, M_PI};
-
-double ksinpi(u32 k, u32 n) {
-  // const double S[] = {-0.16666666666666455,0.0083333333332988729,-0.00019841269816529426,2.7557310051600518e-06,-2.5050279451232251e-08,1.5872611854244144e-10};
-
-  // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
-  const double S[] = {1, -0.16666666666666666,0.0083333333333309497,-0.00019841269836761127,2.7557316103728802e-06,-2.5051132068021698e-08,1.5918144304485914e-10, M_PI};
-  
-  double x = S[7] / n * k;
-  double z = x * x;
-  // Special-case based on S[0]==1:
-  return fma(fma(fma(fma(fma(fma(S[6], z, S[5]), z, S[4]), z, S[3]), z, S[2]), z, S[1]), z * x, x);
-}
-
-#endif
-
-double kcospi(u32 k, u32 n) {
-  const double C[] = COS_COEFS;
-  double x = C[7] / n * k;
-  double z = x * x;
-  return fma(fma(fma(fma(fma(fma(fma(C[6], z, C[5]), z, C[4]), z, C[3]), z, C[2]), z, C[1]), z, C[0]), z, 1);
-}
-
-// N represents a full circle, so N/2 is pi radians and N/8 is pi/4 radians.
+// N represents a full circle, so N/2 is Pi radians and N/8 is Pi/4 radians.
 double2 reducedCosSin(u32 k, u32 N) {
   assert(k <= N/8);
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
-#if SP
-
-global float4 SP_TRIG_2SH[2 * SMALL_HEIGHT / 8 + 1];
-global float4 SP_TRIG_BH[BIG_HEIGHT / 8 + 1];
-global float4 SP_TRIG_N[ND / 8 + 1];
-
-#endif
-
-global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
+global COMPLEX TRIG_2SH[SMALL_HEIGHT / 4 + 1];
+global COMPLEX TRIG_BH[BIG_HEIGHT / 8 + 1];
 
 #if TRIG_COMPUTE == 0
 global double2 TRIG_N[ND / 8 + 1];
@@ -835,8 +577,8 @@ global double2 TRIG_N[ND / 8 + 1];
 global double2 TRIG_W[WIDTH / 2 + 1];
 #endif
 
-TT THREAD_WEIGHTS[G_W];
-TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
+UCOMPLEX THREAD_WEIGHTS[G_W];
+UCOMPLEX CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
 double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
   assert(n % 8 == 0);
@@ -864,57 +606,6 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
   if (negate) { r = -r; }
   return r;
 }
-
-float fastSinSP(u32 k, u32 tau, u32 M) {
-  // These DP coefs are optimized for computing sin(2*pi*x) with x in [0, 1/8], using
-  // sin(2*pi*x) = R[0]*x + R[1]*x^3 + R[2]*x^5 + R[3]*x^7
-  double R[4] = {6.2831852886262363, -41.341663358481057, 81.592672353579971, -75.407767034374388};
-
-  // We divide the DP coefficients by the corresponding power of M, and *afterwards* truncate them to SP.
-  // These constants are all computed compile-time.
-  float S[4] = {
-      R[0] / M,
-      R[1] / (((double)M)*M*M),
-      R[2] / (((double)M)*M*M*M*M),
-      R[3] / (((double)M)*M*M*M*M*M*M)
-      };
-
-  // Because we took the M out, we can scale k with a power of two, i.e. without loss of precision.
-  assert(tau % M == 0);
-  assert(((tau / M) & (tau / M - 1)) == 0); // (tau/M is a power of 2)
-  float x = (-(float)k) / (tau / M);
-  float z = x * x;
-  return fma(x, S[0], fma(fma(S[3], z, S[2]), z, S[1]) * x * z); // 1ulp on [0, 1/8].
-
-  // sinpi() does argument reduction and a bunch of unnecessary stuff.
-  // return sinpi(2 * x);
-}
-
-float fasterSinSP(u32 k, u32 tau, u32 M) {
-#if HAS_ASM
-  float x = (-1.0f / tau) * k;  
-  float out;
-  //v_sin_f32 has 10upls error on [0, pi/4] (R7)
-  __asm("v_sin_f32_e32 %0, %1" : "=v"(out) : "v" (x));
-  return out;  
-#else
-  return fastSinSP(k, tau, M);
-#endif
-}
-
-float fastCosSP(u32 k, u32 tau) {
-  float x = (-1.0f / tau) * k;
-  
-#if HAS_ASM
-  // On our intended range, [0, pi/4], v_cos_f32 seems to have 2ulps precision which is good enough.
-  float out;
-  __asm("v_cos_f32_e32 %0, %1" : "=v"(out) : "v" (x));
-  return out;  
-#else
-  return cospi(2 * x);
-#endif
-}
-
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
@@ -1116,7 +807,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
   // and the multiple of 320 component as (line % WIDTH) / 32
 
   u32 me = get_local_id(0);
-  u32 WG = IN_WG * IN_SPACING;
+  u32 WG = IN_WG;
   u32 SIZEY = WG / IN_SIZEX;
 
   in += line / WIDTH * WG;
@@ -1134,7 +825,6 @@ KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 g = get_group_id(0);
 
   readCarryFusedLine(in, u, g);
-  ENABLE_MUL2();
   fft_WIDTH(lds, u, smallTrig);  
   out += WIDTH * g;
   write(G_W, NW, u, out, 0);
@@ -1266,6 +956,8 @@ KERNEL(G_W) fftP(P(COMPLEX) out, CP(Word2) in, Trig smallTrig) {
 void fft_MIDDLE(COMPLEX *u) {
 #if MIDDLE == 1
   // Do nothing
+#elif MIDDLE == 2
+  fft2(u);  
 #elif MIDDLE == 3
   fft3(u);
 #elif MIDDLE == 4
@@ -1275,61 +967,135 @@ void fft_MIDDLE(COMPLEX *u) {
 #endif
 }
 
-// Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
-// Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
+void middleMul(T2 *u, u32 y, Trig trig) {
+  assert(y < SMALL_HEIGHT);
 
-#define WADD(i, w) u[i] = mul(u[i], w)
-
-void middleMul(T2 *u, u32 s, Trig trig) {
-  assert(s < SMALL_HEIGHT);
-  if (MIDDLE == 1) { return; }
-  for (int i = 1; i < MIDDLE; ++i) { u[i] = mul(u[i], trig[s + (i - 1) * SMALL_HEIGHT]); }
+  COMPLEX w = slowTrig_BH(y, SMALL_HEIGHT);
+  COMPLEX step = w;
+  
+  for (u32 i = 1; i < MIDDLE; ++i) {
+    u[i] = mul(u[i], w);
+    w = mul(w, step);
+  }
+  
+  // for (u32 i = 1; i < MIDDLE; ++i) { u[i] = mul(u[i], slowTrig_BH(y * i, SMALL_HEIGHT * i)); }
 }
 
-void middleMul2(T2 *u, u32 x, u32 y, double factor) {
+void middleMul2(T2 *u, u32 x, u32 y) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
 
-  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND/MIDDLE);
-  T2 base = slowTrig_N(x * y, ND/MIDDLE) * factor;
-  for (i32 i = 0; i < MIDDLE; ++i) {
-    u[i] = mul(u[i], base);
-    base = mul(base, w);
+  C2 w = slowTrig_N(x * y, ND / MIDDLE);
+
+  C2 step = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
+
+  for (u32 i = 0; i < MIDDLE; ++i) {
+    u[i] = mul(u[i], w);
+    w = mul(w, step);
   }
 }
 
-#undef WADD
+void middleMul2Factor(T2 *u, u32 x, u32 y) {
+  assert(x < WIDTH);
+  assert(y < SMALL_HEIGHT);
 
-// Do a partial transpose during fftMiddleIn/Out
+  C2 w = slowTrig_N(x * y, ND / MIDDLE);
+  u128 factor = -1;
+  u32 shift = 0;
+  w.x = mulShifted(w.x, factor, shift);
+  w.y = mulShifted(w.y, factor, shift);
+  
+  C2 step = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
+  
+  for (u32 i = 0; i < MIDDLE; ++i) {
+    u[i] = mul(u[i], w);
+    w = mul(w, step);
+  }
+}
+
 #define MIDDLE_LDS_LIMIT 4
 
-void middleShuffle(local i128 *lds, C2 *u, u32 workgroupSize, u32 blockSize) {
+void middleShuffle(local long *lds, C2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
-  local T *p = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
-  if (MIDDLE <= MIDDLE_LDS_LIMIT) {
-    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].x; }
+
+  if (MIDDLE <= MIDDLE_LDS_LIMIT / 2) {
+    local long* p1 = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+    local long* p2 = lds + me;
+    long4 *pu = (long4 *)u;
+
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].x; }
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize + MIDDLE * workgroupSize] = pu[i].y; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].x = p2[workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].y = p2[workgroupSize * i + MIDDLE * workgroupSize]; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].y; }
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].z; }
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize + MIDDLE * workgroupSize] = pu[i].w; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].z = p2[workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].w = p2[workgroupSize * i + MIDDLE * workgroupSize]; }
+
+  } else if (MIDDLE <= MIDDLE_LDS_LIMIT) {
+    local long* p1 = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+    local long* p2 = lds + me;
+    long4 *pu = (long4 *)u;
+
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].x; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].x = p2[workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].y; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].y = p2[workgroupSize * i]; }
+    bar();
+
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].z; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].z = p2[workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].w; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].w = p2[workgroupSize * i]; }
+    
   } else {
-    for (int i = 0; i < MIDDLE/2; ++i) { p[i * workgroupSize] = u[i].x; }
+    local int* p1 = ((local int*) lds) + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+    local int* p2 = ((local int*) lds) + me;
+    int8 *pu = (int8 *)u;
+
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].x; }
     bar();
-    for (int i = 0; i < MIDDLE/2; ++i) { u[i].x = lds[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].x = p2[workgroupSize * i]; }
     bar();
-    for (int i = 0; i < MIDDLE/2; ++i) { p[i * workgroupSize] = u[i].y; }
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].y; }
     bar();
-    for (int i = 0; i < MIDDLE/2; ++i) { u[i].y = lds[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].y = p2[workgroupSize * i]; }
     bar();
-    for (int i = MIDDLE/2; i < MIDDLE; ++i) { p[(i - MIDDLE/2) * workgroupSize] = u[i].x; }
+
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].z; }
     bar();
-    for (int i = MIDDLE/2; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * (i - MIDDLE/2)]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].z = p2[workgroupSize * i]; }
     bar();
-    for (int i = MIDDLE/2; i < MIDDLE; ++i) { p[(i - MIDDLE/2) * workgroupSize] = u[i].y; }
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].w; }
     bar();
-    for (int i = MIDDLE/2; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * (i - MIDDLE/2)]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].w = p2[workgroupSize * i]; }
+    bar();
+
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].s4; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].s4 = p2[workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].s5; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].s5 = p2[workgroupSize * i]; }
+    bar();
+
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].s6; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].s6 = p2[workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].s7; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].s7 = p2[workgroupSize * i]; }
   }
 }
 
@@ -1355,20 +1121,16 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
   in += starty * WIDTH + startx;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
 
-  ENABLE_MUL2();
-
-  middleMul2(u, startx + mx, starty + my, 1);
+  middleMul2(u, startx + mx, starty + my);
 
   fft_MIDDLE(u);
 
   middleMul(u, starty + my, trig);
-  local T lds[IN_WG * (MIDDLE <= MIDDLE_LDS_LIMIT ? MIDDLE : ((MIDDLE + 1) / 2))];
+  local long lds[IN_WG / 2 * (MIDDLE <= MIDDLE_LDS_LIMIT ? 2 * MIDDLE : MIDDLE)];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
-  out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + (gy / IN_SPACING) * (MIDDLE * IN_WG * IN_SPACING) + (gy % IN_SPACING) * SIZEY;
-  out += (me / SIZEY) * (IN_SPACING * SIZEY) + (me % SIZEY);
-
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * (IN_WG * IN_SPACING)] = u[i]; }
+  out += gx * (BIG_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG) + me;
+  for (u32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
 }
 
 KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
@@ -1395,7 +1157,6 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   in += starty * BIG_HEIGHT + startx;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
-  ENABLE_MUL2();
 
   middleMul(u, startx + mx, trig);
 
@@ -1405,8 +1166,8 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   // weights and invweights are doubled meaning we need to divide by another 2^2 and 2^2.
   double factor = 1.0 / (4 * 4 * NWORDS);
 
-  middleMul2(u, starty + my, startx + mx, factor);
-  local T lds[OUT_WG * (MIDDLE <= MIDDLE_LDS_LIMIT ? MIDDLE : ((MIDDLE + 1) / 2))];
+  middleMul2Factor(u, starty + my, startx + mx);
+  local long lds[OUT_WG / 2 * (MIDDLE <= MIDDLE_LDS_LIMIT ? 2 * MIDDLE : MIDDLE)];
 
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
@@ -1450,14 +1211,14 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
 // Input arrives conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(COMPLEX) in, P(CarryABM) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) NAME(P(Word2) out, CP(COMPLEX) in, P(Carry) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
   ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
   u32 gy = g / NW;
 
-  CarryABM carry = 0;  
+  Carry carry = 0;  
   float roundMax = 0;
   u32 carryMax = 0;
 
@@ -1751,18 +1512,18 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
       u[i] = foo_m2(conjugate(u[i]));
       v[i] = 4 * sq(conjugate(v[i]));
     } else {
-      onePairSq(u[i], v[i], swap_squared(base_squared));
+      onePairSq(u[i], v[i], neg(base_squared));
     }
 
     if (N == NH) {
-      onePairSq(u[i+NH/2], v[i+NH/2], swap_squared(-base_squared));
+      onePairSq(u[i+NH/2], v[i+NH/2], base_squared);
     }
 
-    T2 new_base_squared = mul(base_squared, U2(0, -1));
-    onePairSq(u[i+NH/4], v[i+NH/4], swap_squared(new_base_squared));
+    T2 new_base_squared = mul_t4(base_squared);
+    onePairSq(u[i+NH/4], v[i+NH/4], neg(new_base_squared));
 
     if (N == NH) {
-      onePairSq(u[i+3*NH/4], v[i+3*NH/4], swap_squared(-new_base_squared));
+      onePairSq(u[i+3*NH/4], v[i+3*NH/4], new_base_squared);
     }
   }
 }
@@ -1791,8 +1552,8 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
 #define onePairMul(a, b, c, d, conjugate_t_squared) { \
   X2conjb(a, b); \
   X2conjb(c, d); \
-  T2 tmp = mad_m1(a, c, mul(mul(b, d), conjugate_t_squared)); \
-  b = mad_m1(b, c, mul(a, d)); \
+  COMPLEX tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared)); \
+  b = mad(b, c, mul(a, d)); \
   a = tmp; \
   X2conja(a, b); \
 }
@@ -1805,18 +1566,18 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
       u[i] = conjugate(foo2_m2(u[i], p[i]));
       v[i] = mul_m4(conjugate(v[i]), conjugate(q[i]));
     } else {
-      onePairMul(u[i], v[i], p[i], q[i], swap_squared(base_squared));
+      onePairMul(u[i], v[i], p[i], q[i], -base_squared);
     }
 
     if (N == NH) {
-      onePairMul(u[i+NH/2], v[i+NH/2], p[i+NH/2], q[i+NH/2], swap_squared(-base_squared));
+      onePairMul(u[i+NH/2], v[i+NH/2], p[i+NH/2], q[i+NH/2], base_squared);
     }
 
-    T2 new_base_squared = mul(base_squared, U2(0, -1));
-    onePairMul(u[i+NH/4], v[i+NH/4], p[i+NH/4], q[i+NH/4], swap_squared(new_base_squared));
+    T2 new_base_squared = mul_t4(base_squared);
+    onePairMul(u[i+NH/4], v[i+NH/4], p[i+NH/4], q[i+NH/4], -new_base_squared);
 
     if (N == NH) {
-      onePairMul(u[i+3*NH/4], v[i+3*NH/4], p[i+3*NH/4], q[i+3*NH/4], swap_squared(-new_base_squared));
+      onePairMul(u[i+3*NH/4], v[i+3*NH/4], p[i+3*NH/4], q[i+3*NH/4], new_base_squared);
     }
   }
 }
@@ -2029,20 +1790,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 // equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
-
-KERNEL(64) readHwTrig(global float2* outSH, global float2* outBH, global float2* outN) {
-  for (u32 k = get_global_id(0); k <= SMALL_HEIGHT / 4; k += get_global_size(0)) {
-    outSH[k] = (float2) (fastCosSP(k, SMALL_HEIGHT * 2), fastSinSP(k, SMALL_HEIGHT * 2, 1));
-  }
-  
-  for (u32 k = get_global_id(0); k <= BIG_HEIGHT / 8; k += get_global_size(0)) {
-    outBH[k] = (float2) (fastCosSP(k, BIG_HEIGHT), fastSinSP(k, BIG_HEIGHT, MIDDLE));
-  }
-
-  for (u32 k = get_global_id(0); k <= ND / 8; k += get_global_size(0)) {
-    outN[k] = (float2) (fastCosSP(k, ND), fastSinSP(k, ND, MIDDLE));
-  }
-}
  
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
