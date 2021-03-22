@@ -59,7 +59,8 @@ G_H        "group height"
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
 
-#define OVERLOAD __attribute__((overloadable))
+#define OVL __attribute__((overloadable))
+#define VECTOR(n) __attribute__((ext_vector_type(n)))
 
 #pragma OPENCL FP_CONTRACT ON
 
@@ -176,14 +177,14 @@ typedef long long i128;
 typedef unsigned long long u128;
 
 typedef i64 Word;
-typedef long2 Word2;
+typedef VECTOR(2) Word Word2;
 typedef i64 Carry;
+
+typedef i128 T;
+typedef VECTOR(2) T T2;
+
 typedef u128 Weight;
-
-typedef struct {i128 x; i128 y} COMPLEX;
-typedef struct {u128 x; u128 y} UCOMPLEX;
-
-COMPLEX C2(i128 x, i128 y) { return COMPLEX{x, y}; }
+typedef VECTOR(2) Weight Weight2;
 
 u32  U32(u32 x)   { return x; }
 u64  U64(u64 x)   { return x; }
@@ -195,114 +196,103 @@ u128 I128(i128 x) { return x; }
 u32 hiU32(u64 x) { return x >> 32; }
 u64 hiU64(u128 x) { return x >> 64; }
 
-// u32 OVERLOAD lo(u64 x) { return x; }
-// u64 OVERLOAD lo(u128 x) { return x; }
+#define SHR(a, shift) a = (a >> shift)
 
-// u64  OVERLOAD widen(u32 x) { return x; }
-// u128 OVERLOAD widen(u64 x) { return x; }
+// u64  mul64 (u64 a, u64 b)   { return a * b; }
+// u128 mul128(u128 a, u128 b) { return a * b; }
 
-u64  mul64 (u64 a, u64 b)   { return a * b; }
-u128 mul128(u128 a, u128 b) { return a * b; }
+u32  mulh32 (u32 a, u32 b)   { return hiU32(U64(a) * b); }
+u64  mulh64 (u64 a, u64 b)   { return (a >> 32) * (b >> 32) + mulh32(a >> 32, b) + mulh32(a, b >> 32); }
+u128 mulh128(u128 a, u128 b) { return (a >> 64) * (b >> 64) + mulh64(a >> 64, b) + mulh64(a, b >> 64); }
 
-u32  mulHi32 (u32 a, u32 b)   { return hiU32(mul64(a, b)); }
-u64  mulHi64 (u64 a, u64 b)   { return mul64(hiU32(a), hiU32(b))  + mulHi32(hiU32(a), b) + mulHi32(a, hiU32(b)); }
-u128 mulHi128(u128 a, u128 b) { return mul128(hiU64(a), hiU64(b)) + mulHi64(hiU64(a), b) + mulHi64(a, hiU64(b)); }
-
-// u128 OVERLOAD mulHi(u64 a, u128 b) { return mulWide(a, hi(b)) + mulHi(a, lo(b)); }
-// { return mulHi(widen(a) << 64, b); }
-
-COMPLEX shr(COMPLEX a, u32 shift) { return C2(a.x >> shift, a.y >> shift); }
-
-u128 OVERLOAD mulShifted(u128 a, u128 b, u32 shift) {
-  u32 n1 = clz((u32) (a >> 96));
-  u32 n2 = clz((u32) (b >> 96));
+u128 OVL mulShl(u128 a, u128 b, u32 shift) {
+  u32 n1 = clz(U32(a >> 96));
+  u32 n2 = clz(U32(b >> 96));
   assert(n1 + n2 >= shift);
   return mulHi(a << n1, b << n2) >> (n1 + n2 - shift);
 }
 
-u128 OVERLOAD mulSimple(u128 a, u128 b) {
-  return mulHi(a, b);
+i128 OVL mulShl(i128 a, i128 b, u32 shift) {
+  bool neg1 = a < 0;
+  bool neg2 = b < 0;
+  if (neg1) { a = -a; }
+  if (neg2) { b = -b; }
+  u128 r = mulShl((u128) a, (u128) b, shift);
+  return (neg1 != neg2) ? -r : r;
 }
 
-u128 OVERLOAD mulShifted(u128 a, u128 b) { return mulShifted(a, b, 0); }
+u128 OVL mul(u128 a, u128 b) { return mulShl(a, b, 0); }
+i128 OVL mul(i128 a, i128 b) { return mulShl(a, b, 0); }
 
-i128 OVERLOAD mulShifted(i128 a, u128 b) {
+i128 OVL mul(i128 a, u128 b) {
   bool neg = a < 0;
-  if (neg) { a = -a; }
-  // a = abs(a);
-  i128 r = mulShifted((u128) a, b);
+  if (neg) { a = -a; } // a = abs(a);
+  i128 r = mul((u128) a, b);
   return neg ? -r : r;
 }
 
-i128 OVERLOAD mulShifted(i128 a, i128 b) {
-  bool neg1 = a < 0;
-  bool neg2 = b < 0;
-  if (neg1) { a = -a; }
-  if (neg2) { b = -b; }
-  u128 r = mulShifted((u128) a, (u128) b);
-  return (neg1 != neg2) ? -r : r;
-}
+// u128 OVL mulSimple(u128 a, u128 b) { return mulh128(a, b); }
 
-i128 OVERLOAD mulShifted(i128 a, i128 b, i32 shift) {
-  bool neg1 = a < 0;
-  bool neg2 = b < 0;
-  if (neg1) { a = -a; }
-  if (neg2) { b = -b; }
-  u128 r = mulShifted((u128) a, (u128) b, shift);
-  return (neg1 != neg2) ? -r : r;
-}
+u128 OVL sq(u128 a) { return mul(a, a); }
+u128 OVL sq(i128 a) { return mul(a, a); }
 
-u128 OVERLOAD sq(u128 a) {
-  return mulShifted(a, a);
-}
 
-i128 OVERLOAD sq(i128 a) {
-  return mulShifted(a, a);
-}
+// ---- Complex ----
 
-// complex square
-COMPLEX OVERLOAD sq(COMPLEX a) { return U2(sq(a.x) - sq(a.y), mulShifted(a.x, a.y, 1)); }
+T2 OVL sq(T2 a)   { return (T2) (T(sq(a.x) - sq(a.y)), mulShl(a.x, a.y, 1)); }
 
-// complex mul
-COMPLEX OVERLOAD mul(COMPLEX a, COMPLEX b, int shift) { return U2(mulShifted(a.x, b.x, shift) - mulShifted(a.y, b.y, shift), mulShifted(a.x, b.y, shift) + mulShifted(a.y, b.x, shift)); }
+T2 OVL mulShl(T2 a, T2 b, u32 shift) { return (T2) (mulShl(a.x, b.x, shift) - mulShl(a.y, b.y, shift), mulShl(a.x, b.y, shift) + mulShl(a.y, b.x, shift)); }
+T2 OVL mul(T2 a, T2 b) { return mul(a, b, 0); }
 
-COMPLEX OVERLOAD mul(COMPLEX a, COMPLEX b) { return mul(a, b, 0); }
+T2 OVL mul(T2 a, T factor) { return (T2) (mul(a.x, factor), mul(a.y, factor)); }
 
-COMPLEX OVERLOAD mul(COMPLEX a, i128 factor) { return C2(mulShifted(a.x, factor), mulShifted(a.y, factor)); }
+T2 mad(T2 a, T2 b, T2 c) { return mul(a, b) + c; }
 
-COMPLEX OVERLOAD add(COMPLEX a, COMPLEX b) { return C2(a.x + b.x, a.y + b.y); }
 
-COMPLEX neg(COMPLEX a) { return C2(-a.x, -a.y); }
-
-COMPLEX mad(COMPLEX a, COMPLEX b, COMPLEX c) { return add(mul(a, b), c); }
+// ---- Bits ----
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 #define STEP (NWORDS - (EXP % NWORDS))
 // bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
 
-u32 bitlen(bool b) { return EXP / NWORDS + b; }
+#define SMALL_BITS (EXP / NWORDS)
+#define BIG_BITS (SMALL_BITS + 1)
 
-COMPLEX mul_t4(COMPLEX a)  { return U2(a.y, -a.x); } // mul(a, U2( 0, -1)); }
+u32 bitlen(bool b) { return SMALL_BITS + b; }
+
+
+// ---- Trig ----
+
+T2 mul_t4(T2 a)  { return (T2) (a.y, -a.x); } // mul(a, U2( 0, -1)); }
 
 #define SQRT1_2 0xb504f333f9de6484597d89b3754abe9fULL
 
-COMPLEX mul_t8 (COMPLEX a) { return U2(mulShifted(a.y + a.x, SQRT1_2),  mulShifted(a.y - a.x, SQRT1_2)); }
-COMPLEX mul_3t8(COMPLEX a) { return U2(mulShifted(a.y - a.x, SQRT1_2), -mulShifted(a.y + a.x, SQRT1_2)); }
+T2 mul_t8 (T2 a) { return mul((T2) (a.y + a.x, a.y - a.x), SQRT1_2); }
+T2 mul_3t8(T2 a) { return mul((T2) (a.y - a.x, a.y + a.x), SQRT1_2); }
 
-COMPLEX swap(COMPLEX a)      { return U2(a.y, a.x); }
-COMPLEX conjugate(COMPLEX a) { return U2(a.x, -a.y); }
+T2 swap(T2 a)      { return (T2) (a.y,  a.x); }
+T2 conjugate(T2 a) { return (T2) (a.x, -a.y); }
 
 
-i128 OVERLOAD weight(i64 a, Weight w) {
+// ---- Weight ----
+
+// Flush a word of at most BIG_BITS, with one extra bit of buffer
+T asT(Word u) {
+  assert(BIG_BITS < 64);
+  return U128(u << (64 - 1 - BIG_BITS)) << 64;
+}
+
+T OVL weight(Word a, Weight w) {
   bool neg = a < 0;
-  u64 c = abs(a);
-  u32 n = clz(c >> 32);
+  Word c = abs(a);
+  u32 n = clz(U32(c >> 32));
+  
   i128 r = mulHi(c << n, w) >> (n - 1);
   return neg ? -r : r;
 }
 
-COMPLEX OVERLOAD weight(Word2 a, UCOMPLEX w) { return U2(weight(a.x, w.x), weight(a.y, w.y)); }
+T2 OVL weight(Word2 a, UT2 w) { return U2(weight(a.x, w.x), weight(a.y, w.y)); }
 
 // This routine works for both forward und inverse weight updating.
 // Forward weighs are represented halved, and must always have the leading bit 1 (w in [0.5, 1))
@@ -327,14 +317,14 @@ Word carryStep(i128 x, i64* outCarry, bool isBig) {
   return w;
 }
 
-Word2 carryPair(COMPLEX u, i64* outCarry, bool b1, bool b2, i64 inCarry) {
+Word2 carryPair(T2 u, i64* outCarry, bool b1, bool b2, i64 inCarry) {
   i64 midCarry;
   Word a = carryStep(u.x + inCarry, &midCarry, b1);
   Word b = carryStep(u.y + midCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
-Word2 OVERLOAD carryFinal(Word2 u, i64 inCarry, bool b1) {
+Word2 OVL carryFinal(Word2 u, i64 inCarry, bool b1) {
   i32 tmpCarry;
   u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
   u.y += tmpCarry;
@@ -343,7 +333,7 @@ Word2 OVERLOAD carryFinal(Word2 u, i64 inCarry, bool b1) {
 
 // u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 
-Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
+Word2 OVL carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
   i64 midCarry;
   Word a = carryStep(3 * doubleToLong(u.x, (i64) 0) + inCarry, &midCarry, b1, exactness);
   Word b = carryStep(3 * doubleToLong(u.y, (i64) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
@@ -384,10 +374,10 @@ T2 foo(T2 a) { return foo2(a, a); }
 T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
 
-#define X2(a, b) { COMPLEX t = a; a.x += b.x; b.x = t.x - b.x; a.y += b.y; b.y = t.y - b.y; }
+#define X2(a, b) { T2 t = a; a.x += b.x; b.x = t.x - b.x; a.y += b.y; b.y = t.y - b.y; }
 
 // Same as X2(a, b), b = mul_t4(b)
-#define X2_mul_t4(a, b) { COMPLEX t = a; a.x += b.x; a.y += b.y; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
+#define X2_mul_t4(a, b) { T2 t = a; a.x += b.x; a.y += b.y; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
 
 // Same as X2(a, conjugate(b))
 #define X2conjb(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = IM(a) - IM(b); RE(b) = t.x - RE(b); IM(b) = t.y + IM(b); }
@@ -397,14 +387,18 @@ T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
+#if 0
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
   X2_mul_t4(u[1], u[3]);
   X2(u[0], u[1]);
   X2(u[2], u[3]);
 }
+#endif
 
 void fft4(T2 *u) {
+  for (u32 i = 0; i < 4; ++i) { SHR(u[i], 2); }
+  
   X2(u[0], u[2]);
   X2_mul_t4(u[1], u[3]);
   T2 t = u[2];
@@ -414,21 +408,24 @@ void fft4(T2 *u) {
   u[3] = t - u[3];  
 }
 
-void fft2(COMPLEX* u) {
+void fft2(T2* u) {
+  SHR(u[0], 1);
+  SHR(u[1], 1);
+
   X2(u[0], u[1]);
 }
 
-#if !OLD_FFT8 && !NEWEST_FFT8 && !NEW_FFT8
-#define OLD_FFT8 1
-#endif
-
 // FFT routines to implement the middle step
 
-void fft3by(COMPLEX* u, u32 incr) {
+void fft3by(T2* u, u32 incr) {
+  SHR(u[0], 2);
+  SHR(u[incr], 2);
+  SHR(u[2 * incr], 2);
+
   // const double COS1 = -0.5;					// cos(tau/3), -0.5
   const double SIN1 = 0.86602540378443864676372317075294;	// sin(tau/3), sqrt(3)/2, 0.86602540378443864676372317075294
   
-  X2_mul_t4(u[1*incr], u[2*incr]);				// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))
+  X2_mul_t4(u[incr], u[2 * incr]);				// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))
   
   T2 tmp23 = u[0] - (u[incr] >> 1); // COS1 * u[1*incr];
   
@@ -436,8 +433,8 @@ void fft3by(COMPLEX* u, u32 incr) {
 
   u[incr] = tmp23;
   
-  u[2*incr] = mul(u[2*incr], SIN1);
-  X2(u[incr], u[2*incr]);
+  u[2 * incr] = mul(u[2 * incr], SIN1);
+  X2(u[incr], u[2 * incr]);
 }
 
 void fft3(T2 *u) {
@@ -501,7 +498,6 @@ void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
     shuflAndMul(64, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
-  for (int i = 0; i < 4; ++i) { u[i] = shr(u[i], 4); }
 }
 
 void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
@@ -516,7 +512,6 @@ void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
   fft4(u);
   shuflAndMul2(64, lds, trig, u, 4, 16);
   fft4(u);
-  for (int i = 0; i < 4; ++i) { u[i] = shr(u[i], 4); }
 }
 
 // 256x4
@@ -528,7 +523,6 @@ void fft1Kw(local T2 *lds, T2 *u, const global T2 *trig) {
     shuflAndMul2(256, lds, trig, u, 4, 1 << s);
   }
   fft4(u);
-  for (int i = 0; i < 4; ++i) { u[i] = shr(u[i], 5); }
 }
 
 void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
@@ -544,7 +538,6 @@ void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   bar();
   shuflAndMul(256, lds, trig, u, 4, 1);
   fft4(u);
-  for (int i = 0; i < 4; ++i) { u[i] = shr(u[i], 5); }
 }
 
 void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
@@ -568,8 +561,8 @@ double2 reducedCosSin(u32 k, u32 N) {
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
-global COMPLEX TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-global COMPLEX TRIG_BH[BIG_HEIGHT / 8 + 1];
+global T2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
+global T2 TRIG_BH[BIG_HEIGHT / 8 + 1];
 
 #if TRIG_COMPUTE == 0
 global double2 TRIG_N[ND / 8 + 1];
@@ -577,8 +570,8 @@ global double2 TRIG_N[ND / 8 + 1];
 global double2 TRIG_W[WIDTH / 2 + 1];
 #endif
 
-UCOMPLEX THREAD_WEIGHTS[G_W];
-UCOMPLEX CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
+UT2 THREAD_WEIGHTS[G_W];
+UT2 CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
 double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
   assert(n % 8 == 0);
@@ -855,7 +848,6 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   io += g * SMALL_HEIGHT;
 
   read(G_H, NH, u, io, 0);
-  ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, 0);
 }
@@ -925,10 +917,10 @@ T iweightUnitStep(u32 i) {
 }
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
-KERNEL(G_W) fftP(P(COMPLEX) out, CP(Word2) in, Trig smallTrig) {
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
   local T2 lds[WIDTH / 2];
 
-  COMPLEX u[NW];
+  T2 u[NW];
   u32 g = get_group_id(0);
 
   u32 step = WIDTH * g;
@@ -953,7 +945,7 @@ KERNEL(G_W) fftP(P(COMPLEX) out, CP(Word2) in, Trig smallTrig) {
   write(G_W, NW, u, out, 0);
 }
 
-void fft_MIDDLE(COMPLEX *u) {
+void fft_MIDDLE(T2 *u) {
 #if MIDDLE == 1
   // Do nothing
 #elif MIDDLE == 2
@@ -970,8 +962,8 @@ void fft_MIDDLE(COMPLEX *u) {
 void middleMul(T2 *u, u32 y, Trig trig) {
   assert(y < SMALL_HEIGHT);
 
-  COMPLEX w = slowTrig_BH(y, SMALL_HEIGHT);
-  COMPLEX step = w;
+  T2 w = slowTrig_BH(y, SMALL_HEIGHT);
+  T2 step = w;
   
   for (u32 i = 1; i < MIDDLE; ++i) {
     u[i] = mul(u[i], w);
@@ -999,11 +991,12 @@ void middleMul2Factor(T2 *u, u32 x, u32 y) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
 
-  C2 w = slowTrig_N(x * y, ND / MIDDLE);
-  u128 factor = -1;
-  u32 shift = 0;
-  w.x = mulShifted(w.x, factor, shift);
-  w.y = mulShifted(w.y, factor, shift);
+  T2 w = slowTrig_N(x * y, ND / MIDDLE);
+
+  // TODO
+  // u128 factor = -1;
+  // u32 shift = 0;
+  // w = mul(w, factor, shift);
   
   C2 step = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
   
@@ -1180,38 +1173,11 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
 }
 
-void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32* carryStats) {
-  roundMax = work_group_reduce_max(roundMax);
-  carryMax = work_group_reduce_max(carryMax);
-  if (get_local_id(0) == 0) {
-    // Roundout 0   = count(iteration)
-    // Roundout 1   = max(workgroup maxerr)
-    // Roundout 2   = count(workgroup)
-    // Roundout 8.. = vector of iteration_maxerr
-
-    atomic_max(&roundOut[1], as_uint(roundMax));
-    atomic_max(&carryStats[4], carryMax);
-    u32 oldCount = atomic_inc(&roundOut[2]);
-    assert(oldCount < get_num_groups(0));
-    if (oldCount == get_num_groups(0) - 1) {
-      u32 roundTmp = atomic_xchg(&roundOut[1], 0);
-      carryMax = atomic_xchg(&carryStats[4], 0);
-      roundOut[2] = 0;
-      int nPrevIt = atomic_inc(&roundOut[0]);
-      if (nPrevIt < 1024 * 1024) { roundOut[8 + nPrevIt] = roundTmp; }
-      
-      atom_add((global ulong *) &carryStats[0], carryMax);
-      atomic_max(&carryStats[2], carryMax);
-      atomic_inc(&carryStats[3]);
-    }
-  }
-}
-
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(COMPLEX) in, P(Carry) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
   ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -1237,8 +1203,8 @@ KERNEL(G_W) NAME(P(Word2) out, CP(COMPLEX) in, P(Carry) carryOut, CP(u32) bits, 
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
     double w1 = i == 0 ? base : updateWeight(base, iweightUnitStep(i));
     double w2 = updateWeight(w1, IWEIGHT_STEP);
-    // COMPLEX x = in[p];
-    COMPLEX x = U2(mulShifted(in[p].x,  w1), mulShifted(-in[p].y, w2));
+    // T2 x = in[p];
+    T2 x = U2(mulShifted(in[p].x,  w1), mulShifted(-in[p].y, w2));
     
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(in[p]), U2(w1, w2)));
@@ -1552,7 +1518,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
 #define onePairMul(a, b, c, d, conjugate_t_squared) { \
   X2conjb(a, b); \
   X2conjb(c, d); \
-  COMPLEX tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared)); \
+  T2 tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared)); \
   b = mad(b, c, mul(a, d)); \
   a = tmp; \
   X2conja(a, b); \
