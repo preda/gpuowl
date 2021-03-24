@@ -233,9 +233,11 @@ i128 OVL mul(i128 a, u128 b) {
 
 // u128 OVL mulSimple(u128 a, u128 b) { return mulh128(a, b); }
 
-u128 OVL sq(u128 a) { return mul(a, a); }
-u128 OVL sq(i128 a) { return mul(a, a); }
+u128 OVL sqShl(u128 a, u32 shift) { return mul(a, a, shift); }
+u128 OVL sqShl(i128 a, u32 shift) { return mul(a, a, shift); }
 
+u128 OVL sq(u128 a) { return sq(a, 0); }
+u128 OVL sq(i128 a) { return sq(a, 0); }
 
 // ---- Complex ----
 
@@ -277,29 +279,31 @@ T2 conjugate(T2 a) { return (T2) (a.x, -a.y); }
 
 // ---- Weight ----
 
+#define BITBUFFER 1
+
 // Flush a word of at most BIG_BITS, with one extra bit of buffer
 T asT(Word u) {
-  assert(BIG_BITS < 64);
-  return U128(u << (64 - 1 - BIG_BITS)) << 64;
+  assert(BIG_BITS <= (64 - BITBUFFER));
+  return U128(u << (64 - BITBUFFER - BIG_BITS)) << 64;
 }
 
-T OVL weight(Word a, Weight w) {
-  bool neg = a < 0;
-  Word c = abs(a);
-  u32 n = clz(U32(c >> 32));
-  
-  i128 r = mulHi(c << n, w) >> (n - 1);
-  return neg ? -r : r;
+#define SHIFTDOWN (30 + BITBUFFER)
+
+i128 toWord(T u) {
+  i128 u >>= (SHIFTDOWN - 1);
+  return (u >> 1) + (x & 1);
 }
 
-T2 OVL weight(Word2 a, UT2 w) { return U2(weight(a.x, w.x), weight(a.y, w.y)); }
+T OVL weight(Word a, Weight w) { return mul(asT(a), w); }
+
+T2 OVL weight(Word2 a, Weight2 w) { return (T2) (weight(a.x, w.x), weight(a.y, w.y)); }
 
 // This routine works for both forward und inverse weight updating.
 // Forward weighs are represented halved, and must always have the leading bit 1 (w in [0.5, 1))
 // Inverse weights must also have the leading bit 1 (iw in (0.5, 1])
-u128 updateWeight(u128 w, u128 step) {
+u128 updateWeight(Weight w, Weight step) {
   assert((w >> 127) && (step >> 127));
-  w = mulSimple(w, step);
+  w = mulh128(w, step);
   if (!(w >> 127)) { w <<= 1; }
   assert(w >> 127);
   return w;
@@ -307,94 +311,79 @@ u128 updateWeight(u128 w, u128 step) {
 
 i64 lowBits(i64 u, u32 n) { return (u << (64 - n)) >> (64 - n); }
 
-Word carryStep(i128 x, i64* outCarry, bool isBig) {
+#define SHIFTDOWN (30 + BITBUFFER)
+
+Word carryStep(T u, Carry* outCarry, bool isBig) {
   u32 nBits = bitlen(isBig);
-  assert(nBits <= 64);
-  assert((x >> (64 + nBits)) == 0 || (x >> (64 + nBits)) == -1); // check outCarry fits on 64bits
+  assert(nBits < 64);
+  assert((u >> (64 + nBits)) == 0 || (u >> (64 + nBits)) == -1); // check outCarry fits on 64bits
   
-  i64 w = lowBits(x, nBits);
-  *outCarry = I64(x >> nBits) + (w < 0);
+  Word w = lowBits(u, nBits);
+  u >>= nBits;
+  assert(I64(u) == u);
+  *outCarry = I64(u) + (w < 0);
   return w;
 }
 
-Word2 carryPair(T2 u, i64* outCarry, bool b1, bool b2, i64 inCarry) {
-  i64 midCarry;
-  Word a = carryStep(u.x + inCarry, &midCarry, b1);
-  Word b = carryStep(u.y + midCarry, outCarry, b2);
+Word2 carryPair(T2 u, Carry* outCarry, bool b1, bool b2, i64 inCarry) {
+  Carry midCarry;
+  Word a = carryStep(toWord(u.x) + inCarry, &midCarry, b1);
+  Word b = carryStep(toWord(u.y) + midCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
-Word2 OVL carryFinal(Word2 u, i64 inCarry, bool b1) {
+Word2 carryFinal(Word2 u, Carry inCarry, bool b1) {
   i32 tmpCarry;
   u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
   u.y += tmpCarry;
   return u;
 }
 
-// u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
-
-Word2 OVL carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
-  i64 midCarry;
-  Word a = carryStep(3 * doubleToLong(u.x, (i64) 0) + inCarry, &midCarry, b1, exactness);
-  Word b = carryStep(3 * doubleToLong(u.y, (i64) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
-#if STATS
-  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
-#endif
-  return (Word2) (a, b);
-}
-
 // Carry propagation from word and carry.
 Word2 carryWord(Word2 a, Carry* carry, bool b1, bool b2) {
-  a.x = carryStep(a.x + *carry, carry, b1, MUST_BE_EXACT);
-  a.y = carryStep(a.y + *carry, carry, b2, MUST_BE_EXACT);
+  a.x = carryStep(a.x + *carry, carry, b1);
+  a.y = carryStep(a.y + *carry, carry, b2);
   return a;
 }
 
 // Propagate carry this many pairs of words.
 #define CARRY_LEN 8
 
-T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
+T2 addsub(T2 a) { return (T2) (a.x + a.y, a.x - a.y); }
 
-// computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
-T2 foo2(T2 a, T2 b) {
-  a = addsub(a);
-  b = addsub(b);
-  return addsub(U2(RE(a) * RE(b), IM(a) * IM(b)));
+T2 fooShl(T2 a, u32 shift) {
+  T c = sqShl(a.x + a.y, shift);
+  T d = mulShl(a.x, a.y, shift + 1);
+  return (T2)(c - d, d);
 }
 
-T2 addsub_m2(T2 a) { return U2(add1_m2(RE(a), IM(a)), sub1_m2(RE(a), IM(a))); }
-T2 foo2_m2(T2 a, T2 b) {
+// fooShl(a, s) == foo2Shl(a, a, s-1).
+T2 foo2Shl(T2 a, T2 b, u32 shift) {
   a = addsub(a);
   b = addsub(b);
-  return addsub_m2(U2(RE(a) * RE(b), IM(a) * IM(b)));
+  return addsub((T2) (mul(a.x, b.x, shift), mul(a.y, b.y, shift)));
 }
 
-// computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
-T2 foo(T2 a) { return foo2(a, a); }
-T2 foo_m2(T2 a) { return foo2_m2(a, a); }
+// computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name. foo(a) == foo2(a, a).
+T2 foo(T2 a) { return fooShl(a, 1); }
+T2 foo_m2(T2 a) { return fooShl(a, 2); }
 
+// computes 2*[a.x*b.x+a.y*b.y + i*(a.x*b.y+a.y*b.x)]
+T2 foo2(T2 a, T2 b) { return foo2Shl(a, b, 0); }
+T2 foo2_m2(T2 a, T2 b) { return foo2Shl(a, b, 1); }
 
-#define X2(a, b) { T2 t = a; a.x += b.x; b.x = t.x - b.x; a.y += b.y; b.y = t.y - b.y; }
+#define X2(a, b) { T2 t = a; a += b; b = t - b; } // { T2 t = a; a.x += b.x; b.x = t.x - b.x; a.y += b.y; b.y = t.y - b.y; }
 
 // Same as X2(a, b), b = mul_t4(b)
-#define X2_mul_t4(a, b) { T2 t = a; a.x += b.x; a.y += b.y; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
+#define X2_mul_t4(a, b) { T2 t = a; a += b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; } // { T2 t = a; a.x += b.x; a.y += b.y; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
 
 // Same as X2(a, conjugate(b))
-#define X2conjb(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = IM(a) - IM(b); RE(b) = t.x - RE(b); IM(b) = t.y + IM(b); }
+#define X2conjb(a, b) { T2 t = a; a.x += b.x; a.y -= b.y; b.x = t.x - b.x; b.y += t.y; }
 
 // Same as X2(a, b), a = conjugate(a)
-#define X2conja(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = -IM(a) - IM(b); b = t - b; }
+#define X2conja(a, b) { T2 t = a; a.x += b.x; a.y = -a.y - b.y; b = t - b; }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
-
-#if 0
-void fft4Core(T2 *u) {
-  X2(u[0], u[2]);
-  X2_mul_t4(u[1], u[3]);
-  X2(u[0], u[1]);
-  X2(u[2], u[3]);
-}
-#endif
 
 void fft4(T2 *u) {
   for (u32 i = 0; i < 4; ++i) { SHR(u[i], 2); }
@@ -415,8 +404,7 @@ void fft2(T2* u) {
   X2(u[0], u[1]);
 }
 
-// FFT routines to implement the middle step
-
+#if 0
 void fft3by(T2* u, u32 incr) {
   SHR(u[0], 2);
   SHR(u[incr], 2);
@@ -437,9 +425,8 @@ void fft3by(T2* u, u32 incr) {
   X2(u[incr], u[2 * incr]);
 }
 
-void fft3(T2 *u) {
-  fft3by(u, 1);
-}
+void fft3(T2 *u) { fft3by(u, 1); }
+#endif
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
@@ -1476,7 +1463,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
       u[i] = foo_m2(conjugate(u[i]));
-      v[i] = 4 * sq(conjugate(v[i]));
+      v[i] = sqShl(conjugate(v[i]), 2);
     } else {
       onePairSq(u[i], v[i], neg(base_squared));
     }
