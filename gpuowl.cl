@@ -209,7 +209,7 @@ u128 OVL mulShl(u128 a, u128 b, u32 shift) {
   u32 n1 = clz(U32(a >> 96));
   u32 n2 = clz(U32(b >> 96));
   assert(n1 + n2 >= shift);
-  return mulHi(a << n1, b << n2) >> (n1 + n2 - shift);
+  return mulh128(a << n1, b << n2) >> (n1 + n2 - shift);
 }
 
 i128 OVL mulShl(i128 a, i128 b, u32 shift) {
@@ -233,18 +233,19 @@ i128 OVL mul(i128 a, u128 b) {
 
 // u128 OVL mulSimple(u128 a, u128 b) { return mulh128(a, b); }
 
-u128 OVL sqShl(u128 a, u32 shift) { return mul(a, a, shift); }
-u128 OVL sqShl(i128 a, u32 shift) { return mul(a, a, shift); }
+u128 OVL sqShl(u128 a, u32 shift) { return mulShl(a, a, shift); }
+u128 OVL sqShl(i128 a, u32 shift) { return mulShl(a, a, shift); }
 
-u128 OVL sq(u128 a) { return sq(a, 0); }
-u128 OVL sq(i128 a) { return sq(a, 0); }
+u128 OVL sq(u128 a) { return sqShl(a, 0); }
+u128 OVL sq(i128 a) { return sqShl(a, 0); }
 
 // ---- Complex ----
 
-T2 OVL sq(T2 a)   { return (T2) (T(sq(a.x) - sq(a.y)), mulShl(a.x, a.y, 1)); }
+T2 OVL sq(T2 a) { return (T2) ((T) (sq(a.x) - sq(a.y)), mulShl(a.x, a.y, 1)); }
+T2 OVL sqShl(T2 a, u32 shift) { return (T2)((T)(sqShl(a.x, shift) - sqShl(a.y, shift)), mulShl(a.x, a.y, shift + 1)); }
 
 T2 OVL mulShl(T2 a, T2 b, u32 shift) { return (T2) (mulShl(a.x, b.x, shift) - mulShl(a.y, b.y, shift), mulShl(a.x, b.y, shift) + mulShl(a.y, b.x, shift)); }
-T2 OVL mul(T2 a, T2 b) { return mul(a, b, 0); }
+T2 OVL mul(T2 a, T2 b) { return mulShl(a, b, 0); }
 
 T2 OVL mul(T2 a, T factor) { return (T2) (mul(a.x, factor), mul(a.y, factor)); }
 
@@ -283,15 +284,17 @@ T2 conjugate(T2 a) { return (T2) (a.x, -a.y); }
 #define SHIFTDOWN (30 + BITBUFFER)
 
 // Flush a word of at most BIG_BITS up, keeping BITBUFFER extra bits of buffer
-T shiftUp(Word u) {
+T OVL shiftUp(Word u) {
   assert(BIG_BITS <= (64 - BITBUFFER));
   return U128(u << (64 - BITBUFFER - BIG_BITS)) << 64;
 }
 
+T2 OVL shiftUp(Word2 u) { return (T2) (shiftUp(u.x), shiftUp(u.y)); }
+
 // Round and shift down. The return may not fit on a Word due to unpropagated carry, thus return is i128.
 i128 shiftDown(T u) {
-  i128 u >>= (SHIFTDOWN - 1);
-  return (u >> 1) + (x & 1);
+  u >>= (SHIFTDOWN - 1);
+  return (u >> 1) + (u & 1);
 }
 
 // T OVL weight(Word a, Weight w) { return mul(asT(a), w); }
@@ -300,13 +303,17 @@ i128 shiftDown(T u) {
 // This routine works for both forward und inverse weight updating.
 // Forward weighs are represented halved, and must always have the leading bit 1 (w in [0.5, 1))
 // Inverse weights must also have the leading bit 1 (iw in (0.5, 1])
-u128 updateWeight(Weight w, Weight step) {
+Weight updateWeight(Weight w, Weight step) {
   assert((w >> 127) && (step >> 127));
   w = mulh128(w, step);
   if (!(w >> 127)) { w <<= 1; }
   assert(w >> 127);
   return w;
 }
+
+Weight2 updateWeights(Weight2 w, Weight2 step) { return (Weight2) (updateWeight(w.x, step.x), updateWeight(w.y, step.y)); }
+
+T2 mulWeight(T2 u, Weight2 w) { return (T2) (mul(u.x, w.x), mul(u.y, w.y)); }
 
 i64 lowBits(i64 u, u32 n) { return (u << (64 - n)) >> (64 - n); }
 
@@ -332,7 +339,7 @@ Word2 carryPair(T2 u, Carry* outCarry, bool b1, bool b2, i64 inCarry) {
 }
 
 Word2 carryFinal(Word2 u, Carry inCarry, bool b1) {
-  i32 tmpCarry;
+  Carry tmpCarry;
   u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
   u.y += tmpCarry;
   return u;
@@ -360,7 +367,7 @@ T2 fooShl(T2 a, u32 shift) {
 T2 foo2Shl(T2 a, T2 b, u32 shift) {
   a = addsub(a);
   b = addsub(b);
-  return addsub((T2) (mul(a.x, b.x, shift), mul(a.y, b.y, shift)));
+  return addsub((T2) (mulShl(a.x, b.x, shift), mulShl(a.y, b.y, shift)));
 }
 
 // computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name. foo(a) == foo2(a, a).
@@ -544,10 +551,6 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
 // ---- Trig ----
 
 // N represents a full circle, so N/2 is Pi radians and N/8 is Pi/4 radians.
-double2 reducedCosSin(u32 k, u32 N) {
-  assert(k <= N/8);
-  return U2(kcospi(k, N/2), -ksinpi(k, N/2));
-}
 
 global T2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
 global T2 TRIG_BH[BIG_HEIGHT / 8 + 1];
@@ -632,7 +635,7 @@ T2 slowTrig_N(u32 k, u32 kBound)   {
 
   assert(k <= n / 8);
 
-if TRIG_COMPUTE == 1
+#if TRIG_COMPUTE == 1
   u32 a = (k + WIDTH/2) / WIDTH;
   i32 b = k - a * WIDTH;  
   T2 cs2 = TRIG_W[abs(b)];
@@ -790,7 +793,6 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 g = get_group_id(0);
 
   readTailFusedLine(in, u, g);
-  ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
 
   out += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
@@ -813,19 +815,9 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 
 T fweightStep(u32 i) {
   const T TWO_TO_NTH[8] = {
-#if SP
-    // 2^(k/8) for k in [0..8)
-    (1,0,0),
-    (1.09050775,-1.30775399e-08,-2.52512433e-16),
-    (1.18920708,3.79763527e-08,1.15004321e-15),
-    (1.29683959,-4.01899953e-08,1.57969474e-15),
-    (1.41421354,2.4203235e-08,-7.62806744e-16),
-    (1.54221082,8.07090483e-09,-1.42546261e-16),
-    (1.68179286,-2.47553267e-08,-5.84143725e-16),
-    (1.8340081,-1.1239278e-08,-1.89213528e-16),
-#else
     // 2^(k/8) -1 for k in [0..8)
-    0,
+    0
+    /*
     0.090507732665257662,
     0.18920711500272105,
     0.29683955465100964,
@@ -833,26 +825,16 @@ T fweightStep(u32 i) {
     0.54221082540794086,
     0.68179283050742912,
     0.83400808640934243,
-#endif
+    */
   };
   return TWO_TO_NTH[i * STEP % NW * (8 / NW)];
 }
 
 T iweightStep(u32 i) {
   const T TWO_TO_MINUS_NTH[8] = {
-#if SP
-    // 2^-(k/8) for k in [0..8)
-    (1,0,0),
-    (0.917004049,-5.61963898e-09,-9.46067642e-17),
-    (0.840896428,-1.23776633e-08,-2.92071863e-16),
-    (0.771105409,4.03545242e-09,-7.12731307e-17),
-    (0.707106769,1.21016175e-08,-3.81403372e-16),
-    (0.648419797,-2.00949977e-08,7.89847371e-16),
-    (0.594603539,1.89881764e-08,5.75021604e-16),
-    (0.545253873,-6.53876997e-09,-1.26256216e-16)
-#else
     // 2^-(k/8) - 1 for k in [0..8)
-    0,
+    0
+    /*
     -0.082995956795328771,
     -0.15910358474628547,
     -0.2288945872960296,
@@ -860,7 +842,7 @@ T iweightStep(u32 i) {
     -0.35158022267449518,
     -0.40539644249863949,
     -0.45474613366737116,
-#endif
+    */
   };
   return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
 }
@@ -895,8 +877,8 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
     T w1 = i == 0 ? base : updateWeight(base, fweightStep(i));
     T w2 = updateWeight(w1, WEIGHT_STEP);
     u32 p = G_W * i + me;
-    u[i].x = mulShifted(i128(in[p].x), w1, 1);
-    u[i].y = mulShifted(i128(in[p].y), w2, 1);
+    u[i].x = mul(shiftUp(in[p].x), w1);
+    u[i].y = mul(shiftUp(in[p].y), w2);
   }
 
   fft_WIDTH(lds, u, smallTrig);
@@ -936,9 +918,9 @@ void middleMul2(T2 *u, u32 x, u32 y) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
 
-  C2 w = slowTrig_N(x * y, ND / MIDDLE);
+  T2 w = slowTrig_N(x * y, ND / MIDDLE);
 
-  C2 step = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
+  T2 step = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
 
   for (u32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], w);
@@ -957,7 +939,7 @@ void middleMul2Factor(T2 *u, u32 x, u32 y) {
   // u32 shift = 0;
   // w = mul(w, factor, shift);
   
-  C2 step = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
+  T2 step = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
   
   for (u32 i = 0; i < MIDDLE; ++i) {
     u[i] = mul(u[i], w);
@@ -967,7 +949,7 @@ void middleMul2Factor(T2 *u, u32 x, u32 y) {
 
 #define MIDDLE_LDS_LIMIT 4
 
-void middleShuffle(local long *lds, C2 *u, u32 workgroupSize, u32 blockSize) {
+void middleShuffle(local long *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
 
   if (MIDDLE <= MIDDLE_LDS_LIMIT / 2) {
@@ -1135,9 +1117,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
-//{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
-  ENABLE_MUL2();
+KERNEL(G_W) carryA(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
@@ -1152,28 +1132,21 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(u32) bits, P(u32
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
 
-  u128 base = updateWeight(THREAD_WEIGHTS[me].x, CARRY_WEIGHTS[gy].x);
+  Weight base = updateWeight(THREAD_WEIGHTS[me].x, CARRY_WEIGHTS[gy].x);
   base = updateWeight(base, iweightStep(gx));  
   
-  // T base = optionalDouble(fancyMul(CARRY_WEIGHTS[gy].x, THREAD_WEIGHTS[me].x));
-  // base = optionalDouble(fancyMul(base, iweightStep(gx)));
-
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    double w1 = i == 0 ? base : updateWeight(base, iweightUnitStep(i));
-    double w2 = updateWeight(w1, IWEIGHT_STEP);
+    Weight w1 = i == 0 ? base : updateWeight(base, iweightUnitStep(i));
+    Weight w2 = updateWeight(w1, IWEIGHT_STEP);
     // T2 x = in[p];
-    T2 x = U2(mulShifted(in[p].x,  w1), mulShifted(-in[p].y, w2));
+    T2 x = (T2) (mul(in[p].x,  w1), mul(-in[p].y, w2));
     
 #if STATS
     roundMax = max(roundMax, roundoff(conjugate(in[p]), U2(w1, w2)));
 #endif
     
-#if DO_MUL3
-    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax, MUST_BE_EXACT);
-#else
-    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax, MUST_BE_EXACT);
-#endif
+    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry);
   }
   carryOut[G_W * g + me] = carry;
 
@@ -1181,12 +1154,8 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(u32) bits, P(u32
   updateStats(roundMax, carryMax, roundOut, carryStats);
 #endif
 }
-//}}
 
-//== CARRYA NAME=carryA,DO_MUL3=0
-//== CARRYA NAME=carryM,DO_MUL3=1
-
-KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
+KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) bits) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);  
   u32 gx = g % NW;
@@ -1206,7 +1175,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
   u32 prevLine = prev % HB;
   u32 prevCol  = prev / HB;
 
-  CarryABM carry = carryIn[WIDTH * prevLine + prevCol];
+  Carry carry = carryIn[WIDTH * prevLine + prevCol];
 
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = i * WIDTH + me;
@@ -1217,10 +1186,8 @@ KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-// See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
-//{{ CARRY_FUSED
-KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
+                       CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -1238,54 +1205,42 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   u32 b = bits[(G_W * line + me) / GPW] >> (me % GPW * (2 * NW));
 #undef GPW
   
-  ENABLE_MUL2();
   fft_WIDTH(lds, u, smallTrig);
 
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   Word2 wu[NW];
-  T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
-  weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(line % CARRY_LEN), fweightUnitStep(line % CARRY_LEN)));
+  Weight2 weights = updateWeights(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
+  weights = updateWeights(weights, (Weight2) (iweightUnitStep(line % CARRY_LEN), fweightUnitStep(line % CARRY_LEN)));
 
-#if CF_MUL
-  P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
-  CFMcarry carry[NW+1];
-#else
-  P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
-  CFcarry carry[NW+1];
-#endif
-
+  Carry carry[NW+1];
   float roundMax = 0;
   u32 carryMax = 0;
   
   // Apply the inverse weights
 
-  T invBase = optionalDouble(weights.x);
+  T invBase = weights.x;
   
   for (u32 i = 0; i < NW; ++i) {
-    T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, iweightStep(i)));
-    T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP));
+    T invWeight1 = i == 0 ? invBase : updateWeight(invBase, iweightStep(i));
+    T invWeight2 = updateWeight(invWeight1, IWEIGHT_STEP);
 
 #if STATS
-    roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight1, invWeight2)));
+    roundMax = max(roundMax, roundoff(conjugate(u[i]), (Weight2) (invWeight1, invWeight2)));
 #endif
 
-    u[i] = conjugate(u[i]) * U2(invWeight1, invWeight2);
+    u[i] = mulWeight(conjugate(u[i]), (Weight2) (invWeight1, invWeight2));
   }
 
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
-#if CF_MUL    
-    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
-#else
-    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
-#endif
+    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0);
   }
 
   // Write out our carries
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
-      carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
+      carryShuttle[gr * WIDTH + me * NW + i] = carry[i];
     }
 
     // Signal that this group is done writing its carries
@@ -1311,11 +1266,11 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
+      carry[i] = carryShuttle[(gr - 1) * WIDTH + me * NW + i];
     }
   } else {
     for (i32 i = 0; i < NW; ++i) {
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
+      carry[i] = carryShuttle[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
     }
     if (me == 0) {
       carry[NW] = carry[NW-1];
@@ -1329,12 +1284,12 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     wu[i] = carryFinal(wu[i], carry[i], test(b, 2 * i));
   }
   
-  T base = optionalHalve(weights.y);
+  T base = weights.y;
   
   for (u32 i = 0; i < NW; ++i) {
-    T weight1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
-    T weight2 = optionalHalve(fancyMul(weight1, WEIGHT_STEP));
-    u[i] = U2(wu[i].x, wu[i].y) * U2(weight1, weight2);
+    T weight1 = i == 0 ? base : updateWeight(base, fweightStep(i));
+    T weight2 = updateWeight(weight1, WEIGHT_STEP);
+    u[i] = mulWeight(shiftUp(wu[i]), (Weight2) (weight1, weight2));
   }
 
 // Clear carry ready flag for next iteration
@@ -1347,10 +1302,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   fft_WIDTH(lds, u, smallTrig);
   write(G_W, NW, u, out, WIDTH * line);
 }
-//}}
-
-//== CARRY_FUSED NAME=carryFused,    CF_MUL=0
-//== CARRY_FUSED NAME=carryFusedMul, CF_MUL=1
 
 // from transposed to sequential.
 KERNEL(64) transposeOut(P(Word2) out, CP(Word2) in) {
@@ -1421,8 +1372,8 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
 #define onePairSq(a, b, conjugate_t_squared) {\
   X2conjb(a, b); \
   T2 b2 = sq(b); \
-  b = mul_m2(a, b); \
-  a = mad_m1(b2, conjugate_t_squared, sq(a)); \
+  b = mulShl(a, b, 1); \
+  a = mul(b2, conjugate_t_squared) + sq(a); \
   X2conja(a, b); \
 }
 
@@ -1437,7 +1388,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
       u[i] = foo_m2(conjugate(u[i]));
       v[i] = sqShl(conjugate(v[i]), 2);
     } else {
-      onePairSq(u[i], v[i], neg(base_squared));
+      onePairSq(u[i], v[i], -base_squared);
     }
 
     if (N == NH) {
@@ -1445,7 +1396,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
     }
 
     T2 new_base_squared = mul_t4(base_squared);
-    onePairSq(u[i+NH/4], v[i+NH/4], neg(new_base_squared));
+    onePairSq(u[i+NH/4], v[i+NH/4], -new_base_squared);
 
     if (N == NH) {
       onePairSq(u[i+3*NH/4], v[i+3*NH/4], new_base_squared);
@@ -1489,7 +1440,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
       u[i] = conjugate(foo2_m2(u[i], p[i]));
-      v[i] = mul_m4(conjugate(v[i]), conjugate(q[i]));
+      v[i] = mulShl(conjugate(v[i]), conjugate(q[i]), 2);
     } else {
       onePairMul(u[i], v[i], p[i], q[i], -base_squared);
     }
@@ -1512,18 +1463,16 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
-  ENABLE_MUL2();
-
   u32 line1 = get_group_id(0);
   u32 me = get_local_id(0);
 
   if (line1 == 0 && me == 0) {
 #if MULTIPLY_DELTA
     io[0]     = foo2_m2(conjugate(io[0]), conjugate(inA[0] - inB[0]));
-    io[W / 2] = conjugate(mul_m4(io[W / 2], inA[W / 2] - inB[W / 2]));
+    io[W / 2] = conjugate(mulShl(io[W / 2], inA[W / 2] - inB[W / 2], 2));
 #else
     io[0]     = foo2_m2(conjugate(io[0]), conjugate(in[0]));
-    io[W / 2] = conjugate(mul_m4(io[W / 2], in[W / 2]));
+    io[W / 2] = conjugate(mulShl(io[W / 2], in[W / 2], 2));
 #endif
     return;
   }
@@ -1568,8 +1517,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   u32 line2 = line1 ? H - line1 : (H / 2);
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-
-  ENABLE_MUL2();
 
 #if TAIL_FUSED_LOW
   read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
@@ -1638,8 +1585,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   u32 line2 = line1 ? H - line1 : (H / 2);
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-  
-  ENABLE_MUL2();
   
 #if MUL_DELTA
   readTailFusedLine(in, u, line1);
