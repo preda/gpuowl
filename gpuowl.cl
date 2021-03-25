@@ -280,23 +280,22 @@ T2 conjugate(T2 a) { return (T2) (a.x, -a.y); }
 // ---- Weight ----
 
 #define BITBUFFER 1
+#define SHIFTDOWN (30 + BITBUFFER)
 
-// Flush a word of at most BIG_BITS, with one extra bit of buffer
-T asT(Word u) {
+// Flush a word of at most BIG_BITS up, keeping BITBUFFER extra bits of buffer
+T shiftUp(Word u) {
   assert(BIG_BITS <= (64 - BITBUFFER));
   return U128(u << (64 - BITBUFFER - BIG_BITS)) << 64;
 }
 
-#define SHIFTDOWN (30 + BITBUFFER)
-
-i128 toWord(T u) {
+// Round and shift down. The return may not fit on a Word due to unpropagated carry, thus return is i128.
+i128 shiftDown(T u) {
   i128 u >>= (SHIFTDOWN - 1);
   return (u >> 1) + (x & 1);
 }
 
-T OVL weight(Word a, Weight w) { return mul(asT(a), w); }
-
-T2 OVL weight(Word2 a, Weight2 w) { return (T2) (weight(a.x, w.x), weight(a.y, w.y)); }
+// T OVL weight(Word a, Weight w) { return mul(asT(a), w); }
+// T2 OVL weight(Word2 a, Weight2 w) { return (T2) (weight(a.x, w.x), weight(a.y, w.y)); }
 
 // This routine works for both forward und inverse weight updating.
 // Forward weighs are represented halved, and must always have the leading bit 1 (w in [0.5, 1))
@@ -327,8 +326,8 @@ Word carryStep(T u, Carry* outCarry, bool isBig) {
 
 Word2 carryPair(T2 u, Carry* outCarry, bool b1, bool b2, i64 inCarry) {
   Carry midCarry;
-  Word a = carryStep(toWord(u.x) + inCarry, &midCarry, b1);
-  Word b = carryStep(toWord(u.y) + midCarry, outCarry, b2);
+  Word a = carryStep(shiftDown(u.x) + inCarry, &midCarry, b1);
+  Word b = carryStep(shiftDown(u.y) + midCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
@@ -542,6 +541,8 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
   }
 }
 
+// ---- Trig ----
+
 // N represents a full circle, so N/2 is Pi radians and N/8 is Pi/4 radians.
 double2 reducedCosSin(u32 k, u32 N) {
   assert(k <= N/8);
@@ -552,15 +553,15 @@ global T2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
 global T2 TRIG_BH[BIG_HEIGHT / 8 + 1];
 
 #if TRIG_COMPUTE == 0
-global double2 TRIG_N[ND / 8 + 1];
+global T2 TRIG_N[ND / 8 + 1];
 #elif TRIG_COMPUTE == 1
-global double2 TRIG_W[WIDTH / 2 + 1];
+global T2 TRIG_W[WIDTH / 2 + 1];
 #endif
 
-UT2 THREAD_WEIGHTS[G_W];
-UT2 CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
+Weight2 THREAD_WEIGHTS[G_W];
+Weight2 CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
-double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
+T2 tableTrig(u32 k, u32 n, u32 kBound, global T2* trigTable) {
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
   assert(kBound <= 2 * n);  // angle <= 2 tau
@@ -579,7 +580,7 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
 
   assert(k <= n / 8);
 
-  double2 r = trigTable[k];
+  T2 r = trigTable[k];
 
   if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }
@@ -589,22 +590,14 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, global float4 * trigNSP,
-                        global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
-                        global double2* trigW,
-                        global double2* threadWeights, global double2* carryWeights
+KERNEL(64) writeGlobals(global T2* trig2Sh, global T2* trigBh, global T2* trigN, global T2* trigW,
+                        global Weight2* threadWeights, global Weight2* carryWeights
                         ) {
-#if SP
-  for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_2SH[k] = trig2ShSP[k]; }
-  for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_BH[k] = trigBhSP[k]; }
-  for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { SP_TRIG_N[k] = trigNSP[k]; }
-#endif
-
-  for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_2SH[k] = trig2ShDP[k]; }
-  for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_BH[k] = trigBhDP[k]; }
+  for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_2SH[k] = trig2Sh[k]; }
+  for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_BH[k] = trigBh[k]; }
 
 #if TRIG_COMPUTE == 0
-  for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { TRIG_N[k] = trigNDP[k]; }
+  for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { TRIG_N[k] = trigN[k]; }
 #elif TRIG_COMPUTE == 1
   for (u32 k = get_global_id(0); k <= WIDTH/2; k += get_global_size(0)) { TRIG_W[k] = trigW[k]; }
 #endif
@@ -614,12 +607,12 @@ KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, glo
   for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
 }
 
-double2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
-double2 slowTrig_BH(u32 k, u32 kBound)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
+T2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
+T2 slowTrig_BH(u32 k, u32 kBound)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
 // Inverse trigonometric direction is chosen as an FFT convention.
-double2 slowTrig_N(u32 k, u32 kBound)   {
+T2 slowTrig_N(u32 k, u32 kBound)   {
   u32 n = ND;
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
@@ -639,30 +632,16 @@ double2 slowTrig_N(u32 k, u32 kBound)   {
 
   assert(k <= n / 8);
 
-#if TRIG_COMPUTE >= 2
-  double2 r = reducedCosSin(k, n);
-#elif TRIG_COMPUTE == 1
+if TRIG_COMPUTE == 1
   u32 a = (k + WIDTH/2) / WIDTH;
-  i32 b = k - a * WIDTH;
-  
-  double2 cs1 = TRIG_BH[a];
-  double c1 = cs1.x;
-  double s1 = cs1.y;
-  
-  double2 cs2 = TRIG_W[abs(b)];
-  double c2 = cs2.x;
-  double s2 = (b < 0) ? -cs2.y : cs2.y; 
-
-  // cos(a+b) = cos(a)cos(b) - sin(a)sin(b)
-  // sin(a+b) = cos(a)sin(b) + sin(a)cos(b)
-  // c2 is stored with "-1" trick to increase accuracy, so we use fma(x,y,x) for x*(y+1)
-  double c = fma(-s1, s2, fma(c1, c2, c1));
-  double s = fma(c1, s2, fma(s1, c2, s1));
-  double2 r = (double2)(c, s);
+  i32 b = k - a * WIDTH;  
+  T2 cs2 = TRIG_W[abs(b)];
+  cs2.y = (b < 0) ? -cs2.y : cs2.y;
+  T2 r = mul(TRIG_BH[a], cs2);
 #elif TRIG_COMPUTE == 0
   double2 r = TRIG_N[k];
 #else
-#error set TRIG_COMPUTE to 0, 1 or 2.
+#error set TRIG_COMPUTE to 0 or 1.
 #endif
 
   if (flip) { r = -swap(r); }
@@ -778,14 +757,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 }
 
 // Read a line for tailFused or fftHin
-void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 memline) {
-  // We go to some length here to avoid dividing by MIDDLE in address calculations.
-  // The transPos converted logical line number into physical memory line numbers
-  // using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
-  // We can compute the 0..9 component of address calculations as line / WIDTH,
-  // and the 0,10,20,30,..310 component as (line % WIDTH) % 32 = (line % 32),
-  // and the multiple of 320 component as (line % WIDTH) / 32
-
+void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 me = get_local_id(0);
   u32 WG = IN_WG;
   u32 SIZEY = WG / IN_SIZEX;
@@ -817,7 +789,7 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   T2 u[NH];
   u32 g = get_group_id(0);
 
-  readTailFusedLine(in, u, g, transPos(g, MIDDLE, WIDTH));
+  readTailFusedLine(in, u, g);
   ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
 
@@ -1603,8 +1575,8 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
   read(G_H, NH, v, in, memline2 * SMALL_HEIGHT);
 #else
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
+  readTailFusedLine(in, u, line1);
+  readTailFusedLine(in, v, line2);
   fft_HEIGHT(lds, u, smallTrig1);
   bar();
   fft_HEIGHT(lds, v, smallTrig1);
@@ -1670,16 +1642,16 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   ENABLE_MUL2();
   
 #if MUL_DELTA
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
+  readTailFusedLine(in, u, line1);
+  readTailFusedLine(in, v, line2);
   readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig1);
   bar();
   fft_HEIGHT(lds, v, smallTrig1);
 #elif MUL_LOW
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
+  readTailFusedLine(in, u, line1);
+  readTailFusedLine(in, v, line2);
   read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
   read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig1);
@@ -1691,10 +1663,10 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   read(G_H, NH, p, in, memline1 * SMALL_HEIGHT);
   read(G_H, NH, q, in, memline2 * SMALL_HEIGHT);
 #else
-  readTailFusedLine(in, u, line1, memline1);
-  readTailFusedLine(in, v, line2, memline2);
-  readTailFusedLine(a, p, line1, memline1);
-  readTailFusedLine(a, q, line2, memline2);
+  readTailFusedLine(in, u, line1);
+  readTailFusedLine(in, v, line2);
+  readTailFusedLine(a, p, line1);
+  readTailFusedLine(a, q, line2);
   fft_HEIGHT(lds, u, smallTrig1);
   bar();
   fft_HEIGHT(lds, v, smallTrig1);
