@@ -435,11 +435,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   buf3{queue, "buf3", N},
   args{args}
 {
-  // dumpBinary(program.get(), "isa.bin");
-  
-  //cout << mpfr::const_pi().toString() << ' ' << (asin(mpreal(1)) * 2).toString() << endl;
-
-  for (u32 k = 0; k < 8; ++k) { cout << toLiteral(toU128(exp2(k/mpreal(8)))) << endl; }
+  // cout << mpfr::const_pi().toString() << ' ' << (asin(mpreal(1)) * 2).toString() << endl;
+  // for (u32 k = 0; k < 8; ++k) { cout << toLiteral(toU128(exp2(-(k/mpreal(8))))) << endl; }
   
   carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMulMax);
@@ -570,7 +567,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   float bitsPerWord = E / float(N);
   log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord);
 
-  if (bitsPerWord > 20) {
+  if (bitsPerWord >= 60) {
     log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
     throw "FFT size too small";
   }

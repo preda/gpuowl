@@ -813,47 +813,43 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   write(G_H, NH, u, io, 0);
 }
 
-T fweightStep(u32 i) {
-  const T TWO_TO_NTH[8] = {
-    // 2^(k/8) -1 for k in [0..8)
-    0
-    /*
-    0.090507732665257662,
-    0.18920711500272105,
-    0.29683955465100964,
-    0.41421356237309503,
-    0.54221082540794086,
-    0.68179283050742912,
-    0.83400808640934243,
-    */
-  };
+Weight fweightStep(u32 i) {
+  // 2^(k/8)/2 for k in [0..8)
+  const Weight TWO_TO_NTH[8] = {
+                           0x80000000000000000000000000000000ULL,
+                           0x8b95c1e3ea8bd6e6fbe4628758a53c90ULL,
+                           0x9837f0518db8a96f46ad23182e42f6f6ULL,
+                           0xa5fed6a9b15138ea1cbd7f621710701bULL,
+                           0xb504f333f9de6484597d89b3754abe9fULL,
+                           0xc5672a115506dadd3e2ad0c964dd9f37ULL,
+                           0xd744fccad69d6af439a68bb9902d3fdeULL,
+                           0xeac0c6e7dd24392ed02d75b3706e54fbULL,
+  };                           
   return TWO_TO_NTH[i * STEP % NW * (8 / NW)];
 }
 
-T iweightStep(u32 i) {
-  const T TWO_TO_MINUS_NTH[8] = {
-    // 2^-(k/8) - 1 for k in [0..8)
-    0
-    /*
-    -0.082995956795328771,
-    -0.15910358474628547,
-    -0.2288945872960296,
-    -0.29289321881345248,
-    -0.35158022267449518,
-    -0.40539644249863949,
-    -0.45474613366737116,
-    */
+Weight iweightStep(u32 i) {
+  // 2^-(k/8) for k in [0..8)
+  const Weight TWO_TO_MINUS_NTH[8] = {
+                                 0xffffffffffffffffffffffffffffffffULL,
+                                 0xeac0c6e7dd24392ed02d75b3706e54fbULL,
+                                 0xd744fccad69d6af439a68bb9902d3fdeULL,
+                                 0xc5672a115506dadd3e2ad0c964dd9f37ULL,
+                                 0xb504f333f9de6484597d89b3754abe9fULL,
+                                 0xa5fed6a9b15138ea1cbd7f621710701bULL,
+                                 0x9837f0518db8a96f46ad23182e42f6f6ULL,
+                                 0x8b95c1e3ea8bd6e6fbe4628758a53c90ULL,
   };
   return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
 }
 
-T fweightUnitStep(u32 i) {
-  T FWEIGHTS_[] = FWEIGHTS;
+Weight fweightUnitStep(u32 i) {
+  Weight FWEIGHTS_[] = FWEIGHTS;
   return FWEIGHTS_[i];
 }
 
-T iweightUnitStep(u32 i) {
-  T IWEIGHTS_[] = IWEIGHTS;
+Weight iweightUnitStep(u32 i) {
+  Weight IWEIGHTS_[] = IWEIGHTS;
   return IWEIGHTS_[i];
 }
 
