@@ -9,9 +9,9 @@
 
 static u32 bitlen(u32 N, u32 E, u32 k) { return E / N + isBigWord(N, E, k); }
 
-static int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
+static i64 lowBits(i64 u, int bits) { return (u << (64 - bits)) >> (64 - bits); }
 
-static u32 unbalance(int w, int nBits, int *carry) {
+static u64 unbalance(int w, int nBits, int *carry) {
   assert(*carry == 0 || *carry == -1);
   w += *carry;
   *carry = 0;

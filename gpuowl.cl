@@ -257,12 +257,26 @@ T2 mad(T2 a, T2 b, T2 c) { return mul(a, b) + c; }
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 #define STEP (NWORDS - (EXP % NWORDS))
-// bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
+
+u32 extra(u32 k) {
+#if NWORDS & (NWORDS - 1) == 0
+  return STEP * k % NWORDS;
+#else
+#error NWORDS is not a power of 2
+#endif
+}
+
+bool isBigWordExtra(u32 extra) { return extra < NWORDS - STEP; }
 
 #define SMALL_BITS (EXP / NWORDS)
 #define BIG_BITS (SMALL_BITS + 1)
 
 u32 bitlen(bool b) { return SMALL_BITS + b; }
+
+unsigned2 bitlenWord2(u32 k) {
+  u32 e = extra(k);
+  return (unsigned2) (isBigWordExtra(e), isBigWordExtra((e + STEP) % NWORDS));
+}
 
 
 // ---- Trig ----
@@ -611,6 +625,9 @@ KERNEL(64) writeGlobals(global T2* trig2Sh, global T2* trigBh, global T2* trigN,
 }
 
 T2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
+
+T2 slowTrig_SH(u32 k, u32 kBound)  { return tableTrig(k, SMALL_HEIGHT, kBound, TRIG_SH); }
+
 T2 slowTrig_BH(u32 k, u32 kBound)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
@@ -814,33 +831,27 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 }
 
 Weight fweightStep(u32 i) {
-  // 2^(k/8)/2 for k in [0..8)
-  const Weight TWO_TO_NTH[8] = {
-                           0x80000000000000000000000000000000ULL,
-                           0x8b95c1e3ea8bd6e6fbe4628758a53c90ULL,
+  // 2^(k/4) * 1/2 for k in [1..4)
+  const Weight TWO_TO_NTH[] = {0,
                            0x9837f0518db8a96f46ad23182e42f6f6ULL,
-                           0xa5fed6a9b15138ea1cbd7f621710701bULL,
                            0xb504f333f9de6484597d89b3754abe9fULL,
-                           0xc5672a115506dadd3e2ad0c964dd9f37ULL,
                            0xd744fccad69d6af439a68bb9902d3fdeULL,
-                           0xeac0c6e7dd24392ed02d75b3706e54fbULL,
-  };                           
-  return TWO_TO_NTH[i * STEP % NW * (8 / NW)];
+  };
+  assert(NW == 4);
+  assert(i && i < NW);
+  return TWO_TO_NTH[i * STEP % NW];
 }
 
 Weight iweightStep(u32 i) {
-  // 2^-(k/8) for k in [0..8)
-  const Weight TWO_TO_MINUS_NTH[8] = {
-                                 0xffffffffffffffffffffffffffffffffULL,
-                                 0xeac0c6e7dd24392ed02d75b3706e54fbULL,
+  // 2^-(k/4) for k in [1..4)
+  const Weight TWO_TO_MINUS_NTH[] = {0,
                                  0xd744fccad69d6af439a68bb9902d3fdeULL,
-                                 0xc5672a115506dadd3e2ad0c964dd9f37ULL,
                                  0xb504f333f9de6484597d89b3754abe9fULL,
-                                 0xa5fed6a9b15138ea1cbd7f621710701bULL,
                                  0x9837f0518db8a96f46ad23182e42f6f6ULL,
-                                 0x8b95c1e3ea8bd6e6fbe4628758a53c90ULL,
   };
-  return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
+  assert(NW == 4);
+  assert(i && i < NW);
+  return TWO_TO_MINUS_NTH[i * STEP % NW];
 }
 
 Weight fweightUnitStep(u32 i) {
@@ -1110,76 +1121,6 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
 }
 
-// Carry propagation with optional MUL-3, over CARRY_LEN words.
-// Input arrives conjugated and inverse-weighted.
-
-KERNEL(G_W) carryA(P(Word2) out, CP(T2) in, P(Carry) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
-  u32 g  = get_group_id(0);
-  u32 me = get_local_id(0);
-  u32 gx = g % NW;
-  u32 gy = g / NW;
-
-  Carry carry = 0;  
-  float roundMax = 0;
-  u32 carryMax = 0;
-
-  // Split 32 bits into CARRY_LEN groups of 2 bits.
-#define GPW (16 / CARRY_LEN)
-  u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
-#undef GPW
-
-  Weight base = updateWeight(THREAD_WEIGHTS[me].x, CARRY_WEIGHTS[gy].x);
-  base = updateWeight(base, iweightStep(gx));  
-  
-  for (i32 i = 0; i < CARRY_LEN; ++i) {
-    u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    Weight w1 = i == 0 ? base : updateWeight(base, iweightUnitStep(i));
-    Weight w2 = updateWeight(w1, IWEIGHT_STEP);
-    // T2 x = in[p];
-    T2 x = (T2) (mul(in[p].x,  w1), mul(-in[p].y, w2));
-    
-#if STATS
-    roundMax = max(roundMax, roundoff(conjugate(in[p]), U2(w1, w2)));
-#endif
-    
-    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry);
-  }
-  carryOut[G_W * g + me] = carry;
-
-#if STATS
-  updateStats(roundMax, carryMax, roundOut, carryStats);
-#endif
-}
-
-KERNEL(G_W) carryB(P(Word2) io, CP(Carry) carryIn, CP(u32) bits) {
-  u32 g  = get_group_id(0);
-  u32 me = get_local_id(0);  
-  u32 gx = g % NW;
-  u32 gy = g / NW;
-
-  // Split 32 bits into CARRY_LEN groups of 2 bits.
-#define GPW (16 / CARRY_LEN)
-  u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
-#undef GPW
-
-  u32 step = G_W * gx + WIDTH * CARRY_LEN * gy;
-  io += step;
-
-  u32 HB = BIG_HEIGHT / CARRY_LEN;
-
-  u32 prev = (gy + HB * G_W * gx + HB * me + (HB * WIDTH - 1)) % (HB * WIDTH);
-  u32 prevLine = prev % HB;
-  u32 prevCol  = prev / HB;
-
-  Carry carry = carryIn[WIDTH * prevLine + prevCol];
-
-  for (i32 i = 0; i < CARRY_LEN; ++i) {
-    u32 p = i * WIDTH + me;
-    io[p] = carryWord(io[p], &carry, test(b, 2 * i), test(b, 2 * i + 1));
-    if (!carry) { return; }
-  }
-}
-
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, P(Carry) carryShuttle, P(u32) ready, Trig smallTrig,
@@ -1367,37 +1308,44 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
 
 #define onePairSq(a, b, conjugate_t_squared) {\
   X2conjb(a, b); \
-  T2 b2 = sq(b); \
+\
+T2 b2 = sq(b);         \
   b = mulShl(a, b, 1); \
   a = mul(b2, conjugate_t_squared) + sq(a); \
-  X2conja(a, b); \
+\
+X2conja(a, b);                                  \
 }
 
-// From original code t = swap(base) and we need sq(conjugate(t)).  This macro computes sq(conjugate(t)) from base^2.
-#define swap_squared(a) (-a)
+#if 0
+#define onePairSq(a, b, t2) {
+  X2conjb(a, b);             
+
+T2 b2 = sq(b);
+T2 a2 = sq(a);
+b = mulShl(a, b, 1);
+a = mul(b2, t2) + a2;
+
+X2conja(a, b);
+}
+#endif
+
 
 void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   u32 me = get_local_id(0);
 
-  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
-    if (special && i == 0 && me == 0) {
-      u[i] = foo_m2(conjugate(u[i]));
-      v[i] = sqShl(conjugate(v[i]), 2);
-    } else {
-      onePairSq(u[i], v[i], -base_squared);
-    }
-
-    if (N == NH) {
-      onePairSq(u[i+NH/2], v[i+NH/2], base_squared);
-    }
-
-    T2 new_base_squared = mul_t4(base_squared);
-    onePairSq(u[i+NH/4], v[i+NH/4], -new_base_squared);
-
-    if (N == NH) {
-      onePairSq(u[i+3*NH/4], v[i+3*NH/4], new_base_squared);
-    }
+  if (special && me == 0) {
+    u[0] = foo_m2(conjugate(u[0]));
+    v[0] = sqShl(conjugate(v[0]), 2);
+  } else {
+    onePairSq(u[0], v[0], -base_squared);
   }
+
+  if (N == NH) { onePairSq(u[2], v[2], base_squared); }
+
+  T2 new_base_squared = mul_t4(base_squared);
+  onePairSq(u[1], v[1], -new_base_squared);
+
+  if (N == NH) { onePairSq(u[3], v[3], new_base_squared); }
 }
 
 
@@ -1424,121 +1372,74 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
 #define onePairMul(a, b, c, d, conjugate_t_squared) { \
   X2conjb(a, b); \
   X2conjb(c, d); \
+  \
   T2 tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared)); \
   b = mad(b, c, mul(a, d)); \
   a = tmp; \
+  \
   X2conja(a, b); \
 }
 
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   u32 me = get_local_id(0);
 
-  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
-    if (special && i == 0 && me == 0) {
-      u[i] = conjugate(foo2_m2(u[i], p[i]));
-      v[i] = mulShl(conjugate(v[i]), conjugate(q[i]), 2);
-    } else {
-      onePairMul(u[i], v[i], p[i], q[i], -base_squared);
-    }
-
-    if (N == NH) {
-      onePairMul(u[i+NH/2], v[i+NH/2], p[i+NH/2], q[i+NH/2], base_squared);
-    }
-
-    T2 new_base_squared = mul_t4(base_squared);
-    onePairMul(u[i+NH/4], v[i+NH/4], p[i+NH/4], q[i+NH/4], -new_base_squared);
-
-    if (N == NH) {
-      onePairMul(u[i+3*NH/4], v[i+3*NH/4], p[i+3*NH/4], q[i+3*NH/4], new_base_squared);
-    }
-  }
-}
-
-//{{ MULTIPLY
-KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
-
-  u32 line1 = get_group_id(0);
-  u32 me = get_local_id(0);
-
-  if (line1 == 0 && me == 0) {
-#if MULTIPLY_DELTA
-    io[0]     = foo2_m2(conjugate(io[0]), conjugate(inA[0] - inB[0]));
-    io[W / 2] = conjugate(mulShl(io[W / 2], inA[W / 2] - inB[W / 2], 2));
-#else
-    io[0]     = foo2_m2(conjugate(io[0]), conjugate(in[0]));
-    io[W / 2] = conjugate(mulShl(io[W / 2], in[W / 2], 2));
-#endif
-    return;
+  if (special && me == 0) {
+    u[0] = conjugate(foo2_m2(u[0], p[0]));
+    v[0] = mulShl(conjugate(v[0]), conjugate(q[0]), 2);
+  } else {
+    onePairMul(u[0], v[0], p[0], q[0], -base_squared);
   }
 
-  u32 line2 = (H - line1) % H;
-  u32 g1 = transPos(line1, MIDDLE, WIDTH);
-  u32 g2 = transPos(line2, MIDDLE, WIDTH);
-  u32 k = g1 * W + me;
-  u32 v = g2 * W + (W - 1) - me + (line1 == 0);
-  T2 a = io[k];
-  T2 b = io[v];
-#if MULTIPLY_DELTA
-  T2 c = inA[k] - inB[k];
-  T2 d = inA[v] - inB[v];
-#else
-  T2 c = in[k];
-  T2 d = in[v];
-#endif
-  onePairMul(a, b, c, d, swap_squared(slowTrig_N(me * H + line1, ND / 4)));
-  io[k] = a;
-  io[v] = b;
+  if (N == NH) { onePairMul(u[2], v[2], p[2], q[2], base_squared); }
+
+  T2 new_base_squared = mul_t4(base_squared);
+  onePairMul(u[1], v[1], p[1], q[1], -new_base_squared);
+
+  if (N == NH) { onePairMul(u[3], v[3], p[3], q[3], new_base_squared); }
 }
-//}}
 
-//== MULTIPLY NAME=kernelMultiply, MULTIPLY_DELTA=0
-
-#if NO_P2_FUSED_TAIL
-//== MULTIPLY NAME=kernelMultiplyDelta, MULTIPLY_DELTA=1
-#endif
-
-
-//{{ TAIL_SQUARE
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
+KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];
 
   u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
+  u32 H = ND / W; // WIDTH * MIDDLE
 
   u32 line1 = get_group_id(0);
   u32 line2 = line1 ? H - line1 : (H / 2);
-  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
-  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
 
-#if TAIL_FUSED_LOW
-  read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, v, in, memline2 * SMALL_HEIGHT);
-#else
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
+  
   fft_HEIGHT(lds, u, smallTrig1);
   bar();
   fft_HEIGHT(lds, v, smallTrig1);
-#endif
 
   u32 me = get_local_id(0);
+
+  T2 meTrig = slowTrig_SH(me, SMALL_HEIGHT / 4); // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2)
+  
+  T2 lineTrig = slowTrig_N(line, H/2);
+
+  T2 oneTrig = slowTrig_2SH(1, SMALL_HEIGHT / 8); // make this a const
+  
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);    
-    pairSq(NH/2, u,   u + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2), true);
+    pairSq(NH/2, u,   u + NH/2, meTrig, true);
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2), false);
+    pairSq(NH/2, v,   v + NH/2, mul(meTrig, oneTrig), false);
+    // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2), false);
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / 4), false);
+    
+    pairSq(NH, u, v, mul(meTrig, lineTrig), false);
+    // slowTrig_N(line1 + me * H, ND / 4), false);
     reverseLine(G_H, lds, v);
   }
 
@@ -1546,28 +1447,17 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   fft_HEIGHT(lds, v, smallTrig2);
   bar();
   fft_HEIGHT(lds, u, smallTrig2);
+
+  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
+  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
-//}}
 
-//== TAIL_SQUARE NAME=tailFusedSquare, TAIL_FUSED_LOW=0
-//== TAIL_SQUARE NAME=tailSquareLow,   TAIL_FUSED_LOW=1
-
-
-//{{ TAIL_FUSED_MUL
-#if MUL_2LOW
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig2) {
-#else
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
-#if MUL_DELTA
-                 CP(T2) b,
-#endif
-                 Trig smallTrig1, Trig smallTrig2) {
+KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig1, Trig smallTrig2) {
   // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
-#endif
   
   local T2 lds[SMALL_HEIGHT / 2];
 
@@ -1579,31 +1469,7 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 
   u32 line1 = get_group_id(0);
   u32 line2 = line1 ? H - line1 : (H / 2);
-  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
-  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
   
-#if MUL_DELTA
-  readTailFusedLine(in, u, line1);
-  readTailFusedLine(in, v, line2);
-  readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
-  readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
-  fft_HEIGHT(lds, u, smallTrig1);
-  bar();
-  fft_HEIGHT(lds, v, smallTrig1);
-#elif MUL_LOW
-  readTailFusedLine(in, u, line1);
-  readTailFusedLine(in, v, line2);
-  read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
-  fft_HEIGHT(lds, u, smallTrig1);
-  bar();
-  fft_HEIGHT(lds, v, smallTrig1);
-#elif MUL_2LOW
-  read(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
-  read(G_H, NH, p, in, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, q, in, memline2 * SMALL_HEIGHT);
-#else
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
   readTailFusedLine(a, p, line1);
@@ -1615,7 +1481,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   fft_HEIGHT(lds, p, smallTrig1);
   bar();
   fft_HEIGHT(lds, q, smallTrig1);
-#endif
 
   u32 me = get_local_id(0);
   if (line1 == 0) {
@@ -1637,25 +1502,17 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }
-
+  
   bar();
   fft_HEIGHT(lds, v, smallTrig2);
+  u32 memline2 = transPos(line2, MIDDLE, WIDTH);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
 
   bar();
   fft_HEIGHT(lds, u, smallTrig2);
+  u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
-//}}
-
-//== TAIL_FUSED_MUL NAME=tailMulLowLow,   MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=1
-//== TAIL_FUSED_MUL NAME=tailFusedMulLow, MUL_DELTA=0, MUL_LOW=1, MUL_2LOW=0
-//== TAIL_FUSED_MUL NAME=tailFusedMul,    MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=0
-
-#if !NO_P2_FUSED_TAIL
-// equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
-//== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
-#endif // NO_P2_FUSED_TAIL
  
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL

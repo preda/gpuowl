@@ -26,12 +26,12 @@ class Saver;
 class Signal;
 class ProofSet;
 
-using double2 = pair<double, double>;
-using float2 = pair<float, float>;
-
 // TRIG is a signed value x with |x| < 1 as a signed 128-bit integer scaled such: (x << 127)
 using trig_t = i128;
 using trig2_t = pair<trig_t, trig_t>;
+
+using Word = i64;
+using T = i128;
 
 namespace fs = std::filesystem;
 
@@ -64,7 +64,6 @@ class Gpu {
   QueuePtr queue;
   
   Kernel carryFused;
-  Kernel carryFusedMul;
   Kernel fftP;
   Kernel fftW;
   Kernel fftHin;
@@ -72,15 +71,8 @@ class Gpu {
   Kernel fftMiddleIn;
   Kernel fftMiddleOut;
   
-  Kernel carryA;
-  Kernel carryM;
-  Kernel carryB;
-  
-  Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
 
-  Kernel kernelMultiply;
-  Kernel kernelMultiplyDelta;
   Kernel tailFusedSquare;
   Kernel tailFusedMulDelta;
   Kernel tailFusedMulLow;
@@ -101,17 +93,18 @@ class Gpu {
   ConstBuffer<trig2_t> bufTrigM;
 
   ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
-  ConstBuffer<u32> bufBitsC; // bigWord bits aligned for CarryA/M
 
-  // "integer word" buffers. These are "small buffers": N x int.
-  HostAccessBuffer<int> bufData;   // Main int buffer with the words.
-  HostAccessBuffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
-  Buffer<int> bufCheck;  // Buffers used with the error check.
+  // Word buffers.
+  HostAccessBuffer<i64> bufData;   // Main int buffer with the words.
+  HostAccessBuffer<i64> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
+  Buffer<i64> bufCheck;  // Buffers used with the error check.
   
   // Carry buffers, used in carry and fusedCarry.
   Buffer<i64> bufCarry;  // Carry shuttle.
   
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
+
+  // Stats
   HostAccessBuffer<u32> bufRoundoff;
   HostAccessBuffer<u32> bufCarryMax;
   HostAccessBuffer<u32> bufCarryMulMax;
@@ -121,18 +114,18 @@ class Gpu {
   HostAccessBuffer<u64> bufSumOut;
 
   // Auxilliary big buffers
-  Buffer<double> buf1;
-  Buffer<double> buf2;
-  Buffer<double> buf3;
+  Buffer<i128> buf1;
+  Buffer<i128> buf2;
+  Buffer<i128> buf3;
   
-  vector<int> readSmall(Buffer<int>& buf, u32 start);
+  vector<Word> readSmall(Buffer<Word>& buf, u32 start);
 
-  void tW(Buffer<double>& out, Buffer<double>& in);
-  void tH(Buffer<double>& out, Buffer<double>& in);
-  void tailSquare(Buffer<double>& out, Buffer<double>& in) { tailFusedSquare(out, in); }
+  // void tW(Buffer<double>& out, Buffer<double>& in); fftMiddleIn
+  // void tH(Buffer<double>& out, Buffer<double>& in); fftMiddleOut
+  // void tailSquare(Buffer<double>& out, Buffer<double>& in) { tailFusedSquare(out, in); }
   
-  vector<int> readOut(ConstBuffer<int> &buf);
-  void writeIn(Buffer<int>& buf, const vector<i32> &words);
+  vector<Word> readOut(ConstBuffer<Word> &buf);
+  void writeIn(Buffer<Word>& buf, const vector<Word>& words);
 
   void coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3);
   u32 modSqLoop(Buffer<int>& io, u32 from, u32 to);
@@ -186,8 +179,6 @@ class Gpu {
 public:
   const Args& args;
 
-  Words fold(vector<Buffer<int>>& bufs);
-  
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<double>& inB);
