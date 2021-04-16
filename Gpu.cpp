@@ -31,27 +31,15 @@
 
 using mpfr::mpreal;
 
-/*
-#ifndef M_PIl
-#define M_PIl 3.141592653589793238462643383279502884L
-// 3.141592653589793238462643383279502884195
-#endif
-
-#ifndef M_PI
-#define M_PI 3.141592653589793238462643383279502884
-#endif
-*/
-
 extern const char *CL_SOURCE;
 
 const constexpr trig_t TRIG_ONE = (u128(1) << 127) - 1;
-// TRIG_MINUS_ONE == - TRIG_ONE
+
+constexpr trig_t neg(trig_t x) { return -x; }
 
 // WEIGHT is a value with 0 <= x < 1
 using weight_t = u128;
 const constexpr weight_t WEIGHT_ONE = u128(-1);
-
-static_assert(sizeof(long long) == 8);
 
 u128 toU128(mpreal x) {
   assert(x >= 0 && x <= 1);
@@ -68,18 +56,6 @@ i128 toI128(const mpreal& x) {
   assert(-1 <= x && x <= 1);
   return toU128((x + 1) >> 1) - (u128(1) << 127);
 }
-
-/*
-weight_t toWeight(const mpreal& x) {
-  assert(0 <= x && x <= 1);
-  return (x == 1) ? WEIGHT_ONE : llround(x << 128);
-}
-
-trig_t toTrig(const mpreal& x) {
-  assert(-1 <= x && x <= 1);
-  return (x <= -1) ? -TRIG_ONE : ((x >= 1) ? TRIG_ONE : llround(x << 127));
-}
-*/
 
 struct Weights {
   vector<weight_t> threadWeightsIF;
