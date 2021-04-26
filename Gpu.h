@@ -95,9 +95,9 @@ class Gpu {
   ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
 
   // Word buffers.
-  HostAccessBuffer<i64> bufData;   // Main int buffer with the words.
-  HostAccessBuffer<i64> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
-  Buffer<i64> bufCheck;  // Buffers used with the error check.
+  HostAccessBuffer<i32> bufData;   // Main int buffer with the words.
+  HostAccessBuffer<i32> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
+  Buffer<i32> bufCheck;  // Buffers used with the error check.
   
   // Carry buffers, used in carry and fusedCarry.
   Buffer<i64> bufCarry;  // Carry shuttle.

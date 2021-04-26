@@ -1,71 +1,16 @@
 // Copyright Mihai Preda and George Woltman.
 
-/* List of user-serviceable -use flags and their effects
-
-OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
-IN_WG,IN_SIZEX <AMD default is 256,32>  <nVidia default is 256,4 but needs testing>
-
-UNROLL_WIDTH <nVidia default>
-NO_UNROLL_WIDTH <AMD default>
-
-OLD_FFT8 <default>
-NEWEST_FFT8
-NEW_FFT8
-
-OLD_FFT5
-NEW_FFT5 <default>
-NEWEST_FFT5
-
-CARRY32 <AMD default for PRP when appropriate>
-CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
-
-TRIG_COMPUTE=<n> (default 2), can be used to balance between compute and memory for trigonometrics. TRIG_COMPUTE=0 does more memory access, TRIG_COMPUTE=2 does more compute,
-and TRIG_COMPUTE=1 is in between.
-
-DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
-STATS      enable stats about roundoff distribution and carry magnitude
-
----- P-1 below ----
-
-NO_P2_FUSED_TAIL                // Do not use the big kernel tailFusedMulDelta 
-
-*/
-
-/* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
-AMDGPU  : set on AMD GPUs
-HAS_ASM : set if we believe __asm() can be used
- */
-
-/* List of code-specific macros. These are set by the C++ host code or derived
-EXP        the exponent
-WIDTH
-SMALL_HEIGHT
-MIDDLE
-
--- Derived from above:
-BIG_HEIGHT = SMALL_HEIGHT * MIDDLE
-ND         number of dwords
-NWORDS     number of words
-NW
-NH
-G_W        "group width"
-G_H        "group height"
- */
-
-#if !defined(TRIG_COMPUTE)
-#define TRIG_COMPUTE 1
-#endif
-
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
 
 #define OVL __attribute__((overloadable))
 #define VECTOR(n) __attribute__((ext_vector_type(n)))
 
+#if 0  // We don't use FP
 #pragma OPENCL FP_CONTRACT ON
-
 #ifdef cl_khr_fp64
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#endif
 #endif
 
 // 64-bit atomics used in kernel sum64
@@ -87,24 +32,16 @@ G_H        "group height"
 #endif
 #endif // AMDGPU
 
-#if !HAS_ASM
-// disable everything that depends on ASM
-#define NO_OMOD 1
-#endif
-
-// The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
-// which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
-// For AMD GPUs we do not unroll fft_WIDTH loops. For nVidia GPUs, we unroll everything.
-#if !UNROLL_WIDTH && !NO_UNROLL_WIDTH && !AMDGPU
-#define UNROLL_WIDTH 1
-#endif
-
 // Expected defines: EXP the exponent.
 // WIDTH, SMALL_HEIGHT, MIDDLE.
 
+#if MIDDLE != 1
+#error Only MIDDLE==1 is implemented
+#endif
+    
 #define BIG_HEIGHT (SMALL_HEIGHT * MIDDLE)
-#define ND (WIDTH * BIG_HEIGHT)
-#define NWORDS (ND * 2u)
+#define N (WIDTH * BIG_HEIGHT)
+// #define NWORDS (ND * 2u)
 
 #if WIDTH == 1024 || WIDTH == 256
 #define NW 4
@@ -121,51 +58,8 @@ G_H        "group height"
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
 
-#if !OUT_WG
-#define OUT_WG 256
-#endif
 
-#if !OUT_SIZEX
-#if AMDGPU
-#define OUT_SIZEX 32
-#else // AMDGPU
-#if G_W >= 64
-#define OUT_SIZEX 4
-#else
-#define OUT_SIZEX 32
-#endif
-#endif
-#endif
-
-#if !OUT_SPACING
-#if AMDGPU
-#define OUT_SPACING 4
-#else
-#define OUT_SPACING 1
-#endif
-#endif
-
-#if !IN_WG
-#define IN_WG 256
-#endif
-
-#if !IN_SIZEX
-#if AMDGPU
-#define IN_SIZEX 32
-#else // !AMDGPU
-#if G_W >= 64
-#define IN_SIZEX 4
-#else
-#define IN_SIZEX 32
-#endif
-#endif
-#endif
-
-#if UNROLL_WIDTH
-#define UNROLL_WIDTH_CONTROL
-#else
-#define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
-#endif
+// __attribute__((opencl_unroll_hint(1))) AKA #pragma unroll(1)
 
 void bar() { barrier(0); }
 
@@ -176,15 +70,14 @@ typedef ulong u64;
 typedef long long i128;
 typedef unsigned long long u128;
 
-typedef i64 Word;
-typedef VECTOR(2) Word Word2;
+typedef i32 Word;
 typedef i64 Carry;
+typedef u64 T;
+typedef u64 Weight;
 
-typedef i128 T;
-typedef VECTOR(2) T T2;
-
-typedef u128 Weight;
-typedef VECTOR(2) Weight Weight2;
+// typedef VECTOR(2) Word Word2;
+// typedef VECTOR(2) T T2;
+// typedef VECTOR(2) Weight Weight2;
 
 u32  U32(u32 x)   { return x; }
 u64  U64(u64 x)   { return x; }
@@ -196,10 +89,67 @@ i128 I128(i128 x) { return x; }
 u32 hiU32(u64 x) { return x >> 32; }
 u64 hiU64(u128 x) { return x >> 64; }
 
-#define SHR(a, shift) a = (a >> shift)
+#define PRIME 0xffffffff00000001
 
-// u64  mul64 (u64 a, u64 b)   { return a * b; }
-// u128 mul128(u128 a, u128 b) { return a * b; }
+typedef long long i128;
+typedef unsigned long long u128;
+
+u32  U32(u32 x)   { return x; }
+u64  U64(u64 x)   { return x; }
+u128 U128(u128 x) { return x; }
+i32  I32(i32 x)   { return x; }
+i64  I64(i64 x)   { return x; }
+i128 I128(i128 x) { return x; }
+
+u32 hiU32(u64 x) { return x >> 32; }
+u64 hiU64(u128 x) { return x >> 64; }
+
+#define PRIME 0xffffffff00000001
+
+// x * 0xffffffff
+u64 mulm1(u32 x) { return (U64(x) << 32) - x; }
+
+// Add modulo PRIME. 2^64 % PRIME == U32(-1)
+u64 addc(u64 a, u64 b) {
+  u64 s = a + b;
+  return s + (U32(-1) + (s >= a));
+  // return (s < a) ? s + U32(-1) : s;
+}
+
+u64 modmul(u64 a, u64 b) {
+  u128 ab = U128(a) * b;
+  u64 high = ab >> 64;
+  u64 l0 = high << 32;
+  u64 low2 = l0 - high;
+  bool borrow = low2 > l0;
+  u32 h = U32(high >> 32) - borrow;
+  
+  u64 low = U64(ab) + low2;
+  bool carry = low < low2;
+  h += carry;
+  return addc(low3, mulm1(h));
+}
+
+/*
+u64 modmul(u64 a, u64 b) {
+  u128 ab = U128(a) * b;
+  u64 low = U64(ab);
+  u64 high = ab >> 64;
+  u32 hl = U32(high);
+  u32 hh = high >> 32;
+  u64 s = addc(low, mulm1(hl));
+  u64 hhm1 = mulm1(hh);
+#if 0
+  s = addc(s, hhm1 << 32);
+  s = addc(s, mulm1(hhm1 >> 32));
+#else
+  hhm1 += s >> 32;
+  s = addc((hhm1 << 32) | U32(s), mulm1(hhm1 >> 32));
+#endif
+  return s;
+}
+*/
+
 
 u32  mulh32 (u32 a, u32 b)   { return hiU32(U64(a) * b); }
 u64  mulh64 (u64 a, u64 b)   { return (a >> 32) * (b >> 32) + mulh32(a >> 32, b) + mulh32(a, b >> 32); }
@@ -1418,21 +1368,13 @@ KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig1, Trig s
  
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
- 
-KERNEL(256) testKernel(global long long* io) {
-  u32 me = get_local_id(0);
-  // ulong x = io[me].x;
-  // ulong y = io[me].y;
-  // io[me].x = (((unsigned long long) x) * y) >> 64u;
-  /*
-  long2 xy = as_long2(io[me]);
-  long x = xy.x;
-  long y = xy.y;
-  
-  // long long x = io[me];
-  io[me] = ((long long) x) * y;
-  */
 
-  io[me] = io[me] + io[me + 1];
+kernel void testKernel(global ulong* io) {
+  uint me = get_local_id(0);
+
+  ulong a = io[me];
+  ulong b = io[me + 1];
+  io[me] = modmul(a, b);
 }
+
 #endif
