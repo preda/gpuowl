@@ -3531,22 +3531,63 @@ KERNEL(64) readHwTrig(global float2* outSH, global float2* outBH, global float2*
  
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
- 
-KERNEL(256) testKernel(global long long* io) {
-  u32 me = get_local_id(0);
-  // ulong x = io[me].x;
-  // ulong y = io[me].y;
-  // io[me].x = (((unsigned long long) x) * y) >> 64u;
-  /*
-  long2 xy = as_long2(io[me]);
-  long x = xy.x;
-  long y = xy.y;
-  
-  // long long x = io[me];
-  io[me] = ((long long) x) * y;
-  */
 
-  io[me] = io[me] + io[me + 1];
+typedef long long i128;
+typedef unsigned long long u128;
+
+u32  U32(u32 x)   { return x; }
+u64  U64(u64 x)   { return x; }
+u128 U128(u128 x) { return x; }
+i32  I32(i32 x)   { return x; }
+i64  I64(i64 x)   { return x; }
+i128 I128(i128 x) { return x; }
+
+u32 hiU32(u64 x) { return x >> 32; }
+u64 hiU64(u128 x) { return x >> 64; }
+
+#define PRIME 0xffffffff00000001
+
+// x * 0xffffffff
+u64 mulm1(u32 x) { return (U64(x) << 32) - x; }
+
+u64 addc(u64 a, u64 b) {
+  u64 s = a + b;
+  return s + (U32(-1) + (s >= a));
+  // return (s < a) ? s + U32(-1) : s;
 }
+
+u64 modmul(u64 a, u64 b) {
+  u128 ab = U128(a) * b;
+  u64 low = U64(ab);
+  u64 high = ab >> 64;
+  u32 hl = U32(high);
+  u32 hh = high >> 32;
+  u64 s = addc(low, mulm1(hl));
+  u64 hhm1 = mulm1(hh);
+  s = addc(s, hhm1 << 32);
+  s = addc(s, mulm1(hhm1 >> 32));
+  return s;
+}
+
+kernel void testKernel(global ulong* io) {
+  uint me = get_local_id(0);
+
+  ulong a = io[me];
+  ulong b = io[me + 1];
+  io[me] = modmul(a, b);
+}
+
+/*
+kernel void testKernel(global uint* io) {
+  uint me = get_local_id(0);
+
+  uint a = io[me];
+  uint b = io[me + 1];
+  uint s = a + b;
+  bool carry = (s < a);
+  io[me] = s + carry;
+}
+*/
+
 #endif
 
