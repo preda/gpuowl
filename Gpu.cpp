@@ -342,36 +342,6 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   return program;
 }
 
-float2 fixup(float hw, f128 ref, double& errBits) {
-  f128 r = ref - hw;
-  float c1 = r;
-  r -= c1;
-  
-  float c2 = r;
-  r -= c2;
-
-  double e = relBits(r, ref);
-  if (e < 0) { log("E : %f %f %f\n", double(ref), double(r), double(e)); }
-  assert(!(e < 0));
-  if (e < errBits) { errBits = e; }
-  return {c1, c2};  
-}
-
-vector<pair<float2, float2>> trigFixup(const vector<float2>& hwTrig, const vector<pair<f128, f128>>& ref) {
-  assert(hwTrig.size() == ref.size());
-  vector<pair<float2, float2>> fixupVect;
-
-  double bitsCos = 1000, bitsSin = 1000;
-  
-  for (u32 i = 0; i < ref.size(); ++i) {
-    auto [hwCos, hwSin] = hwTrig[i];
-    auto [refCos, refSin] = ref[i];    
-    fixupVect.push_back({fixup(hwCos, refCos, bitsCos), fixup(hwSin, refSin, bitsSin)});
-  }
-  log("trig table : %u points, cos %.2f bits, sin %.2f bits\n", u32(fixupVect.size()), bitsCos, bitsSin);
-  return fixupVect;
-}
-
 }
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
@@ -510,15 +480,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
     readTrigSH = bufSH.read();
     readTrigBH = bufBH.read();
     readTrigN = bufN.read();
-    auto vSh = trigFixup(readTrigSH, makeTrig<f128>(2 * SMALL_H));
-    auto vBh = trigFixup(readTrigBH, makeTrig<f128>(BIG_H));
-    auto vN  = trigFixup(readTrigN, makeTrig<f128>(hN));
 
-    Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "sp1", vSh},
-                                                             ConstBuffer{context, "sp2", vBh},
-                                                             ConstBuffer{context, "sp3", vN},
-                                                             
-                                                             ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
+    Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
                                                              ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
                                                              ConstBuffer{context, "dp3", makeTrig<double>(hN)},
                                                              ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)},

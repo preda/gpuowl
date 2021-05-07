@@ -1933,16 +1933,11 @@ void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
 }
 
 void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
-  u32 me = get_local_id(0);
-  fft4(u);
-  for (int i = 0; i < 3; ++i) { u[1 + i] = mul(u[1 + i], trig[64 + 64 * i + me]); }
-  shufl2(64, lds,  u, 4, 1);
-  bar();
-  fft4(u);
-  shuflAndMul2(64, lds, trig, u, 4, 4);
-  bar();
-  fft4(u);
-  shuflAndMul2(64, lds, trig, u, 4, 16);
+  for (u32 s = 0; s <= 4; s += 2) {
+    if (s) { bar(); }
+    fft4(u);
+    shuflAndMul2(64, lds, trig, u, 4, 1 << s);
+  }
   fft4(u);
 }
 
@@ -1978,17 +1973,11 @@ void fft1Kw(local T2 *lds, T2 *u, const global T2 *trig) {
 }
 
 void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
-  fft4(u);
-  shuflAndMul(256, lds, trig, u, 4, 64);
-  fft4(u);
-  bar();
-  shuflAndMul(256, lds, trig, u, 4, 16);
-  fft4(u);
-  bar();
-  shuflAndMul(256, lds, trig, u, 4, 4);
-  fft4(u);
-  bar();
-  shuflAndMul(256, lds, trig, u, 4, 1);
+  for (i32 s = 0; s <= 6; s += 2) {
+    if (s) { bar(); }
+    fft4(u);
+    shuflAndMul2(256, lds, trig, u, 4, 1 << s);
+  }
   fft4(u);
 }
 
@@ -2236,8 +2225,7 @@ float fastCosSP(u32 k, u32 tau) {
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(64) writeGlobals(global float4 * trig2ShSP, global float4 * trigBhSP, global float4 * trigNSP,
-                        global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
+KERNEL(64) writeGlobals(global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
                         global double2* trigW,
                         global double2* threadWeights, global double2* carryWeights
                         ) {
