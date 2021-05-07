@@ -1888,7 +1888,9 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
 }
 
-void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
+typedef constant const T2* Trig;
+
+void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   // T2 step = trig[me & ~(f-1)];
   // T2 a = step;
@@ -1900,7 +1902,7 @@ void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   }
 }
 
-void shuflAndMul2(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
+void shuflAndMul2(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {
   tabMul(WG, trig, u, n, f);
   shufl2(WG, lds, u, n, f);
 }
@@ -1944,7 +1946,7 @@ double2 swizzle(double2 u, u32 s, local T2* lds) {
 */
 
 // 64x4
-void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
+void fft256w(local T2 *lds, T2 *u, Trig trig) {
   UNROLL_WIDTH_CONTROL
   for (u32 s = 0; s <= 4; s += 2) {
     if (s) { bar(); }
@@ -1954,7 +1956,7 @@ void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
   fft4(u);
 }
 
-void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
+void fft256h(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 4; s += 2) {
     if (s) { bar(); }
     fft4(u);
@@ -1964,7 +1966,7 @@ void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
 }
 
 // 64x8
-void fft512w(local T2 *lds, T2 *u, const global T2 *trig) {
+void fft512w(local T2 *lds, T2 *u, Trig trig) {
   UNROLL_WIDTH_CONTROL
   for (u32 s = 0; s <= 3; s += 3) {
     if (s) { bar(); }
@@ -1974,7 +1976,7 @@ void fft512w(local T2 *lds, T2 *u, const global T2 *trig) {
   fft8(u);
 }
 
-void fft512h(local T2 *lds, T2 *u, const global T2 *trig) {
+void fft512h(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 3; s += 3) {
     if (s) { bar(); }
     fft8(u);
@@ -1984,7 +1986,7 @@ void fft512h(local T2 *lds, T2 *u, const global T2 *trig) {
 }
 
 // 256x4
-void fft1Kw(local T2 *lds, T2 *u, const global T2 *trig) {
+void fft1Kw(local T2 *lds, T2 *u, Trig trig) {
   UNROLL_WIDTH_CONTROL
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
@@ -1994,7 +1996,7 @@ void fft1Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   fft4(u);
 }
 
-void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
+void fft1Kh(local T2 *lds, T2 *u, Trig trig) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
@@ -2004,7 +2006,7 @@ void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
 }
 
 // 512x8
-void fft4Kw(local T2 *lds, T2 *u, const global T2 *trig) {
+void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
   UNROLL_WIDTH_CONTROL
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
@@ -2014,7 +2016,7 @@ void fft4Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   fft8(u);
 }
 
-void fft4Kh(local T2 *lds, T2 *u, const global T2 *trig) {
+void fft4Kh(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
@@ -2351,7 +2353,6 @@ void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out)
 
 #define P(x) global x * restrict
 #define CP(x) const P(x)
-typedef CP(T2) Trig;
 
 // Read 64 Word2 starting at position 'startDword'.
 KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
