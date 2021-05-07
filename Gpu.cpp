@@ -88,10 +88,22 @@ double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
 }
 
 ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
-  vector<double2> tab(size);
+  vector<double2> tab;
+
+  // smallTrigBlock(size / radix, 2, tab.data());
+
+  for (u32 line = 1; line < radix; ++line) {
+  for (u32 col = 0; col < size / radix; ++col) {
+    tab.push_back(root1<double>(size, col * line));
+  }
+  }
+  tab.resize(size);
+  
+  /*
   auto *p = tab.data() + radix;
   for (u32 w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
   assert(p - tab.data() == size);
+  */
   return {context, "smallTrig", tab};
 }
 
@@ -261,8 +273,6 @@ struct Define {
   
   operator string() const { return str; }
 };
-
-double relBits(double x, double ref) { return log2(fabs(ref)) - log2(fabs(x)); }
 
 float3 to3SP(f128 x) {
   // auto ref = x;

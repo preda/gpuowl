@@ -1890,8 +1890,13 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 
 void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-  for (i32 i = 1; i < n; ++i) {
-    u[i] = mul(u[i], trig[me / f + i * (WG / f)]);
+  // T2 step = trig[me & ~(f-1)];
+  // T2 a = step;
+  
+  for (u32 i = 1; i < n; ++i) {
+    // u[i] = mul(u[i], a);
+    // a = mul(a, step);
+    u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]);
   }
 }
 
@@ -1899,6 +1904,44 @@ void shuflAndMul2(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u3
   tabMul(WG, trig, u, n, f);
   shufl2(WG, lds, u, n, f);
 }
+
+/*
+uint4 swizzle32(uint4 u, u32 s) {
+  if (s == 2) {      
+    u.x = __builtin_amdgcn_ds_swizzle(u.x, 31 - 3);
+    u.y = __builtin_amdgcn_ds_swizzle(u.y, 31 - 3);
+    u.z = __builtin_amdgcn_ds_swizzle(u.z, 31 - 3);
+    u.w = __builtin_amdgcn_ds_swizzle(u.w, 31 - 3);
+  } else if (s == 3) {
+    u.x = __builtin_amdgcn_ds_swizzle(u.x, 31 - 7);
+    u.y = __builtin_amdgcn_ds_swizzle(u.y, 31 - 7);
+    u.z = __builtin_amdgcn_ds_swizzle(u.z, 31 - 7);
+    u.w = __builtin_amdgcn_ds_swizzle(u.w, 31 - 7);
+  } else if (s == 4) {
+    u.x = __builtin_amdgcn_ds_swizzle(u.x, 31 - 15);
+    u.y = __builtin_amdgcn_ds_swizzle(u.y, 31 - 15);
+    u.z = __builtin_amdgcn_ds_swizzle(u.z, 31 - 15);
+    u.w = __builtin_amdgcn_ds_swizzle(u.w, 31 - 15);
+  }
+  return u;
+}
+*/
+
+/*
+double2 swizzle(double2 u, u32 s, local T2* lds) {
+  if (s == 6) {
+    u32 me = get_local_id(0);
+    u32 pos = (me & ~63u) / 2;
+    bar();
+    if ((me & 63u) == 0) { lds[pos] = u; }
+    double2 r = lds[pos];
+    bar();
+    return r;
+  } else {
+    return as_double2(swizzle32(as_uint4(u), s));
+  }
+}
+*/
 
 // 64x4
 void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
@@ -1966,7 +2009,7 @@ void fft4Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul2(512, lds, trig, u, 8, 1u << s);    
+    shuflAndMul2(512, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
 }
@@ -1975,7 +2018,7 @@ void fft4Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul2(512, lds, trig, u, 8, 1u << s);    
+    shuflAndMul2(512, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
 }
