@@ -1872,22 +1872,6 @@ void fft15(T2 *u) {
   u[3] = tmp;
 }
 
-
-void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
-  u32 me = get_local_id(0);
-  u32 m = me / f;
-    
-  local T* lds = (local T*) lds2;
-
-  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i].x; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { lds[(m + i * WG / f) / n * f + m % n * WG + me % f] = u[i].y; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
-}
-
 void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   local T* lds = (local T*) lds2;
@@ -1911,11 +1895,6 @@ void tabMul(u32 WG, const global T2 *trig, T2 *u, u32 n, u32 f) {
   }
 }
 
-void shuflAndMul(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
-  shufl(WG, lds, u, n, f);
-  tabMul(WG, trig, u, n, f);
-}
-
 void shuflAndMul2(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u32 f) {
   tabMul(WG, trig, u, n, f);
   shufl2(WG, lds, u, n, f);
@@ -1924,10 +1903,10 @@ void shuflAndMul2(u32 WG, local T2 *lds, const global T2 *trig, T2 *u, u32 n, u3
 // 64x4
 void fft256w(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
-  for (i32 s = 4; s >= 0; s -= 2) {
-    if (s != 4) { bar(); }
+  for (u32 s = 0; s <= 4; s += 2) {
+    if (s) { bar(); }
     fft4(u);
-    shuflAndMul(64, lds, trig, u, 4, 1 << s);
+    shuflAndMul2(64, lds, trig, u, 4, 1u << s);
   }
   fft4(u);
 }
@@ -1936,7 +1915,7 @@ void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
   for (u32 s = 0; s <= 4; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul2(64, lds, trig, u, 4, 1 << s);
+    shuflAndMul2(64, lds, trig, u, 4, 1u << s);
   }
   fft4(u);
 }
@@ -1944,20 +1923,20 @@ void fft256h(local T2 *lds, T2 *u, const global T2 *trig) {
 // 64x8
 void fft512w(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
-  for (i32 s = 3; s >= 0; s -= 3) {
-    if (s != 3) { bar(); }
+  for (u32 s = 0; s <= 3; s += 3) {
+    if (s) { bar(); }
     fft8(u);
-    shuflAndMul(64, lds, trig, u, 8, 1 << s);
+    shuflAndMul2(64, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
 }
 
 void fft512h(local T2 *lds, T2 *u, const global T2 *trig) {
-  fft8(u);
-  shuflAndMul(64, lds, trig, u, 8, 8);
-  bar();
-  fft8(u);
-  shuflAndMul(64, lds, trig, u, 8, 1);
+  for (u32 s = 0; s <= 3; s += 3) {
+    if (s) { bar(); }
+    fft8(u);
+    shuflAndMul2(64, lds, trig, u, 8, 1u << s);
+  }
   fft8(u);
 }
 
@@ -1967,7 +1946,7 @@ void fft1Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul2(256, lds, trig, u, 4, 1 << s);
+    shuflAndMul2(256, lds, trig, u, 4, 1u << s);
   }
   fft4(u);
 }
@@ -1976,7 +1955,7 @@ void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul2(256, lds, trig, u, 4, 1 << s);
+    shuflAndMul2(256, lds, trig, u, 4, 1u << s);
   }
   fft4(u);
 }
@@ -1984,22 +1963,20 @@ void fft1Kh(local T2 *lds, T2 *u, const global T2 *trig) {
 // 512x8
 void fft4Kw(local T2 *lds, T2 *u, const global T2 *trig) {
   UNROLL_WIDTH_CONTROL
-  for (i32 s = 6; s >= 0; s -= 3) {
-    if (s != 6) { bar(); }
+  for (u32 s = 0; s <= 6; s += 3) {
+    if (s) { bar(); }
     fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, 1 << s);
+    shuflAndMul2(512, lds, trig, u, 8, 1u << s);    
   }
   fft8(u);
 }
+
 void fft4Kh(local T2 *lds, T2 *u, const global T2 *trig) {
-  fft8(u);
-  shuflAndMul(512, lds, trig, u, 8, 64);
-  fft8(u);
-  bar();
-  shuflAndMul(512, lds, trig, u, 8, 8);
-  fft8(u);
-  bar();
-  shuflAndMul(512, lds, trig, u, 8, 1);
+  for (u32 s = 0; s <= 6; s += 3) {
+    if (s) { bar(); }
+    fft8(u);
+    shuflAndMul2(512, lds, trig, u, 8, 1u << s);    
+  }
   fft8(u);
 }
 
