@@ -1872,7 +1872,7 @@ void fft15(T2 *u) {
   u[3] = tmp;
 }
 
-void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
+void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   local T* lds = (local T*) lds2;
 
@@ -1898,9 +1898,9 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   }
 }
 
-void shuflAndMul2(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {
+void shuflAndMul(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {
   tabMul(WG, trig, u, n, f);
-  shufl2(WG, lds, u, n, f);
+  shufl(WG, lds, u, n, f);
 }
 
 // 64x4
@@ -1909,7 +1909,7 @@ void fft256w(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 4; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul2(64, lds, trig, u, 4, 1u << s);
+    shuflAndMul(64, lds, trig, u, 4, 1u << s);
   }
   fft4(u);
 }
@@ -1918,7 +1918,7 @@ void fft256h(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 4; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul2(64, lds, trig, u, 4, 1u << s);
+    shuflAndMul(64, lds, trig, u, 4, 1u << s);
   }
   fft4(u);
 }
@@ -1929,7 +1929,7 @@ void fft512w(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 3; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul2(64, lds, trig, u, 8, 1u << s);
+    shuflAndMul(64, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
 }
@@ -1938,7 +1938,7 @@ void fft512h(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 3; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul2(64, lds, trig, u, 8, 1u << s);
+    shuflAndMul(64, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
 }
@@ -1949,7 +1949,7 @@ void fft1Kw(local T2 *lds, T2 *u, Trig trig) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul2(256, lds, trig, u, 4, 1u << s);
+    shuflAndMul(256, lds, trig, u, 4, 1u << s);
   }
   fft4(u);
 }
@@ -1958,7 +1958,7 @@ void fft1Kh(local T2 *lds, T2 *u, Trig trig) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul2(256, lds, trig, u, 4, 1u << s);
+    shuflAndMul(256, lds, trig, u, 4, 1u << s);
   }
   fft4(u);
 }
@@ -1969,7 +1969,7 @@ void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul2(512, lds, trig, u, 8, 1u << s);
+    shuflAndMul(512, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
 }
@@ -1978,7 +1978,7 @@ void fft4Kh(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul2(512, lds, trig, u, 8, 1u << s);
+    shuflAndMul(512, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
 }
