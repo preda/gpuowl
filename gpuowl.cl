@@ -130,6 +130,8 @@ u64 modmul(u64 a, u64 b) {
   return addc(low3, mulm1(h));
 }
 
+u64 modsq(u64 a) { return modmul(a, a); }
+
 /*
 u64 modmul(u64 a, u64 b) {
   u128 ab = U128(a) * b;
@@ -150,58 +152,6 @@ u64 modmul(u64 a, u64 b) {
 }
 */
 
-
-u32  mulh32 (u32 a, u32 b)   { return hiU32(U64(a) * b); }
-u64  mulh64 (u64 a, u64 b)   { return (a >> 32) * (b >> 32) + mulh32(a >> 32, b) + mulh32(a, b >> 32); }
-u128 mulh128(u128 a, u128 b) { return (a >> 64) * (b >> 64) + mulh64(a >> 64, b) + mulh64(a, b >> 64); }
-
-u128 OVL mulShl(u128 a, u128 b, u32 shift) {
-  u32 n1 = clz(U32(a >> 96));
-  u32 n2 = clz(U32(b >> 96));
-  assert(n1 + n2 >= shift);
-  return mulh128(a << n1, b << n2) >> (n1 + n2 - shift);
-}
-
-i128 OVL mulShl(i128 a, i128 b, u32 shift) {
-  bool neg1 = a < 0;
-  bool neg2 = b < 0;
-  if (neg1) { a = -a; }
-  if (neg2) { b = -b; }
-  u128 r = mulShl((u128) a, (u128) b, shift);
-  return (neg1 != neg2) ? -r : r;
-}
-
-u128 OVL mul(u128 a, u128 b) { return mulShl(a, b, 0); }
-i128 OVL mul(i128 a, i128 b) { return mulShl(a, b, 0); }
-
-i128 OVL mul(i128 a, u128 b) {
-  bool neg = a < 0;
-  if (neg) { a = -a; } // a = abs(a);
-  i128 r = mul((u128) a, b);
-  return neg ? -r : r;
-}
-
-// u128 OVL mulSimple(u128 a, u128 b) { return mulh128(a, b); }
-
-u128 OVL sqShl(u128 a, u32 shift) { return mulShl(a, a, shift); }
-u128 OVL sqShl(i128 a, u32 shift) { return mulShl(a, a, shift); }
-
-u128 OVL sq(u128 a) { return sqShl(a, 0); }
-u128 OVL sq(i128 a) { return sqShl(a, 0); }
-
-// ---- Complex ----
-
-T2 OVL sq(T2 a) { return (T2) ((T) (sq(a.x) - sq(a.y)), mulShl(a.x, a.y, 1)); }
-T2 OVL sqShl(T2 a, u32 shift) { return (T2)((T)(sqShl(a.x, shift) - sqShl(a.y, shift)), mulShl(a.x, a.y, shift + 1)); }
-
-T2 OVL mulShl(T2 a, T2 b, u32 shift) { return (T2) (mulShl(a.x, b.x, shift) - mulShl(a.y, b.y, shift), mulShl(a.x, b.y, shift) + mulShl(a.y, b.x, shift)); }
-T2 OVL mul(T2 a, T2 b) { return mulShl(a, b, 0); }
-
-T2 OVL mul(T2 a, T factor) { return (T2) (mul(a.x, factor), mul(a.y, factor)); }
-
-T2 mad(T2 a, T2 b, T2 c) { return mul(a, b) + c; }
-
-
 // ---- Bits ----
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
@@ -219,27 +169,18 @@ u32 extra(u32 k) {
 bool isBigWordExtra(u32 extra) { return extra < NWORDS - STEP; }
 
 #define SMALL_BITS (EXP / NWORDS)
-#define BIG_BITS (SMALL_BITS + 1)
+// #define BIG_BITS (SMALL_BITS + 1)
 
-u32 bitlen(bool b) { return SMALL_BITS + b; }
+u32 bitlenIsBig(bool isBig) { return SMALL_BITS + isBig; }
 
+u32 bitlenK(u32 k) { return isBigWordExtra(extra(k)); }
+
+/*
 unsigned2 bitlenWord2(u32 k) {
   u32 e = extra(k);
   return (unsigned2) (isBigWordExtra(e), isBigWordExtra((e + STEP) % NWORDS));
 }
-
-
-// ---- Trig ----
-
-T2 mul_t4(T2 a)  { return (T2) (a.y, -a.x); } // mul(a, U2( 0, -1)); }
-
-#define SQRT1_2 0xb504f333f9de6484597d89b3754abe9fULL
-
-T2 mul_t8 (T2 a) { return mul((T2) (a.y + a.x, a.y - a.x), SQRT1_2); }
-T2 mul_3t8(T2 a) { return mul((T2) (a.y - a.x, a.y + a.x), SQRT1_2); }
-
-T2 swap(T2 a)      { return (T2) (a.y,  a.x); }
-T2 conjugate(T2 a) { return (T2) (a.x, -a.y); }
+*/
 
 
 // ---- Weight ----
