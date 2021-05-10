@@ -71,13 +71,9 @@ typedef long long i128;
 typedef unsigned long long u128;
 
 typedef i32 Word;
-typedef i64 Carry;
+typedef u64 Carry;
 typedef u64 T;
 typedef u64 Weight;
-
-// typedef VECTOR(2) Word Word2;
-// typedef VECTOR(2) T T2;
-// typedef VECTOR(2) Weight Weight2;
 
 u32  U32(u32 x)   { return x; }
 u64  U64(u64 x)   { return x; }
@@ -104,18 +100,43 @@ i128 I128(i128 x) { return x; }
 u32 hiU32(u64 x) { return x >> 32; }
 u64 hiU64(u128 x) { return x >> 64; }
 
-#define PRIME 0xffffffff00000001
+#define PRIME 0xffffffff00000001u
+// PRIME == 2^64 - 2^32 + 1
+// 2^64 % PRIME == 0xffffffff == 2^32 - 1
+// 2^96 % PRIME == 0xffffffff'00000000 == PRIME - 1
 
-// x * 0xffffffff
-u64 mulm1(u32 x) { return (U64(x) << 32) - x; }
+u64 reduce(u64 a) { return (a >= PRIME) ? a - PRIME : a }
 
-// Add modulo PRIME. 2^64 % PRIME == U32(-1)
-u64 addc(u64 a, u64 b) {
+u64 mul64(u32 x) { return (U64(x) << 32) - x; } // x * 0xffffffff
+u64 mul96(u32 x) { return neg(x); }
+
+// Add modulo PRIME. 2^64 % PRIME == U32(-1).
+u64 add(u64 a, u64 b) {
   u64 s = a + b;
-  return s + (U32(-1) + (s >= a));
-  // return (s < a) ? s + U32(-1) : s;
+  return reduce(s) + (U32(-1) + (s >= a));
+  // return (s < a) ? reduce(s) + U32(-1) : s;
+  // return s + (U32(-1) + (s >= a));
 }
 
+u64 neg(u64 a) {
+  assert(a < PRIME);
+  return a ? PRIME - a : a;
+}
+
+u64 sub(u64 a, u64 b) {
+  // return (a >= b) ? a - b : (PRIME - reduce(b - a));
+  u64 d = a - b;
+  return (d <= a) ? d : neg(-d);
+  // return (d <= a) ? d : (PRIME - reduce(-d));
+}
+
+u64 reduce(u128 x) { return add(add(U64(x), mul64(x >> 64)), mul96(x >> 96); }
+u64 modmul(u64 a, u64 b) { return reduce(U128(a) * b); }
+u64 modsq(u64 a) { return modmul(a, a); }
+u64 mul1T4(u64 x) { return reduce(U128(x) << 48); }
+u64 mul3T4(u64 x) { return modmul(x, 0xfffeffff00000001ull); } // { return reduce(x * U128(0xfffeffffu) + x); } // 
+
+/*
 u64 modmul(u64 a, u64 b) {
   u128 ab = U128(a) * b;
   u64 high = ab >> 64;
@@ -127,10 +148,9 @@ u64 modmul(u64 a, u64 b) {
   u64 low = U64(ab) + low2;
   bool carry = low < low2;
   h += carry;
-  return addc(low3, mulm1(h));
+  return modadd(low, mulm1(h));
 }
-
-u64 modsq(u64 a) { return modmul(a, a); }
+*/
 
 /*
 u64 modmul(u64 a, u64 b) {
@@ -139,14 +159,14 @@ u64 modmul(u64 a, u64 b) {
   u64 high = ab >> 64;
   u32 hl = U32(high);
   u32 hh = high >> 32;
-  u64 s = addc(low, mulm1(hl));
+  u64 s = modadd(low, mulm1(hl));
   u64 hhm1 = mulm1(hh);
 #if 0
-  s = addc(s, hhm1 << 32);
-  s = addc(s, mulm1(hhm1 >> 32));
+  s = modadd(s, hhm1 << 32);
+  s = modadd(s, mulm1(hhm1 >> 32));
 #else
   hhm1 += s >> 32;
-  s = addc((hhm1 << 32) | U32(s), mulm1(hhm1 >> 32));
+  s = modadd((hhm1 << 32) | U32(s), mulm1(hhm1 >> 32));
 #endif
   return s;
 }
@@ -158,7 +178,7 @@ bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 #define STEP (NWORDS - (EXP % NWORDS))
 
-u32 extra(u32 k) {
+u32 extraK(u32 k) {
 #if NWORDS & (NWORDS - 1) == 0
   return STEP * k % NWORDS;
 #else
@@ -166,178 +186,60 @@ u32 extra(u32 k) {
 #endif
 }
 
-bool isBigWordExtra(u32 extra) { return extra < NWORDS - STEP; }
+bool isBigExtra(u32 extra) { return extra < NWORDS - STEP; }
 
 #define SMALL_BITS (EXP / NWORDS)
 // #define BIG_BITS (SMALL_BITS + 1)
 
 u32 bitlenIsBig(bool isBig) { return SMALL_BITS + isBig; }
+u32 bitlenExtra(u32 extra) { return bitlenIsBig(isBigExtra(extra)); }
 
 u32 bitlenK(u32 k) { return isBigWordExtra(extra(k)); }
 
-/*
-unsigned2 bitlenWord2(u32 k) {
-  u32 e = extra(k);
-  return (unsigned2) (isBigWordExtra(e), isBigWordExtra((e + STEP) % NWORDS));
-}
-*/
-
-
-// ---- Weight ----
-
-#define BITBUFFER 1
-#define SHIFTDOWN (30 + BITBUFFER)
-
-// Flush a word of at most BIG_BITS up, keeping BITBUFFER extra bits of buffer
-T OVL shiftUp(Word u) {
-  assert(BIG_BITS <= (64 - BITBUFFER));
-  return U128(u << (64 - BITBUFFER - BIG_BITS)) << 64;
+u32 incExtra(u32 a, u32 b) {
+  assert(a < NWORDS && b < NWORDS);
+  u32 s = a + b;
+  return (s < NWORDS) ? s : (s - NWORDS);
 }
 
-T2 OVL shiftUp(Word2 u) { return (T2) (shiftUp(u.x), shiftUp(u.y)); }
+// ---- Carry ----
 
-// Round and shift down. The return may not fit on a Word due to unpropagated carry, thus return is i128.
-i128 shiftDown(T u) {
-  u >>= (SHIFTDOWN - 1);
-  return (u >> 1) + (u & 1);
-}
+i32 lowBits(i32 x, u32 n) { return (x << (32 - n)) >> (32 - n); }
 
-// T OVL weight(Word a, Weight w) { return mul(asT(a), w); }
-// T2 OVL weight(Word2 a, Weight2 w) { return (T2) (weight(a.x, w.x), weight(a.y, w.y)); }
-
-// This routine works for both forward und inverse weight updating.
-// Forward weighs are represented halved, and must always have the leading bit 1 (w in [0.5, 1))
-// Inverse weights must also have the leading bit 1 (iw in (0.5, 1])
-Weight updateWeight(Weight w, Weight step) {
-  assert((w >> 127) && (step >> 127));
-  w = mulh128(w, step);
-  if (!(w >> 127)) { w <<= 1; }
-  assert(w >> 127);
+Word carryStep(u64 u, i64* outCarry, u32 extra) {
+  u = reduce(u);
+  u64 midpoint = (PRIME - 1u) >> 1;
+  i64 balanced = (u > midpoint) ? -i64(PRIME - u) : u;
+  u32 nBits = bitlenExtra(extra);
+  assert(nBits < 32);
+  
+  Word w = lowBits(balanced, nBits);
+  *outCarry = (balanced >> nBits) + (w < 0);
   return w;
 }
 
-Weight2 updateWeights(Weight2 w, Weight2 step) { return (Weight2) (updateWeight(w.x, step.x), updateWeight(w.y, step.y)); }
 
-T2 mulWeight(T2 u, Weight2 w) { return (T2) (mul(u.x, w.x), mul(u.y, w.y)); }
+#define X2(a, b) { u64 t = a; a = add(a, b); b = sub(t, b); }
 
-i64 lowBits(i64 u, u32 n) { return (u << (64 - n)) >> (64 - n); }
+#define SWAP(a, b) { u64 t = a; a = b; b = t; }
 
-#define SHIFTDOWN (30 + BITBUFFER)
-
-Word carryStep(T u, Carry* outCarry, bool isBig) {
-  u32 nBits = bitlen(isBig);
-  assert(nBits < 64);
-  assert((u >> (64 + nBits)) == 0 || (u >> (64 + nBits)) == -1); // check outCarry fits on 64bits
-  
-  Word w = lowBits(u, nBits);
-  u >>= nBits;
-  assert(I64(u) == u);
-  *outCarry = I64(u) + (w < 0);
-  return w;
-}
-
-Word2 carryPair(T2 u, Carry* outCarry, bool b1, bool b2, i64 inCarry) {
-  Carry midCarry;
-  Word a = carryStep(shiftDown(u.x) + inCarry, &midCarry, b1);
-  Word b = carryStep(shiftDown(u.y) + midCarry, outCarry, b2);
-  return (Word2) (a, b);
-}
-
-Word2 carryFinal(Word2 u, Carry inCarry, bool b1) {
-  Carry tmpCarry;
-  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
-  u.y += tmpCarry;
-  return u;
-}
-
-// Carry propagation from word and carry.
-Word2 carryWord(Word2 a, Carry* carry, bool b1, bool b2) {
-  a.x = carryStep(a.x + *carry, carry, b1);
-  a.y = carryStep(a.y + *carry, carry, b2);
-  return a;
-}
-
-// Propagate carry this many pairs of words.
-#define CARRY_LEN 8
-
-T2 addsub(T2 a) { return (T2) (a.x + a.y, a.x - a.y); }
-
-T2 fooShl(T2 a, u32 shift) {
-  T c = sqShl(a.x + a.y, shift);
-  T d = mulShl(a.x, a.y, shift + 1);
-  return (T2)(c - d, d);
-}
-
-// fooShl(a, s) == foo2Shl(a, a, s-1).
-T2 foo2Shl(T2 a, T2 b, u32 shift) {
-  a = addsub(a);
-  b = addsub(b);
-  return addsub((T2) (mulShl(a.x, b.x, shift), mulShl(a.y, b.y, shift)));
-}
-
-// computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name. foo(a) == foo2(a, a).
-T2 foo(T2 a) { return fooShl(a, 1); }
-T2 foo_m2(T2 a) { return fooShl(a, 2); }
-
-// computes 2*[a.x*b.x+a.y*b.y + i*(a.x*b.y+a.y*b.x)]
-T2 foo2(T2 a, T2 b) { return foo2Shl(a, b, 0); }
-T2 foo2_m2(T2 a, T2 b) { return foo2Shl(a, b, 1); }
-
-#define X2(a, b) { T2 t = a; a += b; b = t - b; } // { T2 t = a; a.x += b.x; b.x = t.x - b.x; a.y += b.y; b.y = t.y - b.y; }
-
-// Same as X2(a, b), b = mul_t4(b)
-#define X2_mul_t4(a, b) { T2 t = a; a += b; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; } // { T2 t = a; a.x += b.x; a.y += b.y; t.x = b.x - t.x; b.x = t.y - b.y; b.y = t.x; }
-
-// Same as X2(a, conjugate(b))
-#define X2conjb(a, b) { T2 t = a; a.x += b.x; a.y -= b.y; b.x = t.x - b.x; b.y += t.y; }
-
-// Same as X2(a, b), a = conjugate(a)
-#define X2conja(a, b) { T2 t = a; a.x += b.x; a.y = -a.y - b.y; b = t - b; }
-
-#define SWAP(a, b) { T2 t = a; a = b; b = t; }
-
-void fft4(T2 *u) {
-  for (u32 i = 0; i < 4; ++i) { SHR(u[i], 2); }
-  
+void dfft4(u64* u) {
   X2(u[0], u[2]);
-  X2_mul_t4(u[1], u[3]);
-  T2 t = u[2];
-  u[2] = u[0] - u[1];
-  u[0] = u[0] + u[1];
-  u[1] = t + u[3];
-  u[3] = t - u[3];  
-}
-
-void fft2(T2* u) {
-  SHR(u[0], 1);
-  SHR(u[1], 1);
-
+  X2(u[1], u[3]);
+  u[3] = mul1T4(u[3]);
   X2(u[0], u[1]);
+  X2(u[2], u[3]);
+  SWAP(u[1], u[2]);
 }
 
-#if 0
-void fft3by(T2* u, u32 incr) {
-  SHR(u[0], 2);
-  SHR(u[incr], 2);
-  SHR(u[2 * incr], 2);
-
-  // const double COS1 = -0.5;					// cos(tau/3), -0.5
-  const double SIN1 = 0.86602540378443864676372317075294;	// sin(tau/3), sqrt(3)/2, 0.86602540378443864676372317075294
-  
-  X2_mul_t4(u[incr], u[2 * incr]);				// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))
-  
-  T2 tmp23 = u[0] - (u[incr] >> 1); // COS1 * u[1*incr];
-  
-  u[0] += u[incr];
-
-  u[incr] = tmp23;
-  
-  u[2 * incr] = mul(u[2 * incr], SIN1);
-  X2(u[incr], u[2 * incr]);
+void ifft4(u64* u) {
+  X2(u[0], u[2]);
+  X2(u[1], u[3]);
+  u[3] = mul3T4(u[3]);
+  X2(u[0], u[1]);
+  X2(u[2], u[3]);
+  SWAP(u[1], u[2]);
 }
-
-void fft3(T2 *u) { fft3by(u, 1); }
-#endif
 
 void shufl(u32 WG, local long* lds, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
@@ -493,6 +395,10 @@ T2 tableTrig(u32 k, u32 n, u32 kBound, global T2* trigTable) {
   if (negate) { r = -r; }
   return r;
 }
+
+
+#define ATTR(x) __attribute__((x))
+#define WGSIZE(n) ATTR(reqd_work_group_size(n, 1, 1))
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
@@ -799,85 +705,58 @@ void middleShuffle(local long *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
 }
 
 
-KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
-  T2 u[MIDDLE];
-  
-  u32 SIZEY = IN_WG / IN_SIZEX;
-
-  u32 N = WIDTH / IN_SIZEX;
-  
-  u32 g = get_group_id(0);
-  u32 gx = g % N;
-  u32 gy = g / N;
-
+kernel WGSIZE(G_W) carryOut(P(i32) outWords, P(u64) outCarry, CP(u64) inBase, Trig smallTrig, CP(u64) invWeights) {
+  u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
-  u32 mx = me % IN_SIZEX;
-  u32 my = me / IN_SIZEX;
+  // u32 gx = gr % (BIG_HEIGHT / 4);
+  // u32 gy = gr / (BIG_HEIGHT / 4);
 
-  u32 startx = gx * IN_SIZEX;
-  u32 starty = gy * SIZEY;
+  local u64 lds[WIDTH];
 
-  in += starty * WIDTH + startx;
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
+  inBase += 4 * gr;
 
-  middleMul2(u, startx + mx, starty + my);
+  /*
+  u64 baseWeight = invWeights[G_W * gr + me];
+  u32 extraStep1 = extraK(1);
+  u32 extraStepGW = extraK(G_W);
+  u32 weight = baseWeight;
+  */
 
-  fft_MIDDLE(u);
-
-  middleMul(u, starty + my);
+  u32 baseExtra = extraK(WIDTH * 4 * gr + me);
   
-  local long lds[IN_WG / 2 * (MIDDLE <= MIDDLE_LDS_LIMIT ? 2 * MIDDLE : MIDDLE)];
-  middleShuffle(lds, u, IN_WG, IN_SIZEX);
+  u64 u[4];
+  for (u32 round = 0, extra = baseExtra; round < 4; ++round, extra = incExtra(extra, extraK(G_W))) {
+    CP(u64) in = inBase + BIG_HEIGHT * G_W * round;
+    for (u32 i = 0; i < 4; ++i) {
+      u[i] = in[BIG_HEIGHT * (G_W / 4) * i + BIG_HEIGHT * (me / 4) + me % 4];
+    }
+    fft_WIDTH(u, lds);
 
-  out += gx * (BIG_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG) + me;
-  for (u32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
-}
+    for (u32 i = 0; i < 4; ++i) {
+      u[i] = modmul(u[i], invWeights[WIDTH * gr + G_W * i + me]);
+      i32 word = carryStep(u[i], extra);
+    }
 
-KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
-  T2 u[MIDDLE];
+    
+  }
 
-  u32 SIZEY = OUT_WG / OUT_SIZEX;
+  
+  
+  // for (u32 i = 0; i < 16; ++i) { lds[me + WG * i] = in[me % 4 + me / 4 * BIG_HEIGHT + gr * 4 + i * (G_W / 4) * BIG_HEIGHT]; }
+  // bar();
 
-  u32 N = SMALL_HEIGHT / OUT_SIZEX;
+  inBase += gr * 4;
+  
 
-  u32 g = get_group_id(0);
-  u32 gx = g % N;
-  u32 gy = g / N;
+  for (u32 round = 0; round < 4; ++round) {
+    // local u64* lds = ldsBase + WIDTH * round;
 
-  u32 me = get_local_id(0);
-  u32 mx = me % OUT_SIZEX;
-  u32 my = me / OUT_SIZEX;
+    
 
-  // Kernels read OUT_SIZEX consecutive T2.
-  // Each WG-thread kernel processes OUT_SIZEX columns from a needed SMALL_HEIGHT columns
-  // Each WG-thread kernel processes SIZEY rows out of a needed WIDTH rows
+  }
 
-  u32 startx = gx * OUT_SIZEX;  // Each input column increases FFT element by one
-  u32 starty = gy * SIZEY;      // Each input row increases FFT element by BIG_HEIGHT
-  in += starty * BIG_HEIGHT + startx;
-
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
-
-  middleMul(u, startx + mx);
-
-  fft_MIDDLE(u);
-
-  // FFT results come out multiplied by the FFT length (NWORDS).  Also, for performance reasons
-  // weights and invweights are doubled meaning we need to divide by another 2^2 and 2^2.
-  double factor = 1.0 / (4 * 4 * NWORDS);
-
-  middleMul2(u, starty + my, startx + mx);
-  local long lds[OUT_WG / 2 * (MIDDLE <= MIDDLE_LDS_LIMIT ? 2 * MIDDLE : MIDDLE)];
-
-  middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
-
-  out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
-  out += (gy / OUT_SPACING) * (MIDDLE * (OUT_WG * OUT_SPACING));
-  out += (gy % OUT_SPACING) * SIZEY;
-  out += (me / SIZEY) * (OUT_SPACING * SIZEY);
-  out += (me % SIZEY);
-
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
+  
+  
 }
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
