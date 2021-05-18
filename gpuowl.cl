@@ -4,7 +4,6 @@
 #define XSTR(x) #x
 
 #define OVL __attribute__((overloadable))
-#define VECTOR(n) __attribute__((ext_vector_type(n)))
 
 // 64-bit atomics used in kernel sum64
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
@@ -16,25 +15,19 @@
 #else
 #define assert(condition)
 //__builtin_assume(condition)
-#endif // DEBUG
+#endif
 
 #if AMDGPU
 // On AMDGPU the default is HAS_ASM
 #if !NO_ASM
 #define HAS_ASM 1
 #endif
-#endif // AMDGPU
+#endif
 
 // Expected defines: EXP the exponent.
-// WIDTH, SMALL_HEIGHT, MIDDLE.
+// WIDTH, HEIGHT.
 
-#if MIDDLE != 1
-#error Only MIDDLE==1 is implemented
-#endif
-    
-#define BIG_HEIGHT (SMALL_HEIGHT * MIDDLE)
-#define N (WIDTH * BIG_HEIGHT)
-// #define NWORDS (ND * 2u)
+#define N (WIDTH * HEIGHT)
 
 #if WIDTH == 1024 || WIDTH == 256
 #define NW 4
@@ -42,15 +35,14 @@
 #error WIDTH
 #endif
 
-#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256
+#if HEIGHT == 4096 || HEIGHT == 1024 || HEIGHT == 256
 #define NH 4
 #else
-#error SMALL_HEIGHT
+#error HEIGHT
 #endif
 
 #define G_W (WIDTH / NW)
-#define G_H (SMALL_HEIGHT / NH)
-
+#define G_H (HEIGHT / NH)
 
 // __attribute__((opencl_unroll_hint(1))) AKA #pragma unroll(1)
 
@@ -98,7 +90,10 @@ u64 hiU64(u128 x) { return x >> 64; }
 // 2^64 % PRIME == 0xffffffff == 2^32 - 1
 // 2^96 % PRIME == 0xffffffff'00000000 == PRIME - 1
 
-u64 reduce(u64 a) { return (a >= PRIME) ? a - PRIME : a }
+u64 neg(u64 a) {
+  assert(a < PRIME);
+  return a ? PRIME - a : a;
+}
 
 u64 mul64(u32 x) { return (U64(x) << 32) - x; } // x * 0xffffffff
 u64 mul96(u32 x) { return neg(x); }
@@ -111,11 +106,6 @@ u64 add(u64 a, u64 b) {
   // return s + (U32(-1) + (s >= a));
 }
 
-u64 neg(u64 a) {
-  assert(a < PRIME);
-  return a ? PRIME - a : a;
-}
-
 u64 sub(u64 a, u64 b) {
   // return (a >= b) ? a - b : (PRIME - reduce(b - a));
   u64 d = a - b;
@@ -123,8 +113,9 @@ u64 sub(u64 a, u64 b) {
   // return (d <= a) ? d : (PRIME - reduce(-d));
 }
 
-u64 reduce(u128 x) { return add(add(U64(x), mul64(x >> 64)), mul96(x >> 96)); }
-u64 modmul(u64 a, u64 b) { return reduce(U128(a) * b); }
+u64 reduce64(u64 a) { return (a >= PRIME) ? a - PRIME : a }
+u64 reduce128(u128 x) { return add(add(U64(x), mul64(x >> 64)), mul96(x >> 96)); }
+u64 modmul(u64 a, u64 b) { return reduce128(U128(a) * b); }
 u64 modsq(u64 a) { return modmul(a, a); }
 u64 mul1T4(u64 x) { return reduce(U128(x) << 48); }
 u64 mul3T4(u64 x) { return modmul(x, 0xfffeffff00000001ull); } // { return reduce(x * U128(0xfffeffffu) + x); } // 
@@ -179,21 +170,20 @@ u32 extraK(u32 k) {
 #endif
 }
 
-bool isBigExtra(u32 extra) { return extra < NWORDS - STEP; }
-
-#define SMALL_BITS (EXP / NWORDS)
-// #define BIG_BITS (SMALL_BITS + 1)
-
-u32 bitlenIsBig(bool isBig) { return SMALL_BITS + isBig; }
-u32 bitlenExtra(u32 extra) { return bitlenIsBig(isBigExtra(extra)); }
-
-u32 bitlenK(u32 k) { return isBigWordExtra(extra(k)); }
-
 u32 incExtra(u32 a, u32 b) {
   assert(a < NWORDS && b < NWORDS);
   u32 s = a + b;
   return (s < NWORDS) ? s : (s - NWORDS);
 }
+
+bool isBigExtra(u32 extra) { return extra < NWORDS - STEP; }
+
+#define SMALL_BITS (EXP / NWORDS)
+
+u32 bitlenIsBig(bool isBig) { return SMALL_BITS + isBig; }
+u32 bitlenExtra(u32 extra) { return bitlenIsBig(isBigExtra(extra)); }
+
+u32 bitlenK(u32 k) { return isBigWordExtra(extra(k)); }
 
 // ---- Carry ----
 
@@ -252,9 +242,8 @@ void ifft4(u64* u) {
   SWAP(u[1], u[2]);
 }
 
-void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
+void shufl(u32 WG, local u64 *lds, u64 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-  local T* lds = (local T*) lds2;
 
   u32 mask = f - 1;
   assert((mask & (mask + 1)) == 0);
@@ -268,17 +257,15 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
 }
 
-typedef constant const T2* Trig;
+typedef constant const u64* Trig;
  
-void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
+void tabMul(u32 WG, Trig trig, u64* u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   
-  for (u32 i = 1; i < n; ++i) {
-    u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]);
-  }
+  for (u32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]); }
 }
 
-void shuflAndMul(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {
+void shuflAndMul(u32 WG, local u64* lds, Trig trig, u64* u, u32 n, u32 f) {
   tabMul(WG, trig, u, n, f);
   shufl(WG, lds, u, n, f);
 }
@@ -325,33 +312,11 @@ void ifft4K(local T2 *lds, T2 *u, Trig trig) {
   ifft4(u);
 }
 
-
-
- 
-void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
-  for (i32 i = 0; i < N; ++i) { u[i] = in[base + i * WG + (u32) get_local_id(0)]; }
-}
-
-void write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base) {
-  for (i32 i = 0; i < N; ++i) { out[base + i * WG + (u32) get_local_id(0)] = u[i]; }
-}
-
-void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32 base) {
-  for (u32 i = 0; i < N; ++i) {
-    u32 pos = base + i * WG + (u32) get_local_id(0); 
-    u[i] = a[pos] - b[pos];
-  }
-}
-
 #define ATTR(x) __attribute__((x))
 #define WGSIZE(n) ATTR(reqd_work_group_size(n, 1, 1))
 
-// #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
-
 #define P(x) global x * restrict
 #define CP(x) const P(x)
-
-typedef constant const u64* Trig;
 
 kernel WGSIZE(WIDTH) carryOut(P(i32) outWords, P(i64) outCarry, CP(u64) in, Trig smallTrig, Trig bigTrig, Trig bigTrigStep, CP(u64) iWeights) {
   u32 gr = get_group_id(0);
@@ -391,10 +356,13 @@ kernel WGSIZE(WIDTH) carryOut(P(i32) outWords, P(i64) outCarry, CP(u64) in, Trig
 
   i64 carry = 0;
   u32 extra = extraK(4 * gr + HEIGHT * me);
+  u64 iWeight = iWeights[WIDTH * gr + me];
+  
   for (int i = 0; i < 4; ++i) {
-    u64 iWeight = iWeights[WIDTH * gr + WIDTH * HEIGHT / 4 * i + me];
     outWords[WIDTH * gr + WIDTH * HEIGHT / 4 * i + me] = carryStep(lds[i * WIDTH + me], &carry, extra, iWeight);
-    extra = incExtra(extra, extraK(1));    
+    bool isBig = isBigExtra(extra);
+    iWeight = mul(iWeight, isBig ? IWSTEP : IWSTEP_2);
+    extra = isBig ? extra + STEP : (extra + STEP - N);
   }
   outCarry[WIDTH * gr + me] = carry;
 }
@@ -406,18 +374,20 @@ kernel WGSIZE(WIDTH) carryIn(P(u64) out, CP(i64) inCarry, CP(i32) inWords, Trig 
   u32 gm1 = (HEIGHT / 4 - 1 + gr) % (HEIGHT / 4);
   u32 mm1 = (WIDTH - 1 + me) % WIDTH;
   i64 carry64 = inCarry[WIDTH * gm1 + (gr ? me : mm1)];
-  u32 extra = extraK(4 * gr + HEIGHT * me); 
   i32 carry = 0;
 
   local u64 lds[WIDTH * 4];
-  
-  i32 w = inWords[WIDTH * gr + WIDTH * HEIGHT / 4 * i + me];
-  lds[me] = carryWord(w + carry64, &carry, extra, dWeights[WIDTH * gr + me]);
 
+  u32 extra = extraK(4 * gr + HEIGHT * me);
+  u64 dWeight = dWeights[WIDTH * gr + me];
+  
+  lds[me] = carryWord(inWords[WIDTH * gr + me] + carry64, &carry, extra, dWeight);
+  
   for (int i = 1; i < 4; ++i) {
-    extra = incExtra(extra, extraK(1));
+    bool isBig = isBigExtra(extra);
+    dWeight = mul(dWeight, isBig ? DWSTEP : DWSTEP_2);
+    extra = isBig ? extra + STEP : (extra + STEP - N);
     i32 w = inWords[WIDTH * gr + WIDTH * HEIGHT / 4 * i + me];
-    u64 dWeight = dWeights[WIDTH * gr + WIDTH * HEIGHT / 4 * i + me];
     lds[i * WIDTH + me] = (i < 3) ? carryWord(w + carry, &carry, extra, dWeight) : carryFinal(w + carry, dWeight);
   }
 
@@ -451,7 +421,7 @@ kernel WGSIZE(WIDTH) carryIn(P(u64) out, CP(i64) inCarry, CP(i32) inWords, Trig 
   }  
 }
 
-KERNEL(1024) tailSquare(P(T2) out, CP(T2) in, Trig dSmallTrig, Trig iSmallTrig) {
+kernel WGSIZE(1024) tailSquare(P(T2) out, CP(T2) in, Trig dSmallTrig, Trig iSmallTrig) {
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -472,7 +442,7 @@ KERNEL(1024) tailSquare(P(T2) out, CP(T2) in, Trig dSmallTrig, Trig iSmallTrig) 
   for (int i = 0; i < 4; ++i) { out[HEIGHT * gr + 1024u * i + me] = u[i]; }
 }
 
-KERNEL(1024) tailMul(P(T2) out, CP(T2) inA, CP(T2) inB, Trig dSmallTrig, Trig iSmallTrig) {
+kernel WGSIZE(1024) tailMul(P(T2) out, CP(T2) inA, CP(T2) inB, Trig dSmallTrig, Trig iSmallTrig) {
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 

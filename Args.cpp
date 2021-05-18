@@ -88,6 +88,8 @@ void Args::printHelp() {
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
     printf("%2u %s : %s %s\n", i, getUUID(i).c_str(), getLongInfo(deviceIds[i]).c_str(), isAmdGpu(deviceIds[i]) ? "AMD" : "not-AMD");
   }
+
+  /*
   printf("\nFFT Configurations (specify with -fft <width>:<middle>:<height> from the set below):\n");
   
   vector<FFTConfig> configs = FFTConfig::genConfigs();
@@ -109,6 +111,7 @@ void Args::printHelp() {
     activeMaxExp = c.maxExp();
     variants += " "s + c.spec();
   }
+  */
 }
 
 static int getSeqId(const std::string& uid) {

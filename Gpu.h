@@ -26,10 +26,6 @@ class Saver;
 class Signal;
 class ProofSet;
 
-// TRIG is a signed value x with |x| < 1 as a signed 128-bit integer scaled such: (x << 127)
-using trig_t = i128;
-using trig2_t = pair<trig_t, trig_t>;
-
 using Word = i64;
 using T = i128;
 
@@ -53,9 +49,8 @@ class Gpu {
   u32 E;
   u32 N;
 
-  u32 hN, nW, nH, bufSize;
+  u32 nW, nH, bufSize;
   u32 WIDTH;
-  bool useLongCarry;
   bool timeKernels;
 
   cl_device_id device;
@@ -63,66 +58,25 @@ class Gpu {
   Holder<cl_program> program;
   QueuePtr queue;
   
-  Kernel carryFused;
-  Kernel fftP;
-  Kernel fftW;
-  Kernel fftHin;
-  Kernel fftHout;
-  Kernel fftMiddleIn;
-  Kernel fftMiddleOut;
-  
-  Kernel transposeIn, transposeOut;
+  Kernel carryOut;
+  Kernel carryIn;
+  Kernel tailSquare;
+  Kernel tailMul;
 
-  Kernel tailFusedSquare;
-  Kernel tailFusedMulDelta;
-  Kernel tailFusedMulLow;
-  Kernel tailFusedMul;
-  Kernel tailSquareLow;
-  Kernel tailMulLowLow;
-  
-  Kernel readResidue;
-  Kernel isNotZero;
-  Kernel isEqual;
-  Kernel sum64;
-  
-  // Kernel testKernel;
-
-  // Trigonometry constant buffers, used in FFTs.
-  ConstBuffer<trig2_t> bufTrigW;
-  ConstBuffer<trig2_t> bufTrigH;
-  ConstBuffer<trig2_t> bufTrigM;
-
-  ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
+  ConstBuffer<u64> dTrigW, iTrigW, dTrigH, iTrigH;
+  ConstBuffer<u64> dBigTrig, iBigTrig;
 
   // Word buffers.
   HostAccessBuffer<i32> bufData;   // Main int buffer with the words.
   HostAccessBuffer<i32> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
   Buffer<i32> bufCheck;  // Buffers used with the error check.
   
-  // Carry buffers, used in carry and fusedCarry.
   Buffer<i64> bufCarry;  // Carry shuttle.
   
-  Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
-
-  // Stats
-  HostAccessBuffer<u32> bufRoundoff;
-  HostAccessBuffer<u32> bufCarryMax;
-  HostAccessBuffer<u32> bufCarryMulMax;
-
-  // Small aux buffer used to read res64.
-  HostAccessBuffer<int> bufSmallOut;
-  HostAccessBuffer<u64> bufSumOut;
-
   // Auxilliary big buffers
-  Buffer<i128> buf1;
-  Buffer<i128> buf2;
-  Buffer<i128> buf3;
-  
-  vector<Word> readSmall(Buffer<Word>& buf, u32 start);
-
-  // void tW(Buffer<double>& out, Buffer<double>& in); fftMiddleIn
-  // void tH(Buffer<double>& out, Buffer<double>& in); fftMiddleOut
-  // void tailSquare(Buffer<double>& out, Buffer<double>& in) { tailFusedSquare(out, in); }
+  Buffer<u64> buf1;
+  Buffer<u64> buf2;
+  Buffer<u64> buf3;
   
   vector<Word> readOut(ConstBuffer<Word> &buf);
   void writeIn(Buffer<Word>& buf, const vector<Word>& words);
@@ -147,9 +101,6 @@ class Gpu {
 
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
-  void tailMulDelta(Buffer<double>& out, Buffer<double>& in, Buffer<double>& bufA, Buffer<double>& bufB);
-  void tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp);
-  
 
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
