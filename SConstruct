@@ -5,7 +5,9 @@ env['ENV']['TERM'] = os.environ['TERM']
 
 # DefaultEnvironment(CXX='g++-10')
 
-srcs = 'ProofCache.cpp Proof.cpp Pm1Plan.cpp Memlock.cpp log.cpp md5.cpp sha3.cpp AllocTrac.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp gpuowl-wrap.cpp'.split()
+srcs = 'ProofCache.cpp Pm1Plan.cpp Memlock.cpp log.cpp md5.cpp sha3.cpp AllocTrac.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp gpuowl-wrap.cpp Task.cpp'.split()
+
+# Proof.cpp
 
 AlwaysBuild(Command('version.inc', [], 'echo \\"`git describe --tags --long --dirty --always`\\" > $TARGETS'))
 AlwaysBuild(Command('gpuowl-expanded.cl', ['gpuowl.cl'], './tools/expand.py < gpuowl.cl > gpuowl-expanded.cl'))

@@ -81,7 +81,7 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
                         json("fft-length", fftSize)
   };
 
-  // "proof":{"version":1, "power":6, "hashsize":64, "md5":"0123456789ABCDEF"}, 
+  /*
   if (!proofPath.empty()) {
     ProofInfo info = proof::getInfo(proofPath);
     fields.push_back(json("proof", vector<string>{
@@ -91,6 +91,7 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
             json("md5", info.md5)
             }));
   }
+  */
   
   writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
 }
@@ -148,7 +149,8 @@ void Task::adjustBounds(Args& args) {
 
 void Task::execute(const Args& args) {
   LogContext pushContext(std::to_string(exponent));
-  
+
+  /*
   if (kind == VERIFY) {
     Proof proof = Proof::load(verifyPath);
     auto gpu = Gpu::make(proof.E, args);
@@ -156,6 +158,7 @@ void Task::execute(const Args& args) {
     log("proof '%s' %s\n", verifyPath.c_str(), ok ? "verified" : "failed");
     return;
   }
+  */
 
   assert(kind == PRP);
   auto gpu = Gpu::make(exponent, args);

@@ -16,7 +16,7 @@ public:
   static Task makePRP(Args &args, u32 exponent) {
     Task task{Task::PRP, exponent};
     if (args.B1 || args.B2) { task.wantsPm1 = 1; }
-    task.adjustBounds(args);
+    // task.adjustBounds(args);
     return task;
   }
 

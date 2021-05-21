@@ -77,9 +77,11 @@ int main(int argc, char **argv) {
     if (args.prpExp) {
       Worktodo::makePRP(args, args.prpExp).execute(args);
     } else if (!args.verifyPath.empty()) {
-      Worktodo::makeVerify(args, args.verifyPath).execute(args);
+      assert(false);
+      // Worktodo::makeVerify(args, args.verifyPath).execute(args);
     } else {
-      while (auto task = Worktodo::getTask(args)) { task->execute(args); }
+      assert(false);
+      // while (auto task = Worktodo::getTask(args)) { task->execute(args); }
     }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);

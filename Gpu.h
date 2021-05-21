@@ -26,8 +26,7 @@ class Saver;
 class Signal;
 class ProofSet;
 
-using Word = i64;
-using T = i128;
+using Word = i32;
 
 namespace fs = std::filesystem;
 
@@ -64,14 +63,16 @@ class Gpu {
   Kernel tailMul;
 
   ConstBuffer<u64> dTrigW, iTrigW, dTrigH, iTrigH;
-  ConstBuffer<u64> dBigTrig, iBigTrig;
+  ConstBuffer<u64> dBigTrig, iBigTrig, dBigTrigStep, iBigTrigStep;
+  ConstBuffer<u64> dWeights, iWeights;
 
   // Word buffers.
   HostAccessBuffer<i32> bufData;   // Main int buffer with the words.
   HostAccessBuffer<i32> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
-  Buffer<i32> bufCheck;  // Buffers used with the error check.
+  HostAccessBuffer<i32> bufWords;
   
-  Buffer<i64> bufCarry;  // Carry shuttle.
+  Buffer<i32> bufCheck;  // Buffers used with the error check.
+  HostAccessBuffer<i64> bufCarry;  // Carry shuttle.
   
   // Auxilliary big buffers
   Buffer<u64> buf1;
@@ -82,16 +83,9 @@ class Gpu {
   void writeIn(Buffer<Word>& buf, const vector<Word>& words);
 
   void coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3);
-  u32 modSqLoop(Buffer<int>& io, u32 from, u32 to);
-  u32 modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to);
+  u32 modSqLoop(Buffer<i32>& wordsBuf, Buffer<i64>& carryBuf, u32 from, u32 to);
 
-  bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
-  u64 bufResidue(Buffer<int>& buf);
-  
   vector<u32> writeBase(const vector<u32> &v);
-
-  // Both "io" and "in" are in "low" position
-  void multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
 
   void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
   
@@ -102,13 +96,10 @@ class Gpu {
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
 
-  Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
+  Gpu(const Args& args, u32 E, u32 W, u32 HEIGHT, u32 nW, u32 nH,
+      cl_device_id device, bool timeKernels, struct Weights&& weights);
 
   void printRoundoff(u32 E);
-
-  // does either carrryFused() or the expanded version depending on useLongCarry
-  void doCarry(Buffer<double>& out, Buffer<double>& in);
 
   void modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
   
@@ -119,12 +110,6 @@ class Gpu {
   
   u32 maxBuffers();
 
-  template<typename Pm1Plan>
-  void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
-
-  void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
-  bool verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64>& sums);
-  bool verifyP2Block(u32 D, const Words& p1Data, u32 block, const Buffer<double>& bigC, Buffer<int>& bufP2Data);
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
   
 public:
@@ -145,16 +130,15 @@ public:
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);
   
-  Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry);
+  Gpu(const Args& args, u32 E, u32 W, u32 HEIGHT, u32 nW, u32 nH, cl_device_id device, bool timeKernels);
 
   vector<u32> readAndCompress(ConstBuffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   void writeData(const vector<u32> &v) { writeIn(bufData, v); }
   void writeCheck(const vector<u32> &v) { writeIn(bufCheck, v); }
   
-  u64 dataResidue()  { return bufResidue(bufData); }
-  u64 checkResidue() { return bufResidue(bufCheck); }
+  // u64 dataResidue()  { return bufResidue(bufData); }
+  // u64 checkResidue() { return bufResidue(bufCheck); }
     
   bool doCheck(u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
 
