@@ -25,6 +25,7 @@
 #include <bitset>
 #include <limits>
 #include <iomanip>
+#include <iostream>
 
 extern const char *CL_SOURCE;
 
@@ -144,19 +145,27 @@ ConstBuffer<u64> genBigTrigStep(const Context& context, u32 width, u32 height, b
 
 u32 kAt(u32 H, u32 line, u32 col) { return line + col * H; }
 
-u64 weight(u32 N, u32 E, u32 H, u32 line, u32 col) { return root2(N, extra(N, E, kAt(H, line, col))); }
+u64 weight(u32 N, u32 E, u32 H, u32 line, u32 col) {
+  // return 1;
+  return root2(N, extra(N, E, kAt(H, line, col)));
+}
 
-u64 invWeight(u32 N, u32 E, u32 H, u32 line, u32 col) { return root2(N, -extra(N, E, kAt(H, line, col))); }
+u64 invWeight(u32 N, u32 E, u32 H, u32 line, u32 col) {
+  // return 1;
+  return root2(N, -extra(N, E, kAt(H, line, col)));
+}
 
 Weights genWeights(u32 E, u32 W, u32 H) {
+  constexpr const u64 INV_N = 0xfffffbff'00000401;
+  
   u32 N = W * H;
 
   vector<u64> iWeights, dWeights;
   
   for (u32 line = 0; line < H; line += 4) {
     for (u32 col = 0; col < W; ++col) {
-      iWeights.push_back(invWeight(N, E, H, line, col));
       dWeights.push_back(weight(N, E, H, line, col));
+      iWeights.push_back(mul(invWeight(N, E, H, line, col), INV_N));
     }
   }
   return {dWeights, iWeights};
@@ -228,7 +237,7 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   defines.push_back({"DWSTEP_2", mul(weight(N, E, HEIGHT, 1, 0), HALF)});
   
   defines.push_back({"IWSTEP", invWeight(N, E, HEIGHT, 1, 0)});
-  defines.push_back({"IWSTEP_2", mul(invWeight(N, E, HEIGHT, 1, 0), HALF)});
+  defines.push_back({"IWSTEP_2", mul(invWeight(N, E, HEIGHT, 1, 0), 2u)});
     
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
@@ -290,6 +299,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 WIDTH, u32 HEIGHT, u32 nW, u32 nH,
   LOAD(carryIn,    HEIGHT / 4),
   LOAD(tailSquare, WIDTH),
   LOAD(tailMul,    WIDTH),
+  LOAD_WS(transposeWordsIn, N),
+  LOAD_WS(transposeWordsOut, N),
+  LOAD_WS(transposeCarryOut, N / 4),
 #undef LOAD_WS
 #undef LOAD
 
@@ -306,22 +318,23 @@ Gpu::Gpu(const Args& args, u32 E, u32 WIDTH, u32 HEIGHT, u32 nW, u32 nH,
   dWeights{context, "dWeights", weights.dWeights},
   iWeights{context, "iWeights", weights.iWeights},
 
-  bufData{queue, "data", N},
-  bufAux{queue, "aux", N},
+
   bufWords{queue, "words", N},
-  bufCheck{queue, "check", N},
-  bufCarry{queue, "carry", N / 2},
+  bufWordsIO{queue, "wio", N},
+  
+  bufCarry{queue, "carry", N / 4},
+  bufCarryIO{queue, "cio", N / 4},
+  
   buf1{queue, "buf1", N},
-  buf2{queue, "buf2", N},
-  buf3{queue, "buf3", N},
   args{args}
 {
+  program.reset();
+
   carryIn.setFixedArgs(3,  dTrigW, dBigTrig, dBigTrigStep, dWeights);
   carryOut.setFixedArgs(3, iTrigW, iBigTrig, iBigTrigStep, iWeights);
   tailSquare.setFixedArgs(1, dTrigH, iTrigH);
   tailMul.setFixedArgs(2, dTrigH, iTrigH);  
-  finish();
-  program.reset();
+  // finish();
 }
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
@@ -366,17 +379,6 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
   return make_unique<Gpu>(args, E, WIDTH, HEIGHT, nW, nH, getDevice(args.device), timeKernels);
 }
-
-// vector<u32> Gpu::readCheck() { return readAndCompress(bufCheck); }
-// vector<u32> Gpu::readData() { return readAndCompress(bufData); }
-
-/*
-bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  modSqLoopMul3(bufAux, bufCheck, 0, blockSize);  
-  modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);  
-  return equalNotZero(bufCheck, bufAux);
-}
-*/
 
 void Gpu::logTimeKernels() {
   if (timeKernels) {
@@ -515,289 +517,85 @@ template<typename Future> bool wait(const Future& f) {
   }
 }
 
+template<typename T>
+void print(const string& s, const vector<T>& v, int limit = 200) {
+  int cnt = 0;
+  for (u32 i = 0, end = v.size(); i < end && cnt < limit; ++i) {
+    if (v[i]) {
+      cout << s << " " << cnt << " " << i << " " << v[i] << endl;
+      ++cnt;
+    }
+  }
+}
+
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
-  return {};
-  
-#if 0  
-  u32 E = task.exponent;
-  u32 b1 = task.B1;
-  u32 b2 = task.B2;
-  u32 k = 0, blockSize = 0;
-  u32 nErrors = 0;
+  vector<i32> in(N);
+  in[0] = 3;
+  // in[1024] = 1;
+  // bufWords.set({3,5});
+  bufWords.write(in);
+  bufCarry.zero();
 
-  log("maxAlloc: %.1f GB\n", args.maxAlloc * (1.0f / (1 << 30)));
-  if (!args.maxAlloc) {
-    log("You should use -maxAlloc if your GPU has more than 4GB memory. See help '-h'\n");
-  }
-  
-  u32 power = -1;
-  u32 startK = 0;
-
-  Saver saver{E, args.nSavefiles, b1, args.startFrom};
-  B1Accumulator b1Acc{this, &saver, E};
-  future<string> gcdFuture;
-  future<JacobiResult> jacobiFuture;
-  Signal signal;
-
-  // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.
-  std::optional<u64> lastFailedRes64;
-
-  // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
-  int nSeqErrors = 0;
-  
- reload:
-  {
-    PRPState loaded = saver.loadPRP(args.blockSize);
-    b1Acc.load(loaded.k);
+  for (int rep = 0; rep < 7; ++rep) {
     
-    writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
-    
-    u64 res = dataResidue();
-    if (res == loaded.res64) {
-      log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res);
-      // On the OK branch do not clear lastFailedRes64 -- we still want to compare it with the GEC check.
-    } else {
-      log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", loaded.k, res, loaded.res64);
-      if (lastFailedRes64 && res == *lastFailedRes64) {
-        throw "error on load";
-      }
-      lastFailedRes64 = res;
-      goto reload;
-    }
-    
-    k = loaded.k;
-    blockSize = loaded.blockSize;
-    if (nErrors == 0) { nErrors = loaded.nErrors; }
-    assert(nErrors >= loaded.nErrors);
-  }
+  carryIn(buf1, bufWords, bufCarry);
+  tailSquare(buf1);
+  // carryOut(bufWords, bufCarry, buf1);
 
-  if (k) {
-    Words b1Data = b1Acc.fold();
-    if (!b1Data.empty()) {
-      // log("P1 %9u starting on-load Jacobi check\n", k);
-      jacobiFuture = async(launch::async, doJacobiCheck, E, std::move(b1Data), k);
+  /*
+  auto words = bufWords.read();
+  u32 cnt = 0;
+  for (u32 i = 0, end = words.size(); i < end && cnt < 2000; ++i) {
+    if (words[i]) {
+      printf("%3u %u %lu\n", cnt, i, u64(words[i]));
+      ++cnt;
     }
   }
+  */
 
-  assert(blockSize > 0 && 10000 % blockSize == 0);
+
   
-  u32 checkStep = checkStepForErrors(args.logStep, nErrors);
-  assert(checkStep % 10000 == 0);
+  carryOut(bufWords, bufCarry, buf1);
 
-  if (!startK) { startK = k; }
+    print("words", bufWords.read());
+    print("carry", bufCarry.read());
+  
+  transposeWordsOut(bufWordsIO, bufWords);
+  transposeCarryOut(bufCarryIO, bufCarry);
+  auto data = bufWordsIO.read();
+  auto carries = bufCarryIO.read();
+  // print("c", carries);
+  auto words = compactBits(data, carries, E);
 
-  if (power == u32(-1)) {
-    power = ProofSet::effectivePower(args.tmpDir, E, args.proofPow, startK);
-    if (!power) {
-      log("Proof disabled because of missing checkpoints\n");
-    } else if (power != args.proofPow) {
-      log("Proof using power %u (vs %u) for %u\n", power, args.proofPow, E);
-    } else {
-      log("Proof using power %u\n", power);
+  // print("trans", data);
+  
+  print("comp", words);
+  cout << endl;
+  }
+
+  /*
+  u32 cnt = 0;
+  for (u32 i = 0, end = words.size(); i < end && cnt < 200; ++i) {
+    if (words[i]) {
+      printf("%3u %u %u\n", cnt, i, words[i]);
+      ++cnt;
     }
   }
+  */
+
   
-  ProofSet proofSet{args.tmpDir, E, power};
-
-  bool isPrime = false;
-  IterationTimer iterationTimer{startK};
-
-  u64 finalRes64 = 0;
-
-  // We extract the res64 at kEnd.
-  // For M=2^E-1, residue "type-3" == 3^(M+1), and residue "type-1" == type-3 / 9,
-  // See http://www.mersenneforum.org/showpost.php?p=468378&postcount=209
-  // For both type-1 and type-3 we need to do E squarings (as M+1==2^E).
-  const u32 kEnd = E;
-  assert(k < kEnd);
-
-  // We continue beyound kEnd: up to the next multiple of 1024 if proof is enabled (kProofEnd), and up to the next blockSize
-  u32 kEndEnd = roundUp(kEnd, blockSize);
-
-  bool printStats = args.flags.count("STATS");
-
-  bool skipNextCheckUpdate = false;
-
-  u32 persistK = proofSet.next(k);
-  bool leadIn = true;
-
-  assert(k % blockSize == 0);
-  assert(checkStep % blockSize == 0);
-
-  bool didP2 = false;
-  
-  while (true) {
-    assert(k < kEndEnd);
-
-    if (finished(jacobiFuture)) {
-      auto [ok, jacobiK, res] = jacobiFuture.get();
-      log("P1 Jacobi %s @ %u %016" PRIx64 "\n", ok ? "OK" : "EE", jacobiK, res);      
-      if (!ok) {
-        if (jacobiK < k) {
-          saver.deleteBadSavefiles(jacobiK, k);
-          ++nErrors;
-          goto reload;
-        }
-      }
-    }
-    
-    if (skipNextCheckUpdate) {
-      skipNextCheckUpdate = false;
-    } else if (k % blockSize == 0) {
-      if (leadIn) {
-        modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
-      } else {
-        mul(bufCheck, buf1);
-      }
-    }
-
-    ++k; // !! early inc
-    assert(b1Acc.wantK() == 0 || b1Acc.wantK() >= k);
-
-    bool doStop = false;
-    bool b1JustFinished = false;
-
-    if (k % blockSize == 0) {
-      doStop = signal.stopRequested() || (args.iters && k - startK >= args.iters);
-      b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
-    }
-    
-    bool leadOut = doStop || b1JustFinished || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
-
-    coreStep(bufData, bufData, leadIn, leadOut, false);
-    leadIn = leadOut;    
-    
-    if (k == persistK) {
-      Words data = readData();
-      if (data.empty()) {
-        log("Data error ZERO\n");
-        ++nErrors;
-        goto reload;
-      }
-      proofSet.save(k, data);
-      persistK = proofSet.next(k);
-    }
-
-    if (k == kEnd) {
-      auto words = readData();
-      isPrime = equals9(words);
-      doDiv9(E, words);
-      finalRes64 = residue(words);
-      log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
-    }
-
-    if (k == b1Acc.wantK()) {
-      if (leadOut) {
-        b1Acc.step(k, bufData);
-      } else {
-        b1Acc.step(k, buf1);
-      }
-      assert(!b1Acc.wantK() || b1Acc.wantK() > k);
-    }
-
-    if (!leadOut) {
-      if (k % blockSize == 0) {
-        finish();
-        if (!args.noSpin) { spin(); }
-      }
-      continue;
-    }
-
-    u64 res = dataResidue(); // implies finish()
-    bool doCheck = !res || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
-      
-    if (k % 10000 == 0 && !doCheck) {
-      float secsPerIt = iterationTimer.reset(k);
-      // log("   %9u %6.2f%% %s %4.0f us/it\n", k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
-      log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
-    }
-      
-    if (doStop) {
-      log("Stopping, please wait..\n");
-      signal.release();
-      wait(gcdFuture);
-    }
-      
-    if (finished(gcdFuture)) {
-      string factor = gcdFuture.get();
-      log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
-      
-      assert(didP2);
-      if (didP2) { task.writeResultPM1(args, factor, getFFTSize()); }
-      
-      if (!factor.empty()) { return {factor}; }
-    }
-      
-    if (doCheck) {
-      if (printStats) { printRoundoff(E); }
-
-      float secsPerIt = iterationTimer.reset(k);
-
-      Words check = readCheck();
-      if (check.empty()) { log("Check read ZERO\n"); }
-
-      bool ok = !check.empty() && this->doCheck(blockSize, buf1, buf2, buf3);
-
-      float secsCheck = iterationTimer.reset(k);
-        
-      if (ok) {
-        nSeqErrors = 0;
-        lastFailedRes64.reset();
-        skipNextCheckUpdate = true;
-
-        Words b1Data;
-        try {
-          b1Data = b1Acc.save(k);
-        } catch (Reload&) {
-          goto reload;
-        }
-
-        if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res, check, nErrors}); }
-
-        float secsSave = iterationTimer.reset(k);
-          
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, ::res64(b1Data));
-
-        if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0)) && !jacobiFuture.valid()) {
-          // log("P1 %9u starting Jacobi check\n", k);
-          jacobiFuture = async(launch::async, doJacobiCheck, E, std::move(b1Data), k);
-        }
-
-        if (!doStop && !didP2 && !b1Acc.wantK() && !jacobiFuture.valid()) {
-          doP2(&saver, b1, b2, gcdFuture, signal);
-          didP2 = true;
-        }
-          
-        if (k >= kEndEnd) {
-          fs::path proofFile = saveProof(args, proofSet);
-          return {"", isPrime, finalRes64, nErrors, proofFile.string()};          
-        }
-        
-      } else {
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, 0);
-        ++nErrors;
-        if (++nSeqErrors > 2) {
-          log("%d sequential errors, will stop.\n", nSeqErrors);
-          throw "too many errors";
-        }
-        if (lastFailedRes64 && res == *lastFailedRes64) {
-          log("Consistent error %016" PRIx64 ", will stop.\n", res);
-          throw "consistent error";
-        }
-        lastFailedRes64 = res;
-        if (!doStop) { goto reload; }
-      }
-        
-      logTimeKernels();
-        
-      if (doStop) {
-        assert(!gcdFuture.valid());
-        queue->finish();
-        throw "stop requested";
-      }
-        
-      iterationTimer.reset(k);
+  /*
+  tailSquare(buf1);
+  carryOut(bufWords, bufCarry, buf1);
+  auto words = bufWords.read();
+  u32 cnt = 0;
+  for (u32 i = 0, end = words.size(); i < end && cnt < 200; ++i) {
+    if (words[i]) {
+      printf("%3u %u %d\n", cnt, i, words[i]);
+      ++cnt;
     }
   }
-#endif
+  */
+  
+  return {};  
 }

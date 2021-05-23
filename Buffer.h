@@ -84,6 +84,11 @@ public:
     fillBuf(queue->get(), this->get(), &value, sizeof(T), sizeof(T));
   }
 
+  void set(const vector<T>& v) {
+    zero();
+    fillBuf(queue->get(), this->get(), v.data(), v.size() * sizeof(T), v.size() * sizeof(T));
+  }
+
   // device-side copy
   void operator<<(const ConstBuffer<T>& rhs) {
     assert(this->size == rhs.size);

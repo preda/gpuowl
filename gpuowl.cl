@@ -279,7 +279,7 @@ void dFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
   for (i32 s = 0; s <= 8; s += 2) {
     if (s) { bar(); }
     dfft4(u);
-    shuflAndMul(me, 256, lds, trig, u, 4, 1u << s);
+    shuflAndMul(me, 1024, lds, trig, u, 4, 1u << s);
   }
   dfft4(u);
 }
@@ -289,7 +289,7 @@ void iFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
   for (i32 s = 0; s <= 8; s += 2) {
     if (s) { bar(); }
     ifft4(u);
-    shuflAndMul(me, 256, lds, trig, u, 4, 1u << s);
+    shuflAndMul(me, 1024, lds, trig, u, 4, 1u << s);
   }
   ifft4(u);
 }
@@ -299,6 +299,60 @@ void iFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
 
 #define P(x) global x * restrict
 #define CP(x) const P(x)
+
+kernel WGSIZE(WIDTH) void carryIn(P(u64) out, CP(i32) inWords, CP(i64) inCarry, Trig smallTrig, Trig bigTrig, Trig bigTrigStep, CP(u64) dWeights) {
+  u32 gr = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  u32 gm1 = (HEIGHT / 4 - 1 + gr) % (HEIGHT / 4);
+  u32 mm1 = (WIDTH - 1 + me) % WIDTH;
+  i64 carry64 = inCarry[WIDTH * gm1 + (gr ? me : mm1)];
+  i32 carry = 0;
+
+  local u64 lds[WIDTH * 4];
+
+  u32 extra = extraK(4 * gr + HEIGHT * me);
+  u64 dWeight = dWeights[WIDTH * gr + me];
+  
+  lds[me] = carryWord(inWords[4 * WIDTH * gr + me] + carry64, &carry, extra, dWeight);
+  
+  for (int i = 1; i < 4; ++i) {
+    bool isBig = isBigExtra(extra);
+    dWeight = mul(dWeight, isBig ? DWSTEP : DWSTEP_2);
+    extra = isBig ? extra + STEP : (extra + STEP - N);
+    i32 w = inWords[4 * WIDTH * gr + WIDTH * i + me];
+    lds[i * WIDTH + me] = (i < 3) ? carryWord(w + carry, &carry, extra, dWeight) : carryFinal(w + carry, dWeight);
+  }
+
+  bar();
+  
+  {
+    u64 u[4];
+    u32 mx = me % 256;
+    u32 my = me / 256;
+    for (int i = 0; i < 4; ++i) { u[i] = lds[256 * i + mx + WIDTH * my]; }
+
+    dFFT1K(mx, lds + WIDTH * my, u, smallTrig);
+
+    bar();
+    
+    for (int i = 0; i < 4; ++i) { lds[256 * i + mx + WIDTH * my] = u[i]; }
+  }
+
+  bar();
+
+  if (me < 256) {
+    u32 mx = me % 4;
+    u32 my = me / 4;
+    u64 trig = bigTrig[gr * 256 + me];
+    u64 trigStep = bigTrigStep[4 * gr + mx];
+    for (int i = 0; i < 16; ++i) {
+      u64 u = lds[my + WIDTH * mx + 64 * i];
+      out[4 * gr + 64 * HEIGHT * i + mx + HEIGHT * my] = mul(u, trig);
+      trig = mul(trig, trigStep);
+    }
+  }  
+}
 
 kernel WGSIZE(WIDTH) void carryOut(P(i32) outWords, P(i64) outCarry, CP(u64) in, Trig smallTrig, Trig bigTrig, Trig bigTrigStep, CP(u64) iWeights) {
   u32 gr = get_group_id(0);
@@ -341,66 +395,12 @@ kernel WGSIZE(WIDTH) void carryOut(P(i32) outWords, P(i64) outCarry, CP(u64) in,
   u64 iWeight = iWeights[WIDTH * gr + me];
   
   for (int i = 0; i < 4; ++i) {
-    outWords[WIDTH * gr + WIDTH * HEIGHT / 4 * i + me] = carryStep(lds[i * WIDTH + me], &carry, extra, iWeight);
+    outWords[4 * WIDTH * gr + WIDTH * i + me] = carryStep(lds[i * WIDTH + me], &carry, extra, iWeight);
     bool isBig = isBigExtra(extra);
     iWeight = mul(iWeight, isBig ? IWSTEP : IWSTEP_2);
     extra = isBig ? extra + STEP : (extra + STEP - N);
   }
   outCarry[WIDTH * gr + me] = carry;
-}
-
-kernel WGSIZE(WIDTH) void carryIn(P(u64) out, CP(i32) inWords, CP(i64) inCarry, Trig smallTrig, Trig bigTrig, Trig bigTrigStep, CP(u64) dWeights) {
-  u32 gr = get_group_id(0);
-  u32 me = get_local_id(0);
-
-  u32 gm1 = (HEIGHT / 4 - 1 + gr) % (HEIGHT / 4);
-  u32 mm1 = (WIDTH - 1 + me) % WIDTH;
-  i64 carry64 = inCarry[WIDTH * gm1 + (gr ? me : mm1)];
-  i32 carry = 0;
-
-  local u64 lds[WIDTH * 4];
-
-  u32 extra = extraK(4 * gr + HEIGHT * me);
-  u64 dWeight = dWeights[WIDTH * gr + me];
-  
-  lds[me] = carryWord(inWords[WIDTH * gr + me] + carry64, &carry, extra, dWeight);
-  
-  for (int i = 1; i < 4; ++i) {
-    bool isBig = isBigExtra(extra);
-    dWeight = mul(dWeight, isBig ? DWSTEP : DWSTEP_2);
-    extra = isBig ? extra + STEP : (extra + STEP - N);
-    i32 w = inWords[WIDTH * gr + WIDTH * HEIGHT / 4 * i + me];
-    lds[i * WIDTH + me] = (i < 3) ? carryWord(w + carry, &carry, extra, dWeight) : carryFinal(w + carry, dWeight);
-  }
-
-  bar();
-  
-  {
-    u64 u[4];
-    u32 mx = me % 256;
-    u32 my = me / 256;
-    for (int i = 0; i < 4; ++i) { u[i] = lds[256 * i + mx + WIDTH * my]; }
-
-    dFFT1K(mx, lds + WIDTH * my, u, smallTrig);
-
-    bar();
-    
-    for (int i = 0; i < 4; ++i) { lds[256 * i + mx + WIDTH * my] = u[i]; }
-  }
-
-  bar();
-
-  if (me < 256) {
-    u32 mx = me % 4;
-    u32 my = me / 4;
-    u64 trig = bigTrig[gr * 256 + me];
-    u64 trigStep = bigTrigStep[4 * gr + mx];
-    for (int i = 0; i < 16; ++i) {
-      u64 u = lds[my + WIDTH * mx + 64 * i];
-      out[4 * gr + 64 * HEIGHT * i + mx + HEIGHT * my] = mul(u, trig);
-      trig = mul(trig, trigStep);
-    }
-  }  
 }
 
 kernel WGSIZE(1024) void tailSquare(P(u64) io, Trig dSmallTrig, Trig iSmallTrig) {
@@ -449,7 +449,50 @@ kernel WGSIZE(1024) void tailMul(P(u64) io, CP(u64) inB, Trig dSmallTrig, Trig i
 
   for (int i = 0; i < 4; ++i) { io[HEIGHT * gr + 1024u * i + me] = u[i]; }
 }
- 
+
+void trans32(P(u32) out, P(u32) in, u32 width, u32 height, local u32* lds) {
+  u32 gr = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  u32 gx = gr % (width / 32);
+  u32 gy = gr / (width / 32);
+  u32 mx = me % 32;
+  u32 my = me / 32;
+  
+  lds[32 * mx + my] = in[width * (32 * gy + my) + 32 * gx + mx];
+  bar();
+  out[height * (32 * gx + my) + 32 * gy + mx] = lds[32 * my + mx];
+}
+
+void trans64(P(i64) out, P(i64) in, u32 width, u32 height, local i64* lds) {
+  u32 gr = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  u32 gx = gr % (width / 32);
+  u32 gy = gr / (width / 32);
+  u32 mx = me % 32;
+  u32 my = me / 32;
+  
+  lds[32 * mx + my] = in[width * (32 * gy + my) + 32 * gx + mx];
+  bar();
+  out[height * (32 * gx + my) + 32 * gy + mx] = lds[32 * my + mx];
+}
+
+kernel WGSIZE(1024) void transposeWordsOut(P(u32) out, P(u32) in) {
+  local u32 lds[1024];
+  trans32(out, in, WIDTH, HEIGHT, lds);
+}
+
+kernel WGSIZE(1024) void transposeWordsIn(P(u32) out, P(u32) in) {
+  local u32 lds[1024];
+  trans32(out, in, HEIGHT, WIDTH, lds);
+}
+
+kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
+  local i64 lds[1024];
+  trans64(out, in, WIDTH, HEIGHT / 4, lds);
+}
+
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 kernel void testKernel(global ulong* io) {
   uint me = get_local_id(0);

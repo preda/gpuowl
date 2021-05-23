@@ -359,7 +359,7 @@ std::string getKernelArgName(cl_kernel k, int pos) {
   return buf;
 }
 
-void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size, size_t start) {
+void fillBuf(cl_queue q, cl_mem buf, const void *pat, size_t patSize, size_t size, size_t start) {
   CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, start, size ? size : patSize, 0, 0, 0));
 }
 

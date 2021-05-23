@@ -6,44 +6,43 @@
 #include <cassert>
 #include <memory>
 #include <cmath>
+#include <iostream>
 
 static u32 bitlen(u32 N, u32 E, u32 k) { return E / N + isBigWord(N, E, k); }
 
 static i64 lowBits(i64 u, int bits) { return (u << (64 - bits)) >> (64 - bits); }
 
-static u64 unbalance(int w, int nBits, int *carry) {
-  assert(*carry == 0 || *carry == -1);
-  w += *carry;
-  *carry = 0;
-  if (w < 0) {
-    w += (1 << nBits);
-    *carry = -1;
-  }
-  if (!(0 <= w && w < (1 << nBits))) { log("w=%d, nBits=%d\n", w, nBits); }
-  assert(0 <= w && w < (1 << nBits));
-  return w;
+static u32 unbalance(i32 w, u32 nBits, i64& carry) {
+  assert(carry + w == i128(carry) + w); // no overflow
+  carry += w;
+
+  u32 bits = carry & ((1u << nBits) - 1);
+  carry >>= nBits;
+  return bits;
 }
 
-std::vector<u32> compactBits(const vector<int> &dataVect, u32 E) {
+std::vector<u32> compactBits(const vector<i32>& data, const vector<i64>& carries, u32 E) {
   std::vector<u32> out;
   out.reserve((E - 1) / 32 + 1);
 
-  u32 N = dataVect.size();
-  const int *data = dataVect.data();
-
-  int carry = 0;
+  u32 N = data.size();
+  assert(N == carries.size() * 4);
+  
+  i64 carry = carries.back();
   u32 outWord = 0;
-  int haveBits = 0;
+  u32 haveBits = 0;
 
   for (u32 p = 0; p < N; ++p) {
-    int nBits = bitlen(N, E, p);
-    u32 w = unbalance(data[p], nBits, &carry);
+    if (p && (p % 4 == 0)) {
+      // if (carries[p/4 - 1]) { cout << carry << ' ' << carries[p/4-1] << endl; }
+      carry += carries[p / 4 - 1];
+    }
 
-    assert(nBits > 0);
-    assert(w < (1u << nBits));
+    u32 nBits = bitlen(N, E, p);
+    u32 w = unbalance(data[p], nBits, carry);
 
     assert(haveBits < 32);
-    int topBits = 32 - haveBits;
+    u32 topBits = 32u - haveBits;
     outWord |= w << haveBits;
     if (nBits >= topBits) {
       out.push_back(outWord);
@@ -58,9 +57,9 @@ std::vector<u32> compactBits(const vector<int> &dataVect, u32 E) {
   out.push_back(outWord);
 
   for (int p = 0; carry; ++p) {
-    i64 v = i64(out[p]) + carry;
-    out[p] = v & 0xffffffff;
-    carry = v >> 32;
+    carry += out[p];
+    out[p] = u32(carry);
+    carry >>= 32;
   }
 
   assert(out.size() == (E - 1) / 32 + 1);

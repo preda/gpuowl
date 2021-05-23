@@ -8,7 +8,7 @@
 #include <cassert>
 #include <cfenv>
 
-vector<u32> compactBits(const vector<int> &dataVect, u32 E);
+vector<u32> compactBits(const vector<i32>& data, const vector<i64>& carries, u32 E);
 vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E);
 u64 residueFromRaw(u32 N, u32 E, const vector<int> &words);
 

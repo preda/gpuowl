@@ -44,7 +44,6 @@ struct Reload {
 };
 
 class Gpu {
-  friend struct SquaringSet;
   u32 E;
   u32 N;
 
@@ -61,23 +60,21 @@ class Gpu {
   Kernel carryIn;
   Kernel tailSquare;
   Kernel tailMul;
+  Kernel transposeWordsIn;
+  Kernel transposeWordsOut;
+  Kernel transposeCarryOut;
 
   ConstBuffer<u64> dTrigW, iTrigW, dTrigH, iTrigH;
   ConstBuffer<u64> dBigTrig, iBigTrig, dBigTrigStep, iBigTrigStep;
   ConstBuffer<u64> dWeights, iWeights;
 
-  // Word buffers.
-  HostAccessBuffer<i32> bufData;   // Main int buffer with the words.
-  HostAccessBuffer<i32> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
   HostAccessBuffer<i32> bufWords;
+  HostAccessBuffer<i32> bufWordsIO;
   
-  Buffer<i32> bufCheck;  // Buffers used with the error check.
-  HostAccessBuffer<i64> bufCarry;  // Carry shuttle.
-  
-  // Auxilliary big buffers
-  Buffer<u64> buf1;
-  Buffer<u64> buf2;
-  Buffer<u64> buf3;
+  HostAccessBuffer<i64> bufCarry;
+  HostAccessBuffer<i64> bufCarryIO;
+    
+  HostAccessBuffer<u64> buf1;
   
   vector<Word> readOut(ConstBuffer<Word> &buf);
   void writeIn(Buffer<Word>& buf, const vector<Word>& words);
@@ -134,12 +131,6 @@ public:
 
   vector<u32> readAndCompress(ConstBuffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
-  void writeData(const vector<u32> &v) { writeIn(bufData, v); }
-  void writeCheck(const vector<u32> &v) { writeIn(bufCheck, v); }
-  
-  // u64 dataResidue()  { return bufResidue(bufData); }
-  // u64 checkResidue() { return bufResidue(bufCheck); }
-    
   bool doCheck(u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
 
   void logTimeKernels();

@@ -91,7 +91,7 @@ void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *d
 
 void copyBuf(cl_queue queue, const cl_mem src, cl_mem dst, size_t size);
 
-void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size = 0, size_t start = 0);
+void fillBuf(cl_queue q, cl_mem buf, const void *pat, size_t patSize, size_t size = 0, size_t start = 0);
 int getKernelNumArgs(cl_kernel k);
 int getWorkGroupSize(cl_kernel k, cl_device_id device, const char *name);
 std::string getKernelArgName(cl_kernel k, int pos);
