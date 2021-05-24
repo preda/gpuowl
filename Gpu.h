@@ -58,6 +58,7 @@ class Gpu {
   
   Kernel carryOut;
   Kernel carryIn;
+  Kernel sinkCarry;
   Kernel tailSquare;
   Kernel tailMul;
   Kernel transposeWordsIn;
@@ -68,13 +69,12 @@ class Gpu {
   ConstBuffer<u64> dBigTrig, iBigTrig, dBigTrigStep, iBigTrigStep;
   ConstBuffer<u64> dWeights, iWeights;
 
-  HostAccessBuffer<i32> bufWords;
-  HostAccessBuffer<i32> bufWordsIO;
+  HostAccessBuffer<i32> bufOut1, bufOut2;
   
-  HostAccessBuffer<i64> bufCarry;
-  HostAccessBuffer<i64> bufCarryIO;
+  HostAccessBuffer<i32> bufWords, bufCheck, bufCheck2;
+  HostAccessBuffer<i64> bufWordsCarry, bufCheckCarry, bufCheckCarry2;
     
-  HostAccessBuffer<u64> buf1;
+  HostAccessBuffer<u64> buf1, buf2;
   
   vector<Word> readOut(ConstBuffer<Word> &buf);
   void writeIn(Buffer<Word>& buf, const vector<Word>& words);
@@ -111,17 +111,9 @@ class Gpu {
   
 public:
   const Args& args;
-
-  void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
-  void mul(Buffer<int>& io, Buffer<int>& inB);
-  void mul(Buffer<int>& io, Buffer<double>& inB);
-  void square(Buffer<int>& data);
-
   void finish() { queue->finish(); }
 
-  // acc := acc * data; with "data" in lowish position.
-  void accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
-
+  vector<u32> read(const ConstBuffer<i32>& bufWords, const ConstBuffer<i64>& bufCarry, i32 mul = 1);
   
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   static void doDiv9(u32 E, Words& words);

@@ -297,11 +297,13 @@ Gpu::Gpu(const Args& args, u32 E, u32 WIDTH, u32 HEIGHT, u32 nW, u32 nH,
 
   LOAD(carryOut,   HEIGHT / 4),
   LOAD(carryIn,    HEIGHT / 4),
+  LOAD(sinkCarry, HEIGHT / 4),
   LOAD(tailSquare, WIDTH),
   LOAD(tailMul,    WIDTH),
   LOAD_WS(transposeWordsIn, N),
   LOAD_WS(transposeWordsOut, N),
   LOAD_WS(transposeCarryOut, N / 4),
+
 #undef LOAD_WS
 #undef LOAD
 
@@ -318,14 +320,21 @@ Gpu::Gpu(const Args& args, u32 E, u32 WIDTH, u32 HEIGHT, u32 nW, u32 nH,
   dWeights{context, "dWeights", weights.dWeights},
   iWeights{context, "iWeights", weights.iWeights},
 
-
-  bufWords{queue, "words", N},
-  bufWordsIO{queue, "wio", N},
+  bufOut1{queue, "out1", N},
+  bufOut2{queue, "out2", N},
   
-  bufCarry{queue, "carry", N / 4},
-  bufCarryIO{queue, "cio", N / 4},
+  
+  bufWords{queue, "words", N},
+  bufCheck{queue, "check", N},
+  bufCheck2{queue, "check2", N},
+
+  bufWordsCarry{queue, "carry", N / 4},
+  bufCheckCarry{queue, "carry", N / 4},
+  bufCheckCarry2{queue, "carry", N / 4},
   
   buf1{queue, "buf1", N},
+  buf2{queue, "buf2", N},
+  
   args{args}
 {
   program.reset();
@@ -528,74 +537,62 @@ void print(const string& s, const vector<T>& v, int limit = 200) {
   }
 }
 
+vector<u32> Gpu::read(const ConstBuffer<i32>& bufWords, const ConstBuffer<i64>& bufCarry, i32 mul) {
+  sinkCarry(bufOut1, bufWords, bufCarry);
+  transposeWordsOut(bufOut2, bufOut1);
+  return compact(bufOut2.read(), E, mul);
+}
+
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   vector<i32> in(N);
   in[0] = 3;
-  // in[1024] = 1;
-  // bufWords.set({3,5});
   bufWords.write(in);
-  bufCarry.zero();
+  bufCheck.write(in);
+  bufWordsCarry.zero();
+  bufCheckCarry.zero();
 
-  for (int rep = 0; rep < 7; ++rep) {
+  for (int rep = 0; rep < 30; ++rep) {
+    cout << rep << endl;
+    carryIn(buf1, bufWords, bufWordsCarry);
+    tailSquare(buf1);
+    carryOut(bufWords, bufWordsCarry, buf1);
+
+    carryIn(buf1, bufWords, bufWordsCarry);
+    tailSquare(buf1);
+    carryOut(bufWords, bufWordsCarry, buf1);
+
+    carryIn(buf1, bufWords, bufWordsCarry);
+    carryIn(buf2, bufCheck, bufCheckCarry);
+    tailMul(buf2, buf1);
+    carryOut(bufCheck, bufCheckCarry, buf2);
+
+    // carryIn(buf1, bufWords, bufWordsCarry);
+    tailSquare(buf1);
+    carryOut(bufWords, bufWordsCarry, buf1);
+
+    carryIn(buf1, bufWords, bufWordsCarry);
+    tailSquare(buf1);
+    carryOut(bufWords, bufWordsCarry, buf1);
+
+    carryIn(buf1, bufCheck, bufCheckCarry);
+    tailSquare(buf1);
+    carryOut(bufCheck2, bufCheckCarry2, buf1);
+
+    carryIn(buf1, bufCheck2, bufCheckCarry2);
+    tailSquare(buf1);
+    carryOut(bufCheck2, bufCheckCarry2, buf1);
+
+    carryIn(buf1, bufWords, bufWordsCarry);
+    carryIn(buf2, bufCheck, bufCheckCarry);
+    tailMul(buf2, buf1);
+    carryOut(bufCheck, bufCheckCarry, buf2);
+
+    // compare check == 3*check2  
+    auto check = read(bufCheck, bufCheckCarry);
+    auto check2 = read(bufCheck2, bufCheckCarry2, 3);
     
-  carryIn(buf1, bufWords, bufCarry);
-  tailSquare(buf1);
-  // carryOut(bufWords, bufCarry, buf1);
-
-  /*
-  auto words = bufWords.read();
-  u32 cnt = 0;
-  for (u32 i = 0, end = words.size(); i < end && cnt < 2000; ++i) {
-    if (words[i]) {
-      printf("%3u %u %lu\n", cnt, i, u64(words[i]));
-      ++cnt;
-    }
+    assert(check == check2);
   }
-  */
-
-
-  
-  carryOut(bufWords, bufCarry, buf1);
-
-    print("words", bufWords.read());
-    print("carry", bufCarry.read());
-  
-  transposeWordsOut(bufWordsIO, bufWords);
-  transposeCarryOut(bufCarryIO, bufCarry);
-  auto data = bufWordsIO.read();
-  auto carries = bufCarryIO.read();
-  // print("c", carries);
-  auto words = compactBits(data, carries, E);
-
-  // print("trans", data);
-  
-  print("comp", words);
-  cout << endl;
-  }
-
-  /*
-  u32 cnt = 0;
-  for (u32 i = 0, end = words.size(); i < end && cnt < 200; ++i) {
-    if (words[i]) {
-      printf("%3u %u %u\n", cnt, i, words[i]);
-      ++cnt;
-    }
-  }
-  */
-
-  
-  /*
-  tailSquare(buf1);
-  carryOut(bufWords, bufCarry, buf1);
-  auto words = bufWords.read();
-  u32 cnt = 0;
-  for (u32 i = 0, end = words.size(); i < end && cnt < 200; ++i) {
-    if (words[i]) {
-      printf("%3u %u %d\n", cnt, i, words[i]);
-      ++cnt;
-    }
-  }
-  */
-  
+    
   return {};  
 }

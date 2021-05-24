@@ -9,6 +9,8 @@
 #include <cfenv>
 
 vector<u32> compactBits(const vector<i32>& data, const vector<i64>& carries, u32 E);
+vector<u32> compact(const vector<i32>& data, u32 E, i32 mul = 1);
+
 vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E);
 u64 residueFromRaw(u32 N, u32 E, const vector<int> &words);
 

@@ -166,6 +166,11 @@ u32 incExtra(u32 a, u32 b) {
   return (s < N) ? s : (s - N);
 }
 
+u32 stepExtra(u32 extra) {
+  u32 a = extra - (N - STEP);
+  return I32(a) < 0 ? a + N : a;
+}
+
 bool isBigExtra(u32 extra) { return extra < N - STEP; }
 
 #define SMALL_BITS (EXP / N)
@@ -184,7 +189,7 @@ i64 balance(u64 x) { return (x > MIDPOINT) ? -I64(PRIME - x) : x; };
 u64 unbalance(i64 x) { return (x < 0) ? x + PRIME : x; }
 #undef MIDPOINT
 
-Word doCarry(i64 balanced, i64* outCarry, u32 extra) {
+Word doCarry64(i64 balanced, i64* outCarry, u32 extra) {
   u32 nBits = bitlenExtra(extra);
   assert(nBits < 32);
   Word w = lowBits(balanced, nBits);
@@ -192,16 +197,32 @@ Word doCarry(i64 balanced, i64* outCarry, u32 extra) {
   return w;
 }
 
+OVL Word doCarry32(i64 balanced, i32* outCarry, u32 extra) {
+  u32 nBits = bitlenExtra(extra);
+  assert(nBits < 32);
+  Word w = lowBits(balanced, nBits);
+  assert((balanced >> (nBits + 32)) == 0 || (balanced >> (nBits + 32)) == -1); // verify that out-carry fits on 32 bits
+  *outCarry = (balanced >> nBits) + (w < 0);
+  return w;
+}
+
+OVL Word doCarry32(i32 balanced, i32* outCarry, u32 extra) {
+  u32 nBits = bitlenExtra(extra);
+  assert(nBits < 32);
+  Word w = lowBits(balanced, nBits);
+  assert((balanced >> (nBits + 32)) == 0 || (balanced >> (nBits + 32)) == -1); // verify that out-carry fits on 32 bits
+  *outCarry = (balanced >> nBits) + (w < 0);
+  return w;
+}
+
 Word carryStep(u64 u, i64* inOutCarry, u32 extra, u64 iWeight) {
   assert(u < PRIME);
   u = mul(u, iWeight);
-  return doCarry(balance(u) + *inOutCarry, inOutCarry, extra);
+  return doCarry64(balance(u) + *inOutCarry, inOutCarry, extra);
 }
 
 u64 carryWord(i64 w, i32* outCarry, u32 extra, u64 dWeight) {
-  i64 carryAux;
-  w = doCarry(w, &carryAux, extra);
-  *outCarry = carryAux;
+  w = doCarry32(w, outCarry, extra);
   return mul(unbalance(w), dWeight);
 }
 
@@ -299,6 +320,26 @@ void iFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
 
 #define P(x) global x * restrict
 #define CP(x) const P(x)
+
+kernel WGSIZE(WIDTH) void sinkCarry(P(i32) out, CP(i32) in, CP(i64) inCarry) {
+  u32 gr = get_group_id(0);
+  u32 me = get_local_id(0);
+
+  u32 gm1 = (HEIGHT / 4 - 1 + gr) % (HEIGHT / 4);
+  u32 mm1 = (WIDTH - 1 + me) % WIDTH;
+  i64 carry64 = inCarry[WIDTH * gm1 + (gr ? me : mm1)];
+  i32 carry = 0;
+  u32 extra = extraK(4 * gr + HEIGHT * me);
+  u32 pos = 4 * WIDTH * gr + me;
+  out[pos]  = doCarry32(in[pos] + carry64, &carry, extra);
+  for (int i = 1; i < 3; ++i) {
+    extra = stepExtra(extra);
+    pos = 4 * WIDTH * gr + WIDTH * i + me;
+    out[pos] = doCarry32(in[pos] + carry, &carry, extra);
+  }
+  pos = 4 * WIDTH * gr + WIDTH * 3 + me;
+  out[pos] = in[pos] + carry;  
+}
 
 kernel WGSIZE(WIDTH) void carryIn(P(u64) out, CP(i32) inWords, CP(i64) inCarry, Trig smallTrig, Trig bigTrig, Trig bigTrigStep, CP(u64) dWeights) {
   u32 gr = get_group_id(0);

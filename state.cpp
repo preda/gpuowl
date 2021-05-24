@@ -21,6 +21,58 @@ static u32 unbalance(i32 w, u32 nBits, i64& carry) {
   return bits;
 }
 
+static u32 unbalance(i32 w, u32 nBits, i32& carry) {
+  assert(carry + w == i128(carry) + w); // no overflow
+  carry += w;
+
+  u32 bits = carry & ((1u << nBits) - 1);
+  carry >>= nBits;
+  return bits;
+}
+
+void carryTail(vector<u32> out, i64 carry) {
+  for (int p = 0; carry; ++p) {
+    carry += out[p];
+    out[p] = u32(carry);
+    carry >>= 32;
+  }  
+}
+
+std::vector<u32> compact(const vector<i32>& data, u32 E, i32 mul) {
+  std::vector<u32> out;
+  out.reserve((E - 1) / 32 + 1);
+
+  u32 N = data.size();
+  
+  i32 carry = 0;
+  u32 outWord = 0;
+  u32 haveBits = 0;
+
+  for (u32 p = 0; p < N; ++p) {
+    u32 nBits = bitlen(N, E, p);
+    u32 w = unbalance(data[p] * mul, nBits, carry);
+
+    assert(haveBits < 32);
+    u32 topBits = 32u - haveBits;
+    outWord |= w << haveBits;
+    if (nBits >= topBits) {
+      out.push_back(outWord);
+      outWord = w >> topBits;
+      haveBits = nBits - topBits;
+    } else {
+      haveBits += nBits;
+    }
+  }
+
+  assert(haveBits);
+  out.push_back(outWord);
+
+  carryTail(out, carry);
+
+  assert(out.size() == (E - 1) / 32 + 1);
+  return out;
+}
+
 std::vector<u32> compactBits(const vector<i32>& data, const vector<i64>& carries, u32 E) {
   std::vector<u32> out;
   out.reserve((E - 1) / 32 + 1);
@@ -56,11 +108,7 @@ std::vector<u32> compactBits(const vector<i32>& data, const vector<i64>& carries
   assert(haveBits);
   out.push_back(outWord);
 
-  for (int p = 0; carry; ++p) {
-    carry += out[p];
-    out[p] = u32(carry);
-    carry >>= 32;
-  }
+  carryTail(out, carry);
 
   assert(out.size() == (E - 1) / 32 + 1);
   return out;
