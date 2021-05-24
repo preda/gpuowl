@@ -30,7 +30,7 @@ static u32 unbalance(i32 w, u32 nBits, i32& carry) {
   return bits;
 }
 
-void carryTail(vector<u32> out, i64 carry) {
+void carryTail(vector<u32>& out, i64 carry) {
   for (int p = 0; carry; ++p) {
     carry += out[p];
     out[p] = u32(carry);

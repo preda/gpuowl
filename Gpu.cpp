@@ -543,6 +543,18 @@ vector<u32> Gpu::read(const ConstBuffer<i32>& bufWords, const ConstBuffer<i64>& 
   return compact(bufOut2.read(), E, mul);
 }
 
+void compare(const vector<u32>& a, const vector<u32>& b) {
+  assert(a.size() == b.size());
+  int cnt = 0;
+  for (int i = 0, end = int(a.size()); i < end; ++i) {
+    if (a[i] != b[i]) {
+      cout << "! " << i << ' ' << a[i] << ' ' << b[i] << endl;
+      ++cnt;
+      assert(cnt < 20);
+    }
+  }
+}
+
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   vector<i32> in(N);
   in[0] = 3;
@@ -551,7 +563,28 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   bufWordsCarry.zero();
   bufCheckCarry.zero();
 
+#if 0
   for (int rep = 0; rep < 30; ++rep) {
+    cout << rep << " \t";
+    
+    carryIn(buf1, bufWords, bufWordsCarry);
+    tailSquare(buf1);
+    carryOut(bufWords, bufWordsCarry, buf1);
+
+    /*
+    transposeWordsOut(bufOut1, bufWords);
+    transposeCarryOut(bufCheckCarry, bufWordsCarry);
+    auto words = compactBits(bufOut1.read(), bufCheckCarry.read(), E);
+    */
+    
+    auto words = read(bufWords, bufWordsCarry);
+    cout << words[0] << endl;
+    // print("", words);
+    
+  }
+#else
+
+  for (int rep = 0; rep < 200; ++rep) {
     cout << rep << endl;
     carryIn(buf1, bufWords, bufWordsCarry);
     tailSquare(buf1);
@@ -592,7 +625,11 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     auto check2 = read(bufCheck2, bufCheckCarry2, 3);
     
     assert(check == check2);
+    if (check != check2) {
+      compare(check, check2);
+    }
   }
+  #endif
     
   return {};  
 }
