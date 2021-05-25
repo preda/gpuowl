@@ -22,6 +22,6 @@ struct FFTConfig {
   u32 height = 0;
     
   u32 fftSize() const { return width * height; }
-  u32 maxExp() const { return fftSize() * 26; }
+  u32 maxExp() const { return fftSize() * 30; }
   std::string spec() const { return numberK(width) + ":1:" + numberK(height); }
 };

@@ -6,7 +6,7 @@ LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread -lquadmath ${LIBPATH}
 
 LINK = $(CXX) $(CXXFLAGS) -o $@ ${OBJS} ${LDFLAGS}
 
-SRCS = ProofCache.cpp Proof.cpp Pm1Plan.cpp B1Accumulator.cpp Memlock.cpp log.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp gpuowl-wrap.cpp sha3.cpp md5.cpp
+SRCS = ProofCache.cpp Pm1Plan.cpp Memlock.cpp log.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp gpuowl-wrap.cpp sha3.cpp md5.cpp
 OBJS = $(SRCS:%.cpp=%.o)
 DEPDIR := .d
 $(shell mkdir -p $(DEPDIR) >/dev/null)

@@ -10,8 +10,6 @@
 #include "typeName.h"
 #include "log.h"
 
-#include "mpreal.h"
-
 #include <cstdio>
 #include <filesystem>
 
@@ -37,8 +35,6 @@ static void readConfig(Args& args, const fs::path& path, bool doLog) {
 }
 
 int main(int argc, char **argv) {
-  mpfr::mpreal::set_default_prec(128);
-  
   initLog();
   log("GpuOwl VERSION %s\n", VERSION);
 

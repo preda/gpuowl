@@ -13,7 +13,6 @@
 #include "Queue.h"
 #include "Task.h"
 #include "Memlock.h"
-#include "B1Accumulator.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -374,7 +373,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   float bitsPerWord = E / float(N);
   log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord);
 
-  if (bitsPerWord > 26) {
+  if (bitsPerWord > 30) {
     log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
     throw "FFT size too small";
   }
@@ -624,10 +623,10 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     auto check = read(bufCheck, bufCheckCarry);
     auto check2 = read(bufCheck2, bufCheckCarry2, 3);
     
-    assert(check == check2);
     if (check != check2) {
       compare(check, check2);
     }
+    assert(check == check2);
   }
   #endif
     
