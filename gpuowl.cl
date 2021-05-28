@@ -56,9 +56,6 @@ typedef long long i128;
 typedef unsigned long long u128;
 
 typedef i32 Word;
-typedef u64 Carry;
-typedef u64 T;
-typedef u64 Weight;
 
 u32  U32(u32 x)   { return x; }
 u64  U64(u64 x)   { return x; }
@@ -75,20 +72,54 @@ u64 hiU64(u128 x) { return x >> 64; }
 // 2^64 % PRIME == 0xffffffff == 2^32 - 1
 // 2^96 % PRIME == 0xffffffff'00000000 == PRIME - 1
 
-u64 neg(u64 a) {
-  assert(a < PRIME);
-  return a ? PRIME - a : a;
-}
+u64 mul64(u32 x) {
+  u32 a, b;
+  __asm("v_sub_co_u32_e32 %0, vcc, 0, %2\n"
+        "\tv_subbrev_co_u32_e32 %1, vcc, 0, %2, vcc"
+        : "=&v"(a), "=&v"(b) : "v"(x) : "vcc");
+  return as_ulong((uint2)(a, b));
+  
+  // return U64(x) * U32(-1);
+  // return (U64(x) << 32) - x;
+  // return as_ulong((uint2)(-x, x - (x != 0)));
 
-u64 mul64(u32 x) { return (U64(x) << 32) - x; } // x * 0xffffffff
-u64 mul96(u32 x) { return neg(x); }
+  /*
+  	v_mul_hi_u32 v3, v2, -1
+	v_sub_u32_e32 v2, 0, v2
+
+        v_cmp_ne_u32_e32 vcc, 0, v3
+	v_sub_u32_e32 v2, 0, v3
+	v_subbrev_co_u32_e32 v3, vcc, 0, v3, vcc        
+  */
+}
+  
+// { return (U64(x) << 32) - x; } // x * 0xffffffff
 
 u64 reduce64(u64 a) { return (a >= PRIME) ? a - PRIME : a; }
+
+
+#define STRICT_REDUCTION 0
+
+#if STRICT_REDUCTION
+
+u64 neg(u64 a) {
+  assert(a < PRIME);
+  // return a ? PRIME - a : a;
+  return PRIME - a;
+}
+
+u64 mul96(u32 x) { return neg(x); }
 
 // Add modulo PRIME. 2^64 % PRIME == U32(-1).
 u64 add(u64 a, u64 b) {
   u64 s = a + b;
-  return reduce64(s) + (U32(-1) + (s >= a));
+  // return reduce64(s) + (U32(-1) + (s >= a));
+
+  // return reduce64((s < a) ? s + U32(-1) : s);
+
+  return reduce64(s + -U32(s < a));
+  
+  
   // return (s < a) ? reduce(s) + U32(-1) : s;
   // return s + (U32(-1) + (s >= a));
 }
@@ -100,9 +131,69 @@ u64 sub(u64 a, u64 b) {
   // return (d <= a) ? d : (PRIME - reduce(-d));
 }
 
+#else
+
+// Add modulo PRIME. 2^64 % PRIME == U32(-1).
+u64 add(u64 a, u64 b) {
+#if 1
+  u32 c, d;
+  u32 e;
+  // u64 tmp;
+  __asm("v_add_co_u32_e32 %0, vcc, %3, %5\n\t"
+        "v_addc_co_u32_e32 %1, vcc, %4, %6, vcc\n\t"
+
+        // The value of %0 vgpr below does not matter, it's just a convenient way to make a Zero.
+        "v_subbrev_co_u32_e32 %2, vcc, %0, %0, vcc\n\t"
+        
+        // "v_subbrev_co_u32_e32 %2, vcc, v0, v0, vcc\n\t"
+        // "v_cndmask_b32_e64 %2, 0, -1, vcc\n\t"
+        
+        "v_add_co_u32_e32 %0, vcc, %0, %2\n\t"
+        "v_addc_co_u32_e32 %1, vcc, 0, %1, vcc\n\t"
+        
+        // "v_addc_co_u32 %1, %2, 0, %1, vcc\n\t"
+        // "v_subbrev_co_u32_e32 %0, vcc, 0, %0, vcc\n\t"
+        // "v_subbrev_co_u32_e32 %1, vcc, 0, %1, vcc\n\t"
+        : "=&v"(c), "=&v"(d), "=v"(e)
+        : "v"(U32(a)), "v"(U32(a>>32)), "v"(U32(b)), "v"(U32(b>>32))
+        : "vcc");
+  return as_ulong((uint2)(c, d));
+#else
+  u64 s = a + b;
+  return s + -U32(s < a);
+#endif
+
+  // return reduce64(s) + (U32(-1) + (s >= a));
+
+  
+  // return (s < a) ? s + U32(-1) : s;
+  
+  // return (s < a) ? reduce(s) + U32(-1) : s;
+  // return s + (U32(-1) + (s >= a));
+}
+
+u64 mul96(u32 x) {
+  u64 a = mul64(x);
+  return add((a << 32), mul64(a >> 32));
+}
+    // { return neg(x); }
+
+u64 sub(u64 a, u64 b) {
+  // return a - b - -U32(a < b);
+  
+  return (a >= b) ? a - b : (a - b - 0xffffffff);
+  
+  // return (a >= b) ? a - b : (PRIME - reduce(b - a));
+  
+  // u64 d = a - b;
+  // return (d <= a) ? d : neg(-d);
+  
+  // return (d <= a) ? d : (PRIME - reduce(-d));
+}
+
+#endif
 
 u64 reduce128(u128 x) { return add(add(U64(x), mul64(x >> 64)), mul96(x >> 96)); }
-
 u64 mul(u64 a, u64 b) { return reduce128(U128(a) * b); }
 u64 sq(u64 a) { return mul(a, a); }
 u64 mul1T4(u64 x) { return reduce128(U128(x) << 48); }
@@ -538,7 +629,11 @@ kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
 kernel void testKernel(global ulong* io) {
   uint me = get_local_id(0);
 
+  io[me] = add(io[me], io[me+1]);
+
+  /*
   ulong a = io[me];
   ulong b = io[me + 1];
   io[me] = mul(a, b);
+  */
 }

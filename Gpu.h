@@ -79,9 +79,6 @@ class Gpu {
   vector<Word> readOut(ConstBuffer<Word> &buf);
   void writeIn(Buffer<Word>& buf, const vector<Word>& words);
 
-  void coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3);
-  u32 modSqLoop(Buffer<i32>& wordsBuf, Buffer<i64>& carryBuf, u32 from, u32 to);
-
   vector<u32> writeBase(const vector<u32> &v);
 
   void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);

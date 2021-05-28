@@ -384,6 +384,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   }
 
   bool timeKernels = args.timeKernels;
+  cout << "time " << timeKernels << endl;
 
   return make_unique<Gpu>(args, E, WIDTH, HEIGHT, nW, nH, getDevice(args.device), timeKernels);
 }
@@ -404,16 +405,6 @@ void Gpu::logTimeKernels() {
     }
     log("Total time %.3f s\n", total);
   }
-}
-
-u32 Gpu::modSqLoop(Buffer<i32>& wordsBuf, Buffer<i64>& carryBuf, u32 from, u32 to) {
-  assert(from <= to);
-  for (u32 k = from; k < to; ++k) {
-    carryIn(buf1, wordsBuf, carryBuf);
-    tailSquare(buf1);
-    carryOut(wordsBuf, carryBuf, buf1);
-  }
-  return to;
 }
 
 static string formatETA(u32 secs) {
@@ -556,32 +547,80 @@ void compare(const vector<u32>& a, const vector<u32>& b) {
 
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   vector<i32> in(N);
+  
   in[0] = 3;
   bufWords.write(in);
+  
+  in[0] = 1;
   bufCheck.write(in);
+  bufCheck2.write(in);
+  
   bufWordsCarry.zero();
   bufCheckCarry.zero();
+  bufCheckCarry2.zero();
 
-#if 0
-  for (int rep = 0; rep < 30; ++rep) {
-    cout << rep << " \t";
+  carryIn(buf1, bufWords, bufWordsCarry);
+  carryIn(buf2, bufCheck, bufCheckCarry);
+
+  for (int n = 0; n < 10; ++n) {
+    for (int k = 0; k < 100; ++k) {
+      tailMul(buf2, buf1);
+      carryOut(bufCheck, bufCheckCarry, buf2);
+      if (k == 0) {
+        cout << n << endl;
+        logTimeKernels();
+        assert(read(bufCheck, bufCheckCarry) == read(bufCheck2, bufCheckCarry2, 3));
+      }
     
+      for (int i = 0; i < 200; ++i) {
+        tailSquare(buf1);
+        carryOut(bufWords, bufWordsCarry, buf1);
+        carryIn(buf1, bufWords, bufWordsCarry);
+      }
+      carryIn(buf2, bufCheck, bufCheckCarry);
+      queue->finish();
+      // cout << '.' << endl;
+    }
+
+    for (int i = 0; i < 200; ++i) {
+      tailSquare(buf2);
+      carryOut(bufCheck2, bufCheckCarry2, buf2);
+      carryIn(buf2, bufCheck2, bufCheckCarry2);
+    }
+
+    carryIn(buf2, bufCheck, bufCheckCarry);
+  }
+  
+  #if 0
+    // carryIn(buf1, bufWords, bufWordsCarry);
+    tailSquare(buf1);
+    carryOut(bufWords, bufWordsCarry, buf1);
+
     carryIn(buf1, bufWords, bufWordsCarry);
     tailSquare(buf1);
     carryOut(bufWords, bufWordsCarry, buf1);
 
-    /*
-    transposeWordsOut(bufOut1, bufWords);
-    transposeCarryOut(bufCheckCarry, bufWordsCarry);
-    auto words = compactBits(bufOut1.read(), bufCheckCarry.read(), E);
-    */
+    carryIn(buf1, bufCheck, bufCheckCarry);
+    tailSquare(buf1);
+    carryOut(bufCheck2, bufCheckCarry2, buf1);
+
+    carryIn(buf1, bufCheck2, bufCheckCarry2);
+    tailSquare(buf1);
+    carryOut(bufCheck2, bufCheckCarry2, buf1);
+
+    carryIn(buf1, bufWords, bufWordsCarry);
+    carryIn(buf2, bufCheck, bufCheckCarry);
+    tailMul(buf2, buf1);
+    carryOut(bufCheck, bufCheckCarry, buf2);
+
+    // compare check == 3*check2  
+    auto check = read(bufCheck, bufCheckCarry);
+    auto check2 = read(bufCheck2, bufCheckCarry2, 3);
     
-    auto words = read(bufWords, bufWordsCarry);
-    cout << words[0] << endl;
-    // print("", words);
-    
-  }
-#else
+    if (check != check2) {
+      compare(check, check2);
+    }
+    assert(check == check2);
 
   for (int rep = 0; rep < 200; ++rep) {
     cout << rep << endl;
