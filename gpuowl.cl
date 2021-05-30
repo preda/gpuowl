@@ -247,15 +247,18 @@ u64 mul64w(u64 x) {
   return add(as_ulong((uint2)(a, b)), mul64(c));
 }
 
-u64 OVL auxMul(u32 x, u32 y) {
+u64 OVL auxMul(u32 x, u32 y, u64 carry) {
   u64 out;
-  __asm("v_mad_u64_u32 %0, vcc, %1, %2, 0" : "=v"(out) : "v"(x), "v"(y) : "vcc");
+  u64 dummy;
+  __asm("v_mad_u64_u32 %0, %1, %2, %3, %4" : "=v"(out), "=s"(dummy) : "v"(x), "v"(y), "v"(carry));
   return out;
 }
 
-u64 OVL auxMul(u32 x, u32 y, u64 carry) {
+u64 OVL auxMul(u32 x, u32 y) {
+  // return auxMul(x, y, 0);
   u64 out;
-  __asm("v_mad_u64_u32 %0, vcc, %1, %2, %3" : "=v"(out) : "v"(x), "v"(y), "v"(carry) : "vcc");
+  u64 dummy;
+  __asm("v_mad_u64_u32 %0, %1, %2, %3, 0" : "=v"(out), "=s"(dummy) : "v"(x), "v"(y));
   return out;
 }
 
@@ -270,16 +273,15 @@ u64 OVL auxMul(u32 x, u32 y, u64 carryIn, u32* carryOut) {
 }
 
 u128 wideMul(u64 x, u64 y) {
-  u128 out;
-
+#if 1
   u64 p = auxMul(x, y);
   u64 q = auxMul(x, y >> 32, p >> 32);
   u32 co;
   q = auxMul(x >> 32, y, q, &co);
   u64 r = auxMul(x >> 32, y >> 32, (U64(co) << 32) | (q >> 32));
   return (U128(r) << 64) | (q << 32) | U32(p);
-
-  /*
+#else
+  u128 out;
   __asm("#WIDE MUL\n\t"
         "v_mad_u64_u32 v[27:28], vcc, %1, %3, 0\n\t"
         "v_mov_b32_e32 v29, 0\n\t"
@@ -291,8 +293,7 @@ u128 wideMul(u64 x, u64 y) {
         : "v"(U32(x)), "v"(U32(x >> 32)), "v"(U32(y)), "v"(U32(y >> 32)), "v"(0)
         : "vcc");
   return out;
-  // (U128(cd)<<64) | as_ulong((uint2)(a, b));
-  */
+#endif
 }
 
 u64 reduce128(u128 x) { return add(U64(x), mul64w(x >> 64)); }
@@ -491,6 +492,7 @@ void iFFT1K(u32 me, local u64* lds, u64* u, Trig trig) {
 // 1024x4
 void dFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
   // UNROLL_WIDTH_CONTROL
+  // __attribute__((opencl_unroll_hint(1)))
   for (i32 s = 0; s <= 8; s += 2) {
     if (s) { bar(); }
     dfft4(u);
@@ -501,6 +503,7 @@ void dFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
 
 void iFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
   // UNROLL_WIDTH_CONTROL
+  // __attribute__((opencl_unroll_hint(1)))
   for (i32 s = 0; s <= 8; s += 2) {
     if (s) { bar(); }
     ifft4(u);
@@ -733,10 +736,4 @@ kernel void testKernel(global ulong* io) {
   uint me = get_local_id(0);
 
   io[me] = mul(io[me], io[me+1]);
-
-  /*
-  ulong a = io[me];
-  ulong b = io[me + 1];
-  io[me] = mul(a, b);
-  */
 }
