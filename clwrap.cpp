@@ -221,7 +221,7 @@ static void build(cl_program program, cl_device_id device, string args) {
   Timer timer;
   int err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
   bool ok = (err == CL_SUCCESS);
-  if (!ok) {
+  if (false && !ok) {
     log("ASM compilation failed, retrying compilation using NO_ASM\n");
     args += " -DNO_ASM=1";
     err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
