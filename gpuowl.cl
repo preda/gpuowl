@@ -86,8 +86,6 @@ u64 neg(u64 a) {
   return PRIME - a;
 }
 
-u64 mul96(u32 x) { return neg(x); }
-
 // Add modulo PRIME. 2^64 % PRIME == U32(-1).
 u64 add(u64 a, u64 b) {
   u64 s = a + b;
@@ -130,7 +128,7 @@ u64 add(u64 a, u64 b) {
         "v_add_co_u32_e32 %0, vcc, %0, %2\n\t"
         "v_addc_co_u32_e32 %1, vcc, 0, %1, vcc"
         
-        : "=&v"(c), "=&v"(d), "=v"(tmp)
+        : "=&v"(c), "=v"(d), "=v"(tmp)
         : "v"(U32(a)), "v"(U32(a>>32)), "v"(U32(b)), "v"(U32(b>>32))
         : "vcc");
   return as_ulong((uint2)(c, d));
@@ -142,36 +140,6 @@ u64 add(u64 a, u64 b) {
   
 #endif
 }
-
-/*
-u64 mul96(u32 x) {
-#if 0 && HAS_ASM
-  
-  u32 a, b;
-  __asm("#NOT\n\t"
-        "v_sub_co_u32_e32 %0, vcc, 1, %2\n\t"
-        "v_subb_co_u32_e32 %1, vcc, -1, %3, vcc\n\t"
-        // "v_subb_co_u32_e32 %1, vcc, %2, %0, vcc\n\t"
-        "v_cmp_ne_u32_e32 vcc, 0, %2\n\t"
-        "v_cndmask_b32_e32 %0, 0, %0, vcc\n\t"
-        "v_cndmask_b32_e32 %1, 0, %1, vcc\n\t"
-        : "=&v"(a), "=&v"(b)
-        : "v"(x), "v"(0)
-        : "vcc");
-  return as_ulong((uint2)(a, b));
-
-#else
-  
-#if 0
-  return x ? PRIME - x : 0;
-#else
-  u64 a = mul64(x);
-  return add((a << 32), mul64(a >> 32));
-#endif
-
-#endif
-}
-*/
 
 u64 sub(u64 a, u64 b) {
 #if HAS_ASM
@@ -247,7 +215,7 @@ u64 mul64(u32 x) {
   __asm("#SHL64\n\t"
         "v_sub_co_u32_e32 %0, vcc, 0, %2\n\t"
         "v_subbrev_co_u32_e32 %1, vcc, 0, %2, vcc"
-        : "=&v"(a), "=&v"(b) : "v"(x) : "vcc");
+        : "=&v"(a), "=v"(b) : "v"(x) : "vcc");
   return as_ulong((uint2)(a, b));
   
   // return U64(x) * U32(-1);
@@ -273,15 +241,63 @@ u64 mul64w(u64 x) {
         "v_sub_co_u32_e32 %0, vcc, 0, %3\n\t"
         "v_subb_co_u32_e32 %1, vcc, %3, %4, vcc\n\t"
         "v_subbrev_co_u32_e32 %2, vcc, 0, %4, vcc"
-        : "=&v"(a), "=&v"(b), "=&v"(c)
+        : "=&v"(a), "=&v"(b), "=v"(c)
         : "v"(U32(x)), "v"(U32(x >> 32))
         : "vcc");
   return add(as_ulong((uint2)(a, b)), mul64(c));
 }
 
+u64 OVL auxMul(u32 x, u32 y) {
+  u64 out;
+  __asm("v_mad_u64_u32 %0, vcc, %1, %2, 0" : "=v"(out) : "v"(x), "v"(y) : "vcc");
+  return out;
+}
+
+u64 OVL auxMul(u32 x, u32 y, u64 carry) {
+  u64 out;
+  __asm("v_mad_u64_u32 %0, vcc, %1, %2, %3" : "=v"(out) : "v"(x), "v"(y), "v"(carry) : "vcc");
+  return out;
+}
+
+u64 OVL auxMul(u32 x, u32 y, u64 carryIn, u32* carryOut) {
+  u64 out;
+  u32 co;
+  __asm("v_mad_u64_u32 %0, vcc, %2, %3, %4\n\t"
+        "v_addc_co_u32 %1, vcc, 0, 0, vcc"
+        : "=v"(out), "=v"(co) : "v"(x), "v"(y), "v"(carryIn) : "vcc");
+  *carryOut = co;
+  return out;
+}
+
+u128 wideMul(u64 x, u64 y) {
+  u128 out;
+
+  u64 p = auxMul(x, y);
+  u64 q = auxMul(x, y >> 32, p >> 32);
+  u32 co;
+  q = auxMul(x >> 32, y, q, &co);
+  u64 r = auxMul(x >> 32, y >> 32, (U64(co) << 32) | (q >> 32));
+  return (U128(r) << 64) | (q << 32) | U32(p);
+
+  /*
+  __asm("#WIDE MUL\n\t"
+        "v_mad_u64_u32 v[27:28], vcc, %1, %3, 0\n\t"
+        "v_mov_b32_e32 v29, 0\n\t"
+        "v_mad_u64_u32 v[28:29], vcc, %1, %4, v[28:29]\n\t"
+        "v_mad_u64_u32 v[28:29], vcc, %2, %3, v[28:29]\n\t"
+        "v_addc_co_u32_e32 v30, vcc, %5, %5, vcc\n\t"
+        "v_mad_u64_u32 v[29:30], vcc, %2, %4, v[29:30]\n\t"
+        : "=&{v[27:30]}"(out)
+        : "v"(U32(x)), "v"(U32(x >> 32)), "v"(U32(y)), "v"(U32(y >> 32)), "v"(0)
+        : "vcc");
+  return out;
+  // (U128(cd)<<64) | as_ulong((uint2)(a, b));
+  */
+}
+
 u64 reduce128(u128 x) { return add(U64(x), mul64w(x >> 64)); }
-// { return add(add(U64(x), mul64(x >> 64)), mul96(x >> 96)); }
-u64 mul(u64 a, u64 b) { return reduce128(U128(a) * b); }
+u64 mul(u64 a, u64 b) { return reduce128(wideMul(a, b)); }
+// { return reduce128(U128(a) * b); }
 u64 sq(u64 a) { return mul(a, a); }
 u64 mul1T4(u64 x) { return reduce128(U128(x) << 48); }
 u64 mul3T4(u64 x) { return mul(x, 0xfffeffff00000001ull); } // { return reduce(x * U128(0xfffeffffu) + x); } // 
