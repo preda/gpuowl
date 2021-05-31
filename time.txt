@@ -23,3 +23,15 @@
 20210531 22:56:40 XFX 107000009 26.85% carryOut       :    366 us/call x 20099 calls
 20210531 22:56:40 XFX 107000009  0.27% tailMul        :    743 us/call x    99 calls
 20210531 22:56:40 XFX 107000009 Total time 27.403 s
+
+20210531 23:31:09 XFX 107000009 37.08% tailSquare     :    505 us/call x 20000 calls
+20210531 23:31:09 XFX 107000009 35.90% carryIn        :    486 us/call x 20100 calls
+20210531 23:31:09 XFX 107000009 26.75% carryOut       :    362 us/call x 20099 calls
+20210531 23:31:09 XFX 107000009  0.27% tailMul        :    737 us/call x    99 calls
+20210531 23:31:09 XFX 107000009 Total time 27.215 s
+
+20210531 23:39:43 XFX 107000009 36.77% tailSquare     :    498 us/call x 20000 calls
+20210531 23:39:43 XFX 107000009 36.15% carryIn        :    487 us/call x 20100 calls
+20210531 23:39:43 XFX 107000009 26.80% carryOut       :    361 us/call x 20099 calls
+20210531 23:39:43 XFX 107000009  0.27% tailMul        :    746 us/call x    99 calls
+20210531 23:39:43 XFX 107000009 Total time 27.090 s
