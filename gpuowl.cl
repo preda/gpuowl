@@ -75,8 +75,21 @@ u64 hiU64(u128 x) { return x >> 64; }
 // 2^96 % PRIME == 0xffffffff'00000000 == PRIME - 1
 
 
-u64 reduce64(u64 a) { return (a >= PRIME) ? a - PRIME : a; }
-
+u64 reduce64(u64 x) {
+  u32 a, b;
+#if HAS_ASM
+  __asm("v_add_co_u32_e32 %[a], vcc, -1, %[xLo]\n\t"
+        "v_addc_co_u32_e32 %[b], vcc, 0, %[xHi], vcc\n\t"
+        "v_cndmask_b32_e32 %[a], %[xLo], %[a], vcc\n\t"
+        "v_cndmask_b32_e32 %[b], %[xHi], %[b], vcc\n\t"
+        : [a] "=&v"(a), [b] "=&v"(b)
+        : [xLo] "v"(U32(x)), [xHi] "v"(U32(x >> 32))
+        : "vcc");
+  return U64(a, b);
+#else
+  return (x >= PRIME) ? x - PRIME : x;
+#endif
+}
 
 #define STRICT_REDUCTION 0
 
