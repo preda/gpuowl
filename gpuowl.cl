@@ -207,7 +207,7 @@ u64 mul64w(u64 x) {
 }
 
 u64 OVL auxMul(u32 x, u32 y, u64 carry) {
-#if HAS_ASM
+#if 0 && HAS_ASM
   u64 out;
   u64 dummy;
   __asm("v_mad_u64_u32 %0, %1, %2, %3, %4" : "=v"(out), "=s"(dummy) : "v"(x), "v"(y), "v"(carry));
@@ -218,7 +218,7 @@ u64 OVL auxMul(u32 x, u32 y, u64 carry) {
 }
 
 u64 OVL auxMul(u32 x, u32 y) {
-#if HAS_ASM
+#if 0 && HAS_ASM
   u64 out;
   u64 dummy;
   __asm("v_mad_u64_u32 %0, %1, %2, %3, 0" : "=v"(out), "=s"(dummy) : "v"(x), "v"(y));
@@ -266,7 +266,8 @@ u64 mul(u64 a, u64 b) { return reduce128(wideMul(a, b)); }
 u64 sq(u64 x) { return mul(x, x); }
 
 u64 mul1T4(u64 x) { return reduce128(U128(x) << 48); }
-u64 mul3T4(u64 x) { return mul(x, 0xfffeffff00000001ull); } // { return reduce(x * U128(0xfffeffffu) + x); } // 
+u64 mul3T4(u64 x) { return mul(x, 0xfffeffff00000001ull); } // { return reduce(x * U128(0xfffeffffu) + x); } //
+
 
 // ---- Bits ----
 
@@ -664,5 +665,5 @@ kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
 kernel void testKernel(global ulong* io) {
   uint me = get_local_id(0);
 
-  io[me] = sub(io[me], io[me+1]);
+  io[me] = mul3T4(io[me]);
 }
