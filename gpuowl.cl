@@ -146,50 +146,34 @@ u64 add(u64 a, u64 b) {
 u64 sub(u64 a, u64 b) {
 #if HAS_ASM
   u32 c, d;
-  u64 stmp;  
+  u64 stmp;
+#if USE_BAD
+  __asm("#SUB BAD\n\t"
+        "v_sub_co_u32_e32  %[c], vcc, %[aLo], %[bLo]\n\t"
+	"v_subb_co_u32_e32 %[d], vcc, %[aHi], %[bHi], vcc\n\t"
+        "v_addc_co_u32 %[c], %[stmp], 0, %[c], vcc\n\t"
+        "s_orn2_b64_e32 vcc, %[stmp], vcc\n\t"
+        "v_addc_co_u32_e32 %[d], vcc, -1, %[d], vcc"        
+        : [c] "=&v"(c), [d] "=v"(d), [stmp] "=&s"(stmp)
+        : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32))
+        : "vcc");
+#else
   __asm("#SUB\n\t"
         "v_sub_co_u32_e32  %[c], vcc, %[aLo], %[bLo]\n\t"
 	"v_subb_co_u32_e32 %[d], vcc, %[aHi], %[bHi], vcc\n\t"
         "s_mov_b64_e32 %[stmp], vcc\n\t"
-        "v_addc_co_u32_e32 %[c], vcc, 0, %[c], vcc\n\t"
+        "v_addc_co_u32 %[c], vcc, 0, %[c], vcc\n\t"
         "s_orn2_b64_e32 vcc, vcc, %[stmp]\n\t"
         "v_addc_co_u32_e32 %[d], vcc, -1, %[d], vcc"        
-        : [c] "=&v"(c), [d] "=v"(d), [stmp] "=s"(stmp)
+        : [c] "=&v"(c), [d] "=v"(d), [stmp] "=&s"(stmp)
         : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32))
         : "vcc");
-
+#endif
+  
   return U64(c, d);
-    // as_ulong((uint2)(c, (a >= b) ? d : tmp2));
-  
-  // "v_cmp_lt_u64_e32 vcc, [%3,%4], [%0,%1]\n\t"
-  // "v_cndmask_b32_e32 %1, %1, %2, vcc\n\t"
-
-  /*
-        // s_mov_b64 %2, vcc
-        v_addc_co_u32_e32 %1, vcc, %2, %1, vcc
-        
-	v_add_co_u32_e32 v8, vcc, 1, v6
-	v_addc_co_u32_e32 v9, vcc, -1, v7, vcc
-        
-	v_cmp_lt_u64_e32 vcc, v[0:1], v[2:3]
-	v_cndmask_b32_e32 v1, v7, v9, vcc
-	v_cndmask_b32_e32 v0, v6, v8, vcc
-        );
-  */
 #else
-
-  
-  // return a - b - -U32(a < b);
-  
+  // return a - b - -U32(a < b);  
   return (a >= b) ? a - b : (a - b - 0xffffffff);
-  
-  // return (a >= b) ? a - b : (PRIME - reduce(b - a));
-  
-  // u64 d = a - b;
-  // return (d <= a) ? d : neg(-d);
-  
-  // return (d <= a) ? d : (PRIME - reduce(-d));
-
 #endif
 }
 
@@ -767,5 +751,5 @@ kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
 kernel void testKernel(global ulong* io) {
   uint me = get_local_id(0);
 
-  io[me] = sq(io[me]);
+  io[me] = sub(io[me], io[me+1]);
 }
