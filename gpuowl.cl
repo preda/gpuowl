@@ -104,15 +104,7 @@ u64 neg(u64 a) {
 // Add modulo PRIME. 2^64 % PRIME == U32(-1).
 u64 add(u64 a, u64 b) {
   u64 s = a + b;
-  // return reduce64(s) + (U32(-1) + (s >= a));
-
-  // return reduce64((s < a) ? s + U32(-1) : s);
-
   return reduce64(s + -U32(s < a));
-  
-  
-  // return (s < a) ? reduce(s) + U32(-1) : s;
-  // return s + (U32(-1) + (s >= a));
 }
 
 u64 sub(u64 a, u64 b) {
@@ -133,21 +125,14 @@ u64 add(u64 a, u64 b) {
   __asm("#ADD\n\t"
         "v_add_co_u32_e32 %0, vcc, %3, %5\n\t"
         "v_addc_co_u32_e32 %1, vcc, %4, %6, vcc\n\t"
-
-        // The value of %0 VGPR below does not matter, it's just a way to make a Zero.
-        "v_subbrev_co_u32_e32 %2, vcc, %0, %0, vcc\n\t"
-
-        // Equivalent to above, but with e64 encoding:
-        // "v_cndmask_b32_e64 %2, 0, -1, vcc\n\t"
-        
+        "v_subbrev_co_u32_e32 %2, vcc, %0, %0, vcc\n\t" // The value of %0 does not matter, it's just a way to make a Zero.
         "v_add_co_u32_e32 %0, vcc, %0, %2\n\t"
-        "v_addc_co_u32_e32 %1, vcc, 0, %1, vcc"
-        
+        "v_addc_co_u32_e32 %1, vcc, 0, %1, vcc"        
         : "=&v"(c), "=v"(d), "=v"(tmp)
         : "v"(U32(a)), "v"(U32(a>>32)), "v"(U32(b)), "v"(U32(b>>32))
         : "vcc");
-  return as_ulong((uint2)(c, d));
-  
+  return U64(c, d);
+
 #else
   
   u64 s = a + b;
@@ -182,7 +167,6 @@ u64 sub(u64 a, u64 b) {
         : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32))
         : "vcc");
 #endif
-  
   return U64(c, d);
 #else
   // return a - b - -U32(a < b);  
@@ -275,98 +259,14 @@ u128 wideMul(u64 x, u64 y) {
 #endif
 }
 
-u64 twice(u64 x, u32* outCarry) {
-  u32 co;
-  u32 a = x;
-  u32 b = x >> 32;
-  __asm("v_add_co_u32_e32 %[a], vcc, %[a], %[a]\n\t"
-        "v_addc_co_u32_e32 %[b], vcc, %[b], %[b], vcc\n\t"
-        "v_addc_co_u32 %[co], vcc, 0, 0, vcc"
-        : [a] "+v"(a), [b] "+v"(b), [co] "=v" (co)
-        :
-        : "vcc");
-  *outCarry = co;
-  return U64(a, b);
-}
-
-uint3 addc3(u32 a, u32 b, u32 c, u32 x) {
-  __asm("#ADD3\n\t"
-        "v_add_co_u32_e32 %[a], vcc, %[a], %[x]\n\t"
-        "v_addc_co_u32_e32 %[b], vcc, 0, %[b], vcc\n\t"
-        "v_addc_co_u32_e32 %[c], vcc, 0, %[c], vcc\n\t"
-        : [a] "+&v" (a), [b] "+&v" (b), [c] "+&v" (c)
-        : [x] "v" (x)
-        : "vcc");
-  return (uint3) (a, b, c);
-}
-
 u64 reduce128(u128 x) { return add(U64(x), mul64w(x >> 64)); }
 
 u64 mul(u64 a, u64 b) { return reduce128(wideMul(a, b)); }
 
-u64 sq(u64 x) {
-#if 0
-  u32 co;
-  u64 p = auxMul(x, x);
-  u64 q = twice(auxMul(x, x >> 32), &co) + (p >> 32);
-
-  u64 r = auxMul(x>>32, x>>32, (U64(co)<<32) | (q >> 32));
-  return reduce128((U128(r) << 64) | (q << 32) | U32(p));
-#endif  
-
-#if 1
-  return mul(x, x);
-#else
-  u64 p = auxMul(x, x);
-  u64 q = auxMul(x, x >> 32);
-
-  
-  u32 co = q >> 63;
-  q <<= 1;
-  uint3 q3 = addc3(q, q >> 32, co, p >> 32);
-  u64 r = auxMul(x >> 32, x >> 32, (U64(q3.z) << 32) | q3.y);
-  return reduce128((U128(r) << 64) | (U64(q3.x) << 32) | U32(p));
-#endif
-}
+u64 sq(u64 x) { return mul(x, x); }
 
 u64 mul1T4(u64 x) { return reduce128(U128(x) << 48); }
 u64 mul3T4(u64 x) { return mul(x, 0xfffeffff00000001ull); } // { return reduce(x * U128(0xfffeffffu) + x); } // 
-
-/*
-u64 modmul(u64 a, u64 b) {
-  u128 ab = U128(a) * b;
-  u64 high = ab >> 64;
-  u64 l0 = high << 32;
-  u64 low2 = l0 - high;
-  bool borrow = low2 > l0;
-  u32 h = U32(high >> 32) - borrow;
-  
-  u64 low = U64(ab) + low2;
-  bool carry = low < low2;
-  h += carry;
-  return modadd(low, mulm1(h));
-}
-*/
-
-/*
-u64 modmul(u64 a, u64 b) {
-  u128 ab = U128(a) * b;
-  u64 low = U64(ab);
-  u64 high = ab >> 64;
-  u32 hl = U32(high);
-  u32 hh = high >> 32;
-  u64 s = modadd(low, mulm1(hl));
-  u64 hhm1 = mulm1(hh);
-#if 0
-  s = modadd(s, hhm1 << 32);
-  s = modadd(s, mulm1(hhm1 >> 32));
-#else
-  hhm1 += s >> 32;
-  s = modadd((hhm1 << 32) | U32(s), mulm1(hhm1 >> 32));
-#endif
-  return s;
-}
-*/
 
 // ---- Bits ----
 
