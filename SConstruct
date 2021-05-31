@@ -13,7 +13,9 @@ AlwaysBuild(Command('version.inc', [], 'echo \\"`git describe --tags --long --di
 AlwaysBuild(Command('gpuowl-expanded.cl', ['gpuowl.cl'], './tools/expand.py < gpuowl.cl > gpuowl-expanded.cl'))
 AlwaysBuild(Command('gpuowl-wrap.cpp', ['gpuowl-expanded.cl'], 'cat head.txt gpuowl-expanded.cl tail.txt > gpuowl-wrap.cpp'))
 
-LIBPATH=['/opt/rocm/opencl/lib', '/opt/rocm-3.3.0/opencl/lib/x86_64', '/opt/rocm-3.5.0/opencl/lib']
+# LIBPATH=['/opt/rocm/opencl/lib', '/opt/rocm-3.3.0/opencl/lib/x86_64', '/opt/rocm-3.5.0/opencl/lib']
+
+LIBPATH=['/opt/rocm-4.2.0/opencl/lib']
 
 #config = '-g'
 config = '-g -O2'

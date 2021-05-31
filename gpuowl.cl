@@ -296,10 +296,60 @@ u128 wideMul(u64 x, u64 y) {
 #endif
 }
 
+u64 twice(u64 x, u32* outCarry) {
+  u32 co;
+  u32 a = x;
+  u32 b = x >> 32;
+  __asm("v_add_co_u32_e32 %[a], vcc, %[a], %[a]\n\t"
+        "v_addc_co_u32_e32 %[b], vcc, %[b], %[b], vcc\n\t"
+        "v_addc_co_u32 %[co], vcc, 0, 0, vcc"
+        : [a] "+v"(a), [b] "+v"(b), [co] "=v" (co)
+        :
+        : "vcc");
+  *outCarry = co;
+  return as_ulong((uint2)(a, b));
+}
+
+uint3 addc3(u32 a, u32 b, u32 c, u32 x) {
+  __asm("#ADD3\n\t"
+        "v_add_co_u32_e32 %[a], vcc, %[a], %[x]\n\t"
+        "v_addc_co_u32_e32 %[b], vcc, 0, %[b], vcc\n\t"
+        "v_addc_co_u32_e32 %[c], vcc, 0, %[c], vcc\n\t"
+        : [a] "+&v" (a), [b] "+&v" (b), [c] "+&v" (c)
+        : [x] "v" (x)
+        : "vcc");
+  return (uint3) (a, b, c);
+}
+
 u64 reduce128(u128 x) { return add(U64(x), mul64w(x >> 64)); }
+
 u64 mul(u64 a, u64 b) { return reduce128(wideMul(a, b)); }
-// { return reduce128(U128(a) * b); }
-u64 sq(u64 a) { return mul(a, a); }
+
+u64 sq(u64 x) {
+#if 0
+  u32 co;
+  u64 p = auxMul(x, x);
+  u64 q = twice(auxMul(x, x >> 32), &co) + (p >> 32);
+
+  u64 r = auxMul(x>>32, x>>32, (U64(co)<<32) | (q >> 32));
+  return reduce128((U128(r) << 64) | (q << 32) | U32(p));
+#endif  
+
+#if 1
+  return mul(x, x);
+#else
+  u64 p = auxMul(x, x);
+  u64 q = auxMul(x, x >> 32);
+
+  
+  u32 co = q >> 63;
+  q <<= 1;
+  uint3 q3 = addc3(q, q >> 32, co, p >> 32);
+  u64 r = auxMul(x >> 32, x >> 32, (U64(q3.z) << 32) | q3.y);
+  return reduce128((U128(r) << 64) | (U64(q3.x) << 32) | U32(p));
+#endif
+}
+
 u64 mul1T4(u64 x) { return reduce128(U128(x) << 48); }
 u64 mul3T4(u64 x) { return mul(x, 0xfffeffff00000001ull); } // { return reduce(x * U128(0xfffeffffu) + x); } // 
 
@@ -735,5 +785,5 @@ kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
 kernel void testKernel(global ulong* io) {
   uint me = get_local_id(0);
 
-  io[me] = mul(io[me], io[me+1]);
+  io[me] = sq(io[me]);
 }
