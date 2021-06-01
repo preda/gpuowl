@@ -384,8 +384,6 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   }
 
   bool timeKernels = args.timeKernels;
-  cout << "time " << timeKernels << endl;
-
   return make_unique<Gpu>(args, E, WIDTH, HEIGHT, nW, nH, getDevice(args.device), timeKernels);
 }
 
@@ -567,6 +565,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       tailMul(buf2, buf1);
       carryOut(bufCheck, bufCheckCarry, buf2);
       if (k == 0) {
+        queue->finish();
+        // cout << "+" << endl;
         cout << n << endl;
         logTimeKernels();
         assert(read(bufCheck, bufCheckCarry) == read(bufCheck2, bufCheckCarry2, 3));

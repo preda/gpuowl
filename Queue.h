@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <unistd.h>
+#include <iostream>
 
 template<typename T> class ConstBuffer;
 template<typename T> class Buffer;
@@ -43,6 +44,7 @@ public:
   static QueuePtr make(const Context& context, bool profile, bool cudaYield) { return make_shared<Queue>(makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield); }
   
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
+    // cout << name << endl;
     Event event{::run(get(), kernel, groupSize, workSize, name, profile || cudaYield)};
     auto it = profile ? timeMap.insert({name, TimeInfo{}}).first : timeMap.end();
     if (profile) {
@@ -54,6 +56,7 @@ public:
         events.front() = std::make_pair(std::move(event), it);
       }
     }
+    // ::finish(get()); cout << "done " << name << endl;
   }
 
   bool allEventsCompleted() { return events.empty() || events.back().first.isComplete(); }

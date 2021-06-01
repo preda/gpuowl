@@ -404,7 +404,13 @@ void shufl(u32 me, u32 WG, local u64* lds, u64* u, u32 n, u32 f) {
 typedef constant const u64* Trig;
  
 void tabMul(u32 me, u32 WG, Trig trig, u64* u, u32 n, u32 f) {
+#if 0
+  u64 w = trig[(me & ~(f-1))];
+  u64 step = w;
+  for (u32 i = 1; i < n; ++i) { u[i] = mul(u[i], w); w = mul(w, step); }
+#else
   for (u32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]); }
+#endif
 }
 
 void shuflAndMul(u32 me, u32 WG, local u64* lds, Trig trig, u64* u, u32 n, u32 f) {
@@ -679,5 +685,6 @@ kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
 kernel void testKernel(global ulong* io) {
   uint me = get_local_id(0);
 
-  io[me] = mul3T4(io[me]);
+  io[me] = sub(io[me], io[me+1]);
+    // mul3T4(io[me]);
 }
