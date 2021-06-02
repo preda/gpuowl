@@ -48,10 +48,16 @@
 20210601 21:59:38 XFX 107000009  0.27% tailMul        :    731 us/call x   100 calls
 20210601 21:59:38 XFX 107000009 Total time 27.130 s
 
-
 #add {exec} dep
 20210602 07:40:51 XFX 107000009 36.79% tailSquare     :    500 us/call x 20200 calls
 20210602 07:40:51 XFX 107000009 36.52% carryIn        :    494 us/call x 20301 calls
 20210602 07:40:51 XFX 107000009 26.43% carryOut       :    357 us/call x 20300 calls
 20210602 07:40:51 XFX 107000009  0.26% tailMul        :    719 us/call x   100 calls
 20210602 07:40:51 XFX 107000009 Total time 27.447 s
+
+#add SCC clobber, rm exec dep
+20210602 15:21:48 XFX 107000009 36.83% carryIn        :    494 us/call x 20301 calls
+20210602 15:21:48 XFX 107000009 36.23% tailSquare     :    489 us/call x 20200 calls
+20210602 15:21:48 XFX 107000009 26.68% carryOut       :    358 us/call x 20300 calls
+20210602 15:21:48 XFX 107000009  0.26% tailMul        :    717 us/call x   100 calls
+20210602 15:21:48 XFX 107000009 Total time 27.255 s
