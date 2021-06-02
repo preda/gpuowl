@@ -92,31 +92,6 @@ u64 reduce64(u64 x) {
 #endif
 }
 
-#define STRICT_REDUCTION 0
-
-#if STRICT_REDUCTION
-
-u64 neg(u64 a) {
-  assert(a < PRIME);
-  // return a ? PRIME - a : a;
-  return PRIME - a;
-}
-
-// Add modulo PRIME. 2^64 % PRIME == U32(-1).
-u64 add(u64 a, u64 b) {
-  u64 s = a + b;
-  return reduce64(s + -U32(s < a));
-}
-
-u64 sub(u64 a, u64 b) {
-  // return (a >= b) ? a - b : (PRIME - reduce(b - a));
-  u64 d = a - b;
-  return (d <= a) ? d : neg(-d);
-  // return (d <= a) ? d : (PRIME - reduce(-d));
-}
-
-#else
-
 // Add modulo PRIME. 2^64 % PRIME == U32(-1).
 u64 add(u64 a, u64 b) {
 #if HAS_ASM
@@ -149,7 +124,7 @@ u64 sub(u64 a, u64 b) {
   u64 stmp;
   // u32 dummy;
 #if 1
-  __asm("#SUB BAD\n\t"
+  __asm("#SUB\n\t"
         "v_sub_co_u32_e32  %[c], vcc, %[aLo], %[bLo]\n\t"
 	"v_subb_co_u32_e32 %[d], vcc, %[aHi], %[bHi], vcc\n\t"
         "v_addc_co_u32 %[c], %[stmp], 0, %[c], vcc\n\t"
@@ -176,8 +151,6 @@ u64 sub(u64 a, u64 b) {
   return (a >= b) ? a - b : (a - b - 0xffffffff);
 #endif
 }
-
-#endif
 
 u64 mul64(u32 x) {
 #if HAS_ASM
@@ -290,10 +263,15 @@ u128 wideMul3T4(u64 x) {
   return (U128(d) << 64) | U64(a, c);
 }
 
+u128 wideMul3T8(u64 x) { return ((U128(x) << 32) - x) << 8; } // mul with 0xffffffff00
+
 u64 mul1T4(u64 x) { return reduce128(U128(x) << 48); }
 u64 mul3T4(u64 x) { return reduce128(wideMul3T4(x)); }
-// { return mul(x, 0xfffeffff00000001ull); } // { return reduce(x * U128(0xfffeffffu) + x); } //
 
+u64 mul1T8(u64 x) { return reduce128(U128(x) << 24); }
+u64 mul3T8(u64 x) { return reduce128(wideMul3T8(x)); }
+u64 mul5T8(u64 x) { return reduce128(U128(x) * 0xfffffffeff000001); }
+u64 mul7T8(u64 x) { return reduce128(U128(x) * 0xfffffeff00000101); }
 
 // ---- Bits ----
 
@@ -701,7 +679,7 @@ kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 kernel void testKernel(global ulong* io) {
   uint me = get_local_id(0);
-
-  io[me] = sub(io[me], io[me+1]);
-    // mul3T4(io[me]);
+  
+  u64 a = io[me];
+  io[me] = mul5T8(io[me]);
 }
