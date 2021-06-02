@@ -214,9 +214,9 @@ u64 mul64w(u64 x) {
 }
 
 u64 OVL auxMul(u32 x, u32 y, u64 carry) {
-#if HAS_ASM && 0
+#if HAS_ASM
   u64 out;
-  // u64 dummy;
+  u64 dummy;
   __asm("v_mad_u64_u32 %0, %1, %2, %3, %4"
         : "=v"(out), "=s"(dummy)
         : "v"(x), "v"(y), "v"(carry)// , "{exec}"(dummy)
