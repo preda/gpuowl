@@ -414,19 +414,24 @@ void shufl(u32 me, u32 WG, local u64* lds, u64* u, u32 n, u32 f) {
 }
 
 typedef constant const u64* Trig;
- 
-void tabMul(u32 me, u32 WG, Trig trig, u64* u, u32 n, u32 f) {
-#if 0
+
+void tabMulMem(u32 me, u32 WG, Trig trig, u64* u, u32 n, u32 f) {
+  for (u32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]); }
+}
+
+void tabMulCpu(u32 me, u32 WG, Trig trig, u64* u, u32 n, u32 f) {
   u64 w = trig[(me & ~(f-1))];
   u64 step = w;
   for (u32 i = 1; i < n; ++i) { u[i] = mul(u[i], w); w = mul(w, step); }
-#else
-  for (u32 i = 1; i < n; ++i) { u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]); }
-#endif
 }
 
-void shuflAndMul(u32 me, u32 WG, local u64* lds, Trig trig, u64* u, u32 n, u32 f) {
-  tabMul(me, WG, trig, u, n, f);
+void shuflAndMulMem(u32 me, u32 WG, local u64* lds, Trig trig, u64* u, u32 n, u32 f) {
+  tabMulMem(me, WG, trig, u, n, f);
+  shufl(me, WG, lds, u, n, f);
+}
+
+void shuflAndMulCpu(u32 me, u32 WG, local u64* lds, Trig trig, u64* u, u32 n, u32 f) {
+  tabMulCpu(me, WG, trig, u, n, f);
   shufl(me, WG, lds, u, n, f);
 }
 
@@ -436,7 +441,7 @@ void dFFT1K(u32 me, local u64* lds, u64* u, Trig trig) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     dfft4(u);
-    shuflAndMul(me, 256, lds, trig, u, 4, 1u << s);
+    shuflAndMulMem(me, 256, lds, trig, u, 4, 1u << s);
   }
   dfft4(u);
 }
@@ -446,7 +451,7 @@ void iFFT1K(u32 me, local u64* lds, u64* u, Trig trig) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     ifft4(u);
-    shuflAndMul(me, 256, lds, trig, u, 4, 1u << s);
+    shuflAndMulMem(me, 256, lds, trig, u, 4, 1u << s);
   }
   ifft4(u);
 }
@@ -458,7 +463,7 @@ void dFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
   for (i32 s = 0; s <= 8; s += 2) {
     if (s) { bar(); }
     dfft4(u);
-    shuflAndMul(me, 1024, lds, trig, u, 4, 1u << s);
+    shuflAndMulMem(me, 1024, lds, trig, u, 4, 1u << s);
   }
   dfft4(u);
 }
@@ -469,7 +474,7 @@ void iFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
   for (i32 s = 0; s <= 8; s += 2) {
     if (s) { bar(); }
     ifft4(u);
-    shuflAndMul(me, 1024, lds, trig, u, 4, 1u << s);
+    shuflAndMulMem(me, 1024, lds, trig, u, 4, 1u << s);
   }
   ifft4(u);
 }
