@@ -77,13 +77,14 @@ u64 hiU64(u128 x) { return x >> 64; }
 
 u64 reduce64(u64 x) {
   u32 a, b;
+  u32 dummy;
 #if HAS_ASM
   __asm("v_add_co_u32_e32 %[a], vcc, -1, %[xLo]\n\t"
         "v_addc_co_u32_e32 %[b], vcc, 0, %[xHi], vcc\n\t"
         "v_cndmask_b32_e32 %[a], %[xLo], %[a], vcc\n\t"
         "v_cndmask_b32_e32 %[b], %[xHi], %[b], vcc\n\t"
         : [a] "=&v"(a), [b] "=&v"(b)
-        : [xLo] "v"(U32(x)), [xHi] "v"(U32(x >> 32))
+        : [xLo] "v"(U32(x)), [xHi] "v"(U32(x >> 32)), "{exec}"(dummy)
         : "vcc");
   return U64(a, b);
 #else
@@ -122,6 +123,7 @@ u64 add(u64 a, u64 b) {
 
   u32 c, d;
   u32 tmp;
+  u32 dummy;
   __asm("#ADD\n\t"
         "v_add_co_u32_e32 %0, vcc, %3, %5\n\t"
         "v_addc_co_u32_e32 %1, vcc, %4, %6, vcc\n\t"
@@ -129,7 +131,7 @@ u64 add(u64 a, u64 b) {
         "v_add_co_u32_e32 %0, vcc, %0, %2\n\t"
         "v_addc_co_u32_e32 %1, vcc, 0, %1, vcc"        
         : "=&v"(c), "=v"(d), "=v"(tmp)
-        : "v"(U32(a)), "v"(U32(a>>32)), "v"(U32(b)), "v"(U32(b>>32))
+        : "v"(U32(a)), "v"(U32(a>>32)), "v"(U32(b)), "v"(U32(b>>32)), "{exec}"(dummy)
         : "vcc");
   return U64(c, d);
 
@@ -145,7 +147,8 @@ u64 sub(u64 a, u64 b) {
 #if HAS_ASM
   u32 c, d;
   u64 stmp;
-#if USE_BAD
+  u32 dummy;
+#if 1
   __asm("#SUB BAD\n\t"
         "v_sub_co_u32_e32  %[c], vcc, %[aLo], %[bLo]\n\t"
 	"v_subb_co_u32_e32 %[d], vcc, %[aHi], %[bHi], vcc\n\t"
@@ -153,7 +156,7 @@ u64 sub(u64 a, u64 b) {
         "s_orn2_b64_e32 vcc, %[stmp], vcc\n\t"
         "v_addc_co_u32_e32 %[d], vcc, -1, %[d], vcc"        
         : [c] "=&v"(c), [d] "=v"(d), [stmp] "=&s"(stmp)
-        : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32))
+        : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32)), "{exec}"(dummy)
         : "vcc");
 #else
   __asm("#SUB\n\t"
@@ -164,7 +167,7 @@ u64 sub(u64 a, u64 b) {
         "s_orn2_b64_e32 vcc, vcc, %[stmp]\n\t"
         "v_addc_co_u32_e32 %[d], vcc, -1, %[d], vcc"        
         : [c] "=&v"(c), [d] "=v"(d), [stmp] "=&s"(stmp)
-        : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32))
+        : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32)), "{exec}"(dummy)
         : "vcc");
 #endif
   return U64(c, d);
@@ -179,10 +182,11 @@ u64 sub(u64 a, u64 b) {
 u64 mul64(u32 x) {
 #if HAS_ASM
   u32 a, b;
+  u32 dummy;
   __asm("#SHL64\n\t"
         "v_sub_co_u32_e32 %0, vcc, 0, %2\n\t"
         "v_subbrev_co_u32_e32 %1, vcc, 0, %2, vcc"
-        : "=&v"(a), "=v"(b) : "v"(x) : "vcc");
+        : "=&v"(a), "=v"(b) : "v"(x), "{exec}"(dummy) : "vcc");
   return U64(a, b);
 #else
   return (U64(x) << 32) - x; // x * 0xffffffff
@@ -192,12 +196,13 @@ u64 mul64(u32 x) {
 u64 mul64w(u64 x) {
 #if HAS_ASM
   u32 a, b, c;
+  u32 dummy;
   __asm("#MUL64w\n\t"
         "v_sub_co_u32_e32 %[a], vcc, 0, %[xLo]\n\t"
         "v_subb_co_u32_e32 %[b], vcc, %[xLo], %[xHi], vcc\n\t"
         "v_subbrev_co_u32_e32 %[c], vcc, 0, %[xHi], vcc"
         : [a] "=&v"(a), [b] "=&v"(b), [c] "=v"(c)
-        : [xLo] "v" (U32(x)), [xHi] "v" (U32(x >> 32))
+        : [xLo] "v" (U32(x)), [xHi] "v" (U32(x >> 32)), "{exec}"(dummy)
         : "vcc");
   return add(U64(a, b), mul64(c));
 #else
@@ -207,10 +212,10 @@ u64 mul64w(u64 x) {
 }
 
 u64 OVL auxMul(u32 x, u32 y, u64 carry) {
-#if HAS_ASM
+#if HAS_ASM && 0
   u64 out;
   u64 dummy;
-  __asm("v_mad_u64_u32 %0, %1, %2, %3, %4" : "=v"(out), "=s"(dummy) : "v"(x), "v"(y), "v"(carry));
+  __asm("v_mad_u64_u32 %0, %1, %2, %3, %4" : "=v"(out), "=s"(dummy) : "v"(x), "v"(y), "v"(carry), "{exec}"(dummy));
   return out;
 #else
   return U64(x) * y + carry;
@@ -232,10 +237,11 @@ u64 OVL auxMul(u32 x, u32 y, u64 carryIn, u32* carryOut) {
 #if HAS_ASM
   u64 out;
   u32 co;
+  u32 dummy;
   __asm("v_mad_u64_u32 %[out], vcc, %[x], %[y], %[ci]\n\t"
         "v_addc_co_u32 %[co], vcc, 0, 0, vcc"
         : [out] "=v"(out), [co] "=v"(co)
-        : [x] "v"(x), [y] "v"(y), [ci] "v"(carryIn) : "vcc");
+        : [x] "v"(x), [y] "v"(y), [ci] "v"(carryIn), "{exec}"(dummy) : "vcc");
   *carryOut = co;
   return out;
 #else
