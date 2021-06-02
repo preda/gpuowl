@@ -157,7 +157,7 @@ u64 sub(u64 a, u64 b) {
         "v_addc_co_u32_e32 %[d], vcc, -1, %[d], vcc"        
         : [c] "=&v"(c), [d] "=v"(d), [stmp] "=&s"(stmp)
         : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32)), "{exec}"(dummy)
-        : "vcc");
+        : "vcc", "scc");
 #else
   __asm("#SUB\n\t"
         "v_sub_co_u32_e32  %[c], vcc, %[aLo], %[bLo]\n\t"
@@ -168,7 +168,7 @@ u64 sub(u64 a, u64 b) {
         "v_addc_co_u32_e32 %[d], vcc, -1, %[d], vcc"        
         : [c] "=&v"(c), [d] "=v"(d), [stmp] "=&s"(stmp)
         : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32)), "{exec}"(dummy)
-        : "vcc");
+        : "vcc", "scc");
 #endif
   return U64(c, d);
 #else
