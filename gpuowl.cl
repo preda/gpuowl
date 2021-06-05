@@ -712,10 +712,10 @@ kernel WGSIZE(G_H) void tailSquare(P(u64) io, Trig dSmallTrig, Trig iSmallTrig) 
   for (int i = 0; i < NH; ++i) { u[i] = io[HEIGHT * gr + G_H * i + me]; }
 
   dFFT4K(me, lds, u, dSmallTrig);
-
-  bar();
   
   for (int i = 0; i < NH; ++i) { u[i] = sq(u[i]); }
+
+  bar();
   
   iFFT4K(me, lds, u, iSmallTrig);
 
@@ -762,20 +762,6 @@ void trans32(P(u32) out, P(u32) in, u32 width, u32 height, local u32* lds) {
   out[height * (32 * gx + my) + 32 * gy + mx] = lds[32 * my + mx];
 }
 
-void trans64(P(i64) out, P(i64) in, u32 width, u32 height, local i64* lds) {
-  u32 gr = get_group_id(0);
-  u32 me = get_local_id(0);
-
-  u32 gx = gr % (width / 32);
-  u32 gy = gr / (width / 32);
-  u32 mx = me % 32;
-  u32 my = me / 32;
-  
-  lds[32 * mx + my] = in[width * (32 * gy + my) + 32 * gx + mx];
-  bar();
-  out[height * (32 * gx + my) + 32 * gy + mx] = lds[32 * my + mx];
-}
-
 kernel WGSIZE(1024) void transposeWordsOut(P(u32) out, P(u32) in) {
   local u32 lds[1024];
   trans32(out, in, WIDTH, HEIGHT, lds);
@@ -785,13 +771,6 @@ kernel WGSIZE(1024) void transposeWordsIn(P(u32) out, P(u32) in) {
   local u32 lds[1024];
   trans32(out, in, HEIGHT, WIDTH, lds);
 }
-
-/*
-kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
-  local i64 lds[1024];
-  trans64(out, in, WIDTH, HEIGHT / 4, lds);
-}
-*/
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 kernel WGSIZE(64) void testKernel(global u64* io) {
