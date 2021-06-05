@@ -218,7 +218,7 @@ struct Define {
   operator string() const { return str; }
 };
 
-cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH) {
+cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 nH) {
   u32 HEIGHT = N / WIDTH;
   
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
@@ -237,6 +237,7 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   
   defines.push_back({"IWSTEP", invWeight(N, E, HEIGHT, 1, 0)});
   defines.push_back({"IWSTEP_2", mul(invWeight(N, E, HEIGHT, 1, 0), 2u)});
+  defines.push_back({"NH", nH});
     
   string clSource = CL_SOURCE;
   for (const string& flag : args.flags) {
@@ -286,7 +287,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 WIDTH, u32 HEIGHT, u32 nW, u32 nH,
   timeKernels(timeKernels),
   device(device),
   context{device},
-  program(compile(args, context.get(), device, N, E, WIDTH)),
+  program(compile(args, context.get(), device, N, E, WIDTH, nH)),
   queue(Queue::make(context, timeKernels, args.cudaYield)),
 
   // Specifies size in number of workgroups
@@ -336,8 +337,21 @@ Gpu::Gpu(const Args& args, u32 E, u32 WIDTH, u32 HEIGHT, u32 nW, u32 nH,
   
   args{args}
 {
+#if 0
+  // vector<u64> u{5000000000, 8000000000, 3000000000, 9000000000, 2000000000, 4000000000, 6000000000, 7000000000};
+  vector<u64> u{0, 0, 0, 0, 3, 2, 0, 0};
+  Kernel test{program.get(), queue, device, 1, "testKernel"};
+  buf1.write(u);
+  test(buf1);
+  u = buf1.read(8);
+  for (int i = 0; i < 8; ++i) {
+    cout << u[i] << endl;
+  }
+#endif
+  
   program.reset();
 
+  // assert(nH == 8);
   carryIn.setFixedArgs(3,  dTrigW, dBigTrig, dBigTrigStep, dWeights);
   carryOut.setFixedArgs(3, iTrigW, iBigTrig, iBigTrigStep, iWeights);
   tailSquare.setFixedArgs(1, dTrigH, iTrigH);
@@ -368,7 +382,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
   u32 N = WIDTH * HEIGHT;
 
   u32 nW = 4;
-  u32 nH = 4;
+  u32 nH = 8;
 
   float bitsPerWord = E / float(N);
   log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord);
@@ -533,10 +547,11 @@ vector<u32> Gpu::read(const ConstBuffer<i32>& bufWords, const ConstBuffer<i64>& 
 
 void compare(const vector<u32>& a, const vector<u32>& b) {
   assert(a.size() == b.size());
+  if (a == b) { return; }
   int cnt = 0;
   for (int i = 0, end = int(a.size()); i < end; ++i) {
     if (a[i] != b[i]) {
-      cout << "! " << i << ' ' << a[i] << ' ' << b[i] << endl;
+      cout << "! " << i << ' ' << hex << a[i] << ' ' << b[i] << endl;
       ++cnt;
       assert(cnt < 20);
     }
@@ -544,6 +559,18 @@ void compare(const vector<u32>& a, const vector<u32>& b) {
 }
 
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
+
+  /*
+  vector<u64> big{0,0,0,0, 0,0,0,1, 0};//,6,7,8, 0};
+  big.resize(N);
+  // big[8] = 1;
+  buf1.write(big);
+  tailSquare(buf1);
+  print("", buf1.read());
+  */
+  
+#if 1
+  
   vector<i32> in(N);
   
   in[0] = 3;
@@ -563,19 +590,44 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   for (int n = 0; n < 10; ++n) {
     for (int k = 0; k < 100; ++k) {
       tailMul(buf2, buf1);
+
+      // print("buf2-a", buf2.read());
+      // tailSquare(buf2);
+      // print("buf2-b", buf2.read());
       carryOut(bufCheck, bufCheckCarry, buf2);
       if (k == 0) {
         queue->finish();
         // cout << "+" << endl;
         cout << n << endl;
         logTimeKernels();
-        assert(read(bufCheck, bufCheckCarry) == read(bufCheck2, bufCheckCarry2, 3));
+        compare(read(bufCheck, bufCheckCarry), read(bufCheck2, bufCheckCarry2, 3));
       }
     
       for (int i = 0; i < 200; ++i) {
+        // cout << i << endl;
+        // print("before", buf1.read(), 25);
         tailSquare(buf1);
+        // print("after", buf1.read(), 25);
+        
         carryOut(bufWords, bufWordsCarry, buf1);
+
+
+        /*
+        print("x", bufWords.read(), 100);
+        print("y", bufWordsCarry.read(), 100);
+
+        */
+        
+        // print("x", read(bufWords, bufWordsCarry));
+
+        // print("words", bufWords.read(), 25);
+        // print("carry", bufWordsCarry.read(), 25);
+        // bufWordsCarry.zero();
+
+        
         carryIn(buf1, bufWords, bufWordsCarry);
+        // print("buf", buf1.read(), 25);
+        // if (i >= 7) { return {}; }
       }
       carryIn(buf2, bufCheck, bufCheckCarry);
       queue->finish();
@@ -590,6 +642,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
     carryIn(buf2, bufCheck, bufCheckCarry);
   }
+
+  #endif
   
   #if 0
     // carryIn(buf1, bufWords, bufWordsCarry);

@@ -5,10 +5,6 @@
 
 #define OVL __attribute__((overloadable))
 
-// 64-bit atomics used in kernel sum64
-#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
-//#pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
-
 #if DEBUG
 #define assert(condition) if (!(condition)) { printf("assert(%s) failed at line %d\n", STR(condition), __LINE__ - 1); }
 // __builtin_trap();
@@ -35,11 +31,13 @@
 #error WIDTH
 #endif
 
-#if HEIGHT == 4096 || HEIGHT == 1024 || HEIGHT == 256
-#define NH 4
+/*
+#if HEIGHT == 4096
+#define NH 8
 #else
 #error HEIGHT
 #endif
+*/
 
 #define G_W (WIDTH / NW)
 #define G_H (HEIGHT / NH)
@@ -118,6 +116,8 @@ u64 add(u64 a, u64 b) {
 #endif
 }
 
+// u64 add(u64 a, u64 b) { return reduce64(add1(a, b)); }
+
 u64 sub(u64 a, u64 b) {
 #if HAS_ASM
   u32 c, d;
@@ -147,10 +147,16 @@ u64 sub(u64 a, u64 b) {
 #endif
   return U64(c, d);
 #else
-  // return a - b - -U32(a < b);  
-  return (a >= b) ? a - b : (a - b - 0xffffffff);
+  // return a - b - -U32(a < b);
+  // return (a >= b) ? a - b : (a - b - 0xffffffff);
+  
+  u64 d = a - b;
+  if (a >= b) { return d; }
+  return (d >= 0xffffffff) ? d - 0xffffffff : (d + 0xfffffffe00000002);
 #endif
 }
+
+// u64 sub(u64 a, u64 b) { return reduce64(sub1(a, b)); }
 
 u64 mul64(u32 x) {
 #if HAS_ASM
@@ -204,7 +210,8 @@ u64 OVL auxMul(u32 x, u32 y) {
 #if HAS_ASM && 0
   u64 out;
   u64 dummy;
-  __asm("v_mad_u64_u32 %0, %1, %2, %3, 0" : "=v"(out), "=s"(dummy) : "v"(x), "v"(y));
+  // __asm("v_mad_u64_u32 %0, %1, %2, %3, 0" : "=v"(out), "=s"(dummy) : "v"(x), "v"(y));
+  __asm("v_mad_u64_u32 %0, vcc, %[x], %[y], 0" : "=v"(out) : [x] "v"(x), [y] "v"(y), "{exec}"(dummy) : "vcc");
   return out;
 #else
   return U64(x) * y;
@@ -219,7 +226,7 @@ u64 OVL auxMul(u32 x, u32 y, u64 carryIn, u32* carryOut) {
   __asm("v_mad_u64_u32 %[out], vcc, %[x], %[y], %[ci]\n\t"
         "v_addc_co_u32 %[co], vcc, 0, 0, vcc"
         : [out] "=v"(out), [co] "=v"(co)
-        : [x] "v"(x), [y] "v"(y), [ci] "v"(carryIn)//, "{exec}"(dummy)
+        : [x] "v"(x), [y] "v"(y), [ci] "v"(carryIn) //, "{exec}"(dummy)
         : "vcc");
   *carryOut = co;
   return out;
@@ -235,7 +242,7 @@ u128 wideMul(u64 x, u64 y) {
 #if 1
   u64 p = auxMul(x, y);
   u64 q = auxMul(x, y >> 32, p >> 32);
-  u32 co;
+  u32 co;  
   q = auxMul(x >> 32, y, q, &co);
   u64 r = auxMul(x >> 32, y >> 32, (U64(co) << 32) | (q >> 32));
   return U128(U64(p, q), r);
@@ -263,15 +270,25 @@ u128 wideMul3T4(u64 x) {
   return (U128(d) << 64) | U64(a, c);
 }
 
-u128 wideMul3T8(u64 x) { return ((U128(x) << 32) - x) << 8; } // mul with 0xffffffff00
+u128 wideMul7T8(u64 x) { return ((U128(x) << 32) - x) << 8; } // mul with 0xffffffff00
 
 u64 mul1T4(u64 x) { return reduce128(U128(x) << 48); }
 u64 mul3T4(u64 x) { return reduce128(wideMul3T4(x)); }
 
+/*
 u64 mul1T8(u64 x) { return reduce128(U128(x) << 24); }
 u64 mul3T8(u64 x) { return reduce128(wideMul3T8(x)); }
 u64 mul5T8(u64 x) { return reduce128(U128(x) * 0xfffffffeff000001); }
+// { return reduce128(wideMul(x, 0xfffffffeff000001)); }
+// 
 u64 mul7T8(u64 x) { return reduce128(U128(x) * 0xfffffeff00000101); }
+*/
+
+u64 mul1T8(u64 x) { return reduce128(U128(x) * 0xfffffffeff000001); }
+u64 mul3T8(u64 x) { return reduce128(U128(x) * 0xfffffeff00000101); }
+
+u64 mul5T8(u64 x) { return reduce128(U128(x) << 24); }
+u64 mul7T8(u64 x) { return reduce128(wideMul7T8(x)); }
 
 // ---- Bits ----
 
@@ -382,6 +399,56 @@ void ifft4(u64* u) {
   SWAP(u[1], u[2]);
 }
 
+void dfft8(u64* u) {
+  X2(u[0], u[4]);
+  X2(u[1], u[5]);
+  X2(u[2], u[6]);
+  X2(u[3], u[7]);
+  u[5] = mul1T8(u[5]);
+  u[6] = mul1T4(u[6]);
+  u[7] = mul3T8(u[7]);
+
+  X2(u[0], u[2]);
+  X2(u[1], u[3]);
+  u[3] = mul1T4(u[3]);
+  X2(u[0], u[1]);
+  X2(u[2], u[3]);
+
+  X2(u[4], u[6]);
+  X2(u[5], u[7]);
+  u[7] = mul1T4(u[7]);
+  X2(u[4], u[5]);
+  X2(u[6], u[7]);
+
+  SWAP(u[1], u[4]);
+  SWAP(u[3], u[6]);
+}
+
+void ifft8(u64* u) {
+  X2(u[0], u[4]);
+  X2(u[1], u[5]);
+  X2(u[2], u[6]);
+  X2(u[3], u[7]);
+  u[5] = mul7T8(u[5]);
+  u[6] = mul3T4(u[6]);
+  u[7] = mul5T8(u[7]);
+
+  X2(u[0], u[2]);
+  X2(u[1], u[3]);
+  u[3] = mul3T4(u[3]);
+  X2(u[0], u[1]);
+  X2(u[2], u[3]);
+
+  X2(u[4], u[6]);
+  X2(u[5], u[7]);
+  u[7] = mul3T4(u[7]);
+  X2(u[4], u[5]);
+  X2(u[6], u[7]);
+
+  SWAP(u[1], u[4]);
+  SWAP(u[3], u[6]);
+}
+
 void shufl(u32 me, u32 WG, local u64* lds, u64* u, u32 n, u32 f) {
   u32 mask = f - 1;
   assert((mask & (mask + 1)) == 0);
@@ -434,14 +501,16 @@ void iFFT1K(u32 me, local u64* lds, u64* u, Trig trig) {
   ifft4(u);
 }
 
+#if NH == 4
+
 // 1024x4
 void dFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
   // UNROLL_WIDTH_CONTROL
   // __attribute__((opencl_unroll_hint(1)))
-  for (i32 s = 0; s <= 8; s += 2) {
+  for (i32 s = 0; s < 10; s += 2) {
     if (s) { bar(); }
     dfft4(u);
-    shuflAndMulMem(me, 1024, lds, trig, u, 4, 1u << s);
+    shuflAndMulMem(me, 1024, lds, trig, u, NH, 1u << s);
   }
   dfft4(u);
 }
@@ -449,13 +518,38 @@ void dFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
 void iFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
   // UNROLL_WIDTH_CONTROL
   // __attribute__((opencl_unroll_hint(1)))
-  for (i32 s = 0; s <= 8; s += 2) {
+  for (i32 s = 0; s < 10; s += 2) {
     if (s) { bar(); }
     ifft4(u);
-    shuflAndMulMem(me, 1024, lds, trig, u, 4, 1u << s);
+    shuflAndMulMem(me, 1024, lds, trig, u, NH, 1u << s);
   }
   ifft4(u);
 }
+
+#elif NH == 8
+
+// 512x8
+void dFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
+  for (i32 s = 0; s < 9; s += 3) {
+    if (s) { bar(); }
+    dfft8(u);
+    shuflAndMulMem(me, 512, lds, trig, u, NH, 1u << s);
+  }
+  dfft8(u);
+}
+
+void iFFT4K(u32 me, local u64* lds, u64* u, Trig trig) {
+  for (i32 s = 0; s < 9; s += 3) {
+    if (s) { bar(); }
+    ifft8(u);
+    shuflAndMulMem(me, 512, lds, trig, u, NH, 1u << s);
+  }
+  ifft8(u);
+}
+
+#else
+#error NH
+#endif
 
 #define ATTR(x) __attribute__((x))
 #define WGSIZE(n) ATTR(reqd_work_group_size(n, 1, 1))
@@ -586,37 +680,38 @@ kernel WGSIZE(WIDTH) void carryOut(P(i32) outWords, P(i64) outCarry, CP(u64) in,
   outCarry[WIDTH * gr + me] = carry;
 }
 
-kernel WGSIZE(1024) void tailSquare(P(u64) io, Trig dSmallTrig, Trig iSmallTrig) {
+
+kernel WGSIZE(G_H) void tailSquare(P(u64) io, Trig dSmallTrig, Trig iSmallTrig) {
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
   local u64 lds[HEIGHT];
 
-  u64 u[4];
+  u64 u[NH];
 
-  for (int i = 0; i < 4; ++i) { u[i] = io[HEIGHT * gr + 1024u * i + me]; }
+  for (int i = 0; i < NH; ++i) { u[i] = io[HEIGHT * gr + G_H * i + me]; }
 
   dFFT4K(me, lds, u, dSmallTrig);
 
   bar();
   
-  for (int i = 0; i < 4; ++i) { u[i] = sq(u[i]); }
-
+  for (int i = 0; i < NH; ++i) { u[i] = sq(u[i]); }
+  
   iFFT4K(me, lds, u, iSmallTrig);
 
-  for (int i = 0; i < 4; ++i) { io[HEIGHT * gr + 1024u * i + me] = u[i]; }
+  for (int i = 0; i < NH; ++i) { io[HEIGHT * gr + G_H * i + me] = u[i]; }
 }
 
-kernel WGSIZE(1024) void tailMul(P(u64) io, CP(u64) inB, Trig dSmallTrig, Trig iSmallTrig) {
+kernel WGSIZE(HEIGHT/NH) void tailMul(P(u64) io, CP(u64) inB, Trig dSmallTrig, Trig iSmallTrig) {
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
   local u64 lds[HEIGHT];
 
-  u64 u[4], v[4];
+  u64 u[NH], v[NH];
 
-  for (int i = 0; i < 4; ++i) { u[i] = io[HEIGHT * gr + 1024u * i + me]; }
-  for (int i = 0; i < 4; ++i) { v[i] = inB[HEIGHT * gr + 1024u * i + me]; }
+  for (int i = 0; i < NH; ++i) { u[i] =  io[HEIGHT * gr + G_H * i + me]; }
+  for (int i = 0; i < NH; ++i) { v[i] = inB[HEIGHT * gr + G_H * i + me]; }
 
   dFFT4K(me, lds, u, dSmallTrig);
 
@@ -626,11 +721,11 @@ kernel WGSIZE(1024) void tailMul(P(u64) io, CP(u64) inB, Trig dSmallTrig, Trig i
 
   bar();
   
-  for (int i = 0; i < 4; ++i) { u[i] = mul(u[i], v[i]); }
+  for (int i = 0; i < NH; ++i) { u[i] = mul(u[i], v[i]); }
 
   iFFT4K(me, lds, u, iSmallTrig);
 
-  for (int i = 0; i < 4; ++i) { io[HEIGHT * gr + 1024u * i + me] = u[i]; }
+  for (int i = 0; i < NH; ++i) { io[HEIGHT * gr + G_H * i + me] = u[i]; }
 }
 
 void trans32(P(u32) out, P(u32) in, u32 width, u32 height, local u32* lds) {
@@ -671,15 +766,22 @@ kernel WGSIZE(1024) void transposeWordsIn(P(u32) out, P(u32) in) {
   trans32(out, in, HEIGHT, WIDTH, lds);
 }
 
+/*
 kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
   local i64 lds[1024];
   trans64(out, in, WIDTH, HEIGHT / 4, lds);
 }
+*/
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
-kernel void testKernel(global ulong* io) {
+kernel WGSIZE(64) void testKernel(global u64* io) {
   uint me = get_local_id(0);
-  
-  u64 a = io[me];
-  io[me] = mul5T8(io[me]);
+  u64 u[NH];
+  if (me == 0) {
+    for (int i = 0; i < NH; ++i) { u[i] = io[i]; }
+    dfft8(u);
+    for (int i = 0; i < NH; ++i) { u[i] = sq(u[i]); }
+    ifft8(u);
+    for (int i = 0; i < NH; ++i) { io[i] = u[i]; }
+  }
 }
