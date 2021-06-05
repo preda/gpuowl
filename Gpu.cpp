@@ -338,8 +338,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 WIDTH, u32 HEIGHT, u32 nW, u32 nH,
   args{args}
 {
 #if 0
-  // vector<u64> u{5000000000, 8000000000, 3000000000, 9000000000, 2000000000, 4000000000, 6000000000, 7000000000};
-  vector<u64> u{0, 0, 0, 0, 3, 2, 0, 0};
+  vector<u64> u{1, 2, 3, 4, 0, 0, 0, 0};
   Kernel test{program.get(), queue, device, 1, "testKernel"};
   buf1.write(u);
   test(buf1);

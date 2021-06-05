@@ -391,37 +391,22 @@ void dfft4(u64* u) {
 }
 
 void ifft4(u64* u) {
+#if 0
   X2(u[0], u[2]);
   X2(u[1], u[3]);
   u[3] = mul3T4(u[3]);
   X2(u[0], u[1]);
   X2(u[2], u[3]);
   SWAP(u[1], u[2]);
+#else  
+  SWAP(u[1], u[3]);
+  dfft4(u);
+#endif
 }
 
-void dfft8(u64* u) {
-  X2(u[0], u[4]);
-  X2(u[1], u[5]);
-  X2(u[2], u[6]);
-  X2(u[3], u[7]);
-  u[5] = mul1T8(u[5]);
-  u[6] = mul1T4(u[6]);
-  u[7] = mul3T8(u[7]);
-
-  X2(u[0], u[2]);
-  X2(u[1], u[3]);
-  u[3] = mul1T4(u[3]);
-  X2(u[0], u[1]);
-  X2(u[2], u[3]);
-
-  X2(u[4], u[6]);
-  X2(u[5], u[7]);
-  u[7] = mul1T4(u[7]);
-  X2(u[4], u[5]);
-  X2(u[6], u[7]);
-
-  SWAP(u[1], u[4]);
-  SWAP(u[3], u[6]);
+void ifft4a(u64* u) {  
+  dfft4(u);
+  SWAP(u[1], u[3]);
 }
 
 void ifft8(u64* u) {
@@ -447,6 +432,38 @@ void ifft8(u64* u) {
 
   SWAP(u[1], u[4]);
   SWAP(u[3], u[6]);
+}
+
+void dfft8(u64* u) {
+#if 1
+  X2(u[0], u[4]);
+  X2(u[1], u[5]);
+  X2(u[2], u[6]);
+  X2(u[3], u[7]);
+  u[5] = mul1T8(u[5]);
+  u[6] = mul1T4(u[6]);
+  u[7] = mul3T8(u[7]);
+
+  X2(u[0], u[2]);
+  X2(u[1], u[3]);
+  u[3] = mul1T4(u[3]);
+  X2(u[0], u[1]);
+  X2(u[2], u[3]);
+
+  X2(u[4], u[6]);
+  X2(u[5], u[7]);
+  u[7] = mul1T4(u[7]);
+  X2(u[4], u[5]);
+  X2(u[6], u[7]);
+
+  SWAP(u[1], u[4]);
+  SWAP(u[3], u[6]);
+#else
+  SWAP(u[1], u[7]);
+  SWAP(u[2], u[6]);
+  SWAP(u[3], u[5]);
+  ifft8(u);
+#endif
 }
 
 void shufl(u32 me, u32 WG, local u64* lds, u64* u, u32 n, u32 f) {
@@ -776,12 +793,16 @@ kernel WGSIZE(1024) void transposeCarryOut(P(i64) out, P(i64) in) {
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 kernel WGSIZE(64) void testKernel(global u64* io) {
   uint me = get_local_id(0);
-  u64 u[NH];
+  u64 a[NH], b[NH];
   if (me == 0) {
-    for (int i = 0; i < NH; ++i) { u[i] = io[i]; }
-    dfft8(u);
-    for (int i = 0; i < NH; ++i) { u[i] = sq(u[i]); }
-    ifft8(u);
-    for (int i = 0; i < NH; ++i) { io[i] = u[i]; }
+    for (int i = 0; i < NH; ++i) { a[i] = b[i] = io[i]; }
+
+    ifft4(a);
+    ifft4a(b);
+    
+    for (int i = 0; i < NH; ++i) {
+      io[i] = a[i];
+      io[i + NH] = b[i];
+    }
   }
 }
