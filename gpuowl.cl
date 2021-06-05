@@ -379,6 +379,7 @@ u64 carryFinal(i32 w, u64 dWeight) {
 
 #define X2(a, b) { u64 t = a; a = add(a, b); b = sub(t, b); }
 
+
 #define SWAP(a, b) { u64 t = a; a = b; b = t; }
 
 void dfft4(u64* u) {
@@ -418,15 +419,17 @@ void ifft8(u64* u) {
   u[6] = mul3T4(u[6]);
   u[7] = mul5T8(u[7]);
 
+  SWAP(u[1], u[3]);
   X2(u[0], u[2]);
   X2(u[1], u[3]);
-  u[3] = mul3T4(u[3]);
+  u[3] = mul1T4(u[3]);
   X2(u[0], u[1]);
   X2(u[2], u[3]);
 
+  SWAP(u[5], u[7]);
   X2(u[4], u[6]);
   X2(u[5], u[7]);
-  u[7] = mul3T4(u[7]);
+  u[7] = mul1T4(u[7]);
   X2(u[4], u[5]);
   X2(u[6], u[7]);
 
@@ -435,7 +438,7 @@ void ifft8(u64* u) {
 }
 
 void dfft8(u64* u) {
-#if 1
+#if 0
   X2(u[0], u[4]);
   X2(u[1], u[5]);
   X2(u[2], u[6]);
