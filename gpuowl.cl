@@ -629,6 +629,8 @@ kernel WGSIZE(WIDTH) void carryIn(P(u64) out, CP(i32) inWords, CP(i64) inCarry, 
     u32 my = me / 256;
     for (int i = 0; i < 4; ++i) { u[i] = lds[256 * i + mx + WIDTH * my]; }
 
+    bar();
+
     dFFT1K(mx, lds + WIDTH * my, u, smallTrig);
 
     bar();
@@ -677,6 +679,8 @@ kernel WGSIZE(WIDTH) void carryOut(P(i32) outWords, P(i64) outCarry, CP(u64) in,
     u32 mx = me % 256;
     u32 my = me / 256;
     for (int i = 0; i < 4; ++i) { u[i] = lds[256 * i + mx + WIDTH * my]; }
+
+    bar();
 
     iFFT1K(mx, lds + WIDTH * my, u, smallTrig);
 
