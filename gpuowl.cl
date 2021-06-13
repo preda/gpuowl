@@ -96,15 +96,14 @@ u64 add(u64 a, u64 b) {
 
   u32 c, d;
   u32 tmp;
-  // u32 dummy;
   __asm("#ADD\n\t"
-        "v_add_co_u32_e32 %0, vcc, %3, %5\n\t"
-        "v_addc_co_u32_e32 %1, vcc, %4, %6, vcc\n\t"
-        "v_subbrev_co_u32_e32 %2, vcc, %0, %0, vcc\n\t" // The value of %0 does not matter, it's just a way to make a Zero.
-        "v_add_co_u32_e32 %0, vcc, %0, %2\n\t"
-        "v_addc_co_u32_e32 %1, vcc, 0, %1, vcc"        
-        : "=&v"(c), "=v"(d), "=v"(tmp)
-        : "v"(U32(a)), "v"(U32(a>>32)), "v"(U32(b)), "v"(U32(b>>32))// , "{exec}"(dummy)
+        "v_add_co_u32_e32  %[c], vcc, %[aLo], %[bLo]\n\t"
+        "v_addc_co_u32_e32 %[d], vcc, %[aHi], %[bHi], vcc\n\t"
+        "v_subbrev_co_u32_e32 %[tmp], vcc, v0, v0, vcc\n\t"
+        "v_add_co_u32_e32  %[c], vcc, %[c], %[tmp]\n\t"
+        "v_addc_co_u32_e32 %[d], vcc, 0, %[d], vcc\n\t"        
+        : [c] "=&v"(c), [d] "=v"(d), [tmp] "=v"(tmp)
+        : [aLo] "v"(U32(a)), [aHi] "v"(U32(a>>32)), [bLo] "v"(U32(b)), [bHi] "v"(U32(b>>32))
         : "vcc");
   return U64(c, d);
 
@@ -251,12 +250,6 @@ u128 wideMul(u64 x, u64 y) {
 #endif
 }
 
-u64 reduce128(u128 x) { return add(U64(x), mul64w(x >> 64)); }
-
-u64 mul(u64 a, u64 b) { return reduce128(wideMul(a, b)); }
-
-u64 sq(u64 x) { return mul(x, x); }
-
 u64 auxMulS(u32 x, u32 s, u32 ci) {
   return U64(x) * s + ci;
 }
@@ -269,6 +262,15 @@ u128 wideMul3T4(u64 x) {
   u64 d = auxMulS(b, 0xfffeffffu, c >> 32);
   return (U128(d) << 64) | U64(a, c);
 }
+
+u128 wideMulS(u64 x, u64 y) {
+  return U128(x) * y;
+}
+
+u64 reduce128(u128 x) { return add(U64(x), mul64w(x >> 64)); }
+u64 mul(u64 a, u64 b) { return reduce128(wideMul(a, b)); }
+u64 mulS(u64 a, u64 b) { return reduce128(wideMulS(a, b)); }
+u64 sq(u64 x) { return mul(x, x); }
 
 u128 wideMul7T8(u64 x) { return ((U128(x) << 32) - x) << 8; } // mul with 0xffffffff00
 
@@ -513,6 +515,8 @@ void dFFT1K(u32 me, local u64* lds, u64* u, Trig trig) {
 
 void iFFT1K(u32 me, local u64* lds, u64* u, Trig trig) {
   // UNROLL_WIDTH_CONTROL
+  // #pragma unroll(1)
+  // __attribute__((opencl_unroll_hint(1)))
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     ifft4(u);
@@ -596,6 +600,35 @@ kernel WGSIZE(WIDTH) void sinkCarry(P(i32) out, CP(i32) in, CP(i64) inCarry) {
   pos = 4 * WIDTH * gr + WIDTH * 3 + me;
   out[pos] = in[pos] + carry;  
 }
+
+kernel WGSIZE(G_W) void fftOut(P(u64) io, Trig smallTrig, Trig bigTrig, Trig bigTrigStep) {
+  u32 gr = get_group_id(0);
+  u32 me = get_local_id(0);
+  local u64 lds[WIDTH];
+  u64 u[NW];
+
+  io += WIDTH * gr;
+  
+  // u64 trig = bigTrig[G_W * gr + me];
+  // u64 trigStep = bigTrigStep[gr];
+  for (u32 i = 0; i < NW; ++i) {
+    u[i] = io[G_W * i + me];
+    // u[i] = mul(u[i], trig);
+    // trig = mulS(trig, trigStep)
+  }
+  
+  iFFT1K(me, lds, u, smallTrig);
+  
+  for (u32 i = 0; i < NW; ++i) {
+    io[G_W * i + me] = u[i];
+  }
+}
+
+/*
+kernel WGSIZE(G_W) void fftIn() {
+
+}
+*/
 
 kernel WGSIZE(WIDTH) void carryIn(P(u64) out, CP(i32) inWords, CP(i64) inCarry, Trig smallTrig, Trig bigTrig, Trig bigTrigStep, CP(u64) dWeights) {
   u32 gr = get_group_id(0);
