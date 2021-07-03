@@ -609,26 +609,25 @@ kernel WGSIZE(G_W) void fftOut(P(u64) io, Trig smallTrig, Trig bigTrig, Trig big
 
   io += WIDTH * gr;
   
-  // u64 trig = bigTrig[G_W * gr + me];
-  // u64 trigStep = bigTrigStep[gr];
   for (u32 i = 0; i < NW; ++i) {
+
+#if NONTEMPORAL
+    u[i] = __builtin_nontemporal_load(io + (G_W * i + me));
+#else
     u[i] = io[G_W * i + me];
-    // u[i] = mul(u[i], trig);
-    // trig = mulS(trig, trigStep)
+#endif
   }
   
   iFFT1K(me, lds, u, smallTrig);
   
   for (u32 i = 0; i < NW; ++i) {
+#if NONTEMPORAL
+    __builtin_nontemporal_store(u[i], io + (G_W * i + me));
+#else
     io[G_W * i + me] = u[i];
+#endif
   }
 }
-
-/*
-kernel WGSIZE(G_W) void fftIn() {
-
-}
-*/
 
 kernel WGSIZE(WIDTH) void carryIn(P(u64) out, CP(i32) inWords, CP(i64) inCarry, Trig smallTrig, Trig bigTrig, Trig bigTrigStep, CP(u64) dWeights) {
   u32 gr = get_group_id(0);
