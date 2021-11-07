@@ -76,7 +76,8 @@ def readGpu(d: int, readSlow = False):
                pcieRead=pcieRead, pcieWrite=pcieWrite, pcieErr=pcieErr, memBusy=memBusy, memUsedGB=memUsedGB)
 
 def printInfo(devices, readSlow):
-    print('GPU UID            VDD   SCLK MCLK Mem-used Mem-busy PWR  FAN  Temp     PCIeErr' + (' PCIe R/W' if readSlow else ''))
+    # print(datetime.now())
+    print('GPU UID            VDD   SCLK MCLK Mem-used Mem-busy PWR  FAN  Temp     PCIeErr' + (' PCIe R/W' if readSlow else '') + ' ' + str(datetime.now()))
     for d in devices:
         gpu = readGpu(d, readSlow)
         temps = '/'.join((str(x) for x in gpu.temps))
