@@ -1820,7 +1820,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
           throw "too many errors";
         }
-        if (lastFailedRes64 && res == *lastFailedRes64) {
+        if (lastFailedRes64 && (res == *lastFailedRes64)) {
           log("Consistent error %016" PRIx64 ", will stop.\n", res);
           throw "consistent error";
         }

@@ -8,6 +8,7 @@
 
 #include <optional>
 #include <cassert>
+#include <optional>
 
 class Gpu;
 class Args;
