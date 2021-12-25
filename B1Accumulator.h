@@ -6,6 +6,7 @@
 #include "Memlock.h"
 #include "common.h"
 
+#include <optional>
 #include <cassert>
 
 class Gpu;
