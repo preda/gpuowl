@@ -59,7 +59,7 @@ In practice, PRP is preferred over LL because PRP does have a very strong and us
 
 ## GpuOwl: OpenCL GPU Mersenne primality testing
 GpuOwl implements the PRP and P-1 tests. It also implemented, at various points in the past, LL and TF but these are not active now
-in GpuOwl. For double check (DC) LL tests, see [version 6.11](https://github.com/preda/gpuowl/releases/tag/v6.11) and for first time LL tests, see the [LL branch](https://github.com/preda/gpuowl/tree/LL) (version 0.6).
+in GpuOwl. For double check (DC) LL tests, see the [v6 branch](https://github.com/preda/gpuowl/tree/v6) (version 6.11-380) and for first time LL tests, see the [LL branch](https://github.com/preda/gpuowl/tree/LL) (version 0.6).
 
 Let us consider the PRP test, to get an idea of what GpuOwl does under the hood.
 
@@ -94,15 +94,15 @@ The first form indicates just the exponent to test, while the form starting with
 exponent and optionally the assignment ID (AID) from PrimeNet. The `PRPDC=` prefix can be used instead for PRP DC assignments.
 
 ## Usage
-* Get "PRP smallest available first time tests" assignments from GIMPS Manual Testing ( http://mersenne.org/ ).
+* Get "PRP smallest available first time tests" assignments from GIMPS Manual Testing ( https://www.mersenne.org/manual_assignment/ ).
 * Copy the assignment lines from GIMPS to a file named '`worktodo.txt`'
 * Run `gpuowl`. It prints progress report on stdout and in `gpuowl.log`, and writes result lines to `results.txt`
-* Submit the result lines from `results.txt` to http://mersenne.org/ manual testing.
+* Submit the result lines from `results.txt` to https://www.mersenne.org/manual_result/ manual testing.
 
 ## Build
 To build simply invoke "`make`" (or look inside the Makefile for a manual build).
 
-* the GNU Multiple Precision (GMP) library `libgmp-dev`
+* the GNU Multiple Precision (GMP) 6.1 library `libgmp-dev`
 * a C++20 compiler (e.g. GCC, Clang)
 * an OpenCL implementation (which provides the **libOpenCL** library). Recommended: an AMD GPU with ROCm 1.7.
 
