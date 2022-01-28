@@ -33,13 +33,17 @@ std::optional<Task> parse(const std::string& line) {
   if(sscanf(tail.c_str(), "%11[a-zA-Z]=%n", kindStr, &pos) == 1) {
     string kind = kindStr;
     tail = tail.substr(pos);
-    if (kind == "PRP") {
+    if (kind == "PRP" or kind == "PRPDC") {
       if (tail.find('"') != string::npos) {
         log("GpuOwl does not support PRP-CF!\n");
       } else {
         char AIDStr[64] = {0};
-        if (sscanf(tail.c_str(), "%32[0-9a-fA-FN/],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
-            || sscanf(tail.c_str(), "%32[0-9a-fA-FN/],%u", AIDStr, &exp) == 2
+        if (sscanf(tail.c_str(), "%32[0-9a-fA-F],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
+            || (AIDStr[0]=0, sscanf(tail.c_str(), "N/A,1,2,%u,-1,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
+            || (AIDStr[0]=0, sscanf(tail.c_str(), "1,2,%u,-1,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
+            || sscanf(tail.c_str(), "%32[0-9a-fA-F],%u,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
+            || (AIDStr[0]=0, sscanf(tail.c_str(), "N/A,%u,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
+            || (AIDStr[0]=0, sscanf(tail.c_str(), "%u,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
             || (AIDStr[0]=0, sscanf(tail.c_str(), "%u", &exp)) == 1) {
           string AID = AIDStr;
           if (AID == "N/A" || AID == "0") { AID = ""; }
