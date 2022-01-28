@@ -20,13 +20,13 @@ jobs:
     env:
       CXX: ${{ matrix.cxx }}
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: Install
       run: |
         sudo apt-get -yqq update
-        sudo apt-get -yqq install cppcheck ocl-icd-* opencl-headers
+        sudo apt-get -yqq install cppcheck ocl-icd-opencl-dev
         $CXX --version
-    - name: Before
+    - name: Before script
       if: ${{ matrix.os == 'ubuntu-18.04' && matrix.cxx == 'g++' }}
       run: |
         sed -i 's/<filesystem>/<experimental\/filesystem>/' *.h *.cpp
@@ -36,8 +36,13 @@ jobs:
       run: |
         make -j "$(nproc)"
         ./gpuowl -h
+    - uses: actions/upload-artifact@v2
+      if: always()
+      with:
+        name: ${{ matrix.os }}_${{ matrix.cxx }}_gpuowl
+        path: ${{ github.workspace }}
     - name: Cppcheck
-      run: cppcheck --enable=all .
+      run: cppcheck --enable=all --force .
     - name: ShellCheck
       run: bash -c 'shopt -s globstar; shellcheck -s bash **/*.sh || true'
 
@@ -47,8 +52,13 @@ jobs:
     runs-on: windows-latest
     continue-on-error: true
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: Script
       run: |
         make gpuowl-win.exe
-        ./gpuowl-win.exe -h
+        .\gpuowl-win.exe -h
+    - uses: actions/upload-artifact@v2
+      if: always()
+      with:
+        name: gpuowl-win
+        path: ${{ github.workspace }}

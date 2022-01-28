@@ -45,10 +45,10 @@ matrix:
 
 install:
   - sudo apt-get -yqq update
-  - sudo apt-get -yqq install cppcheck ocl-icd-* opencl-headers
+  - sudo apt-get -yqq install cppcheck ocl-icd-opencl-dev
 script:
   - make -j "$(nproc)"
   - ./gpuowl -h
-  - cppcheck --enable=all .
+  - cppcheck --enable=all --force .
   - bash -c 'shopt -s globstar; shellcheck -s bash **/*.sh || true'
 
