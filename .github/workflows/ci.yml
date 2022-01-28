@@ -51,14 +51,21 @@ jobs:
 
     runs-on: windows-latest
     continue-on-error: true
+    strategy:
+      matrix:
+        cxx: [g++, clang++]
+      fail-fast: false
+    env:
+      CXX: ${{ matrix.cxx }}
     steps:
     - uses: actions/checkout@v2
     - name: Script
       run: |
+        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         make gpuowl-win.exe
         .\gpuowl-win.exe -h
     - uses: actions/upload-artifact@v2
       if: always()
       with:
-        name: gpuowl-win
+        name: win_${{ matrix.cxx }}_gpuowl
         path: ${{ github.workspace }}
