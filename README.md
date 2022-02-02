@@ -86,10 +86,12 @@ are also used to speed up computation, e.g. the “Irrational Base Discrete Weig
 ## `worktodo.txt`
 The lines in `worktodo.txt` must be of one of these forms:
 * `70100200`
+* `PRP=1,2,77936867,-1,75,0`
+* `PRP=N/A,1,2,77936867,-1,75,0`
 * `PRP=FCECE568118E4626AB85ED36A9CC8D4F,1,2,77936867,-1,75,0`
 
-The first form indicates just the exponent to test, while the form starting with PRP indicates both the
-exponent and the assignment ID (AID) from PrimeNet.
+The first form indicates just the exponent to test, while the form starting with `PRP=` indicates the
+exponent and optionally the assignment ID (AID) from PrimeNet. The `PRPDC=` prefix can be used instead for PRP DC assignments.
 
 ## Usage
 * Get "PRP smallest available first time tests" assignments from GIMPS Manual Testing ( http://mersenne.org/ ).
