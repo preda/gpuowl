@@ -38,7 +38,7 @@ struct Task {
   void writeResultLL(const Args&,  bool isPrime, u64 res64, u32 fftSize) const;
   void writeResultPM1(const Args&, const std::string& factor, u32 fftSize, bool didStage2) const;
 
-  string kindStr() const { return kind == PRP ? "PRP" : (kind == PM1 ? "PFactor" : "LL"); }
+  string kindStr() const { return kind == PRP ? "PRP" : (kind == PM1 ? "PFactor" : "DoubleCheck"); }
   
   operator string() const {
     string prefix;
@@ -47,7 +47,7 @@ struct Task {
       snprintf(buf, sizeof(buf), "B1=%u,B2=%u;", B1, B2);
       prefix = buf;
     }
-    snprintf(buf, sizeof(buf), "%s=%s,1,2,%u,-1,%u,%u", kindStr().c_str(), AID.empty() ? "N/A" : AID.c_str(), exponent, bitLo, wantsPm1);
+    snprintf(buf, sizeof(buf), kind == LL ? "%s=%s,%u,%u,%u" : "%s=%s,1,2,%u,-1,%u,%u", kindStr().c_str(), AID.empty() ? "N/A" : AID.c_str(), exponent, bitLo, wantsPm1);
     return buf;
   }
 };
