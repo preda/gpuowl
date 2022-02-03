@@ -36,14 +36,18 @@ std::optional<Task> parse(const std::string& line) {
   if(sscanf(tail, "%11[a-zA-Z]=%n", kindStr, &pos) == 1) {
     string kind = kindStr;
     tail += pos;
-    if (kind == "PRP" || kind == "PFactor" || kind == "Pfactor" || kind == "DoubleCheck") {
+    if (kind == "PRP" || kind == "PRPDC" || kind == "PFactor" || kind == "Pfactor" || kind == "Test" || kind == "DoubleCheck") {
       char AIDStr[64] = {0};
-      if (sscanf(tail, "%32[0-9a-fA-FN/],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
-          || sscanf(tail, "%32[0-9a-fA-FN/],%u", AIDStr, &exp) == 2
+      if (sscanf(tail, "%32[0-9a-fA-F],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
+          || (AIDStr[0]=0, sscanf(tail, "N/A,1,2,%u,-1,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
+          || (AIDStr[0]=0, sscanf(tail, "1,2,%u,-1,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
+          || sscanf(tail, "%32[0-9a-fA-F],%u,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
+          || (AIDStr[0]=0, sscanf(tail, "N/A,%u,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
+          || (AIDStr[0]=0, sscanf(tail, "%u,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
           || (AIDStr[0]=0, sscanf(tail, "%u", &exp)) == 1) {
         string AID = AIDStr;
         if (AID == "N/A" || AID == "0") { AID = ""; }
-        return {{kind == "PRP" ? Task::PRP : (kind == "DoubleCheck" ? Task::LL : Task::PM1), exp, AID, line, B1, B2, bitLo, wantsPm1}};
+        return {{kind == "PRP" or kind == "PRPDC" ? Task::PRP : (kind == "Test" or kind == "DoubleCheck" ? Task::LL : Task::PM1), exp, AID, line, B1, B2, bitLo, wantsPm1}};
       }
     }
   }
@@ -98,12 +102,12 @@ std::optional<Task> Worktodo::getTask(Args &args) {
  again:
   // Try to get a task from the local worktodo.txt
   if (optional<Task> task = firstGoodTask(worktodoTxt)) {
-    if (task->kind == Task::PRP && task->wantsPm1) {
+    if ((task->kind == Task::LL and !task->wantsPm1) or (task->kind == Task::PRP and task->wantsPm1)) {
       // Some worktodo tasks can be expanded into subtasks:
       // PRP with wantsPm1>0 is expanded into a sequence of P-1 followed by PRP with wantsPm1==0.
       Task pm1{Task::PM1, task->exponent, task->AID, "", task->B1, task->B2, task->bitLo, task->wantsPm1};
       pm1.adjustBounds(args);
-      task->wantsPm1 = 0;
+      task->wantsPm1 = task->kind == Task::LL ? 1 : 0;
       // File::append(worktodoTxt, "#"s + task.line);
       File::append(worktodoTxt, string(pm1) + '\n');
       File::append(worktodoTxt, string(*task) + '\n');
@@ -133,7 +137,7 @@ void Worktodo::deletePRP(u32 exponent) {
   {
     auto fo{File::openWrite(fileName + "-tmp")};
     for (const string& line : File::openRead(fileName, true)) {
-      if (optional<Task> task = parse(line); task && task->exponent == exponent && task->kind == Task::PRP) {
+      if (optional<Task> task = parse(line); task && task->exponent == exponent && (task->kind == Task::LL or task->kind == Task::PRP)) {
         changed = true;
         log("task removed: \"%s\"\n", rstripNewline(line).c_str());
       } else {

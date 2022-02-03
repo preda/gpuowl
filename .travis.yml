@@ -10,7 +10,6 @@ matrix:
     before_script:
       - sed -i 's/<filesystem>/<experimental\/filesystem>/' *.h *.cpp
       - sed -i 's/std::filesystem/std::experimental::filesystem/' *.h *.cpp
-      - sed -i 's/assert(false);/abort();/' Pm1Plan.cpp
   - name: "Ubuntu 18.04 (clang)"
     os: linux
     dist: bionic
@@ -40,7 +39,6 @@ matrix:
   - compiler: gcc
     os: linux
     dist: bionic
-  - compiler: clang
   - os: windows
 
 install:
