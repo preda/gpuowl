@@ -74,16 +74,16 @@ are also used to speed up computation, e.g. the "Irrational Base Discrete Weight
 
 
 ## Files used by gpuOwl
-* worktodo.txt : contains exponents to test, one entry per line
-* results.txt : contains the results
-* N.owl : the most recent checkpoint for exponent <N>; will resume from here
-* N-prev.owl : the previous checkpoint, to be used if N.ll is lost or corrupted
-* N.iteration.owl : a persistent checkpoint at the given iteration
+* `worktodo.txt` : contains exponents to test, one entry per line
+* `results.txt` : contains the results
+* `N.owl` : the most recent checkpoint for exponent <N>; will resume from here
+* `N-prev.owl` : the previous checkpoint, to be used if N.ll is lost or corrupted
+* `N.iteration.owl` : a persistent checkpoint at the given iteration
 
-## worktodo.txt
-The lines in worktodo.txt must be of one of these forms:
-* 70100200
-* PRP=FCECE568118E4626AB85ED36A9CC8D4F,1,2,77936867,-1,75,0
+## `worktodo.txt`
+The lines in `worktodo.txt` must be of one of these forms:
+* `70100200`
+* `PRP=FCECE568118E4626AB85ED36A9CC8D4F,1,2,77936867,-1,75,0`
 
 The first form indicates just the exponent to test, while the form starting with PRP indicates both the
 exponent and the assignment ID (AID) from PrimeNet.
@@ -128,7 +128,7 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
--verify <file>|<exponent> : verify PRP-proof contained in <file> or in the folder <exponent>/
+-verify <file>     : verify PRP-proof contained in <file>
 -proof <power>     : Valid <power> values are 6 to 9.
                      By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
                      A lower power reduces disk space requirements but increases the verification cost.
@@ -146,11 +146,13 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 ```
 Device numbers start at zero.
 
-## Primenet.py Arguments
--h, --help            show this help message and exit\
--u USERNAME           Primenet user name\
--p PASSWORD           Primenet password\
--t TIMEOUT            Seconds to sleep between updates\
---dirs DIR \[DIR ...\]  GpuOwl directories to scan\
---tasks NTASKS        Number of tasks to fetch ahead\
--w \{PRP,PM1,LL_DC,PRP_DC,PRP_WORLD_RECORD,PRP_100M\}   GIMPS work type
+## `Primenet.py` Arguments
+```
+-h, --help            show this help message and exit
+-u USERNAME           Primenet user name
+-p PASSWORD           Primenet password
+-t TIMEOUT            Seconds to sleep between updates
+--dirs DIR [DIR ...]  GpuOwl directories to scan
+--tasks NTASKS        Number of tasks to fetch ahead
+-w {PRP,PM1,LL_DC,PRP_DC,PRP_WORLD_RECORD,PRP_100M}   GIMPS work type
+```
