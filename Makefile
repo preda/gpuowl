@@ -1,10 +1,10 @@
-CXXFLAGS = -Wall -O2 -std=c++17
+CXXFLAGS = -Wall -g -O3 -std=c++17
 
 LIBPATH = -L/opt/rocm-3.3.0/opencl/lib/x86_64 -L/opt/rocm-3.1.0/opencl/lib/x86_64 -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
 
 LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
 
-LINK = $(CXX) -o $@ ${OBJS} ${LDFLAGS}
+LINK = $(CXX) $(CXXFLAGS) -o $@ ${OBJS} ${LDFLAGS}
 
 SRCS = Pm1Plan.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp checkpoint.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp gpuowl-wrap.cpp sha3.cpp md5.cpp
 OBJS = $(SRCS:%.cpp=%.o)
@@ -39,7 +39,7 @@ version.inc: FORCE
 	echo Version: `cat version.inc`
 
 gpuowl-expanded.cl: gpuowl.cl
-	./tools/expand.py < gpuowl.cl > gpuowl-expanded.cl
+	python3 tools/expand.py < gpuowl.cl > gpuowl-expanded.cl
 
 gpuowl-wrap.cpp: gpuowl-expanded.cl head.txt tail.txt
 	cat head.txt gpuowl-expanded.cl tail.txt > gpuowl-wrap.cpp

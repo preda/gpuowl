@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron:  '0 0 1 * *'
+
+jobs:
+  Linux:
+    name: Linux
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ (matrix.os == 'ubuntu-18.04' && matrix.cxx == 'g++') || matrix.cxx == 'clang++' }}
+    strategy:
+      matrix:
+        os: [ubuntu-18.04, ubuntu-20.04]
+        cxx: [g++, clang++]
+      fail-fast: false
+    env:
+      CXX: ${{ matrix.cxx }}
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install
+      run: |
+        sudo apt-get -yqq update
+        sudo apt-get -yqq install cppcheck ocl-icd-opencl-dev
+        $CXX --version
+    - name: Before script
+      if: ${{ matrix.os == 'ubuntu-18.04' && matrix.cxx == 'g++' }}
+      run: |
+        sed -i 's/<filesystem>/<experimental\/filesystem>/' *.h *.cpp
+        sed -i 's/std::filesystem/std::experimental::filesystem/' *.h *.cpp
+        sed -i 's/assert(false);/abort();/' Pm1Plan.cpp
+    - name: Script
+      run: |
+        make -j "$(nproc)"
+        ./gpuowl -h
+    - uses: actions/upload-artifact@v2
+      if: always()
+      with:
+        name: ${{ matrix.os }}_${{ matrix.cxx }}_gpuowl
+        path: ${{ github.workspace }}
+    - name: Cppcheck
+      run: cppcheck --enable=all --force .
+    - name: ShellCheck
+      run: bash -c 'shopt -s globstar; shellcheck -s bash **/*.sh || true'
+
+  Windows:
+    name: Windows
+
+    runs-on: windows-latest
+    continue-on-error: true
+    strategy:
+      matrix:
+        cxx: [g++, clang++]
+      fail-fast: false
+    env:
+      CXX: ${{ matrix.cxx }}
+    steps:
+    - uses: actions/checkout@v2
+    - name: Script
+      run: |
+        make gpuowl-win.exe
+        .\gpuowl-win.exe -h
+    - uses: actions/upload-artifact@v2
+      if: always()
+      with:
+        name: win_${{ matrix.cxx }}_gpuowl
+        path: ${{ github.workspace }}
