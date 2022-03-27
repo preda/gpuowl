@@ -42,8 +42,8 @@ class Gpu:
     sclk: int
     mclk: int
     voltage: int
-    pcieRead: int
-    pcieWrite: int
+    pcie_bw: str
+    pcie_speed: str
     pcieErr: int
     memBusy: int
     memUsedGB: float
@@ -52,13 +52,16 @@ class Gpu:
 def readGpu(d: int, readSlow = False):
     device = drm + f'card{d}/device/'
     uid = readOr(device + 'unique_id', '----------------')
-    pcieRead, pcieWrite, pcieSize = map(int, read(device + 'pcie_bw').split()) if readSlow else (0, 0, 0)
+    pcie_bw = '/'.join(read(device + 'pcie_bw').split()[:-1]) if readSlow else ''
     pcieErr = readInt(device + 'pcie_replay_count', 1)
     memBusy = readInt(device + 'mem_busy_percent', 1)
     memUsed = readInt(device + 'mem_info_vram_used', 1)
     memUsedGB = memUsed * (1.0 / (1024 * 1024 * 1024))
     # pciId = read(device + 'thermal_throttling_logging').split()[0]
     pciId = read(device + 'uevent').split('PCI_SLOT_NAME=')[1].split()[0].lstrip('0000:')
+
+    pcie_speed = list(filter(lambda x : x[-1] == '*', read(device + 'pp_dpm_pcie').split('\n')))[-1][:-2]
+    # print(pcie_speed)
     
     hwmon = hwmonPath(device)
     if hwmon:
@@ -76,15 +79,15 @@ def readGpu(d: int, readSlow = False):
         mclk = 0
         voltage = 0
     return Gpu(uid=uid, temps=temps, fan=fan, power=power, sclk=sclk, mclk=mclk, voltage=voltage,
-               pcieRead=pcieRead, pcieWrite=pcieWrite, pcieErr=pcieErr, memBusy=memBusy, memUsedGB=memUsedGB, pciId=pciId)
+               pcie_bw=pcie_bw, pcie_speed=pcie_speed, pcieErr=pcieErr, memBusy=memBusy, memUsedGB=memUsedGB, pciId=pciId)
 
 def printInfo(devices, readSlow):
     print(datetime.now())    
-    print('# PCI     UID              VDD   SCLK MCLK Mem-used Mem-busy PWR  FAN  Temp     PCIeErr' + (' PCIe R/W' if readSlow else '') + ' ')
+    print('# PCI     UID              VDD   SCLK MCLK Mem-used Mem-busy PWR  FAN  Temp     PCIe-config           Err' + (' PCIe BW' if readSlow else '') + ' ')
     for d in devices:
         gpu = readGpu(d, readSlow)
         temps = '/'.join((str(x) for x in gpu.temps))
-        print(('%(card)d %(pciId)s %(uid)s %(voltage)dmV %(sclk)4d %(mclk)4d %(memUsedGB)5.2fGB    %(memBusy)2d%%    %(power)3dW %(fan)4d %(temps)s %(pcieErr)7d' + (' %(pcieRead)d/%(pcieWrite)d' if readSlow else ''))
+        print(('%(card)d %(pciId)s %(uid)s %(voltage)dmV %(sclk)4d %(mclk)4d %(memUsedGB)5.2fGB    %(memBusy)2d%%    %(power)3dW %(fan)4d %(temps)s %(pcie_speed)-21s %(pcieErr)3d' + (' %(pcie_bw)s' if readSlow else ''))
               % dict(gpu.__dict__, card=d, temps=temps))
     
 devices = deviceList()
