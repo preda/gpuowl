@@ -2,7 +2,7 @@ CXXFLAGS = -Wall -g -O3 -std=gnu++17
 
 LIBPATH = -L/opt/rocm-5.1.1/opencl/lib -L/opt/rocm-4.0.0/opencl/lib -L/opt/rocm-3.3.0/opencl/lib/x86_64 -L/opt/rocm/opencl/lib -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
 
-LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread -lquadmath ${LIBPATH}
+LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
 
 LINK = $(CXX) $(CXXFLAGS) -o $@ ${OBJS} ${LDFLAGS}
 
@@ -26,7 +26,7 @@ D:	D.o Pm1Plan.o log.o common.o timeutil.o
 	$(CXX) -o $@ $^ ${LDFLAGS}
 
 clean:
-	rm -f ${OBJS} gpuowl gpuowl-win.exe
+	rm -f ${OBJS} gpuowl gpuowl-win.exe gpuowl-wrap.cpp
 
 %.o : %.cpp
 %.o : %.cpp $(DEPDIR)/%.d gpuowl-wrap.cpp version.inc
@@ -41,11 +41,8 @@ version.inc: FORCE
 	diff -q -N version.new version.inc >/dev/null || mv version.new version.inc
 	echo Version: `cat version.inc`
 
-gpuowl-expanded.cl: gpuowl.cl
-	python3 tools/expand.py < gpuowl.cl > gpuowl-expanded.cl
-
-gpuowl-wrap.cpp: gpuowl-expanded.cl head.txt tail.txt
-	cat head.txt gpuowl-expanded.cl tail.txt > gpuowl-wrap.cpp
+gpuowl-wrap.cpp: gpuowl.cl
+	python3 tools/expand.py < gpuowl.cl > gpuowl-wrap.cpp
 
 FORCE:
 

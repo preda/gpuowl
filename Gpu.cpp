@@ -25,7 +25,6 @@
 #include <bitset>
 #include <limits>
 #include <iomanip>
-#include <quadmath.h>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -73,8 +72,8 @@ pair<T, T> root1(u32 N, u32 k) {
     assert(!(N&7));
     assert(k <= N/8);
     N /= 2;
-    __float128 angle = - M_PIq * k / N;
-    return {cosq(angle), sinq(angle)};
+    auto angle = - M_PIl * k / N;
+    return {cosl(angle), sinl(angle)};
   }
 }
 
@@ -143,12 +142,12 @@ u32 kAt(u32 H, u32 line, u32 col) { return (line + col * H) * 2; }
 
 auto weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   auto iN = 1 / (f128) N;
-  return exp2q(iN * extra(N, E, kAt(H, line, col) + rep));
+  return exp2l(iN * extra(N, E, kAt(H, line, col) + rep));
 }
 
 auto invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   auto iN = 1 / (f128) N;
-  return exp2q(- iN * extra(N, E, kAt(H, line, col) + rep));
+  return exp2l(- iN * extra(N, E, kAt(H, line, col) + rep));
 }
 
 double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }

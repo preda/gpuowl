@@ -99,12 +99,34 @@ exponent and optionally the assignment ID (AID) from PrimeNet. The `PRPDC=` pref
 * Run `gpuowl`. It prints progress report on stdout and in `gpuowl.log`, and writes result lines to `results.txt`
 * Submit the result lines from `results.txt` to https://www.mersenne.org/manual_result/ manual testing.
 
-## Build
-To build simply invoke "`make`" (or look inside the Makefile for a manual build).
 
+## Build
+
+Prerequisites (please install these):
 * the GNU Multiple Precision (GMP) 6.1 library `libgmp-dev`
 * a C++20 compiler (e.g. GCC, Clang)
 * an OpenCL implementation (which provides the **libOpenCL** library). Recommended: an AMD GPU with ROCm 1.7.
+
+### Meson build
+Example build steps on linux:
+```
+cd gpuowl
+mkdir build
+cd build
+meson ..
+ninja
+```
+
+What the previous commands do:
+- go to gpuowl source directory
+- create a subdirectory named "build"
+- go to the build directory
+- invoke meson, passing as argument the gpuowl source directory (.. in this situation)
+- run ninja to build
+
+### Make build
+To build simply invoke "`make`" (or look inside the Makefile for a manual build).
+
 
 ## See \"`gpuowl -h`\" for the command line options.
 

@@ -1,19 +1,12 @@
 gpuowl
 version.inc
-*-wrap.cpp
-*-wrap.cl
 version.new
 config.txt
 gpuowl.log
 worktodo.txt
-results.txt
-results.old
-sent.txt
-sent.old
 *.owl
 *.bak
 *.o
-*.so
 tmp/
 tmp?/
 cuda/
@@ -31,3 +24,4 @@ comgr.log
 \#*\#
 trashbin
 proof
+build/

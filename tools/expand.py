@@ -2,10 +2,22 @@
 
 import sys
 
+# If any arguments are passed, expect <input-file> <output-file>
+# Otherwise read from stdin, write to stdout
+if len(sys.argv) > 1:
+    assert len(sys.argv) == 3, f'Use: f{sys.argv[0]} <input-file> <output-file>'
+    sys.stdin  = open(sys.argv[1])
+    sys.stdout = open(sys.argv[2], 'w')
+
+HEAD = 'const char *CL_SOURCE = R"clsource('
+TAIL = ')clsource";';
+    
 lineNo = 0
 current = None
 body = None
 macros = {}
+
+print(HEAD)
 
 def err(text):
     print(f'#{lineNo}', text, file=sys.stderr)
@@ -44,4 +56,7 @@ for line in sys.stdin:
         if current:
             body += line
         else:
-            print(line,end='')
+            print(line, end='')
+
+print(TAIL)
+
