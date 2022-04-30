@@ -1888,7 +1888,11 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
 }
 
+#if AMDGPU
 typedef constant const T2* Trig;
+#else
+typedef global const T2* Trig;
+#endif
 
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
