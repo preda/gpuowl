@@ -61,16 +61,16 @@ void Args::printHelp() {
 -rB2               : ratio of B2 to B1. Default %u, used only if B2 is not explicitly set
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -verify <file>     : verify PRP-proof contained in <file>
--proof <power>     : By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
+-proof <power>     : By default a proof of power %u is generated, using 3GB of temporary disk space for a 100M exponent.
                      A lower power reduces disk space requirements but increases the verification cost.
                      A proof of power 9 uses 6GB of disk space for a 100M exponent and enables faster verification.
--autoverify <power> : Self-verify proofs generated with at least this power. Default 9.
--tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored.
--results <file>    : name of results file, default 'results.txt'
+-autoverify <power> : Self-verify proofs generated with at least this power. Default %u.
+-tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored, default '%s'.
+-results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc <size>   : limit GPU memory usage to size, which is a value with suffix M for MB and G for GB.
                      e.g. -maxAlloc 2048M or -maxAlloc 3.5G
--save <N>          : specify the number of savefiles to keep (default 12).
+-save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
 -from <iteration>  : start at the given iteration instead of the most recent saved iteration
 -yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
@@ -79,7 +79,7 @@ void Args::printHelp() {
 -unsafeMath        : use OpenCL -cl-unsafe-math-optimizations (use at your own risk)
 -binary <file>     : specify a file containing the compiled kernels binary
 -device <N>        : select a specific device:
-)", B2_B1_ratio);
+)", B2_B1_ratio, proofPow, proofVerify, tmpDir.c_str(), resultsFile.c_str(), nSavefiles);
 
   // Undocumented:
   // -D <value>         : specify the P2 "D" value, one of: 210, 330, 420, 462, 660, 770, 924, 1540, 2310.
