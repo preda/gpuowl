@@ -11,32 +11,26 @@ jobs:
     name: Linux
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ (matrix.os == 'ubuntu-18.04' && matrix.cxx == 'g++') || matrix.cxx == 'clang++' }}
+    continue-on-error: ${{ matrix.cxx == 'clang++' }}
     strategy:
       matrix:
-        os: [ubuntu-18.04, ubuntu-20.04]
+        os: [ubuntu-20.04, ubuntu-22.04]
         cxx: [g++, clang++]
       fail-fast: false
     env:
       CXX: ${{ matrix.cxx }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Install
       run: |
         sudo apt-get -yqq update
         sudo apt-get -yqq install cppcheck ocl-icd-opencl-dev
         $CXX --version
-    - name: Before script
-      if: ${{ matrix.os == 'ubuntu-18.04' && matrix.cxx == 'g++' }}
-      run: |
-        sed -i 's/<filesystem>/<experimental\/filesystem>/' *.h *.cpp
-        sed -i 's/std::filesystem/std::experimental::filesystem/' *.h *.cpp
-        sed -i 's/assert(false);/abort();/' Pm1Plan.cpp
     - name: Script
       run: |
         make -j "$(nproc)"
         ./gpuowl -h
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cxx }}_gpuowl
@@ -58,13 +52,12 @@ jobs:
     env:
       CXX: ${{ matrix.cxx }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Script
       run: |
-        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         make gpuowl-win.exe
         .\gpuowl-win.exe -h
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       if: always()
       with:
         name: win_${{ matrix.cxx }}_gpuowl
