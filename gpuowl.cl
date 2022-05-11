@@ -205,178 +205,14 @@ typedef i32 Word;
 typedef int2 Word2;
 typedef i64 CarryABM;
 
-#if SP
-
-typedef float3 T;
-typedef float6 TT;
-#define RE(a) (a.s012)
-#define IM(a) (a.s345)
-
-#else
-
 typedef double T;
 typedef double2 TT;
 #define RE(a) (a.x)
 #define IM(a) (a.y)
 
-#endif
-
 void bar() { barrier(0); }
 
 TT U2(T a, T b) { return (TT) (a, b); }
-
-
-#if SP
-
-// See Fast-Two-Sum and Two-Sum in
-// "Extended-Precision Floating-Point Numbers for GPU Computation" by Andrew Thall
-
-// 3 ADD. Requires |a| >= |b|
-OVERLOAD float2 quickTwoSum(float a, float b) {
-  float s = a + b;
-  return (float2) (s, b - (s - a));
-}
-
-OVERLOAD float quickTwoSum(float a, float b, float* e) {
-  float s = a + b;
-  *e = b - (s - a);
-  return s;
-}
-
-OVERLOAD float quickTwoSum(float a, float* b) {
-  float s = a + *b;
-  *b -= (s - a);
-  return s;
-}
-
-// 6 ADD
-OVERLOAD float2 twoSum(float a, float b) {
-#if 0
-  if (fabs(b) > fabs(a)) { float t = a; a = b; b = t; }
-  return quickTwoSum(a, b);
-#elif 0
-  return (fabs(a) >= fabs(b)) ? quickTwoSum(a, b) : quickTwoSum(b, a);
-#else
-  // No branch but twice the ADDs.
-  float s = a + b;
-  float b1 = s - a;
-  float a1 = s - b1;
-  float e = (b - b1) + (a - a1);
-  return (float2) (s, e);
-#endif
-  
-  // Eqivalent (?)
-  // float2 s1 = fastSum(a, b);
-  // float2 s2 = fastSum(b, a);
-  // return (float2) (s1.x, s1.y + s2.y);
-}
-
-OVERLOAD float twoSum(float a, float b, float* e) {
-  float s = a + b;
-  float b1 = s - a;
-  float a1 = s - b1;
-  *e = (b - b1) + (a - a1);
-  return s;
-}
-
-// 16 ADD.
-float3 renormalize(float a, float b, float c, float d) {
-  c = quickTwoSum(c, &d);
-  b = quickTwoSum(b, &c);
-  a = quickTwoSum(a, &b);
-
-  c = quickTwoSum(c, &d);
-  b = quickTwoSum(b, &c);
-
-  return (float3) (a, b, c + d);  
-}
-
-// 54 ADD.
-OVERLOAD float3 sum(float3 u, float3 v) {
-  float a, b, c, d, e, f;
-  a = twoSum(u.x, v.x, &e);
-  
-  b = twoSum(u.y, v.y, &f);
-  b = twoSum(b, e, &e);
-
-  c = twoSum(u.z, v.z, &d);
-  c = twoSum(c, f, &f);
-  c = twoSum(c, e, &e);
-
-  return renormalize(a, b, c, d + (f + e));
-}
-
-/*
-// 21 ADD. See https://web.mit.edu/tabbott/Public/quaddouble-debian/qd-2.3.4-old/docs/qd.pdf , Figure 10.
-OVERLOAD float3 sum(float3 a, float3 b) {
-  float2 c0 = twoSum(a.x, b.x);
-  float2 t1 = twoSum(a.y, b.y);
-  float2 c1 = twoSum(t1.x, c0.y);
-  return (float3) (c0.x, c1.x, a.z + b.z + t1.y + c1.y);
-}
-*/
-
-// 2 MUL
-OVERLOAD float2 twoMul(float a, float b) {
-  float c = a * b;
-  float d = fma(a, b, -c);
-  return (float2) (c, d);
-}
-
-// 15 ADD + 9 MUL
-OVERLOAD float3 mul(float3 a, float3 b) {
-  float2 c = twoMul(a.x, b.x);
-  
-  float2 d0 = twoMul(a.x, b.y);
-  float2 d1 = twoMul(a.y, b.x);
-
-  float2 e0 = twoSum(d0.x, d1.x);
-  float2 e1 = twoSum(e0.x, c.y);
-  
-  float f = fma(a.x, b.z, d0.y + d1.y);
-  f = fma(a.y, b.y, f + e0.y);
-  f = fma(a.z, b.x, f + e1.y);
-
-#if 0
-  // e0 = sum(c.y, d0.x);
-  // e1 = sum(e0.x, d1.x);  
-  f = fma(a.z, b.x, fma(a.y, b.y, fma(a.x, b.z, d0.y))) + d1.y + e0.y + e1.y;
-#endif
-  
-  return (float3) (c.x, e1.x, f);
-}
-
-// 15 ADD + 8 MUL
-OVERLOAD float3 mul(float3 a, float2 b) {
-  float2 c = twoMul(a.x, b.x);
-  
-  float2 d0 = twoMul(a.x, b.y);
-  float2 d1 = twoMul(a.y, b.x);
-
-  float2 e0 = twoSum(d0.x, d1.x);
-  float2 e1 = twoSum(e0.x, c.y);
-  
-  f = fma(a.y, b.y, d0.y + d1.y + e0.y);
-  f = fma(a.z, b.x, f + e1.y);
-
-  return (float3) (c.x, e1.x, f);
-}
-
-// 9 ADD + 6 MUL
-OVERLOAD float3 sq(float3 a) {
-  float2 c = twoMul(a.x, a.x);
-  float2 d = twoMul(a.x, a.y);
-  float2 e = twoSum(2 * d.x, c.y);
-  float f = fma(a.y, a.y, 2 * fma(a.x, a.z, d.y)) + e.y;
-  return (float3) (c.x, e.x, f);
-}
-
-// TODO: merge the ADD into the MUL
-OVERLOAD float3 mad1(float3 a, float3 b, float3 c) { return sum(mul(a, b), c); }
-
-#else
-
-// ---- DP ----
 
 OVERLOAD double sum(double a, double b) { return a + b; }
 
@@ -386,9 +222,6 @@ OVERLOAD double mad1(double x, double y, double z) { return x * y + z; }
   // fma(x, y, z); }
 
 OVERLOAD double mul(double x, double y) { return x * y; }
-
-#endif
-
 
 T add1_m2(T x, T y) {
 #if !NO_OMOD && !SP
@@ -423,13 +256,8 @@ T mul1_m2(T x, T y) {
 
 
 OVERLOAD T fancyMul(T x, const T y) {
-#if SP
-  // for SP we skip the "+1" trick.
-  return mul(x, y);
-#else
   // x * (y + 1);
   return fma(x, y, x);
-#endif
 }
 
 OVERLOAD TT fancyMul(TT x, const TT y) {
@@ -456,24 +284,11 @@ T mad1_m4(T a, T b, T c) {
 #endif
 }
 
-#if SP
-
-// complex square
-OVERLOAD TT sq(TT a) { return U2(sum(sq(RE(a)), -sq(IM(a))), 2 * mul(RE(a), IM(a))); }
-
-// complex mul
-OVERLOAD TT mul(TT a, TT b) { return U2(mad1(RE(a), RE(b), -mul(IM(a), IM(b))), mad1(RE(a), IM(b), mul(IM(a), RE(b)))); }
-
-#else
-
 // complex square
 OVERLOAD TT sq(TT a) { return U2(mad1(RE(a), RE(a), - IM(a) * IM(a)), mul1_m2(RE(a), IM(a))); }
 
 // complex mul
 OVERLOAD TT mul(TT a, TT b) { return U2(mad1(RE(a), RE(b), - IM(a) * IM(b)), mad1(RE(a), IM(b), IM(a) * RE(b))); }
-
-#endif
-
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
@@ -501,49 +316,13 @@ TT mad_m2(TT a, TT b, TT c) { return U2(mad1_m2(RE(a), RE(b), mad1(IM(a), -IM(b)
 TT mul_t4(TT a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
 
 
-#if SP
-
-#define SP_SQRT1_2 (float3) (0.707106769,1.21016175e-08,-3.81403372e-16)
-
-TT mul_t8(TT a)  {
-  return U2(mul(sum(IM(a),  RE(a)), SP_SQRT1_2),
-            mul(sum(IM(a), -RE(a)), SP_SQRT1_2));
-}
-
-TT mul_3t8(TT a) {
-  return U2(mul(sum(IM(a), -RE(a)),  SP_SQRT1_2),
-            mul(sum(IM(a),  RE(a)), -SP_SQRT1_2));
-}
-
-#else
-
 TT mul_t8(TT a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 TT mul_3t8(TT a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
-
-#endif
 
 TT swap(TT a)      { return U2(IM(a), RE(a)); }
 TT conjugate(TT a) { return U2(RE(a), -IM(a)); }
 
-#if SP
-
-#error TODO
-
-float2 fromWord(Word u) {
-  float a = u;
-  return (float2) (a, u - a); 
-}
-
-TT weight(Word2 a, TT w) {
-  return U2(mul(RE(w), fromWord(RE(a))),
-            mul(IM(w), fromWord(IM(a))));
-}
-
-#else
-
 TT weight(Word2 a, TT w) { return w * U2(RE(a), IM(a)); }
-
-#endif
 
 u32 bfi(u32 u, u32 mask, u32 bits) {
 #if HAS_ASM
@@ -555,14 +334,6 @@ u32 bfi(u32 u, u32 mask, u32 bits) {
   return (u & mask) | bits;
 #endif
 }
-
-#if SP
-
-float3 optionalDouble(float3 iw) { return (iw.x < 1.0f) ? 2 * iw : iw; }
-
-float3 optionalHalve(float3 w) { return (w.x >= 4) ? 0.5f * w : w; }
-
-#else
 
 T optionalDouble(T iw) {
   // In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
@@ -589,8 +360,6 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
   return as_double(u);
 }
 
-#endif
-
 #if HAS_ASM
 i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
 u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
@@ -600,42 +369,6 @@ i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 i32 xtract32(i64 x, u32 bits) { return ((i32) (x >> bits)); }
 #endif
-
-
-#if SP
-
-i32 split(float3 x, u32 nBits, i64 *outCarry) {
-  
-}
-
-OVERLOAD Word carryStep(T x, i64 inCarry, i64 *outCarry, bool isBigWord) {
-  u32 nBits = bitlen(isBigWord);
-  Word w = split(x, nBits, outCarry);
-  w = lowBits(inCarry + w, nBits);
-  *outCarry += (inCarry - w) >> nBits;
-  return w;
-}
-
-
-
-Word2 OVERLOAD carryPair(TT u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
-  iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1);
-  Word b = carryStep(doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2);
-
-  return (Word2) (a, b);
-}
-
-Word2 OVERLOAD carryFinal(Word2 u, i64 inCarry, bool b1) {
-  i32 tmpCarry;
-  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
-  u.y += tmpCarry;
-  return u;
-}
-
-
-#else
-
 
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
@@ -745,8 +478,6 @@ typedef i64 CFMcarry;
 u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 
 typedef TT T2;
-
-#endif // DP
 
 //{{ carries
 Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
@@ -2109,14 +1840,6 @@ double2 reducedCosSin(u32 k, u32 N) {
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
-#if SP
-
-global float4 SP_TRIG_2SH[2 * SMALL_HEIGHT / 8 + 1];
-global float4 SP_TRIG_BH[BIG_HEIGHT / 8 + 1];
-global float4 SP_TRIG_N[ND / 8 + 1];
-
-#endif
-
 global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
 global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
 
@@ -2213,12 +1936,6 @@ KERNEL(64) writeGlobals(global double2* trig2ShDP, global double2* trigBhDP, glo
                         global double2* trigW,
                         global double2* threadWeights, global double2* carryWeights
                         ) {
-#if SP
-  for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_2SH[k] = trig2ShSP[k]; }
-  for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { SP_TRIG_BH[k] = trigBhSP[k]; }
-  for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { SP_TRIG_N[k] = trigNSP[k]; }
-#endif
-
   for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_2SH[k] = trig2ShDP[k]; }
   for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_BH[k] = trigBhDP[k]; }
 
@@ -2461,17 +2178,6 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 
 T fweightStep(u32 i) {
   const T TWO_TO_NTH[8] = {
-#if SP
-    // 2^(k/8) for k in [0..8)
-    (1,0,0),
-    (1.09050775,-1.30775399e-08,-2.52512433e-16),
-    (1.18920708,3.79763527e-08,1.15004321e-15),
-    (1.29683959,-4.01899953e-08,1.57969474e-15),
-    (1.41421354,2.4203235e-08,-7.62806744e-16),
-    (1.54221082,8.07090483e-09,-1.42546261e-16),
-    (1.68179286,-2.47553267e-08,-5.84143725e-16),
-    (1.8340081,-1.1239278e-08,-1.89213528e-16),
-#else
     // 2^(k/8) -1 for k in [0..8)
     0,
     0.090507732665257662,
@@ -2481,24 +2187,12 @@ T fweightStep(u32 i) {
     0.54221082540794086,
     0.68179283050742912,
     0.83400808640934243,
-#endif
   };
   return TWO_TO_NTH[i * STEP % NW * (8 / NW)];
 }
 
 T iweightStep(u32 i) {
   const T TWO_TO_MINUS_NTH[8] = {
-#if SP
-    // 2^-(k/8) for k in [0..8)
-    (1,0,0),
-    (0.917004049,-5.61963898e-09,-9.46067642e-17),
-    (0.840896428,-1.23776633e-08,-2.92071863e-16),
-    (0.771105409,4.03545242e-09,-7.12731307e-17),
-    (0.707106769,1.21016175e-08,-3.81403372e-16),
-    (0.648419797,-2.00949977e-08,7.89847371e-16),
-    (0.594603539,1.89881764e-08,5.75021604e-16),
-    (0.545253873,-6.53876997e-09,-1.26256216e-16)
-#else
     // 2^-(k/8) - 1 for k in [0..8)
     0,
     -0.082995956795328771,
@@ -2508,7 +2202,6 @@ T iweightStep(u32 i) {
     -0.35158022267449518,
     -0.40539644249863949,
     -0.45474613366737116,
-#endif
   };
   return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
 }

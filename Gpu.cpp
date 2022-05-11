@@ -42,12 +42,8 @@ extern const char *CL_SOURCE;
 using float3 = tuple<float, float, float>;
 
 struct Weights {
-  vector<double> threadWeightsIF;
-  vector<float3> threadWeightsIFSP;
-  
+  vector<double> threadWeightsIF;  
   vector<double> carryWeightsIF;
-  vector<float3> carryWeightsIFSP;
-  
   vector<u32> bitsCF;
   vector<u32> bitsC;
 };
@@ -154,8 +150,6 @@ double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
 
 #define CARRY_LEN 8
 
-float3 to3SP(f128 x);
-
 Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
   
@@ -163,27 +157,21 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
   // Inverse + Forward
   vector<double> threadWeightsIF;
-  vector<float3> threadWeightsIFSP;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
     auto iw = invWeight(N, E, H, 0, thread, 0);
     threadWeightsIF.push_back(iw - 1);
-    threadWeightsIFSP.push_back(to3SP(iw));
     auto w = weight(N, E, H, 0, thread, 0);
     threadWeightsIF.push_back(w - 1);
-    threadWeightsIFSP.push_back(to3SP(w));
   }
 
   // Inverse only. Also the group order matches CarryA/M (not fftP/CarryFused).
   vector<double> carryWeightsIF;
-  vector<float3> carryWeightsIFSP;
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
     auto iw = invWeight(N, E, H, gy * CARRY_LEN, 0, 0);
     carryWeightsIF.push_back(2 * boundUnderOne(iw));
-    carryWeightsIFSP.push_back(to3SP(2 * iw));
     
     auto w = weight(N, E, H, gy * CARRY_LEN, 0, 0);
     carryWeightsIF.push_back(2 * w);
-    carryWeightsIFSP.push_back(to3SP(2 * w));
   }
   
   vector<u32> bits;
@@ -222,7 +210,7 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{threadWeightsIF, threadWeightsIFSP, carryWeightsIF, carryWeightsIFSP, bits, bitsC};
+  return Weights{threadWeightsIF, carryWeightsIF, bits, bitsC};
 }
 
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
@@ -272,19 +260,6 @@ struct Define {
   
   operator string() const { return str; }
 };
-
-float3 to3SP(f128 x) {
-  // auto ref = x;
-  float a = x;
-  x -= a;
-  float b = x;
-  x -= b;
-  float c = x;
-  x -= c;
-  float3 ret{a, b, c};
-  // log("Convert to %s with %.2f bits\n", toLiteral(ret).c_str(), relBits(x, ref));
-  return ret;
-}
 
 cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
@@ -432,25 +407,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
-  /*
-  log("SQRT1_2 %s\n", toLiteral(to3SP(M_SQRT1_2q)).c_str());
-
-  auto w1 = to3SP(exp2q(1/ (f128) N)), w2 = to3SP(exp2q((N - 1)/ (f128) N)), iw1 = to3SP(exp2q(-1/ (f128) N)), iw2 = to3SP(exp2q(-((N - 1)/ (f128) N)));
-  
-  log("W %s %s IW %s %s; %x %x %x %x\n",
-      toLiteral(w1).c_str(),
-      toLiteral(w2).c_str(),
-      toLiteral(iw1).c_str(),
-      toLiteral(iw2).c_str(),
-      as<u32>(get<0>(w1)), as<u32>(get<0>(w2)), as<u32>(get<0>(iw1)), as<u32>(get<0>(iw2)));
-
-  for (u32 k = 0; k < 8; ++k) {
-    auto x = exp2q( - (k / 8.0));
-    log("%d %s %s\n", k, toLiteral(to3SP(x)).c_str(), toLiteral(double(x - 1)).c_str());
-  }
-  
-  // log("%lx\n", as<u64>(1.0));
-  */
   
   carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMax);
   carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMulMax);
