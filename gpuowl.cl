@@ -71,8 +71,9 @@ G_H        "group height"
 #endif
 
 // 64-bit atomics used in kernel sum64
+// If 64-bit atomics aren't available, sum64() can be implemented with 32-bit
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
-//#pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
+// #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
 #if DEBUG
 #define assert(condition) if (!(condition)) { printf("assert(%s) failed at line %d\n", STR(condition), __LINE__ - 1); }
@@ -93,6 +94,9 @@ G_H        "group height"
 // disable everything that depends on ASM
 #define NO_OMOD 1
 #endif
+
+// tuning: disable
+#define NO_OMOD 1
 
 #if CARRY32 && CARRY64
 #error Conflict: both CARRY32 and CARRY64 requested
@@ -215,8 +219,6 @@ void bar() { barrier(0); }
 TT U2(T a, T b) { return (TT) (a, b); }
 
 OVERLOAD double sum(double a, double b) { return a + b; }
-
-// double sub(double a, double b) { return a - b; }
 
 OVERLOAD double mad1(double x, double y, double z) { return x * y + z; }
   // fma(x, y, z); }
@@ -473,6 +475,8 @@ typedef i32 CFcarry;
 typedef i64 CFcarry;
 #endif
 
+// In the carryMul situation there's an additional multiplication by 3, adding about 1.6bits to carry, so 32bits
+// is often not enough.
 typedef i64 CFMcarry;
 
 u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
@@ -526,6 +530,7 @@ T2 addsub(T2 a) { return U2(RE(a) + IM(a), RE(a) - IM(a)); }
 T2 addsub_m2(T2 a) { return U2(add1_m2(RE(a), IM(a)), sub1_m2(RE(a), IM(a))); }
 
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
+// which happens to be the cyclical convolution (a.x, a.y)x(b.x, b.y) * 2
 T2 foo2(T2 a, T2 b) {
   a = addsub(a);
   b = addsub(b);
@@ -538,7 +543,7 @@ T2 foo2_m2(T2 a, T2 b) {
   return addsub_m2(U2(RE(a) * RE(b), IM(a) * IM(b)));
 }
 
-// computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
+// computes 2*[x^2+y^2 + i*(2*x*y)]. i.e. 2 * cyclical autoconvolution of (x, y)
 T2 foo(T2 a) { return foo2(a, a); }
 T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
@@ -1766,7 +1771,6 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
 #elif MIDDLE == 7 || MIDDLE == 14
 
 #define SIN_COEFS {0.0030120734933746819,-4.5545496673734544e-09,2.066077343547647e-15,-4.4630156850662332e-22,5.6237622654854882e-29,-4.6381134477150518e-36,2.6699656391050201e-43, 149 * 7}
-
 #define COS_COEFS {-4.5362933647451799e-06,3.4296595818385068e-12,-1.0371961336265129e-18,1.6803664055570525e-25,-1.6939185081650983e-32,1.1641940392856976e-39,-5.7443786570712859e-47, 149 * 7}
 
 #elif MIDDLE == 9
