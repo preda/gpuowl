@@ -42,7 +42,7 @@ version.inc: FORCE
 	echo Version: `cat version.inc`
 
 gpuowl-wrap.cpp: gpuowl.cl
-	python3 tools/expand.py < gpuowl.cl > gpuowl-wrap.cpp
+	python3 tools/expand.py gpuowl.cl gpuowl-wrap.cpp
 
 FORCE:
 

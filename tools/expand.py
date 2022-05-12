@@ -1,13 +1,11 @@
 #!/usr/bin/python3
 
 import sys
+from os import path
 
-# If any arguments are passed, expect <input-file> <output-file>
-# Otherwise read from stdin, write to stdout
-if len(sys.argv) > 1:
-    assert len(sys.argv) == 3, f'Use: f{sys.argv[0]} <input-file> <output-file>'
-    sys.stdin  = open(sys.argv[1])
-    sys.stdout = open(sys.argv[2], 'w')
+assert len(sys.argv) == 3, f'Use: f{sys.argv[0]} <input-file> <output-file>'
+sys.stdin  = open(sys.argv[1])
+sys.stdout = open(sys.argv[2], 'w')
 
 HEAD = 'const char *CL_SOURCE = R"clsource('
 TAIL = ')clsource";';
@@ -26,7 +24,11 @@ def err(text):
 for line in sys.stdin:
     lineNo += 1
     line = line.lstrip()
-    
+    if line.startswith('#include "'):
+        name = line[len('#include "'):-2]
+        with open(path.join(path.dirname(sys.argv[1]), name)) as fi:
+            line = ''.join([x.lstrip() for x in fi.readlines()])
+
     if line.startswith('//{{ '):
         name = line[5:].strip()
         if current:

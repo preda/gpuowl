@@ -14,9 +14,6 @@ cmake-build-*/
 .idea
 .sconsign.dblite
 .d
-gpuowl-expanded.cl
-gpuowl.exe
-__pycache__
 core
 pm1/pm1
 D
