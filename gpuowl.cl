@@ -367,11 +367,9 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
 
 #if HAS_ASM
 i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
-u32 ulowBits(u32 u, u32 bits) { u32 tmp; __asm("v_bfe_u32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
 i32 xtract32(i64 x, u32 bits) { i32 tmp; __asm("v_alignbit_b32 %0, %1, %2, %3" : "=v"(tmp) : "v"(as_int2(x).y), "v"(as_int2(x).x), "v"(bits)); return tmp; }
 #else
 i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
-u32 ulowBits(u32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 i32 xtract32(i64 x, u32 bits) { return ((i32) (x >> bits)); }
 #endif
 
@@ -438,35 +436,33 @@ i64 OVERLOAD doubleToLong(double x, i64 inCarry) {
   return as_long(data);
 }
 
-const bool MUST_BE_EXACT = 0;
-const bool CAN_BE_INEXACT = 1;
-
-Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord, bool exactness) {
+Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
-  Word w = (exactness == MUST_BE_EXACT) ? lowBits(x, nBits) : ulowBits(x, nBits);
-  if (exactness == MUST_BE_EXACT) { x -= w; }
+  Word w = lowBits(x, nBits);
+  x -= w;
   *outCarry = x >> nBits;
   return w;
 }
 
-Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord, bool exactness) {
+Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
-  Word w = (exactness == MUST_BE_EXACT) ? lowBits(x, nBits) : ulowBits(x, nBits);
-// If nBits could 20 or more we must be careful.  doubleToLong generated x as 13 bits of trash and 51-bit signed value.
+  Word w = lowBits(x, nBits);
+
+// If nBits could be 20 or more we must be careful.  doubleToLong generated x as 13 bits of trash and 51-bit signed value.
 // If we right shift 20 bits we will shift some of the trash into outCarry.  First we must remove the trash bits.
 #if EXP / NWORDS >= 19
   *outCarry = as_int2(x << 13).y >> (nBits - 19);
 #else
   *outCarry = xtract32(x, nBits);
 #endif
-  if (exactness == MUST_BE_EXACT) { *outCarry += (w < 0); }
+  *outCarry += (w < 0);
   CARRY32_CHECK(*outCarry);
   return w;
 }
 
-Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord, bool exactness) {
+Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
-  Word w = lowBits(x, nBits);		// I believe this version is only called with MUST_BE_EXACT
+  Word w = lowBits(x, nBits);
   *outCarry = (x - w) >> nBits;
   CARRY32_CHECK(*outCarry);
   return w;
@@ -487,10 +483,10 @@ u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 typedef TT T2;
 
 //{{ carries
-Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax, bool exactness) {
+Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax) {
   iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1, exactness);
-  Word b = carryStep(doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
+  Word a = carryStep(doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1);
+  Word b = carryStep(doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2);
 #if STATS
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
@@ -499,7 +495,7 @@ Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarr
 
 Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
   i32 tmpCarry;
-  u.x = carryStep(u.x + inCarry, &tmpCarry, b1, MUST_BE_EXACT);
+  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
   u.y += tmpCarry;
   return u;
 }
@@ -509,10 +505,10 @@ Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
 //== carries CARRY=32
 //== carries CARRY=64
 
-Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax, bool exactness) {
+Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax) {
   i64 midCarry;
-  Word a = carryStep(3 * doubleToLong(u.x, (i64) 0) + inCarry, &midCarry, b1, exactness);
-  Word b = carryStep(3 * doubleToLong(u.y, (i64) 0) + midCarry, outCarry, b2, MUST_BE_EXACT);
+  Word a = carryStep(3 * doubleToLong(u.x, (i64) 0) + inCarry, &midCarry, b1);
+  Word b = carryStep(3 * doubleToLong(u.y, (i64) 0) + midCarry, outCarry, b2);
 #if STATS
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
@@ -521,8 +517,8 @@ Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, 
 
 // Carry propagation from word and carry.
 Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
-  a.x = carryStep(a.x + *carry, carry, b1, MUST_BE_EXACT);
-  a.y = carryStep(a.y + *carry, carry, b2, MUST_BE_EXACT);
+  a.x = carryStep(a.x + *carry, carry, b1);
+  a.y = carryStep(a.y + *carry, carry, b2);
   return a;
 }
 
@@ -1028,18 +1024,6 @@ float fastSinSP(u32 k, u32 tau, u32 M) {
 
   // sinpi() does argument reduction and a bunch of unnecessary stuff.
   // return sinpi(2 * x);
-}
-
-float fasterSinSP(u32 k, u32 tau, u32 M) {
-#if HAS_ASM
-  float x = (-1.0f / tau) * k;  
-  float out;
-  //v_sin_f32 has 10upls error on [0, pi/4] (R7)
-  __asm("v_sin_f32_e32 %0, %1" : "=v"(out) : "v" (x));
-  return out;  
-#else
-  return fastSinSP(k, tau, M);
-#endif
 }
 
 float fastCosSP(u32 k, u32 tau) {
@@ -1759,9 +1743,9 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
 #endif
     
 #if DO_MUL3
-    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax, MUST_BE_EXACT);
+    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax);
 #else
-    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax, MUST_BE_EXACT);
+    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax);
 #endif
   }
   carryOut[G_W * g + me] = carry;
@@ -1865,9 +1849,9 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
 #if CF_MUL    
-    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
+    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
 #else
-    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax, CAN_BE_INEXACT);
+    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
 #endif
   }
 
@@ -2322,6 +2306,7 @@ KERNEL(64) readHwTrig(global float2* outSH, global float2* outBH, global float2*
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
 
+#if 0
 typedef long long i128;
 typedef unsigned long long u128;
 
@@ -2358,13 +2343,14 @@ u64 modmul(u64 a, u64 b) {
   s = addc(s, mulm1(hhm1 >> 32));
   return s;
 }
+#endif
 
 kernel void testKernel(global ulong* io) {
   uint me = get_local_id(0);
 
   ulong a = io[me];
   ulong b = io[me + 1];
-  io[me] = modmul(a, b);
+  io[me] = a + b;
 }
 
 /*
