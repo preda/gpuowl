@@ -1655,18 +1655,6 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
   double factor = 1.0 / (4 * 4 * NWORDS);
 
-#if 0
-#if MAX_ACCURACY && (MIDDLE == 4 || MIDDLE == 5 || MIDDLE == 10 || MIDDLE == 11 || MIDDLE == 13)
-  long tmp = as_long(factor);
-  tmp--;
-  factor = as_double(tmp);
-#elif MAX_ACCURACY && MIDDLE == 8
-  long tmp = as_long(factor);
-  tmp -= 2;
-  factor = as_double(tmp);
-#endif
-#endif
-
   middleMul2(u, starty + my, startx + mx, factor);
   local T lds[OUT_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
 

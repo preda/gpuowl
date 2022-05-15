@@ -55,7 +55,7 @@ struct FFTConfig {
   static u32 getMaxCarry32(u32 fftSize, u32 exponent);
   static std::vector<FFTConfig> genConfigs();
 
-  static tuple<bool, u32, u32, bool> getChainLengths(u32 fftSize, u32 exponent, u32 middle);
+  static tuple<u32, u32, bool> getChainLengths(u32 fftSize, u32 exponent, u32 middle);
 
   // FFTConfig(u32 w, u32 m, u32 h) : width(w), middle(m), height(h) {}
   static FFTConfig fromSpec(const string& spec);
