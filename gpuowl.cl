@@ -569,8 +569,6 @@ T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, -I
 
 // a = c + sin * d; b = c - sin * d;
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; T2 t = c + d; b = c - d; a = t; }
-// Like fma_addsub but muls result by -i.
-#define fma_addsub_mul_t4(a, b, sin, c, d) { fma_addsub (a, b, sin, c, d); b = mul_t4 (b); }
 
 // a * conjugate(b)
 // saves one negation

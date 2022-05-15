@@ -71,7 +71,8 @@ void fft3delayedSIN12(T2 *u) {
   const double COS1SIN1 = -0.32139380484326966316132170495363;	// cos(tau/3) * sin(tau/9) = -.5 * .643
   const double SIN1SIN1 = 0.55667039922641936645291295204702;	// sin(tau/3) * sin(tau/9) = .866 * .643
   const double SIN1 = 0.64278760968653932632264340990726;	// sin(tau/9) = .643
-  fma_addsub_mul_t4(u[1], u[2], SIN2_SIN1, u[1], u[2]);		// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))	we owe results a mul by SIN1
+  fma_addsub(u[1], u[2], SIN2_SIN1, u[1], u[2]);		// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))	we owe results a mul by SIN1
+  u[2] = mul_t4(u[2]);
   T2 tmp23 = u[0] + COS1SIN1 * u[1];
   u[0] = u[0] + SIN1 * u[1];
   fma_addsub (u[1], u[2], SIN1SIN1, tmp23, u[2]);

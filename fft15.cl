@@ -14,8 +14,10 @@ void fft5delayedSIN1234(T2 *u) {
   const double SIN1SIN1 = 0.38682953481325584261;		// sin(tau/5) * sin(tau/15) = .951 * .407
   const double SIN1SIN2 = 0.70677272882130044775;		// sin(tau/5) * sin(2*tau/15) = .951 * .743
 
-  fma_addsub_mul_t4(u[1], u[4], SIN4_SIN1, u[1], u[4]);		// (r2+ i2+),  (i2- -r2-)		we owe results a mul by SIN1
-  fma_addsub_mul_t4(u[2], u[3], SIN3_SIN2, u[2], u[3]);		// (r3+ i3+),  (i3- -r3-)		we owe results a mul by SIN2
+  fma_addsub(u[1], u[4], SIN4_SIN1, u[1], u[4]);		// (r2+ i2+),  (i2- -r2-)		we owe results a mul by SIN1
+  u[4] = mul_t4(u[4]);
+  fma_addsub(u[2], u[3], SIN3_SIN2, u[2], u[3]);		// (r3+ i3+),  (i3- -r3-)		we owe results a mul by SIN2
+  u[3] = mul_t4(u[3]);
 
   T2 tmp25a = fmaT2(COS1SIN1, u[1], u[0]);
   T2 tmp34a = fmaT2(COS2SIN1, u[1], u[0]);
