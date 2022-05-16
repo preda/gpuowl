@@ -11,10 +11,6 @@ IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 
 UNROLL_WIDTH <nVidia default>
 NO_UNROLL_WIDTH <AMD default>
 
-OLD_FFT8 <default>
-NEWEST_FFT8
-NEW_FFT8
-
 OLD_FFT5
 NEW_FFT5 <default>
 NEWEST_FFT5
@@ -574,13 +570,6 @@ T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, -I
 // saves one negation
 T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a) * RE(b) - RE(a) * IM(b)); }
 
-// Combined complex mul and mul by conjugate.  Saves 4 multiplies compared to two complex mul calls. 
-void mul_and_mul_by_conjugate(T2 *res1, T2 *res2, T2 a, T2 b) {
-	T axbx = RE(a) * RE(b); T axby = RE(a) * IM(b); T aybx = IM(a) * RE(b); T ayby = IM(a) * IM(b);
-	res1->x = axbx - ayby; res1->y = axby + aybx;		// Complex mul
-	res2->x = axbx + ayby; res2->y = aybx - axby;		// Complex mul by conjugate
-}
-
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
   X2(u[1], u[3]); u[3] = mul_t4(u[3]);
@@ -598,62 +587,6 @@ void fft2(T2* u) {
   X2(u[0], u[1]);
 }
 
-#if !OLD_FFT8 && !NEWEST_FFT8 && !NEW_FFT8
-#define OLD_FFT8 1
-#endif
-
-// In rocm 2.2 this is 53 f64 ops in testKernel -- one over optimal.  However, for me it is slower
-// than OLD_FFT8 when it used in "real" kernels.
-#if NEWEST_FFT8
-
-// Attempt to get more FMA by delaying mul by SQRT1_2
-T2 mul_t8_delayed(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)); }
-#define X2_mul_3t8_delayed(a, b) { T2 t = a; a = t + b; t = b - t; RE(b) = t.x - t.y; IM(b) = t.x + t.y; }
-
-// Like X2 but second arg needs a multiplication by SQRT1_2
-#define X2_apply_SQRT1_2(a, b) { T2 t = a; \
-				 RE(a) = fma(RE(b), M_SQRT1_2, t.x); IM(a) = fma(IM(b), M_SQRT1_2, t.y); \
-				 RE(b) = fma(RE(b), -M_SQRT1_2, t.x); IM(b) = fma(IM(b), -M_SQRT1_2, t.y); }
-
-void fft4Core_delayed(T2 *u) {		// Same as fft4Core except u[1] and u[3] need to be multiplied by SQRT1_2
-  X2(u[0], u[2]);
-  X2_mul_t4(u[1], u[3]);		// Still need to apply SQRT1_2
-  X2_apply_SQRT1_2(u[0], u[1]);
-  X2_apply_SQRT1_2(u[2], u[3]);
-}
-
-void fft8Core(T2 *u) {
-  X2(u[0], u[4]);
-  X2(u[1], u[5]);
-  X2_mul_t4(u[2], u[6]);
-  X2_mul_3t8_delayed(u[3], u[7]);	// u[7] needs mul by SQRT1_2
-  u[5] = mul_t8_delayed(u[5]);		// u[5] needs mul by SQRT1_2
-
-  fft4Core(u);
-  fft4Core_delayed(u + 4);
-}
-
-// In rocm 2.2 this is 57 f64 ops in testKernel -- an ugly five over optimal.
-#elif NEW_FFT8
-
-// Same as X2(a, b), b = mul_3t8(b)
-//#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; t.y *= M_SQRT1_2; b.x = t.x * M_SQRT1_2 - t.y; b.y = t.x * M_SQRT1_2 + t.y; }
-#define X2_mul_3t8(a, b) { T2 t=a; a = t+b; t = b-t; RE(b) = (t.x - t.y) * M_SQRT1_2; IM(b) = (t.x + t.y) * M_SQRT1_2; }
-
-void fft8Core(T2 *u) {
-  X2(u[0], u[4]);
-  X2(u[1], u[5]);
-  X2_mul_t4(u[2], u[6]);
-  X2_mul_3t8(u[3], u[7]);
-  u[5] = mul_t8(u[5]);
-
-  fft4Core(u);
-  fft4Core(u + 4);
-}
-
-// In rocm 2.2 this is 54 f64 ops in testKernel -- two over optimal.
-#elif OLD_FFT8
-
 void fft8Core(T2 *u) {
   X2(u[0], u[4]);
   X2(u[1], u[5]);   u[5] = mul_t8(u[5]);
@@ -663,15 +596,12 @@ void fft8Core(T2 *u) {
   fft4Core(u + 4);
 }
 
-#endif
-
 void fft8(T2 *u) {
   fft8Core(u);
   // revbin [0, 4, 2, 6, 1, 5, 3, 7] undo
   SWAP(u[1], u[4]);
   SWAP(u[3], u[6]);
 }
-
 
 // FFT routines to implement the middle step
 
