@@ -583,19 +583,15 @@ void mul_and_mul_by_conjugate(T2 *res1, T2 *res2, T2 a, T2 b) {
 
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
-  X2_mul_t4(u[1], u[3]);
+  X2(u[1], u[3]); u[3] = mul_t4(u[3]);
   X2(u[0], u[1]);
   X2(u[2], u[3]);
 }
 
 void fft4(T2 *u) {
-  X2(u[0], u[2]);
-  X2_mul_t4(u[1], u[3]);
-  T2 t = u[2];
-  u[2] = u[0] - u[1];
-  u[0] = u[0] + u[1];
-  u[1] = t + u[3];
-  u[3] = t - u[3];
+   fft4Core(u);
+   // revbin [0 2 1 3] undo
+   SWAP(u[1], u[2]);
 }
 
 void fft2(T2* u) {
@@ -715,7 +711,6 @@ void fft6(T2 *u) {
 }
 
 #include "fft7.cl"
-#include "fft8.cl"
 #include "fft9.cl"
 #include "fft10.cl"
 #include "fft11.cl"
@@ -1369,7 +1364,7 @@ void fft_MIDDLE(T2 *u) {
 #elif MIDDLE == 7
   fft7(u);
 #elif MIDDLE == 8
-  fft8mid(u);
+  fft8(u);
 #elif MIDDLE == 9
   fft9(u);
 #elif MIDDLE == 10
