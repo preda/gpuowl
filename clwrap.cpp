@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2018 Mihai Preda.
+// Copyright (C) 2017-2022 Mihai Preda.
 
 #include "timeutil.h"
 #include "File.h"
@@ -220,8 +220,13 @@ static cl_program loadSource(cl_context context, const string &source) {
 static void build(cl_program program, cl_device_id device, string args) {
   Timer timer;
   int err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
+
+  // args += " -Werror -g";
+  // int err = clCompileProgram(program, 0, NULL, args.c_str(), 0, NULL, NULL, NULL, NULL);
+
   bool ok = (err == CL_SUCCESS);
-  if (!ok) {
+
+  if (false && !ok) { // disable NO_ASM retry
     log("ASM compilation failed, retrying compilation using NO_ASM\n");
     args += " -DNO_ASM=1";
     err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
@@ -230,16 +235,19 @@ static void build(cl_program program, cl_device_id device, string args) {
   
   if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }
   
-  size_t logSize;
+  size_t logSize = 0;
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
+  log("build log size %d\n", int(logSize));
   if (logSize > 1) {
     std::unique_ptr<char> buf(new char[logSize + 1]);
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
-    buf.get()[logSize] = 0;
+    size_t outLogSize = 0;
+    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &outLogSize);
+    assert(outLogSize <= logSize);
+    buf.get()[outLogSize] = 0;
     log("%s\n", buf.get());
   }
   if (ok) {
-    log("OpenCL compilation in %.2f s\n", timer.deltaSecs());
+    // log("OpenCL compilation in %.2f s\n", timer.deltaSecs());
   } else {
     release(program);
     CHECK2(err, "clBuildProgram");

@@ -3,7 +3,6 @@
 /* List of user-serviceable -use flags and their effects
 
 NO_ASM : request to not use any inline __asm()
-NO_OMOD: do not use GCN output modifiers in __asm()
 
 OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
 IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 but needs testing>
@@ -17,12 +16,6 @@ NEWEST_FFT5
 
 NEW_FFT9 <default>
 OLD_FFT9
-
-CARRY32 <AMD default for PRP when appropriate>
-CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
-
-TRIG_COMPUTE=<n> (default 2), can be used to balance between compute and memory for trigonometrics. TRIG_COMPUTE=0 does more memory access, TRIG_COMPUTE=2 does more compute,
-and TRIG_COMPUTE=1 is in between.
 
 DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
 STATS      enable stats about roundoff distribution and carry magnitude
@@ -53,10 +46,6 @@ NH
 G_W        "group width"
 G_H        "group height"
  */
-
-#if !defined(TRIG_COMPUTE)
-#define TRIG_COMPUTE 2
-#endif
 
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
@@ -89,24 +78,6 @@ G_H        "group height"
 #endif
 #endif // AMDGPU
 
-#if !HAS_ASM
-// disable everything that depends on ASM
-#define NO_OMOD 1
-#endif
-
-// tuning: disable
-#define NO_OMOD 1
-
-#if CARRY32 && CARRY64
-#error Conflict: both CARRY32 and CARRY64 requested
-#endif
-
-#if !CARRY32 && !CARRY64
-#if AMDGPU
-#define CARRY32 1
-#endif
-#endif
-
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
 // which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
 // For AMD GPUs we do not unroll fft_WIDTH loops. For nVidia GPUs, we unroll everything.
@@ -135,13 +106,6 @@ G_H        "group height"
 
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
-
-// 5M timings for MiddleOut & carryFused, ROCm 2.10, RadeonVII, sclk4, mem 1200
-// OUT_WG=256, OUT_SIZEX=4, OUT_SPACING=1 (old WorkingOut4) : 154 + 252 = 406 (but may be best on nVidia)
-// OUT_WG=256, OUT_SIZEX=8, OUT_SPACING=1 (old WorkingOut3): 124 + 260 = 384
-// OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=1 (old WorkingOut5): 105 + 281 = 386
-// OUT_WG=256, OUT_SIZEX=8, OUT_SPACING=2: 122 + 249 = 371
-// OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=4: 108 + 257 = 365  <- best
 
 #if !OUT_WG
 #define OUT_WG 256
@@ -189,16 +153,6 @@ G_H        "group height"
 #define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
 #endif
 
-#if HAS_ASM && !NO_OMOD && !NO_SETMODE
-// turn IEEE mode and denormals off so that mul:2 and div:2 work
-#define ENABLE_MUL2() { \
-    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0");\
-    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 7");\
-}
-#else
-#define ENABLE_MUL2()
-#endif
-
 typedef int i32;
 typedef uint u32;
 typedef long i64;
@@ -208,8 +162,8 @@ typedef i32 Word;
 typedef int2 Word2;
 typedef i64 CarryABM;
 
-typedef double T;
-typedef double2 TT;
+typedef float T;
+typedef float2 TT;
 #define RE(a) (a.x)
 #define IM(a) (a.y)
 
@@ -217,73 +171,26 @@ void bar() { barrier(0); }
 
 TT U2(T a, T b) { return (TT) (a, b); }
 
-OVERLOAD double sum(double a, double b) { return a + b; }
+OVERLOAD T sum(T a, T b) { return a + b; }
 
-OVERLOAD double mad1(double x, double y, double z) { return x * y + z; }
+OVERLOAD T mad1(T x, T y, T z) { return x * y + z; }
   // fma(x, y, z); }
 
-OVERLOAD double mul(double x, double y) { return x * y; }
+OVERLOAD T mul(T x, T y) { return x * y; }
 
-T add1_m2(T x, T y) {
-#if !NO_OMOD && !SP
-  T tmp;
-   __asm volatile("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
-   return tmp;
-#else
-   return 2 * sum(x, y);
-#endif
-}
+T add1_m2(T x, T y) { return 2 * sum(x, y); }
+T sub1_m2(T x, T y) { return 2 * sum(x, -y); }
+T mul1_m2(T x, T y) { return 2 * mul(x, y); }
 
-T sub1_m2(T x, T y) {
-#if !NO_OMOD && !SP
-  T tmp;
-  __asm volatile("v_add_f64 %0, %1, -%2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
-  return tmp;
-#else
-  return 2 * sum(x, -y);
-#endif
-}
-
-// x * y * 2
-T mul1_m2(T x, T y) {
-#if !NO_OMOD && !SP
-  T tmp;
-  __asm volatile("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
-  return tmp;
-#else
-  return 2 * mul(x, y);
-#endif
-}
-
-
-OVERLOAD T fancyMul(T x, const T y) {
-  // x * (y + 1);
-  return fma(x, y, x);
-}
+// x * (y + 1)
+OVERLOAD T fancyMul(T x, const T y) { return fma(x, y, x); }
 
 OVERLOAD TT fancyMul(TT x, const TT y) {
   return U2(fancyMul(RE(x), RE(y)), fancyMul(IM(x), IM(y)));
 }
 
-T mad1_m2(T a, T b, T c) {
-#if !NO_OMOD && !SP
-  double out;
-  __asm volatile("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
-  return out;
-#else
-  return 2 * mad1(a, b, c);
-#endif
-}
-
-T mad1_m4(T a, T b, T c) {
-#if !NO_OMOD && !SP
-  double out;
-  __asm volatile("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
-  return out;
-#else
-  return 4 * mad1(a, b, c);
-#endif
-}
+T mad1_m2(T a, T b, T c) { return 2 * mad1(a, b, c); }
+T mad1_m4(T a, T b, T c) { return 4 * mad1(a, b, c); }
 
 // complex square
 OVERLOAD TT sq(TT a) { return U2(mad1(RE(a), RE(a), - IM(a) * IM(a)), mul1_m2(RE(a), IM(a))); }
@@ -298,27 +205,19 @@ bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 u32 bitlen(bool b) { return EXP / NWORDS + b; }
 
+TT mul_m2(TT a, TT b) { return mul(a, b) * 2; }
+TT mul_m4(TT a, TT b) { return mul(a, b) * 4; }
 
-// complex add * 2
-TT add_m2(TT a, TT b) { return U2(add1_m2(RE(a), RE(b)), add1_m2(IM(a), IM(b))); }
-
-// complex mul * 2
-TT mul_m2(TT a, TT b) { return U2(mad1_m2(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m2(RE(a), IM(b), mul(IM(a), RE(b)))); }
-
-// complex mul * 4
-TT mul_m4(TT a, TT b) { return U2(mad1_m4(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m4(RE(a), IM(b), mul(IM(a), RE(b)))); }
-
-// complex fma
-TT mad_m1(TT a, TT b, TT c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
+TT mad_m1(TT a, TT b, TT c) {
+   return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1(RE(a), IM(b), mad1(IM(a), RE(b), IM(c))));
+}
 
 // complex fma * 2
-TT mad_m2(TT a, TT b, TT c) { return U2(mad1_m2(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1_m2(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
+TT mad_m2(TT a, TT b, TT c) { return mad_m1(a, b, c) * 2; }
 
 TT mul_t4(TT a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
-
-
-TT mul_t8(TT a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-TT mul_3t8(TT a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+TT mul_t8(TT a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   (T) (M_SQRT1_2); }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
+TT mul_3t8(TT a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - (T) (M_SQRT1_2); }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
 TT swap(TT a)      { return U2(IM(a), RE(a)); }
 TT conjugate(TT a) { return U2(RE(a), -IM(a)); }
@@ -336,29 +235,26 @@ u32 bfi(u32 u, u32 mask, u32 bits) {
 #endif
 }
 
-T optionalDouble(T iw) {
-  // In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
-  // because it allows us to implement this routine with a single OR instruction on the exponent.   The original implementation
-  // where this routine took as input values from 0.25 to 1.0 required both an AND and an OR instruction on the exponent.
-  // return iw <= 1.0 ? iw * 2 : iw;
-  assert(iw > 0.5 && iw < 2);
-  uint2 u = as_uint2(iw);
-  
-  u.y |= 0x00100000;
-  // u.y = bfi(u.y, 0xffefffff, 0x00100000);
-  
-  return as_double(u);
+// In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
+// because it allows us to implement this routine with a single OR instruction on the exponent.   The original implementation
+// where this routine took as input values from 0.25 to 1.0 required both an AND and an OR instruction on the exponent.
+// return iw <= 1.0 ? iw * 2 : iw;
+
+float optionalDouble(float iw) {
+  // FP32 exponent bias is 127. Thus 1.0f has exponent 0x7f. Setting the lowest bit of the exponent
+  // will double a number from [0.5, 1) to [1, 2).
+  assert(iw > 0.5f && iw < 2);
+  return as_float(as_uint(iw) | 0x00800000u);
 }
 
-T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
-  // In a straightforward implementation, weights are between 1.0 and 2.0.  We use weights between 2.0 and 4.0 because
-  // it allows us to implement this routine with a single AND instruction on the exponent.   The original implementation
-  // where this routine took as input values from 1.0 to 4.0 required both an AND and an OR instruction on the exponent.
-  assert(w >= 2 && w < 8);
-  uint2 u = as_uint2(w);
-  // u.y &= 0xFFEFFFFF;
-  u.y = bfi(u.y, 0xffefffff, 0);
-  return as_double(u);
+// In a straightforward implementation, weights are between 1.0 and 2.0.  We use weights between 2.0 and 4.0 because
+// it allows us to implement this routine with a single AND instruction on the exponent.   The original implementation
+// where this routine took as input values from 1.0 to 4.0 required both an AND and an OR instruction on the exponent.
+
+float optionalHalve(float w) {
+   // FP32 exponent bias is 127; so 2.0f has exponent 0x80.
+   assert(w >= 2 && w < 8);
+   return as_float(as_uint(w) & 0xff7fffffu);
 }
 
 #if HAS_ASM
@@ -369,150 +265,53 @@ i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 i32 xtract32(i64 x, u32 bits) { return ((i32) (x >> bits)); }
 #endif
 
-
-// We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
-// but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
-// that the carry will not fit in 32-bits -- corrupting results.  That said, I did test 2000 iterations of an exponent
-// just over 1 billion.  Max(abs(carry)) was 0x637225E9 which is OK (0x80000000 or more is fatal).  P-1 testing is more
-// problematic as the mul-by-3 triples the carry too.
-
-// Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
-#define RNDVAL (3.0 * (1l << 51))
-// Top 32-bits of RNDVAL
-#define TOPVAL (0x43380000)
-
-// Check for round off errors above a threshold (default is 0.43)
-void ROUNDOFF_CHECK(double x) {
-#if DEBUG
-#ifndef ROUNDOFF_LIMIT
-#define ROUNDOFF_LIMIT 0.43
-#endif
-  float error = fabs(x - rint(x));
-  if (error > ROUNDOFF_LIMIT) printf("Roundoff: %g %30.2f\n", error, x);
-#endif
-}
-
-// Check for 32-bit carry nearing the limit (default is 0x7C000000)
-void CARRY32_CHECK(i32 x) {
-#if DEBUG
-#ifndef CARRY32_LIMIT
-#define CARRY32_LIMIT 0x7C000000
-#endif
-  if (abs(x) > CARRY32_LIMIT) { printf("Carry32: %X\n", abs(x)); }
-#endif
-}
-
-float OVERLOAD roundoff(double u, double w) {
-  double x = u * w;
-  // The FMA below increases the number of significant bits in the roundoff error
-  double err = fma(u, w, -rint(x));
-  return fabs((float) err);
-}
-
-float OVERLOAD roundoff(double2 u, double2 w) { return max(roundoff(u.x, w.x), roundoff(u.y, w.y)); }
-
-// For CARRY32 we don't mind pollution of this value with the double exponent bits
-i64 OVERLOAD doubleToLong(double x, i32 inCarry) {
-  ROUNDOFF_CHECK(x);
-  return as_long(x + as_double((int2) (inCarry, TOPVAL - (inCarry < 0))));
-}
-
-i64 OVERLOAD doubleToLong(double x, i64 inCarry) {
-  ROUNDOFF_CHECK(x);
-  int2 tmp = as_int2(inCarry);
-  tmp.y += TOPVAL;
-  double d = x + as_double(tmp);
-
-  // Extend the sign from the lower 51-bits.
-  // The first 51 bits (0 to 50) are clean. Bit 51 is affected by RNDVAL. Bit 52 of RNDVAL is not stored.
-  // Note: if needed, we can extend the range to 52 bits instead of 51 by taking the sign from the negation
-  // of bit 51 (i.e. bit 51==1 means positive, bit 51==0 means negative).
-  int2 data = as_int2(d);
-  data.y = lowBits(data.y, 51 - 32);
-  return as_long(data);
-}
+// i64 pushCarry(float x, i64 inCarry) { return inCarry + (i64)(rint(x)); }
+i64 I64(float x) { return rint(x); }
 
 Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
   Word w = lowBits(x, nBits);
-  x -= w;
-  *outCarry = x >> nBits;
-  return w;
-}
-
-Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
-  u32 nBits = bitlen(isBigWord);
-  Word w = lowBits(x, nBits);
-
-// If nBits could be 20 or more we must be careful.  doubleToLong generated x as 13 bits of trash and 51-bit signed value.
-// If we right shift 20 bits we will shift some of the trash into outCarry.  First we must remove the trash bits.
-#if EXP / NWORDS >= 19
-  *outCarry = as_int2(x << 13).y >> (nBits - 19);
-#else
-  *outCarry = xtract32(x, nBits);
-#endif
-  *outCarry += (w < 0);
-  CARRY32_CHECK(*outCarry);
-  return w;
-}
-
-Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord) {
-  u32 nBits = bitlen(isBigWord);
-  Word w = lowBits(x, nBits);
   *outCarry = (x - w) >> nBits;
-  CARRY32_CHECK(*outCarry);
   return w;
 }
-
-#if CARRY32
-typedef i32 CFcarry;
-#else
-typedef i64 CFcarry;
-#endif
-
-// In the carryMul situation there's an additional multiplication by 3, adding about 1.6bits to carry, so 32bits
-// is often not enough.
-typedef i64 CFMcarry;
 
 u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 
 typedef TT T2;
 
-//{{ carries
-Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax) {
-  iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1);
-  Word b = carryStep(doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2);
-#if STATS
+Word2 OVERLOAD carryPair(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax) {
+  i64 midCarry;
+  Word a = carryStep(I64(u.x) + inCarry, &midCarry, b1);
+  Word b = carryStep(I64(u.y) + midCarry, outCarry, b2);
+
+#if STATS >= 2
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
+
   return (Word2) (a, b);
 }
 
-Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
-  i32 tmpCarry;
-  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
-  u.y += tmpCarry;
-  return u;
+Word2 OVERLOAD carryFinal(Word2 a, i64 inCarry, bool b1) {
+  i64 tmpCarry;
+  a.x = carryStep(a.x + inCarry, &tmpCarry, b1);
+  a.y += tmpCarry;
+  return a;
 }
-
-//}}
-
-//== carries CARRY=32
-//== carries CARRY=64
 
 Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax) {
   i64 midCarry;
-  Word a = carryStep(3 * doubleToLong(u.x, (i64) 0) + inCarry, &midCarry, b1);
-  Word b = carryStep(3 * doubleToLong(u.y, (i64) 0) + midCarry, outCarry, b2);
-#if STATS
+  Word a = carryStep(3 * I64(u.x) + inCarry, &midCarry, b1);
+  Word b = carryStep(3 * I64(u.y) + midCarry, outCarry, b2);
+
+#if STATS >= 2
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
+
   return (Word2) (a, b);
 }
 
 // Carry propagation from word and carry.
-Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
+Word2 carryWord(Word2 a, i64 *carry, bool b1, bool b2) {
   a.x = carryStep(a.x + *carry, carry, b1);
   a.y = carryStep(a.y + *carry, carry, b2);
   return a;
@@ -522,7 +321,7 @@ Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
 #define CARRY_LEN 8
 
 T2 addsub(T2 a) { return U2(RE(a) + IM(a), RE(a) - IM(a)); }
-T2 addsub_m2(T2 a) { return U2(add1_m2(RE(a), IM(a)), sub1_m2(RE(a), IM(a))); }
+T2 addsub_m2(T2 a) { return addsub(a) * 2; }
 
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 // which happens to be the cyclical convolution (a.x, a.y)x(b.x, b.y) * 2
@@ -533,19 +332,17 @@ T2 foo2(T2 a, T2 b) {
 }
 
 T2 foo2_m2(T2 a, T2 b) {
-  a = addsub(a);
-  b = addsub(b);
-  return addsub_m2(U2(RE(a) * RE(b), IM(a) * IM(b)));
+  return foo2(a, b) * 2;
 }
 
 // computes 2*[x^2+y^2 + i*(2*x*y)]. i.e. 2 * cyclical autoconvolution of (x, y)
 T2 foo(T2 a) { return foo2(a, a); }
 T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 
+#define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
+
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
-
-#define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
 
 // Same as X2(a, conjugate(b))
 #define X2conjb(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = IM(a) - IM(b); RE(b) = t.x - RE(b); IM(b) = t.y + IM(b); }
@@ -604,50 +401,19 @@ void fft8(T2 *u) {
 }
 
 // FFT routines to implement the middle step
+//#include "fft3.cl"
+//#include "fft5.cl"
+//#include "fft6.cl"
+//#include "fft7.cl"
+//#include "fft9.cl"
+//#include "fft10.cl"
+//#include "fft11.cl"
+//#include "fft12.cl"
+//#include "fft13.cl"
+//#include "fft14.cl"
+//#include "fft15.cl"
 
-void fft3by(T2 *u, u32 incr) {
-  const double COS1 = -0.5;					// cos(tau/3), -0.5
-  const double SIN1 = 0.86602540378443864676372317075294;	// sin(tau/3), sqrt(3)/2, 0.86602540378443864676372317075294
-  X2_mul_t4(u[1*incr], u[2*incr]);				// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))
-  T2 tmp23 = u[0*incr] + COS1 * u[1*incr];
-  u[0*incr] = u[0*incr] + u[1*incr];
-  fma_addsub(u[1*incr], u[2*incr], SIN1, tmp23, u[2*incr]);
-}
-
-void fft3(T2 *u) {
-  fft3by(u, 1);
-}
-
-#include "fft5.cl"
-
-void fft6(T2 *u) {
-  const double COS1 = -0.5;					                  // cos(tau/3) == -0.5
-  const double SIN1 = 0.86602540378443864676372317075294;	// sin(tau/3) == sqrt(3)/2
-
-  X2(u[0], u[3]);						// (r1+ i1+),  (r1-  i1-)
-  X2_mul_t4(u[1], u[4]);					// (r2+ i2+),  (i2- -r2-)
-  X2_mul_t4(u[2], u[5]);					// (r3+ i3+),  (i3- -r3-)
-
-  X2_mul_t4(u[1], u[2]);					// (r2++  i2++),  (i2+- -r2+-)
-  X2_mul_t4(u[4], u[5]);					// (i2-+ -r2-+), (-r2-- -i2--)
-
-  T2 tmp35a = fmaT2(COS1, u[1], u[0]);
-  u[0] = u[0] + u[1];
-  T2 tmp26a = fmaT2(COS1, u[5], u[3]);
-  u[3] = u[3] + u[5];
-
-  fma_addsub(u[1], u[5], SIN1, tmp26a, u[4]);
-  fma_addsub(u[2], u[4], SIN1, tmp35a, u[2]);
-}
-
-#include "fft7.cl"
-#include "fft9.cl"
-#include "fft10.cl"
-#include "fft11.cl"
-#include "fft12.cl"
-#include "fft13.cl"
-#include "fft14.cl"
-#include "fft15.cl"
+#include "trigSP.cl"
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
@@ -671,95 +437,96 @@ typedef constant const T2* Trig;
 typedef global const T2* Trig;
 #endif
 
-void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
+void tabMul(u32 WG, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   
   for (u32 i = 1; i < n; ++i) {
-    u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]);
+    u[i] = mul(u[i], slowTrig(i * (me & ~(f-1)), n * WG, n * WG));
+    // u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]);
   }
 }
 
-void shuflAndMul(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {
-  tabMul(WG, trig, u, n, f);
+void shuflAndMul(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
+  tabMul(WG, u, n, f);
   shufl(WG, lds, u, n, f);
 }
 
 // 64x4
-void fft256w(local T2 *lds, T2 *u, Trig trig) {
+void fft256w(local T2 *lds, T2 *u) {
   UNROLL_WIDTH_CONTROL
   for (u32 s = 0; s <= 4; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul(64, lds, trig, u, 4, 1u << s);
+    shuflAndMul(64, lds, u, 4, 1u << s);
   }
   fft4(u);
 }
 
-void fft256h(local T2 *lds, T2 *u, Trig trig) {
+void fft256h(local T2 *lds, T2 *u) {
   for (u32 s = 0; s <= 4; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul(64, lds, trig, u, 4, 1u << s);
+    shuflAndMul(64, lds, u, 4, 1u << s);
   }
   fft4(u);
 }
 
 // 64x8
-void fft512w(local T2 *lds, T2 *u, Trig trig) {
+void fft512w(local T2 *lds, T2 *u) {
   UNROLL_WIDTH_CONTROL
   for (u32 s = 0; s <= 3; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul(64, lds, trig, u, 8, 1u << s);
+    shuflAndMul(64, lds, u, 8, 1u << s);
   }
   fft8(u);
 }
 
-void fft512h(local T2 *lds, T2 *u, Trig trig) {
+void fft512h(local T2 *lds, T2 *u) {
   for (u32 s = 0; s <= 3; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul(64, lds, trig, u, 8, 1u << s);
+    shuflAndMul(64, lds, u, 8, 1u << s);
   }
   fft8(u);
 }
 
 // 256x4
-void fft1Kw(local T2 *lds, T2 *u, Trig trig) {
+void fft1Kw(local T2 *lds, T2 *u) {
   UNROLL_WIDTH_CONTROL
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul(256, lds, trig, u, 4, 1u << s);
+    shuflAndMul(256, lds, u, 4, 1u << s);
   }
   fft4(u);
 }
 
-void fft1Kh(local T2 *lds, T2 *u, Trig trig) {
+void fft1Kh(local T2 *lds, T2 *u) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul(256, lds, trig, u, 4, 1u << s);
+    shuflAndMul(256, lds, u, 4, 1u << s);
   }
   fft4(u);
 }
 
 // 512x8
-void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
+void fft4Kw(local T2 *lds, T2 *u) {
   UNROLL_WIDTH_CONTROL
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, 1u << s);
+    shuflAndMul(512, lds, u, 8, 1u << s);
   }
   fft8(u);
 }
 
-void fft4Kh(local T2 *lds, T2 *u, Trig trig) {
+void fft4Kh(local T2 *lds, T2 *u) {
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, 1u << s);
+    shuflAndMul(512, lds, u, 8, 1u << s);
   }
   fft8(u);
 }
@@ -779,266 +546,23 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
   }
 }
 
-#if ULTRA_TRIG
-
-// These are ultra accurate routines.  We modified Ernst's qfcheb program and selected a multiplier such that
-// a) k * multipler / n can be represented exactly as a double, and
-// b) x * x can be represented exactly as a double, and
-// c) the difference between S0 and C0 represented as a double vs infinite precision is minimized.
-// Note that condition (a) requires different multipliers for different MIDDLE values.
-
-#if MIDDLE <= 4 || MIDDLE == 6 || MIDDLE == 8 || MIDDLE == 12
-
-#define SIN_COEFS {0.013255665205020225,-3.8819803226819742e-07,3.4105654433606424e-12,-1.4268560139781677e-17,3.4821751757020666e-23,-5.5620764489252689e-29,6.2011635226098908e-35, 237}
-#define COS_COEFS {-8.7856330013791936e-05,1.2864557872487131e-09,-7.5348856128299892e-15,2.3642407019488875e-20,-4.6158547847666762e-26,6.1440808274170587e-32,-5.8714657758002626e-38, 237}
-
-#elif MIDDLE == 11
-
-#define SIN_COEFS {0.0058285577988678909,-3.3001377814174114e-08,5.6056282285321817e-14,-4.5341639101320423e-20,2.1393746357239815e-26,-6.6068179928427645e-33,1.4241237670800455e-39, 49*11}
-
-// {0.005492294848933205,-2.761278944626038e-08,4.1647407612374865e-14,-2.9912063263788177e-20,1.2532031863362935e-26,-3.4364949357849832e-33,6.5816772637974481e-40, 143 * 4};
-
-#define COS_COEFS {-1.6986043007371857e-05,4.8087609508047477e-11,-5.4454546881584527e-17,3.3034545522108849e-23,-1.2469468591680302e-29,3.2090160573145604e-36,-5.9289892824449386e-43, 49*11}
-
-// {-1.5082651353809108e-05,3.7914395310092582e-11,-3.8123307049954028e-17,2.0535733847563737e-23,-6.8829596395036851e-30,1.5727926864212422e-36,-2.5737325744028274e-43, 143 * 4};
-
-// This should be the best choice for MIDDLE=11.  For reasons I cannot explain, the Sun coefficients beat this
-// code.  We know this code works as it gives great results for MIDDLE=5 and MIDDLEE=10.
-#elif MIDDLE == 5 || MIDDLE == 10 || MIDDLE == 11
-
-#define SIN_COEFS {0.0033599921428767842,-6.3221316482145663e-09,3.5687001824123009e-15,-9.5926212207432193e-22,1.5041156546369205e-28,-1.5436222869257443e-35,1.1057341951605355e-42, 85 * 11}
-#define COS_COEFS {-5.6447736000968621e-06,5.3105781660583875e-12,-1.9984674288638241e-18,4.0288914910974918e-25,-5.0538167304629085e-32,4.3221291704923216e-39,-2.6537550015407366e-46, 85 * 11}
-
-#elif MIDDLE == 7 || MIDDLE == 14
-
-#define SIN_COEFS {0.0030120734933746819,-4.5545496673734544e-09,2.066077343547647e-15,-4.4630156850662332e-22,5.6237622654854882e-29,-4.6381134477150518e-36,2.6699656391050201e-43, 149 * 7}
-#define COS_COEFS {-4.5362933647451799e-06,3.4296595818385068e-12,-1.0371961336265129e-18,1.6803664055570525e-25,-1.6939185081650983e-32,1.1641940392856976e-39,-5.7443786570712859e-47, 149 * 7}
-
-#elif MIDDLE == 9
-
-#define SIN_COEFS {0.0032024389944850084,-5.4738305054252556e-09,2.8068750524532041e-15,-6.8538645985346134e-22,9.7625812823195236e-29,-9.1014309535685973e-36,5.9224934064240749e-43, 109*9}
-#define COS_COEFS {-5.1278077566990758e-06,4.3824020649438457e-12,-1.4981410201032161e-18,2.7436354064447543e-25,-3.1264070669243379e-32,2.4288963593034543e-39,-1.3547441195887408e-46,109*9}
-
-#elif MIDDLE == 13
-
-#define SIN_COEFS {0.0034036756810290284,-6.5719350793639721e-09,3.8067960700283384e-15,-1.0500419865908618e-21,1.6895475541832181e-28,-1.779303563885441e-35,1.3079151443222568e-42, 71*13}
-#define COS_COEFS {-5.7925040708142102e-06,5.5921839017331711e-12,-2.1595165343644285e-18,4.4675029669254463e-25,-5.7506718639750315e-32,5.0468065746580596e-39,-3.1797982320621979e-46, 71*13}
-
-#elif MIDDLE == 15
-
-#define SIN_COEFS {0.0032221463113741469,-5.5755089924509359e-09,2.8943099587177684e-15,-7.1546148933480147e-22,1.0316780436916074e-28,-9.7368389615915834e-36,6.4141878934890016e-43, 65*15}
-#define COS_COEFS {-5.1911134259510105e-06,4.4912764335147829e-12,-1.5543150262419615e-18,2.8816519982635366e-25,-3.3242175693980929e-32,2.6144580878684214e-39,-1.4762460824550342e-46, 65*15}
-
-#endif
-
-double ksinpi(u32 k, u32 n) {
-  const double S[] = SIN_COEFS;
-  
-  double x = S[7] / n * k;
-  double z = x * x;
-  double r = fma(fma(fma(fma(fma(S[6], z, S[5]), z, S[4]), z, S[3]), z, S[2]), z, S[1]) * (z * x);
-  return fma(x, S[0], r);
-}
-
-#else
-
-// Copyright notice of original k_cos, k_sin from which our ksin/kcos evolved:
-/* ====================================================
- * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
- *
- * Developed at SunSoft, a Sun Microsystems, Inc. business.
- * Permission to use, copy, modify, and distribute this
- * software is freely granted, provided that this notice 
- * is preserved.
- * ====================================================
- */
-
-// Coefficients from http://www.netlib.org/fdlibm/k_cos.c
-#define COS_COEFS {-0.5,0.041666666666666602,-0.001388888888887411,2.4801587289476729e-05,-2.7557314351390663e-07,2.0875723212981748e-09,-1.1359647557788195e-11, M_PI}
-
-// Experimental: const double C[] = {-0.5,0.041666666666665589,-0.0013888888888779014,2.4801587246942509e-05,-2.7557304501248813e-07,2.0874583610048953e-09,-1.1307548621486489e-11, M_PI};
-
-double ksinpi(u32 k, u32 n) {
-  // const double S[] = {-0.16666666666666455,0.0083333333332988729,-0.00019841269816529426,2.7557310051600518e-06,-2.5050279451232251e-08,1.5872611854244144e-10};
-
-  // Coefficients from http://www.netlib.org/fdlibm/k_sin.c
-  const double S[] = {1, -0.16666666666666666,0.0083333333333309497,-0.00019841269836761127,2.7557316103728802e-06,-2.5051132068021698e-08,1.5918144304485914e-10, M_PI};
-  
-  double x = S[7] / n * k;
-  double z = x * x;
-  // Special-case based on S[0]==1:
-  return fma(fma(fma(fma(fma(fma(S[6], z, S[5]), z, S[4]), z, S[3]), z, S[2]), z, S[1]), z * x, x);
-}
-
-#endif
-
-double kcospi(u32 k, u32 n) {
-  const double C[] = COS_COEFS;
-  double x = C[7] / n * k;
-  double z = x * x;
-  return fma(fma(fma(fma(fma(fma(fma(C[6], z, C[5]), z, C[4]), z, C[3]), z, C[2]), z, C[1]), z, C[0]), z, 1);
-}
-
-// N represents a full circle, so N/2 is pi radians and N/8 is pi/4 radians.
-double2 reducedCosSin(u32 k, u32 N) {
-  assert(k <= N/8);
-  return U2(kcospi(k, N/2), -ksinpi(k, N/2));
-}
-
-global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
-
-#if TRIG_COMPUTE == 0
-global double2 TRIG_N[ND / 8 + 1];
-#elif TRIG_COMPUTE == 1
-global double2 TRIG_W[WIDTH / 2 + 1];
-#endif
-
 TT THREAD_WEIGHTS[G_W];
 TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
-double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
-  assert(n % 8 == 0);
-  assert(k < kBound);       // kBound actually bounds k
-  assert(kBound <= 2 * n);  // angle <= 2 tau
-
-  if (kBound > n && k >= n) { k -= n; }
-  assert(k < n);
-
-  bool negate = kBound > n/2 && k >= n/2;
-  if (negate) { k -= n/2; }
-  
-  bool negateCos = kBound > n / 4 && k >= n / 4;
-  if (negateCos) { k = n/2 - k; }
-  
-  bool flip = kBound > n / 8 + 1 && k > n / 8;
-  if (flip) { k = n / 4 - k; }
-
-  assert(k <= n / 8);
-
-  double2 r = trigTable[k];
-
-  if (flip) { r = -swap(r); }
-  if (negateCos) { r.x = -r.x; }
-  if (negate) { r = -r; }
-  return r;
-}
-
-float fastSinSP(u32 k, u32 tau, u32 M) {
-  // These DP coefs are optimized for computing sin(2*pi*x) with x in [0, 1/8], using
-  // sin(2*pi*x) = R[0]*x + R[1]*x^3 + R[2]*x^5 + R[3]*x^7
-  double R[4] = {6.2831852886262363, -41.341663358481057, 81.592672353579971, -75.407767034374388};
-
-  // We divide the DP coefficients by the corresponding power of M, and *afterwards* truncate them to SP.
-  // These constants are all computed compile-time.
-  float S[4] = {
-      R[0] / M,
-      R[1] / (((double)M)*M*M),
-      R[2] / (((double)M)*M*M*M*M),
-      R[3] / (((double)M)*M*M*M*M*M*M)
-      };
-
-  // Because we took the M out, we can scale k with a power of two, i.e. without loss of precision.
-  assert(tau % M == 0);
-  assert(((tau / M) & (tau / M - 1)) == 0); // (tau/M is a power of 2)
-  float x = (-(float)k) / (tau / M);
-  float z = x * x;
-  return fma(x, S[0], fma(fma(S[3], z, S[2]), z, S[1]) * x * z); // 1ulp on [0, 1/8].
-
-  // sinpi() does argument reduction and a bunch of unnecessary stuff.
-  // return sinpi(2 * x);
-}
-
-float fastCosSP(u32 k, u32 tau) {
-  float x = (-1.0f / tau) * k;
-  
-#if HAS_ASM
-  // On our intended range, [0, pi/4], v_cos_f32 seems to have 2ulps precision which is good enough.
-  float out;
-  __asm("v_cos_f32_e32 %0, %1" : "=v"(out) : "v" (x));
-  return out;  
-#else
-  return cospi(2 * x);
-#endif
-}
-
-
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(64) writeGlobals(global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
-                        global double2* trigW,
-                        global double2* threadWeights, global double2* carryWeights
+KERNEL(64) writeGlobals(global T2* trig2Sh, global T2* trigBh, global T2* trigN,
+                        global T2* trigW,
+                        global T2* threadWeights, global T2* carryWeights
                         ) {
+#if 0
   for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_2SH[k] = trig2ShDP[k]; }
-  for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_BH[k] = trigBhDP[k]; }
-
-#if TRIG_COMPUTE == 0
-  for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { TRIG_N[k] = trigNDP[k]; }
-#elif TRIG_COMPUTE == 1
-  for (u32 k = get_global_id(0); k <= WIDTH/2; k += get_global_size(0)) { TRIG_W[k] = trigW[k]; }
+  for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0))       { TRIG_BH[k] = trigBhDP[k]; }
 #endif
 
   // Weights
   for (u32 k = get_global_id(0); k < G_W; k += get_global_size(0)) { THREAD_WEIGHTS[k] = threadWeights[k]; }
   for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
-}
-
-double2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
-double2 slowTrig_BH(u32 k, u32 kBound)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
-
-// Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
-// Inverse trigonometric direction is chosen as an FFT convention.
-double2 slowTrig_N(u32 k, u32 kBound)   {
-  u32 n = ND;
-  assert(n % 8 == 0);
-  assert(k < kBound);       // kBound actually bounds k
-  assert(kBound <= 2 * n);  // angle <= 2 tau
-
-  if (kBound > n && k >= n) { k -= n; }
-  assert(k < n);
-
-  bool negate = kBound > n/2 && k >= n/2;
-  if (negate) { k -= n/2; }
-  
-  bool negateCos = kBound > n / 4 && k >= n / 4;
-  if (negateCos) { k = n/2 - k; }
-  
-  bool flip = kBound > n / 8 + 1 && k > n / 8;
-  if (flip) { k = n / 4 - k; }
-
-  assert(k <= n / 8);
-
-#if TRIG_COMPUTE >= 2
-  double2 r = reducedCosSin(k, n);
-#elif TRIG_COMPUTE == 1
-  u32 a = (k + WIDTH/2) / WIDTH;
-  i32 b = k - a * WIDTH;
-  
-  double2 cs1 = TRIG_BH[a];
-  double c1 = cs1.x;
-  double s1 = cs1.y;
-  
-  double2 cs2 = TRIG_W[abs(b)];
-  double c2 = cs2.x;
-  double s2 = (b < 0) ? -cs2.y : cs2.y; 
-
-  // cos(a+b) = cos(a)cos(b) - sin(a)sin(b)
-  // sin(a+b) = cos(a)sin(b) + sin(a)cos(b)
-  // c2 is stored with "-1" trick to increase accuracy, so we use fma(x,y,x) for x*(y+1)
-  double c = fma(-s1, s2, fma(c1, c2, c1));
-  double s = fma(c1, s2, fma(s1, c2, s1));
-  double2 r = (double2)(c, s);
-#elif TRIG_COMPUTE == 0
-  double2 r = TRIG_N[k];
-#else
-#error set TRIG_COMPUTE to 0, 1 or 2.
-#endif
-
-  if (flip) { r = -swap(r); }
-  if (negateCos) { r.x = -r.x; }
-  if (negate) { r = -r; }
-  
-  return r;
 }
 
 void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out) {
@@ -1108,27 +632,27 @@ KERNEL(256) isNotZero(P(bool) outNotZero, u32 sizeBytes, global i64 *in) {
   }
 }
 
-void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
+void fft_WIDTH(local T2 *lds, T2 *u) {
 #if WIDTH == 256
-  fft256w(lds, u, trig);
+  fft256w(lds, u);
 #elif WIDTH == 512
-  fft512w(lds, u, trig);
+  fft512w(lds, u);
 #elif WIDTH == 1024
-  fft1Kw(lds, u, trig);
+  fft1Kw(lds, u);
 #elif WIDTH == 4096
-  fft4Kw(lds, u, trig);
+  fft4Kw(lds, u);
 #else
 #error unexpected WIDTH.  
 #endif  
 }
 
-void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
+void fft_HEIGHT(local T2 *lds, T2 *u) {
 #if SMALL_HEIGHT == 256
-  fft256h(lds, u, trig);
+  fft256h(lds, u);
 #elif SMALL_HEIGHT == 512
-  fft512h(lds, u, trig);
+  fft512h(lds, u);
 #elif SMALL_HEIGHT == 1024
-  fft1Kh(lds, u, trig);
+  fft1Kh(lds, u);
 #else
 #error unexpected SMALL_HEIGHT.
 #endif
@@ -1173,8 +697,8 @@ KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 g = get_group_id(0);
 
   readCarryFusedLine(in, u, g);
-  ENABLE_MUL2();
-  fft_WIDTH(lds, u, smallTrig);  
+
+  fft_WIDTH(lds, u);
   out += WIDTH * g;
   write(G_W, NW, u, out, 0);
 }
@@ -1187,8 +711,8 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 g = get_group_id(0);
 
   readTailFusedLine(in, u, g);
-  ENABLE_MUL2();
-  fft_HEIGHT(lds, u, smallTrig);
+
+  fft_HEIGHT(lds, u);
 
   out += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
   write(G_H, NH, u, out, 0);
@@ -1204,8 +728,8 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   io += g * SMALL_HEIGHT;
 
   read(G_H, NH, u, io, 0);
-  ENABLE_MUL2();
-  fft_HEIGHT(lds, u, smallTrig);
+
+  fft_HEIGHT(lds, u);
   write(G_H, NH, u, io, 0);
 }
 
@@ -1271,9 +795,8 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
     u32 p = G_W * i + me;
     u[i] = U2(in[p].x, in[p].y) * U2(w1, w2);
   }
-  ENABLE_MUL2();
 
-  fft_WIDTH(lds, u, smallTrig);
+  fft_WIDTH(lds, u);
   
   write(G_W, NW, u, out, 0);
 }
@@ -1283,18 +806,20 @@ void fft_MIDDLE(T2 *u) {
   // Do nothing
 #elif MIDDLE == 2
   fft2(u);
-#elif MIDDLE == 3
-  fft3(u);
 #elif MIDDLE == 4
   fft4(u);
+#elif MIDDLE == 8
+  fft8(u);
+/* Disable NPOT middle temporarilly
+ *
+#elif MIDDLE == 3
+  fft3(u);
 #elif MIDDLE == 5
   fft5(u);
 #elif MIDDLE == 6
   fft6(u);
 #elif MIDDLE == 7
   fft7(u);
-#elif MIDDLE == 8
-  fft8(u);
 #elif MIDDLE == 9
   fft9(u);
 #elif MIDDLE == 10
@@ -1309,199 +834,48 @@ void fft_MIDDLE(T2 *u) {
   fft14(u);
 #elif MIDDLE == 15
   fft15(u);
+*/
 #else
-#error UNRECOGNIZED MIDDLE
+#error Only power-of-two MIDDLEs enabled
 #endif
 }
 
 // Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 
-#define WADD(i, w) u[i] = mul(u[i], w)
-#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
-
-void middleMul(T2 *u, u32 s, Trig trig) {
+void middleMul(T2 *u, u32 s) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
 
-#if MM_CHAIN == 3
-
-// This is our slowest version - used when we are extremely worried about round off error.
-// Maximum multiply chain length is 1.
-  T2 w = slowTrig_BH(s, SMALL_HEIGHT);
-  WADD(1, w);
-  if ((MIDDLE - 2) % 3) {
-    T2 base = slowTrig_BH(s * 2, SMALL_HEIGHT * 2);
-    WADD(2, base);
-    if ((MIDDLE - 2) % 3 == 2) {
-      WADD(3, base);
-      WADD(3, w);
-    }
+  for (u32 i = 1; i < MIDDLE; ++i) {
+     u[i] = mul(u[i], slowTrig_BH(s * i, SMALL_HEIGHT * i));
   }
-  for (i32 i = (MIDDLE - 2) % 3 + 3; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_BH(s * i, SMALL_HEIGHT * i);
-    WADD(i - 1, base);
-    WADD(i, base);
-    WADD(i + 1, base);
-    WSUB(i - 1, w);
-    WADD(i + 1, w);
-  }
-
-#elif MM_CHAIN == 1 || MM_CHAIN == 2
-
-// This is our second and third fastest versions - used when we are somewhat worried about round off error.
-// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
-  T2 w = slowTrig_BH(s, SMALL_HEIGHT);
-  WADD(1, w);
-  WADD(2, sq(w));
-  i32 group_start, group_size;
-  for (group_start = 3; group_start < MIDDLE; group_start += group_size) {
-#if MM_CHAIN == 2 && MIDDLE > 4
-    group_size = (group_start == 3 ? (MIDDLE - 3) / 2 : MIDDLE - group_start);
-#else
-    group_size = MIDDLE - 3;
-#endif
-    i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint);
-    T2 base2 = base;
-    WADD(midpoint, base);
-    for (i32 i = 1; i <= group_size / 2; ++i) {
-      base = mul_by_conjugate(base, w);
-      WADD(midpoint - i, base);
-      if (i == group_size / 2 && (group_size & 1) == 0) break;
-      base2 = mul(base2, w);
-      WADD(midpoint + i, base2);
-    }
-  }
-
-#elif MM_CHAIN == 4
-
-  for (int i = 1; i < MIDDLE; ++i) {
-    WADD(i, trig[s + (i - 1) * SMALL_HEIGHT]);
-  }
-  
-#else
-  
-  T2 w = slowTrig_BH(s, SMALL_HEIGHT);
-  WADD(1, w);
-  T2 base = sq(w);
-  for (i32 i = 2; i < MIDDLE; ++i) {
-    WADD(i, base);
-    base = mul(base, w);
-  }
-#endif
 }
 
-void middleMul2(T2 *u, u32 x, u32 y, double factor) {
+void middleMul2(T2 *u, u32 x, u32 y) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
 
-#if MM2_CHAIN == 3
-
-// This is our slowest version - used when we are extremely worried about round off error.
-// Maximum multiply chain length is 1.
-  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
-  if (MIDDLE % 3) {
-    T2 base = slowTrig_N(x * y, ND / MIDDLE) * factor;
-    WADD(0, base);
-    if (MIDDLE % 3 == 2) {
-      WADD(1, base);
-      WADD(1, w);
-    }
+  for (u32 i = 0; i < MIDDLE; ++i) {
+    u[i] = mul(u[i], slowTrig_N((SMALL_HEIGHT * i + y) * x, ND / MIDDLE * (i + 1)));
   }
-  for (i32 i = MIDDLE % 3 + 1; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * i + x * y, ND / MIDDLE * (i + 1)) * factor;
-    WADD(i - 1, base);
-    WADD(i, base);
-    WADD(i + 1, base);
-    WSUB(i - 1, w);
-    WADD(i + 1, w);
-  }
-
-#elif MM2_CHAIN == 1 || MM2_CHAIN == 2
-
-// This is our second and third fastest versions - used when we are somewhat worried about round off error.
-// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
-  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
-  i32 group_start, group_size;
-  for (group_start = 0; group_start < MIDDLE; group_start += group_size) {
-#if MM2_CHAIN == 2
-    group_size = (group_start == 0 ? MIDDLE / 2 : MIDDLE - group_start);
-#else
-    group_size = MIDDLE;
-#endif
-    i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * midpoint + x * y, ND / MIDDLE * (midpoint + 1)) * factor;
-    T2 base2 = base;
-    WADD(midpoint, base);
-    for (i32 i = 1; i <= group_size / 2; ++i) {
-      base = mul_by_conjugate(base, w);
-      WADD(midpoint - i, base);
-      if (i == group_size / 2 && (group_size & 1) == 0) break;
-      base2 = mul(base2, w);
-      WADD(midpoint + i, base2);
-    }
-  }
-
-#else
-
-// This is our fastest version - used when we are not worried about round off error.
-// Maximum multiply chain length equals MIDDLE.
-  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND/MIDDLE);
-  T2 base = slowTrig_N(x * y, ND/MIDDLE) * factor;
-  for (i32 i = 0; i < MIDDLE; ++i) {
-    u[i] = mul(u[i], base);
-    base = mul(base, w);
-  }
-
-#endif
-
 }
 
-#undef WADD
-#undef WSUB
+void middleFactor(T2 *u, T factor) {
+  for (u32 i = 0; i < MIDDLE; ++i) { u[i] = u[i] * factor; }
+}
 
 // Do a partial transpose during fftMiddleIn/Out
-// The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
-// than reading/writing T2 values.  This routine lets us try both versions.
 
-void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
+void middleShuffle(local T2 *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
-  if (MIDDLE <= 8) {
-    local T *p = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
-    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].x; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * i]; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].y; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * i]; }
-  } else {
-    local int *p1 = ((local int*) lds) + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
-    local int *p2 = (local int*) lds;
-    int4 *pu = (int4 *)u;
-
-    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].x; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].x = p2[me + workgroupSize * i]; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].y; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].y = p2[me + workgroupSize * i]; }
-    bar();
-
-    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].z; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].z = p2[me + workgroupSize * i]; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].w; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].w = p2[me + workgroupSize * i]; }
-  }
+  local T2 *p = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+  for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i]; }
+  bar();
+  for (int i = 0; i < MIDDLE; ++i) { u[i] = lds[me + workgroupSize * i]; }
 }
 
-
-KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
+KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   T2 u[MIDDLE];
   
   u32 SIZEY = IN_WG / IN_SIZEX;
@@ -1522,14 +896,13 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
   in += starty * WIDTH + startx;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
 
-  ENABLE_MUL2();
-
-  middleMul2(u, startx + mx, starty + my, 1);
+  middleMul2(u, startx + mx, starty + my);
 
   fft_MIDDLE(u);
 
-  middleMul(u, starty + my, trig);
-  local T lds[IN_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
+  middleMul(u, starty + my);
+
+  local T2 lds[IN_WG * MIDDLE];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
   // out += BIG_HEIGHT * startx + starty + BIG_HEIGHT * my + mx;
@@ -1537,12 +910,9 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
   
   out += gx * (BIG_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG) + me;
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }  
-
-  // out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG);
-  // out += me;
 }
 
-KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
+KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
   T2 u[MIDDLE];
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
@@ -1566,21 +936,21 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   in += starty * BIG_HEIGHT + startx;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
-  ENABLE_MUL2();
 
-  middleMul(u, startx + mx, trig);
+
+  middleMul(u, startx + mx);
 
   fft_MIDDLE(u);
 
+  middleMul2(u, starty + my, startx + mx);
+
   // FFT results come out multiplied by the FFT length (NWORDS).  Also, for performance reasons
   // weights and invweights are doubled meaning we need to divide by another 2^2 and 2^2.
-  // Finally, roundoff errors are sometimes improved if we use the next lower double precision
-  // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
-  double factor = 1.0 / (4 * 4 * NWORDS);
+  T factor = 1.0 / (4 * 4 * NWORDS);
+  // T factor = 1.0 / (2 * NWORDS);
+  middleFactor(u, factor);
 
-  middleMul2(u, starty + my, startx + mx, factor);
-  local T lds[OUT_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
-
+  local T2 lds[OUT_WG * MIDDLE];
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
@@ -1624,7 +994,7 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
 
 //{{ CARRYA
 KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
-  ENABLE_MUL2();
+
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
@@ -1645,8 +1015,8 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
 
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    double w1 = i == 0 ? base : optionalDouble(fancyMul(base, iweightUnitStep(i)));
-    double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
+    T w1 = i == 0 ? base : optionalDouble(fancyMul(base, iweightUnitStep(i)));
+    T w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
     T2 x = conjugate(in[p]) * U2(w1, w2);
     
 #if STATS
@@ -1670,7 +1040,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
 //== CARRYA NAME=carryA,DO_MUL3=0
 //== CARRYA NAME=carryM,DO_MUL3=1
 
-KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
+KERNEL(G_W) carryB(P(Word2) io, CP(i64) carryIn, CP(u32) bits) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);  
   u32 gx = g % NW;
@@ -1690,7 +1060,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
   u32 prevLine = prev % HB;
   u32 prevCol  = prev / HB;
 
-  CarryABM carry = carryIn[WIDTH * prevLine + prevCol];
+  i64 carry = carryIn[WIDTH * prevLine + prevCol];
 
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = i * WIDTH + me;
@@ -1722,8 +1092,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   u32 b = bits[(G_W * line + me) / GPW] >> (me % GPW * (2 * NW));
 #undef GPW
   
-  ENABLE_MUL2();
-  fft_WIDTH(lds, u, smallTrig);
+
+  fft_WIDTH(lds, u);
 
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
@@ -1731,13 +1101,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
   weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(line % CARRY_LEN), fweightUnitStep(line % CARRY_LEN)));
 
-#if CF_MUL
-  P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
-  CFMcarry carry[NW+1];
-#else
-  P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
-  CFcarry carry[NW+1];
-#endif
+  P(i64) carryShuttlePtr = carryShuttle;
+  i64 carry[NW+1];
 
   float roundMax = 0;
   u32 carryMax = 0;
@@ -1759,7 +1124,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
-#if CF_MUL    
+#if CF_MUL
     wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
 #else
     wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
@@ -1808,7 +1173,6 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     }
   }
 
-  // Apply each 32 or 64 bit carry to the 2 words
   for (i32 i = 0; i < NW; ++i) {
     wu[i] = carryFinal(wu[i], carry[i], test(b, 2 * i));
   }
@@ -1828,7 +1192,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 
 // Now do the forward FFT and write results
 
-  fft_WIDTH(lds, u, smallTrig);
+  fft_WIDTH(lds, u);
   write(G_W, NW, u, out, WIDTH * line);
 }
 //}}
@@ -1996,7 +1360,7 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
-  ENABLE_MUL2();
+
 
   u32 line1 = get_group_id(0);
   u32 me = get_local_id(0);
@@ -2053,7 +1417,7 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
 
-  ENABLE_MUL2();
+
 
 #if TAIL_FUSED_LOW
   read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
@@ -2061,9 +1425,9 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
 #else
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
-  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, u);
   bar();
-  fft_HEIGHT(lds, v, smallTrig1);
+  fft_HEIGHT(lds, v);
 #endif
 
   u32 me = get_local_id(0);
@@ -2084,9 +1448,9 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   }
 
   bar();
-  fft_HEIGHT(lds, v, smallTrig2);
+  fft_HEIGHT(lds, v);
   bar();
-  fft_HEIGHT(lds, u, smallTrig2);
+  fft_HEIGHT(lds, u);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
@@ -2123,24 +1487,22 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
   
-  ENABLE_MUL2();
-  
 #if MUL_DELTA
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
   readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
   readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
-  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, u);
   bar();
-  fft_HEIGHT(lds, v, smallTrig1);
+  fft_HEIGHT(lds, v);
 #elif MUL_LOW
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
   read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
   read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
-  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, u);
   bar();
-  fft_HEIGHT(lds, v, smallTrig1);
+  fft_HEIGHT(lds, v);
 #elif MUL_2LOW
   read(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
   read(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
@@ -2151,13 +1513,13 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   readTailFusedLine(in, v, line2);
   readTailFusedLine(a, p, line1);
   readTailFusedLine(a, q, line2);
-  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, u);
   bar();
-  fft_HEIGHT(lds, v, smallTrig1);
+  fft_HEIGHT(lds, v);
   bar();
-  fft_HEIGHT(lds, p, smallTrig1);
+  fft_HEIGHT(lds, p);
   bar();
-  fft_HEIGHT(lds, q, smallTrig1);
+  fft_HEIGHT(lds, q);
 #endif
 
   u32 me = get_local_id(0);
@@ -2182,11 +1544,11 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   }
 
   bar();
-  fft_HEIGHT(lds, v, smallTrig2);
+  fft_HEIGHT(lds, v);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
 
   bar();
-  fft_HEIGHT(lds, u, smallTrig2);
+  fft_HEIGHT(lds, u);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
 //}}
@@ -2200,18 +1562,25 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
 
-KERNEL(64) readHwTrig(global float2* outSH, global float2* outBH, global float2* outN) {
-  for (u32 k = get_global_id(0); k <= SMALL_HEIGHT / 4; k += get_global_size(0)) {
-    outSH[k] = (float2) (fastCosSP(k, SMALL_HEIGHT * 2), fastSinSP(k, SMALL_HEIGHT * 2, 1));
-  }
-  
-  for (u32 k = get_global_id(0); k <= BIG_HEIGHT / 8; k += get_global_size(0)) {
-    outBH[k] = (float2) (fastCosSP(k, BIG_HEIGHT), fastSinSP(k, BIG_HEIGHT, MIDDLE));
-  }
+float fastCosSP(u32 k, u32 tau) {
+  float x = (-1.0f / tau) * k;
+  float out;
+  __asm("v_cos_f32_e32 %0, %1" : "=v"(out) : "v" (x));
+  return out;
+  // return cospi(2 * x);
+}
 
-  for (u32 k = get_global_id(0); k <= ND / 8; k += get_global_size(0)) {
-    outN[k] = (float2) (fastCosSP(k, ND), fastSinSP(k, ND, MIDDLE));
-  }
+float fastSinSP(u32 k, u32 tau) {
+  float x = (-1.0f / tau) * k;
+  float out;
+  __asm("v_sin_f32_e32 %0, %1" : "=v"(out) : "v" (x));
+  return out;
+  // return cospi(2 * x);
+}
+
+KERNEL(64) readHwTrig(global float2* out, u32 Tau) {
+  u32 id = get_global_id(0);
+  out[id] = U2(fastCosSP(id, Tau), fastSinSP(id, Tau));
 }
  
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize

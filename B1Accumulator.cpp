@@ -186,4 +186,4 @@ void B1Accumulator::step(u32 kAt, Buffer<T>& data) {
 }
 
 template void B1Accumulator::step<int>(u32 kAt, Buffer<int>& data);
-template void B1Accumulator::step<double>(u32 kAt, Buffer<double>& data);
+template void B1Accumulator::step<float>(u32 kAt, Buffer<float>& data);

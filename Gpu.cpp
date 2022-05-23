@@ -39,11 +39,9 @@ static_assert(sizeof(long double) > sizeof(double), "long double offers extended
 
 extern const char *CL_SOURCE;
 
-using float3 = tuple<float, float, float>;
-
 struct Weights {
-  vector<double> threadWeightsIF;  
-  vector<double> carryWeightsIF;
+  vector<float> threadWeightsIF;
+  vector<float> carryWeightsIF;
   vector<u32> bitsCF;
   vector<u32> bitsC;
 };
@@ -73,37 +71,32 @@ pair<T, T> root1(u32 N, u32 k) {
   }
 }
 
-double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
+template<typename T>
+pair<T, T> *smallTrigBlock(u32 W, u32 H, pair<T, T> *p) {
   for (u32 line = 1; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
-      *p++ = root1<double>(W * H, line * col);
+      *p++ = root1<T>(W * H, line * col);
     }
   }
   return p;
 }
 
-ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
-  vector<double2> tab;
-
-  // smallTrigBlock(size / radix, 2, tab.data());
+template<typename T>
+ConstBuffer<pair<T, T>> genSmallTrig(const Context& context, u32 size, u32 radix) {
+  vector<pair<T, T>> tab;
 
   for (u32 line = 1; line < radix; ++line) {
-  for (u32 col = 0; col < size / radix; ++col) {
-    tab.push_back(root1<double>(size, col * line));
-  }
+    for (u32 col = 0; col < size / radix; ++col) {
+      tab.push_back(root1<T>(size, col * line));
+    }
   }
   tab.resize(size);
-  
-  /*
-  auto *p = tab.data() + radix;
-  for (u32 w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
-  assert(p - tab.data() == size);
-  */
   return {context, "smallTrig", tab};
 }
 
-ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
-  vector<double2> tab;
+template<typename T>
+ConstBuffer<pair<T, T>> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
+  vector<pair<T, T>> tab;
   if (middle == 1) {
     tab.resize(1);
   } else {  
@@ -128,7 +121,7 @@ template<typename T>
 vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN) {
   vector<pair<T, T>> tab;
   for (u32 k = 0; k <= W/2; ++k) {
-    auto[c, s] = root1<f128>(hN, k);
+    auto[c, s] = root1<long double>(hN, k);
     tab.push_back({c - 1, s});
   }
   return tab;
@@ -146,17 +139,19 @@ auto invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
   return exp2l(- iN * extra(N, E, kAt(H, line, col) + rep));
 }
 
-double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
+// double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
+float boundUnderOne(float x) { return std::min(x, nexttowardf(1, 0)); }
 
 #define CARRY_LEN 8
 
+template<typename T>
 Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 N = 2u * W * H;
   
   u32 groupWidth = W / nW;
 
   // Inverse + Forward
-  vector<double> threadWeightsIF;
+  vector<T> threadWeightsIF;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
     auto iw = invWeight(N, E, H, 0, thread, 0);
     threadWeightsIF.push_back(iw - 1);
@@ -164,11 +159,11 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
     threadWeightsIF.push_back(w - 1);
   }
 
-  // Inverse only. Also the group order matches CarryA/M (not fftP/CarryFused).
-  vector<double> carryWeightsIF;
+  // the group order matches CarryA/M (not fftP/CarryFused).
+  vector<T> carryWeightsIF;
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
     auto iw = invWeight(N, E, H, gy * CARRY_LEN, 0, 0);
-    carryWeightsIF.push_back(2 * boundUnderOne(iw));
+    carryWeightsIF.push_back(2 * boundUnderOne(T(iw)));
     
     auto w = weight(N, E, H, gy * CARRY_LEN, 0, 0);
     carryWeightsIF.push_back(2 * w);
@@ -242,11 +237,6 @@ string toLiteral(const vector<T>& v) {
   return s;
 }
 
-[[maybe_unused]] string toLiteral(float3 v) {
-  auto [a, b, c] = v;
-  return "("s + toLiteral(a) + ',' + toLiteral(b) + ',' + toLiteral(c) + ')';
-}
-
 struct Define {
   const string str;
 
@@ -274,21 +264,11 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
 
   if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
 
-  // Force carry64 when carry32 might exceed a very conservative 0x6C000000
-  if (FFTConfig::getMaxCarry32(N, E) > 0x6C00) { defines.push_back({"CARRY64", 1}); }
+  defines.push_back({"WEIGHT_STEP", float(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
+  defines.push_back({"IWEIGHT_STEP", float(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
 
-  // If we are near the maximum exponent for this FFT, then we may need to set some chain #defines
-  // to reduce the round off errors.
-  auto [mm_chain, mm2_chain, ultra_trig] = FFTConfig::getChainLengths(N, E, MIDDLE);
-  if (mm_chain) { defines.push_back({"MM_CHAIN", mm_chain}); }
-  if (mm2_chain) { defines.push_back({"MM2_CHAIN", mm2_chain}); }
-  if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }
-
-  defines.push_back({"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
-  defines.push_back({"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
-
-  vector<double> iWeights;
-  vector<double> fWeights;
+  vector<float> iWeights;
+  vector<float> fWeights;
   for (u32 i = 0; i < CARRY_LEN; ++i) {
     iWeights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
     fWeights.push_back(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
@@ -329,7 +309,7 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          cl_device_id device, bool timeKernels, bool useLongCarry)
-  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, genWeights(E, W, BIG_H, nW)}
+  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, genWeights<float>(E, W, BIG_H, nW)}
 {}
 
 using float2 = pair<float, float>;
@@ -385,9 +365,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 #undef LOAD_WS
 #undef LOAD
 
-  bufTrigW{genSmallTrig(context, W, nW)},
-  bufTrigH{genSmallTrig(context, SMALL_H, nH)},
-  bufTrigM{genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
+  bufTrigW{genSmallTrig<float>(context, W, nW)},
+  bufTrigH{genSmallTrig<float>(context, SMALL_H, nH)},
+  bufTrigM{genMiddleTrig<float>(context, SMALL_H, BIG_H / SMALL_H)},
   bufBits{context, "bits", weights.bitsCF},
   bufBitsC{context, "bitsC", weights.bitsC},
   bufData{queue, "data", N},
@@ -413,8 +393,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
-  fftMiddleIn.setFixedArgs(2, bufTrigM);
-  fftMiddleOut.setFixedArgs(2, bufTrigM);
     
   carryA.setFixedArgs(2, bufCarry, bufBitsC, bufRoundoff, bufCarryMax);
   carryM.setFixedArgs(2, bufCarry, bufBitsC, bufRoundoff, bufCarryMulMax);
@@ -439,16 +417,17 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       bufSH{queue, "readTrig", SMALL_H/4 + 1},
       bufBH{queue, "readTrigBH", BIG_H/8 + 1},
       bufN{queue, "readTrigN", hN/8+1};
-        
+/*
     Kernel{program.get(), queue, device, 32, "readHwTrig"}(bufSH, bufBH, bufN);
     readTrigSH = bufSH.read();
     readTrigBH = bufBH.read();
     readTrigN = bufN.read();
+*/
 
-    Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
-                                                             ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
-                                                             ConstBuffer{context, "dp3", makeTrig<double>(hN)},
-                                                             ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)},
+    Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "dp1", makeTrig<float>(2 * SMALL_H)},
+                                                             ConstBuffer{context, "dp2", makeTrig<float>(BIG_H)},
+                                                             ConstBuffer{context, "dp3", makeTrig<float>(hN)},
+                                                             ConstBuffer{context, "dp4", makeTinyTrig<float>(W, hN)},
 
                                                              ConstBuffer{context, "w2", weights.threadWeightsIF},
                                                              ConstBuffer{context, "w3", weights.carryWeightsIF}
@@ -486,8 +465,8 @@ Words Gpu::fold(vector<Buffer<int>>& bufs) {
 
   for (int retry = 0; retry < 2; ++retry) {
     {
-      Buffer<double> A{queue, "A", N};
-      Buffer<double> B{queue, "B", N};
+      Buffer<float> A{queue, "A", N};
+      Buffer<float> B{queue, "B", N};
       {
         Buffer<int>& last = bufs.back();
         fftP(buf3, last);
@@ -605,7 +584,7 @@ vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
 vector<u32> Gpu::readCheck() { return readAndCompress(bufCheck); }
 vector<u32> Gpu::readData() { return readAndCompress(bufData); }
 
-void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp) {
+void Gpu::tailMul(TBuf& out, TBuf& in, TBuf& inTmp) {
   if (true) {
     tailFusedMul(out, in, inTmp);
   } else {
@@ -617,7 +596,7 @@ void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp
 }
 
 // out := inA * inB;
-void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3) {
+void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, TBuf& inB, TBuf& tmp1, TBuf& tmp2, bool mul3) {
     fftP(tmp1, inA);
     tW(tmp2, tmp1);
     tailMul(tmp1, inB, tmp2);
@@ -628,7 +607,7 @@ void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<do
 }
 
 // out := inA * inB;
-void Gpu::modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
+void Gpu::modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, TBuf& buf1, TBuf& buf2, TBuf& buf3, bool mul3) {
 
   fftP(buf1, inB);
   tW(buf3, buf1);
@@ -640,13 +619,13 @@ void Gpu::mul(Buffer<int>& io, Buffer<int>& inA, Buffer<int>& inB) { modMul(io, 
 
 void Gpu::mul(Buffer<int>& io, Buffer<int>& inB) { mul(io, io, inB); }
 
-void Gpu::mul(Buffer<int>& io, Buffer<double>& buf1) {
+void Gpu::mul(Buffer<int>& io, TBuf& buf1) {
   // We know that coreStep() stores double output in buf1; so we're going to use buf2 & buf3 for temps.
   // tW(buf2, buf1);
   mul(io, io, buf1, buf2, buf3, false);
 }
 
-void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+void Gpu::writeState(const vector<u32> &check, u32 blockSize, TBuf& buf1, TBuf& buf2, TBuf& buf3) {
   assert(blockSize > 0);
   writeCheck(check);
   bufData << bufCheck;
@@ -674,7 +653,7 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   modMul(bufData, bufData, bufAux, buf1, buf2, buf3, true);
 }
   
-bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+bool Gpu::doCheck(u32 blockSize, TBuf& buf1, TBuf& buf2, TBuf& buf3) {
   modSqLoopMul3(bufAux, bufCheck, 0, blockSize);  
   modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);  
   return equalNotZero(bufCheck, bufAux);
@@ -698,16 +677,16 @@ void Gpu::logTimeKernels() {
   }
 }
 
-void Gpu::tW(Buffer<double>& out, Buffer<double>& in) {
+void Gpu::tW(TBuf& out, TBuf& in) {
   fftMiddleIn(out, in);
 }
 
-void Gpu::tH(Buffer<double>& out, Buffer<double>& in) {
+void Gpu::tH(TBuf& out, TBuf& in) {
   fftMiddleOut(out, in);
 }
 
 // out = in * (A - B)
-void Gpu::tailMulDelta(Buffer<double>& out, Buffer<double>& in, Buffer<double>& bufA, Buffer<double>& bufB) {
+void Gpu::tailMulDelta(TBuf& out, TBuf& in, TBuf& bufA, TBuf& bufB) {
   if (args.uses("NO_P2_FUSED_TAIL")) {
     fftHin(out, in);
     kernelMultiplyDelta(out, bufA, bufB);
@@ -797,7 +776,7 @@ Words Gpu::expMul2(const Words& A, u64 h, const Words& B) {
   return readData();
 }
 
-void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, TBuf& buf1, TBuf& buf2, TBuf& buf3) {
   if (exp == 0) {
     bufInOut.set(1);
   } else if (exp > 1) {
@@ -812,7 +791,7 @@ void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buf
 }
 
 // All buffers are in "low" position.
-void Gpu::exponentiate(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1) {
+void Gpu::exponentiate(TBuf& out, const TBuf& base, u64 exp, TBuf& tmp1) {
   assert(exp > 1);
   exponentiateCore(out, base, exp, tmp1);
   doCarry(tmp1, out);
@@ -820,7 +799,7 @@ void Gpu::exponentiate(Buffer<double>& out, const Buffer<double>& base, u64 exp,
 }
 
 // All buffers are in "low" position.
-void Gpu::exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1, Buffer<double>& tmp2) {
+void Gpu::exponentiateLow(TBuf& out, const TBuf& base, u64 exp, TBuf& tmp1, TBuf& tmp2) {
   assert(exp > 0);
   if (exp == 1) {
     out << base;
@@ -835,7 +814,7 @@ bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
 }
 
 // See "left-to-right binary exponentiation" on wikipedia
-void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp) {
+void Gpu::exponentiateCore(TBuf& out, const TBuf& base, u64 exp, TBuf& tmp) {
   assert(exp >= 2);
 
   tailSquareLow(tmp, base);
@@ -862,7 +841,7 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
 }
 
 // does either carrryFused() or the expanded version depending on useLongCarry
-void Gpu::doCarry(Buffer<double>& out, Buffer<double>& in) {
+void Gpu::doCarry(TBuf& out, TBuf& in) {
   if (useLongCarry) {
     fftW(out, in);
     carryA(in, out);
@@ -1093,7 +1072,7 @@ void Gpu::printRoundoff(u32 E) {
   // #endif
 }
 
-void Gpu::accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
+void Gpu::accumulate(Buffer<int>& acc, TBuf& data, TBuf& tmp1, TBuf& tmp2) {
   fftP(tmp1, acc);
   tW(tmp2, tmp1);
   tailMul(tmp1, data, tmp2);
@@ -1103,7 +1082,7 @@ void Gpu::accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp
   carryB(acc);
 }
 
-void Gpu::square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
+void Gpu::square(Buffer<int>& data, TBuf& tmp1, TBuf& tmp2) {
   fftP(tmp1, data);
   tW(tmp2, tmp1);
   tailSquare(tmp1, tmp2);
@@ -1118,7 +1097,7 @@ void Gpu::square(Buffer<int>& data) {
 }
 
 // io *= in; with buffers in low position.
-void Gpu::multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp) {
+void Gpu::multiplyLowLow(TBuf& io, const TBuf& in, TBuf& tmp) {
   tailMulLowLow(io, in);
   tH(tmp, io);
   doCarry(io, tmp);
@@ -1129,7 +1108,7 @@ void Gpu::multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<do
 struct SquaringSet {  
   std::string name;
   u32 N;
-  Buffer<double> A, B, C;
+  TBuf A, B, C;
   Gpu& gpu;
 
   SquaringSet(Gpu& gpu, u32 N, string_view name)
@@ -1143,7 +1122,7 @@ struct SquaringSet {
    
   SquaringSet(const SquaringSet& rhs, string_view name) : SquaringSet{rhs.gpu, rhs.N, name} { copyFrom(rhs); }
   
-  SquaringSet(Gpu& gpu, u32 N, const Buffer<double>& bufBase, Buffer<double>& bufTmp, Buffer<double>& bufTmp2, array<u64, 3> exponents, string_view name)
+  SquaringSet(Gpu& gpu, u32 N, const TBuf& bufBase, TBuf& bufTmp, TBuf& bufTmp2, array<u64, 3> exponents, string_view name)
     : SquaringSet(gpu, N, name) {
     
     gpu.exponentiateLow(C, bufBase, exponents[0], bufTmp, bufTmp2);
@@ -1162,7 +1141,7 @@ struct SquaringSet {
     return *this;
   }
 
-  void step(Buffer<double>& bufTmp) {
+  void step(TBuf& bufTmp) {
     gpu.multiplyLowLow(C, B, bufTmp);
     gpu.multiplyLowLow(B, A, bufTmp);
   }
@@ -1188,7 +1167,7 @@ template<typename Future> bool wait(const Future& f) {
   }
 }
 
-bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64>& sums) {
+bool Gpu::verifyP2Checksums(const vector<TBuf>& bufs, const vector<u64>& sums) {
   // Timer timer;
   assert(bufs.size() == sums.size());
   bool ok = true;
@@ -1204,7 +1183,7 @@ bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64
   return ok;
 }
 
-bool Gpu::verifyP2Block(u32 D, const Words& p1Data, u32 block, const Buffer<double>& bigC, Buffer<int>& bufP2Data) {
+bool Gpu::verifyP2Block(u32 D, const Words& p1Data, u32 block, const TBuf& bigC, Buffer<int>& bufP2Data) {
   Timer timer;
   tailSquareLow(buf1, bigC);
   tH(buf2, buf1);
@@ -1258,14 +1237,14 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
   Memlock memlock{args.masterDir, u32(args.device)};
   Timer timer;
 
-  vector<Buffer<double>> blockBufs;
+  vector<TBuf> blockBufs;
   const vector<u32>& jset = plan.jset;
   assert(jset.size() >= 24 && jset[0] == 1);
   
   for (u32 j : jset) { blockBufs.emplace_back(queue, "p2-"s + std::to_string(j), N); }
   log("Allocated %u buffers\n", u32(jset.size()));
 
-  Buffer<double> bufAcc{queue, "Acc", N};  // Second-stage accumulator.
+  TBuf bufAcc{queue, "Acc", N};  // Second-stage accumulator.
   Buffer<int> bufP2Data{queue, "p2Data", N};
 
   u64 res64LittleA = 0;
@@ -1656,10 +1635,12 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
     }
     
-    bool leadOut = doStop || b1JustFinished || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
+    bool leadOut = true || doStop || b1JustFinished || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
 
     coreStep(bufData, bufData, leadIn, leadOut, false);
-    leadIn = leadOut;    
+    leadIn = leadOut;
+
+    log("k %d %016" PRIx64 "\n", k, dataResidue());
     
     if (k == persistK) {
       Words data = readData();

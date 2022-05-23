@@ -29,6 +29,8 @@ class ProofSet;
 using double2 = pair<double, double>;
 using float2 = pair<float, float>;
 
+using TBuf = Buffer<float>;
+
 namespace fs = std::filesystem;
 
 inline u64 residue(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
@@ -92,9 +94,9 @@ class Gpu {
   // Kernel testKernel;
 
   // Trigonometry constant buffers, used in FFTs.
-  ConstBuffer<double2> bufTrigW;
-  ConstBuffer<double2> bufTrigH;
-  ConstBuffer<double2> bufTrigM;
+  ConstBuffer<float2> bufTrigW;
+  ConstBuffer<float2> bufTrigH;
+  ConstBuffer<float2> bufTrigM;
 
   ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
   ConstBuffer<u32> bufBitsC; // bigWord bits aligned for CarryA/M
@@ -117,15 +119,15 @@ class Gpu {
   HostAccessBuffer<u64> bufSumOut;
 
   // Auxilliary big buffers
-  Buffer<double> buf1;
-  Buffer<double> buf2;
-  Buffer<double> buf3;
-  
+  HostAccessBuffer<float> buf1;
+  HostAccessBuffer<float> buf2;
+  TBuf buf3;
+
   vector<int> readSmall(Buffer<int>& buf, u32 start);
 
-  void tW(Buffer<double>& out, Buffer<double>& in);
-  void tH(Buffer<double>& out, Buffer<double>& in);
-  void tailSquare(Buffer<double>& out, Buffer<double>& in) { tailFusedSquare(out, in); }
+  void tW(TBuf& out, TBuf& in);
+  void tH(TBuf& out, TBuf& in);
+  void tailSquare(TBuf& out, TBuf& in) { tailFusedSquare(out, in); }
   
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(Buffer<int>& buf, const vector<i32> &words);
@@ -140,18 +142,18 @@ class Gpu {
   vector<u32> writeBase(const vector<u32> &v);
 
   // Both "io" and "in" are in "low" position
-  void multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
+  void multiplyLowLow(TBuf& io, const TBuf& in, TBuf& tmp);
 
-  void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
+  void exponentiateCore(TBuf& out, const TBuf& base, u64 exp, TBuf& tmp);
   
-  void exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3);
-  void exponentiate(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1);
-  void exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1, Buffer<double>& tmp2);
+  void exponentiate(Buffer<int>& bufInOut, u64 exp, TBuf& buf1, TBuf& buf2, TBuf& buf3);
+  void exponentiate(TBuf& out, const TBuf& base, u64 exp, TBuf& tmp1);
+  void exponentiateLow(TBuf& out, const TBuf& base, u64 exp, TBuf& tmp1, TBuf& tmp2);
 
-  void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
-  void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
-  void tailMulDelta(Buffer<double>& out, Buffer<double>& in, Buffer<double>& bufA, Buffer<double>& bufB);
-  void tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp);
+  void topHalf(TBuf& out, TBuf& inTmp);
+  void writeState(const vector<u32> &check, u32 blockSize, TBuf&, TBuf&, TBuf&);
+  void tailMulDelta(TBuf& out, TBuf& in, TBuf& bufA, TBuf& bufB);
+  void tailMul(TBuf& out, TBuf& in, TBuf& inTmp);
   
 
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
@@ -160,14 +162,14 @@ class Gpu {
   void printRoundoff(u32 E);
 
   // does either carrryFused() or the expanded version depending on useLongCarry
-  void doCarry(Buffer<double>& out, Buffer<double>& in);
+  void doCarry(TBuf& out, TBuf& in);
 
-  void modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
+  void modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, TBuf& buf1, TBuf& buf2, TBuf& buf3, bool mul3 = false);
   
-  void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3 = false);
+  void mul(Buffer<int>& out, Buffer<int>& inA, TBuf& inB, TBuf& tmp1, TBuf& tmp2, bool mul3 = false);
 
   // data := data * data;
-  void square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
+  void square(Buffer<int>& data, TBuf& tmp1, TBuf& tmp2);
   
   u32 maxBuffers();
 
@@ -175,8 +177,8 @@ class Gpu {
   void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
 
   void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
-  bool verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64>& sums);
-  bool verifyP2Block(u32 D, const Words& p1Data, u32 block, const Buffer<double>& bigC, Buffer<int>& bufP2Data);
+  bool verifyP2Checksums(const vector<TBuf>& bufs, const vector<u64>& sums);
+  bool verifyP2Block(u32 D, const Words& p1Data, u32 block, const TBuf& bigC, Buffer<int>& bufP2Data);
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
   
 public:
@@ -186,15 +188,14 @@ public:
   
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<int>& inB);
-  void mul(Buffer<int>& io, Buffer<double>& inB);
+  void mul(Buffer<int>& io, TBuf& inB);
   void square(Buffer<int>& data);
 
   void finish() { queue->finish(); }
 
   // acc := acc * data; with "data" in lowish position.
-  void accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
+  void accumulate(Buffer<int>& acc, TBuf& data, TBuf& tmp1, TBuf& tmp2);
 
-  
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);
@@ -210,7 +211,7 @@ public:
   u64 dataResidue()  { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }
     
-  bool doCheck(u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
+  bool doCheck(u32 blockSize, TBuf&, TBuf&, TBuf&);
 
   void logTimeKernels();
 

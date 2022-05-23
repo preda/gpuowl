@@ -43,7 +43,10 @@ int clReleaseProgram(cl_program);
 int clReleaseCommandQueue(cl_command_queue);
 int clEnqueueNDRangeKernel(cl_command_queue, cl_kernel, unsigned, const size_t *, const size_t *, const size_t *, unsigned, const cl_event *, cl_event *);
 cl_program clCreateProgramWithSource(cl_context, unsigned, const char **, const size_t *, int *);
-cl_program clCreateProgramWithBinary(cl_context, unsigned, const cl_device_id *, const size_t *, const unsigned char **, int *, int *);  
+cl_program clCreateProgramWithBinary(cl_context, unsigned, const cl_device_id *, const size_t *, const unsigned char **, int *, int *);
+int clCompileProgram(cl_program, unsigned, const cl_device_id *, const char *,
+                     unsigned, const cl_program*, const char**,
+                     void (*)(cl_program, void *), void *);
 int clBuildProgram(cl_program, unsigned, const cl_device_id *, const char *, void (*)(cl_program, void *), void *);
 int clGetProgramBuildInfo(cl_program, cl_device_id, cl_program_build_info, size_t, void *, size_t *);
 int clGetProgramInfo(cl_program, cl_program_info, size_t, void *, size_t *);
