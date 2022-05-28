@@ -20,3 +20,4 @@ u32 bitlen(u32 N, u32 E, u32 k);
 u32 modM31(const vector<u32>& words);
 u32 modM31(u32 N, u32 E, const vector<i32>& words);
 u32 modM31(u64 x);
+pair<u64, i64>  sumStats(const vector<i32>& words);

@@ -84,10 +84,12 @@ struct BitBucket {
     int b = lowBits(bits, n);    
     size -= n;
     bits >>= n;
-    bits += (b < 0); // carry fixup.
+    bits += (b < 0); // carry fixup
     return b;
   }
 };
+
+static i32 pow2(u32 n) { return 1 << n; }
 
 vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E) {
   assert(E % 32 != 0);
@@ -102,26 +104,35 @@ vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E) {
     u32 len = bitlen(N, E, p);    
     if (bucket.size < len) { assert(it != itEnd); bucket.put32(*it++); }
     data[p] = bucket.popSigned(len);
-    if (p == 106) { log("data[106]=%d\n", data[p]); }
-    if (p == 106 && data[p] == 4) { log("here\n"); }
-    if (p > 0 && data[p-1] == -(1 << (prevLen - 1)) && data[p] > 0) {
-      if (p == 106 && data[p] == 4) { log("inside\n"); }
-      data[p-1] += (1 << prevLen);
-      --data[p];
+    assert(abs(data[p]) <= pow2(len - 1));
+    if (p > 0) {
+      if (data[p-1] < -pow2(prevLen - 1) || (data[p-1] == -pow2(prevLen -1) && (data[p] > 0 || data[p] == -pow2(len - 1)))) {
+        data[p-1] += pow2(prevLen);
+        --data[p];
+      }
     }
     prevLen = len;
   }
+
   assert(it == itEnd);
   assert(bucket.size == 32 - E % 32);
   assert(bucket.bits == 0 || bucket.bits == 1);
-
   data[0] += bucket.bits; // carry wrap-around.
 
+  if (data[N-1] < -pow2(prevLen - 1) || (data[N-1] == -pow2(prevLen - 1) && data[0] > 0)) {
+    data[N-1] += pow2(prevLen);
+    --data[0];
+  }
+
+
+  /*
   if (data[N-1] == -(1 << (prevLen - 1)) && data[0] > 0) {
     data[N-1] += 1 << prevLen;
     --data[0];
   }
+  */
 
+  /*
   for (u32 p = 0; ; ++p) {
     u32 len = bitlen(N, E, p);
     if (data[p] > (1 << (len - 1)) || (data[p] == (1 << (len - 1)) && data[p+1] < 0)) {
@@ -131,6 +142,7 @@ vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E) {
       break;
     }
   }
+  */
 
   return out;
 }
@@ -183,66 +195,6 @@ u32 modM31(const vector<u32>& words) {
   return modM31(sum);
 }
 
-/*
-u32 modM31(u32 N, u32 E, vector<i32>& words) {
-  u32 backLen = bitlen(N, E, N-1);
-  assert(abs(words.back()) <= (1 << (backLen - 1)));
-  bool tweakedBack = false;
-  if (words.back() < 0) {
-    words.back() += 1 << backLen;
-    words.front() -= 1;
-    tweakedBack = true;
-  }
-
-
-  u64 sum = 0;
-  u32 shift = 0;
-  for (u32 i = 0; i < words.size() - 1; ++i) {
-    u32 len = bitlen(N, E, i);
-    i32 iw = words[i];
-    assert(abs(iw) <= (1 << (len - 1)));
-    bool neg = (iw < 0);
-    u32 w = neg ? iw + 0x7fffffff : iw;
-    sum += ROL31(w, shift);
-    shift += len;
-    shift = (shift >= 31) ? shift - 31 : shift;
-  }
-
-  u32 i = words.size() - 1;
-  u32 len = bitlen(N, E, i);
-  i32 iw = words[i];
-  assert(abs(iw) <= (1 << (len - 1)));
-  // bool neg = (iw < 0);
-  u32 w = (iw >> 31) ? iw + (1 << len) : iw;
-  sum += ROL31(w, shift) + (iw >> 31);
-  // if (neg) { --sum; }
-  return modM31(sum);
-}
-*/
-
-/*
-u32 modM31(u32 N, u32 E, const vector<i32>& words) {
-  u64 sum = 0;
-  for (u32 i = 0, shift = 0; i < words.size(); ++i) {
-    u32 len = bitlen(N, E, i);
-    i32 iw = words[i];
-    assert(abs(iw) <= (1 << len));
-    bool neg = (iw < 0);
-    u32 w = neg ? iw + (1 << len) : iw;
-    sum += ROL31(w, shift);
-
-    shift += len;
-    shift = (shift >= 31) ? shift - 31 : shift;
-
-    const u32 MINUS1 = (1u<<31) - 2u;
-    if (neg) {
-      sum += ROL31(MINUS1, (i < words.size() - 1) ? shift : 0);
-    }
-  }
-  return modM31(sum);
-}
-*/
-
 u32 modM31(u32 N, u32 E, const vector<i32>& words) {
   u64 sum = 0;
   i32 carry = 0;
@@ -261,15 +213,12 @@ u32 modM31(u32 N, u32 E, const vector<i32>& words) {
   return modM31(sum);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+pair<u64, i64>  sumStats(const vector<i32>& words) {
+  u64 sumAbs = 0;
+  i64 sum = 0;
+  for (i32 w : words) {
+    sum += w;
+    sumAbs += abs(w);
+  }
+  return {sumAbs, sum};
+}

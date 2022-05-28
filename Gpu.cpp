@@ -586,7 +586,8 @@ vector<u32> Gpu::readAndCompress(Buffer<int>& buf)  {
         u32 c2 = modM31(compacted);
         auto expanded = expandBits(compacted, N, E);
         u32 c3 = modM31(N, E, expanded);
-        log("M31 %x %x %x\n", c1, c2, c3);
+        assert(c1 == c2 && c2 == c3);
+        // log("M31 %x %x %x\n", c1, c2, c3);
         /*
         if (expanded != data) {
           assert(data.size() == expanded.size());
@@ -1686,35 +1687,35 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
     }
     
-    bool leadOut = true || doStop || b1JustFinished || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
+    bool leadOut = doStop || b1JustFinished || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
 
     coreStep(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;
 
+#if 0
     log("k %d %016" PRIx64 " ", k, dataResidue());
     printRoundoff();
-    auto tmp = readOut(bufData);
-    log("M31: %x\n", modM31(N, E, tmp));
+
+    vector<int> tmp = readOut(bufData);
+    auto [sumAbs, sum] = sumStats(tmp);
+    u32 m1 = modM31(N, E, tmp);
+    log("cpu: %08x %lu %ld \n", m1, sumAbs, sum);
     bufStatsOut.zero();
     stats(bufStatsOut, bufData);
     auto s = bufStatsOut.read();
     assert(s.size() == 3);
-    log("stats: %ld %ld %x\n", s[0], s[1], modM31(u64(s[2])));
-    // if (k == 3) { for (int i = 0; i < 10; ++i) { log("[%d] %d\n", i, tmp[i]); }}
+    u32 m2 = modM31(u64(s[2]));
+    log("gpu: %08x %ld %ld\n", m2, s[0], s[1]);
 
-    /*
-    if (k == 3) {
-      for (int i = 0; i < 20; ++i) {
-        log("data: %d %d (%d)\n", i, tmp[i], bitlen(N, E, i));
-      }
-    }
-    */
-    /*
-    Words d = readAndCompress(bufData);
-    u64 sum = 0;
-    for (u32 x : d) { sum += x; }
-    log("read %lx %x %x %lx\n", residue(d), d[d.size() - 1], d[d.size() -2], sum);
-    */
+    auto trip = expandBits(compactBits(tmp, E), N, E);
+    tie(sumAbs, sum) = sumStats(trip);
+    u32 m3 = modM31(N, E, trip);
+    log("cpu: %08x %lu %ld\n", m3, sumAbs, sum);
+
+    assert(m1 == m2 && m2 == m3);
+
+    writeIn(bufData, trip);
+#endif
     
     if (k == persistK) {
       Words data = readData();
