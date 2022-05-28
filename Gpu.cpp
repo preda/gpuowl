@@ -25,6 +25,7 @@
 #include <bitset>
 #include <limits>
 #include <iomanip>
+#include <bit>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -189,19 +190,17 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   vector<u32> bitsC;
   
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
-    for (u32 gx = 0; gx < nW; ++gx) {
-      for (u32 thread = 0; thread < groupWidth; ) {
+      for (u32 thread = 0; thread < W; ) {
         std::bitset<32> b;
         for (u32 bitoffset = 0; bitoffset < 32; bitoffset += CARRY_LEN * 2, ++thread) {
           for (u32 block = 0; block < CARRY_LEN; ++block) {
             for (u32 rep = 0; rep < 2; ++rep) {
-              if (isBigWord(N, E, kAt(H, gy * CARRY_LEN + block, gx * groupWidth + thread) + rep)) { b.set(bitoffset + block * 2 + rep); }
+              if (isBigWord(N, E, kAt(H, gy * CARRY_LEN + block, thread) + rep)) { b.set(bitoffset + block * 2 + rep); }
             }
           }
         }
         bitsC.push_back(b.to_ulong());
       }
-    }
   }
   assert(bitsC.size() == N / 32);
 
@@ -359,9 +358,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(tailSquareLow,     hN / SMALL_H / 2),
   LOAD(tailMulLowLow,     hN / SMALL_H / 2),
   LOAD(readResidue, 1),
-  LOAD(isNotZero, 256),
-  LOAD(isEqual, 256),
+  LOAD_WS(differ, hN / CARRY_LEN),
   LOAD(sum64, 256),
+  LOAD(readROE, 1),
+  LOAD_WS(stats, hN / 16),
 #undef LOAD_WS
 #undef LOAD
 
@@ -372,14 +372,17 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufBitsC{context, "bitsC", weights.bitsC},
   bufData{queue, "data", N},
   bufAux{queue, "aux", N},
+  bufTranspose{queue, "transpose", N},
   bufCheck{queue, "check", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
-  bufRoundoff{queue, "roundoff", 8 + 1024 * 1024},
+  bufRoundoff{queue, "roundoff", 256},
   bufCarryMax{queue, "carryMax", 8},
   bufCarryMulMax{queue, "carryMulMax", 8},
   bufSmallOut{queue, "smallOut", 256},
+  bufZero{queue, "zero", 1},
   bufSumOut{queue, "sumOut", 1},
+  bufStatsOut{queue, "stats", 3},
   buf1{queue, "buf1", N},
   buf2{queue, "buf2", N},
   buf3{queue, "buf3", N},
@@ -387,15 +390,15 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 {
   // dumpBinary(program.get(), "isa.bin");
   
-  carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMax);
-  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMulMax);
+  carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits);
+  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits);
   fftP.setFixedArgs(2, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
     
-  carryA.setFixedArgs(2, bufCarry, bufBitsC, bufRoundoff, bufCarryMax);
-  carryM.setFixedArgs(2, bufCarry, bufBitsC, bufRoundoff, bufCarryMulMax);
+  carryA.setFixedArgs(2, bufCarry, bufBitsC);
+  carryM.setFixedArgs(2, bufCarry, bufBitsC);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
@@ -405,11 +408,13 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrigH);
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
+  readROE.setFixedArgs(0, bufRoundoff);
 
   bufReady.zero();
-  bufRoundoff.zero();
+  // bufRoundoff.zero();
   bufCarryMax.zero();
   bufCarryMulMax.zero();
+  bufZero.zero();
 
   vector<float2> readTrigSH, readTrigBH, readTrigN;
   {
@@ -433,6 +438,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
                                                              ConstBuffer{context, "w3", weights.carryWeightsIF}
                                                              );
   }
+
+  readROE(); // zero-out ROE_MAX
 
   finish();
   
@@ -550,7 +557,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
                           getDevice(args.device), timeKernels, useLongCarry);
 }
 
-vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
+vector<u32> Gpu::readAndCompress(Buffer<int>& buf)  {
   for (int nRetry = 0; nRetry < 3; ++nRetry) {
     sum64(bufSumOut, u32(buf.size * sizeof(int)), buf);
     
@@ -574,7 +581,26 @@ vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
         log("Read ZERO\n");
         return {};
       } else {
-        return compactBits(std::move(data),  E);
+        u32 c1 = modM31(N, E, data);
+        auto compacted = compactBits(std::move(data),  E);
+        u32 c2 = modM31(compacted);
+        auto expanded = expandBits(compacted, N, E);
+        u32 c3 = modM31(N, E, expanded);
+        log("M31 %x %x %x\n", c1, c2, c3);
+        /*
+        if (expanded != data) {
+          assert(data.size() == expanded.size());
+          for (int i = 0, cnt = 0; i < data.size() && cnt < 20; ++i) {
+            if (data[i] != expanded[i]) {
+              ++cnt;
+              log("* %d %d %d (%u)\n", i, data[i], expanded[i], bitlen(N, E, i));
+            }
+          }
+          // throw "roundtrip error";
+        }
+        writeIn(buf, expanded);
+        */
+        return compacted;
       }
     }
   }
@@ -697,15 +723,15 @@ void Gpu::tailMulDelta(TBuf& out, TBuf& in, TBuf& bufA, TBuf& bufB) {
 }
 
 vector<int> Gpu::readOut(ConstBuffer<int> &buf) {
-  transposeOut(bufAux, buf);
-  return bufAux.read();
+  transposeOut(bufTranspose, buf);
+  return bufTranspose.read();
 }
 
 void Gpu::writeIn(Buffer<int>& buf, const vector<u32>& words) { writeIn(buf, expandBits(words, N, E)); }
 
 void Gpu::writeIn(Buffer<int>& buf, const vector<i32>& words) {
-  bufAux.write(words);
-  transposeIn(buf, bufAux);
+  bufTranspose.write(words);
+  transposeIn(buf, bufTranspose);
 }
 
 namespace {
@@ -896,13 +922,18 @@ u32 Gpu::modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to) {
 }
 
 bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
-  bufSmallOut.zero(1);
-  u32 sizeBytes = N * sizeof(int);
-  isNotZero(bufSmallOut, sizeBytes, buf1);
-  isEqual(bufSmallOut, sizeBytes, buf1, buf2);
-  return bufSmallOut.read(1)[0];
+  auto A = readAndCompress(buf1);
+  auto B = readAndCompress(buf2);
+  log("equal: %016lx %016lx ", residue(A), residue(B));
+  return A == B;
+  /*
+  differ(bufZero, buf1, buf2, bufBitsC);
+  bool different = bufZero.read(1)[0];
+  if (different) { bufZero.zero(); }
+  return !different;
+  */
 }
-  
+
 u64 Gpu::bufResidue(Buffer<int> &buf) {
   u32 earlyStart = N/2 - 32;
   vector<int> readBuf = readSmall(buf, earlyStart);
@@ -1007,7 +1038,24 @@ template<typename T> float asFloat(T x) { return pun<float>(x); }
 
 }
 
-void Gpu::printRoundoff(u32 E) {
+void Gpu::printRoundoff() {
+  readROE();
+  auto roeData = bufRoundoff.read();
+  // vector<float> roe;
+  {
+  u32 m = 0;
+  u32 im = 0;
+  for (u32 i = 0; i < u32(roeData.size()); ++i) {
+    u32 x = roeData[i];
+    if (x > m) {
+      m = x;
+      im = i;
+    }
+  }
+  log("ROE %3d: %.9f\n", im, as<float>(m));
+  return;
+
+  }
   u32 roundN = bufRoundoff.read(1)[0];
   // fprintf(stderr, "roundN %u\n", roundN);
 
@@ -1370,7 +1418,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     bool doLog = atEnd || nStop || block % (20 * blockMulti) == 0;
 
     if (doLog) {
-      if (printStats) { printRoundoff(E); }
+      if (true || printStats) { printRoundoff(); }
 
 #if 0
       {
@@ -1498,9 +1546,9 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 k = 0, blockSize = 0;
   u32 nErrors = 0;
 
-  log("maxAlloc: %.1f GB\n", args.maxAlloc * (1.0f / (1 << 30)));
+  // log("maxAlloc: %.1f GB\n", args.maxAlloc * (1.0f / (1 << 30)));
   if (!args.maxAlloc) {
-    log("You should use -maxAlloc if your GPU has more than 4GB memory. See help '-h'\n");
+    // log("You should use -maxAlloc if your GPU has more than 4GB memory. See help '-h'\n");
   }
   
   u32 power = -1;
@@ -1526,6 +1574,9 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
     
     u64 res = dataResidue();
+    auto data = readData();
+    log("check %016lx; data %016lx ", residue(loaded.check), residue(data));
+
     if (res == loaded.res64) {
       log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res);
       // On the OK branch do not clear lastFailedRes64 -- we still want to compare it with the GEC check.
@@ -1640,7 +1691,30 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     coreStep(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;
 
-    log("k %d %016" PRIx64 "\n", k, dataResidue());
+    log("k %d %016" PRIx64 " ", k, dataResidue());
+    printRoundoff();
+    auto tmp = readOut(bufData);
+    log("M31: %x\n", modM31(N, E, tmp));
+    bufStatsOut.zero();
+    stats(bufStatsOut, bufData);
+    auto s = bufStatsOut.read();
+    assert(s.size() == 3);
+    log("stats: %ld %ld %x\n", s[0], s[1], modM31(u64(s[2])));
+    // if (k == 3) { for (int i = 0; i < 10; ++i) { log("[%d] %d\n", i, tmp[i]); }}
+
+    /*
+    if (k == 3) {
+      for (int i = 0; i < 20; ++i) {
+        log("data: %d %d (%d)\n", i, tmp[i], bitlen(N, E, i));
+      }
+    }
+    */
+    /*
+    Words d = readAndCompress(bufData);
+    u64 sum = 0;
+    for (u32 x : d) { sum += x; }
+    log("read %lx %x %x %lx\n", residue(d), d[d.size() - 1], d[d.size() -2], sum);
+    */
     
     if (k == persistK) {
       Words data = readData();
@@ -1679,14 +1753,14 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     u64 res = dataResidue(); // implies finish()
-    bool doCheck = !res || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+    bool doCheck = (k % 20 == 0) || !res || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
       
     if (k % 10000 == 0 && !doCheck) {
       float secsPerIt = iterationTimer.reset(k);
       // log("   %9u %6.2f%% %s %4.0f us/it\n", k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
       log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
     }
-      
+
     if (doStop) {
       log("Stopping, please wait..\n");
       signal.release();
@@ -1704,11 +1778,12 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
       
     if (doCheck) {
-      if (printStats) { printRoundoff(E); }
+      if (printStats) { printRoundoff(); }
 
       float secsPerIt = iterationTimer.reset(k);
 
       Words check = readCheck();
+      log("check %016lx\n", residue(check));
       if (check.empty()) { log("Check read ZERO\n"); }
 
       bool ok = !check.empty() && this->doCheck(blockSize, buf1, buf2, buf3);

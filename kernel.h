@@ -39,6 +39,10 @@ public:
   
   template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(pos, tail...); }
   
+  template<typename... Args> void operator()() {
+    run();
+  }
+
   template<typename... Args> void operator()(const Args &...args) {
     setArgs(0, args...);
     run();

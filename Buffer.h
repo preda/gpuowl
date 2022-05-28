@@ -80,7 +80,7 @@ public:
   }
 
   void set(T value) {
-    zero();
+    // zero();
     fillBuf(queue->get(), this->get(), &value, sizeof(T), sizeof(T));
   }
 

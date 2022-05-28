@@ -87,9 +87,10 @@ class Gpu {
   Kernel tailMulLowLow;
   
   Kernel readResidue;
-  Kernel isNotZero;
-  Kernel isEqual;
+  Kernel differ;
   Kernel sum64;
+  Kernel readROE;
+  Kernel stats;
   
   // Kernel testKernel;
 
@@ -104,6 +105,7 @@ class Gpu {
   // "integer word" buffers. These are "small buffers": N x int.
   HostAccessBuffer<int> bufData;   // Main int buffer with the words.
   HostAccessBuffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
+  HostAccessBuffer<int> bufTranspose;
   Buffer<int> bufCheck;  // Buffers used with the error check.
   
   // Carry buffers, used in carry and fusedCarry.
@@ -116,7 +118,9 @@ class Gpu {
 
   // Small aux buffer used to read res64.
   HostAccessBuffer<int> bufSmallOut;
+  HostAccessBuffer<u32> bufZero;
   HostAccessBuffer<u64> bufSumOut;
+  HostAccessBuffer<i64> bufStatsOut;
 
   // Auxilliary big buffers
   HostAccessBuffer<float> buf1;
@@ -159,7 +163,7 @@ class Gpu {
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
 
-  void printRoundoff(u32 E);
+  void printRoundoff();
 
   // does either carrryFused() or the expanded version depending on useLongCarry
   void doCarry(TBuf& out, TBuf& in);
@@ -203,7 +207,7 @@ public:
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry);
 
-  vector<u32> readAndCompress(ConstBuffer<int>& buf);
+  vector<u32> readAndCompress(Buffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   void writeData(const vector<u32> &v) { writeIn(bufData, v); }
   void writeCheck(const vector<u32> &v) { writeIn(bufCheck, v); }

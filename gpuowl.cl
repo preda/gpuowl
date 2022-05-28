@@ -201,9 +201,12 @@ OVERLOAD TT mul(TT a, TT b) { return U2(mad1(RE(a), RE(b), - IM(a) * IM(b)), mad
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 #define STEP (NWORDS - (EXP % NWORDS))
-// bool isBigWord(u32 extra) { return extra < NWORDS - STEP; }
-
+u32 EXTRA(u64 k) { return STEP * k % NWORDS; }
+bool isBigExtra(u32 extra) { return extra < NWORDS - STEP; }
+bool isBigK(u32 k) { return isBigExtra(EXTRA(k)); }
 u32 bitlen(bool b) { return EXP / NWORDS + b; }
+u32 bitlenK(u32 k) { return bitlen(isBigK(k)); }
+uint2 bitlen2K(u32 k) { return (uint2) (bitlenK(2*k), bitlenK(2*k + 1)); }
 
 TT mul_m2(TT a, TT b) { return mul(a, b) * 2; }
 TT mul_m4(TT a, TT b) { return mul(a, b) * 4; }
@@ -265,55 +268,67 @@ i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 i32 xtract32(i64 x, u32 bits) { return ((i32) (x >> bits)); }
 #endif
 
-// i64 pushCarry(float x, i64 inCarry) { return inCarry + (i64)(rint(x)); }
-i64 I64(float x) { return rint(x); }
+i64 I64(T x, T *maxROE) {
+  T r = rint(x);
+  *maxROE = max(*maxROE, fabs(x - r));
+  return r;
+}
 
-Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
+Word carryStep64(i64 x, i64 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
   Word w = lowBits(x, nBits);
+
+  if ((-w == (1 << (nBits - 1))) && (x > 0)) {
+    w = -w;
+    assert(x >= w);
+    assert(((x - w) & ((1 << nBits) - 1)) == 0);
+  }
+
   *outCarry = (x - w) >> nBits;
   return w;
 }
 
-u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
+Word carryStep32(i32 x, i32 *outCarry, bool isBigWord) {
+  u32 nBits = bitlen(isBigWord);
+  Word w = lowBits(x, nBits);
+  if ((-w == (1 << (nBits - 1))) && (x > 0)) { w = -w; }
+  *outCarry = (x - w) >> nBits;
+  return w;
+}
 
 typedef TT T2;
 
-Word2 OVERLOAD carryPair(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax) {
+Word2 carryPair(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, T *maxROE) {
   i64 midCarry;
-  Word a = carryStep(I64(u.x) + inCarry, &midCarry, b1);
-  Word b = carryStep(I64(u.y) + midCarry, outCarry, b2);
-
-#if STATS >= 2
-  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
-#endif
-
+  Word a = carryStep64(I64(u.x, maxROE) + inCarry, &midCarry, b1);
+  Word b = carryStep64(I64(u.y, maxROE) + midCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
-Word2 OVERLOAD carryFinal(Word2 a, i64 inCarry, bool b1) {
+Word2 carryFinal(Word2 a, i64 inCarry, bool b1) {
   i64 tmpCarry;
-  a.x = carryStep(a.x + inCarry, &tmpCarry, b1);
+  a.x = carryStep64(a.x + inCarry, &tmpCarry, b1);
   a.y += tmpCarry;
   return a;
 }
 
-Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax) {
+Word2 carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, T *maxROE) {
   i64 midCarry;
-  Word a = carryStep(3 * I64(u.x) + inCarry, &midCarry, b1);
-  Word b = carryStep(3 * I64(u.y) + midCarry, outCarry, b2);
-
-#if STATS >= 2
-  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
-#endif
-
+  Word a = carryStep64(3 * I64(u.x, maxROE) + inCarry, &midCarry, b1);
+  Word b = carryStep64(3 * I64(u.y, maxROE) + midCarry, outCarry, b2);
   return (Word2) (a, b);
 }
 
 // Carry propagation from word and carry.
-Word2 carryWord(Word2 a, i64 *carry, bool b1, bool b2) {
-  a.x = carryStep(a.x + *carry, carry, b1);
-  a.y = carryStep(a.y + *carry, carry, b2);
+Word2 carryWord64(Word2 a, i64 *carry, bool b1, bool b2) {
+  a.x = carryStep64(a.x + *carry, carry, b1);
+  a.y = carryStep64(a.y + *carry, carry, b2);
+  return a;
+}
+
+Word2 carryWord32(Word2 a, i32 *carry, bool b1, bool b2) {
+  a.x = carryStep32(a.x + *carry, carry, b1);
+  a.y = carryStep32(a.y + *carry, carry, b2);
   return a;
 }
 
@@ -546,10 +561,24 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
   }
 }
 
+
+// Global data
+
+#define ROE_SIZE 256
+u32 ROE_MAX[ROE_SIZE];
+u32 ROE_INDEX = ROE_SIZE - 1;
+
 TT THREAD_WEIGHTS[G_W];
 TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
+
+KERNEL(256) readROE(global u32 *outROE) {
+  for (u32 k = get_global_id(0); k < ROE_SIZE; k += get_global_size(0)) {
+    outROE[k] = ROE_MAX[k];
+    ROE_MAX[k] = 0;
+  }
+}
 
 KERNEL(64) writeGlobals(global T2* trig2Sh, global T2* trigBh, global T2* trigN,
                         global T2* trigW,
@@ -612,8 +641,130 @@ KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
   if (get_local_id(0) == 0) { atom_add(&out[0], sum); }
 }
 
-// outEqual must be "true" on entry.
-KERNEL(256) isEqual(P(bool) outEqual, u32 sizeBytes, global i64 *in1, global i64 *in2) {
+// outDiffer must be "false" on entry.
+KERNEL(64) differ(P(u32) outDiffer, global Word2 *A, global Word2 *B, CP(u32) bits) {
+  // if (*outDiffer) { return; } // Early exit if a previous WG already did it.
+  local bool groupOut;
+  u32 me = get_local_id(0);
+  if (me == 0) { groupOut = false; }
+
+  u32 g = get_group_id(0);
+  u32 gx = g % (WIDTH / 64);
+  u32 gy = g / (WIDTH / 64);
+
+  #define GPW (16u / CARRY_LEN)
+  u32 bts = bits[(64 * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
+  #undef GPW
+
+  u32 p = WIDTH * CARRY_LEN * gy + 64u * gx + me;
+  i32 ax = A[p].x;
+  i32 bx = B[p].x;
+
+  i32 carryA = 0;
+  i32 carryB = 0;
+  // Tolerate one missing carry-in into either a or b.
+  if (abs(bx - ax) == 1) { carryB = bx - ax; }
+  assert(abs(carryB) <= 1);
+
+  for (u32 i = 0; i < CARRY_LEN; ++i) {
+    if (groupOut || *outDiffer) { return; }
+    u32 p = WIDTH * i + WIDTH * CARRY_LEN * gy + 64u * gx + me;
+    Word2 a = carryWord32(A[p], &carryA, test(bts, 2*i), test(bts, 2*i + 1));
+    Word2 b = carryWord32(B[p], &carryB, test(bts, 2*i), test(bts, 2*i + 1));
+    if (a.x != b.x || a.y != b.y) {
+      outDiffer[0] = 1;
+      groupOut = true;
+      // printf("* %u %u %d %d %d %d\n", g, me, a.x, b.x, a.y, b.y);
+      // return;
+    }
+  }
+}
+
+u32 ROL31(u32 w, u32 shift) {
+  return ((w << shift) & 0x7fffffff) + (w >> (31 - shift));
+}
+
+u32 modM31(u64 a) {
+  a = (a & 0x7fffffff) + (a >> 31);
+  u32 b = (a & 0x7fffffff) + (a >> 31);
+  return  (b & 0x7fffffff) + (b >> 31);
+}
+
+#define SGW 64
+KERNEL(SGW) stats(P(i64) outStats, global Word2 *A) {
+  u32 me = get_local_id(0);
+  u32 g = get_group_id(0);
+  u32 gx = g % (WIDTH / SGW);
+  u32 gy = g / (WIDTH / SGW);
+
+  u32 sumAbs = 0;
+  i32 sum = 0;
+  u64 sumM31 = 0;
+
+  const u32 NL = 16;
+
+  u32 k = NL * gy + BIG_HEIGHT * SGW * gx + BIG_HEIGHT * me;
+  assert(2 * k < NWORDS);
+  u32 shift = k ? (2 * k * (u64) EXP / NWORDS + 1) % 31 : 0;
+
+  // if (gx == 0 && (gy == 0 || gy == 1) && me == 0) { printf("shift %d %u\n", g, shift); }
+
+  i32 carry = 0;
+
+  for (u32 i = 0; i < NL; ++i, ++k) {
+    Word2 a = A[WIDTH * i + WIDTH * NL * gy + SGW * gx + me];
+    uint2 len = bitlen2K(k);
+    sum += a.x + a.y;
+    sumAbs += abs(a.x) + abs(a.y);
+
+    assert(abs(a.x) <= (1 << (len.x - 1)));
+    a.x += carry;
+    carry = a.x >> 31; // bool isNeg = (a.x < 0);
+    u32 w1 = carry ? a.x + (1 << len.x) : a.x;
+    sumM31 += ROL31(w1, shift);
+
+    shift += len.x;
+    shift = (shift >= 31) ? shift - 31 : shift;
+
+    assert(abs(a.y) <= (1 << (len.y - 1)));
+    a.y += carry;
+    carry = a.y >> 31; // isNeg = (a.y < 0);
+    u32 w2 = carry ? a.y + (1 << len.y) : a.y;
+    sumM31 += ROL31(w2, shift);
+
+    shift += len.y;
+    shift = (shift >= 31) ? shift - 31 : shift;
+
+#if 0
+    if (gx == 0 && (gy == 0 || gy == 1) && me == 0) {
+      printf("%d %u %u %d %d %lx %x %x %u\n", gy, len.x, len.y, a.x, a.y, sumM31, w1, w2, shift);
+    }
+#endif
+  }
+
+  const u32 MINUS_ONE = 0x7ffffffe; // (1u << 31) - 2u;
+  if (carry) {
+    if (k == ND) {
+      --sumM31;
+    } else {
+      sumM31 += ROL31(MINUS_ONE, shift);
+    }
+  }
+
+  i64 groupSumAbs = work_group_reduce_add((i64) sumAbs);
+  i32 groupSum = work_group_reduce_add(sum);
+  i64 groupSumM31 = work_group_reduce_add((i64) sumM31);
+
+  if (me == 0) {
+    atom_add(&outStats[0], groupSumAbs);
+    atom_add(&outStats[1], groupSum);
+    atom_add(&outStats[2], groupSumM31);
+  }
+}
+#undef SGW
+
+/*
+KERNEL(G_W) isEqual(P(bool) outEqual, global i32 *A, global i32 *B) {
   for (i32 p = get_global_id(0); p < sizeBytes / sizeof(i64); p += get_global_size(0)) {
     if (in1[p] != in2[p]) {
       *outEqual = false;
@@ -631,6 +782,7 @@ KERNEL(256) isNotZero(P(bool) outNotZero, u32 sizeBytes, global i64 *in) {
     }
   }
 }
+*/
 
 void fft_WIDTH(local T2 *lds, T2 *u) {
 #if WIDTH == 256
@@ -909,7 +1061,9 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   // for (u32 i = 0; i < MIDDLE; ++i) { out[i * SMALL_HEIGHT] = u[i]; }
   
   out += gx * (BIG_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG) + me;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }  
+  for (i32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
+
+  if (get_global_id(0) == 0) { ROE_INDEX = (ROE_INDEX + 1) & (ROE_SIZE - 1); }
 }
 
 KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
@@ -962,38 +1116,27 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
 }
 
-void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32* carryStats) {
-  roundMax = work_group_reduce_max(roundMax);
-  carryMax = work_group_reduce_max(carryMax);
-  if (get_local_id(0) == 0) {
-    // Roundout 0   = count(iteration)
-    // Roundout 1   = max(workgroup maxerr)
-    // Roundout 2   = count(workgroup)
-    // Roundout 8.. = vector of iteration_maxerr
-
-    atomic_max(&roundOut[1], as_uint(roundMax));
-    atomic_max(&carryStats[4], carryMax);
-    u32 oldCount = atomic_inc(&roundOut[2]);
-    assert(oldCount < get_num_groups(0));
-    if (oldCount == get_num_groups(0) - 1) {
-      u32 roundTmp = atomic_xchg(&roundOut[1], 0);
-      carryMax = atomic_xchg(&carryStats[4], 0);
-      roundOut[2] = 0;
-      int nPrevIt = atomic_inc(&roundOut[0]);
-      if (nPrevIt < 1024 * 1024) { roundOut[8 + nPrevIt] = roundTmp; }
-      
-      atom_add((global ulong *) &carryStats[0], carryMax);
-      atomic_max(&carryStats[2], carryMax);
-      atomic_inc(&carryStats[3]);
-    }
-  }
+void updateROE(float roundMax) {
+  assert(roundMax >= 0);
+  // assert(roundMax <= 0.5f)
+  float groupMax = work_group_reduce_max(roundMax);
+  global u32 *roundOut = ROE_MAX + ROE_INDEX;
+  if (get_local_id(0) == 0) { atomic_max(roundOut, as_uint(groupMax)); }
 }
+
+float OVERLOAD roundoff(T u, T w) {
+  float x = u * w;
+  float r = rint(x);
+  return fabs(x - r);
+}
+
+float OVERLOAD roundoff(T2 u, T2 w) { return max(roundoff(u.x, w.x), roundoff(u.y, w.y)); }
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits) {
 
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -1002,7 +1145,6 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
 
   CarryABM carry = 0;  
   float roundMax = 0;
-  u32 carryMax = 0;
 
   // Split 32 bits into CARRY_LEN groups of 2 bits.
 #define GPW (16 / CARRY_LEN)
@@ -1018,22 +1160,16 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
     T w1 = i == 0 ? base : optionalDouble(fancyMul(base, iweightUnitStep(i)));
     T w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
     T2 x = conjugate(in[p]) * U2(w1, w2);
-    
-#if STATS
-    roundMax = max(roundMax, roundoff(conjugate(in[p]), U2(w1, w2)));
-#endif
-    
+        
 #if DO_MUL3
-    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax);
+    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax);
 #else
-    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax);
+    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax);
 #endif
   }
   carryOut[G_W * g + me] = carry;
 
-#if STATS
-  updateStats(roundMax, carryMax, roundOut, carryStats);
-#endif
+  updateROE(roundMax);
 }
 //}}
 
@@ -1064,9 +1200,10 @@ KERNEL(G_W) carryB(P(Word2) io, CP(i64) carryIn, CP(u32) bits) {
 
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = i * WIDTH + me;
-    io[p] = carryWord(io[p], &carry, test(b, 2 * i), test(b, 2 * i + 1));
+    io[p] = carryWord64(io[p], &carry, test(b, 2 * i), test(b, 2 * i + 1));
     if (!carry) { return; }
   }
+  assert(!carry);
 }
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
@@ -1074,7 +1211,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(i64) carryIn, CP(u32) bits) {
 // See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
 //{{ CARRY_FUSED
 KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
+                 CP(u32) bits) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -1114,20 +1251,15 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   for (u32 i = 0; i < NW; ++i) {
     T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, iweightStep(i)));
     T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP));
-
-#if STATS
-    roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight1, invWeight2)));
-#endif
-
     u[i] = conjugate(u[i]) * U2(invWeight1, invWeight2);
   }
 
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
 #if CF_MUL
-    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
+    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax);
 #else
-    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
+    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax);
 #endif
   }
 
@@ -1144,9 +1276,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     }
   }
 
-#if STATS
-  updateStats(roundMax, carryMax, roundOut, carryStats);
-#endif
+  updateROE(roundMax);
 
   if (gr == 0) { return; }
 
@@ -1583,67 +1713,18 @@ KERNEL(64) readHwTrig(global float2* out, u32 Tau) {
   out[id] = U2(fastCosSP(id, Tau), fastSinSP(id, Tau));
 }
  
-// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
-#ifdef TEST_KERNEL
-
-#if 0
-typedef long long i128;
-typedef unsigned long long u128;
-
-u32  U32(u32 x)   { return x; }
-u64  U64(u64 x)   { return x; }
-u128 U128(u128 x) { return x; }
-i32  I32(i32 x)   { return x; }
-i64  I64(i64 x)   { return x; }
-i128 I128(i128 x) { return x; }
-
-u32 hiU32(u64 x) { return x >> 32; }
-u64 hiU64(u128 x) { return x >> 64; }
-
-#define PRIME 0xffffffff00000001
-
-// x * 0xffffffff
-u64 mulm1(u32 x) { return (U64(x) << 32) - x; }
-
-u64 addc(u64 a, u64 b) {
-  u64 s = a + b;
-  return s + (U32(-1) + (s >= a));
-  // return (s < a) ? s + U32(-1) : s;
-}
-
-u64 modmul(u64 a, u64 b) {
-  u128 ab = U128(a) * b;
-  u64 low = U64(ab);
-  u64 high = ab >> 64;
-  u32 hl = U32(high);
-  u32 hh = high >> 32;
-  u64 s = addc(low, mulm1(hl));
-  u64 hhm1 = mulm1(hh);
-  s = addc(s, hhm1 << 32);
-  s = addc(s, mulm1(hhm1 >> 32));
-  return s;
-}
-#endif
-
-kernel void testKernel(global ulong* io) {
+kernel void testKernel1(global float2* io) {
   uint me = get_local_id(0);
-
-  ulong a = io[me];
-  ulong b = io[me + 1];
-  io[me] = a + b;
+  float u = io[me].x;
+  float w = io[me].y;
+  io[me].x = roundoff(u, w);
 }
 
-/*
-kernel void testKernel(global uint* io) {
+kernel void testKernel2(global float2* io) {
   uint me = get_local_id(0);
-
-  uint a = io[me];
-  uint b = io[me + 1];
-  uint s = a + b;
-  bool carry = (s < a);
-  io[me] = s + carry;
+  float u = io[me].x;
+  float w = io[me].y;
+  float x = rint(u * w);
+  io[me].x = fabs(u * w - x);
 }
-*/
-
-#endif
 
