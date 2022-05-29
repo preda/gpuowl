@@ -360,7 +360,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(readResidue, 1),
   LOAD_WS(differ, hN / CARRY_LEN),
   LOAD(sum64, 256),
-  LOAD(readROE, 1),
+  LOAD(readROE, 16),
   LOAD_WS(stats, hN / 16),
 #undef LOAD_WS
 #undef LOAD
@@ -376,7 +376,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCheck{queue, "check", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
-  bufRoundoff{queue, "roundoff", 256},
+  bufRoundoff{queue, "roundoff", 1024 + 1},
   bufCarryMax{queue, "carryMax", 8},
   bufCarryMulMax{queue, "carryMulMax", 8},
   bufSmallOut{queue, "smallOut", 256},
@@ -557,53 +557,32 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
                           getDevice(args.device), timeKernels, useLongCarry);
 }
 
-vector<u32> Gpu::readAndCompress(Buffer<int>& buf)  {
-  for (int nRetry = 0; nRetry < 3; ++nRetry) {
-    sum64(bufSumOut, u32(buf.size * sizeof(int)), buf);
-    
-    vector<u64> expectedVect(1);
-    bufSumOut.readAsync(expectedVect);
-    vector<int> data = readOut(buf);
-    u64 expectedSum = expectedVect[0];
-    
-    u64 sum = 0;
-    bool allZero = true;
-    for (auto it = data.begin(), end = data.end(); it < end; it += 2) {
-      u64 v = u32(*it) | (u64(*(it + 1)) << 32);
-      sum += v;
-      allZero &= !v;
+vector<u32> Gpu::readAndCompress(Buffer<int>& buf, u32 *outSum)  {
+  for (int nRetry = 0; nRetry < 2; ++nRetry) {
+    bufStatsOut.zero();
+    stats(bufStatsOut, buf);
+    vector<i64> readStats(3);
+    bufStatsOut.readAsync(readStats);
+    vector<i32> data = readOut(buf);
+
+    i64 sumAbs = readStats[0];
+    // i64 sum = readStats[1];
+    u32 sumM31 = modM31(readStats[2]);
+
+    if (sumAbs == 0) {
+      log("GPU->Host read ZERO\n");
+      return {};
     }
 
-    if (sum != expectedSum || (allZero && nRetry == 0)) {
-      log("GPU -> Host read #%d failed (check %x vs %x)\n", nRetry, unsigned(sum), unsigned(expectedSum));
-    } else {
-      if (allZero) {
-        log("Read ZERO\n");
-        return {};
-      } else {
-        u32 c1 = modM31(N, E, data);
-        auto compacted = compactBits(std::move(data),  E);
-        u32 c2 = modM31(compacted);
-        auto expanded = expandBits(compacted, N, E);
-        u32 c3 = modM31(N, E, expanded);
-        assert(c1 == c2 && c2 == c3);
-        // log("M31 %x %x %x\n", c1, c2, c3);
-        /*
-        if (expanded != data) {
-          assert(data.size() == expanded.size());
-          for (int i = 0, cnt = 0; i < data.size() && cnt < 20; ++i) {
-            if (data[i] != expanded[i]) {
-              ++cnt;
-              log("* %d %d %d (%u)\n", i, data[i], expanded[i], bitlen(N, E, i));
-            }
-          }
-          // throw "roundtrip error";
-        }
-        writeIn(buf, expanded);
-        */
-        return compacted;
-      }
+    vector<u32> compacted = compactBits(std::move(data),  E);
+    u32 c2 = modM31(compacted);
+    assert(c2 == modM31(N, E, data));
+
+    if (c2 == sumM31) {
+      if (outSum) { *outSum = c2; }
+      return compacted;
     }
+    log("GPU->Host read checksum: expected %08x actual %08x\n", sumM31, c2);
   }
   throw "Persistent read errors: GPU->Host";
 }
@@ -1041,84 +1020,91 @@ template<typename T> float asFloat(T x) { return pun<float>(x); }
 
 void Gpu::printRoundoff() {
   readROE();
-  auto roeData = bufRoundoff.read();
-  // vector<float> roe;
-  {
-  u32 m = 0;
-  u32 im = 0;
-  for (u32 i = 0; i < u32(roeData.size()); ++i) {
-    u32 x = roeData[i];
-    if (x > m) {
-      m = x;
-      im = i;
-    }
-  }
-  log("ROE %3d: %.9f\n", im, as<float>(m));
-  return;
+  vector<u32> roeData = bufRoundoff.read();
+  u32 nIts = roeData.back();
+  roeData.pop_back();
 
+  vector<float> roe;
+  for (u32 x : roeData) {
+    if (x) { roe.push_back(as<float>(x)); }
   }
-  u32 roundN = bufRoundoff.read(1)[0];
-  // fprintf(stderr, "roundN %u\n", roundN);
 
-  vector<u32> carry;
-  vector<u32> carryMul;
-  bufCarryMax.readAsync(carry, 4);
-  bufCarryMulMax.readAsync(carryMul, 4);
-  
-  vector<u32> roundVect;
-  bufRoundoff.readAsync(roundVect, roundN, 8);
+  u32 N = roe.size();
+  if (!N) { return; }
+
+  sort(roe.begin(), roe.end());
     
-  vector<u32> zero{0, 0, 0, 0};
-  bufRoundoff.write(zero);
-  bufCarryMax.write(zero);
-  bufCarryMulMax.write(zero);
-
-  if (!roundN) { return; }
-  if (roundN < 2000) { return; }
-  
-#if DUMP_STATS
+#if 0
   {
     File fo = File::openAppend("roundoff.txt");
-    if (fo) { for (u32 x : roundVect) { fprintf(fo.get(), "%f\n", asFloat(x)); } }
+    if (fo) {
+      for (float x : roe) { fprintf(fo.get(), "%f\n", x); }
+      fprintf(fo.get(), "\n\n");
+    }
   }
 #endif
 
   double sum = 0;
-  for (u32 x : roundVect) { sum += asFloat(x); }
-  double avg = sum / roundN;
-  double variance = 0;
-  double m = 0;
-  for (u32 u : roundVect) {
-    double x = asFloat(u);
-    m = max(m, x);
-    double d = x - avg;
-    variance += d * d;
+  for (float x : roe) { sum += x; }
+  double mean = sum / N;
+
+  // work out the mode
+#if 0
+  vector<u32> buckets(2000);
+  u32 best = 0;
+  for (float x : roe) {
+    assert(0 <= x && x <= 0.5);
+    int b = min(int(buckets.size()) - 1, int(x * 2000));
+    ++buckets[b];
+    if (buckets[b] > buckets[best]) { best = b; }
   }
-  
-  variance /= roundN;
-  double sdev = sqrt(variance);
-  
+  float mode = (best + 0.5f) / 2000;
+#endif
+
+  float median = N%2 ? roe[(N-1) / 2] : (roe[N/2-1] + roe[N/2]) / 2;
+
+  double rightVariance = 0;
+  u32 rightN = 0;
+  u32 nMedian = 0;
+  float m = 0;
+  for (float x : roe) {
+    if (x >= median) {
+      if (x <= median) {
+        ++nMedian;
+      } else {
+        ++rightN;
+        m = max(m, x);
+        double d = x - median;
+        rightVariance += d * d;
+      }
+    }
+  }
+  rightVariance /= (rightN + nMedian / 2);
+  double rightSdev = sqrt(rightVariance);
+
+  double rightZ = (0.5f - median) / rightSdev;
+  log("ROE: N=%u (%u); mean %f, median %f, max %f; right-sided N=%u (+%u), sdev %f, z %f\n",
+      N, nIts, mean, median, m, rightN, nMedian, rightSdev, rightZ);
+
+#if 0
   double gamma = 0.577215665; // Euler-Mascheroni
-  double z = (0.5 - avg) / sdev;
+  double negloglog2 = -log(log(2)); // 0.366513;
+
+  // estimate u, beta from mean and st.dev
+  double beta1 = sqrt(6.0) / M_PI * sdev;
+  double u1 = mean - beta1 * gamma;
+  
+  // estimate u, beta from mode and median
+  double u2 = mode;
+  double beta2 = (median - u2) / negloglog2;
+
+  // double z = (0.5 - avg) / sdev;
 
   // See Gumbel distribution https://en.wikipedia.org/wiki/Gumbel_distribution
-  double p = -expm1(-exp(-z * (M_PI / sqrt(6))) * (E * exp(-gamma))); 
-  
-  log("Roundoff: N=%u, mean %f, SD %f, CV %f, max %f, z %.1f (pErr %f%%)\n",
-      roundN, avg, sdev, sdev / avg, m, z, p * 100);
-
-  // #if 0
-  u32 carryN = carry[3];
-  u32 carryAvg = carryN ? *(u64*)&carry[0] / carryN : 0;
-  u32 carryMax = carry[2];
-  
-  u32 carryMulN = carryMul[3];
-  u32 carryMulAvg = carryMulN ? *(u64*)&carryMul[0] / carryMulN : 0;
-  u32 carryMulMax = carryMul[2];
-
-  log("Carry: N=%u, max %x, avg %x; CarryM: N=%u, max %x, avg %x\n",
-      carryN, carryMax, carryAvg, carryMulN, carryMulMax, carryMulAvg);
-  // #endif
+  // double p = -expm1(-exp(-z * (M_PI / sqrt(6))) * (E * exp(-gamma)));
+  log("ROE: N=%u (%u), mode %f, median %f, mean %f, sdev %f, max %f, (%f, %f) (%f, %f) %u\n",
+      N, nIts, mode, median, mean, sdev, m, u1, beta1, u2, beta2, buckets[best]);
+#endif
 }
 
 void Gpu::accumulate(Buffer<int>& acc, TBuf& data, TBuf& tmp1, TBuf& tmp2) {
@@ -1754,7 +1740,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     u64 res = dataResidue(); // implies finish()
-    bool doCheck = (k % 20 == 0) || !res || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+    bool doCheck = !res || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
       
     if (k % 10000 == 0 && !doCheck) {
       float secsPerIt = iterationTimer.reset(k);
@@ -1779,13 +1765,19 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
       
     if (doCheck) {
-      if (printStats) { printRoundoff(); }
+      printRoundoff();
 
       float secsPerIt = iterationTimer.reset(k);
 
-      Words check = readCheck();
-      log("check %016lx\n", residue(check));
+      u32 checkSum = 0;
+      Words check = readAndCompress(bufCheck, &checkSum);
+      log("check %08x\n", checkSum);
       if (check.empty()) { log("Check read ZERO\n"); }
+
+      // Round-trip
+      vector<i32> expanded = expandBits(check, N, E);
+      assert(checkSum == modM31(N, E, expanded));
+      writeIn(bufCheck, expanded);
 
       bool ok = !check.empty() && this->doCheck(blockSize, buf1, buf2, buf3);
 

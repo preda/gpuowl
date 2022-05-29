@@ -564,19 +564,19 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
 
 // Global data
 
-#define ROE_SIZE 256
-u32 ROE_MAX[ROE_SIZE];
-u32 ROE_INDEX = ROE_SIZE - 1;
+#define ROE_SIZE 1024
+u32 ROE[ROE_SIZE + 1];
+// u32 ROE_INDEX = ROE_SIZE - 1;
 
 TT THREAD_WEIGHTS[G_W];
 TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-KERNEL(256) readROE(global u32 *outROE) {
-  for (u32 k = get_global_id(0); k < ROE_SIZE; k += get_global_size(0)) {
-    outROE[k] = ROE_MAX[k];
-    ROE_MAX[k] = 0;
+KERNEL(64) readROE(global u32 *outROE) {
+  for (u32 k = get_global_id(0); k < ROE_SIZE + 1; k += get_global_size(0)) {
+    outROE[k] = ROE[k];
+    ROE[k] = 0;
   }
 }
 
@@ -1062,8 +1062,6 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   
   out += gx * (BIG_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG) + me;
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
-
-  if (get_global_id(0) == 0) { ROE_INDEX = (ROE_INDEX + 1) & (ROE_SIZE - 1); }
 }
 
 KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
@@ -1114,13 +1112,15 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
   out += (me % SIZEY);
 
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
+
+  if (get_global_id(0) == 0) { ++ROE[ROE_SIZE]; }
 }
 
 void updateROE(float roundMax) {
   assert(roundMax >= 0);
   // assert(roundMax <= 0.5f)
   float groupMax = work_group_reduce_max(roundMax);
-  global u32 *roundOut = ROE_MAX + ROE_INDEX;
+  global u32 *roundOut = ROE + ROE[ROE_SIZE] % ROE_SIZE;
   if (get_local_id(0) == 0) { atomic_max(roundOut, as_uint(groupMax)); }
 }
 

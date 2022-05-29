@@ -207,7 +207,7 @@ public:
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry);
 
-  vector<u32> readAndCompress(Buffer<int>& buf);
+  vector<u32> readAndCompress(Buffer<int>& buf, u32 *outSum = nullptr);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   void writeData(const vector<u32> &v) { writeIn(bufData, v); }
   void writeCheck(const vector<u32> &v) { writeIn(bufCheck, v); }

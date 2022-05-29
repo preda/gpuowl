@@ -124,25 +124,15 @@ vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E) {
     --data[0];
   }
 
-
-  /*
-  if (data[N-1] == -(1 << (prevLen - 1)) && data[0] > 0) {
-    data[N-1] += 1 << prevLen;
-    --data[0];
-  }
-  */
-
-  /*
   for (u32 p = 0; ; ++p) {
     u32 len = bitlen(N, E, p);
-    if (data[p] > (1 << (len - 1)) || (data[p] == (1 << (len - 1)) && data[p+1] < 0)) {
-      data[p] -= 1 << len;
+    if (data[p] > pow2(len - 1) || (data[p] == pow2(len - 1) && data[p+1] < 0)) {
+      data[p] -= pow2(len);
       ++data[p+1];
     } else {
       break;
     }
   }
-  */
 
   return out;
 }
