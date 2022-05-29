@@ -901,17 +901,19 @@ u32 Gpu::modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to) {
   return to;
 }
 
+Stats Gpu::readStats(Buffer<int>& buf) {
+  bufStatsOut.zero();
+  stats(bufStatsOut, buf);
+  auto s = bufStatsOut.read();
+  assert(s.size() == 3);
+  u32 sumM31 = modM31(s[2]);
+  return {u64(s[0]), s[1], sumM31};
+}
+
 bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
-  auto A = readAndCompress(buf1);
-  auto B = readAndCompress(buf2);
-  log("equal: %016lx %016lx ", residue(A), residue(B));
-  return A == B;
-  /*
-  differ(bufZero, buf1, buf2, bufBitsC);
-  bool different = bufZero.read(1)[0];
-  if (different) { bufZero.zero(); }
-  return !different;
-  */
+  Stats statsA = readStats(buf1);
+  Stats statsB = readStats(buf2);
+  return statsA.sumAbs && statsB.sumAbs && statsA.sumM31 == statsB.sumM31;
 }
 
 u64 Gpu::bufResidue(Buffer<int> &buf) {
@@ -1044,9 +1046,11 @@ void Gpu::printRoundoff() {
   }
 #endif
 
+  /*
   double sum = 0;
   for (float x : roe) { sum += x; }
   double mean = sum / N;
+  */
 
   // work out the mode
 #if 0
@@ -1061,12 +1065,32 @@ void Gpu::printRoundoff() {
   float mode = (best + 0.5f) / 2000;
 #endif
 
-  float median = N%2 ? roe[(N-1) / 2] : (roe[N/2-1] + roe[N/2]) / 2;
+  float mode = 0;
+  u32 nMode = 0;
+  float current = 0;
+  u32 nCurrent = 0;
+  u32 nBelow = 0;
+  float m = 0;
+  for (float x : roe) {
+    if (x > current) {
+      m = max(m, x);
+      if (nCurrent >= nMode) {
+        nBelow += nMode;
+        mode = current;
+        nMode = nCurrent;
+      }
+      current = x;
+      nCurrent = 0;
+    }
+    ++nCurrent;
+  }
+  u32 nAbove = N - (nMode + nBelow);
 
+  /*
+  float median = N%2 ? roe[(N-1) / 2] : (roe[N/2-1] + roe[N/2]) / 2;
   double rightVariance = 0;
   u32 rightN = 0;
   u32 nMedian = 0;
-  float m = 0;
   for (float x : roe) {
     if (x >= median) {
       if (x <= median) {
@@ -1081,10 +1105,11 @@ void Gpu::printRoundoff() {
   }
   rightVariance /= (rightN + nMedian / 2);
   double rightSdev = sqrt(rightVariance);
-
   double rightZ = (0.5f - median) / rightSdev;
-  log("ROE: N=%u (%u); mean %f, median %f, max %f; right-sided N=%u (+%u), sdev %f, z %f\n",
-      N, nIts, mean, median, m, rightN, nMedian, rightSdev, rightZ);
+  */
+
+  log("ROE: N=%u (%u); mode %f (below %u, at %u, above %u), max %f, %f\n",
+      N, nIts, mode, nBelow, nMode, nAbove, m, mode * (nMode + nAbove - nBelow) / nMode);
 
 #if 0
   double gamma = 0.577215665; // Euler-Mascheroni

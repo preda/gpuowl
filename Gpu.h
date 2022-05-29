@@ -43,6 +43,12 @@ struct PRPResult {
   fs::path proofPath{};
 };
 
+struct Stats {
+  u64 sumAbs;
+  i64 sum;
+  u32 sumM31;
+};
+
 struct Reload {
 };
 
@@ -240,4 +246,6 @@ public:
   // return A^(2^n)
   Words expExp2(const Words& A, u32 n);
   vector<Buffer<i32>> makeBufVector(u32 size);
+private:
+  Stats readStats(Buffer<int> &buf);
 };

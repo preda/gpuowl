@@ -632,7 +632,7 @@ u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * midd
 
 KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
   if (get_global_id(0) == 0) { out[0] = 0; }
-  
+
   ulong sum = 0;
   for (i32 p = get_global_id(0); p < sizeBytes / sizeof(u64); p += get_global_size(0)) {
     sum += in[p];
