@@ -237,7 +237,7 @@ static void build(cl_program program, cl_device_id device, string args) {
   
   size_t logSize = 0;
   clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
-  log("build log size %d\n", int(logSize));
+  // log("build log size %d\n", int(logSize));
   if (logSize > 1) {
     std::unique_ptr<char> buf(new char[logSize + 1]);
     size_t outLogSize = 0;

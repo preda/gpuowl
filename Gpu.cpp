@@ -1587,7 +1587,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     
     u64 res = dataResidue();
     auto data = readData();
-    log("check %016lx; data %016lx ", residue(loaded.check), residue(data));
 
     if (res == loaded.res64) {
       log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res);
@@ -1694,6 +1693,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     bool b1JustFinished = false;
 
     if (k % blockSize == 0) {
+      queue->finish(); // Avoid loading too much work ahead of time on the queue.
       doStop = signal.stopRequested() || (args.iters && k - startK >= args.iters);
       b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
     }
@@ -1764,14 +1764,24 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       continue;
     }
 
-    u64 res = dataResidue(); // implies finish()
-    bool doCheck = !res || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
-      
+    bool doCheck = doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+
+    if (k % 10000 == 0) {
+      Stats stats = readStats(bufData);
+      float secsPerIt = iterationTimer.reset(k);
+      float avgBits = log2f(stats.sumAbs / N) + 1;
+      log("   %9u %08x  bits %.2f, balance %d; %4.0f\n", k, stats.sumM31, avgBits, int(stats.sum), secsPerIt * 1'000'000);
+      printRoundoff();
+      if (stats.sumAbs == 0) { doCheck = true; }
+    }
+
+    /*
     if (k % 10000 == 0 && !doCheck) {
       float secsPerIt = iterationTimer.reset(k);
       // log("   %9u %6.2f%% %s %4.0f us/it\n", k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
       log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
     }
+    */
 
     if (doStop) {
       log("Stopping, please wait..\n");
@@ -1790,13 +1800,12 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
       
     if (doCheck) {
-      printRoundoff();
-
+      u64 res = dataResidue();
       float secsPerIt = iterationTimer.reset(k);
 
       u32 checkSum = 0;
       Words check = readAndCompress(bufCheck, &checkSum);
-      log("check %08x\n", checkSum);
+      // log("check %08x\n", checkSum);
       if (check.empty()) { log("Check read ZERO\n"); }
 
       // Round-trip
