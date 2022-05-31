@@ -49,6 +49,12 @@ struct Stats {
   u32 sumM31;
 };
 
+struct ROEInfo {
+  u32 N;
+  float maxROE;
+  float risk;
+};
+
 struct Reload {
 };
 
@@ -131,9 +137,9 @@ class Gpu {
   HostAccessBuffer<float> buf2;
   TBuf buf3;
 
-  // vector<float> accROE;
   double accROESqAbove = 0;
   u32 accROEn = 0;
+  float accMaxROE = 0;
 
   vector<int> readSmall(Buffer<int>& buf, u32 start);
 
@@ -171,8 +177,8 @@ class Gpu {
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
 
-  void readROE();
-  void processROE();
+  ROEInfo readROE();
+  ROEInfo processROE();
 
   // does either carrryFused() or the expanded version depending on useLongCarry
   void doCarry(TBuf& out, TBuf& in);

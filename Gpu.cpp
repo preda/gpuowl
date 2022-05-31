@@ -558,17 +558,10 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
 vector<u32> Gpu::readAndCompress(Buffer<int>& buf, u32 *outSum)  {
   for (int nRetry = 0; nRetry < 2; ++nRetry) {
-    bufStatsOut.zero();
-    stats(bufStatsOut, buf);
-    vector<i64> readStats(3);
-    bufStatsOut.readAsync(readStats);
+    Stats stats = readStats(buf);
     vector<i32> data = readOut(buf);
 
-    i64 sumAbs = readStats[0];
-    // i64 sum = readStats[1];
-    u32 sumM31 = modM31(readStats[2]);
-
-    if (sumAbs == 0) {
+    if (stats.sumAbs == 0) {
       log("GPU->Host read ZERO\n");
       return {};
     }
@@ -577,11 +570,11 @@ vector<u32> Gpu::readAndCompress(Buffer<int>& buf, u32 *outSum)  {
     u32 c2 = modM31(compacted);
     assert(c2 == modM31(N, E, data));
 
-    if (c2 == sumM31) {
+    if (c2 == stats.sumM31) {
       if (outSum) { *outSum = c2; }
       return compacted;
     }
-    log("GPU->Host read checksum: expected %08x actual %08x\n", sumM31, c2);
+    log("GPU->Host read checksum: expected %08x actual %08x\n", stats.sumM31, c2);
   }
   throw "Persistent read errors: GPU->Host";
 }
@@ -940,23 +933,24 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
   return formatETA(etaSecs);
 }
 
-static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, float secsCheck, float secsSave, u32 nIters) {
+static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, float secsCheck, float secsSave, u32 nIters, ROEInfo roe) {
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it + check %.2fs + save %.2fs; ETA %s",
+  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it + check %.2fs + save %.2fs; ETA %s; ROE %.3f/%u (%.2f) ",
            status.c_str(), k, k / float(nIters) * 100, hex(res).c_str(),
-           secsPerIt * 1'000'000, secsCheck, secsSave, getETA(k, nIters, secsPerIt).c_str());
+           secsPerIt * 1'000'000, secsCheck, secsSave, getETA(k, nIters, secsPerIt).c_str(),
+           roe.maxROE, roe.N, roe.risk);
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, float secsSave, u32 nIters, u32 nErrors, u32 nBitsP1, u32 B1, u64 resP1) {
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, float secsSave, u32 nIters, u32 nErrors, u32 nBitsP1, u32 B1, u64 resP1, ROEInfo roe) {
   char buf[64] = {0};
   if (k < nBitsP1) {
     snprintf(buf, sizeof(buf), " | P1(%s) %2.1f%% ETA %s %016" PRIx64,
              formatBound(B1).c_str(), float(k) * 100 / nBitsP1, getETA(k, nBitsP1, secsPerIt).c_str(), resP1);
   }
   
-  log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, secsSave, nIters).c_str(),
+  log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, secsSave, nIters, roe).c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), buf);
 }
 
@@ -1005,21 +999,9 @@ u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
   }
 }
 
-template<typename To, typename From> To pun(From x) {
-  static_assert(sizeof(To) == sizeof(From));
-  union {
-    From from;
-    To to;
-  } u;
-  u.from = x;
-  return u.to;
 }
 
-template<typename T> float asFloat(T x) { return pun<float>(x); }
-
-}
-
-void Gpu::readROE() {
+ROEInfo Gpu::readROE() {
   u32 roePos = bufROE.read(1)[0];
   assert(roePos > 0 && roePos < ROE_SIZE);
   vector<u32> roeData = bufROE.read(roePos + 1);
@@ -1038,32 +1020,18 @@ void Gpu::readROE() {
       float d = x - THRESH;
       sqAbove += d * d;
     }
-    // accROE.push_back(x);
   }
   u32 N = roeData.size() - 1;
-  auto danger = sqrtf(float(sqAbove) / N) * 100;
-  log("ROE N=%u, max %f, danger %f\n", N, maxROE, danger);
+  auto risk = sqrtf(float(sqAbove) / N) * 100;
+  ROEInfo info{N, maxROE, risk};
+
+  // log("ROE N=%u, max %f, danger %f\n", N, maxROE, danger);
 
   accROEn += N;
   accROESqAbove += sqAbove;
-  // return maxROE;
-}
+  accMaxROE = max(accMaxROE, maxROE);
 
-void Gpu::processROE() {
-  auto danger = sqrtf(float(accROESqAbove) / accROEn) * 100;
-  log("ROE N=%u danger %f\n", accROEn, danger);
-  accROEn = 0;
-  accROESqAbove = 0;
-
-  /*
-  vector<float> roe;
-  swap(roe, accROE);
-  u32 N = roe.size();
-  if (!N) { return; }
-
-  sort(roe.begin(), roe.end());
-
-#if 1
+#if 0
   {
     File fo = File::openWrite("ROE.txt");
     if (fo) {
@@ -1072,103 +1040,18 @@ void Gpu::processROE() {
     }
   }
 #endif
-
-  float mode = 0;
-  u32 nMode = 0;
-  float current = 0;
-  u32 nCurrent = 0;
-  u32 nBelow = 0;
-  float m = 0;
-  auto aboveIt = roe.begin();
-  double sum = 0;
-
-  for (auto it = roe.begin(), end = roe.end(); it != end; ++it) {
-    float x = *it;
-    sum += x;
-    if (x > current) {
-      m = max(m, x);
-      if (nCurrent >= nMode) {
-        nBelow += nMode;
-        mode = current;
-        nMode = nCurrent;
-        aboveIt = it;
-      }
-      current = x;
-      nCurrent = 0;
-    }
-    ++nCurrent;
-  }
-  u32 nAbove = N - (nMode + nBelow);
-
-  double sum2 = 0;
-  for (auto it = aboveIt, end = roe.end(); it != end; ++it) {
-    float d = *it - mode;
-    sum2 += d * d;
-  }
-
-  log("ROE: N=%u, mean %f, median %f, mode %f (below %u, at %u, above %u), max %f, sum2 %f\n",
-      N, sum / N, roe[N/2], mode, nBelow, nMode, nAbove, m, sum2);
-  */
+  return info;
 }
 
-
-/*
-  u32 N = roe.size();
-  if (!N) { return; }
-
-  sort(roe.begin(), roe.end());
-  */
-    
-
-  /*
-  double sum = 0;
-  for (float x : roe) { sum += x; }
-  double mean = sum / N;
-  */
-
-
-  /*
-  float median = N%2 ? roe[(N-1) / 2] : (roe[N/2-1] + roe[N/2]) / 2;
-  double rightVariance = 0;
-  u32 rightN = 0;
-  u32 nMedian = 0;
-  for (float x : roe) {
-    if (x >= median) {
-      if (x <= median) {
-        ++nMedian;
-      } else {
-        ++rightN;
-        m = max(m, x);
-        double d = x - median;
-        rightVariance += d * d;
-      }
-    }
-  }
-  rightVariance /= (rightN + nMedian / 2);
-  double rightSdev = sqrt(rightVariance);
-  double rightZ = (0.5f - median) / rightSdev;
-  */
-
-
-#if 0
-  double gamma = 0.577215665; // Euler-Mascheroni
-  double negloglog2 = -log(log(2)); // 0.366513;
-
-  // estimate u, beta from mean and st.dev
-  double beta1 = sqrt(6.0) / M_PI * sdev;
-  double u1 = mean - beta1 * gamma;
-  
-  // estimate u, beta from mode and median
-  double u2 = mode;
-  double beta2 = (median - u2) / negloglog2;
-
-  // double z = (0.5 - avg) / sdev;
-
-  // See Gumbel distribution https://en.wikipedia.org/wiki/Gumbel_distribution
-  // double p = -expm1(-exp(-z * (M_PI / sqrt(6))) * (E * exp(-gamma)));
-  log("ROE: N=%u (%u), mode %f, median %f, mean %f, sdev %f, max %f, (%f, %f) (%f, %f) %u\n",
-      N, nIts, mode, median, mean, sdev, m, u1, beta1, u2, beta2, buckets[best]);
-#endif
+ROEInfo Gpu::processROE() {
+  auto risk = sqrtf(float(accROESqAbove) / accROEn) * 100;
+  ROEInfo info{accROEn, accMaxROE, risk};
+  // log("ROE N=%u danger %f\n", accROEn, danger);
+  accROEn = 0;
+  accROESqAbove = 0;
+  accMaxROE = 0;
+  return info;
+}
 
 void Gpu::accumulate(Buffer<int>& acc, TBuf& data, TBuf& tmp1, TBuf& tmp2) {
   fftP(tmp1, acc);
@@ -1740,31 +1623,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
     coreStep(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;
-
-#if 0
-    log("k %d %016" PRIx64 " ", k, dataResidue());
-    printRoundoff();
-
-    vector<int> tmp = readOut(bufData);
-    auto [sumAbs, sum] = sumStats(tmp);
-    u32 m1 = modM31(N, E, tmp);
-    log("cpu: %08x %lu %ld \n", m1, sumAbs, sum);
-    bufStatsOut.zero();
-    stats(bufStatsOut, bufData);
-    auto s = bufStatsOut.read();
-    assert(s.size() == 3);
-    u32 m2 = modM31(u64(s[2]));
-    log("gpu: %08x %ld %ld\n", m2, s[0], s[1]);
-
-    auto trip = expandBits(compactBits(tmp, E), N, E);
-    tie(sumAbs, sum) = sumStats(trip);
-    u32 m3 = modM31(N, E, trip);
-    log("cpu: %08x %lu %ld\n", m3, sumAbs, sum);
-
-    assert(m1 == m2 && m2 == m3);
-
-    writeIn(bufData, trip);
-#endif
     
     if (k == persistK) {
       Words data = readData();
@@ -1806,11 +1664,12 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
     if (k % 10000 == 0) {
       Stats stats = readStats(bufData);
-      float secsPerIt = iterationTimer.reset(k);
       // float avgBits = log2f(stats.sumAbs / N) + 1;
-      readROE();
-      log("   %9u %08x  avg %.3f, balance %d; %4.0f\n",
-          k, stats.sumM31, float(stats.sumAbs) / N, int(stats.sum), secsPerIt * 1'000'000);
+      auto roeInfo = readROE();
+      float secsPerIt = iterationTimer.reset(k);
+      log("   %9u %08x  avg %.3f %+6d; %4.0fus; ROE %.3f/%5u (%.2f)\n",
+          k, stats.sumM31, float(stats.sumAbs) / N, int(stats.sum), secsPerIt * 1'000'000,
+          roeInfo.maxROE, roeInfo.N, roeInfo.risk);
       if (stats.sumAbs == 0) { doCheck = true; }
     }
 
@@ -1857,7 +1716,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       float secsCheck = iterationTimer.reset(k);
 
       readROE();
-      processROE();
+      ROEInfo roeInfo = processROE();
 
       if (ok) {
         nSeqErrors = 0;
@@ -1875,7 +1734,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
         float secsSave = iterationTimer.reset(k);
           
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, ::res64(b1Data));
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, ::res64(b1Data), roeInfo);
 
         if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0)) && !jacobiFuture.valid()) {
           // log("P1 %9u starting Jacobi check\n", k);
@@ -1893,7 +1752,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         }
         
       } else {
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, 0);
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, 0, roeInfo);
         ++nErrors;
         if (++nSeqErrors > 2) {
           log("%d sequential errors, will stop.\n", nSeqErrors);

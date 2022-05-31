@@ -47,11 +47,11 @@ inline u32 crc32(const std::vector<u32>& words) { return crc32(words.data(), siz
 std::string formatBound(u32 b);
 
 template<typename To, typename From> To as(From from) {
-  union Pun {
-    Pun(const From& f) : from{f} {}    
+  static_assert(sizeof(To) == sizeof(From));
+  union {
     From from;
     To to;
-    static_assert(sizeof(To) == sizeof(From));
-  };
-  return Pun{from}.to;
+  } u;
+  u.from = from;
+  return u.to;
 }
