@@ -49,6 +49,8 @@ struct Weights {
 
 namespace {
 
+const u32 ROE_SIZE = 16 * 1024;
+
 // Returns the primitive root of unity of order N, to the power k.
 
 template<typename T>
@@ -259,6 +261,7 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
      {"MIDDLE", MIDDLE},
+     {"ROE_SIZE", ROE_SIZE}
     };
 
   if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
@@ -358,9 +361,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(tailSquareLow,     hN / SMALL_H / 2),
   LOAD(tailMulLowLow,     hN / SMALL_H / 2),
   LOAD(readResidue, 1),
-  LOAD_WS(differ, hN / CARRY_LEN),
   LOAD(sum64, 256),
-  LOAD(readROE, 16),
   LOAD_WS(stats, hN / 16),
 #undef LOAD_WS
 #undef LOAD
@@ -376,13 +377,13 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCheck{queue, "check", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
-  bufRoundoff{queue, "roundoff", 1024 + 1},
   bufCarryMax{queue, "carryMax", 8},
   bufCarryMulMax{queue, "carryMulMax", 8},
   bufSmallOut{queue, "smallOut", 256},
   bufZero{queue, "zero", 1},
   bufSumOut{queue, "sumOut", 1},
   bufStatsOut{queue, "stats", 3},
+  bufROE(queue, "ROE", ROE_SIZE),
   buf1{queue, "buf1", N},
   buf2{queue, "buf2", N},
   buf3{queue, "buf3", N},
@@ -390,15 +391,15 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 {
   // dumpBinary(program.get(), "isa.bin");
   
-  carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits);
-  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits);
+  carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits, bufROE);
+  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufROE);
   fftP.setFixedArgs(2, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
     
-  carryA.setFixedArgs(2, bufCarry, bufBitsC);
-  carryM.setFixedArgs(2, bufCarry, bufBitsC);
+  carryA.setFixedArgs(2, bufCarry, bufBitsC, bufROE);
+  carryM.setFixedArgs(2, bufCarry, bufBitsC, bufROE);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
@@ -408,10 +409,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrigH);
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
-  readROE.setFixedArgs(0, bufRoundoff);
+  fftMiddleOut.setFixedArgs(2, bufROE);
 
   bufReady.zero();
-  // bufRoundoff.zero();
   bufCarryMax.zero();
   bufCarryMulMax.zero();
   bufZero.zero();
@@ -439,8 +439,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
                                                              );
   }
 
-  readROE(); // zero-out ROE_MAX
-
+  bufROE.write({0});
   finish();
   
   program.reset();
@@ -1020,49 +1019,58 @@ template<typename T> float asFloat(T x) { return pun<float>(x); }
 
 }
 
-void Gpu::printRoundoff() {
-  readROE();
-  vector<u32> roeData = bufRoundoff.read();
-  u32 nIts = roeData.back();
-  roeData.pop_back();
+void Gpu::readROE() {
+  u32 roePos = bufROE.read(1)[0];
+  assert(roePos > 0 && roePos < ROE_SIZE);
+  vector<u32> roeData = bufROE.read(roePos + 1);
+  bufROE.write({0});
+  // bufROE.zero(1);
 
-  vector<float> roe;
-  for (u32 x : roeData) {
-    if (x) { roe.push_back(as<float>(x)); }
+  float maxROE = 0;
+  u32 nAbove = 0;
+  double sqAbove = 0;
+  const float THRESH = 0.3f; // 0.3125f;
+  for (auto it = next(roeData.begin()), end = roeData.end(); it < end; ++it) {
+    float x = as<float>(*it);
+    maxROE = max(maxROE, x);
+    if (x > THRESH) {
+      ++nAbove;
+      float d = x - THRESH;
+      sqAbove += d * d;
+    }
+    // accROE.push_back(x);
   }
+  u32 N = roeData.size() - 1;
+  auto danger = sqrtf(float(sqAbove) / N) * 100;
+  log("ROE N=%u, max %f, danger %f\n", N, maxROE, danger);
 
+  accROEn += N;
+  accROESqAbove += sqAbove;
+  // return maxROE;
+}
+
+void Gpu::processROE() {
+  auto danger = sqrtf(float(accROESqAbove) / accROEn) * 100;
+  log("ROE N=%u danger %f\n", accROEn, danger);
+  accROEn = 0;
+  accROESqAbove = 0;
+
+  /*
+  vector<float> roe;
+  swap(roe, accROE);
   u32 N = roe.size();
   if (!N) { return; }
 
   sort(roe.begin(), roe.end());
-    
-#if 0
+
+#if 1
   {
-    File fo = File::openAppend("roundoff.txt");
+    File fo = File::openWrite("ROE.txt");
     if (fo) {
       for (float x : roe) { fprintf(fo.get(), "%f\n", x); }
-      fprintf(fo.get(), "\n\n");
+      // fprintf(fo.get(), "\n\n");
     }
   }
-#endif
-
-  /*
-  double sum = 0;
-  for (float x : roe) { sum += x; }
-  double mean = sum / N;
-  */
-
-  // work out the mode
-#if 0
-  vector<u32> buckets(2000);
-  u32 best = 0;
-  for (float x : roe) {
-    assert(0 <= x && x <= 0.5);
-    int b = min(int(buckets.size()) - 1, int(x * 2000));
-    ++buckets[b];
-    if (buckets[b] > buckets[best]) { best = b; }
-  }
-  float mode = (best + 0.5f) / 2000;
 #endif
 
   float mode = 0;
@@ -1071,13 +1079,19 @@ void Gpu::printRoundoff() {
   u32 nCurrent = 0;
   u32 nBelow = 0;
   float m = 0;
-  for (float x : roe) {
+  auto aboveIt = roe.begin();
+  double sum = 0;
+
+  for (auto it = roe.begin(), end = roe.end(); it != end; ++it) {
+    float x = *it;
+    sum += x;
     if (x > current) {
       m = max(m, x);
       if (nCurrent >= nMode) {
         nBelow += nMode;
         mode = current;
         nMode = nCurrent;
+        aboveIt = it;
       }
       current = x;
       nCurrent = 0;
@@ -1085,6 +1099,33 @@ void Gpu::printRoundoff() {
     ++nCurrent;
   }
   u32 nAbove = N - (nMode + nBelow);
+
+  double sum2 = 0;
+  for (auto it = aboveIt, end = roe.end(); it != end; ++it) {
+    float d = *it - mode;
+    sum2 += d * d;
+  }
+
+  log("ROE: N=%u, mean %f, median %f, mode %f (below %u, at %u, above %u), max %f, sum2 %f\n",
+      N, sum / N, roe[N/2], mode, nBelow, nMode, nAbove, m, sum2);
+  */
+}
+
+
+/*
+  u32 N = roe.size();
+  if (!N) { return; }
+
+  sort(roe.begin(), roe.end());
+  */
+    
+
+  /*
+  double sum = 0;
+  for (float x : roe) { sum += x; }
+  double mean = sum / N;
+  */
+
 
   /*
   float median = N%2 ? roe[(N-1) / 2] : (roe[N/2-1] + roe[N/2]) / 2;
@@ -1108,8 +1149,6 @@ void Gpu::printRoundoff() {
   double rightZ = (0.5f - median) / rightSdev;
   */
 
-  log("ROE: N=%u (%u); mode %f (below %u, at %u, above %u), max %f, %f\n",
-      N, nIts, mode, nBelow, nMode, nAbove, m, mode * (nMode + nAbove - nBelow) / nMode);
 
 #if 0
   double gamma = 0.577215665; // Euler-Mascheroni
@@ -1130,7 +1169,6 @@ void Gpu::printRoundoff() {
   log("ROE: N=%u (%u), mode %f, median %f, mean %f, sdev %f, max %f, (%f, %f) (%f, %f) %u\n",
       N, nIts, mode, median, mean, sdev, m, u1, beta1, u2, beta2, buckets[best]);
 #endif
-}
 
 void Gpu::accumulate(Buffer<int>& acc, TBuf& data, TBuf& tmp1, TBuf& tmp2) {
   fftP(tmp1, acc);
@@ -1430,7 +1468,7 @@ void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &
     bool doLog = atEnd || nStop || block % (20 * blockMulti) == 0;
 
     if (doLog) {
-      if (true || printStats) { printRoundoff(); }
+      // if (printStats) { printRoundoff(); }
 
 #if 0
       {
@@ -1769,9 +1807,10 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     if (k % 10000 == 0) {
       Stats stats = readStats(bufData);
       float secsPerIt = iterationTimer.reset(k);
-      float avgBits = log2f(stats.sumAbs / N) + 1;
-      log("   %9u %08x  bits %.2f, balance %d; %4.0f\n", k, stats.sumM31, avgBits, int(stats.sum), secsPerIt * 1'000'000);
-      printRoundoff();
+      // float avgBits = log2f(stats.sumAbs / N) + 1;
+      readROE();
+      log("   %9u %08x  avg %.3f, balance %d; %4.0f\n",
+          k, stats.sumM31, float(stats.sumAbs) / N, int(stats.sum), secsPerIt * 1'000'000);
       if (stats.sumAbs == 0) { doCheck = true; }
     }
 
@@ -1816,7 +1855,10 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       bool ok = !check.empty() && this->doCheck(blockSize, buf1, buf2, buf3);
 
       float secsCheck = iterationTimer.reset(k);
-        
+
+      readROE();
+      processROE();
+
       if (ok) {
         nSeqErrors = 0;
         lastFailedRes64.reset();

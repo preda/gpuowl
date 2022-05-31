@@ -93,9 +93,7 @@ class Gpu {
   Kernel tailMulLowLow;
   
   Kernel readResidue;
-  Kernel differ;
   Kernel sum64;
-  Kernel readROE;
   Kernel stats;
   
   // Kernel testKernel;
@@ -118,7 +116,6 @@ class Gpu {
   Buffer<i64> bufCarry;  // Carry shuttle.
   
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
-  HostAccessBuffer<u32> bufRoundoff;
   HostAccessBuffer<u32> bufCarryMax;
   HostAccessBuffer<u32> bufCarryMulMax;
 
@@ -127,11 +124,16 @@ class Gpu {
   HostAccessBuffer<u32> bufZero;
   HostAccessBuffer<u64> bufSumOut;
   HostAccessBuffer<i64> bufStatsOut;
+  HostAccessBuffer<u32> bufROE;
 
   // Auxilliary big buffers
   HostAccessBuffer<float> buf1;
   HostAccessBuffer<float> buf2;
   TBuf buf3;
+
+  // vector<float> accROE;
+  double accROESqAbove = 0;
+  u32 accROEn = 0;
 
   vector<int> readSmall(Buffer<int>& buf, u32 start);
 
@@ -169,7 +171,8 @@ class Gpu {
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
 
-  void printRoundoff();
+  void readROE();
+  void processROE();
 
   // does either carrryFused() or the expanded version depending on useLongCarry
   void doCarry(TBuf& out, TBuf& in);

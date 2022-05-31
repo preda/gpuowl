@@ -564,21 +564,10 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
 
 // Global data
 
-#define ROE_SIZE 1024
-u32 ROE[ROE_SIZE + 1];
-// u32 ROE_INDEX = ROE_SIZE - 1;
-
 TT THREAD_WEIGHTS[G_W];
 TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
-
-KERNEL(64) readROE(global u32 *outROE) {
-  for (u32 k = get_global_id(0); k < ROE_SIZE + 1; k += get_global_size(0)) {
-    outROE[k] = ROE[k];
-    ROE[k] = 0;
-  }
-}
 
 KERNEL(64) writeGlobals(global T2* trig2Sh, global T2* trigBh, global T2* trigN,
                         global T2* trigW,
@@ -641,45 +630,6 @@ KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
   if (get_local_id(0) == 0) { atom_add(&out[0], sum); }
 }
 
-// outDiffer must be "false" on entry.
-KERNEL(64) differ(P(u32) outDiffer, global Word2 *A, global Word2 *B, CP(u32) bits) {
-  // if (*outDiffer) { return; } // Early exit if a previous WG already did it.
-  local bool groupOut;
-  u32 me = get_local_id(0);
-  if (me == 0) { groupOut = false; }
-
-  u32 g = get_group_id(0);
-  u32 gx = g % (WIDTH / 64);
-  u32 gy = g / (WIDTH / 64);
-
-  #define GPW (16u / CARRY_LEN)
-  u32 bts = bits[(64 * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
-  #undef GPW
-
-  u32 p = WIDTH * CARRY_LEN * gy + 64u * gx + me;
-  i32 ax = A[p].x;
-  i32 bx = B[p].x;
-
-  i32 carryA = 0;
-  i32 carryB = 0;
-  // Tolerate one missing carry-in into either a or b.
-  if (abs(bx - ax) == 1) { carryB = bx - ax; }
-  assert(abs(carryB) <= 1);
-
-  for (u32 i = 0; i < CARRY_LEN; ++i) {
-    if (groupOut || *outDiffer) { return; }
-    u32 p = WIDTH * i + WIDTH * CARRY_LEN * gy + 64u * gx + me;
-    Word2 a = carryWord32(A[p], &carryA, test(bts, 2*i), test(bts, 2*i + 1));
-    Word2 b = carryWord32(B[p], &carryB, test(bts, 2*i), test(bts, 2*i + 1));
-    if (a.x != b.x || a.y != b.y) {
-      outDiffer[0] = 1;
-      groupOut = true;
-      // printf("* %u %u %d %d %d %d\n", g, me, a.x, b.x, a.y, b.y);
-      // return;
-    }
-  }
-}
-
 u32 ROL31(u32 w, u32 shift) {
   return ((w << shift) & 0x7fffffff) + (w >> (31 - shift));
 }
@@ -707,8 +657,6 @@ KERNEL(SGW) stats(P(i64) outStats, global Word2 *A) {
   assert(2 * k < NWORDS);
   u32 shift = k ? (2 * k * (u64) EXP / NWORDS + 1) % 31 : 0;
 
-  // if (gx == 0 && (gy == 0 || gy == 1) && me == 0) { printf("shift %d %u\n", g, shift); }
-
   i32 carry = 0;
 
   for (u32 i = 0; i < NL; ++i, ++k) {
@@ -734,12 +682,6 @@ KERNEL(SGW) stats(P(i64) outStats, global Word2 *A) {
 
     shift += len.y;
     shift = (shift >= 31) ? shift - 31 : shift;
-
-#if 0
-    if (gx == 0 && (gy == 0 || gy == 1) && me == 0) {
-      printf("%d %u %u %d %d %lx %x %x %u\n", gy, len.x, len.y, a.x, a.y, sumM31, w1, w2, shift);
-    }
-#endif
   }
 
   const u32 MINUS_ONE = 0x7ffffffe; // (1u << 31) - 2u;
@@ -752,7 +694,7 @@ KERNEL(SGW) stats(P(i64) outStats, global Word2 *A) {
   }
 
   i64 groupSumAbs = work_group_reduce_add((i64) sumAbs);
-  i32 groupSum = work_group_reduce_add(sum);
+  i32 groupSum    = work_group_reduce_add(sum);
   i64 groupSumM31 = work_group_reduce_add((i64) sumM31);
 
   if (me == 0) {
@@ -762,27 +704,6 @@ KERNEL(SGW) stats(P(i64) outStats, global Word2 *A) {
   }
 }
 #undef SGW
-
-/*
-KERNEL(G_W) isEqual(P(bool) outEqual, global i32 *A, global i32 *B) {
-  for (i32 p = get_global_id(0); p < sizeBytes / sizeof(i64); p += get_global_size(0)) {
-    if (in1[p] != in2[p]) {
-      *outEqual = false;
-      return;
-    }
-  }
-}
-
-// outNotZero must be "false" on entry.
-KERNEL(256) isNotZero(P(bool) outNotZero, u32 sizeBytes, global i64 *in) {
-  for (i32 p = get_global_id(0); p < sizeBytes / sizeof(i64); p += get_global_size(0)) {
-    if (in[p] != 0) {
-      *outNotZero = true;
-      return;
-    }
-  }
-}
-*/
 
 void fft_WIDTH(local T2 *lds, T2 *u) {
 #if WIDTH == 256
@@ -1064,7 +985,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
 }
 
-KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
+KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, P(u32) ROE) {
   T2 u[MIDDLE];
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
@@ -1113,15 +1034,22 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in) {
 
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
 
-  if (get_global_id(0) == 0) { ++ROE[ROE_SIZE]; }
+  if (get_global_id(0) == 0) {
+    u32 pos = ROE[0];
+    if (pos < ROE_SIZE - 1) {
+      ROE[0] = ++pos;
+      ROE[pos] = 0;
+    }
+  }
 }
 
-void updateROE(float roundMax) {
-  assert(roundMax >= 0);
-  // assert(roundMax <= 0.5f)
+void updateROE(global u32 *ROE, float roundMax) {
+  assert(roundMax >= 0 && roundMax <= 0.5f);
   float groupMax = work_group_reduce_max(roundMax);
-  global u32 *roundOut = ROE + ROE[ROE_SIZE] % ROE_SIZE;
-  if (get_local_id(0) == 0) { atomic_max(roundOut, as_uint(groupMax)); }
+
+  u32 pos = ROE[0];
+  assert(pos > 0 && pos < ROE_SIZE);
+  if (get_local_id(0) == 0) { atomic_max(&ROE[pos], as_uint(groupMax)); }
 }
 
 float OVERLOAD roundoff(T u, T w) {
@@ -1136,7 +1064,7 @@ float OVERLOAD roundoff(T2 u, T2 w) { return max(roundoff(u.x, w.x), roundoff(u.
 // Input arrives conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits) {
+KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(u32) ROE) {
 
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -1169,7 +1097,7 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits) {
   }
   carryOut[G_W * g + me] = carry;
 
-  updateROE(roundMax);
+  updateROE(ROE, roundMax);
 }
 //}}
 
@@ -1211,7 +1139,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(i64) carryIn, CP(u32) bits) {
 // See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
 //{{ CARRY_FUSED
 KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits) {
+                 CP(u32) bits, P(u32) ROE) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -1276,7 +1204,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     }
   }
 
-  updateROE(roundMax);
+  updateROE(ROE, roundMax);
 
   if (gr == 0) { return; }
 
