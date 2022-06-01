@@ -169,7 +169,8 @@ typedef float2 TT;
 
 void bar() { barrier(0); }
 
-TT U2(T a, T b) { return (TT) (a, b); }
+OVERLOAD TT U2(T a, T b) { return (TT) (a, b); }
+OVERLOAD TT U2(Word2 a) { return (TT) (a.x, a.y); }
 
 OVERLOAD T sum(T a, T b) { return a + b; }
 
@@ -566,12 +567,15 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
 
 TT THREAD_WEIGHTS[G_W];
 TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
+TT CARRY_WI[ND];
+TT CARRY_WF[ND];
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 KERNEL(64) writeGlobals(global T2* trig2Sh, global T2* trigBh, global T2* trigN,
                         global T2* trigW,
-                        global T2* threadWeights, global T2* carryWeights
+                        global T2* threadWeights, global T2* carryWeights,
+                        global T2* carryI, global T2* carryF
                         ) {
 #if 0
   for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_2SH[k] = trig2ShDP[k]; }
@@ -581,6 +585,11 @@ KERNEL(64) writeGlobals(global T2* trig2Sh, global T2* trigBh, global T2* trigN,
   // Weights
   for (u32 k = get_global_id(0); k < G_W; k += get_global_size(0)) { THREAD_WEIGHTS[k] = threadWeights[k]; }
   for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
+
+  for (u32 k = get_global_id(0); k < ND; k += get_global_size(0)) {
+    CARRY_WI[k] = carryI[k];
+    CARRY_WF[k] = carryF[k];
+  }
 }
 
 void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out) {
@@ -859,14 +868,15 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
 
   u32 me = get_local_id(0);
 
-  T base = optionalHalve(fancyMul(CARRY_WEIGHTS[g / CARRY_LEN].y, THREAD_WEIGHTS[me].y));
-  base = optionalHalve(fancyMul(base, fweightUnitStep(g % CARRY_LEN)));
-
   for (u32 i = 0; i < NW; ++i) {
-    T w1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
-    T w2 = optionalHalve(fancyMul(w1, WEIGHT_STEP));
     u32 p = G_W * i + me;
-    u[i] = U2(in[p].x, in[p].y) * U2(w1, w2);
+
+#if 0
+    T w1 = CARRY_WF[step + p].x;
+    // fancyMul(w1, WEIGHT_STEP)
+#else
+    u[i] = fancyMul(U2(in[p]), CARRY_WF[step + p]);
+#endif
   }
 
   fft_WIDTH(lds, u);
@@ -1019,9 +1029,9 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, P(u32) ROE) {
 
   // FFT results come out multiplied by the FFT length (NWORDS).  Also, for performance reasons
   // weights and invweights are doubled meaning we need to divide by another 2^2 and 2^2.
-  T factor = 1.0 / (4 * 4 * NWORDS);
+  // T factor = 1.0 / (4 * 4 * NWORDS);
   // T factor = 1.0 / (2 * NWORDS);
-  middleFactor(u, factor);
+  // middleFactor(u, factor);
 
   local T2 lds[OUT_WG * MIDDLE];
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
@@ -1052,20 +1062,11 @@ void updateROE(global u32 *ROE, float roundMax) {
   if (get_local_id(0) == 0) { atomic_max(&ROE[pos], as_uint(groupMax)); }
 }
 
-float OVERLOAD roundoff(T u, T w) {
-  float x = u * w;
-  float r = rint(x);
-  return fabs(x - r);
-}
-
-float OVERLOAD roundoff(T2 u, T2 w) { return max(roundoff(u.x, w.x), roundoff(u.y, w.y)); }
-
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
 //{{ CARRYA
 KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(u32) ROE) {
-
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
@@ -1079,15 +1080,18 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
 
-  T base = optionalDouble(fancyMul(CARRY_WEIGHTS[gy].x, THREAD_WEIGHTS[me].x));
-  
-    base = optionalDouble(fancyMul(base, iweightStep(gx)));
-
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    T w1 = i == 0 ? base : optionalDouble(fancyMul(base, iweightUnitStep(i)));
-    T w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
-    T2 x = conjugate(in[p]) * U2(w1, w2);
+
+#if 0
+    T w1 = CARRY_WI[p].x;
+    T x1 = fancyMul(in[p].x, w1);
+    T x2 = fancyMul(fancyMul(-in[p].y, w1), IWEIGHT_STEP);
+    if (!test(b, 2*i)) { x2 *= 2; }
+    T2 x = U2(x1, x2) / (2 * NWORDS);
+#else
+    T2 x = fancyMul(conjugate(in[p]), CARRY_WI[p]) / (2 * NWORDS);
+#endif
         
 #if DO_MUL3
     out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax);
@@ -1645,7 +1649,7 @@ kernel void testKernel1(global float2* io) {
   uint me = get_local_id(0);
   float u = io[me].x;
   float w = io[me].y;
-  io[me].x = roundoff(u, w);
+  io[me].x = 0; // roundoff(u, w);
 }
 
 kernel void testKernel2(global float2* io) {
@@ -1655,4 +1659,3 @@ kernel void testKernel2(global float2* io) {
   float x = rint(u * w);
   io[me].x = fabs(u * w - x);
 }
-

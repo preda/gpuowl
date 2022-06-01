@@ -45,6 +45,8 @@ struct Weights {
   vector<float> carryWeightsIF;
   vector<u32> bitsCF;
   vector<u32> bitsC;
+  vector<float> carryI;
+  vector<float> carryF;
 };
 
 namespace {
@@ -171,6 +173,17 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
     auto w = weight(N, E, H, gy * CARRY_LEN, 0, 0);
     carryWeightsIF.push_back(2 * w);
   }
+
+  // full carry
+  vector<T> carryI, carryF;
+  for (u32 line = 0; line < H; ++line) {
+    for (u32 col = 0; col < W; ++col) {
+      carryI.push_back(invWeight(N, E, H, line, col, 0) - 1);
+      carryI.push_back(invWeight(N, E, H, line, col, 1) - 1);
+      carryF.push_back(weight(N, E, H, line, col, 0) - 1);
+      carryF.push_back(weight(N, E, H, line, col, 1) - 1);
+    }
+  }
   
   vector<u32> bits;
   
@@ -206,7 +219,7 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{threadWeightsIF, carryWeightsIF, bits, bitsC};
+  return Weights{threadWeightsIF, carryWeightsIF, bits, bitsC, carryI, carryF};
 }
 
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
@@ -435,7 +448,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
                                                              ConstBuffer{context, "dp4", makeTinyTrig<float>(W, hN)},
 
                                                              ConstBuffer{context, "w2", weights.threadWeightsIF},
-                                                             ConstBuffer{context, "w3", weights.carryWeightsIF}
+                                                             ConstBuffer{context, "w3", weights.carryWeightsIF},
+
+                                                             ConstBuffer{context, "ci", weights.carryI},
+                                                             ConstBuffer{context, "ci", weights.carryF}
                                                              );
   }
 
