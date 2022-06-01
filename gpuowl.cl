@@ -10,15 +10,7 @@ IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 
 UNROLL_WIDTH <nVidia default>
 NO_UNROLL_WIDTH <AMD default>
 
-OLD_FFT5
-NEW_FFT5 <default>
-NEWEST_FFT5
-
-NEW_FFT9 <default>
-OLD_FFT9
-
 DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
-STATS      enable stats about roundoff distribution and carry magnitude
 
 ---- P-1 below ----
 
@@ -219,14 +211,18 @@ TT mad_m1(TT a, TT b, TT c) {
 // complex fma * 2
 TT mad_m2(TT a, TT b, TT c) { return mad_m1(a, b, c) * 2; }
 
+#if CLOCKWISE
 TT mul_t4(TT a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
 TT mul_t8(TT a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   (T) (M_SQRT1_2); }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 TT mul_3t8(TT a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - (T) (M_SQRT1_2); }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+#else
+TT mul_t4(TT a)  { return U2(-IM(a), RE(a)); } // mul(a, U2( 0, 1)); }
+TT mul_t8(TT a)  { return U2(RE(a) - IM(a), RE(a) + IM(a)) *   (T) (M_SQRT1_2); }  // mul(a, U2( 1, 1)) * (T)(M_SQRT1_2); }
+TT mul_3t8(TT a) { return U2(RE(a) + IM(a), IM(a) - RE(a)) * - (T) (M_SQRT1_2); }  // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2); }
+#endif
 
 TT swap(TT a)      { return U2(IM(a), RE(a)); }
 TT conjugate(TT a) { return U2(RE(a), -IM(a)); }
-
-TT weight(Word2 a, TT w) { return w * U2(RE(a), IM(a)); }
 
 u32 bfi(u32 u, u32 mask, u32 bits) {
 #if HAS_ASM
@@ -358,7 +354,7 @@ T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
 
 // Same as X2(a, b), b = mul_t4(b)
-#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
+// #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
 
 // Same as X2(a, conjugate(b))
 #define X2conjb(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = IM(a) - IM(b); RE(b) = t.x - RE(b); IM(b) = t.y + IM(b); }
@@ -372,9 +368,9 @@ T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
 // Partial complex multiplies:  the mul by sin is delayed so that it can be later propagated to an FMA instruction
 // complex mul by cos-i*sin given cos/sin, sin
-T2 partial_cmul(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, IM(a)), mad1(IM(a), c_over_s, -RE(a))); }
+// T2 partial_cmul(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, IM(a)), mad1(IM(a), c_over_s, -RE(a))); }
 // complex mul by cos+i*sin given cos/sin, sin
-T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, -IM(a)), mad1(IM(a), c_over_s, RE(a))); }
+// T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, -IM(a)), mad1(IM(a), c_over_s, RE(a))); }
 
 // a = c + sin * d; b = c - sin * d;
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; T2 t = c + d; b = c - d; a = t; }
@@ -1354,7 +1350,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
       onePairSq(u[i+NH/2], v[i+NH/2], swap_squared(-base_squared));
     }
 
-    T2 new_base_squared = mul(base_squared, U2(0, -1));
+    T2 new_base_squared = mul_t4(base_squared); // mul(base_squared, U2(0, -1));
     onePairSq(u[i+NH/4], v[i+NH/4], swap_squared(new_base_squared));
 
     if (N == NH) {
@@ -1408,7 +1404,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
       onePairMul(u[i+NH/2], v[i+NH/2], p[i+NH/2], q[i+NH/2], swap_squared(-base_squared));
     }
 
-    T2 new_base_squared = mul(base_squared, U2(0, -1));
+    T2 new_base_squared = mul_t4(base_squared); // mul(base_squared, U2(0, -1));
     onePairMul(u[i+NH/4], v[i+NH/4], p[i+NH/4], q[i+NH/4], swap_squared(new_base_squared));
 
     if (N == NH) {
@@ -1623,34 +1619,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 // equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
-
-float fastCosSP(u32 k, u32 tau) {
-  float x = (-1.0f / tau) * k;
-  float out;
-  __asm("v_cos_f32_e32 %0, %1" : "=v"(out) : "v" (x));
-  return out;
-  // return cospi(2 * x);
-}
-
-float fastSinSP(u32 k, u32 tau) {
-  float x = (-1.0f / tau) * k;
-  float out;
-  __asm("v_sin_f32_e32 %0, %1" : "=v"(out) : "v" (x));
-  return out;
-  // return cospi(2 * x);
-}
-
-KERNEL(64) readHwTrig(global float2* out, u32 Tau) {
-  u32 id = get_global_id(0);
-  out[id] = U2(fastCosSP(id, Tau), fastSinSP(id, Tau));
-}
- 
-kernel void testKernel1(global float2* io) {
-  uint me = get_local_id(0);
-  float u = io[me].x;
-  float w = io[me].y;
-  io[me].x = 0; // roundoff(u, w);
-}
 
 kernel void testKernel2(global float2* io) {
   uint me = get_local_id(0);

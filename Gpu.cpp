@@ -431,16 +431,19 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
   vector<float2> readTrigSH, readTrigBH, readTrigN;
   {
-    HostAccessBuffer<float2>
-      bufSH{queue, "readTrig", SMALL_H/4 + 1},
-      bufBH{queue, "readTrigBH", BIG_H/8 + 1},
-      bufN{queue, "readTrigN", hN/8+1};
-/*
-    Kernel{program.get(), queue, device, 32, "readHwTrig"}(bufSH, bufBH, bufN);
-    readTrigSH = bufSH.read();
-    readTrigBH = bufBH.read();
-    readTrigN = bufN.read();
-*/
+    HostAccessBuffer<float2> bufHwTrig{queue, "readTrig", 1024*1024};
+
+#if 0
+    Kernel{program.get(), queue, device, "readHwTrig", 1024*1024}(bufHwTrig, u32(8*1024*1024));
+    auto hwTrig = bufHwTrig.read();
+    assert(hwTrig.size() == 1024*1024);
+    File fo = File::openWrite("sin.txt");
+    for (u32 k = 0; k < 1024 * 1024; ++k) {
+      float s = hwTrig[k].second;
+      auto r = sinl(k * M_PIl / (4*1024*1024));
+      fprintf(fo.get(), "%u %f\n", k, ulpsf(s, r));
+    }
+#endif
 
     Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "dp1", makeTrig<float>(2 * SMALL_H)},
                                                              ConstBuffer{context, "dp2", makeTrig<float>(BIG_H)},

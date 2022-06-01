@@ -276,7 +276,7 @@ cl_program compile(cl_context context, cl_device_id device, const string &source
 
   // -cl-fast-relaxed-math  -cl-unsafe-math-optimizations -cl-denorms-are-zero -cl-mad-enable 
   log("OpenCL args \"%s\"\n", args.c_str());
-  
+
   cl_program program = 0;
 
   if ((program = loadSource(context, source))) {

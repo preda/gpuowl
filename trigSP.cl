@@ -81,8 +81,12 @@ float2 slowTrig(u32 k, u32 bound, u32 tau) {
    if (negateCos) { r.x = -r.x; }
    if (negate) { r = -r; }
 
+#if CLOCKWISE
    // Use the "-i" direction for the forward FFT as a convention
    return conjugate(r); // U2(r.x, -r.y);
+#else
+   return r;
+#endif
 }
 
 float2 slowTrig_2SH(u32 k, u32 bound) { return slowTrig(k, bound, 2 * SMALL_HEIGHT); }
