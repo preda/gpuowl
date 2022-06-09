@@ -13,7 +13,7 @@
 string numberK(u32 n);
 
 struct FFTConfig {
-  static constexpr const float MIN_BPW = 3;
+  static constexpr const float MIN_BPW = 2.5;
 
   static u32 getMaxExp(u32 fftSize, u32 middle) {
     return 6 * fftSize;
