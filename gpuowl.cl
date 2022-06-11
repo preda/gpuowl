@@ -404,33 +404,42 @@ TT mad_m1(TT a, TT b, TT c) {
 // complex fma * 2
 TT mad_m2(TT a, TT b, TT c) { return mad_m1(a, b, c) * 2; }
 
-#if CLOCKWISE
+TT OVERLOAD mul_t4(TT a)  { return U2(-IM(a), RE(a)); } // mul(a, U2( 0, 1)); }
+TT OVERLOAD mul_t8(TT a)  { return U2(RE(a) - IM(a), RE(a) + IM(a)) *   (T) (M_SQRT1_2); }  // mul(a, U2( 1, 1)) * (T)(M_SQRT1_2); }
+TT OVERLOAD mul_3t8(TT a) { return U2(RE(a) + IM(a), IM(a) - RE(a)) * - (T) (M_SQRT1_2); }  // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2); }
 
-TT mul_t4(TT a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
-TT mul_t8(TT a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   (T) (M_SQRT1_2); }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-TT mul_3t8(TT a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - (T) (M_SQRT1_2); }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+long2 OVERLOAD mul_t4(long2 a)  { return (long2) (-a.y, a.x); }
 
-#else
+long shl(long a, u32 k) {
+  assert(k < 61);
+  long top = (a << k) & M;
 
-TT mul_t4(TT a)  { return U2(-IM(a), RE(a)); } // mul(a, U2( 0, 1)); }
-TT mul_t8(TT a)  { return U2(RE(a) - IM(a), RE(a) + IM(a)) *   (T) (M_SQRT1_2); }  // mul(a, U2( 1, 1)) * (T)(M_SQRT1_2); }
-TT mul_3t8(TT a) { return U2(RE(a) + IM(a), IM(a) - RE(a)) * - (T) (M_SQRT1_2); }  // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2); }
+  // balance sign
+  assert(top >= 0);
+  if (top >> 60) {
+    top -= M;
+    assert(top <= 0);
+  }
 
-#endif
-
-TT swap(TT a)      { return U2(IM(a), RE(a)); }
-TT conjugate(TT a) { return U2(RE(a), -IM(a)); }
-
-u32 bfi(u32 u, u32 mask, u32 bits) {
-#if HAS_ASM
-  u32 out;
-  __asm("v_bfi_b32 %0, %1, %2, %3" : "=v"(out) : "v"(mask), "v"(u), "v"(bits));
-  return out;
-#else
-  // return (u & mask) | (bits & ~mask);
-  return (u & mask) | bits;
-#endif
+  return top + (a >> (61 - k));
 }
+
+long2 OVERLOAD mul_t8(long2 a)  {
+  // (1, 1) * sqrt(1/2), for M61, corresponds to *2^30*(1 + j).
+  return (long2) (shl(a.x - a.y, 30), shl(a.x + a.y, 30));
+}
+
+long2 OVERLOAD mul_3t8(long2 a) {
+  // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2)
+  // * 2^30 * (-1 + j)
+  return (long2) (-shl(a.x + a.y, 30), shl(a.y - a.x, 30));
+}
+
+long2 OVERLOAD swap(long2 a) { return (long2) (a.y, a.x); }
+long2 OVERLOAD conjugate(long2 a) { return (long2) (a.x, -a.y); }
+
+TT OVERLOAD swap(TT a)      { return U2(IM(a), RE(a)); }
+TT OVERLOAD conjugate(TT a) { return U2(RE(a), -IM(a)); }
 
 // In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
 // because it allows us to implement this routine with a single OR instruction on the exponent.   The original implementation
@@ -456,10 +465,8 @@ float optionalHalve(float w) {
 
 #if HAS_ASM
 i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
-i32 xtract32(i64 x, u32 bits) { i32 tmp; __asm("v_alignbit_b32 %0, %1, %2, %3" : "=v"(tmp) : "v"(as_int2(x).y), "v"(as_int2(x).x), "v"(bits)); return tmp; }
 #else
 i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
-i32 xtract32(i64 x, u32 bits) { return ((i32) (x >> bits)); }
 #endif
 
 i64 I64(T x, T *maxROE) {
@@ -499,7 +506,7 @@ Word2 carryPair(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, T *maxROE) {
   Word a = carryStep64(I64(u.x, maxROE) + inCarry, &midCarry, b1);
   Word b = carryStep64(I64(u.y, maxROE) + midCarry, outCarry, b2);
 
-#if 1
+#if 0
   u32 nBitsA = bitlen(b1);
   u32 nBitsB = bitlen(b2);
   assert(abs(a) <= POW2(nBitsA - 1));
