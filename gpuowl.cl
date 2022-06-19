@@ -39,10 +39,6 @@ G_W        "group width"
 G_H        "group height"
  */
 
-#define STR(x) XSTR(x)
-#define XSTR(x) #x
-
-#define OVERLOAD __attribute__((overloadable))
 
 #pragma OPENCL FP_CONTRACT ON
 
@@ -55,318 +51,27 @@ G_H        "group height"
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 // #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
-#if DEBUG
-#define assert(condition) if (!(condition)) { printf("assert(%s) failed at line %d\n", STR(condition), __LINE__ - 1); }
-// __builtin_trap();
-#else
-#define assert(condition)
-//__builtin_assume(condition)
-#endif // DEBUG
-
-#if AMDGPU
-// On AMDGPU the default is HAS_ASM
-#if !NO_ASM
-#define HAS_ASM 1
-#endif
-#endif // AMDGPU
-
-
-// The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
-// which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
-// For AMD GPUs we do not unroll fft_WIDTH loops. For nVidia GPUs, we unroll everything.
-#if !UNROLL_WIDTH && !NO_UNROLL_WIDTH && !AMDGPU
-#define UNROLL_WIDTH 1
-#endif
-
-// Expected defines: EXP the exponent.
-// WIDTH, SMALL_HEIGHT, MIDDLE.
-
-#define BIG_HEIGHT (SMALL_HEIGHT * MIDDLE)
-#define ND (WIDTH * BIG_HEIGHT)
-#define NWORDS (ND * 2u)
-
-#if WIDTH == 1024 || WIDTH == 256
-#define NW 4
-#else
-#define NW 8
-#endif
-
-#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256
-#define NH 4
-#else
-#define NH 8
-#endif
-
-#define G_W (WIDTH / NW)
-#define G_H (SMALL_HEIGHT / NH)
-
-#if !OUT_WG
-#define OUT_WG 256
-#endif
-
-#if !OUT_SIZEX
-#if AMDGPU
-#define OUT_SIZEX 32
-#else // AMDGPU
-#if G_W >= 64
-#define OUT_SIZEX 4
-#else
-#define OUT_SIZEX 32
-#endif
-#endif
-#endif
-
-#if !OUT_SPACING
-#if AMDGPU
-#define OUT_SPACING 4
-#else
-#define OUT_SPACING 1
-#endif
-#endif
-
-#if !IN_WG
-#define IN_WG 256
-#endif
-
-#if !IN_SIZEX
-#if AMDGPU
-#define IN_SIZEX 32
-#else // !AMDGPU
-#if G_W >= 64
-#define IN_SIZEX 4
-#else
-#define IN_SIZEX 32
-#endif
-#endif
-#endif
-
-#if UNROLL_WIDTH
-#define UNROLL_WIDTH_CONTROL
-#else
-#define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
-#endif
-
-void bar() { barrier(0); }
-
-
-typedef int i32;
-typedef uint u32;
-typedef long i64;
-typedef ulong u64;
-
-bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
-
-#define STEP (NWORDS - (EXP % NWORDS))
-u32 EXTRA(u64 k) { return STEP * k % NWORDS; }
-bool isBigExtra(u32 extra) { return extra < NWORDS - STEP; }
-bool isBigK(u32 k) { return isBigExtra(EXTRA(k)); }
-u32 bitlen(bool b) { return EXP / NWORDS + b; }
-u32 bitlenK(u32 k) { return bitlen(isBigK(k)); }
-uint2 bitlen2K(u32 k) { return (uint2) (bitlenK(2*k), bitlenK(2*k + 1)); }
-
-typedef i32 Word;
-typedef int2 Word2;
-typedef i64 CarryABM;
-
 typedef float T;
 typedef float2 TT;
+typedef TT T2;
+
+typedef int Word;
+typedef int2 Word2;
+typedef long CarryABM;
+
+#include "shared.cl"
+
 #define RE(a) (a.x)
 #define IM(a) (a.y)
 
-u32 U32(u64 x) { return x; }
-// u64 U64(u32 x)
-
-i64 mad64i(i32 a, i32 b, i64 c) {
-#if HAS_ASM && 0
-  i64 result;
-  __asm("v_mad_i64_i32 %0, vcc, %1, %2, %3\n"
-        : "=v"(result)
-        : "v"(a), "v"(b), "v"(c)
-        : "vcc"
-      );
-  return result;
-#else
-  return ((i64) a) * b + c;
-#endif
-}
-
-u64 mad64u(u32 a, u32 b, u64 c) { return a * (u64) b + c; }
-
-#define SIGNED_M61 1
-
-#if SIGNED_M31
-
-#define M (0x7fffffff) // 2^31 - 1
-
-
-i32 OVERLOAD reduce(i32 a) {
-  i32 r = a < -M/2 ? a + M : (a > M/2 ? a - M : a);
-  return r;
-  // return a <= -M ? a + M : (a >= M ? a - M : a);
-}
-
-i32 reduce61To32(i64 a) {
-  assert((abs(a) >> 61) == 0); // "a" has 61 bits plus sign
-  i32 hi = a >> 31;
-  u32 lo = a & M;
-  return hi + (hi > 0 ? lo - M : lo);
-}
-
-i32 OVERLOAD reduce61(i64 a) {
-  return reduce(reduce61To32(a));
-}
-
-int2 OVERLOAD reduce(int2 a) { return (int2) (reduce(a.x), reduce(a.y)); }
-int2 OVERLOAD reduce61(long2 a) { return (int2) (reduce61(a.x), reduce61(a.y)); }
-
-int2 OVERLOAD mul(int2 a, int2 b) {
-  // a = reduce(a);
-  // b = reduce(b);
-  i32 cx = reduce61(mad64i(a.x, b.x, -a.y * (i64) b.y));
-  i31 cy = reduce61(mad64i(a.x, b.y,  a.y * (i64) b.x));
-  return (int2) (cx, cy);
-}
-
-#elif UNSIGNED_M31
-
-u32 OVERLOAD reduce(u32 a) { return (a & M) + (a >> 31); }
-
-u32 reduce62(u64 a) {
-  assert(!(a>>62));
-  u32 lo = U32(a) & M;
-  u32 hi = a >> 31;
-  return reduce(lo + hi);
-}
-
-u32 reduce63(u64 a) {
-  assert(!(a>>63));
-  u32 lo = U32(a) & M;
-  u32 hi = a >> 31;
-  return reduce(lo + reduce(hi));
-}
-
-u32 OVERLOAD reduce64(u64 a) {
-  u32 lo = U32(a) & M;
-  return reduce(lo + (U32(a >> 31) & M) + U32(a >> 62));
-}
-
-uint2 OVERLOAD mul(uint2 a, uint2 b) {
-  assert(!(a.x>>31) && !(a.y>>31));
-  assert(!(b.x>>31) && !(b.y>>31));
-  u32 cx = reduce63(mad64u(a.x, b.x, (M - a.y) * (u64) b.y));
-  u32 cy = reduce63(mad64u(a.x, b.y, a.y * (u64) b.x));
-  return (uint2) (cx, cy);
-}
-
-#elif SIGNED_M61
-
-// ((1ll << 61) - 1) // 2^61 - 1
-#define M 0x1fffffffffffffff
-
-// #define TEST_BIT(a, n) (((a) >> (n)) & 1)
-
 bool testBit(long a, u32 n) { return (a >> n) & 1; }
-
-long rebalance(long a) {
-  assert(a <= M + 1);
-  return as_uint2(a).y > as_uint2(M).y/2 ? a - M : a;
-}
-
-ulong reduceI(long a) {
-  // shift down
-  // a = (a & M) + (as_int2(a).y >> 29);
-  a = (a & M) + (a >> 61);
-  // rebalance
-  // return testBit(a, 60) ? a - M : a;
-  // return as_uint2(a).y > as_uint2(M).y / 2 ? a - M : a;
-  return a < 0 ? a + M : a;
-}
-
-ulong neg(long a) {
-  assert(a > 0);
-  ulong r = reduceI(-a);
-  assert(r <= M+1);
-  return r;
-  // return M - r;
-}
-
-ulong OVERLOAD reduce(ulong a) { return (a & M) + (a >> 61); }
-
-// long2 OVERLOAD reduce64(long2 a) { return (long2) (reduce64(a.x), reduce64(a.y)); }
-
-uint lo(ulong a) { return a; }
-
-
-ulong OVERLOAD mad(ulong a, ulong b, ulong c) {
-  uint a0 = as_uint2(a).x;
-  uint a1 = as_uint2(a).y;
-  uint b0 = as_uint2(b).x;
-  uint b1 = as_uint2(b).y;
-
-  ulong r0 = mad64u(a0, b0, c);
-  ulong r1 = mad64u(a1, b0, r0 >> 32);
-  ulong r2 = mad64u(a0, b1, r1);
-  ulong r3 = mad64u(a1, b1, r2 >> 32);
-
-  assert((r3 >> 60) == 0);
-  ulong r02 = reduce(lo(r0) | (r2 << 32));
-  ulong sum = r02 + (r3 << 3);
-  assert(sum >= r02); // no overflow
-  // return reduce(sum + ((sum < r01) << 3));
-  // return reduce(sum) + ((sum < r01) << 3);
-  return reduce(sum);
-}
-
-ulong OVERLOAD mul(ulong a, ulong b) { return mad(a, b, 0); }
-
-ulong2 OVERLOAD mul(ulong2 a, ulong2 b) {
-  // Complex mul: a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x
-
-  assert(a.x <= M+1 && a.y <= M+1);
-  assert(b.x <= M+1 && b.y <= M+1);
-
-  ulong k1  = mul(b.x, a.x + a.y);
-  ulong k12 = mad(a.x, reduceI((long) b.y - (long) b.x), k1);
-  ulong k13 = mad(a.y, neg(b.x + b.y), k1);
-  return (ulong2) (k13, k12);
-
-  /*
-  ulong rx = mad(a.x, b.x, neg(mul(a.y, b.y)));
-  ulong ry = mad(a.x, b.y, mul(a.y, b.x));
-  return (ulong2) (rx, ry);
-  */
-}
-
-ulong2 sq(ulong2 a) {
-  assert(a.x <= M+1 && a.y <= M+1);
-
-  // ulong s = reduce(a.x + a.y);
-  // assert(s <= M+1);
-
-  ulong d = reduceI((long) a.x - (long) a.y);
-
-  ulong rx = mul(a.x + a.y, d);
-  ulong ry = mul(a.x, a.y) << 1;
-  return (ulong2) (rx, ry);
-}
-
-#endif
-
-
-// OVERLOAD long2 U2(long a, long b) { return (long2) (a, b); }
-// OVERLOAD long sum(long a, long b) { return a + b; }
 
 OVERLOAD TT U2(Word2 a) { return (TT) (a.x, a.y); }
 OVERLOAD TT U2(T a, T b) { return (TT) (a, b); }
-OVERLOAD T sum(T a, T b) { return a + b; }
 
 OVERLOAD T mad1(T x, T y, T z) { return x * y + z; }  // fma(x, y, z); }
 
 OVERLOAD T mul(T x, T y) { return x * y; }
-
-T add1_m2(T x, T y) { return 2 * sum(x, y); }
-T sub1_m2(T x, T y) { return 2 * sum(x, -y); }
-T mul1_m2(T x, T y) { return 2 * mul(x, y); }
 
 // x * (y + 1)
 OVERLOAD T fancyMul(T x, const T y) { return fma(x, y, x); }
@@ -404,42 +109,9 @@ TT mad_m1(TT a, TT b, TT c) {
 // complex fma * 2
 TT mad_m2(TT a, TT b, TT c) { return mad_m1(a, b, c) * 2; }
 
-TT OVERLOAD mul_t4(TT a)  { return U2(-IM(a), RE(a)); } // mul(a, U2( 0, 1)); }
-TT OVERLOAD mul_t8(TT a)  { return U2(RE(a) - IM(a), RE(a) + IM(a)) *   (T) (M_SQRT1_2); }  // mul(a, U2( 1, 1)) * (T)(M_SQRT1_2); }
-TT OVERLOAD mul_3t8(TT a) { return U2(RE(a) + IM(a), IM(a) - RE(a)) * - (T) (M_SQRT1_2); }  // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2); }
-
-long2 OVERLOAD mul_t4(long2 a)  { return (long2) (-a.y, a.x); }
-
-long shl(long a, u32 k) {
-  assert(k < 61);
-  long top = (a << k) & M;
-
-  // balance sign
-  assert(top >= 0);
-  if (top >> 60) {
-    top -= M;
-    assert(top <= 0);
-  }
-
-  return top + (a >> (61 - k));
-}
-
-long2 OVERLOAD mul_t8(long2 a)  {
-  // (1, 1) * sqrt(1/2), for M61, corresponds to *2^30*(1 + j).
-  return (long2) (shl(a.x - a.y, 30), shl(a.x + a.y, 30));
-}
-
-long2 OVERLOAD mul_3t8(long2 a) {
-  // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2)
-  // * 2^30 * (-1 + j)
-  return (long2) (-shl(a.x + a.y, 30), shl(a.y - a.x, 30));
-}
-
-long2 OVERLOAD swap(long2 a) { return (long2) (a.y, a.x); }
-long2 OVERLOAD conjugate(long2 a) { return (long2) (a.x, -a.y); }
-
-TT OVERLOAD swap(TT a)      { return U2(IM(a), RE(a)); }
-TT OVERLOAD conjugate(TT a) { return U2(RE(a), -IM(a)); }
+TT mul_t4(TT a)  { return U2(-IM(a), RE(a)); } // mul(a, U2( 0, 1)); }
+TT mul_t8(TT a)  { return U2(RE(a) - IM(a), RE(a) + IM(a)) *   (T) (M_SQRT1_2); }  // mul(a, U2( 1, 1)) * (T)(M_SQRT1_2); }
+TT mul_3t8(TT a) { return U2(RE(a) + IM(a), IM(a) - RE(a)) * - (T) (M_SQRT1_2); }  // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2); }
 
 // In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
 // because it allows us to implement this routine with a single OR instruction on the exponent.   The original implementation
@@ -496,8 +168,6 @@ Word carryStep32(i32 x, i32 *outCarry, bool isBigWord) {
   *outCarry = (x - w) >> nBits;
   return w;
 }
-
-typedef TT T2;
 
 #define POW2(n) (1 << (n))
 
@@ -566,26 +236,30 @@ Word2 carryWord32(Word2 a, i32 *carry, bool b1, bool b2) {
 // Propagate carry this many pairs of words.
 #define CARRY_LEN 8
 
-T2 addsub(T2 a) { return U2(RE(a) + IM(a), RE(a) - IM(a)); }
-T2 addsub_m2(T2 a) { return addsub(a) * 2; }
-
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 // which happens to be the cyclical convolution (a.x, a.y)x(b.x, b.y) * 2
 T2 foo2(T2 a, T2 b) {
   a = addsub(a);
   b = addsub(b);
-  return addsub(U2(RE(a) * RE(b), IM(a) * IM(b)));
-}
-
-T2 foo2_m2(T2 a, T2 b) {
-  return foo2(a, b) * 2;
+  return addsub(U2(a.x * b.x, a.y * b.y));
 }
 
 // computes 2*[x^2+y^2 + i*(2*x*y)]. i.e. 2 * cyclical autoconvolution of (x, y)
-T2 foo(T2 a) { return foo2(a, a); }
-T2 foo_m2(T2 a) { return foo2_m2(a, a); }
-
-#define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
+T2 foo(T2 a) {
+#if 0
+  return foo2(a, a);
+#elif 0
+  T s = a.x + a.y;
+  T p = mul(a.x, a.y);
+  // SBITS(p, 61);
+  T c = 4 * p;
+  T b = mad(s, 2*s, -c);
+  return U2(b, c);
+#else
+  a = addsub(a);
+  return addsub(U2(a.x * a.x, a.y * a.y));
+#endif
+}
 
 // Same as X2(a, b), b = mul_t4(b)
 // #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
@@ -596,7 +270,6 @@ T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 // Same as X2(a, b), a = conjugate(a)
 #define X2conja(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = -IM(a) - IM(b); b = t - b; }
 
-#define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
 T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
@@ -611,40 +284,10 @@ T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
 // a * conjugate(b)
 // saves one negation
-T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a) * RE(b) - RE(a) * IM(b)); }
+// T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a) * RE(b) - RE(a) * IM(b)); }
 
-void fft4Core(T2 *u) {
-  X2(u[0], u[2]);
-  X2(u[1], u[3]); u[3] = mul_t4(u[3]);
-  X2(u[0], u[1]);
-  X2(u[2], u[3]);
-}
+#include "shared_tail.cl"
 
-void fft4(T2 *u) {
-   fft4Core(u);
-   // revbin [0 2 1 3] undo
-   SWAP(u[1], u[2]);
-}
-
-void fft2(T2* u) {
-  X2(u[0], u[1]);
-}
-
-void fft8Core(T2 *u) {
-  X2(u[0], u[4]);
-  X2(u[1], u[5]);   u[5] = mul_t8(u[5]);
-  X2(u[2], u[6]);   u[6] = mul_t4(u[6]);
-  X2(u[3], u[7]);   u[7] = mul_3t8(u[7]);
-  fft4Core(u);
-  fft4Core(u + 4);
-}
-
-void fft8(T2 *u) {
-  fft8Core(u);
-  // revbin [0, 4, 2, 6, 1, 5, 3, 7] undo
-  SWAP(u[1], u[4]);
-  SWAP(u[3], u[6]);
-}
 
 // FFT routines to implement the middle step
 //#include "fft3.cl"
@@ -676,12 +319,6 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   bar();
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
 }
-
-#if AMDGPU
-typedef constant const T2* Trig;
-#else
-typedef global const T2* Trig;
-#endif
 
 void tabMul(u32 WG, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
@@ -1574,7 +1211,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
 
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
-      u[i] = foo_m2(conjugate(u[i]));
+      u[i] = 2 * foo(conjugate(u[i]));
       v[i] = 4 * sq(conjugate(v[i]));
     } else {
       onePairSq(u[i], v[i], swap_squared(base_squared));
@@ -1628,7 +1265,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
 
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
-      u[i] = conjugate(foo2_m2(u[i], p[i]));
+      u[i] = conjugate(2 * foo2(u[i], p[i]));
       v[i] = mul_m4(conjugate(v[i]), conjugate(q[i]));
     } else {
       onePairMul(u[i], v[i], p[i], q[i], swap_squared(base_squared));
@@ -1659,10 +1296,10 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
 
   if (line1 == 0 && me == 0) {
 #if MULTIPLY_DELTA
-    io[0]     = foo2_m2(conjugate(io[0]), conjugate(inA[0] - inB[0]));
+    io[0]     = 2 * foo2(conjugate(io[0]), conjugate(inA[0] - inB[0]));
     io[W / 2] = conjugate(mul_m4(io[W / 2], inA[W / 2] - inB[W / 2]));
 #else
-    io[0]     = foo2_m2(conjugate(io[0]), conjugate(in[0]));
+    io[0]     = 2 * foo2(conjugate(io[0]), conjugate(in[0]));
     io[W / 2] = conjugate(mul_m4(io[W / 2], in[W / 2]));
 #endif
     return;
@@ -1854,9 +1491,11 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
 
-kernel void testKernel(global ulong4 *io) {
+kernel void testKernel(global int2 *io) {
   uint me = get_local_id(0);
-  io[me].xy = mul(io[me].xy, io[me].zw);
+
+  io[me].x = lowBits(io[me].x, io[me].y);
+  // io[me].xy = mul(io[me].xy, io[me].zw);
 
   // io[me] = reduce63(io[me]);
   // long long c = io[me].x * (long long) io[me].y;
