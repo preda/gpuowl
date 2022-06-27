@@ -136,9 +136,27 @@ float optionalHalve(float w) {
 }
 
 #if HAS_ASM
-i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
+Word lowBits(i64 u, u32 bits) {
+
+#if SMALL_BITS <= 31
+
+  i32 tmp;
+  assert(sizeof(Word) == 4);
+  assert(bits <= 32);
+  __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (I32(u)), "v" (bits));
+  return tmp;
+
 #else
-i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
+  i32 tmp;
+  assert(sizeof(Word) == 8);
+  assert(bits >= 32);
+  __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (I32(u>>32)), "v" (bits - 32));
+  return (I64(tmp) << 32) | U32(u);
+#endif
+}
+
+#else
+Word lowBits(i64 u, u32 bits) { return ((u << (64 - bits)) >> (64 - bits)); }
 #endif
 
 i64 I64(T x, T *maxROE) {
@@ -147,40 +165,32 @@ i64 I64(T x, T *maxROE) {
   return r;
 }
 
-Word carryStep64(i64 x, i64 *outCarry, bool isBigWord) {
-  u32 nBits = bitlen(isBigWord);
+#define POW2(n) (((Word) 1) << (n))
+
+Word carryStep(i64 *carry, u32 nBits) {
+  i64 x = *carry;
   Word w = lowBits(x, nBits);
 
-  if ((-w == (1 << (nBits - 1))) && (x > 0)) {
+  if ((-w == POW2(nBits - 1)) && (x > 0)) {
     w = -w;
     assert(x >= w);
-    assert(((x - w) & ((1 << nBits) - 1)) == 0);
+    assert(((x - w) & (POW2(nBits) - 1)) == 0);
   }
 
-  *outCarry = (x - w) >> nBits;
+  *carry = (x - w) >> nBits;
   return w;
 }
 
-Word carryStep32(i32 x, i32 *outCarry, bool isBigWord) {
-  u32 nBits = bitlen(isBigWord);
-  Word w = lowBits(x, nBits);
-  if ((-w == (1 << (nBits - 1))) && (x > 0)) { w = -w; }
-  *outCarry = (x - w) >> nBits;
-  return w;
-}
 
-#define POW2(n) (1 << (n))
-
-Word2 carryPair(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, T *maxROE) {
-  i64 midCarry;
-  Word a = carryStep64(I64(u.x, maxROE) + inCarry, &midCarry, b1);
-  Word b = carryStep64(I64(u.y, maxROE) + midCarry, outCarry, b2);
+Word2 carryPair(T2 u, i64 *outCarry, uint2 nBits, i64 inCarry, T *maxROE) {
+  *outCarry = inCarry + I64(u.x, maxROE);
+  Word a = carryStep(outCarry, nBits.x);
+  *outCarry += I64(u.y, maxROE);
+  Word b = carryStep(outCarry, nBits.y);
 
 #if 0
-  u32 nBitsA = bitlen(b1);
-  u32 nBitsB = bitlen(b2);
-  assert(abs(a) <= POW2(nBitsA - 1));
-  assert(abs(b) <= POW2(nBitsB - 1));
+  assert(abs(a) <= POW2(nBits.x - 1));
+  assert(abs(b) <= POW2(nBits.y - 1));
 
   if (a == -POW2(nBitsA - 1)) {
     if (b == -POW2(nBitsB - 1)) {
@@ -207,29 +217,27 @@ Word2 carryPair(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, T *maxROE) {
 }
 
 Word2 carryFinal(Word2 a, i64 inCarry, bool b1) {
-  i64 tmpCarry;
-  a.x = carryStep64(a.x + inCarry, &tmpCarry, b1);
-  a.y += tmpCarry;
+  inCarry += a.x;
+  // i64 tmpCarry = a.x + inCarry;
+  a.x = carryStep(&inCarry, b1);
+  a.y += inCarry;
   return a;
 }
 
-Word2 carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, T *maxROE) {
-  i64 midCarry;
-  Word a = carryStep64(3 * I64(u.x, maxROE) + inCarry, &midCarry, b1);
-  Word b = carryStep64(3 * I64(u.y, maxROE) + midCarry, outCarry, b2);
+Word2 carryPairMul(T2 u, i64 *outCarry, uint2 nBits, i64 inCarry, T *maxROE) {
+  *outCarry = 3 * I64(u.x, maxROE) + inCarry;
+  Word a = carryStep(outCarry, nBits.x);
+  *outCarry += 3 * I64(u.y, maxROE);
+  Word b = carryStep(outCarry, nBits.y);
   return (Word2) (a, b);
 }
 
 // Carry propagation from word and carry.
-Word2 carryWord64(Word2 a, i64 *carry, bool b1, bool b2) {
-  a.x = carryStep64(a.x + *carry, carry, b1);
-  a.y = carryStep64(a.y + *carry, carry, b2);
-  return a;
-}
-
-Word2 carryWord32(Word2 a, i32 *carry, bool b1, bool b2) {
-  a.x = carryStep32(a.x + *carry, carry, b1);
-  a.y = carryStep32(a.y + *carry, carry, b2);
+Word2 carryWord64(Word2 a, i64 *carry, uint2 nBits) {
+  *carry += a.x;
+  a.x = carryStep(carry, nBits.x);
+  *carry += a.y;
+  a.y = carryStep(carry, nBits.y);
   return a;
 }
 
@@ -961,9 +969,9 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
 #endif
         
 #if DO_MUL3
-    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax);
+    out[p] = carryPairMul(x, &carry, nBits2(b, i), carry, &roundMax);
 #else
-    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax);
+    out[p] = carryPair(x, &carry, nBits2(b, i), carry, &roundMax);
 #endif
   }
   carryOut[G_W * g + me] = carry;
@@ -999,7 +1007,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(i64) carryIn, CP(u32) bits) {
 
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = i * WIDTH + me;
-    io[p] = carryWord64(io[p], &carry, test(b, 2 * i), test(b, 2 * i + 1));
+    io[p] = carryWord64(io[p], &carry, nBits2(b, i));
     if (!carry) { return; }
   }
   assert(!carry);
@@ -1056,9 +1064,9 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
 #if CF_MUL
-    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax);
+    wu[i] = carryPairMul(u[i], &carry[i], nBits2(b, i), 0, &roundMax);
 #else
-    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax);
+    wu[i] = carryPair(u[i], &carry[i], nBits2(b, i), 0, &roundMax);
 #endif
   }
 
@@ -1103,7 +1111,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   }
 
   for (i32 i = 0; i < NW; ++i) {
-    wu[i] = carryFinal(wu[i], carry[i], test(b, 2 * i));
+    wu[i] = carryFinal(wu[i], carry[i], nBits2(b, i).x);
   }
   
   T base = optionalHalve(weights.y);
@@ -1491,10 +1499,17 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
 
-kernel void testKernel(global int2 *io) {
+kernel void testKernel(global int *io) {
   uint me = get_local_id(0);
+  int x = io[me];
+  int y = x;
+  int z = 0;
+  int ret;
+  // __asm("v_add_i32_dpp %0, %1, %1 row_shr:1" : "=v"(ret) : "v"(x));
+  io[me] = ret;
 
-  io[me].x = lowBits(io[me].x, io[me].y);
+  // io[me] = abs(io[me]);
+  // lowBits(io[me].x, io[me].y);
   // io[me].xy = mul(io[me].xy, io[me].zw);
 
   // io[me] = reduce63(io[me]);
@@ -1503,10 +1518,27 @@ kernel void testKernel(global int2 *io) {
   // as_i128 io[me].xy = mul(io[me].xy, io[me].zw);
 }
 
-/*
-kernel void testKernel(global int4* io) {
+kernel void testKernel2(global long2 *io) {
   uint me = get_local_id(0);
-  long r = mad64(io[me].x, io[me].y, as_long(io[me].zw));
-  io[me].xy = as_int2(r);
+
+  // io[me] = as_long2(io[me].x * (long long) io[me].x);
+
+  ulong x = abs(io[me].x);
+  io[me] = as_long2(x * (unsigned long long) x);
+
+  /*
+  float x = as_float(as_int2(io[me]).x);
+  float a = rint(ldexp(x, -32));
+  i32 ia = a;
+  x = x - ldexp(a, 32);
+  float b = rint(x);
+  i32 ib = b;
+  if (ib < 0) {
+    ia -= 1;
+  }
+  io[me] = as_long((uint2) (ia, ib));
+  */
 }
-*/
+
+
+

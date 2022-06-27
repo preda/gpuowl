@@ -102,15 +102,20 @@ typedef uint u32;
 typedef long i64;
 typedef ulong u64;
 
-bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
+i32 I32(i64 x) { return x; }
+u32 U32(u64 x) { return x; }
+
+bool test_(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 #define STEP (NWORDS - (EXP % NWORDS))
 u32 EXTRA(u64 k) { return STEP * k % NWORDS; }
+#define SMALL_BITS (EXP / NWORDS)
 bool isBigExtra(u32 extra) { return extra < NWORDS - STEP; }
 bool isBigK(u32 k) { return isBigExtra(EXTRA(k)); }
-u32 bitlen(bool b) { return EXP / NWORDS + b; }
+u32 bitlen(bool b) { return SMALL_BITS + b; }
 u32 bitlenK(u32 k) { return bitlen(isBigK(k)); }
 uint2 bitlen2K(u32 k) { return (uint2) (bitlenK(2*k), bitlenK(2*k + 1)); }
+uint2 nBits2(u32 bits, u32 pos) { return (uint2) (bitlen(test_(bits, 2*pos)), bitlen(test_(bits, 2*pos + 1))); }
 
 T2 pair(T a, T b) { return (T2) (a, b); }
 

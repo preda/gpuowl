@@ -18,13 +18,11 @@
 typedef long T;
 typedef long2 T2;
 
-typedef uint Word;
-typedef uint2 Word2;
-typedef ulong Carry;
+typedef long Word;
+typedef long2 Word2;
+typedef long Carry;
 
 #include "shared.cl"
-
-// long2 U2(long a, long b) { return (long2)(a, b); }
 
 #define MBITS 61
 // ((1ll << MBITS) - 1)
@@ -71,7 +69,9 @@ ulong OVERLOAD reduce(ulong a) {
 long balance(ulong a) { return lowMBits(a) + (a >> MBITS); }
 
 ulong unbalance(long a) {
-  ulong b = (a < 0) ? U64(a) - 8 : U64(a);
+  // ulong b = (a < 0) ? U64(a) - 8 : U64(a);
+  ulong b = U64(a) + ((a >> 63) << 3);
+  // ulong b = U64(a) + (as_int2(a).y >> 28);
   return reduce(b);
 }
 
@@ -107,11 +107,11 @@ i64 madi64(i32 a, i32 b, i64 c) {
 
 u32 U32(ulong a) { return a; }
 
-long OVERLOAD sq(long sa) {
-  ulong a = abs(sa);
 
-  u32 a0 = a & 0xffffffffu;
-  u32 a1 = U32(a >> 32);
+
+long OVERLOAD sq(u32 a) {
+  u32 a0 = a;
+  u32 a1 = a >> 32;
   UBITS(a1, 31);
 
   u64 r0 = umul64(a0, a0);
@@ -123,22 +123,18 @@ long OVERLOAD sq(long sa) {
 
   r2 = ushl(r2, 3);
   u64 sum = r2 + r1shifted + U32(r0);
-
   long ret = balance(sum);
   SBITS(ret, 61);
   return ret;
 }
 
-long OVERLOAD mul(long a, ulong b) {
-  u32 a0 = a & 0xffffffffu;
-  i32 sa1 = a >> 32;
-  bool negate = sa1 < 0;
-  u32 a1 = abs(sa1);
-  UBITS(a1, 31);
+long OVERLOAD sq(i64 a) { return sq(abs(a)); }
 
+long OVERLOAD mul(ulong a, ulong b) {
+  u32 a0 = a;
+  u32 a1 = a >> 32;
   u32 b0 = b;
   u32 b1 = b >> 32;
-  UBITS(b1, 31);
 
   u64 r0 = umul64(a0, b0);
   u64 t  = umad64(a1, b0, r0 >> 32);
@@ -153,10 +149,13 @@ long OVERLOAD mul(long a, ulong b) {
   u64 r1shl = (U64(r1l & 0x1fffffff) << 32) | (r1l >> 29);
   u64 sum = r2 + r1shl + U32(r0);
   assert(sum >= r2);  // sum didn't overflow
+  return balance(sum);
+}
 
-  long ret = balance(sum);
-  SBITS(ret, 61);
-  return negate ? -ret : ret;
+long OVERLOAD mul(long a, ulong b) {
+  u64 ua = abs(a);
+  i64 p = mul(ua, b);
+  return a < 0 ? -p : p;
 }
 
 long OVERLOAD mul(long a, long b) {
@@ -177,8 +176,18 @@ long2 OVERLOAD mul(long2 a, ulong2 b) {
 }
 
 long2 sq(long2 a) {
+#if 1
   SBITS(a.x, 62); // to afford a.x<<1 below
   return (long2) (mul(a.x + a.y, a.x - a.y), mul(a.x << 1, a.y));
+#elif 0
+  ulong uy = unbalance(a.y);
+  return (long2) (sq(a.x) - sq(uy), mul(a.x, uy << 1));
+#else
+  u64 x = abs(a.x);
+  u64 y = abs(a.y);
+  u64 p = mul(x, y << 1);
+  return (long2) (mul(I64(x) - I64(y), x + y), a.x < 0 ^ a.y < 0 ? -p : p);
+#endif
 }
 
 // mul with (0, 1). (twiddle of tau/4, sqrt(-1) aka "i").
