@@ -17,6 +17,7 @@
 
 typedef long T;
 typedef long2 T2;
+#define SIZEOF_T 8
 
 typedef long Word;
 typedef long2 Word2;

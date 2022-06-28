@@ -52,8 +52,9 @@ G_H        "group height"
 // #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
 typedef float T;
-typedef float2 TT;
-typedef TT T2;
+typedef float2 T2;
+#define SIZEOF_T 4
+typedef T2 TT;
 
 typedef int Word;
 typedef int2 Word2;
@@ -208,18 +209,24 @@ T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-  local T* lds = (local T*) lds2;
-
+  assert((f & (f - 1)) == 0);
   u32 mask = f - 1;
-  assert((mask & (mask + 1)) == 0);
-  
-  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+
+  if (sizeof(T2) * WG * n <= 8 * 1024) {
+    for (u32 i = 0; i < n; ++i) { lds2[i * f + (me & ~mask) * n + (me & mask)] = u[i]; }
+    bar();
+    for (u32 i = 0; i < n; ++i) { u[i] = lds2[i * WG + me]; }
+  } else {
+    assert(sizeof(T) * WG * n <= 8 * 1024);
+    local T* lds = (local T*) lds2;
+    for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+    bar();
+    for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+    bar();
+    for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+    bar();
+    for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+  }
 }
 
 void tabMul(u32 WG, T2 *u, u32 n, u32 f) {
@@ -542,7 +549,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
-  local T2 lds[WIDTH / 2];
+  local T2 lds[WIDTH / (SIZEOF_T / 4)];
   
   T2 u[NW];
   u32 g = get_group_id(0);
@@ -556,7 +563,7 @@ KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
 
 // Do an FFT Height after a transposeW (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT / 2];
+  local T2 lds[SMALL_HEIGHT / (SIZEOF_T / 4)];
   
   T2 u[NH];
   u32 g = get_group_id(0);
@@ -571,7 +578,7 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
 
 // Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)
 KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT / 2];
+  local T2 lds[SMALL_HEIGHT / (SIZEOF_T / 4)];
   
   T2 u[NH];
   u32 g = get_group_id(0);
@@ -626,7 +633,7 @@ T iweightUnitStep(u32 i) {
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
 KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
-  local T2 lds[WIDTH / 2];
+  local T2 lds[WIDTH / (SIZEOF_T / 4)];
 
   T2 u[NW];
   u32 g = get_group_id(0);
@@ -913,7 +920,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(i64) carryIn, CP(u32) bits) {
 //{{ CARRY_FUSED
 KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
                  CP(u32) bits, P(u32) ROE) {
-  local T2 lds[WIDTH / 2];
+  local T2 lds[WIDTH / (SIZEOF_T / 4)];
   
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
@@ -1236,7 +1243,7 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
 
 //{{ TAIL_SQUARE
 KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
-  local T2 lds[SMALL_HEIGHT / 2];
+  local T2 lds[SMALL_HEIGHT / (SIZEOF_T / 4)];
 
   T2 u[NH], v[NH];
 
@@ -1305,7 +1312,7 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   // to poor occupancy.
 #endif
   
-  local T2 lds[SMALL_HEIGHT / 2];
+  local T2 lds[SMALL_HEIGHT / (SIZEOF_T / 4)];
 
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];
