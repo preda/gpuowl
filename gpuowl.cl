@@ -83,6 +83,8 @@ OVERLOAD TT fancyMul(TT x, const TT y) {
 T mad1_m2(T a, T b, T c) { return 2 * mad1(a, b, c); }
 T mad1_m4(T a, T b, T c) { return 4 * mad1(a, b, c); }
 
+OVERLOAD T sq(T a) { return a * a; }
+
 // complex square
 OVERLOAD TT sq(TT a) {
 #if 0
@@ -135,124 +137,15 @@ float optionalHalve(float w) {
    return as_float(as_uint(w) & 0xff7fffffu);
 }
 
-#if HAS_ASM
-Word lowBits(i64 u, u32 bits) {
+typedef float Roundoff;
 
-#if SMALL_BITS <= 31
-
-  i32 tmp;
-  assert(sizeof(Word) == 4);
-  assert(bits <= 32);
-  __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (I32(u)), "v" (bits));
-  return tmp;
-
-#else
-  i32 tmp;
-  assert(sizeof(Word) == 8);
-  assert(bits >= 32);
-  __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (I32(u>>32)), "v" (bits - 32));
-  return (I64(tmp) << 32) | U32(u);
-#endif
-}
-
-#else
-Word lowBits(i64 u, u32 bits) { return ((u << (64 - bits)) >> (64 - bits)); }
-#endif
-
-i64 I64(T x, T *maxROE) {
+i64 convert(T x, Roundoff *roundoff) {
   T r = rint(x);
-  *maxROE = max(*maxROE, fabs(x - r));
+  *roundoff = max(*roundoff, fabs(x - r));
   return r;
 }
 
-#define POW2(n) (((Word) 1) << (n))
-
-Word carryStep(i64 *carry, u32 nBits) {
-  i64 x = *carry;
-  Word w = lowBits(x, nBits);
-
-  if ((-w == POW2(nBits - 1)) && (x > 0)) {
-    w = -w;
-    assert(x >= w);
-    assert(((x - w) & (POW2(nBits) - 1)) == 0);
-  }
-
-  *carry = (x - w) >> nBits;
-  return w;
-}
-
-
-Word2 carryPair(T2 u, i64 *outCarry, uint2 nBits, i64 inCarry, T *maxROE) {
-  *outCarry = inCarry + I64(u.x, maxROE);
-  Word a = carryStep(outCarry, nBits.x);
-  *outCarry += I64(u.y, maxROE);
-  Word b = carryStep(outCarry, nBits.y);
-
-#if 0
-  assert(abs(a) <= POW2(nBits.x - 1));
-  assert(abs(b) <= POW2(nBits.y - 1));
-
-  if (a == -POW2(nBitsA - 1)) {
-    if (b == -POW2(nBitsB - 1)) {
-      b = -b;
-      --*outCarry;
-    }
-    if (b > 0) {
-      a = -a;
-      --b;
-    }
-  } else if (a == POW2(nBitsA - 1)) {
-    if (b == POW2(nBitsB - 1)) {
-      b = -b;
-      ++*outCarry;
-    }
-    if (b < 0) {
-      a = -a;
-      ++b;
-    }
-  }
-#endif
-
-  return (Word2) (a, b);
-}
-
-Word2 carryFinal(Word2 a, i64 inCarry, bool b1) {
-  inCarry += a.x;
-  // i64 tmpCarry = a.x + inCarry;
-  a.x = carryStep(&inCarry, b1);
-  a.y += inCarry;
-  return a;
-}
-
-Word2 carryPairMul(T2 u, i64 *outCarry, uint2 nBits, i64 inCarry, T *maxROE) {
-  *outCarry = 3 * I64(u.x, maxROE) + inCarry;
-  Word a = carryStep(outCarry, nBits.x);
-  *outCarry += 3 * I64(u.y, maxROE);
-  Word b = carryStep(outCarry, nBits.y);
-  return (Word2) (a, b);
-}
-
-// Carry propagation from word and carry.
-Word2 carryWord64(Word2 a, i64 *carry, uint2 nBits) {
-  *carry += a.x;
-  a.x = carryStep(carry, nBits.x);
-  *carry += a.y;
-  a.y = carryStep(carry, nBits.y);
-  return a;
-}
-
-// Propagate carry this many pairs of words.
-#define CARRY_LEN 8
-
-// computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
-// which happens to be the cyclical convolution (a.x, a.y)x(b.x, b.y) * 2
-T2 foo2(T2 a, T2 b) {
-  a = addsub(a);
-  b = addsub(b);
-  return addsub(U2(a.x * b.x, a.y * b.y));
-}
-
-// computes 2*[x^2+y^2 + i*(2*x*y)]. i.e. 2 * cyclical autoconvolution of (x, y)
+/*
 T2 foo(T2 a) {
 #if 0
   return foo2(a, a);
@@ -268,6 +161,7 @@ T2 foo(T2 a) {
   return addsub(U2(a.x * a.x, a.y * a.y));
 #endif
 }
+*/
 
 // Same as X2(a, b), b = mul_t4(b)
 // #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
@@ -288,7 +182,7 @@ T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 // T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, -IM(a)), mad1(IM(a), c_over_s, RE(a))); }
 
 // a = c + sin * d; b = c - sin * d;
-#define fma_addsub(a, b, sin, c, d) { d = sin * d; T2 t = c + d; b = c - d; a = t; }
+// #define fma_addsub(a, b, sin, c, d) { d = sin * d; T2 t = c + d; b = c - d; a = t; }
 
 // a * conjugate(b)
 // saves one negation

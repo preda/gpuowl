@@ -125,3 +125,22 @@ T2 addsub(T2 a) { return pair(a.x + a.y, a.x - a.y); }
 
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
+
+Word lowBits(i64 u, u32 bits) {
+#if HAS_ASM
+  i32 tmp;
+#if SMALL_BITS <= 31
+  assert(sizeof(Word) == 4);
+  assert(bits <= 32);
+  __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (I32(u)), "v" (bits));
+  return tmp;
+#else
+  assert(sizeof(Word) == 8);
+  assert(bits >= 32);
+  __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (I32(u>>32)), "v" (bits - 32));
+  return (I64(tmp) << 32) | U32(u);
+#endif
+#else
+  return ((u << (64 - bits)) >> (64 - bits));
+#endif
+}

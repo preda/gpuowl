@@ -32,6 +32,7 @@ typedef long Carry;
 #define UBITS(r, k) assert(((r) >> (k)) == 0)
 
 // extract the low MBITS of "a" with balanced sign
+#if 0
 long lowMBits(ulong b) {
   long a = b & M;
   assert(a >= 0);
@@ -43,22 +44,7 @@ long lowMBits(ulong b) {
   SBITS(ret, 60);
   return ret;
 }
-
-T shl(T a, u32 k) {
-  assert(k < MBITS, "shift amount (k) is reduced mod MBITS");
-  T ret = lowMBits(a << k) + (a >> (MBITS - k));
-  SBITS(ret, 61);
-  return ret;
-}
-
-ulong ushl(ulong a, u32 k) {
-  assert(k < MBITS, "shift amount (k) is reduced mod MBITS");
-  ulong ret = ((a << k) & M) + (a >> (MBITS - k));
-  UBITS(ret, 62);
-  return ret;
-}
-
-long OVERLOAD reduce(long a) { return lowMBits(a) + (a >> MBITS); }
+#endif
 
 ulong OVERLOAD reduce(ulong a) {
   ulong ret = (a & M) + (a >> MBITS);
@@ -66,7 +52,25 @@ ulong OVERLOAD reduce(ulong a) {
   return ret;
 }
 
-long balance(ulong a) { return lowMBits(a) + (a >> MBITS); }
+long OVERLOAD reduce(long a) {
+  a = (a & M) + (a >> MBITS);
+  if (a > M/2) { a -= M; }
+  assert(a <= M/2);
+  assert(a >= -(M/2));
+}
+
+T shl(T a, u32 k) {
+  assert(k < MBITS, "shift amount (k) is reduced mod MBITS");
+  a = ((a << k) & M) + (a >> (MBITS - k));
+  return reduce(a);
+}
+
+long balance(ulong a) {
+  a = (a & M) + (a >> MBITS);
+  if (a > M/2) { a -= M; }
+  assert(a <= M/2);
+  assert(a >= -(M/2));
+}
 
 ulong unbalance(long a) {
   // ulong b = (a < 0) ? U64(a) - 8 : U64(a);
@@ -121,7 +125,8 @@ long OVERLOAD sq(u32 a) {
   u32 r1l = U32(r1);
   u64 r1shifted = (U64(r1l & 0x1fffffff) << 32) | (r1l >> 29);
 
-  r2 = ushl(r2, 3);
+  r2 = ((r2 << 3) & M) + (r2 >> (MBITS - 3));
+
   u64 sum = r2 + r1shifted + U32(r0);
   long ret = balance(sum);
   SBITS(ret, 61);
@@ -199,23 +204,18 @@ long2 mul_t8(long2 a) { return (long2) (shl(a.x - a.y, 30), shl(a.x + a.y, 30));
 // mul with (-2^30, 2^30). (twiddle of 3*tau/8)
 long2 mul_3t8(long2 a) { return U2(-shl(a.x + a.y, 30), shl(a.x - a.y, 30)); }
 
-// void bar()    { barrier(CLK_LOCAL_MEM_FENCE); }
-// void bigBar() { barrier(CLK_GLOBAL_MEM_FENCE | CLK_LOCAL_MEM_FENCE); }
-
-Word lowBits(T x, uint bits) { return ((Word) x) & ((1u << bits) - 1); }
-
-
 // --- carry ---
 
+typedef u32 Roundoff;
 
-// one step of carry propagation; optional mul.
-Word carryStep(Carry x, Carry *carry, uint bits) {
-  x += *carry;
-  *carry = x >> bits;
-  return lowBits(x, bits);
+i64 convert(T a, Roundoff *roundoff) {
+  a = reduce(a);
+  assert(abs(a) <= M/2);
+  // u32 slack = (M/2 - abs(a)) >> (MBITS - 32);
+  u32 dist = abs(a) >> (MBITS - 32);
+  *roundoff = max(*roundoff, dist);
+  return a;
 }
-
-// uint update(T x, Carry *carry, uint bits) { return carryStep(x, carry, bits); }
 
 Carry unweight(T x, uint pos) {
   x = (x + ((x + 1) >> MBITS)) & M; // if x==M, set it to 0.
@@ -247,23 +247,13 @@ TT carryAndWeightFinal(Word2 u, Carry carry, uint pos, const G TT *dummyA, uint 
 // Generic code below.
 
 // Carry propagation from word and carry.
+/*
 Word2 carryWord(Word2 a, Carry *carry, uint pos) {
   a.x = carryStep(a.x, carry, bitlen(2 * pos + 0));
   a.y = carryStep(a.y, carry, bitlen(2 * pos + 1));
   return a;
 }
-
-T2 foo2(T2 a, T2 b) {
-  a = addsub(a);
-  b = addsub(b);
-  return addsub(pair(mul(a.x, b.x), mul(a.y, b.y)));
-}
-
-// computes 2*[x^2+y^2 + i*(2*x*y)]. Needs a name.
-T2 foo(T2 a) {
-  a = addsub(a);
-  return addsub(pair(sq(a.x), sq(a.y)));
-}
+*/
 
 #include "shared_tail.cl"
 
