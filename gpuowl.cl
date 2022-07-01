@@ -207,40 +207,40 @@ T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
 #include "trigSP.cl"
 
-void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
+void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 shift) {
   u32 me = get_local_id(0);
-  assert((f & (f - 1)) == 0);
-  u32 mask = f - 1;
+  // assert((f & (f - 1)) == 0);
+  u32 mask = (1u << shift) - 1;
 
   if (sizeof(T2) * WG * n <= 8 * 1024) {
-    for (u32 i = 0; i < n; ++i) { lds2[i * f + (me & ~mask) * n + (me & mask)] = u[i]; }
+    for (u32 i = 0; i < n; ++i) { lds2[(i << shift) + (me & ~mask) * n + (me & mask)] = u[i]; }
     bar();
     for (u32 i = 0; i < n; ++i) { u[i] = lds2[i * WG + me]; }
   } else {
     assert(sizeof(T) * WG * n <= 8 * 1024);
     local T* lds = (local T*) lds2;
-    for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+    for (u32 i = 0; i < n; ++i) { lds[(i << shift) + (me & ~mask) * n + (me & mask)] = u[i].x; }
     bar();
     for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
     bar();
-    for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+    for (u32 i = 0; i < n; ++i) { lds[(i << shift) + (me & ~mask) * n + (me & mask)] = u[i].y; }
     bar();
     for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
   }
 }
 
-void tabMul(u32 WG, T2 *u, u32 n, u32 f) {
+void tabMul(u32 WG, T2 *u, u32 n, u32 shift) {
   u32 me = get_local_id(0);
   
   for (u32 i = 1; i < n; ++i) {
-    u[i] = mul(u[i], slowTrig(i * (me & ~(f-1)), n * WG, n * WG));
+    u[i] = mul(u[i], slowTrig(i * (me & ~((1u << shift) - 1)), n * WG, n * WG));
     // u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]);
   }
 }
 
-void shuflAndMul(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
-  tabMul(WG, u, n, f);
-  shufl(WG, lds, u, n, f);
+void shuflAndMul(u32 WG, local T2 *lds, T2 *u, u32 n, u32 shift) {
+  tabMul(WG, u, n, shift);
+  shufl(WG, lds, u, n, shift);
 }
 
 // 64x4
@@ -249,7 +249,7 @@ void fft256w(local T2 *lds, T2 *u) {
   for (u32 s = 0; s <= 4; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul(64, lds, u, 4, 1u << s);
+    shuflAndMul(64, lds, u, 4, s);
   }
   fft4(u);
 }
@@ -258,7 +258,7 @@ void fft256h(local T2 *lds, T2 *u) {
   for (u32 s = 0; s <= 4; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul(64, lds, u, 4, 1u << s);
+    shuflAndMul(64, lds, u, 4, s);
   }
   fft4(u);
 }
@@ -269,7 +269,7 @@ void fft512w(local T2 *lds, T2 *u) {
   for (u32 s = 0; s <= 3; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul(64, lds, u, 8, 1u << s);
+    shuflAndMul(64, lds, u, 8, s);
   }
   fft8(u);
 }
@@ -278,7 +278,7 @@ void fft512h(local T2 *lds, T2 *u) {
   for (u32 s = 0; s <= 3; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul(64, lds, u, 8, 1u << s);
+    shuflAndMul(64, lds, u, 8, s);
   }
   fft8(u);
 }
@@ -289,7 +289,7 @@ void fft1Kw(local T2 *lds, T2 *u) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul(256, lds, u, 4, 1u << s);
+    shuflAndMul(256, lds, u, 4, s);
   }
   fft4(u);
 }
@@ -298,7 +298,7 @@ void fft1Kh(local T2 *lds, T2 *u) {
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
-    shuflAndMul(256, lds, u, 4, 1u << s);
+    shuflAndMul(256, lds, u, 4, s);
   }
   fft4(u);
 }
@@ -309,7 +309,7 @@ void fft4Kw(local T2 *lds, T2 *u) {
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul(512, lds, u, 8, 1u << s);
+    shuflAndMul(512, lds, u, 8, s);
   }
   fft8(u);
 }
@@ -318,7 +318,7 @@ void fft4Kh(local T2 *lds, T2 *u) {
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
-    shuflAndMul(512, lds, u, 8, 1u << s);
+    shuflAndMul(512, lds, u, 8, s);
   }
   fft8(u);
 }
