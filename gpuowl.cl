@@ -213,7 +213,13 @@ typedef double2 TT;
 #define RE(a) (a.x)
 #define IM(a) (a.y)
 
-void bar() { barrier(0); }
+void bar() {
+#if 0 && HAS_ASM
+   __asm("s_barrier");
+#else
+   barrier(0);
+#endif
+}
 
 TT U2(T a, T b) { return (TT) (a, b); }
 
@@ -1501,7 +1507,7 @@ void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
 }
 
 
-KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in, Trig trig) {
+KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig) {
   T2 u[MIDDLE];
   
   u32 SIZEY = IN_WG / IN_SIZEX;
