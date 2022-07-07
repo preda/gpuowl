@@ -1400,23 +1400,10 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
 
-kernel void testKernel(global int *io) {
+kernel void testKernel(global uint *io) {
   uint me = get_local_id(0);
-  int x = io[me];
-  int y = x;
-  int z = 0;
-  int ret;
-  // __asm("v_add_i32_dpp %0, %1, %1 row_shr:1" : "=v"(ret) : "v"(x));
-  io[me] = ret;
-
-  // io[me] = abs(io[me]);
-  // lowBits(io[me].x, io[me].y);
-  // io[me].xy = mul(io[me].xy, io[me].zw);
-
-  // io[me] = reduce63(io[me]);
-  // long long c = io[me].x * (long long) io[me].y;
-  // io[me] = as_long2(c);
-  // as_i128 io[me].xy = mul(io[me].xy, io[me].zw);
+  ulong x = io[me] & 0x00ffffffu;
+  io[me] = (x * x) >> 32;
 }
 
 kernel void testKernel2(global long2 *io) {
@@ -1440,6 +1427,3 @@ kernel void testKernel2(global long2 *io) {
   io[me] = as_long((uint2) (ia, ib));
   */
 }
-
-
-
