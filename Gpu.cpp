@@ -416,13 +416,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   carryM.setFixedArgs(2, bufCarry, bufBitsC, bufROE);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
-  tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
-  tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);
-  tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
-  tailMulLowLow.setFixedArgs(2, bufTrigH);
-  
-  tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrigH);
-  tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
   fftMiddleOut.setFixedArgs(2, bufROE);
 
   bufReady.zero();

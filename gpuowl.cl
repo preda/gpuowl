@@ -295,6 +295,7 @@ void fft1Kw(local T2 *lds, T2 *u) {
 }
 
 void fft1Kh(local T2 *lds, T2 *u) {
+   __attribute__((opencl_unroll_hint(1)))
   for (i32 s = 0; s <= 6; s += 2) {
     if (s) { bar(); }
     fft4(u);
@@ -540,11 +541,15 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 WG = IN_WG;
   u32 SIZEY = WG / IN_SIZEX;
 
-  in += line / WIDTH * WG;
-  in += line % IN_SIZEX * SIZEY;
-  in += line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * WG;
-  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * WG]; }
+  u32 p = line / WIDTH * WG
+          + line % IN_SIZEX * SIZEY
+          + line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * (MIDDLE * WG)
+          + me / SIZEY * (MIDDLE * WG)
+          + me % SIZEY;
+  for (u32 i = 0; i < NH; ++i) {
+     u[i] = in[p & (0xffffffffu / sizeof(*u))];
+     p += G_H / SIZEY * (MIDDLE * WG);
+  }
 }
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
@@ -734,7 +739,7 @@ void middleShuffle(local T2 *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
   for (int i = 0; i < MIDDLE; ++i) { u[i] = lds[me + workgroupSize * i]; }
 }
 
-KERNEL(IN_WG) fftMiddleIn(P(T2) out, volatile CP(T2) in) {
+KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in) {
   T2 u[MIDDLE];
   
   u32 SIZEY = IN_WG / IN_SIZEX;
@@ -1242,7 +1247,7 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
 
 
 //{{ TAIL_SQUARE
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
+KERNEL(G_H) NAME(P(T2) out, CP(T2) in) {
   local T2 lds[SMALL_HEIGHT / (SIZEOF_T / 4)];
 
   T2 u[NH], v[NH];
@@ -1251,11 +1256,10 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   u32 H = ND / W;
 
   u32 line1 = get_group_id(0);
-  u32 line2 = line1 ? H - line1 : (H / 2);
+  // u32 line2 = line1 ? H - line1 : (H / 2);
+  u32 line2 = H/2 - line1 + (line1 ? (H / 2) : 0);
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-
-
 
 #if TAIL_FUSED_LOW
   read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
@@ -1300,16 +1304,13 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
 
 //{{ TAIL_FUSED_MUL
 #if MUL_2LOW
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig2) {
+KERNEL(G_H) NAME(P(T2) out, CP(T2) in) {
 #else
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
+KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a
 #if MUL_DELTA
-                 CP(T2) b,
+                 , CP(T2) b
 #endif
-                 Trig smallTrig1, Trig smallTrig2) {
-  // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
-  // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
-  // to poor occupancy.
+                 ) {
 #endif
   
   local T2 lds[SMALL_HEIGHT / (SIZEOF_T / 4)];
@@ -1400,10 +1401,13 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
 #endif // NO_P2_FUSED_TAIL
 
-kernel void testKernel(global uint *io) {
+kernel void testKernel(global uint2 *io) {
   uint me = get_local_id(0);
-  ulong x = io[me] & 0x00ffffffu;
-  io[me] = (x * x) >> 32;
+  uint a = io[me].x;
+  uint b = io[me].y;
+  uint c = a + b;
+  uint d = c < a ? c + 2 : c;
+  io[me].x = d;
 }
 
 kernel void testKernel2(global long2 *io) {
