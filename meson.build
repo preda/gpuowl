@@ -2,7 +2,7 @@
 
 project('gpuowl', 'cpp', default_options:['cpp_std=c++17', 'buildtype=debugoptimized'])
 
-vcs_tag(input:'version.inc.in', output:'version.inc')
+version = vcs_tag(input:'version.inc.in', output:'version.inc')
 
 python3 = import('python').find_installation('python3')
 expander = find_program('./tools/expand.py')
@@ -17,7 +17,7 @@ cpp = meson.get_compiler('cpp')
 amdocl = cpp.find_library('amdocl64', dirs:['/opt/rocm/lib'])
 
 
-executable('gpuowl', sources: srcs + [gpuowl_wrap], dependencies:[amdocl, dependency('gmp')])
+executable('gpuowl', sources: srcs + [gpuowl_wrap, version], dependencies:[amdocl, dependency('gmp')])
 
 
 # Meson experiments below:
