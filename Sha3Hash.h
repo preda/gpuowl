@@ -4,6 +4,8 @@
 
 #include "sha3.h"
 
+#include <array>
+
 class Sha3Hash {
   SHA3Context context;
   static const constexpr int SIZE_BITS = 256;
