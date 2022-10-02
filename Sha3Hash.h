@@ -1,7 +1,7 @@
 // Copyright Mihai Preda
 
 #pragma once
-
+#include <array> // Arch Linux / Debian (Kali) / MinGW-W64 "incomplete type" fix
 #include "sha3.h"
 
 class Sha3Hash {
