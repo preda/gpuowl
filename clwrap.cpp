@@ -11,6 +11,7 @@
 #include <new>
 #include <memory>
 #include <vector>
+#include <array>
 
 using namespace std;
 
