@@ -43,7 +43,7 @@ std::optional<Task> parse(const std::string& line) {
             || ((AIDStr[0]=0, sscanf(tail.c_str(), "%u", &exp)) == 1 && exp > 1000)) {
           string AID = AIDStr;
           if (AID == "N/A" || AID == "0") { AID = ""; }
-          return {{Task::PRP, exp, AID, line, B1, B2}};
+          return {{kind=="Pfactor"||kind=="PFactor" ? Task::PM1 : Task::PRP, exp, AID, line, B1, B2}};
         }
       }
     }

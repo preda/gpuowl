@@ -213,9 +213,13 @@ public:
 
   PRPResult isPrimePRP(const Args& args, const Task& task);
 
-  void pm1Block(vector<bool> bits, bool skipUpdate);
+  void pm1Block(vector<bool> bits, bool update);
   bool pm1Check(vector<bool> sumBits, u32 blockSize);
-  void doPm1(const Args& args, const Task& task);
+
+  void doPm1(const Args& args, const Task& task) { while (pm1Retry(args, task)); }
+
+  // return true to be invoked again (for retry)
+  bool pm1Retry(const Args& args, const Task& task);
 
   // std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
   

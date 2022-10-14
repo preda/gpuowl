@@ -1217,7 +1217,7 @@ vector<bool> reverse(const vector<bool>& c) {
 }
 */
 
-vector<bool> addLE(const vector<bool>& a, const vector<bool>& b) {
+[[nodiscard]] vector<bool> addLE(const vector<bool>& a, const vector<bool>& b) {
   vector<bool> c;
   c.reserve(max(a.size(), b.size()) + 1);
 
@@ -1249,8 +1249,8 @@ vector<bool> takeTopBits(vector<bool>& v, u32 n) {
   return ret;
 }
 
-void Gpu::pm1Block(vector<bool> bitsLE, bool skipCheckUpdate) {
-  if (!skipCheckUpdate) {
+void Gpu::pm1Block(vector<bool> bitsLE, bool update) {
+  if (update) {
     modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
   }
 
@@ -1288,69 +1288,76 @@ bool Gpu::pm1Check(vector<bool> sumBits, u32 blockSize) {
   return equalNotZero(bufCheck, bufAux);
 }
 
-void Gpu::doPm1(const Args &args, const Task& task) {
-  u32 E  = task.exponent;
+bool Gpu::pm1Retry(const Args &args, const Task& task) {
+  enum RetCode { DONE=false, RETRY=true};
 
-  // We need blockSize to initialize powerBits below.
-  vector<bool> powerBits;
+  Signal signal;
+  u32 E  = task.exponent;
 
   // TODO: replace Saver with Pm1Saver which does not take the PRP stuff
   Saver saver{E, args.nSavefiles, args.startFrom};
 
-// reload:
   auto [B1, k, blockSize, data] = saver.loadP1();
-  if (!B1) {
-    B1 = task.B1;
-  }
-  if (B1 != task.B1) { log("P1 using B1=%u (from savefile)\n", B1); }
+
+  u32 desiredB1 = task.B1 ? task.B1 : args.B1;
+  if (!B1) { B1 = desiredB1; }
+
+  if (B1 != desiredB1) { log("P1 using B1=%u (from savefile) vs. B1=%u\n", B1, desiredB1); }
+  assert(B1);
 
   if (!blockSize) {
     assert(!k);
     blockSize = args.pm1BlockSize;
   }
 
-  if (powerBits.empty()) {
-    Timer t;
-    powerBits = powerSmoothLE(E, B1, blockSize);
-    log("powerBits(%u) = %u (%.0fms)\n", B1, u32(powerBits.size()), t.elapsedSecs() * 1000);
-  }
-
-  assert(powerBits.size() % blockSize == 0);
+  if (blockSize != args.pm1BlockSize) { log("P1 using block=%u (from savefile) vs. block=%u\n", blockSize, args.pm1BlockSize); }
 
   if (k == 0) {
     assert(data.empty());
     data = makeWords(E, 1);
   }
 
-  log("P1(%u) at %u/%u (block %u); %016" PRIx64 "\n", B1, k, u32(powerBits.size()), blockSize, residue(data));
+  auto powerBits = powerSmoothLE(E, B1, blockSize);
+  const u32 nBits = powerBits.size();
 
+  log("P1(%u) at %u/%u (block %u); %016" PRIx64 "\n", B1, k, nBits, blockSize, residue(data));
+
+  assert(nBits % blockSize == 0);
   assert(k % blockSize == 0); // can only save/verify P-1 at multiples of blockSize
+  assert(k <= nBits);
 
-  // TODO: handle k==powerBits.size(), i.e. first-stage is at end
-  assert(k < powerBits.size());
-
-  u32 fullSize = powerBits.size();
-  powerBits.resize(fullSize - k);
-
-  assert(!powerBits.empty() && powerBits.size() % blockSize == 0);
+  powerBits.resize(nBits - k); // drop the already processed bits
 
   writeData(data);
   // writeCheck(makeWords(E, 1u));
   bufCheck << bufData;
 
   vector<bool> sumLE;
-  // pm1Block(takeTopBits(powerBits, blockSize), true, sumLE);
 
   while (!powerBits.empty()) {
     auto bits = takeTopBits(powerBits, blockSize);
-    addLE(sumLE, bits);
-    pm1Block(bits, true);
-    // auto data = readData();
-    bool ok = pm1Check(sumLE, blockSize);
+    sumLE = addLE(sumLE, bits);
+    assert(sumLE == bits);
+    pm1Block(bits, false);
+
+    // bool doCheck = signal.stopRequested() ||
+
+    auto data = readData();
+
+    bool ok = pm1Check(sumLE, blockSize); // finish();
+
     k += blockSize;
-    log("P1(%u) at %u: %s\n", B1, k, ok ? "OK" : "EE");
-    // finish();
+    log("P1(%u) %7u/%u %s %016" PRIx64 "\n", B1, k, nBits, ok ? "OK" : "EE", residue(data));
+
+    if (ok) {
+      saver.saveP1({.B1=B1, .k=k, .blockSize=blockSize, .data=data});
+    } else {
+      return RETRY;
+    }
   }
+
+  log("P1(%u) completed\n", B1);
+  return DONE;
 }
 
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
