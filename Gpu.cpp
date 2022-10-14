@@ -1311,7 +1311,7 @@ void Gpu::doPm1(const Args &args, const Task& task) {
 
   if (powerBits.empty()) {
     Timer t;
-    powerBits = powerSmoothLSB(E, B1, blockSize);
+    powerBits = powerSmoothLE(E, B1, blockSize);
     log("powerBits(%u) = %u (%.0fms)\n", B1, u32(powerBits.size()), t.elapsedSecs() * 1000);
   }
 

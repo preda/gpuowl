@@ -14,8 +14,8 @@ std::string GCD(u32 exp, const std::vector<u32>& words, u32 sub = 0);
 // Represent mpz value as vector of bits with the most significant bit first.
 vector<bool> bitsMSB(const mpz_class& a);
 
-vector<bool> powerSmoothMSB(u32 exp, u32 B1);
-vector<bool> powerSmoothLSB(u32 exp, u32 B1, u32 blockSize = 1);
+vector<bool> powerSmoothBE(u32 exp, u32 B1);
+vector<bool> powerSmoothLE(u32 exp, u32 B1, u32 blockSize = 1);
 
 // Bitlen of powerSmooth
 u32 powerSmoothBits(u32 exp, u32 B1);

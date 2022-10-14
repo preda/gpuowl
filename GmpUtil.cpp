@@ -49,7 +49,7 @@ u32 powerSmoothBits(u32 exp, u32 B1) {
   return sizeBits(powerSmooth(exp, B1));  
 }
 
-vector<bool> bitsMSB(const mpz_class& a) {
+vector<bool> bitsBE(const mpz_class& a) {
   vector<bool> bits;
   int nBits = sizeBits(a);
   bits.reserve(nBits);
@@ -58,7 +58,7 @@ vector<bool> bitsMSB(const mpz_class& a) {
   return bits;
 }
 
-static vector<bool> bitsLSB(const mpz_class& a, u32 blockSize = 1) {
+static vector<bool> bitsLE(const mpz_class& a, u32 blockSize = 1) {
   u32 nBits = sizeBits(a);
   assert(nBits);
   u32 fillBits = blockSize - 1 - (nBits - 1) % blockSize;
@@ -84,24 +84,9 @@ std::string GCD(u32 exp, const std::vector<u32>& words, u32 sub) {
 }
 
 // MSB: Most Significant Bit first (at index 0).
-vector<bool> powerSmoothMSB(u32 exp, u32 B1) { return bitsMSB(powerSmooth(exp, B1)); }
+vector<bool> powerSmoothBE(u32 exp, u32 B1) { return bitsBE(powerSmooth(exp, B1)); }
 
-/*
-vector<bool> powerSmoothMSB(u32 exp, u32 B1, u32 blockSize) {
-  auto bits = powerSmoothMSB(powerSmooth(exp, B1));
-  assert(!bits.empty());
-
-  // push zeros on tail to make it a multiple of blockSize in length
-  for (int i = blockSize - 1 - (bits.size() - 1) % blockSize; i > 0; --i) {
-    bits.push_back(false);
-  }
-
-  assert(bits.size() % blockSize == 0);
-  return bits;
-}
-*/
-
-vector<bool> powerSmoothLSB(u32 exp, u32 B1, u32 blockSize) { return bitsLSB(powerSmooth(exp, B1), blockSize); }
+vector<bool> powerSmoothLE(u32 exp, u32 B1, u32 blockSize) { return bitsLE(powerSmooth(exp, B1), blockSize); }
 
 int jacobi(u32 exp, const std::vector<u32>& words) {
   assert(!words.empty());
