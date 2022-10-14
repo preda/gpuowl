@@ -21,6 +21,7 @@ struct PRPState {
 };
 
 struct P1State {
+  u32 B1;
   u32 k;
   u32 blockSize;
   Words data;
@@ -38,15 +39,6 @@ class Saver {
   static constexpr const char *PRP_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u\n";
 
   static constexpr const char *P1_v3 = "OWL P1 3 E=%u B1=%u k=%u block=%u\n";
-
-  // E, B1, CRC
-  // static constexpr const char *P1Final_v1 = "OWL P1F 1 %u %u %u\n";
-
-  // E, B1, B2
-  // static constexpr const char *P2_v2 = "OWL P2 2 %u %u %u\n";
-  
-  // E, B1, B2, D, nBuf, nextBlock
-  // static constexpr const char *P2_v3 = "OWL P2 3 %u %u %u %u %u %u\n";
 
   // ----
 
@@ -75,8 +67,7 @@ class Saver {
   }
 
   fs::path pathPRP(u32 k) const { return path(str9(k), ".prp"); }
-  fs::path pathP1() const       { return path(b1, ".p1"); }
-  // fs::path pathP1Final() const  { return path(b1, ".p1final"); }
+  fs::path pathP1() const       { return base / to_string(E) + ".p1"; }
 
   void savedPRP(u32 k);
 
@@ -93,23 +84,14 @@ public:
   static void cycle(const fs::path& name);
   static void cleanup(u32 E, const Args& args);
   
-  const u32 b1;
-
-  Saver(u32 E, u32 nKeep, u32 b1, u32 startFrom);
+  Saver(u32 E, u32 nKeep, u32 startFrom);
 
 
   PRPState loadPRP(u32 iniBlockSize);  
   void savePRP(const PRPState& state);
 
-  P1State loadP1(const string& ext = ".p1");
-  void saveP1(u32 k, const P1State& state);
-  void cycleP1();
-
-  // vector<u32> loadP1Final();
-  // void saveP1Final(const vector<u32>& data);
-  
-  // u32 loadP2(u32 b2, u32 D, u32 nBuf);
-  // void saveP2(u32 b2, u32 D, u32 nBuf, u32 nextBlock);
+  P1State loadP1();
+  void saveP1(const P1State& state);
 
   // Will delete all PRP & P-1 savefiles at iteration kBad up to currentK as bad.
   void deleteBadSavefiles(u32 kBad, u32 currentK);

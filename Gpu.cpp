@@ -1290,16 +1290,19 @@ bool Gpu::pm1Check(vector<bool> sumBits, u32 blockSize) {
 
 void Gpu::doPm1(const Args &args, const Task& task) {
   u32 E  = task.exponent;
-  u32 B1 = task.B1;
 
   // We need blockSize to initialize powerBits below.
   vector<bool> powerBits;
 
   // TODO: replace Saver with Pm1Saver which does not take the PRP stuff
-  Saver saver{E, args.nSavefiles, B1, args.startFrom};
+  Saver saver{E, args.nSavefiles, args.startFrom};
 
 // reload:
-  auto [k, blockSize, data] = saver.loadP1();
+  auto [B1, k, blockSize, data] = saver.loadP1();
+  if (!B1) {
+    B1 = task.B1;
+  }
+  if (B1 != task.B1) { log("P1 using B1=%u (from savefile)\n", B1); }
 
   if (!blockSize) {
     assert(!k);
@@ -1358,7 +1361,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 power = -1;
   u32 startK = 0;
 
-  Saver saver{E, args.nSavefiles, 0, args.startFrom};
+  Saver saver{E, args.nSavefiles, args.startFrom};
   Signal signal;
 
   // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.

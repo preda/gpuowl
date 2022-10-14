@@ -78,7 +78,7 @@ float Saver::value(u32 k) {
   return nice / float(dist);
 }
 
-Saver::Saver(u32 E, u32 nKeep, u32 b1, u32 startFrom) : E{E}, nKeep{max(nKeep, 5u)}, b1{b1} {
+Saver::Saver(u32 E, u32 nKeep, u32 startFrom) : E{E}, nKeep{max(nKeep, 5u)} {
   scan(startFrom);
 }
 
@@ -188,9 +188,9 @@ void Saver::savePRP(const PRPState& state) {
 
 // --- P1 ---
 
-P1State Saver::loadP1(const string& ext) {
+P1State Saver::loadP1() {
   try {
-    File fi = File::openReadThrow(path(b1, ext));
+    File fi = File::openReadThrow(pathP1());
 
     string header = fi.readLine();
     u32 fileE, fileB1, fileK, fileBlock;
@@ -199,24 +199,28 @@ P1State Saver::loadP1(const string& ext) {
       throw "bad savefile";
     }
 
-    assert(fileE == E && fileB1 == b1);
+    assert(fileE == E);
 
     auto data  = fi.readChecked<u32>(nWords(E));
-    return {fileK, fileBlock, data};
+    return {fileB1, fileK, fileBlock, data};
+
   } catch (const fs::filesystem_error& e) {
-    log("Starting P1(%u) from the beginning\n", b1);
-    return {0, 0, {}};
+    log("P1: no savefile found, starting from the beginning\n");
+    return P1State{}; // {0, 0, 0, {}};
   }
 }
 
-void Saver::saveP1(u32 k, const P1State& state) {
+void Saver::saveP1(const P1State& state) {
   assert(state.data.size() == nWords(E));
-
-  File fo = File::openWrite(path(b1, "p1.try"));
-  if (fo.printf(P1_v3, E, b1, state.k, state.blockSize) <= 0) {
+  assert(state.B1);
+  {
+    File fo = File::openWrite(pathP1() + ".new");
+    if (fo.printf(P1_v3, E, state.B1, state.k, state.blockSize) <= 0) {
       throw(ios_base::failure("can't write header"));
+    }
+    fo.writeChecked(state.data);
   }
-  fo.writeChecked(state.data);
+  cycle(pathP1());
 }
 
 void Saver::cycle(const fs::path& name) {
@@ -224,85 +228,3 @@ void Saver::cycle(const fs::path& name) {
   fs::rename(name, name + ".bak");
   fs::rename(name + ".new", name);
 }
-
-void Saver::cycleP1() {
-  cycle(path(b1, ".p1"));
-}
-
-// --- P1Final ---
-/*
-vector<u32> Saver::loadP1Final() {
-  fs::path path = pathP1Final();
-  File fi = File::openReadThrow(path);
-  string header = fi.readLine();
-  u32 fileE, fileB1, crc;
-  if (sscanf(header.c_str(), P1Final_v1, &fileE, &fileB1, &crc) != 3) {
-    log("In file '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
-    throw "bad savefile";
-  }
-  
-  assert(fileE == E && fileB1 == b1);
-  return fi.readWithCRC<u32>(nWords(E), crc);
-}
-
-void Saver::saveP1Final(const vector<u32>& data) {
-  assert(data.size() == nWords(E));
-  {
-    File fo = File::openWrite(pathP1Final());
-    if (fo.printf(P1Final_v1, E, b1, crc32(data)) <= 0) {
-      throw(ios_base::failure("can't write header"));
-    }
-    fo.write(data);
-  }
-
-  loadP1Final();
-}
-*/
-// --- P2 ---
-
-/*
-u32 Saver::loadP2(u32 b2, u32 D, u32 nBuf) {
-  fs::path path = pathP2();
-  File fi = File::openRead(path);
-  if (!fi) {
-    return 0;
-  } else {
-    string header = fi.readLine();
-    u32 fileE, fileB1, fileB2, fileD, fileNBuf, nextBlock;
-
-    if (sscanf(header.c_str(), P2_v2, &fileE, &fileB1, &fileB2) == 3) {
-      assert(fileE == E && fileB1 == b1);
-      if (fileB2 >= b2) {
-        return u32(-1); // P2 finished.
-      } else {
-        log("Finish P2 with old savefile format before upgrading\n");
-        throw("P2 savefile version upgrade");
-      }
-    }
-    
-    if (sscanf(header.c_str(), P2_v3, &fileE, &fileB1, &fileB2, &fileD, &fileNBuf, &nextBlock) != 6) {
-      log("In file '%s' wrong header '%s'\n", fi.name.c_str(), header.c_str());      
-      throw "bad savefile";
-    }
-    assert(fileE == E && fileB1 == b1);
-    
-    if (nextBlock == u32(-1)) {
-      // if P2 already finished, don't check exact match.
-      return nextBlock;
-    }
-    
-    if (fileB2 != b2 || fileD != D || fileNBuf != nBuf) {
-      log("P2 savefile has: B2=%u, D=%u, nBuf=%u vs. B2=%u, D=%u, nBuf=%u\n", fileB2, fileD, fileNBuf, b2, D, nBuf);
-      throw("P2 savefile mismatch");
-    }
-    return nextBlock;
-  }
-}
-
-void Saver::saveP2(u32 b2, u32 D, u32 nBuf, u32 nextBlock) {
-  File fo = File::openWrite(pathP2());
-  if (fo.printf(P2_v3, E, b1, b2, D, nBuf, nextBlock) <= 0) {
-    throw(ios_base::failure("can't write header"));
-  }
-}
-*/
