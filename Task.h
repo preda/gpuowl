@@ -24,20 +24,16 @@ struct Task {
   u32 B1 = 0;
   u32 B2 = 0;
 
-  u32 bitLo = 0;
-  u32 wantsPm1 = 0; // An indication of how much P-1 is desired before PRP
-
   string verifyPath; // For Verify
-  
-  void adjustBounds(Args& args);
-  
+    
   void execute(const Args& args);
 
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;
   void writeResultPM1(const Args&, const std::string& factor, u32 fftSize) const;
 
-  string kindStr() const;
+  // string kindStr() const;
   
+  /*
   operator string() const {
     string prefix;
     char buf[256];
@@ -48,4 +44,5 @@ struct Task {
     snprintf(buf, sizeof(buf), "%s=%s,1,2,%u,-1,%u,%u", kindStr().c_str(), AID.empty() ? "N/A" : AID.c_str(), exponent, bitLo, wantsPm1);
     return buf;
   }
+  */
 };

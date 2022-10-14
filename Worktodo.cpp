@@ -16,11 +16,9 @@ namespace {
 
 std::optional<Task> parse(const std::string& line) {
   u32 exp = 0;
-
-  u32 bitLo = 0;
   int pos = 0;
-  u32 wantsPm1 = 0;
-  u32 B1 = 0, B2 = 0;
+  u32 B1 = 0;
+  u32 B2 = 0;
 
   string tail = line;
   
@@ -34,21 +32,18 @@ std::optional<Task> parse(const std::string& line) {
   if(sscanf(tail.c_str(), "%11[a-zA-Z]=%n", kindStr, &pos) == 1) {
     string kind = kindStr;
     tail = tail.substr(pos);
-    if (kind == "PRP" or kind == "PRPDC") {
+    if (kind == "PRP" || kind == "PRPDC" || kind == "Pfactor" || kind == "PFactor") {
       if (tail.find('"') != string::npos) {
         log("GpuOwl does not support PRP-CF!\n");
       } else {
         char AIDStr[64] = {0};
-        if (sscanf(tail.c_str(), "%32[0-9a-fA-F],1,2,%u,-1,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
-            || (AIDStr[0]=0, sscanf(tail.c_str(), "N/A,1,2,%u,-1,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
-            || (AIDStr[0]=0, sscanf(tail.c_str(), "1,2,%u,-1,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
-            || sscanf(tail.c_str(), "%32[0-9a-fA-F],%u,%u,%u", AIDStr, &exp, &bitLo, &wantsPm1) == 4
-            || (AIDStr[0]=0, sscanf(tail.c_str(), "N/A,%u,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
-            || (AIDStr[0]=0, sscanf(tail.c_str(), "%u,%u,%u", &exp, &bitLo, &wantsPm1) == 3)
-            || (AIDStr[0]=0, sscanf(tail.c_str(), "%u", &exp)) == 1) {
+        if (sscanf(tail.c_str(), "%32[0-9a-fA-F],1,2,%u,-1,", AIDStr, &exp) == 2
+            || (AIDStr[0]=0, sscanf(tail.c_str(), "N/A,1,2,%u,-1,", &exp) == 1)
+            || (AIDStr[0]=0, sscanf(tail.c_str(), "1,2,%u,-1,", &exp) == 1)
+            || ((AIDStr[0]=0, sscanf(tail.c_str(), "%u", &exp)) == 1 && exp > 1000)) {
           string AID = AIDStr;
           if (AID == "N/A" || AID == "0") { AID = ""; }
-          return {{Task::PRP, exp, AID, line, B1, B2, bitLo, wantsPm1}};
+          return {{Task::PRP, exp, AID, line, B1, B2}};
         }
       }
     }
@@ -100,7 +95,6 @@ std::optional<Task> Worktodo::getTask(Args &args) {
  again:
   // Try to get a task from the local worktodo.txt
   if (optional<Task> task = firstGoodTask(worktodoTxt)) {    
-    task->adjustBounds(args);
     return task;
   }
   

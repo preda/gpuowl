@@ -1183,44 +1183,6 @@ template<typename Future> bool wait(const Future& f) {
   }
 }
 
-bool Gpu::verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64>& sums) {
-  // Timer timer;
-  assert(bufs.size() == sums.size());
-  bool ok = true;
-  for (u32 i = 0, end = bufs.size(); i < end; ++i) {
-    sum64(bufSumOut, N * 8, bufs[i]);
-    u64 sum = bufSumOut.read()[0];
-    if (sum != sums[i]) {
-      log("EE checksum mismatch in P2 buf #%u: %" PRIx64 " vs. %" PRIx64 "\n", i, sum, sums[i]);
-      ok = false;
-    }
-  }
-  // log("%s buffer validation took %.1fs\n", ok ? "OK" : "EE", timer.deltaSecs());
-  return ok;
-}
-
-bool Gpu::verifyP2Block(u32 D, const Words& p1Data, u32 block, const Buffer<double>& bigC, Buffer<int>& bufP2Data) {
-  Timer timer;
-  tailSquareLow(buf1, bigC);
-  tH(buf2, buf1);
-  fftW(buf1, buf2);
-  carryA(bufP2Data, buf1);
-  carryB(bufP2Data);
-  u64 resA = bufResidue(bufP2Data);
-
-  writeIn(bufP2Data, p1Data);
-  exponentiate(bufP2Data, u64(4 * D * D) * block * block, buf1, buf2, buf3);
-  u64 resB = bufResidue(bufP2Data);
-
-  bool ok = (resA == resB);
-  if (ok) {
-    log("OK @%u: %016" PRIx64 " (%.1fs)\n", block, resA, timer.deltaSecs());
-  } else {
-    log("EE @%u: %016" PRIx64 " vs. %016" PRIx64 " (%.1fs)\n", block, resA, resB, timer.deltaSecs());
-  }
-  return ok;
-}
-
 // ----
 
 fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {

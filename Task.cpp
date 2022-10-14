@@ -74,10 +74,12 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
 
 }
 
+/*
 string Task::kindStr() const {
   assert(kind == PRP || kind == PM1);
   return kind == PRP ? "PRP" : "PM1";
 }
+*/
 
 void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const {
   vector<string> fields{json("res64", Hex{res64}),
@@ -112,31 +114,6 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) c
                json("fft-length", fftSize),
                factor.empty() ? "" : (json("factors") + ':' + "[\""s + factor + "\"]")
               });
-}
-
-void Task::adjustBounds(Args& args) {
-  if (kind == PRP && wantsPm1) {
-    if (B1 == 0 && args.B1) { B1 = args.B1; }
-    if (B2 == 0 && args.B2) { B2 = args.B2; }
-
-    if (B1 == 0) {
-      float ratio = (bitLo <= 76) ? 20 : (bitLo == 77) ? 25 : 30;
-      u32 step = 500'000;
-      B1 = u32(float(exponent) / (step * ratio) + .5f) * step;
-    }
-    
-    if (B2 == 0) { B2 = B1 * args.B2_B1_ratio; }
-
-    if (B1 < 10000) {
-      log("B1=%u too small, adjusted to %u\n", B1, 10000);
-      B1 = 10000;
-    }
-      
-    if (B2 < 2 * B1) {
-      log("B2=%u too small, adjusted to %u\n", B2, 2 * B1);
-      B2 = 2 * B1;
-    }
-  }
 }
 
 void Task::execute(const Args& args) {
