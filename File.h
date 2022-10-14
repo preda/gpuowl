@@ -22,6 +22,11 @@
 
 namespace fs = std::filesystem;
 
+inline fs::path operator+(fs::path p, const std::string& tail) {
+  p += tail;
+  return p;
+}
+
 class File {
   FILE* f = nullptr;
   const bool readOnly;

@@ -220,11 +220,9 @@ void Saver::saveP1(u32 k, const P1State& state) {
 }
 
 void Saver::cycle(const fs::path& name) {
-  /*
   fs::remove(name + ".bak");
   fs::rename(name, name + ".bak");
   fs::rename(name + ".new", name);
-  */
 }
 
 void Saver::cycleP1() {

@@ -52,11 +52,6 @@ std::optional<Task> parse(const std::string& line) {
   return std::nullopt;
 }
 
-fs::path operator+(fs::path p, const std::string& tail) {
-  p += tail;
-  return p;
-}
-
 bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   assert(!targetLine.empty());
   bool lineDeleted = false;
@@ -76,7 +71,6 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
     return false;
   }
   Saver::cycle(fileName);
-  fs::remove(fileName + "-bak");
   return true;
 }
 
