@@ -171,10 +171,6 @@ class Gpu {
   
   u32 maxBuffers();
 
-  template<typename Pm1Plan>
-  void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
-
-  void doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal& signal);
   bool verifyP2Checksums(const vector<Buffer<double>>& bufs, const vector<u64>& sums);
   bool verifyP2Block(u32 D, const Words& p1Data, u32 block, const Buffer<double>& bigC, Buffer<int>& bufP2Data);
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
@@ -218,6 +214,10 @@ public:
   vector<u32> readData();
 
   PRPResult isPrimePRP(const Args& args, const Task& task);
+
+  void pm1Block(vector<bool> bits, bool skipUpdate);
+  bool pm1Check(vector<bool> sumBits, u32 blockSize);
+  void doPm1(const Args& args, const Task& task);
 
   // std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
   

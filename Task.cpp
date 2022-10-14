@@ -74,6 +74,11 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
 
 }
 
+string Task::kindStr() const {
+  assert(kind == PRP || kind == PM1);
+  return kind == PRP ? "PRP" : "PM1";
+}
+
 void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const {
   vector<string> fields{json("res64", Hex{res64}),
                         json("residue-type", 1),
@@ -100,18 +105,6 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) c
   bool hasFactor = !factor.empty();
 
   u32 reportB2 = B2;
-  if (hasFactor) {
-    auto factors = factorize(factor, exponent, B1, B2);
-    if (factors.empty()) {
-      log("Error attempting to split '%s'\n", factor.c_str());
-    } else {
-      reportB2 = factors.back();
-      assert(reportB2 <= B2);
-      string fstr;
-      for (u32 f : factors) { fstr += ", "s + to_string(f); }
-      log("%s %.1f bits%s\n", factor.c_str(), log2(factor), fstr.c_str());
-    }    
-  }
 
   writeResult(exponent, "PM1", hasFactor ? "F" : "NF", AID, args,
               {json("B1", B1),
@@ -157,7 +150,8 @@ void Task::execute(const Args& args) {
     return;
   }
 
-  assert(kind == PRP);
+  assert(kind == PRP || kind == PM1);
+
   auto gpu = Gpu::make(exponent, args);
   auto fftSize = gpu->getFFTSize();
 
@@ -166,8 +160,11 @@ void Task::execute(const Args& args) {
     if (factor.empty()) {
       writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
     }
-    
+
     Worktodo::deleteTask(*this);
     if (!isPrime) { Saver::cleanup(exponent, args); }
+  } else {
+    // P-1
+    gpu->doPm1(args, *this);
   }
 }

@@ -6,6 +6,7 @@
 #include "File.h"
 #include "common.h"
 #include "Args.h"
+#include "Saver.h"
 
 #include <cassert>
 #include <string>
@@ -65,7 +66,7 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   assert(!targetLine.empty());
   bool lineDeleted = false;
   {
-    auto fo{File::openWrite(fileName + "-tmp")};
+    auto fo{File::openWrite(fileName + ".new")};
     for (const string& line : File::openReadThrow(fileName)) {
       if (!lineDeleted && line == targetLine) {
         lineDeleted = true;
@@ -79,9 +80,8 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
     log("'%s': could not find the line '%s' to delete\n", fileName.string().c_str(), targetLine.c_str());
     return false;
   }
+  Saver::cycle(fileName);
   fs::remove(fileName + "-bak");
-  fs::rename(fileName, fileName + "-bak");
-  fs::rename(fileName + "-tmp", fileName);  
   return true;
 }
 

@@ -14,7 +14,7 @@ class Result;
 class Background;
 
 struct Task {
-  enum Kind {PRP, VERIFY};
+  enum Kind {PRP, VERIFY, PM1};
 
   Kind kind;
   u32 exponent;
@@ -36,7 +36,7 @@ struct Task {
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;
   void writeResultPM1(const Args&, const std::string& factor, u32 fftSize) const;
 
-  string kindStr() const { return "PRP"; }
+  string kindStr() const;
   
   operator string() const {
     string prefix;

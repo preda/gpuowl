@@ -11,7 +11,7 @@ wrap = generator(expander, output:'@PLAINNAME@.cpp', arguments:['@INPUT@', '@OUT
 
 gpuowl_wrap = wrap.process('gpuowl.cl')
 
-srcs = 'ProofCache.cpp Proof.cpp Pm1Plan.cpp B1Accumulator.cpp Memlock.cpp log.cpp md5.cpp sha3.cpp AllocTrac.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp'.split()
+srcs = 'ProofCache.cpp Proof.cpp Memlock.cpp log.cpp md5.cpp sha3.cpp AllocTrac.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp'.split()
 
 cpp = meson.get_compiler('cpp')
 amdocl = cpp.find_library('amdocl64', dirs:['/opt/rocm/lib'])

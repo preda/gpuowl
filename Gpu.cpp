@@ -2,7 +2,6 @@
 
 #include "Gpu.h"
 #include "Proof.h"
-#include "Pm1Plan.h"
 #include "Saver.h"
 #include "state.h"
 #include "Args.h"
@@ -13,7 +12,6 @@
 #include "Queue.h"
 #include "Task.h"
 #include "Memlock.h"
-#include "B1Accumulator.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -959,12 +957,8 @@ static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, 
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, float secsSave, u32 nIters, u32 nErrors, u32 nBitsP1, u32 B1, u64 resP1) {
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, float secsSave, u32 nIters, u32 nErrors) {
   char buf[64] = {0};
-  if (k < nBitsP1) {
-    snprintf(buf, sizeof(buf), " | P1(%s) %2.1f%% ETA %s %016" PRIx64,
-             formatBound(B1).c_str(), float(k) * 100 / nBitsP1, getETA(k, nBitsP1, secsPerIt).c_str(), resP1);
-  }
   
   log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, secsSave, nIters).c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), buf);
@@ -1227,268 +1221,7 @@ bool Gpu::verifyP2Block(u32 D, const Words& p1Data, u32 block, const Buffer<doub
   return ok;
 }
 
-void Gpu::doP2(Saver* saver, u32 b1, u32 b2, future<string>& gcdFuture, Signal &signal) {
-  if (!b1) { return; }
-  assert(b2 && b2 > b1);
-  
-  u32 bufSize = N * sizeof(double);
-  u32 nBuf = AllocTrac::availableBytes() / bufSize - 5;
-  u32 D = Pm1Plan::getD(args.D, nBuf);
-  LogContext pushContext{"P2("s + formatBound(b1) + ',' + formatBound(b2) + ")"};
-
-  if (saver->loadP2(b2, D, nBuf) == u32(-1)) {
-    // log("already finished\n");
-    return;
-  }
-
-  log("D=%u, nBuf=%u\n", D, nBuf);
-    
-  Pm1Plan plan{args.D, nBuf, b1, b2};
-  
-  log("Generating P2 plan, please wait..\n");
-  auto [beginBlock, selected] = plan.makePlan();
-  
-  bool printStats = args.flags.count("STATS");
-
- retry:
-  u32 startBlock = saver->loadP2(b2, D, nBuf);
-  if (!startBlock) { startBlock = beginBlock; }
-  assert(beginBlock <= startBlock && startBlock < selected.size());
-  log("%u blocks: %u - %u; start from %u\n", u32(selected.size()) - beginBlock, beginBlock, u32(selected.size()) - 1, startBlock);
-  
-  Memlock memlock{args.masterDir, u32(args.device)};
-  Timer timer;
-
-  vector<Buffer<double>> blockBufs;
-  const vector<u32>& jset = plan.jset;
-  assert(jset.size() >= 24 && jset[0] == 1);
-  
-  for (u32 j : jset) { blockBufs.emplace_back(queue, "p2-"s + std::to_string(j), N); }
-  log("Allocated %u buffers\n", u32(jset.size()));
-
-  Buffer<double> bufAcc{queue, "Acc", N};  // Second-stage accumulator.
-  Buffer<int> bufP2Data{queue, "p2Data", N};
-
-  u64 res64LittleA = 0;
-
-  Words p1Data = saver->loadP1Final();
-  
-  {
-    writeIn(bufP2Data, p1Data);
-    exponentiate(bufP2Data, u64(4) * jset.back() * jset.back(), buf1, buf2, buf3);
-    res64LittleA = bufResidue(bufP2Data);
-
-    writeIn(bufP2Data, p1Data);
-    fftP(buf2, bufP2Data);
-    tW(buf1, buf2);
-    tailSquare(buf2, buf1);
-    tH(bufAcc, buf2);  // Save bufAcc for later use as accumulator
-
-    // buf3 takes "data" in low position, used in initializing the SquaringSets below.
-    doCarry(buf3, bufAcc);
-    tW(buf1, buf3);
-    fftHin(buf3, buf1);
-  
-    assert(!gcdFuture.valid());
-    log("Starting P1 GCD\n");
-    gcdFuture = async(launch::async, [E=E, p1Data]() { return GCD(E, p1Data, 1); });
-  }
-
-  vector<u64> blockChecksum(blockBufs.size());
-  
-  {
-    u32 beginJ = jset[0];
-    assert(beginJ == 1);    
-    SquaringSet little{*this, N, buf3, buf1, buf2, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
-    
-    for (u32 i = 0; i < jset.size(); ++i) {
-      int delta = i ? jset[i] - jset[i-1] : 0;
-      assert(delta % 2 == 0);
-      for (int s = delta / 2; s > 0; --s) { little.step(buf1); }
-      blockBufs[i] << little.C;
-      sum64(bufSumOut, N * 8, blockBufs[i]);
-      blockChecksum[i] = bufSumOut.read()[0];
-    }
-
-    tailSquareLow(buf1, little.C);
-    tH(buf2, buf1);
-    fftW(buf1, buf2);
-    carryA(bufP2Data, buf1);
-    carryB(bufP2Data);
-    u64 res64LittleB = bufResidue(bufP2Data);
-    if (res64LittleA != res64LittleB) {
-      log("EE mismatch after little steps: %s vs. %s\n", hex(res64LittleB).c_str(), hex(res64LittleA).c_str());
-      goto retry;
-    }
-  }
-
-  // Let's do it once more to validate the checksums.
-  {
-    u32 beginJ = jset[0];
-    SquaringSet little{*this, N, buf3, buf1, buf2, {beginJ*beginJ, 4 * (beginJ + 1), 8}, "little"};
-    
-    for (u32 i = 0; i < jset.size(); ++i) {
-      int delta = i ? jset[i] - jset[i-1] : 0;
-      assert(delta % 2 == 0);
-      for (int s = delta / 2; s > 0; --s) { little.step(buf1); }
-      blockBufs[i] << little.C;
-    }
-    if (!verifyP2Checksums(blockBufs, blockChecksum)) { goto retry; }
-  }
-  
-
-  // Warn: hack: the use of buf1 below as both output and temporary relies on the implementation of exponentiateLow().
-  exponentiateLow(buf1, buf3, plan.D * plan.D, buf1, buf2); // base^(D^2)  
-  SquaringSet big{*this, N, buf1, buf2, buf3, {u64(startBlock)*startBlock, 2 * startBlock + 1, 2}, "big"};
-  
-  queue->finish();
-  log("Setup %u P2 buffers in %.1fs\n", u32(jset.size()), timer.deltaSecs());
-
-  bool ok = verifyP2Block(plan.D, p1Data, startBlock, big.C, bufP2Data);
-  if (!ok) {
-    log("Initial block verification failed\n");
-    throw "EE P2 initial verification";
-  }
-  
-  // ----
-
-  u32 doneMuls = (startBlock - beginBlock) * 2;
-  for (u32 b = beginBlock; b < startBlock; ++b) { doneMuls += selected[b].count(); }
-  
-  u32 leftMuls = (selected.size() - startBlock) * 2;
-  for (u32 b = startBlock; b < selected.size(); ++b) { leftMuls += selected[b].count(); }
-
-  log("MULs: done %u, left %u; %.1f%%\n", doneMuls, leftMuls, doneMuls * 100.0f / (doneMuls + leftMuls));
-  
-  timer.reset();
-
-  u32 nMuls = 0;
-  const u32 blockMulti = 20;
-  Timer sinceLastGCD;
-  float lastGCDduration = 0;
-
-  for (u32 block = startBlock; block < selected.size(); ++block) {
-    const auto& bits = selected[block];
-
-    for (u32 i = 0; i < jset.size(); ++i) {
-      if (bits[i]) {
-        doCarry(buf1, bufAcc);
-        tW(bufAcc, buf1);
-        tailMulDelta(buf1, bufAcc, big.C, blockBufs[i]);
-        tH(bufAcc, buf1);
-      }
-    }
-
-    nMuls += bits.count() + 2;
-    big.step(buf1);
-
-    if (block % blockMulti == 0) {
-      if (!args.noSpin) { spin(); }      
-      queue->finish();
-    }
-    
-    u32 nStop = signal.stopRequested();    
-    bool atEnd = block == selected.size() - 1;
-    bool doLog = atEnd || nStop || block % (20 * blockMulti) == 0;
-
-    if (doLog) {
-      if (printStats) { printRoundoff(E); }
-
-#if 0
-      {
-        fftW(buf1, bufAcc);
-        carryA(bufP2Data, buf1);
-        carryB(bufP2Data);
-        Words p2Data = readAndCompress(bufP2Data);
-        log("B2 at %u res64 %016lx\n", block, residue(p2Data));
-      }
-#endif 
-
-      if (nMuls >= 100) {
-        doneMuls += nMuls;
-        leftMuls -= nMuls;
-        [[maybe_unused]] float percent = doneMuls * 100.0f / (doneMuls + leftMuls);
-        float secs = timer.deltaSecs();
-        u32 etaSecs = secs * leftMuls / nMuls;
-        log("%5.2f%% %4.0f ETA %s\n", percent, secs / nMuls * 1e6, formatETA(etaSecs).c_str());
-        nMuls = 0;
-      }
-    }
-
-    if ((nStop || atEnd) && gcdFuture.valid()) {
-      log("waiting for GCD..\n");
-      wait(gcdFuture);
-    }
-    
-    if (finished(gcdFuture)) {
-      lastGCDduration = sinceLastGCD.deltaSecs();
-      string factor = gcdFuture.get();
-      log("GCD : %s\n", factor.empty() ? "no factor" : factor.c_str());
-      
-      if (!factor.empty()) {
-        assert(!gcdFuture.valid());
-        gcdFuture = async([factor](){ return factor; });
-        return;
-      }
-
-      if (nStop) {
-        queue->finish();
-        throw "stop requested";
-      }
-    }
-
-    if (nStop > 1) {
-      assert(!gcdFuture.valid());
-      queue->finish();
-      throw "stop requested";
-    }
-    
-    bool doGCD = nStop || atEnd || (!gcdFuture.valid() && sinceLastGCD.elapsedSecs() > max(600.0f, 10*lastGCDduration));
-    
-    if (doGCD) {
-      if (!verifyP2Checksums(blockBufs, blockChecksum)) {
-        goto retry;
-      }
-      if (!verifyP2Block(plan.D, p1Data, block + 1, big.C, bufP2Data)) {
-        goto retry;
-      }
-      log("Starting GCD\n");
-      fftW(buf1, bufAcc);
-      carryA(bufP2Data, buf1);
-      carryB(bufP2Data);
-      Words p2Data = readAndCompress(bufP2Data);
-      if (p2Data.empty()) {
-        log("P2 error: ZERO, will retry\n");
-        goto retry;
-      }
-      assert(!gcdFuture.valid());
-      const u32 nextBlock = atEnd ? u32(-1) : (block + 1);
-      gcdFuture = async(launch::async, [E=E, b2, D, nBuf, nextBlock, p2Data=std::move(p2Data), saver]() {
-        string factor = GCD(E, p2Data, 0);
-        saver->saveP2(b2, D, nBuf, nextBlock);
-        return factor;
-      });
-      sinceLastGCD.reset();
-    }
-  }
-  queue->finish();
-}
-
 // ----
-
-namespace {
-
-struct JacobiResult {
-  bool ok;
-  u32 k;
-  u64 res64;
-};
-
-JacobiResult doJacobiCheck(u32 E, const Words& data, u32 k) {
-  return {jacobi(E, data) == 1, k, res64(data)};
-}
-
-}
 
 fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
   Memlock memlock{args.masterDir, u32(args.device)};
@@ -1513,25 +1246,157 @@ fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
   throw "bad proof generation";
 }
 
+/*
+vector<bool> reverse(const vector<bool>& c) {
+  vector<bool> ret;
+  ret.reserve(c.size());
+  for (auto it = c.end(), beg = c.begin(); it > beg;) { ret.push_back(*--it); }
+  return ret;
+}
+*/
+
+vector<bool> addLE(const vector<bool>& a, const vector<bool>& b) {
+  vector<bool> c;
+  c.reserve(max(a.size(), b.size()) + 1);
+
+  u32 carry = 0;
+  auto ia = a.begin();
+  auto ib = b.begin();
+  for (; ia != a.end() && ib != b.end(); ++ia, ++ib) {
+    u32 s = *ia + *ib + carry;
+    c.push_back(s & 1u);
+    carry = (s >> 1);
+  }
+  for (auto it = ia == a.end() ? ib : ia, end = ia == a.end() ? b.end() : a.end(); it != end; ++it) {
+    u32 s = *it + carry;
+    c.push_back(s & 1u);
+    carry = (s >> 1);
+  }
+  if (carry) { c.push_back(1); }
+  return c;
+}
+
+vector<bool> takeTopBits(vector<bool>& v, u32 n) {
+  assert(v.size() >= n);
+  vector<bool> ret;
+  ret.reserve(n);
+  for (auto it = prev(v.end(), n), end = v.end(); it != end; ++it) {
+    ret.push_back(*it);
+  }
+  v.resize(v.size() - n);
+  return ret;
+}
+
+void Gpu::pm1Block(vector<bool> bitsLE, bool skipCheckUpdate) {
+  if (!skipCheckUpdate) {
+    modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+  }
+
+  bool leadIn = true;
+  for (auto it = bitsLE.end(), beg = bitsLE.begin(); it > beg;) {
+    --it;
+    bool leadOut = (it == beg);
+    coreStep(bufData, bufData, leadIn, leadOut, *it);
+    leadIn = leadOut;
+  }
+}
+
+bool Gpu::pm1Check(vector<bool> sumBits, u32 blockSize) {
+  assert(!sumBits.empty() && sumBits.back());
+
+  writeIn(bufAux, makeWords(E, 1));
+
+  for (u32 i = sumBits.size(); i < blockSize; ++i) { sumBits.push_back(0); }
+  assert(sumBits.size() >= blockSize);
+
+  bool leadIn = true;
+  for (int i = sumBits.size() - 1; i >= 0; --i) {
+    // At this particular point we multiply-in bufCheck, which will thus suffer blockSize squarings in the end.
+    if (u32(i) == blockSize - 1) {
+      assert(leadIn); // we did a leadOut at the previous step if there was one.
+      modMul(bufAux, bufAux, bufCheck, buf1, buf2, buf3);
+    }
+
+    bool leadOut = (i == 0) || (u32(i) == blockSize);
+    coreStep(bufAux, bufAux, leadIn, leadOut, sumBits[i]);
+    leadIn = leadOut;
+  }
+
+  modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+  return equalNotZero(bufCheck, bufAux);
+}
+
+void Gpu::doPm1(const Args &args, const Task& task) {
+  u32 E  = task.exponent;
+  u32 B1 = task.B1;
+
+  // We need blockSize to initialize powerBits below.
+  vector<bool> powerBits;
+
+  // TODO: replace Saver with Pm1Saver which does not take the PRP stuff
+  Saver saver{E, args.nSavefiles, B1, args.startFrom};
+
+// reload:
+  auto [k, blockSize, data] = saver.loadP1();
+
+  if (!blockSize) {
+    assert(!k);
+    blockSize = args.pm1BlockSize;
+  }
+
+  if (powerBits.empty()) {
+    Timer t;
+    powerBits = powerSmoothLSB(E, B1, blockSize);
+    log("powerBits(%u) = %u (%.0fms)\n", B1, u32(powerBits.size()), t.elapsedSecs() * 1000);
+  }
+
+  assert(powerBits.size() % blockSize == 0);
+
+  if (k == 0) {
+    assert(data.empty());
+    data = makeWords(E, 1);
+  }
+
+  log("P1(%u) at %u/%u (block %u); %016" PRIx64 "\n", B1, k, u32(powerBits.size()), blockSize, residue(data));
+
+  assert(k % blockSize == 0); // can only save/verify P-1 at multiples of blockSize
+
+  // TODO: handle k==powerBits.size(), i.e. first-stage is at end
+  assert(k < powerBits.size());
+
+  u32 fullSize = powerBits.size();
+  powerBits.resize(fullSize - k);
+
+  assert(!powerBits.empty() && powerBits.size() % blockSize == 0);
+
+  writeData(data);
+  // writeCheck(makeWords(E, 1u));
+  bufCheck << bufData;
+
+  vector<bool> sumLE;
+  // pm1Block(takeTopBits(powerBits, blockSize), true, sumLE);
+
+  while (!powerBits.empty()) {
+    auto bits = takeTopBits(powerBits, blockSize);
+    addLE(sumLE, bits);
+    pm1Block(bits, true);
+    // auto data = readData();
+    bool ok = pm1Check(sumLE, blockSize);
+    k += blockSize;
+    log("P1(%u) at %u: %s\n", B1, k, ok ? "OK" : "EE");
+    // finish();
+  }
+}
+
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 E = task.exponent;
-  u32 b1 = task.B1;
-  u32 b2 = task.B2;
   u32 k = 0, blockSize = 0;
   u32 nErrors = 0;
-
-  log("maxAlloc: %.1f GB\n", args.maxAlloc * (1.0f / (1 << 30)));
-  if (!args.maxAlloc) {
-    log("You should use -maxAlloc if your GPU has more than 4GB memory. See help '-h'\n");
-  }
   
   u32 power = -1;
   u32 startK = 0;
 
-  Saver saver{E, args.nSavefiles, b1, args.startFrom};
-  B1Accumulator b1Acc{this, &saver, E};
-  future<string> gcdFuture;
-  future<JacobiResult> jacobiFuture;
+  Saver saver{E, args.nSavefiles, 0, args.startFrom};
   Signal signal;
 
   // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.
@@ -1542,9 +1407,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   
  reload:
   {
-    PRPState loaded = saver.loadPRP(args.blockSize);
-    b1Acc.load(loaded.k);
-    
+    PRPState loaded = saver.loadPRP(args.blockSize);    
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
     
     u64 res = dataResidue();
@@ -1564,14 +1427,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     blockSize = loaded.blockSize;
     if (nErrors == 0) { nErrors = loaded.nErrors; }
     assert(nErrors >= loaded.nErrors);
-  }
-
-  if (k) {
-    Words b1Data = b1Acc.fold();
-    if (!b1Data.empty()) {
-      // log("P1 %9u starting on-load Jacobi check\n", k);
-      jacobiFuture = async(launch::async, doJacobiCheck, E, std::move(b1Data), k);
-    }
   }
 
   assert(blockSize > 0 && 10000 % blockSize == 0);
@@ -1619,22 +1474,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   assert(k % blockSize == 0);
   assert(checkStep % blockSize == 0);
 
-  bool didP2 = false;
-  
   while (true) {
     assert(k < kEndEnd);
-
-    if (finished(jacobiFuture)) {
-      auto [ok, jacobiK, res] = jacobiFuture.get();
-      log("P1 Jacobi %s @ %u %016" PRIx64 "\n", ok ? "OK" : "EE", jacobiK, res);      
-      if (!ok) {
-        if (jacobiK < k) {
-          saver.deleteBadSavefiles(jacobiK, k);
-          ++nErrors;
-          goto reload;
-        }
-      }
-    }
     
     if (skipNextCheckUpdate) {
       skipNextCheckUpdate = false;
@@ -1647,17 +1488,14 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     ++k; // !! early inc
-    assert(b1Acc.wantK() == 0 || b1Acc.wantK() >= k);
 
     bool doStop = false;
-    bool b1JustFinished = false;
 
     if (k % blockSize == 0) {
       doStop = signal.stopRequested() || (args.iters && k - startK >= args.iters);
-      b1JustFinished = !b1Acc.wantK() && !didP2 && !jacobiFuture.valid() && (k - startK >= 2 * blockSize);
     }
     
-    bool leadOut = doStop || b1JustFinished || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
+    bool leadOut = doStop || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
 
     coreStep(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;    
@@ -1681,15 +1519,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
     }
 
-    if (k == b1Acc.wantK()) {
-      if (leadOut) {
-        b1Acc.step(k, bufData);
-      } else {
-        b1Acc.step(k, buf1);
-      }
-      assert(!b1Acc.wantK() || b1Acc.wantK() > k);
-    }
-
     if (!leadOut) {
       if (k % blockSize == 0) {
         finish();
@@ -1699,7 +1528,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     u64 res = dataResidue(); // implies finish()
-    bool doCheck = !res || doStop || b1JustFinished || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+    bool doCheck = !res || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
       
     if (k % 10000 == 0 && !doCheck) {
       float secsPerIt = iterationTimer.reset(k);
@@ -1710,19 +1539,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     if (doStop) {
       log("Stopping, please wait..\n");
       signal.release();
-      wait(gcdFuture);
     }
-      
-    if (finished(gcdFuture)) {
-      string factor = gcdFuture.get();
-      log("GCD: %s\n", factor.empty() ? "no factor" : factor.c_str());
-      
-      assert(didP2);
-      if (didP2) { task.writeResultPM1(args, factor, getFFTSize()); }
-      
-      if (!factor.empty()) { return {factor}; }
-    }
-      
+            
     if (doCheck) {
       if (printStats) { printRoundoff(E); }
 
@@ -1740,36 +1558,18 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         lastFailedRes64.reset();
         skipNextCheckUpdate = true;
 
-        Words b1Data;
-        try {
-          b1Data = b1Acc.save(k);
-        } catch (Reload&) {
-          goto reload;
-        }
-
         if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res, check, nErrors}); }
 
         float secsSave = iterationTimer.reset(k);
           
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, ::res64(b1Data));
-
-        if (!b1Data.empty() && (!b1Acc.wantK() || (k % 1'000'000 == 0)) && !jacobiFuture.valid()) {
-          // log("P1 %9u starting Jacobi check\n", k);
-          jacobiFuture = async(launch::async, doJacobiCheck, E, std::move(b1Data), k);
-        }
-
-        if (!doStop && !didP2 && !b1Acc.wantK() && !jacobiFuture.valid()) {
-          doP2(&saver, b1, b2, gcdFuture, signal);
-          didP2 = true;
-        }
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors);
           
         if (k >= kEndEnd) {
           fs::path proofFile = saveProof(args, proofSet);
           return {"", isPrime, finalRes64, nErrors, proofFile.string()};          
-        }
-        
+        }        
       } else {
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors, b1Acc.nBits, b1Acc.b1, 0);
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
         ++nErrors;
         if (++nSeqErrors > 2) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
@@ -1786,7 +1586,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       logTimeKernels();
         
       if (doStop) {
-        assert(!gcdFuture.valid());
         queue->finish();
         throw "stop requested";
       }

@@ -64,6 +64,8 @@ public:
   
   static void append(const fs::path& name, std::string_view text) { File::openAppend(name).write(text); }
 
+  // File() : f{} {}
+
   File(FILE* f, const string& name) : f{f}, readOnly{false}, name{name} {}
   
   File(File&& other) : f{other.f}, readOnly{other.readOnly}, name{other.name} { other.f = nullptr; }
@@ -193,10 +195,23 @@ public:
   }
 
   template<typename T>
+  std::vector<T> readChecked(u32 nWords) {
+    u32 expectedCRC = read<u32>(1)[0];
+    return readWithCRC<T>(nWords, expectedCRC);
+  }
+
+  template<typename T>
+  void writeChecked(const vector<T>& data) {
+    u32 crc = crc32(data);
+    write(&crc, sizeof(crc));
+    write(data);
+  }
+
+  template<typename T>
   std::vector<T> readWithCRC(u32 nWords, u32 crc) {
     auto data = read<T>(nWords);
     if (crc != crc32(data)) {
-      log("File '%s' : CRC found %u expected %u\n", name.c_str(), crc, crc32(data));
+      log("File '%s' : CRC: expected %u, actual %u\n", name.c_str(), crc, crc32(data));
       throw "CRC";
     }    
     return data;

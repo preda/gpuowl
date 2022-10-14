@@ -4,13 +4,14 @@
 #include "File.h"
 #include "Blake2.h"
 #include "Args.h"
+#include "common.h"
 
 #include <filesystem>
 #include <functional>
 #include <ios>
 #include <cassert>
 #include <cinttypes>
-
+#include <string>
 
 namespace fs = std::filesystem;
 
@@ -49,7 +50,7 @@ vector<u32> Saver::listIterations(const string& prefix, const string& ext) {
 }
 
 vector<u32> Saver::listIterations() {
-  return listIterations(to_string(E) + '-', ".prp");  
+  return listIterations(to_string(E) + '-', ".prp");
 }
 
 void Saver::cleanup(u32 E, const Args& args) {
@@ -57,8 +58,6 @@ void Saver::cleanup(u32 E, const Args& args) {
     fs::path here = fs::current_path();
     fs::remove_all(here / to_string(E), noThrow());
   }
-  
-  // fs::remove_all(base, noThrow);  // redundant
 }
 
 float Saver::value(u32 k) {
@@ -69,13 +68,13 @@ float Saver::value(u32 k) {
   while (k % 2 == 0) {
     k /= 2;
     nice *= 2;
+
+    if (k % 5 == 0) {
+      k /= 5;
+      nice *= 5;
+    }
   }
-  
-  while (k % 5 == 0) {
-    k /= 5;
-    nice *= 5;
-  }
-    
+      
   return nice / float(dist);
 }
 
@@ -111,17 +110,16 @@ void Saver::deleteBadSavefiles(u32 kBad, u32 currentK) {
 void Saver::del(u32 k) {
   // log("Note: deleting savefile %u\n", k);
   fs::remove(pathPRP(k), noThrow()); 
-  fs::remove(pathP1(k), noThrow());
 }
 
 void Saver::savedPRP(u32 k) {
   assert(k >= lastK);
-  lastK = k;
   while (minValPRP.size() >= nKeep) {
     auto kDel = minValPRP.top().second;
     minValPRP.pop();
     del(kDel);
   }
+  lastK = k;
   minValPRP.push({value(k), k});
 }
 
@@ -190,39 +188,51 @@ void Saver::savePRP(const PRPState& state) {
 
 // --- P1 ---
 
-P1State Saver::loadP1(u32 k) {
-  fs::path path = pathP1(k);
-  File fi = File::openReadThrow(path);
-  string header = fi.readLine();
-  u32 fileE, fileB1, fileK, nextK, crc;
-  if (sscanf(header.c_str(), P1_v2, &fileE, &fileB1, &fileK, &nextK, &crc) != 5) {
-    log("In file '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
-    throw "bad savefile";
+P1State Saver::loadP1(const string& ext) {
+  try {
+    File fi = File::openReadThrow(path(b1, ext));
+
+    string header = fi.readLine();
+    u32 fileE, fileB1, fileK, fileBlock;
+    if (sscanf(header.c_str(), P1_v3, &fileE, &fileB1, &fileK, &fileBlock) != 4) {
+      log("In file '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
+      throw "bad savefile";
+    }
+
+    assert(fileE == E && fileB1 == b1);
+
+    auto data  = fi.readChecked<u32>(nWords(E));
+    return {fileK, fileBlock, data};
+  } catch (const fs::filesystem_error& e) {
+    log("Starting P1(%u) from the beginning\n", b1);
+    return {0, 0, {}};
   }
-  
-  assert(fileE == E && fileB1 == b1 && fileK == k);
-  return {nextK, fi.readWithCRC<u32>(nWords(E), crc)};
 }
 
 void Saver::saveP1(u32 k, const P1State& state) {
-  auto& [nextK, data] = state;
+  assert(state.data.size() == nWords(E));
 
-  assert(data.size() == nWords(E));
-  assert(nextK == 0 || nextK >= k);
-
-  {
-    File fo = File::openWrite(pathP1(k));
-    if (fo.printf(P1_v2, E, b1, k, nextK, crc32(data)) <= 0) {
+  File fo = File::openWrite(path(b1, "p1.try"));
+  if (fo.printf(P1_v3, E, b1, state.k, state.blockSize) <= 0) {
       throw(ios_base::failure("can't write header"));
-    }
-    fo.write(data);
   }
+  fo.writeChecked(state.data);
+}
 
-  loadP1(k);
+void Saver::cycle(const fs::path& name) {
+  /*
+  fs::remove(name + ".bak");
+  fs::rename(name, name + ".bak");
+  fs::rename(name + ".new", name);
+  */
+}
+
+void Saver::cycleP1() {
+  cycle(path(b1, ".p1"));
 }
 
 // --- P1Final ---
-
+/*
 vector<u32> Saver::loadP1Final() {
   fs::path path = pathP1Final();
   File fi = File::openReadThrow(path);
@@ -249,9 +259,10 @@ void Saver::saveP1Final(const vector<u32>& data) {
 
   loadP1Final();
 }
-
+*/
 // --- P2 ---
 
+/*
 u32 Saver::loadP2(u32 b2, u32 D, u32 nBuf) {
   fs::path path = pathP2();
   File fi = File::openRead(path);
@@ -296,3 +307,4 @@ void Saver::saveP2(u32 b2, u32 D, u32 nBuf, u32 nextBlock) {
     throw(ios_base::failure("can't write header"));
   }
 }
+*/
