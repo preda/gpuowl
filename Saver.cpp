@@ -189,12 +189,10 @@ void Saver::savePRP(const PRPState& state) {
 // --- P1 ---
 
 P1State Saver::loadP1() {
-  try {
-    File fi = File::openReadThrow(pathP1());
-
+  if (File fi = File::openRead(pathP1()); fi) {
     string header = fi.readLine();
-    u32 fileE, fileB1, fileK, fileBlock;
-    if (sscanf(header.c_str(), P1_v3, &fileE, &fileB1, &fileK, &fileBlock) != 4) {
+    u32 fileE, fileB1, fileK;
+    if (sscanf(header.c_str(), P1_v3, &fileE, &fileB1, &fileK) != 3) {
       log("In file '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
       throw "bad savefile";
     }
@@ -202,11 +200,10 @@ P1State Saver::loadP1() {
     assert(fileE == E);
 
     auto data  = fi.readChecked<u32>(nWords(E));
-    return {fileB1, fileK, fileBlock, data};
-
-  } catch (const fs::filesystem_error& e) {
+    return {fileB1, fileK, data};
+  } else {
     log("P1: no savefile found, starting from the beginning\n");
-    return P1State{}; // {0, 0, 0, {}};
+    return P1State{};
   }
 }
 
@@ -215,7 +212,7 @@ void Saver::saveP1(const P1State& state) {
   assert(state.B1);
   {
     File fo = File::openWrite(pathP1() + ".new");
-    if (fo.printf(P1_v3, E, state.B1, state.k, state.blockSize) <= 0) {
+    if (fo.printf(P1_v3, E, state.B1, state.k) <= 0) {
       throw(ios_base::failure("can't write header"));
     }
     fo.writeChecked(state.data);

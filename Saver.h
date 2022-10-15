@@ -23,7 +23,6 @@ struct PRPState {
 struct P1State {
   u32 B1;
   u32 k;
-  u32 blockSize;
   Words data;
 };
 
@@ -38,7 +37,7 @@ class Saver {
   // E, k, block-size, res64, nErrors, CRC
   static constexpr const char *PRP_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u\n";
 
-  static constexpr const char *P1_v3 = "OWL P1 3 E=%u B1=%u k=%u block=%u\n";
+  static constexpr const char *P1_v3 = "OWL P1 3 E=%u B1=%u k=%u\n";
 
   // ----
 

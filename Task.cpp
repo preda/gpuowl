@@ -143,5 +143,6 @@ void Task::execute(const Args& args) {
   } else {
     // P-1
     gpu->doPm1(args, *this);
+    Worktodo::deleteTask(*this);
   }
 }
