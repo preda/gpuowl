@@ -392,6 +392,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufData{queue, "data", N},
   bufAux{queue, "aux", N},
   bufCheck{queue, "check", N},
+  bufBase{queue, "base", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
   bufRoundoff{queue, "roundoff", 8 + 1024 * 1024},
@@ -738,7 +739,7 @@ public:
   explicit IterationTimer(u32 kStart) : kStart(kStart) { }
   
   float reset(u32 k) {
-    float secs = timer.deltaSecs();
+    float secs = timer.reset();
 
     u32 its = max(1u, k - kStart);
     kStart = k;
@@ -1235,6 +1236,7 @@ vector<bool> reverse(const vector<bool>& c) {
     carry = (s >> 1);
   }
   if (carry) { c.push_back(1); }
+  while (!c.empty() && !c.back()) { c.pop_back(); }
   return c;
 }
 
@@ -1284,14 +1286,23 @@ bool Gpu::pm1Check(vector<bool> sumBits, u32 blockSize) {
     leadIn = leadOut;
   }
 
+  modMul(bufAux, bufAux, bufBase, buf1, buf2, buf3);
   modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
   return equalNotZero(bufCheck, bufAux);
+}
+
+static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs) {
+  char checkTimeStr[64] = {0};
+  if (checkSecs) { snprintf(checkTimeStr, sizeof(checkTimeStr), " (check %.0f ms)", checkSecs * 1000); }
+  float percent = k * 100.0f / nBits;
+  float us = secsPerIt * 1'000'000;
+  log("P1(%u) %7u/%u %3.1f%% %2s %016" PRIx64 " %4.0f us%s\n",
+      B1, k, nBits, percent, strOK.c_str(), res64, us, checkTimeStr);
 }
 
 bool Gpu::pm1Retry(const Args &args, const Task& task) {
   enum RetCode { DONE=false, RETRY=true};
 
-  Signal signal;
   u32 E  = task.exponent;
 
   // TODO: replace Saver with Pm1Saver which does not take the PRP stuff
@@ -1320,7 +1331,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
   auto powerBits = powerSmoothLE(E, B1, blockSize);
   const u32 nBits = powerBits.size();
 
-  log("P1(%u) at %u/%u (block %u); %016" PRIx64 "\n", B1, k, nBits, blockSize, residue(data));
+  // log("P1(%u) at %u/%u (block %u); %016" PRIx64 "\n", B1, k, nBits, blockSize, residue(data));
 
   assert(nBits % blockSize == 0);
   assert(k % blockSize == 0); // can only save/verify P-1 at multiples of blockSize
@@ -1331,32 +1342,112 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
   writeData(data);
   // writeCheck(makeWords(E, 1u));
   bufCheck << bufData;
+  bufBase  << bufData;
 
   vector<bool> sumLE;
+  Signal signal;
+  bool updateCheck = false;
+  optional<P1State> pendingSave;
+
+  u32 lastTimerK = k;
+  // u32 newTimerK = timerK;
+  u32 startK = k;
+  string okMes;
+  optional<u64> logRes = dataResidue();
+  optional<bool> maybeOK;
+  float checkSecs = 0;
+
+  Timer timer;
 
   while (!powerBits.empty()) {
     auto bits = takeTopBits(powerBits, blockSize);
     sumLE = addLE(sumLE, bits);
-    assert(sumLE == bits);
-    pm1Block(bits, false);
 
-    // bool doCheck = signal.stopRequested() ||
+    pm1Block(bits, updateCheck); // here's GPU work
+    updateCheck = true;
 
-    auto data = readData();
+    if (logRes) {
+      u32 deltaIts = k - lastTimerK;
+      assert(deltaIts % blockSize == 0);
+      u32 nIts = deltaIts + deltaIts / blockSize;
+      float secs = float(timer.reset()) - checkSecs;
+      float secsPerIt = nIts ? secs / nIts : 0.0f;
+      const char* strOK = maybeOK ? *maybeOK ? "OK" : "EE" : "";
 
-    bool ok = pm1Check(sumLE, blockSize); // finish();
+      pm1Log(B1, k, nBits, strOK, *logRes, secsPerIt, checkSecs);
 
+      lastTimerK = k;
+      logRes.reset();
+    }
+
+    // update k *after* the log above
     k += blockSize;
-    log("P1(%u) %7u/%u %s %016" PRIx64 "\n", B1, k, nBits, ok ? "OK" : "EE", residue(data));
 
-    if (ok) {
-      saver.saveP1({.B1=B1, .k=k, .blockSize=blockSize, .data=data});
+    // we do the disk operations while the GPU is also doing some work
+    if (pendingSave) {
+      saver.saveP1(*pendingSave);
+      pendingSave.reset();
+      timer.reset(); // do not count the file-save-time into iteration time
+    }
+
+    bool doStop = signal.stopRequested();
+    bool doCheck = doStop || k % 20000 == 0 || k - startK == 2 * blockSize || powerBits.empty();
+    bool doLog = doCheck || k % 1000 == 0;
+
+    if (doCheck) {
+      finish();
+      Timer checkTimer;
+      data = readData();
+      logRes = residue(data);
+
+      maybeOK = pm1Check(sumLE, blockSize);
+
+      updateCheck = false;
+      assert(maybeOK);
+      checkSecs = checkTimer.at();
+
+      if (maybeOK && *maybeOK) {
+        assert(!pendingSave);
+        pendingSave = P1State{.B1=B1, .k=k, .blockSize=blockSize, .data=data};
+      }
+
+      if (!*maybeOK || doStop) { break; }
     } else {
-      return RETRY;
+      maybeOK.reset();
+
+      if (doLog) {
+        logRes = dataResidue(); // finish();
+        checkSecs = 0;
+      } else {
+        finish();
+      }
     }
   }
 
-  log("P1(%u) completed\n", B1);
+  assert(logRes);
+  assert(maybeOK);
+  assert(bool(pendingSave) == *maybeOK);
+
+  u32 deltaIts = k - lastTimerK;
+  assert(deltaIts % blockSize == 0);
+  u32 nIts = deltaIts + deltaIts / blockSize;
+  float secs = float(timer.reset()) - checkSecs;
+  float secsPerIt = nIts ? secs / nIts : 0.0f;
+  const char* strOK = maybeOK ? *maybeOK ? "OK" : "EE" : "";
+  pm1Log(B1, k, nBits, strOK, *logRes, secsPerIt, checkSecs);
+
+  if (pendingSave) {
+    saver.saveP1(*pendingSave);
+  } else {
+    assert(!*maybeOK);
+    return RETRY;
+  }
+
+  if (powerBits.empty()) {
+    log("P1(%u) completed\n", B1);
+    auto factor = GCD(E, data, 1);
+    log("factor \"%s\"\n", factor.c_str());
+  }
   return DONE;
 }
 

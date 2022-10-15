@@ -51,7 +51,7 @@ public:
 
   int carry = CARRY_AUTO;
   u32 blockSize = 400;
-  u32 pm1BlockSize = 200;
+  u32 pm1BlockSize = 500;
   u32 logStep   = 0;
   string fftSpec;
 

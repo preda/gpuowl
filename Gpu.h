@@ -103,7 +103,8 @@ class Gpu {
   HostAccessBuffer<int> bufData;   // Main int buffer with the words.
   HostAccessBuffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
   Buffer<int> bufCheck;  // Buffers used with the error check.
-  
+  Buffer<int> bufBase;   // used in P-1 error check.
+
   // Carry buffers, used in carry and fusedCarry.
   Buffer<i64> bufCarry;  // Carry shuttle.
   
