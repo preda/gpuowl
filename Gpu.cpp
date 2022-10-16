@@ -1292,12 +1292,12 @@ bool Gpu::pm1Check(vector<bool> sumBits, u32 blockSize) {
 }
 
 static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs) {
-  char checkTimeStr[64] = {0};
-  if (checkSecs) { snprintf(checkTimeStr, sizeof(checkTimeStr), " (check %.0f ms)", checkSecs * 1000); }
+  // char checkTimeStr[64] = {0};
+  // if (checkSecs) { snprintf(checkTimeStr, sizeof(checkTimeStr), " (check %.0f ms)", checkSecs * 1000); }
   float percent = k * 100.0f / nBits;
   float us = secsPerIt * 1'000'000;
-  log("P1(%u) %7u/%u %4.1f%% %2s %016" PRIx64 " %4.0f us%s\n",
-      B1, k, nBits, percent, strOK.c_str(), res64, us, checkTimeStr);
+  log("P1 %7u/%u %5.2f%% %2s %016" PRIx64 " %4.0f\n",
+      k, nBits, percent, strOK.c_str(), res64, us/*, checkTimeStr*/);
 }
 
 bool Gpu::pm1Retry(const Args &args, const Task& task) {
@@ -1344,7 +1344,6 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
   u32 lastTimerK = k;
   // u32 newTimerK = timerK;
   u32 startK = k;
-  string okMes;
   optional<u64> logRes = dataResidue();
   optional<bool> maybeOK = true;
   float checkSecs = 0;
@@ -1386,9 +1385,10 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
 
     k += blockSize;
 
-    bool doStop = signal.stopRequested();
-    bool doCheck = doStop || k % 50000 == 0 || k - startK == 2 * blockSize || powerBits.empty();
-    bool doLog = doCheck || k % 10000 == 0;
+    bool doStop  = signal.stopRequested();
+    bool doCheck = doStop  || k % 50000 == 0 || k - startK == 2 * blockSize || powerBits.empty();
+    // bool doLog   = doCheck || k % 10000 == 0;
+    bool doLog = doCheck;
 
     if (doCheck) {
       finish();
@@ -1412,7 +1412,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
       maybeOK.reset();
 
       if (doLog) {
-        logRes = dataResidue(); // finish();
+        logRes = dataResidue(); // implies finish();
         checkSecs = 0;
       } else {
         finish();
@@ -1425,11 +1425,9 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
 
   if (!powerBits.empty()) { throw "stop requested"; }
 
-  if (powerBits.empty()) {
-    log("P1(%u) completed\n", B1);
-    auto factor = GCD(E, data, 1);
-    log("factor \"%s\"\n", factor.c_str());
-  }
+  log("P1(%u) completed\n", B1);
+  auto factor = GCD(E, data, 1);
+  log("factor \"%s\"\n", factor.c_str());
   return DONE;
 }
 
