@@ -58,6 +58,7 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   {
     auto fo{File::openWrite(fileName + ".new")};
     for (const string& line : File::openReadThrow(fileName)) {
+      // log("line '%s'\n", line.c_str());
       if (!lineDeleted && line == targetLine) {
         lineDeleted = true;
       } else {

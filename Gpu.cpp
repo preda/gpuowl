@@ -1388,8 +1388,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
 
     bool doStop  = signal.stopRequested();
     bool doCheck = doStop  || k % 50000 == 0 || k - startK == 2 * blockSize || powerBits.empty();
-    // bool doLog   = doCheck || k % 10000 == 0;
-    bool doLog = doCheck;
+    bool doLog   = doCheck || k % 10000 == 0;
 
     if (doCheck) {
       finish();
@@ -1427,9 +1426,8 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
   if (!powerBits.empty()) { throw "stop requested"; }
 
   log("P1(%u) completed\n", B1);
-  auto factor = GCD(E, data, 1);
-  log("factor \"%s\"\n", factor.c_str());
-
+  // auto factor = GCD(E, data, 1);
+  // log("factor \"%s\"\n", factor.c_str());
   return DONE;
 }
 

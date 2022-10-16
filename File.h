@@ -146,11 +146,9 @@ public:
     return ret;
   }
   
-  void write(string_view s) {
-    if (fwrite(s.data(), s.size(), 1, f) != 1) {
-      throw fs::filesystem_error("can't write to file"s, name, {});
-    }
-  }
+  void write(const string& s) { write(string_view(s)); }
+  void write(const char* s) { write(string_view(s)); }
+  void write(string_view s) { write(s.data(), s.size()); }
 
   operator bool() const { return f != nullptr; }
   FILE* get() const { return f; }
