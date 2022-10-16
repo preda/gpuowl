@@ -90,7 +90,8 @@ public:
   void savePRP(const PRPState& state);
 
   P1State loadP1();
-  void saveP1(const P1State& state);
+  void saveP1(const P1State& state, bool isDone);
+  void saveP1Prime95(const P1State& state);
 
   // Will delete all PRP & P-1 savefiles at iteration kBad up to currentK as bad.
   void deleteBadSavefiles(u32 kBad, u32 currentK);

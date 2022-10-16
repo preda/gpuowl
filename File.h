@@ -114,10 +114,20 @@ public:
   template<typename T>
   void write(const vector<T>& v) { write(v.data(), v.size() * sizeof(T)); }
 
+  template<typename T>
+  void write(const T& x) { write(&x, sizeof(T)); }
+
   void write(const void* data, u32 nBytes) {
     if (!fwrite(data, nBytes, 1, get())) { throw(std::ios_base::failure((name + ": can't write data").c_str())); }
   }
   
+  void seek(long offset, int whence = SEEK_SET) {
+    int ret = fseek(get(), offset, whence);
+    if (ret) {
+      throw(std::ios_base::failure(("fseek: "s + to_string(ret)).c_str()));
+    }
+  }
+
   void flush() { fflush(get()); }
   
   int printf(const char *fmt, ...) __attribute__((format(printf, 2, 3))) {
@@ -151,14 +161,8 @@ public:
     return pos;
   }
 
-  void seek(long pos) {
-    int err = fseek(get(), pos, SEEK_SET);
-    assert(!err);
-  }
-
   long seekEnd() {
-    int err = fseek(get(), 0, SEEK_END);
-    assert(!err);
+    seek(0, SEEK_END);
     return ftell();
   }
   

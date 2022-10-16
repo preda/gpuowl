@@ -1302,7 +1302,7 @@ static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secs
 
 bool Gpu::pm1Retry(const Args &args, const Task& task) {
   enum RetCode { DONE=false, RETRY=true};
-  const u32 blockSize = 400; // fixed for now
+  const u32 blockSize = 200; // fixed for now
 
   u32 E  = task.exponent;
 
@@ -1377,7 +1377,8 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
     }
 
     if (pendingSave) {
-      saver.saveP1(*pendingSave);
+      bool isDone = pendingSave->k >= nBits;
+      saver.saveP1(*pendingSave, isDone);
       pendingSave.reset();
     }
 
@@ -1428,6 +1429,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
   log("P1(%u) completed\n", B1);
   auto factor = GCD(E, data, 1);
   log("factor \"%s\"\n", factor.c_str());
+
   return DONE;
 }
 
