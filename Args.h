@@ -46,7 +46,8 @@ public:
   fs::path tmpDir = ".";
   fs::path proofResultDir = "proof";
   fs::path proofToVerifyDir = "proof-tmp";
-  
+  fs::path mprimeDir = ".";
+
   bool keepProof = false;
 
   int carry = CARRY_AUTO;

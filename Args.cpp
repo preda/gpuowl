@@ -66,6 +66,7 @@ void Args::printHelp() {
                      A proof of power 9 uses 6GB of disk space for a 100M exponent and enables faster verification.
 -autoverify <power> : Self-verify proofs generated with at least this power. Default %u.
 -tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored, default '%s'.
+-mprimeDir <dir>   : folder where an instance of Prime95/mprime can be found (for P-1 second-stage)
 -results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc <size>   : limit GPU memory usage to size, which is a value with suffix M for MB and G for GB.
@@ -151,6 +152,12 @@ void Args::parse(const string& line) {
         throw "-tmpDir needs <dir>";
       }
       tmpDir = s;
+    } else if (key == "-mprimeDir") {
+      if (s.empty()) {
+        log("-mprimeDir needs <dir>\n");
+        throw "-mprimeDir needs <dir>";
+      }
+      mprimeDir = s;
     } else if (key == "-keep") {
       if (s != "proof") {
         log("-keep requires 'proof'\n");

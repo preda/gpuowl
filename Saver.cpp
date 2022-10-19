@@ -78,7 +78,8 @@ float Saver::value(u32 k) {
   return nice / float(dist);
 }
 
-Saver::Saver(u32 E, u32 nKeep, u32 startFrom) : E{E}, nKeep{max(nKeep, 5u)} {
+Saver::Saver(u32 E, u32 nKeep, u32 startFrom, const fs::path& mprimeDir)
+  : E{E}, nKeep{max(nKeep, 5u)}, mprimeDir{mprimeDir} {
   scan(startFrom);
 }
 
@@ -278,6 +279,9 @@ void Saver::saveP1(const P1State& state, bool isDone) {
 
   if (isDone) {
     saveP1Prime95(state);
+    fs::path mprimeName = mprimeDir / ("m"s + to_string(E));
+    fs::copy(pathP1() + ".prime95", mprimeName + ".new");
+    cycle(mprimeName);
   }
 
   cycle(pathP1());

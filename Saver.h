@@ -78,12 +78,13 @@ class Saver {
   const u32 E;
   const fs::path base = fs::current_path() / to_string(E);
   const u32 nKeep;
+  fs::path mprimeDir;
   
 public:
   static void cycle(const fs::path& name);
   static void cleanup(u32 E, const Args& args);
   
-  Saver(u32 E, u32 nKeep, u32 startFrom);
+  Saver(u32 E, u32 nKeep, u32 startFrom, const fs::path& mprimeDir);
 
 
   PRPState loadPRP(u32 iniBlockSize);  

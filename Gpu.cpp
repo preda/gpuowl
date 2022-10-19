@@ -1307,7 +1307,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
   u32 E  = task.exponent;
 
   // TODO: replace Saver with Pm1Saver which does not take the PRP stuff
-  Saver saver{E, args.nSavefiles, args.startFrom};
+  Saver saver{E, args.nSavefiles, args.startFrom, args.mprimeDir};
 
   auto [B1, k, data] = saver.loadP1();
 
@@ -1394,6 +1394,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
       finish();
       Timer checkTimer;
       data = readData();
+      if (data.empty()) { return RETRY; }
       logRes = residue(data);
 
       maybeOK = pm1Check(sumLE, blockSize);
@@ -1408,6 +1409,8 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
       }
 
       if (!*maybeOK || doStop) { getOut = true; }
+
+      logTimeKernels();
     } else {
       maybeOK.reset();
 
@@ -1439,7 +1442,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 power = -1;
   u32 startK = 0;
 
-  Saver saver{E, args.nSavefiles, args.startFrom};
+  Saver saver{E, args.nSavefiles, args.startFrom, args.mprimeDir};
   Signal signal;
 
   // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.

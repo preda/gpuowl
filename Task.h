@@ -23,6 +23,7 @@ struct Task {
 
   u32 B1 = 0;
   u32 B2 = 0;
+  u32 howFarFactored = 0;
 
   string verifyPath; // For Verify
     
