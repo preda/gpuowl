@@ -1291,16 +1291,19 @@ bool Gpu::pm1Check(vector<bool> sumBits, u32 blockSize) {
   return equalNotZero(bufCheck, bufAux);
 }
 
-static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs) {
+static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs, u32 nErr) {
   // char checkTimeStr[64] = {0};
   // if (checkSecs) { snprintf(checkTimeStr, sizeof(checkTimeStr), " (check %.0f ms)", checkSecs * 1000); }
-  float percent = k * 100.0f / nBits;
+  [[maybe_unused]] float percent = k * 100.0f / nBits;
   float us = secsPerIt * 1'000'000;
-  log("P1 %7u/%u %5.2f%% %2s %016" PRIx64 " %4.0f\n",
-      k, nBits, percent, strOK.c_str(), res64, us/*, checkTimeStr*/);
+  // log("%7u/%u %5.2f%% %2s %016" PRIx64 " %4.0f\n",
+  //    k, nBits, percent, strOK.c_str(), res64, us/*, checkTimeStr*/);
+  // log("%7u %2s %016" PRIx64 " %4.0f\n", k, strOK.c_str(), res64, us);
+  string err = nErr ? " err "s + to_string(nErr) : "";
+  log("%5.2f%% %1s %016" PRIx64 " %4.0f%s\n", percent, strOK.c_str(), res64, us, err.c_str());
 }
 
-bool Gpu::pm1Retry(const Args &args, const Task& task) {
+bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
   enum RetCode { DONE=false, RETRY=true};
   const u32 blockSize = 200; // fixed for now
 
@@ -1314,7 +1317,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
   u32 desiredB1 = task.B1 ? task.B1 : args.B1;
   if (!B1) { B1 = desiredB1; }
 
-  if (B1 != desiredB1) { log("P1 using B1=%u (from savefile) vs. B1=%u\n", B1, desiredB1); }
+  if (B1 != desiredB1) { log("using B1=%u (from savefile) vs. B1=%u\n", B1, desiredB1); }
   assert(B1);
 
   if (k == 0) {
@@ -1333,8 +1336,10 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
 
   writeData(data);
   // writeCheck(makeWords(E, 1u));
-  bufCheck << bufData;
+  writeCheck(data); // bufCheck << bufData;
   bufBase  << bufData;
+
+  log("%5.2f%% @%u/%u B1(%u) %016" PRIx64 "\n", k*100.0f/nBits, k, nBits, B1, dataResidue());
 
   vector<bool> sumLE;
   Signal signal;
@@ -1344,7 +1349,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
   u32 lastTimerK = k;
   // u32 newTimerK = timerK;
   u32 startK = k;
-  optional<u64> logRes = dataResidue();
+  optional<u64> logRes;
   optional<bool> maybeOK = true;
   float checkSecs = 0;
 
@@ -1368,12 +1373,11 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
       u32 nIts = deltaIts + deltaIts / blockSize;
       float secs = float(timer.reset()) - checkSecs;
       float secsPerIt = nIts ? secs / nIts : 0.0f;
-      const char* strOK = maybeOK ? *maybeOK ? "OK" : "EE" : "";
+      const char* strOK = maybeOK ? *maybeOK ? "K" : "E" : "";
 
-      pm1Log(B1, k, nBits, strOK, *logRes, secsPerIt, checkSecs);
+      pm1Log(B1, k, nBits, strOK, *logRes, secsPerIt, checkSecs, nErr);
 
       lastTimerK = k;
-      logRes.reset();
     }
 
     if (pendingSave) {
@@ -1386,8 +1390,11 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
 
     k += blockSize;
 
+    bool resZero = logRes && *logRes == 0;
+    logRes.reset();
+
     bool doStop  = signal.stopRequested();
-    bool doCheck = doStop  || k % 50000 == 0 || k - startK == 2 * blockSize || powerBits.empty();
+    bool doCheck = resZero || doStop  || k % 40000 == 0 || k - startK == 2 * blockSize || powerBits.empty();
     bool doLog   = doCheck || k % 10000 == 0;
 
     if (doCheck) {
@@ -1428,7 +1435,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task) {
 
   if (!powerBits.empty()) { throw "stop requested"; }
 
-  log("P1(%u) completed\n", B1);
+  log("completed\n");
   // auto factor = GCD(E, data, 1);
   // log("factor \"%s\"\n", factor.c_str());
   return DONE;

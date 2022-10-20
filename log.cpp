@@ -31,7 +31,7 @@ void log(const char *fmt, ...) {
   vsnprintf(buf, sizeof(buf), fmt, va);
   va_end(va);
   
-  string prefix = shortTimeStr() + (globalCpuName.empty() ? "" : " "s + globalCpuName) + context;
+  string prefix = shortTimeStr() + " "s + (globalCpuName.empty() ? "" : globalCpuName + " "s) + context;
 
   std::unique_lock lock(logMutex);
   for (auto &f : logFiles) {
@@ -42,14 +42,13 @@ void log(const char *fmt, ...) {
   }
 }
 
-LogContext::LogContext(const string& s) {
-  assert(!s.empty() && (s.find(' ') == string::npos));
-  context = context + ' ' + s;
+LogContext::LogContext(const string& s) : part{s} {
+  assert(!s.empty()); // && (s.find(' ') == string::npos));
+  context = context + s;
 }
 
 LogContext::~LogContext() {
-  assert(!context.empty());
-  auto spacePos = context.rfind(' ');
-  assert(spacePos != string::npos);
-  context = context.substr(0, spacePos);
+  auto p = context.rfind(part);
+  assert(p != string::npos);
+  context = context.substr(0, p);
 }

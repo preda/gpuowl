@@ -40,7 +40,7 @@ std::optional<Task> parse(const std::string& line) {
         u32 howFarFactored = 0;
         if (sscanf(tail.c_str(), "%32[0-9a-fA-F],1,2,%u,-1,%u", AIDStr, &exp, &howFarFactored) == 3
             || (AIDStr[0]=0, sscanf(tail.c_str(), "N/A,1,2,%u,-1,%u", &exp, &howFarFactored) == 2)
-            || (AIDStr[0]=0, sscanf(tail.c_str(), "1,2,%u,-1,%u", &exp, howFarFactored) == 2)
+            || (AIDStr[0]=0, sscanf(tail.c_str(), "1,2,%u,-1,%u", &exp, &howFarFactored) == 2)
             || ((AIDStr[0]=0, sscanf(tail.c_str(), "%u", &exp)) == 1 && exp > 1000)) {
           string AID = AIDStr;
           if (AID == "N/A" || AID == "0") { AID = ""; }

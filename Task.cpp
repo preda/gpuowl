@@ -141,6 +141,7 @@ void Task::execute(const Args& args) {
     Worktodo::deleteTask(*this);
     if (!isPrime) { Saver::cleanup(exponent, args); }
   } else { // P-1
+    LogContext p1{"P1"};
     assert(!line.empty());  // We want to pass the same line to mprime following first-stage
     gpu->doPm1(args, *this);
     File::openAppend(args.mprimeDir/"worktodo.add").write(line);

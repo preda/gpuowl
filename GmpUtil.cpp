@@ -62,7 +62,7 @@ static vector<bool> bitsLE(const mpz_class& a, u32 blockSize = 1) {
   u32 nBits = sizeBits(a);
   assert(nBits);
   u32 fillBits = blockSize - 1 - (nBits - 1) % blockSize;
-  log("fillBits %u\n", fillBits);
+  // log("fillBits %u\n", fillBits);
 
   vector<bool> bits;
   bits.reserve(nBits + fillBits);
