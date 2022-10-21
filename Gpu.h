@@ -219,7 +219,9 @@ public:
 
   void doPm1(const Args& args, const Task& task) {
     u32 nErr = 0;
-    while (pm1Retry(args, task, nErr++));
+    while (pm1Retry(args, task, nErr++)) {
+      if (nErr > 30) { throw "too many errors"; }
+    }
   }
 
   // return true to be invoked again (for retry)
