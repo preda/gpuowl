@@ -253,13 +253,16 @@ void Saver::saveP1Prime95(const P1State& state) {
   fo.write(HAVE_X);
   sum += HAVE_X;
 
-  u32 len = state.data.size();
+  auto data = state.data;
+  while (data.back() == 0) { data.pop_back(); }
+
+  u32 len = data.size();
   fo.write(len);
   sum += len;
   sum += len;
 
-  fo.write(state.data);
-  for (u32 x : state.data) { sum += x; }
+  fo.write(data);
+  for (u32 x : data) { sum += x; }
 
   const u32 SUM_OFFSET = 48;
   fo.seek(SUM_OFFSET);
