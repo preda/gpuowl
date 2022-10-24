@@ -61,7 +61,7 @@ double integral(double a, double b, Fun f) {
   assert(b >= a);
   if (b <= a) { return 0; }
 
-  double step = (b - a) / STEPS;
+  double step = (b - a) * (1.0 / STEPS);
   double sum = 0;
   for (double x = a + step * .5; x < b; x += step) { sum += f(x); }
   return sum * step;
@@ -80,38 +80,64 @@ double pSecondStage(double alpha, double beta) {
 }
 
 // Returns the probability of PM1(B1,B2) success for a Mersenne 2^exponent -1 already TF'ed to factoredUpTo.
-std::pair<double, double> pm1(double exponent, u32 factoredUpTo, u32 B1, u32 B2) {
+std::pair<double, double> pm1(double exponent, u32 factoredUpTo, double B1, double B2) {
   // Mersenne factors have special form 2*k*p+1 for M(p)
   // so sustract log2(exponent) + 1 to obtain the magnitude of the "k" part.
   double takeAwayBits = log2(exponent) + 1;
 
-  // We consider factors of bit-size up to BIT_END -- the total contribution of larger factors being negligeable.
-  constexpr double BIT_END = 175;
+  // We consider factors of bit-size up to BIT_END, the total contribution of larger factors assumed negligeable.
+  constexpr double BIT_END = 200;
   
   // We walk the bit-range [factoredUpTo, BIT_END] in steps of SLICE_WIDTH bits.
-  constexpr double SLICE_WIDTH = 0.25;
+  constexpr double SLICE_WIDTH = 0.25 / 2;
 
   // The middle point of the slice is (2^n + 2^(n+SLICE_WIDTH))/2,
   // so log2(middle) is n + log2(1 + 2^SLICE_WIDTH) - 1.
   constexpr double SLICE_MIDDLE = log2(1 + exp2(SLICE_WIDTH)) - 1;
   
+  assert(B2 >= B1);
   const double bitsB1 = log2(B1);
-  const double bitsB2 = log2(B2);  
+  const double bitsB2 = log2(B2);
   const double beta  = bitsB2 / bitsB1;
   assert(beta >= 1);
 
+  // sum1: the prob. that any factor is detected in stage1
   double sum1 = 0;
+
+  // sum2: the prob. that any factor is detected in stage2
   double sum2 = 0;
   
-  for (double bitPos = factoredUpTo + SLICE_MIDDLE, alpha = (bitPos - takeAwayBits) / bitsB1; bitPos < BIT_END; bitPos += SLICE_WIDTH, alpha += SLICE_WIDTH / bitsB1) {
+  for (double bitPos = factoredUpTo + SLICE_MIDDLE, alpha = (bitPos - takeAwayBits) / bitsB1;
+       bitPos < BIT_END;
+       bitPos += SLICE_WIDTH, alpha += SLICE_WIDTH / bitsB1) {
     double sliceProb = SLICE_WIDTH / bitPos;
     double p1 = pFirstStage(alpha) * sliceProb;
-    double p2 = pSecondStage(alpha, beta) * sliceProb;
-    double p = p1 + p2;
+
+    // p1 is the probability that a representative factor of "alpha" bits in size is B1 smooth.
+    // Because this fact is independent of the smoothness of other factors, we use the
+    // probability sum of independent events: p(A V B) = p(A) + p(B) - p(A)*p(B).
+    // And we update the sum iterativelly: Sum += p(B) - Sum*p(B);
+    // i.e. Sum += fma(p(B), -Sum, p(B)), for numerical stability.
     sum1 += fma(p1, -sum1, p1);
-    sum2 += fma(p,  -sum2, p);
+
+    // p2 is the probability that a representative factor of "alpha" bits in size is found in
+    // stage2 of P-1.
+    double p2 = pSecondStage(alpha, beta) * sliceProb;
+
+    // prob. that a factor is found in either first or second stage of P-1. It is the sum because
+    // p1 and p2 represent disjoint events (a factor detected in the second stage is not B1-smooth).
+    double p12 = p1 + p2;
+
+    // The sum prob. that any factor is found in either first or second stage.
+    sum2 += fma(p12,  -sum2, p12);
   }
+
   return {sum1, sum2 - sum1};
+}
+
+double pm1Total(double exponent, u32 factoredUpTo, double B1, double B2) {
+  auto [p1, p2] = pm1(exponent, factoredUpTo, B1, B2);
+  return p1 + p2;
 }
 
 // Approximation of the number of primes <= n.
@@ -206,11 +232,11 @@ std::pair<double, double> scanBounds(double exponent, u32 factored, double facto
   return {bestB1, bestB2};
 }
 
-static u32 parse(const string& s) {
+static double parse(const string& s) {
   u32 len = s.size();
   assert(len);
   char c = s[len - 1];
-  u32 multiple = (c == 'M' || c == 'm') ? 1'000'000 : ((c == 'K' || c == 'k') ? 1000 : 1);
+  double multiple = (c == 'G' || c == 'g') ? 1'000'000'000.0 : (c == 'M' || c == 'm') ? 1'000'000.0 : ((c == 'K' || c == 'k') ? 1000.0 : 1.0);
   return atof(s.c_str()) * multiple;
 }
 
@@ -222,6 +248,40 @@ void printBounds(double exponent, double factored, double B1, double B2, bool us
   auto [w1, w2] = stageWork(exponent, factored, B1, B2, useLegacyP1);
   printf("B1=%4.1fM B2=%3.0fM | %.3f%% (%.3f%% + %.3f%%) | work %.3f%% (%.3f%% + %.3f%%) | B2/B1=%2.0f, misses %.2f%% of B2-smooth factors\n",
          B1/1'000'000, B2/1'000'000, p * 100, p1 * 100, p2 * 100, (w1 + w2) * 100, w1 * 100, w2 * 100, B2 / B1, (p3 - p) / p3 * 100);
+}
+
+void printSimpleB2(double exp, double factored, double B1, double B2) {
+  double inM = 1.0 / 1'000'000;
+  auto [p1, p2] = pm1(exp, factored, B1, B2);
+  auto p = p1 + p2;
+
+  double b2u = B2 * 0.97;
+  double b2o = B2 * 1.03;
+  double dp = pm1Total(exp, factored, B1, b2o) - pm1Total(exp, factored, B1, b2u);
+  double cost = (b2o - b2u) * 0.001 * 1.442;
+  double benefit = dp * exp * 1.3;
+  double gain = benefit - cost;
+  // printf("%f %f %f %f\n", cost, deltap, benefit, cost - benefit);
+
+  printf("B1=%4.1fM B2=%4.0fM | %.3f%% (%.3f%% + %.3f%%) | gain=%+8.0f (%7.0f - %7.0f) | %f%%\n",
+         B1 * inM, B2 * inM, p * 100, p1 * 100, p2 * 100, gain, benefit, cost, dp * 100);
+}
+
+void printSimple(double exp, double factored, double B1, double B2, double fullP) {
+  double inM = 1.0 / 1'000'000;
+  auto [p1, p2] = pm1(exp, factored, B1, B2);
+  auto p = p1 + p2;
+
+  double b1u = B1 * 0.97;
+  double b1o = B1 * 1.03;
+  double dp = pm1Total(exp, factored, b1o, B2) - pm1Total(exp, factored, b1u, B2);
+  double cost = (b1o - b1u) * 1.442;
+  double benefit = dp * exp * 1.3;
+  double gain = benefit - cost;
+  // printf("%f %f %f %f\n", cost, deltap, benefit, cost - benefit);
+
+  printf("B1=%4.1fM B2=%4.0fM | %.3f%% (%.3f%% + %.3f%%) | Detects %.1f%% of B2-smooth | gain=%+8.0f (%7.0f - %7.0f) | %f%%\n",
+         B1 * inM, B2 * inM, p * 100, p1 * 100, p2 * 100, p / fullP * 100, gain, benefit, cost, dp * 100);
 }
 
 int main(int argc, char*argv[]) {
@@ -240,12 +300,12 @@ Examples:
   u32 factored = parse(argv[2]);
   u32 B1 = 0, B2 = 0;
   double factorBias = -1;
-  bool useLegacy = false;
+  // bool useLegacy = false;
   
   int pos = 3;
   while (pos < argc) {
     if ("-legacy"s == argv[pos]) {
-      useLegacy = true;
+      // useLegacy = true;
       ++pos;
     } else if (pos + 1 < argc) {    
       if ("-B1"s == argv[pos]) {
@@ -268,12 +328,43 @@ Examples:
   printf("%s\n", args.c_str() + 1);
   
   if (B1 && B2) {
-    printBounds(exponent, factored, B1, B2, useLegacy);
+    double full = pm1(exponent, factored, B2, B2).first;
+    printSimple(exponent, factored, B1, B2, full);
   } else {
-    auto points = factorBias > 0 ? vector{factorBias} : vector{1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    for (double bias : points) {
-      auto [bestB1, bestB2] = scanBounds(exponent, factored, bias, B1, B2, useLegacy);
-      printBounds(exponent, factored, bestB1, bestB2, useLegacy);
+    if (B2) {
+      double full = pm1(exponent, factored, B2, B2).first;
+      double mult = 100'000;
+      while (true) {
+        u32 steps[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+        for (auto s : steps) {
+          double b1 = s * mult;
+          if (b1 * 10 > B2 || b1 > 30'000'000) {
+            goto out;
+          }
+          printSimple(exponent, factored, b1, B2, full);
+        }
+        mult *= 10;
+      }
+      out:;
+      // printSimple(exponent, factored, B2, B2, full);
+    } else {
+      assert(B1);
+      double mult = 100'000'000;
+      while (true) {
+        u32 steps[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+        for (auto s : steps) {
+          double b2 = s * mult;
+          if (b2 > 1e10) {
+            goto out2;
+          }
+          printSimpleB2(exponent, factored, B1, b2);
+        }
+        mult *= 10;
+      }
+      out2:;
+
+
+      // TODO
     }
   }
 }
