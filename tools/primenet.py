@@ -67,7 +67,10 @@ def sendResults(results, sent, sentName, retryName):
         
 def fetch(what):
     assignment = {"cores":1, "num_to_get":1, "pref":what}
-    res = primenet.open(baseUrl + "manual_assignment/?" + urlencode(assignment)).read().decode("utf-8")
+    # res = primenet.open(baseUrl + "manual_assignment/?" + urlencode(assignment)).read().decode("utf-8")
+    res = primenet.open(baseUrl + "manual_assignment/", data=urlencode(assignment).encode()).read().decode("utf-8")
+    # print(res)
+    
     BEGIN_MARK = "<!--BEGIN_ASSIGNMENTS_BLOCK-->"
     begin = res.find("<!--BEGIN_ASSIGNMENTS_BLOCK-->")
     if begin == -1: raise(AssertionError("assignment no BEGIN mark"))
