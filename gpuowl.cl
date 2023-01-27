@@ -578,9 +578,14 @@ T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a)
 
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
-  X2(u[1], u[3]); u[3] = mul_t4(u[3]);
+  X2(u[1], u[3]);
   X2(u[0], u[1]);
-  X2(u[2], u[3]);
+
+  T t = u[3].x;
+  u[3].x = u[2].x - u[3].y;
+  u[2].x = u[2].x + u[3].y;
+  u[3].y = u[2].y + t;
+  u[2].y = u[2].y - t;
 }
 
 void fft4(T2 *u) {
