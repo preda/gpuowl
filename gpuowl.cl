@@ -2095,9 +2095,9 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   }
 
   bar();
-  fft_HEIGHT(lds, v, smallTrig2);
+  fft_HEIGHT(lds, v, smallTrig1);
   bar();
-  fft_HEIGHT(lds, u, smallTrig2);
+  fft_HEIGHT(lds, u, smallTrig1);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
