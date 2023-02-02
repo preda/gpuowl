@@ -372,7 +372,7 @@ i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" 
 i32 xtract32(i64 x, u32 bits) { i32 tmp; __asm("v_alignbit_b32 %0, %1, %2, %3" : "=v"(tmp) : "v"(as_int2(x).y), "v"(as_int2(x).x), "v"(bits)); return tmp; }
 #else
 i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
-i32 xtract32(i64 x, u32 bits) { return ((i32) (x >> bits)); }
+i32 xtract32(i64 x, u32 bits) { return x >> bits; }
 #endif
 
 
@@ -417,25 +417,28 @@ float OVERLOAD roundoff(double u, double w) {
 
 float OVERLOAD roundoff(double2 u, double2 w) { return max(roundoff(u.x, w.x), roundoff(u.y, w.y)); }
 
-// For CARRY32 we don't mind pollution of this value with the double exponent bits
-i64 OVERLOAD doubleToLong(double x, i32 inCarry) {
+i64 doubleToLong(double x) {
   ROUNDOFF_CHECK(x);
-  return as_long(x + as_double((int2) (inCarry, TOPVAL - (inCarry < 0))));
-}
 
-i64 OVERLOAD doubleToLong(double x, i64 inCarry) {
-  ROUNDOFF_CHECK(x);
-  int2 tmp = as_int2(inCarry);
-  tmp.y += TOPVAL;
-  double d = x + as_double(tmp);
+  double d = x + RNDVAL;
+  int2 words = as_int2(d);
 
+#if EXP / NWORDS >= 19
+  // We extend the range to 52 bits instead of 51 by taking the sign from the negation of bit 51
+  words.y ^= 0x00080000u;
+  words.y = lowBits(words.y, 20);
+
+  /*
+  words.y <<= 12;
+  words.y ^= 0x80000000u;
+  words.y >>= 12;
+  */
+#else
   // Extend the sign from the lower 51-bits.
-  // The first 51 bits (0 to 50) are clean. Bit 51 is affected by RNDVAL. Bit 52 of RNDVAL is not stored.
-  // Note: if needed, we can extend the range to 52 bits instead of 51 by taking the sign from the negation
-  // of bit 51 (i.e. bit 51==1 means positive, bit 51==0 means negative).
-  int2 data = as_int2(d);
-  data.y = lowBits(data.y, 51 - 32);
-  return as_long(data);
+  words.y = lowBits(words.y, 19);
+#endif
+
+  return as_long(words);
 }
 
 Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
@@ -449,15 +452,7 @@ Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
 Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
   Word w = lowBits(x, nBits);
-
-// If nBits could be 20 or more we must be careful.  doubleToLong generated x as 13 bits of trash and 51-bit signed value.
-// If we right shift 20 bits we will shift some of the trash into outCarry.  First we must remove the trash bits.
-#if EXP / NWORDS >= 19
-  *outCarry = as_int2(x << 13).y >> (nBits - 19);
-#else
-  *outCarry = xtract32(x, nBits);
-#endif
-  *outCarry += (w < 0);
+  *outCarry = xtract32(x, nBits) + (w < 0);
   CARRY32_CHECK(*outCarry);
   return w;
 }
@@ -487,8 +482,8 @@ typedef TT T2;
 //{{ carries
 Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax) {
   iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x, (iCARRY) 0) + inCarry, &midCarry, b1);
-  Word b = carryStep(doubleToLong(u.y, (iCARRY) 0) + midCarry, outCarry, b2);
+  Word a = carryStep(doubleToLong(u.x) + inCarry, &midCarry, b1);
+  Word b = carryStep(doubleToLong(u.y) + midCarry, outCarry, b2);
 #if STATS
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
@@ -509,8 +504,8 @@ Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
 
 Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax) {
   i64 midCarry;
-  Word a = carryStep(3 * doubleToLong(u.x, (i64) 0) + inCarry, &midCarry, b1);
-  Word b = carryStep(3 * doubleToLong(u.y, (i64) 0) + midCarry, outCarry, b2);
+  Word a = carryStep(3 * doubleToLong(u.x) + inCarry, &midCarry, b1);
+  Word b = carryStep(3 * doubleToLong(u.y) + midCarry, outCarry, b2);
 #if STATS
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
