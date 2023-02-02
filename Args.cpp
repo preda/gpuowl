@@ -55,6 +55,7 @@ void Args::printHelp() {
 -fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
 -block <value>     : PRP error-check block size. Must divide 10'000.
 -log <step>        : log every <step> iterations. Multiple of 10'000.
+-prt <step>        : print every <step> iterations. Multiple of 10'000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -B1                : P-1 B1 bound
 -B2                : P-1 B2 bound
@@ -185,6 +186,7 @@ void Args::parse(const string& line) {
       maxAlloc = size_t(stod(s) * multiple + .5);
     }
     else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
+    else if (key == "-prt") { prtStep = stoi(s); assert(prtStep && (prtStep % 10000 == 0)); }
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
     else if (key == "-B1" || key == "-b1") { B1 = stoi(s); }
@@ -234,6 +236,11 @@ void Args::parse(const string& line) {
     }
   }
 
+  if (prtStep % 10000) {
+    log("Print step (%u) must be a multiple of 10'000\n", prtStep);
+    throw "invalid print step";
+  }
+  
   if (logStep % 10000) {
     log("log step (%u) must be a multiple of 10'000\n", logStep);
     throw "invalid log step";
