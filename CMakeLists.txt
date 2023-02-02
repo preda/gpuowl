@@ -20,7 +20,6 @@ add_executable(gpuowl_mirror
         Gpu.cpp
         Gpu.h
         gpuowl.cl
-        gpuowl-wrap.cpp
         kernel.h
         main.cpp
         primenet.py
