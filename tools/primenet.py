@@ -9,7 +9,7 @@ import urllib
 import requests
 import os
 import upload
-import password
+import getpass
 
 from http import cookiejar
 from urllib.parse import urlencode
