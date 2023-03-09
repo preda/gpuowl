@@ -375,17 +375,11 @@ i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 i32 xtract32(i64 x, u32 bits) { return x >> bits; }
 #endif
 
-
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
 // that the carry will not fit in 32-bits -- corrupting results.  That said, I did test 2000 iterations of an exponent
 // just over 1 billion.  Max(abs(carry)) was 0x637225E9 which is OK (0x80000000 or more is fatal).  P-1 testing is more
 // problematic as the mul-by-3 triples the carry too.
-
-// Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
-#define RNDVAL (3.0 * (1l << 51))
-// Top 32-bits of RNDVAL
-#define TOPVAL (0x43380000)
 
 // Check for round off errors above a threshold (default is 0.43)
 void ROUNDOFF_CHECK(double x) {
@@ -408,19 +402,25 @@ void CARRY32_CHECK(i32 x) {
 #endif
 }
 
-float OVERLOAD roundoff(double u, double w) {
-  double x = u * w;
-  // The FMA below increases the number of significant bits in the roundoff error
-  double err = fma(u, w, -rint(x));
-  return fabs((float) err);
-}
+// Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
+#define RNDVAL (3.0 * (1l << 51))
 
-float OVERLOAD roundoff(double2 u, double2 w) { return max(roundoff(u.x, w.x), roundoff(u.y, w.y)); }
+// #define RNDVAL2 (RNDVAL + 3.0 * (1l << 32))
+// Top 32-bits of RNDVAL
+// #define TOPVAL (0x43380000)
 
-i64 doubleToLong(double x) {
+i64 doubleToLong(double x, float* maxROE) {
+  // Unfortunatelly (i64) rint() is slow!
+  // return rint(x);
+
   ROUNDOFF_CHECK(x);
 
   double d = x + RNDVAL;
+  float roundoff = fabs((float) (x - (d - RNDVAL)));
+  *maxROE = max(*maxROE, roundoff);
+
+  // i32 roundoff = abs(as_int2(x - (d - RNDVAL2)).x);
+
   int2 words = as_int2(d);
 
 #if EXP / NWORDS >= 19
@@ -428,13 +428,13 @@ i64 doubleToLong(double x) {
   words.y ^= 0x00080000u;
   words.y = lowBits(words.y, 20);
 
-  /*
+#if 0
   words.y <<= 12;
   words.y ^= 0x80000000u;
   words.y >>= 12;
-  */
+#endif
 #else
-  // Extend the sign from the lower 51-bits.
+  // Take the sign from bit 50 (i.e. use lower 51 bits).
   words.y = lowBits(words.y, 19);
 #endif
 
@@ -480,10 +480,10 @@ u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
 typedef TT T2;
 
 //{{ carries
-Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, u32* carryMax) {
+Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, float *maxROE, u32* carryMax) {
   iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x) + inCarry, &midCarry, b1);
-  Word b = carryStep(doubleToLong(u.y) + midCarry, outCarry, b2);
+  Word a = carryStep(doubleToLong(u.x, maxROE) + inCarry, &midCarry, b1);
+  Word b = carryStep(doubleToLong(u.y, maxROE) + midCarry, outCarry, b2);
 #if STATS
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
@@ -502,10 +502,10 @@ Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
 //== carries CARRY=32
 //== carries CARRY=64
 
-Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, u32* carryMax) {
+Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, float* maxROE, u32* carryMax) {
   i64 midCarry;
-  Word a = carryStep(3 * doubleToLong(u.x) + inCarry, &midCarry, b1);
-  Word b = carryStep(3 * doubleToLong(u.y) + midCarry, outCarry, b2);
+  Word a = carryStep(3 * doubleToLong(u.x, maxROE) + inCarry, &midCarry, b1);
+  Word b = carryStep(3 * doubleToLong(u.y, maxROE) + midCarry, outCarry, b2);
 #if STATS
   *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
 #endif
@@ -1625,6 +1625,21 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
   }
 }
 
+void updateROE(global u32 *ROE, float roundMax) {
+  assert(roundMax >= 0 && roundMax <= 0.5f);
+  u32 groupMax = work_group_reduce_max(as_uint(roundMax));
+  float x = as_float(groupMax);
+  assert(x >= 0 && x <= 0.5f);
+  // float groupMax = work_group_reduce_max(roundMax);
+  if (get_local_id(0) == 0) {
+    atomic_inc(&ROE[0]);
+    atomic_max(&ROE[1], groupMax);
+    float x2 = x * x;
+    u32 r = x2 * 256 + 0.5f;
+    atomic_add(&ROE[2], r);
+  }
+}
+
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
@@ -1654,18 +1669,15 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
     double w1 = i == 0 ? base : optionalDouble(fancyMul(base, iweightUnitStep(i)));
     double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
     T2 x = conjugate(in[p]) * U2(w1, w2);
-    
-#if STATS
-    roundMax = max(roundMax, roundoff(conjugate(in[p]), U2(w1, w2)));
-#endif
-    
+        
 #if DO_MUL3
-    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax);
+    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax, &carryMax);
 #else
-    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &carryMax);
+    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax, &carryMax);
 #endif
   }
   carryOut[G_W * g + me] = carry;
+  updateROE(roundOut, roundMax);
 
 #if STATS
   updateStats(roundMax, carryMax, roundOut, carryStats);
@@ -1756,21 +1768,21 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
     T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, iweightStep(i)));
     T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP));
 
-#if STATS
-    roundMax = max(roundMax, roundoff(conjugate(u[i]), U2(invWeight1, invWeight2)));
-#endif
-
     u[i] = conjugate(u[i]) * U2(invWeight1, invWeight2);
   }
 
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
 #if CF_MUL    
-    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
+    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax, &carryMax);
 #else
-    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &carryMax);
+    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax, &carryMax);
 #endif
   }
+
+#if STATS
+  updateROE(roundOut, roundMax);
+#endif
 
   // Write out our carries
   if (gr < H) {
@@ -2219,68 +2231,18 @@ KERNEL(64) readHwTrig(global float2* outSH, global float2* outBH, global float2*
     outN[k] = (float2) (fastCosSP(k, ND), fastSinSP(k, ND, MIDDLE));
   }
 }
- 
+
+
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
 
-#if 0
-typedef long long i128;
-typedef unsigned long long u128;
-
-u32  U32(u32 x)   { return x; }
-u64  U64(u64 x)   { return x; }
-u128 U128(u128 x) { return x; }
-i32  I32(i32 x)   { return x; }
-i64  I64(i64 x)   { return x; }
-i128 I128(i128 x) { return x; }
-
-u32 hiU32(u64 x) { return x >> 32; }
-u64 hiU64(u128 x) { return x >> 64; }
-
-#define PRIME 0xffffffff00000001
-
-// x * 0xffffffff
-u64 mulm1(u32 x) { return (U64(x) << 32) - x; }
-
-u64 addc(u64 a, u64 b) {
-  u64 s = a + b;
-  return s + (U32(-1) + (s >= a));
-  // return (s < a) ? s + U32(-1) : s;
-}
-
-u64 modmul(u64 a, u64 b) {
-  u128 ab = U128(a) * b;
-  u64 low = U64(ab);
-  u64 high = ab >> 64;
-  u32 hl = U32(high);
-  u32 hh = high >> 32;
-  u64 s = addc(low, mulm1(hl));
-  u64 hhm1 = mulm1(hh);
-  s = addc(s, hhm1 << 32);
-  s = addc(s, mulm1(hhm1 >> 32));
-  return s;
-}
-#endif
-
-kernel void testKernel(global ulong* io) {
+kernel void testKernel(global double* in, global float* out) {
   uint me = get_local_id(0);
 
-  ulong a = io[me];
-  ulong b = io[me + 1];
-  io[me] = a + b;
+  double x = in[me];
+  double d = x + RNDVAL;
+  out[me] = fabs((float) (x + (RNDVAL - d)));
 }
-
-/*
-kernel void testKernel(global uint* io) {
-  uint me = get_local_id(0);
-
-  uint a = io[me];
-  uint b = io[me + 1];
-  uint s = a + b;
-  bool carry = (s < a);
-  io[me] = s + carry;
-}
-*/
 
 #endif
 

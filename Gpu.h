@@ -44,6 +44,12 @@ struct PRPResult {
 struct Reload {
 };
 
+struct ROEInfo {
+  u32 N;
+  float max;
+  float dist;
+};
+
 class Gpu {
   friend struct SquaringSet;
   u32 E;
@@ -109,13 +115,13 @@ class Gpu {
   Buffer<i64> bufCarry;  // Carry shuttle.
   
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
-  HostAccessBuffer<u32> bufRoundoff;
   HostAccessBuffer<u32> bufCarryMax;
   HostAccessBuffer<u32> bufCarryMulMax;
 
   // Small aux buffer used to read res64.
   HostAccessBuffer<int> bufSmallOut;
   HostAccessBuffer<u64> bufSumOut;
+  HostAccessBuffer<u32> bufROE;
 
   // Auxilliary big buffers
   Buffer<double> buf1;
@@ -173,6 +179,7 @@ class Gpu {
   u32 maxBuffers();
 
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
+  ROEInfo readROE();
   
 public:
   const Args& args;

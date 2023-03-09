@@ -395,11 +395,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufBase{queue, "base", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
-  bufRoundoff{queue, "roundoff", 8 + 1024 * 1024},
   bufCarryMax{queue, "carryMax", 8},
   bufCarryMulMax{queue, "carryMulMax", 8},
   bufSmallOut{queue, "smallOut", 256},
   bufSumOut{queue, "sumOut", 1},
+  bufROE{queue, "ROE", 4},
   buf1{queue, "buf1", N},
   buf2{queue, "buf2", N},
   buf3{queue, "buf3", N},
@@ -407,8 +407,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 {
   // dumpBinary(program.get(), "isa.bin");
   
-  carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMax);
-  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufRoundoff, bufCarryMulMax);
+  carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufCarryMax);
+  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufCarryMulMax);
   fftP.setFixedArgs(2, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
@@ -416,8 +416,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleIn.setFixedArgs(2, bufTrigM);
   fftMiddleOut.setFixedArgs(2, bufTrigM);
     
-  carryA.setFixedArgs(2, bufCarry, bufBitsC, bufRoundoff, bufCarryMax);
-  carryM.setFixedArgs(2, bufCarry, bufBitsC, bufRoundoff, bufCarryMulMax);
+  carryA.setFixedArgs(2, bufCarry, bufBitsC, bufROE, bufCarryMax);
+  carryM.setFixedArgs(2, bufCarry, bufBitsC, bufROE, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
@@ -429,7 +429,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
 
   bufReady.zero();
-  bufRoundoff.zero();
   bufCarryMax.zero();
   bufCarryMulMax.zero();
 
@@ -455,6 +454,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
                                                              );
   }
 
+  bufROE.zero();
   finish();
   
   program.reset();
@@ -534,6 +534,19 @@ Words Gpu::fold(vector<Buffer<int>>& bufs) {
     log("P1 fold() error ZERO, will retry\n");
   }
   return {};
+}
+
+ROEInfo Gpu::readROE() {
+  vector<u32> data = bufROE.read();
+  bufROE.zero();
+  u32 N = data[0];
+  float max = as<float>(data[1]);
+  float dist = sqrtf(data[2] * (1.0f / 256) / N);
+  return {N, max, dist};
+}
+
+void printROE(ROEInfo roeInfo) {
+  log("ROE=%f N=%u dist %f\n", roeInfo.max, roeInfo.N, roeInfo.dist);
 }
 
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
@@ -1024,6 +1037,7 @@ template<typename T> float asFloat(T x) { return pun<float>(x); }
 
 }
 
+#if 0
 void Gpu::printRoundoff(u32 E) {
   u32 roundN = bufRoundoff.read(1)[0];
   // fprintf(stderr, "roundN %u\n", roundN);
@@ -1088,6 +1102,7 @@ void Gpu::printRoundoff(u32 E) {
       carryN, carryMax, carryAvg, carryMulN, carryMulMax, carryMulAvg);
   // #endif
 }
+#endif
 
 void Gpu::accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
   fftP(tmp1, acc);
@@ -1355,6 +1370,8 @@ bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
 
   Timer timer;
 
+  ROEInfo roeInfo{};
+
   bool getOut = false;
   while (true) {
     if (powerBits.empty()) { getOut = true; }
@@ -1376,7 +1393,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
       const char* strOK = maybeOK ? *maybeOK ? "K" : "E" : "";
 
       pm1Log(B1, k, nBits, strOK, *logRes, secsPerIt, checkSecs, nErr);
-
+      printROE(roeInfo);
       lastTimerK = k;
     }
 
@@ -1397,8 +1414,15 @@ bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
     bool doCheck = resZero || doStop  || k % 40000 == 0 || k - startK == 2 * blockSize || powerBits.empty();
     bool doLog   = doCheck || k % 10000 == 0;
 
-    if (doCheck) {
+    if (!doCheck && !doLog) {
       finish();
+      maybeOK.reset();
+      continue;
+    }
+
+    roeInfo = readROE(); // implies finish()
+
+    if (doCheck) {
       Timer checkTimer;
       data = readData();
       if (data.empty()) { return RETRY; }
@@ -1419,14 +1443,9 @@ bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
 
       logTimeKernels();
     } else {
-      maybeOK.reset();
-
-      if (doLog) {
-        logRes = dataResidue(); // implies finish();
-        checkSecs = 0;
-      } else {
-        finish();
-      }
+      assert(doLog);
+      logRes = dataResidue(); // implies finish()
+      checkSecs = 0;
     }
   }
 
@@ -1547,7 +1566,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     if (k % blockSize == 0) {
       doStop = signal.stopRequested() || (args.iters && k - startK >= args.iters);
     }
-    
+
     bool leadOut = doStop || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
 
     coreStep(bufData, bufData, leadIn, leadOut, false);
@@ -1573,20 +1592,19 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     if (!leadOut) {
-      if (k % blockSize == 0) {
-        finish();
-        if (!args.noSpin) { spin(); }
-      }
+      if (k % blockSize == 0) { finish(); }
       continue;
     }
 
     u64 res = dataResidue(); // implies finish()
+    ROEInfo roeInfo = readROE();
     bool doCheck = !res || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
       
     if (k % 10000 == 0 && !doCheck) {
       float secsPerIt = iterationTimer.reset(k);
       // log("   %9u %6.2f%% %s %4.0f us/it\n", k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
-      log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
+      log("%9u %s %4.0f ; ROE=%.4f (max=%.3f, N=%u)\n", k, hex(res).c_str(), secsPerIt * 1'000'000,
+          roeInfo.dist, roeInfo.max, roeInfo.N);
     }
       
     if (doStop) {
@@ -1595,7 +1613,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
             
     if (doCheck) {
-      if (printStats) { printRoundoff(E); }
+      // if (printStats) { printRoundoff(E); }
 
       float secsPerIt = iterationTimer.reset(k);
 
