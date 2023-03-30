@@ -354,16 +354,16 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   // Specifies size in "work size": workSize == nGroups * groupSize
 #define LOAD_WS(name, workSize) name{program.get(), queue, device, #name, workSize}
   
-  LOAD(carryFused,    BIG_H + 1),
-  LOAD(carryFusedMul, BIG_H + 1),
+  LOAD(kernCarryFused,    BIG_H + 1),
+  LOAD(kernCarryFusedMul, BIG_H + 1),
   LOAD(fftP, BIG_H),
   LOAD(fftW,   BIG_H),
   LOAD(fftHin,  hN / SMALL_H),
   LOAD(fftHout, hN / SMALL_H),
   LOAD_WS(fftMiddleIn,  hN / (BIG_H / SMALL_H)),
   LOAD_WS(fftMiddleOut, hN / (BIG_H / SMALL_H)),
-  LOAD_WS(carryA,  hN / CARRY_LEN),
-  LOAD_WS(carryM,  hN / CARRY_LEN),
+  LOAD_WS(kernCarryA,  hN / CARRY_LEN),
+  LOAD_WS(kernCarryM,  hN / CARRY_LEN),
   LOAD_WS(carryB,  hN / CARRY_LEN),
   LOAD(transposeW,   (W/64) * (BIG_H/64)),
   LOAD(transposeH,   (W/64) * (BIG_H/64)),
@@ -399,7 +399,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufCarryMulMax{queue, "carryMulMax", 8},
   bufSmallOut{queue, "smallOut", 256},
   bufSumOut{queue, "sumOut", 1},
-  bufROE{queue, "ROE", 4},
+  bufROE{queue, "ROE", 20000},
+  bufROE2{queue, "ROE2", 20000},
+  roePos{0},
+  roe2Pos{0},
   buf1{queue, "buf1", N},
   buf2{queue, "buf2", N},
   buf3{queue, "buf3", N},
@@ -407,8 +410,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 {
   // dumpBinary(program.get(), "isa.bin");
   
-  carryFused.setFixedArgs(   2, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufCarryMax);
-  carryFusedMul.setFixedArgs(2, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufCarryMulMax);
+  kernCarryFused.setFixedArgs(   3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufCarryMax);
+  kernCarryFusedMul.setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufCarryMulMax);
   fftP.setFixedArgs(2, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
@@ -416,8 +419,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleIn.setFixedArgs(2, bufTrigM);
   fftMiddleOut.setFixedArgs(2, bufTrigM);
     
-  carryA.setFixedArgs(2, bufCarry, bufBitsC, bufROE, bufCarryMax);
-  carryM.setFixedArgs(2, bufCarry, bufBitsC, bufROE, bufCarryMulMax);
+  kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE2, bufCarryMax);
+  kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE2, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
@@ -455,6 +458,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   }
 
   bufROE.zero();
+  bufROE2.zero();
   finish();
   
   program.reset();
@@ -536,17 +540,41 @@ Words Gpu::fold(vector<Buffer<int>>& bufs) {
   return {};
 }
 
-ROEInfo Gpu::readROE() {
-  vector<u32> data = bufROE.read();
-  bufROE.zero();
-  u32 N = data[0];
-  float max = as<float>(data[1]);
-  float dist = sqrtf(data[2] * (1.0f / 256) / N);
-  return {N, max, dist};
+ROEInfo norm(const vector<float>& v) {
+  double acc = 0;
+  float m = 0;
+  for (float x : v) {
+    assert(x >= 0 && x <= 0.5f);
+    m = max(m, x);
+    float y = max(x - 0.2f, 0.0f);
+    acc += y * y;
+  }
+  float n = v.empty() ? 0.0f : (sqrtf(float(acc) / u32(v.size())));
+  return {u32(v.size()), m, n};
 }
 
-void printROE(ROEInfo roeInfo) {
-  log("ROE=%f N=%u dist %f\n", roeInfo.max, roeInfo.N, roeInfo.dist);
+pair<ROEInfo, ROEInfo> Gpu::readROE() {
+  vector<float> roe = bufROE.read(roePos);
+  assert(roe.size() == roePos);
+  bufROE.zero(roePos);
+  roePos = 0;
+  ROEInfo info1 = norm(roe);
+
+  vector<float> roe2 = bufROE2.read(roe2Pos);
+  assert(roe2.size() == roe2Pos);
+  bufROE2.zero(roe2Pos);
+  roe2Pos = 0;
+  ROEInfo info2 = norm(roe2);
+
+  return {info1, info2};
+}
+
+void printROE(pair<ROEInfo, ROEInfo> roeInfo) {
+  auto [a, b] = roeInfo;
+  log("ROE=%f (%u, %f); %f (%u, %f)\n",
+      a.max, a.N, a.norm,
+      b.max, b.N, b.norm
+      );
 }
 
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
@@ -1370,7 +1398,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
 
   Timer timer;
 
-  ROEInfo roeInfo{};
+  pair<ROEInfo, ROEInfo> roeInfo;
 
   bool getOut = false;
   while (true) {
@@ -1597,14 +1625,16 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     u64 res = dataResidue(); // implies finish()
-    ROEInfo roeInfo = readROE();
+    auto [info1, info2] = readROE();
     bool doCheck = !res || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
       
     if (k % 10000 == 0 && !doCheck) {
       float secsPerIt = iterationTimer.reset(k);
       // log("   %9u %6.2f%% %s %4.0f us/it\n", k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
-      log("%9u %s %4.0f ; ROE=%.4f (max=%.3f, N=%u)\n", k, hex(res).c_str(), secsPerIt * 1'000'000,
-          roeInfo.dist, roeInfo.max, roeInfo.N);
+      log("%9u %s %4.0f ; ROE=%.4f (max=%.3f, N=%u); %.4f (%.3f, N=%u)\n", k, hex(res).c_str(), secsPerIt * 1'000'000,
+          info1.norm, info1.max, info1.N,
+          info2.norm, info2.max, info2.N
+          );
     }
       
     if (doStop) {

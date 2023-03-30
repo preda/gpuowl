@@ -1625,12 +1625,18 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
   }
 }
 
-void updateROE(global u32 *ROE, float roundMax) {
+void updateROE(global u32 *ROE, u32 posROE, float roundMax) {
   assert(roundMax >= 0 && roundMax <= 0.5f);
   u32 groupMax = work_group_reduce_max(as_uint(roundMax));
   float x = as_float(groupMax);
   assert(x >= 0 && x <= 0.5f);
   // float groupMax = work_group_reduce_max(roundMax);
+
+  if (get_local_id(0) == 0 && groupMax > ROE[posROE]) {
+    atomic_max(ROE + posROE, groupMax);
+  }
+
+  /*
   if (get_local_id(0) == 0) {
     atomic_inc(&ROE[0]);
     atomic_max(&ROE[1], groupMax);
@@ -1638,13 +1644,14 @@ void updateROE(global u32 *ROE, float roundMax) {
     u32 r = x2 * 256 + 0.5f;
     atomic_add(&ROE[2], r);
   }
+  */
 }
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(u32) ROE, P(u32) carryStats) {
   ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -1677,7 +1684,10 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
 #endif
   }
   carryOut[G_W * g + me] = carry;
-  updateROE(roundOut, roundMax);
+
+#if STATS
+  updateROE(ROE, posROE, roundMax);
+#endif
 
 #if STATS
   updateStats(roundMax, carryMax, roundOut, carryStats);
@@ -1685,8 +1695,8 @@ KERNEL(G_W) NAME(P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(
 }
 //}}
 
-//== CARRYA NAME=carryA,DO_MUL3=0
-//== CARRYA NAME=carryM,DO_MUL3=1
+//== CARRYA NAME=kernCarryA,DO_MUL3=0
+//== CARRYA NAME=kernCarryM,DO_MUL3=1
 
 KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
   u32 g  = get_group_id(0);
@@ -1721,8 +1731,8 @@ KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
 // It uses "stairway" carry data forwarding from one group to the next.
 // See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
 //{{ CARRY_FUSED
-KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits, P(u32) roundOut, P(u32) carryStats) {
+KERNEL(G_W) NAME(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
+                 CP(u32) bits, P(u32) ROE, P(u32) carryStats) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -1781,7 +1791,7 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
   }
 
 #if STATS
-  updateROE(roundOut, roundMax);
+  updateROE(ROE, posROE, roundMax);
 #endif
 
   // Write out our carries
@@ -1851,8 +1861,8 @@ KERNEL(G_W) NAME(P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig s
 }
 //}}
 
-//== CARRY_FUSED NAME=carryFused,    CF_MUL=0
-//== CARRY_FUSED NAME=carryFusedMul, CF_MUL=1
+//== CARRY_FUSED NAME=kernCarryFused,    CF_MUL=0
+//== CARRY_FUSED NAME=kernCarryFusedMul, CF_MUL=1
 
 // from transposed to sequential.
 KERNEL(64) transposeOut(P(Word2) out, CP(Word2) in) {

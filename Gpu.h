@@ -47,7 +47,7 @@ struct Reload {
 struct ROEInfo {
   u32 N;
   float max;
-  float dist;
+  float norm;
 };
 
 class Gpu {
@@ -65,8 +65,8 @@ class Gpu {
   Holder<cl_program> program;
   QueuePtr queue;
   
-  Kernel carryFused;
-  Kernel carryFusedMul;
+  Kernel kernCarryFused;
+  Kernel kernCarryFusedMul;
   Kernel fftP;
   Kernel fftW;
   Kernel fftHin;
@@ -74,8 +74,8 @@ class Gpu {
   Kernel fftMiddleIn;
   Kernel fftMiddleOut;
   
-  Kernel carryA;
-  Kernel carryM;
+  Kernel kernCarryA;
+  Kernel kernCarryM;
   Kernel carryB;
   
   Kernel transposeW, transposeH;
@@ -121,7 +121,11 @@ class Gpu {
   // Small aux buffer used to read res64.
   HostAccessBuffer<int> bufSmallOut;
   HostAccessBuffer<u64> bufSumOut;
-  HostAccessBuffer<u32> bufROE;
+  HostAccessBuffer<float> bufROE;
+  HostAccessBuffer<float> bufROE2;
+
+  u32 roePos;
+  u32 roe2Pos;
 
   // Auxilliary big buffers
   Buffer<double> buf1;
@@ -179,10 +183,16 @@ class Gpu {
   u32 maxBuffers();
 
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
-  ROEInfo readROE();
+  pair<ROEInfo, ROEInfo> readROE();
   
 public:
   const Args& args;
+
+  // void carryA(Buffer<int>& a, Buffer<double>& b) { kernCarryA(roe2Pos++, a, b); }
+  template<typename... Args> void carryA(const Args &...args) { kernCarryA(roe2Pos++, args...); }
+  void carryM(Buffer<int>& a, Buffer<double>& b) { kernCarryM(roe2Pos++, a, b); }
+  void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(roePos++, a, b); }
+  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(roePos++, a, b); }
 
   Words fold(vector<Buffer<int>>& bufs);
   
