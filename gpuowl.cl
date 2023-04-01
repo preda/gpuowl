@@ -1685,7 +1685,7 @@ KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u
   }
   carryOut[G_W * g + me] = carry;
 
-#if STATS
+#if ROE2
   updateROE(ROE, posROE, roundMax);
 #endif
 
@@ -1790,7 +1790,7 @@ KERNEL(G_W) NAME(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) r
 #endif
   }
 
-#if STATS
+#if ROE1
   updateROE(ROE, posROE, roundMax);
 #endif
 

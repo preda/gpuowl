@@ -121,11 +121,12 @@ class Gpu {
   // Small aux buffer used to read res64.
   HostAccessBuffer<int> bufSmallOut;
   HostAccessBuffer<u64> bufSumOut;
-  HostAccessBuffer<float> bufROE;
-  HostAccessBuffer<float> bufROE2;
 
+  // The round-off error ("ROE"), one float element per iteration.
+  HostAccessBuffer<float> bufROE;
+
+  // The next position to write in the ROE buffer.
   u32 roePos;
-  u32 roe2Pos;
 
   // Auxilliary big buffers
   Buffer<double> buf1;
@@ -183,14 +184,14 @@ class Gpu {
   u32 maxBuffers();
 
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
-  pair<ROEInfo, ROEInfo> readROE();
+  ROEInfo readROE();
   
 public:
   const Args& args;
 
   // void carryA(Buffer<int>& a, Buffer<double>& b) { kernCarryA(roe2Pos++, a, b); }
-  template<typename... Args> void carryA(const Args &...args) { kernCarryA(roe2Pos++, args...); }
-  void carryM(Buffer<int>& a, Buffer<double>& b) { kernCarryM(roe2Pos++, a, b); }
+  template<typename... Args> void carryA(const Args &...args) { kernCarryA(roePos++, args...); }
+  void carryM(Buffer<int>& a, Buffer<double>& b) { kernCarryM(roePos++, a, b); }
   void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(roePos++, a, b); }
   void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(roePos++, a, b); }
 
