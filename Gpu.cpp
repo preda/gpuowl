@@ -406,6 +406,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   buf1{queue, "buf1", N},
   buf2{queue, "buf2", N},
   buf3{queue, "buf3", N},
+  usesROE1{args.uses("ROE1")},
+  usesROE2{args.uses("ROE2")},
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
@@ -553,11 +555,15 @@ ROEInfo norm(const vector<float>& v) {
 
 ROEInfo Gpu::readROE() {
   assert(roePos <= ROE_SIZE);
-  vector<float> roe = bufROE.read(roePos);
-  assert(roe.size() == roePos);
-  bufROE.zero(roePos);
-  roePos = 0;
-  return norm(roe);
+  if (roePos) {
+    vector<float> roe = bufROE.read(roePos);
+    assert(roe.size() == roePos);
+    bufROE.zero(roePos);
+    roePos = 0;
+    return norm(roe);
+  } else {
+    return {};
+  }
 }
 
 void printROE(ROEInfo info) {

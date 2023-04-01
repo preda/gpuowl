@@ -132,6 +132,8 @@ class Gpu {
   Buffer<double> buf1;
   Buffer<double> buf2;
   Buffer<double> buf3;
+  bool usesROE1;
+  bool usesROE2;
   
   vector<int> readSmall(Buffer<int>& buf, u32 start);
 
@@ -190,10 +192,10 @@ public:
   const Args& args;
 
   // void carryA(Buffer<int>& a, Buffer<double>& b) { kernCarryA(roe2Pos++, a, b); }
-  template<typename... Args> void carryA(const Args &...args) { kernCarryA(roePos++, args...); }
-  void carryM(Buffer<int>& a, Buffer<double>& b) { kernCarryM(roePos++, a, b); }
-  void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(roePos++, a, b); }
-  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(roePos++, a, b); }
+  template<typename... Args> void carryA(const Args &...args) { kernCarryA(usesROE2 ? roePos++ : roePos, args...); }
+  void carryM(Buffer<int>& a, Buffer<double>& b) { kernCarryM(usesROE2 ? roePos++ : roePos, a, b); }
+  void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(usesROE1 ? roePos++ : roePos, a, b); }
+  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(usesROE1 ? roePos++ : roePos, a, b); }
 
   Words fold(vector<Buffer<int>>& bufs);
   
