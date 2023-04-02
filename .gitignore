@@ -1,5 +1,3 @@
 tmp?/
-.sconsign.dblite
 __pycache__
 meson.build.user
-.d
