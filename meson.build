@@ -2,20 +2,14 @@
 
 project('gpuowl', 'cpp', default_options:['cpp_std=c++17', 'buildtype=debugoptimized'])
 
-version = vcs_tag(input:'version.inc.in', output:'version.inc')
-
-python3 = import('python').find_installation('python3')
 expander = find_program('./tools/expand.py')
 
-wrap = generator(expander, output:'@PLAINNAME@.cpp', arguments:['@INPUT@', '@OUTPUT@'])
+subdir('src')
 
-gpuowl_wrap = wrap.process('gpuowl.cl')
-
-srcs = 'ProofCache.cpp Proof.cpp Memlock.cpp log.cpp md5.cpp sha3.cpp AllocTrac.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp'.split()
+version = vcs_tag(input:'version.inc.in', output:'version.inc')
 
 cpp = meson.get_compiler('cpp')
 amdocl = cpp.find_library('amdocl64', dirs:['/opt/rocm/lib'])
-
 
 executable('gpuowl', sources: srcs + [gpuowl_wrap, version], dependencies:[amdocl, dependency('gmp')])
 
