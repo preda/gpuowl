@@ -92,7 +92,8 @@ vector<string> commonFields(u32 E, const char *worktype, const string &status) {
 }
 
 vector<string> tailFields(const std::string &AID, const Args &args) {
-  return {json("program", vector<string>{json("name", "gpuowl"), json("version", VERSION)}),
+  assert(VERSION[0] == 'v');
+  return {json("program", vector<string>{json("name", "gpuowl"), json("version", VERSION + 1)}), // skip leading "v" from version
           maybe("user", args.user),
           maybe("computer", args.cpu),
           maybe("aid", AID),
