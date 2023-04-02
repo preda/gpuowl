@@ -45,10 +45,49 @@ string maybe(const string& key, const string& value) { return value.empty() ? ""
 
 template<typename T> void operator+=(vector<T>& a, const vector<T>& b) { a.insert(a.end(), b.begin(), b.end()); }
 
+constexpr int platform() {
+  /*
+  0  => 'Windows16', // 16-bit
+  1  => 'Windows',   // 32-bit
+  2  => 'Linux',     // 32-bit
+  3  => 'Solaris',   // never happened
+  4  => 'Windows64',
+  5  => 'WindowsService',
+  6  => 'FreeBSD',
+  7  => 'OS/2',
+  8  => 'Linux64',
+  9  => 'Mac OS X',
+  10 => 'Mac OS X 64-bit',
+  11 => 'Haiku',
+  12 => 'FreeBSD64',
+  */
+
+  enum {WIN_16=0, WIN_32, LINUX_32, SOLARIS, WIN_64, WIN_SERV, FREEBSD_32, OS2, LINUX_64, MACOSX_32, MACOSX_64, HAIKU, FREEBSD_64, OS_COUNT};
+  assert(OS_COUNT == 13);
+
+  const constexpr bool IS_32BIT = (sizeof(void*) == 4);
+
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+  return IS_32BIT ? WIN_32 : WIN_64;
+
+#elif __APPLE__
+  return IS_32BIT ? MACOSX_32 : MACOSX_64;
+
+#elif __linux__
+  return IS_32BIT ? LINUX_32 : LINUX_64;
+
+#else
+#error "Unknown OS platform"
+#endif
+
+}
+
 vector<string> commonFields(u32 E, const char *worktype, const string &status) {
-  return {json("status", status),
-          json("exponent", E),
-          json("worktype", worktype)
+  return {
+    json("status", status),
+    json("exponent", E),
+    json("worktype", worktype),
+    json("port", platform()),
   };
 }
 
@@ -73,7 +112,6 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
 }
 
 }
-
 /*
 string Task::kindStr() const {
   assert(kind == PRP || kind == PM1);
