@@ -333,7 +333,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
 using float2 = pair<float, float>;
 
-#define ROE_SIZE 21000
+#define ROE_SIZE 111000
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          cl_device_id device, bool timeKernels, bool useLongCarry, Weights&& weights) :
@@ -564,10 +564,6 @@ ROEInfo Gpu::readROE() {
   } else {
     return {};
   }
-}
-
-void printROE(ROEInfo info) {
-  log("ROE=%f (%u, %f)\n", info.max, info.N, info.norm);
 }
 
 unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
@@ -1327,7 +1323,7 @@ bool Gpu::pm1Check(vector<bool> sumBits, u32 blockSize) {
   return equalNotZero(bufCheck, bufAux);
 }
 
-static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs, u32 nErr) {
+static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs, u32 nErr, ROEInfo roeInfo) {
   // char checkTimeStr[64] = {0};
   // if (checkSecs) { snprintf(checkTimeStr, sizeof(checkTimeStr), " (check %.0f ms)", checkSecs * 1000); }
   [[maybe_unused]] float percent = k * 100.0f / nBits;
@@ -1336,7 +1332,14 @@ static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secs
   //    k, nBits, percent, strOK.c_str(), res64, us/*, checkTimeStr*/);
   // log("%7u %2s %016" PRIx64 " %4.0f\n", k, strOK.c_str(), res64, us);
   string err = nErr ? " err "s + to_string(nErr) : "";
-  log("%5.2f%% %1s %016" PRIx64 " %4.0f%s\n", percent, strOK.c_str(), res64, us, err.c_str());
+  if (roeInfo.N) {
+    log("%5.2f%% %1s %016" PRIx64 " %4.0f%s; ROE=%.3f %.4f %u\n",
+        percent, strOK.c_str(), res64, us, err.c_str(),
+        roeInfo.max, roeInfo.norm, roeInfo.N);
+  } else {
+    log("%5.2f%% %1s %016" PRIx64 " %4.0f%s\n",
+        percent, strOK.c_str(), res64, us, err.c_str());
+  }
 }
 
 bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
@@ -1391,8 +1394,6 @@ bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
 
   Timer timer;
 
-  ROEInfo roeInfo;
-
   bool getOut = false;
   while (true) {
     if (powerBits.empty()) { getOut = true; }
@@ -1413,8 +1414,7 @@ bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
       float secsPerIt = nIts ? secs / nIts : 0.0f;
       const char* strOK = maybeOK ? *maybeOK ? "K" : "E" : "";
 
-      pm1Log(B1, k, nBits, strOK, *logRes, secsPerIt, checkSecs, nErr);
-      printROE(roeInfo);
+      pm1Log(B1, k, nBits, strOK, *logRes, secsPerIt, checkSecs, nErr, readROE());
       lastTimerK = k;
     }
 
@@ -1441,11 +1441,9 @@ bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
       continue;
     }
 
-    roeInfo = readROE(); // implies finish()
-
     if (doCheck) {
-      Timer checkTimer;
       data = readData();
+      Timer checkTimer;
       if (data.empty()) { return RETRY; }
       logRes = residue(data);
 
@@ -1618,14 +1616,18 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     u64 res = dataResidue(); // implies finish()
-    auto roeInfo = readROE();
     bool doCheck = !res || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
       
     if (k % 10000 == 0 && !doCheck) {
+      auto roeInfo = readROE();
       float secsPerIt = iterationTimer.reset(k);
       // log("   %9u %6.2f%% %s %4.0f us/it\n", k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
-      log("%9u %s %4.0f ; ROE=%.4f (max=%.3f, N=%u)\n", k, hex(res).c_str(), secsPerIt * 1'000'000,
-          roeInfo.norm, roeInfo.max, roeInfo.N);
+      if (roeInfo.N) {
+        log("%9u %s %4.0f; ROE=%.3f %.4f %u\n", k, hex(res).c_str(), secsPerIt * 1'000'000,
+            roeInfo.max, roeInfo.norm, roeInfo.N);
+      } else {
+        log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
+      }
     }
       
     if (doStop) {
