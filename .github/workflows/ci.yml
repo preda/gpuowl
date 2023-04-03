@@ -29,7 +29,7 @@ jobs:
     - name: Script
       run: |
         make -j "$(nproc)"
-        ./gpuowl -h
+        ./build/gpuowl -h
     - uses: actions/upload-artifact@v3
       if: always()
       with:
