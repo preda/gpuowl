@@ -76,7 +76,16 @@ void Args::printHelp() {
 -from <iteration>  : start at the given iteration instead of the most recent saved iteration
 -yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
 -nospin            : disable progress spinner
--use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
+
+-use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
+  -use ROE1,ROE2   : enable roundoff error logging
+  -use NO_ASM      : do not use __asm() blocks
+  -use NO_OMOD     : do not use GCN
+  -use CARRY32     : force 32-bit carry (faster but risky)
+  -use CARRY64     : force 64-bit carry (slower but safer)
+  -use TRIG_COMPUTE=0|1|2 : select sin/cos tradeoffs (compute vs. precomputed)
+  -use DEBUG       : enable asserts in OpenCL kernels (slow)
+
 -unsafeMath        : use OpenCL -cl-unsafe-math-optimizations (use at your own risk)
 -binary <file>     : specify a file containing the compiled kernels binary
 -device <N>        : select a specific device:

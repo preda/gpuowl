@@ -374,7 +374,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(kernelMultiply,      hN / SMALL_H),
   LOAD(kernelMultiplyDelta, hN / SMALL_H),
   LOAD(tailFusedSquare,   hN / SMALL_H / 2),
-  LOAD(tailFusedMulDelta, hN / SMALL_H / 2),
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
   LOAD(tailFusedMul,      hN / SMALL_H / 2),
   LOAD(tailSquareLow,     hN / SMALL_H / 2),
@@ -425,7 +424,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufCarryMulMax);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
-  tailFusedMulDelta.setFixedArgs(4, bufTrigH, bufTrigH);
   tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);
   tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
   tailMulLowLow.setFixedArgs(2, bufTrigH);
@@ -734,17 +732,6 @@ void Gpu::tW(Buffer<double>& out, Buffer<double>& in) {
 
 void Gpu::tH(Buffer<double>& out, Buffer<double>& in) {
   fftMiddleOut(out, in);
-}
-
-// out = in * (A - B)
-void Gpu::tailMulDelta(Buffer<double>& out, Buffer<double>& in, Buffer<double>& bufA, Buffer<double>& bufB) {
-  if (args.uses("NO_P2_FUSED_TAIL")) {
-    fftHin(out, in);
-    kernelMultiplyDelta(out, bufA, bufB);
-    fftHout(out);
-  } else {
-    tailFusedMulDelta(out, in, bufA, bufB);
-  }
 }
 
 vector<int> Gpu::readOut(ConstBuffer<int> &buf) {

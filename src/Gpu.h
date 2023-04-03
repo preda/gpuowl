@@ -84,7 +84,6 @@ class Gpu {
   Kernel kernelMultiply;
   Kernel kernelMultiplyDelta;
   Kernel tailFusedSquare;
-  Kernel tailFusedMulDelta;
   Kernel tailFusedMulLow;
   Kernel tailFusedMul;
   Kernel tailSquareLow;
@@ -164,7 +163,6 @@ class Gpu {
 
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
-  void tailMulDelta(Buffer<double>& out, Buffer<double>& in, Buffer<double>& bufA, Buffer<double>& bufB);
   void tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp);
   
 

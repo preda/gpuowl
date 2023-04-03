@@ -26,11 +26,6 @@ and TRIG_COMPUTE=1 is in between.
 
 DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
 STATS      enable stats about roundoff distribution and carry magnitude
-
----- P-1 below ----
-
-NO_P2_FUSED_TAIL                // Do not use the big kernel tailFusedMulDelta 
-
 */
 
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
@@ -1628,23 +1623,10 @@ void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32*
 void updateROE(global u32 *ROE, u32 posROE, float roundMax) {
   assert(roundMax >= 0 && roundMax <= 0.5f);
   u32 groupMax = work_group_reduce_max(as_uint(roundMax));
-  float x = as_float(groupMax);
-  assert(x >= 0 && x <= 0.5f);
-  // float groupMax = work_group_reduce_max(roundMax);
+  assert(as_float(groupMax) >= 0 && as_float(groupMax) <= 0.5f);
+  if (get_local_id(0) == 0) { atomic_max(ROE + posROE, groupMax); }
 
-  if (get_local_id(0) == 0 && groupMax > ROE[posROE]) {
-    atomic_max(ROE + posROE, groupMax);
-  }
-
-  /*
-  if (get_local_id(0) == 0) {
-    atomic_inc(&ROE[0]);
-    atomic_max(&ROE[1], groupMax);
-    float x2 = x * x;
-    u32 r = x2 * 256 + 0.5f;
-    atomic_add(&ROE[2], r);
-  }
-  */
+  // if (get_local_id(0) == 0 && groupMax > ROE[posROE]) { atomic_max(ROE + posROE, groupMax); }
 }
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
@@ -2062,11 +2044,6 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
 
 //== MULTIPLY NAME=kernelMultiply, MULTIPLY_DELTA=0
 
-#if NO_P2_FUSED_TAIL
-//== MULTIPLY NAME=kernelMultiplyDelta, MULTIPLY_DELTA=1
-#endif
-
-
 //{{ TAIL_SQUARE
 KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   local T2 lds[SMALL_HEIGHT / 2];
@@ -2222,11 +2199,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailMulLowLow,   MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=1
 //== TAIL_FUSED_MUL NAME=tailFusedMulLow, MUL_DELTA=0, MUL_LOW=1, MUL_2LOW=0
 //== TAIL_FUSED_MUL NAME=tailFusedMul,    MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=0
-
-#if !NO_P2_FUSED_TAIL
-// equivalent to: fftHin(io, out), multiply(out, a - b), fftH(out)
-//== TAIL_FUSED_MUL NAME=tailFusedMulDelta, MUL_DELTA=1, MUL_LOW=0, MUL_2LOW=0
-#endif // NO_P2_FUSED_TAIL
 
 KERNEL(64) readHwTrig(global float2* outSH, global float2* outBH, global float2* outN) {
   for (u32 k = get_global_id(0); k <= SMALL_HEIGHT / 4; k += get_global_size(0)) {
