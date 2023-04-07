@@ -470,18 +470,19 @@ typedef i64 CFcarry;
 // is often not enough.
 typedef i64 CFMcarry;
 
-u32 bound(i64 carry) { return min(abs(carry), 0xfffffffful); }
+float OVERLOAD boundCarry(i32 c) { return ldexp(fabs((float) c), -31); }
+float OVERLOAD boundCarry(i64 c) { return ldexp(fabs((float) (int) (c >> 8)), -23); }
 
 typedef TT T2;
 
 //{{ carries
-Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, float *maxROE, u32* carryMax) {
+Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, float *maxROE, float* carryMax) {
   iCARRY midCarry;
   Word a = carryStep(doubleToLong(u.x, maxROE) + inCarry, &midCarry, b1);
   Word b = carryStep(doubleToLong(u.y, maxROE) + midCarry, outCarry, b2);
-#if STATS
-  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
-#endif
+// #if STATS & 0x5
+  *carryMax = max(*carryMax, max(boundCarry(midCarry), boundCarry(*outCarry)));
+// #endif
   return (Word2) (a, b);
 }
 
@@ -497,13 +498,13 @@ Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
 //== carries CARRY=32
 //== carries CARRY=64
 
-Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, float* maxROE, u32* carryMax) {
+Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, float* maxROE, float* carryMax) {
   i64 midCarry;
   Word a = carryStep(3 * doubleToLong(u.x, maxROE) + inCarry, &midCarry, b1);
   Word b = carryStep(3 * doubleToLong(u.y, maxROE) + midCarry, outCarry, b2);
-#if STATS
-  *carryMax = max(*carryMax, max(bound(midCarry), bound(*outCarry)));
-#endif
+// #if STATS & 0xA
+  *carryMax = max(*carryMax, max(boundCarry(midCarry), boundCarry(*outCarry)));
+// #endif
   return (Word2) (a, b);
 }
 
@@ -1593,47 +1594,29 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
 }
 
-void updateStats(float roundMax, u32 carryMax, global u32* roundOut, global u32* carryStats) {
-  roundMax = work_group_reduce_max(roundMax);
-  carryMax = work_group_reduce_max(carryMax);
-  if (get_local_id(0) == 0) {
-    // Roundout 0   = count(iteration)
-    // Roundout 1   = max(workgroup maxerr)
-    // Roundout 2   = count(workgroup)
-    // Roundout 8.. = vector of iteration_maxerr
+#if STATS
+void updateStats(global uint2 *ROE, u32 posROE, float roundMax, float carryMax) {
 
-    atomic_max(&roundOut[1], as_uint(roundMax));
-    atomic_max(&carryStats[4], carryMax);
-    u32 oldCount = atomic_inc(&roundOut[2]);
-    assert(oldCount < get_num_groups(0));
-    if (oldCount == get_num_groups(0) - 1) {
-      u32 roundTmp = atomic_xchg(&roundOut[1], 0);
-      carryMax = atomic_xchg(&carryStats[4], 0);
-      roundOut[2] = 0;
-      int nPrevIt = atomic_inc(&roundOut[0]);
-      if (nPrevIt < 1024 * 1024) { roundOut[8 + nPrevIt] = roundTmp; }
-      
-      atom_add((global ulong *) &carryStats[0], carryMax);
-      atomic_max(&carryStats[2], carryMax);
-      atomic_inc(&carryStats[3]);
-    }
+  assert(roundMax >= 0 && roundMax <= 0.5f);
+  u32 groupRound = work_group_reduce_max(as_uint(roundMax));
+  assert(as_float(groupRound) >= 0 && as_float(groupRound) <= 0.5f);
+
+  assert(carryMax >= 0);
+  u32 groupCarry = work_group_reduce_max(as_uint(carryMax));
+  assert(as_float(groupCarry) >= 0 && as_float(groupCarry) <= 1);
+
+  if (get_local_id(0) == 0) {
+    atomic_max((global uint *) &ROE[posROE], groupRound);
+    atomic_max(((global uint *) &ROE[posROE]) + 1, groupCarry);
   }
 }
-
-void updateROE(global u32 *ROE, u32 posROE, float roundMax) {
-  assert(roundMax >= 0 && roundMax <= 0.5f);
-  u32 groupMax = work_group_reduce_max(as_uint(roundMax));
-  assert(as_float(groupMax) >= 0 && as_float(groupMax) <= 0.5f);
-  if (get_local_id(0) == 0) { atomic_max(ROE + posROE, groupMax); }
-
-  // if (get_local_id(0) == 0 && groupMax > ROE[posROE]) { atomic_max(ROE + posROE, groupMax); }
-}
+#endif
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
 //{{ CARRYA
-KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(u32) ROE, P(u32) carryStats) {
+KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(uint2) ROE) {
   ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -1642,7 +1625,7 @@ KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u
 
   CarryABM carry = 0;  
   float roundMax = 0;
-  u32 carryMax = 0;
+  float carryMax = 0;
 
   // Split 32 bits into CARRY_LEN groups of 2 bits.
 #define GPW (16 / CARRY_LEN)
@@ -1667,12 +1650,10 @@ KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u
   }
   carryOut[G_W * g + me] = carry;
 
-#if ROE2
-  updateROE(ROE, posROE, roundMax);
-#endif
-
-#if STATS
-  updateStats(roundMax, carryMax, roundOut, carryStats);
+// STATS is a 4-bit bit-field. Each of the first 4 bits being set enables stats for kernels:
+// carry-fused, carry-fused-mul, carry-notfused, carry-notfused-mul
+#if STATS & (1 << (2 + DO_MUL3))
+  updateStats(ROE, posROE, roundMax, carryMax);
 #endif
 }
 //}}
@@ -1714,7 +1695,7 @@ KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
 // See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
 //{{ CARRY_FUSED
 KERNEL(G_W) NAME(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits, P(u32) ROE, P(u32) carryStats) {
+                 CP(u32) bits, P(uint2) ROE) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -1750,7 +1731,7 @@ KERNEL(G_W) NAME(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) r
 #endif
 
   float roundMax = 0;
-  u32 carryMax = 0;
+  float carryMax = 0;
   
   // Apply the inverse weights
 
@@ -1766,14 +1747,14 @@ KERNEL(G_W) NAME(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) r
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
 #if CF_MUL    
-    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax, &carryMax);
+    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax, &carryMax);    
 #else
     wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax, &carryMax);
 #endif
   }
 
-#if ROE1
-  updateROE(ROE, posROE, roundMax);
+#if STATS & (1 << CF_MUL)
+  updateStats(ROE, posROE, roundMax, carryMax);
 #endif
 
   // Write out our carries
@@ -1788,10 +1769,6 @@ KERNEL(G_W) NAME(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) r
       atomic_store((atomic_uint *) &ready[gr], 1);
     }
   }
-
-#if STATS
-  updateStats(roundMax, carryMax, roundOut, carryStats);
-#endif
 
   if (gr == 0) { return; }
 

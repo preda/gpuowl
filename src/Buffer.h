@@ -75,7 +75,7 @@ public:
 
   void zero(size_t len = 0) {
     assert(len <= this->size);
-    T zero = 0;
+    T zero{};
     fillBuf(queue->get(), this->get(), &zero, sizeof(T), (len ? len : this->size) * sizeof(T));
   }
 

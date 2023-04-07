@@ -5,7 +5,7 @@
 #include "common.h"
 
 #include <string>
-#include <set>
+#include <map>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -18,7 +18,8 @@ public:
 
   void parse(const string& line);
   void setDefaults();
-  bool uses(const std::string& key) const { return flags.count(key); }
+  bool uses(const std::string& key) const { return flags.find(key) != flags.end(); }
+  int value(const std::string& key) const;
   
   string user;
   string cpu;
@@ -28,7 +29,7 @@ public:
   string uid;
   string binaryFile;
   string verifyPath;
-  std::set<std::string> flags;
+  std::map<std::string, std::string> flags;
   
   int device = 0;
   

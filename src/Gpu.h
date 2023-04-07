@@ -44,10 +44,14 @@ struct PRPResult {
 struct Reload {
 };
 
+struct Stats {
+  float max, mean, sd;
+};
+
 struct ROEInfo {
   u32 N;
-  float max;
-  float norm;
+  Stats roe;
+  Stats carry;
 };
 
 class Gpu {
@@ -114,15 +118,13 @@ class Gpu {
   Buffer<i64> bufCarry;  // Carry shuttle.
   
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
-  HostAccessBuffer<u32> bufCarryMax;
-  HostAccessBuffer<u32> bufCarryMulMax;
 
   // Small aux buffer used to read res64.
   HostAccessBuffer<int> bufSmallOut;
   HostAccessBuffer<u64> bufSumOut;
 
   // The round-off error ("ROE"), one float element per iteration.
-  HostAccessBuffer<float> bufROE;
+  HostAccessBuffer<float2> bufROE;
 
   // The next position to write in the ROE buffer.
   u32 roePos;
@@ -131,8 +133,7 @@ class Gpu {
   Buffer<double> buf1;
   Buffer<double> buf2;
   Buffer<double> buf3;
-  bool usesROE1;
-  bool usesROE2;
+  unsigned statsBits;
   
   vector<int> readSmall(Buffer<int>& buf, u32 start);
 
@@ -186,14 +187,16 @@ class Gpu {
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
   ROEInfo readROE();
   
+  u32 updatePos(u32 bit) { return (statsBits & bit) ? roePos++ : roePos; }
+
 public:
   const Args& args;
 
   // void carryA(Buffer<int>& a, Buffer<double>& b) { kernCarryA(roe2Pos++, a, b); }
-  template<typename... Args> void carryA(const Args &...args) { kernCarryA(usesROE2 ? roePos++ : roePos, args...); }
-  void carryM(Buffer<int>& a, Buffer<double>& b) { kernCarryM(usesROE2 ? roePos++ : roePos, a, b); }
-  void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(usesROE1 ? roePos++ : roePos, a, b); }
-  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(usesROE1 ? roePos++ : roePos, a, b); }
+  template<typename... Args> void carryA(const Args &...args) { kernCarryA(updatePos(1<<2), args...); }
+  void carryM(Buffer<int>& a, Buffer<double>& b) { kernCarryM(updatePos(1<<3), a, b); }
+  void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(updatePos(1<<0), a, b); }
+  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(updatePos(1<<1), a, b);}
 
   Words fold(vector<Buffer<int>>& bufs);
   

@@ -241,6 +241,8 @@ string toLiteral(const vector<T>& v) {
   return s;
 }
 
+string toLiteral(const string& s) { return s; }
+
 [[maybe_unused]] string toLiteral(float3 v) {
   auto [a, b, c] = v;
   return "("s + toLiteral(a) + ',' + toLiteral(b) + ',' + toLiteral(c) + ')';
@@ -296,18 +298,11 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   defines.push_back({"FWEIGHTS", fWeights});
   
   string clSource = CL_SOURCE;
-  for (const string& flag : args.flags) {
-    auto pos = flag.find('=');
-    string label = (pos == string::npos) ? flag : flag.substr(0, pos);
-    if (clSource.find(label) == string::npos) {
-      log("%s not used\n", label.c_str());
-      throw "-use with unknown key";
+  for (auto [key, val] : args.flags) {
+    if (clSource.find(key) == string::npos) {
+      log("warning: -use key '%s' not recognized\n", key.c_str());
     }
-    if (pos == string::npos) {
-      defines.push_back({label, 1});
-    } else {
-      defines.push_back(Define{flag});
-    }
+    defines.push_back({key, val});
   }
 
   vector<string> strDefines;
@@ -396,8 +391,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufBase{queue, "base", N},
   bufCarry{queue, "carry", N / 2},
   bufReady{queue, "ready", BIG_H},
-  bufCarryMax{queue, "carryMax", 8},
-  bufCarryMulMax{queue, "carryMulMax", 8},
   bufSmallOut{queue, "smallOut", 256},
   bufSumOut{queue, "sumOut", 1},
   bufROE{queue, "ROE", ROE_SIZE},
@@ -405,14 +398,12 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   buf1{queue, "buf1", N},
   buf2{queue, "buf2", N},
   buf3{queue, "buf3", N},
-  usesROE1{args.uses("ROE1")},
-  usesROE2{args.uses("ROE2")},
+  statsBits{u32(args.value("STATS"))},
   args{args}
 {
   // dumpBinary(program.get(), "isa.bin");
-  
-  kernCarryFused.setFixedArgs(   3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufCarryMax);
-  kernCarryFusedMul.setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufCarryMulMax);
+  kernCarryFused.setFixedArgs(   3, bufCarry, bufReady, bufTrigW, bufBits, bufROE);
+  kernCarryFusedMul.setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE);
   fftP.setFixedArgs(2, bufTrigW);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
@@ -420,8 +411,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleIn.setFixedArgs(2, bufTrigM);
   fftMiddleOut.setFixedArgs(2, bufTrigM);
     
-  kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufCarryMax);
-  kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufCarryMulMax);
+  kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE);
+  kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);
@@ -432,8 +423,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
 
   bufReady.zero();
-  bufCarryMax.zero();
-  bufCarryMulMax.zero();
 
   vector<float2> readTrigSH, readTrigBH, readTrigN;
   {
@@ -539,26 +528,44 @@ Words Gpu::fold(vector<Buffer<int>>& bufs) {
   return {};
 }
 
-ROEInfo norm(const vector<float>& v) {
-  double acc = 0;
-  float m = 0;
-  for (float x : v) {
-    assert(x >= 0 && x <= 0.5f);
-    m = max(m, x);
-    acc += x * x;
-  }
-  float n = v.empty() ? 0.0f : (sqrtf(float(acc) / u32(v.size())));
-  return {u32(v.size()), m, n};
-}
-
 ROEInfo Gpu::readROE() {
   assert(roePos <= ROE_SIZE);
   if (roePos) {
-    vector<float> roe = bufROE.read(roePos);
+    vector<float2> roe = bufROE.read(roePos);
     assert(roe.size() == roePos);
     bufROE.zero(roePos);
     roePos = 0;
-    return norm(roe);
+
+    double sumRoe = 0;
+    double sum2Roe = 0;
+    float maxRoe = 0;
+
+    double sumCarry = 0;
+    double sum2Carry = 0;
+    float maxCarry = 0;
+
+    for (auto [x, y] : roe) {
+      assert(x >= 0 && x <= 0.5f);
+      assert(y >= 0);
+
+      maxRoe = max(x, maxRoe);
+      sumRoe  += x;
+      sum2Roe += x * x;
+
+      maxCarry = max(y, maxCarry);
+      sumCarry += y;
+      sum2Carry += y * y;
+    }
+    u32 n = roe.size();
+    float invN = 1.0f / n;
+
+    float sdRoe = sqrtf(n * sum2Roe - sumRoe * sumRoe) * invN;
+    float meanRoe = float(sumRoe) * invN;
+
+    float sdCarry = sqrtf(n * sum2Carry - sumCarry * sumCarry) * invN;
+    float meanCarry = float(sumCarry) * invN;
+
+    return {n, {maxRoe, meanRoe, sdRoe}, {maxCarry, meanCarry, sdCarry}};
   } else {
     return {};
   }
@@ -1041,73 +1048,6 @@ template<typename T> float asFloat(T x) { return pun<float>(x); }
 
 }
 
-#if 0
-void Gpu::printRoundoff(u32 E) {
-  u32 roundN = bufRoundoff.read(1)[0];
-  // fprintf(stderr, "roundN %u\n", roundN);
-
-  vector<u32> carry;
-  vector<u32> carryMul;
-  bufCarryMax.readAsync(carry, 4);
-  bufCarryMulMax.readAsync(carryMul, 4);
-  
-  vector<u32> roundVect;
-  bufRoundoff.readAsync(roundVect, roundN, 8);
-    
-  vector<u32> zero{0, 0, 0, 0};
-  bufRoundoff.write(zero);
-  bufCarryMax.write(zero);
-  bufCarryMulMax.write(zero);
-
-  if (!roundN) { return; }
-  if (roundN < 2000) { return; }
-  
-#if DUMP_STATS
-  {
-    File fo = File::openAppend("roundoff.txt");
-    if (fo) { for (u32 x : roundVect) { fprintf(fo.get(), "%f\n", asFloat(x)); } }
-  }
-#endif
-
-  double sum = 0;
-  for (u32 x : roundVect) { sum += asFloat(x); }
-  double avg = sum / roundN;
-  double variance = 0;
-  double m = 0;
-  for (u32 u : roundVect) {
-    double x = asFloat(u);
-    m = max(m, x);
-    double d = x - avg;
-    variance += d * d;
-  }
-  
-  variance /= roundN;
-  double sdev = sqrt(variance);
-  
-  double gamma = 0.577215665; // Euler-Mascheroni
-  double z = (0.5 - avg) / sdev;
-
-  // See Gumbel distribution https://en.wikipedia.org/wiki/Gumbel_distribution
-  double p = -expm1(-exp(-z * (M_PI / sqrt(6))) * (E * exp(-gamma))); 
-  
-  log("Roundoff: N=%u, mean %f, SD %f, CV %f, max %f, z %.1f (pErr %f%%)\n",
-      roundN, avg, sdev, sdev / avg, m, z, p * 100);
-
-  // #if 0
-  u32 carryN = carry[3];
-  u32 carryAvg = carryN ? *(u64*)&carry[0] / carryN : 0;
-  u32 carryMax = carry[2];
-  
-  u32 carryMulN = carryMul[3];
-  u32 carryMulAvg = carryMulN ? *(u64*)&carryMul[0] / carryMulN : 0;
-  u32 carryMulMax = carryMul[2];
-
-  log("Carry: N=%u, max %x, avg %x; CarryM: N=%u, max %x, avg %x\n",
-      carryN, carryMax, carryAvg, carryMulN, carryMulMax, carryMulAvg);
-  // #endif
-}
-#endif
-
 void Gpu::accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
   fftP(tmp1, acc);
   tW(tmp2, tmp1);
@@ -1322,7 +1262,7 @@ static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secs
   if (roeInfo.N) {
     log("%5.2f%% %1s %016" PRIx64 " %4.0f%s; ROE=%.3f %.4f %u\n",
         percent, strOK.c_str(), res64, us, err.c_str(),
-        roeInfo.max, roeInfo.norm, roeInfo.N);
+        roeInfo.roe.max, roeInfo.roe.sd, roeInfo.N);
   } else {
     log("%5.2f%% %1s %016" PRIx64 " %4.0f%s\n",
         percent, strOK.c_str(), res64, us, err.c_str());
@@ -1542,8 +1482,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   // We continue beyound kEnd: up to the next multiple of 1024 if proof is enabled (kProofEnd), and up to the next blockSize
   u32 kEndEnd = roundUp(kEnd, blockSize);
 
-  bool printStats = args.flags.count("STATS");
-
   bool skipNextCheckUpdate = false;
 
   u32 persistK = proofSet.next(k);
@@ -1609,11 +1547,12 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       auto roeInfo = readROE();
       float secsPerIt = iterationTimer.reset(k);
       // log("   %9u %6.2f%% %s %4.0f us/it\n", k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
+      log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
+
       if (roeInfo.N) {
-        log("%9u %s %4.0f; ROE=%.3f %.4f %u\n", k, hex(res).c_str(), secsPerIt * 1'000'000,
-            roeInfo.max, roeInfo.norm, roeInfo.N);
-      } else {
-        log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
+        log("N=%u; ROE %.4f %.4f %.0f; Carry %.4f %.4f %.0f\n", roeInfo.N,
+            roeInfo.roe.max, roeInfo.roe.mean, roeInfo.roe.sd * 10000,
+            roeInfo.carry.max, roeInfo.carry.mean, roeInfo.carry.sd * 10000);
       }
     }
       
