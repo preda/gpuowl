@@ -10,9 +10,16 @@
 #include <regex>
 #include <cstring>
 #include <cassert>
+#include <cstdlib>
 #include <iterator>
 #include <sstream>
 #include <algorithm>
+
+int Args::value(const string& key) const {
+  auto it = flags.find(key);
+  if (it == flags.end()) { return 0; }
+  return atoi(it->second.c_str());
+}
 
 string Args::mergeArgs(int argc, char **argv) {
   string ret;
@@ -78,7 +85,7 @@ void Args::printHelp() {
 -nospin            : disable progress spinner
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
-  -use ROE1,ROE2   : enable roundoff error logging
+  -use STATS       : enable roundoff and carry statistics logging
   -use NO_ASM      : do not use __asm() blocks
   -use NO_OMOD     : do not use GCN
   -use CARRY32     : force 32-bit carry (faster but risky)
@@ -226,7 +233,23 @@ void Args::parse(const string& line) {
       string ss = s;
       std::replace(ss.begin(), ss.end(), ',', ' ');
       std::istringstream iss{ss};
-      flags.insert(std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{});
+      vector<string> uses{std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
+      for (const string &s : uses) {
+        auto pos = s.find('=');
+        string key = (pos == string::npos) ? s : s.substr(0, pos);
+        string val = (pos == string::npos) ? "1"s : s.substr(pos+1);
+
+        if (key == "STATS" && pos == string::npos) {
+          // special-case the default value for STATS (=15) being a bit-field
+          val = "15";
+        }
+
+        auto it = flags.find(key);
+        if (it != flags.end() && it->second != val) {
+          log("warning: -use %s=%s overrides %s=%s\n", key.c_str(), val.c_str(), it->first.c_str(), it->second.c_str());
+        }
+        flags[key] = val;
+      }
     } else if (key == "-unsafeMath") {
       safeMath = false;
     } else if (key == "-binary") {
