@@ -16,6 +16,7 @@
 #include <atomic>
 #include <future>
 #include <filesystem>
+#include <cmath>
 
 struct PRPResult;
 struct PRPState;
@@ -45,7 +46,19 @@ struct Reload {
 };
 
 struct Stats {
+  Stats() = default;
+  Stats(float max, float mean, float sd) : max{max}, mean{mean}, sd{sd} {
+    // https://en.wikipedia.org/wiki/Gumbel_distribution
+    gumbelBeta = sd * 0.7797f; // sqrt(6)/pi
+    gumbelMiu = mean - gumbelBeta * 0.5772f; // Euler-Mascheroni
+  }
+
+  float z(float x) { return (x - gumbelMiu) / gumbelBeta; }
+  float gumbelCDF(float x) { return expf(-expf(-z(x))); }
+  float gumbelRightCDF(float x) { return -expm1f(-expf(-z(x))); }
+
   float max, mean, sd;
+  float gumbelMiu, gumbelBeta;
 };
 
 struct ROEInfo {

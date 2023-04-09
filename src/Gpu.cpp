@@ -544,16 +544,26 @@ ROEInfo Gpu::readROE() {
     double sum2Carry = 0;
     float maxCarry = 0;
 
+#if DUMP_ROE
+    File froe = File::openAppend("roe.txt");
+    File fcarry = File::openAppend("carry.txt");
+#endif
+
     for (auto [x, y] : roe) {
       assert(x >= 0 && x <= 0.5f);
       assert(y >= 0);
+
+#if DUMP_ROE
+      froe.printf("%f\n", x);
+      fcarry.printf("%f\n", y);
+#endif
 
       maxRoe = max(x, maxRoe);
       sumRoe  += x;
       sum2Roe += x * x;
 
       maxCarry = max(y, maxCarry);
-      sumCarry += y;
+      sumCarry  += y;
       sum2Carry += y * y;
     }
     u32 n = roe.size();
@@ -1260,9 +1270,11 @@ static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secs
   // log("%7u %2s %016" PRIx64 " %4.0f\n", k, strOK.c_str(), res64, us);
   string err = nErr ? " err "s + to_string(nErr) : "";
   if (roeInfo.N) {
-    log("%5.2f%% %1s %016" PRIx64 " %4.0f%s; ROE=%.3f %.4f %u\n",
+    Stats &roe = roeInfo.roe;
+    Stats &carry = roeInfo.carry;
+    log("%5.2f%% %1s %016" PRIx64 " %4.0f%s; N=%u ROE %.3f/%.0f %.3f/%.0f\n",
         percent, strOK.c_str(), res64, us, err.c_str(),
-        roeInfo.roe.max, roeInfo.roe.sd, roeInfo.N);
+        roeInfo.N, roe.max, roe.z(.5f)*10, carry.max, carry.z(1) * 10);
   } else {
     log("%5.2f%% %1s %016" PRIx64 " %4.0f%s\n",
         percent, strOK.c_str(), res64, us, err.c_str());
@@ -1546,13 +1558,18 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     if (k % 10000 == 0 && !doCheck) {
       auto roeInfo = readROE();
       float secsPerIt = iterationTimer.reset(k);
-      // log("   %9u %6.2f%% %s %4.0f us/it\n", k, k / float(kEndEnd) * 100, hex(res).c_str(), secsPerIt * 1'000'000);
-      log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
 
       if (roeInfo.N) {
-        log("N=%u; ROE %.4f %.4f %.0f; Carry %.4f %.4f %.0f\n", roeInfo.N,
-            roeInfo.roe.max, roeInfo.roe.mean, roeInfo.roe.sd * 10000,
-            roeInfo.carry.max, roeInfo.carry.mean, roeInfo.carry.sd * 10000);
+        Stats &roe = roeInfo.roe;
+        Stats &carry = roeInfo.carry;
+        // float p1 = roe.gumbelRightCDF(0.49f);
+        // float p2 = carry.gumbelRightCDF(1.0f);
+        log("%9u %s %4.0f; N=%u ROE %.3f/%.0f %.3f/%.0f\n",
+            k, hex(res).c_str(), secsPerIt * 1'000'000,
+            roeInfo.N, roe.max, roe.z(.5f)*10, carry.max, carry.z(1) * 10);
+      } else {
+        log("%9u %s %4.0f\n",
+            k, hex(res).c_str(), secsPerIt * 1'000'000);
       }
     }
       
