@@ -85,7 +85,7 @@ void Args::printHelp() {
 -nospin            : disable progress spinner
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
-  -use STATS       : enable roundoff and carry statistics logging
+  -use STATS       : enable roundoff and carry stats logging
   -use NO_ASM      : do not use __asm() blocks
   -use NO_OMOD     : do not use GCN
   -use CARRY32     : force 32-bit carry (faster but risky)
