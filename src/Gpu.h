@@ -64,7 +64,6 @@ struct Stats {
 struct ROEInfo {
   u32 N;
   Stats roe;
-  Stats carry;
 };
 
 class Gpu {
@@ -137,7 +136,7 @@ class Gpu {
   HostAccessBuffer<u64> bufSumOut;
 
   // The round-off error ("ROE"), one float element per iteration.
-  HostAccessBuffer<float2> bufROE;
+  HostAccessBuffer<float> bufROE;
 
   // The next position to write in the ROE buffer.
   u32 roePos;
@@ -201,6 +200,7 @@ class Gpu {
   ROEInfo readROE();
   
   u32 updatePos(u32 bit) { return (statsBits & bit) ? roePos++ : roePos; }
+  void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs, u32 nErr, ROEInfo roeInfo);
 
 public:
   const Args& args;

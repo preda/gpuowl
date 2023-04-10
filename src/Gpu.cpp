@@ -531,7 +531,7 @@ Words Gpu::fold(vector<Buffer<int>>& bufs) {
 ROEInfo Gpu::readROE() {
   assert(roePos <= ROE_SIZE);
   if (roePos) {
-    vector<float2> roe = bufROE.read(roePos);
+    vector<float> roe = bufROE.read(roePos);
     assert(roe.size() == roePos);
     bufROE.zero(roePos);
     roePos = 0;
@@ -540,31 +540,20 @@ ROEInfo Gpu::readROE() {
     double sum2Roe = 0;
     float maxRoe = 0;
 
-    double sumCarry = 0;
-    double sum2Carry = 0;
-    float maxCarry = 0;
-
 #if DUMP_ROE
     File froe = File::openAppend("roe.txt");
-    File fcarry = File::openAppend("carry.txt");
 #endif
 
-    for (auto [x, y] : roe) {
-      assert(x >= 0 && x <= 0.5f);
-      assert(y >= 0);
+    for (auto x : roe) {
+      assert(x >= 0);
 
 #if DUMP_ROE
       froe.printf("%f\n", x);
-      fcarry.printf("%f\n", y);
 #endif
 
       maxRoe = max(x, maxRoe);
       sumRoe  += x;
       sum2Roe += x * x;
-
-      maxCarry = max(y, maxCarry);
-      sumCarry  += y;
-      sum2Carry += y * y;
     }
     u32 n = roe.size();
     float invN = 1.0f / n;
@@ -572,10 +561,7 @@ ROEInfo Gpu::readROE() {
     float sdRoe = sqrtf(n * sum2Roe - sumRoe * sumRoe) * invN;
     float meanRoe = float(sumRoe) * invN;
 
-    float sdCarry = sqrtf(n * sum2Carry - sumCarry * sumCarry) * invN;
-    float meanCarry = float(sumCarry) * invN;
-
-    return {n, {maxRoe, meanRoe, sdRoe}, {maxCarry, meanCarry, sdCarry}};
+    return {n, {maxRoe, meanRoe, sdRoe}};
   } else {
     return {};
   }
@@ -1260,21 +1246,15 @@ bool Gpu::pm1Check(vector<bool> sumBits, u32 blockSize) {
   return equalNotZero(bufCheck, bufAux);
 }
 
-static void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs, u32 nErr, ROEInfo roeInfo) {
-  // char checkTimeStr[64] = {0};
-  // if (checkSecs) { snprintf(checkTimeStr, sizeof(checkTimeStr), " (check %.0f ms)", checkSecs * 1000); }
+void Gpu::pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs, u32 nErr, ROEInfo roeInfo) {
   [[maybe_unused]] float percent = k * 100.0f / nBits;
   float us = secsPerIt * 1'000'000;
-  // log("%7u/%u %5.2f%% %2s %016" PRIx64 " %4.0f\n",
-  //    k, nBits, percent, strOK.c_str(), res64, us/*, checkTimeStr*/);
-  // log("%7u %2s %016" PRIx64 " %4.0f\n", k, strOK.c_str(), res64, us);
   string err = nErr ? " err "s + to_string(nErr) : "";
   if (roeInfo.N) {
     Stats &roe = roeInfo.roe;
-    Stats &carry = roeInfo.carry;
-    log("%5.2f%% %1s %016" PRIx64 " %4.0f%s; N=%u ROE %.3f/%.0f %.3f/%.0f\n",
+    log("%5.2f%% %1s %016" PRIx64 " %4.0f%s; %s: N=%u %.3f/%.0f\n",
         percent, strOK.c_str(), res64, us, err.c_str(),
-        roeInfo.N, roe.max, roe.z(.5f)*10, carry.max, carry.z(1) * 10);
+        (statsBits & 0x10) ? "Carry" : "ROE", roeInfo.N, roe.max, roe.z(.5f)*10);
   } else {
     log("%5.2f%% %1s %016" PRIx64 " %4.0f%s\n",
         percent, strOK.c_str(), res64, us, err.c_str());
@@ -1561,12 +1541,10 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
       if (roeInfo.N) {
         Stats &roe = roeInfo.roe;
-        Stats &carry = roeInfo.carry;
-        // float p1 = roe.gumbelRightCDF(0.49f);
-        // float p2 = carry.gumbelRightCDF(1.0f);
-        log("%9u %s %4.0f; N=%u ROE %.3f/%.0f %.3f/%.0f\n",
+        log("%9u %s %4.0f; %s: N=%u %.3f/%.0f\n",
             k, hex(res).c_str(), secsPerIt * 1'000'000,
-            roeInfo.N, roe.max, roe.z(.5f)*10, carry.max, carry.z(1) * 10);
+            (statsBits & 0x10 ) ? "Carry" : "ROE",
+            roeInfo.N, roe.max, roe.z(.5f)*10);
       } else {
         log("%9u %s %4.0f\n",
             k, hex(res).c_str(), secsPerIt * 1'000'000);

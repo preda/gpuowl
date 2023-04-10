@@ -85,13 +85,23 @@ void Args::printHelp() {
 -nospin            : disable progress spinner
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
-  -use STATS       : enable roundoff and carry stats logging
   -use NO_ASM      : do not use __asm() blocks
   -use NO_OMOD     : do not use GCN
   -use CARRY32     : force 32-bit carry (faster but risky)
   -use CARRY64     : force 64-bit carry (slower but safer)
   -use TRIG_COMPUTE=0|1|2 : select sin/cos tradeoffs (compute vs. precomputed)
   -use DEBUG       : enable asserts in OpenCL kernels (slow)
+  -use STATS       : enable roundoff (ROE) or carry statistics logging.
+                     Allows selecting among the the kernels CarryFused, CarryFusedMul, CarryA, CarryMul using the bit masks:
+                     1 = CarryFused
+                     2 = CarryFusedMul
+                     4 = CarryA
+                     8 = CarryMul
+                     The bit mask 16 selects Carry statistics, otherwise ROE statistics.
+                     E.g. STATS=15 enables ROE stats for all the four kernels above.
+                          STATs=21 enables Carry stats for the CarryFused and CarryA.
+                     For carry, the range [0, 2^32] is mapped to [0.0, 1.0] float values; as such the max carry
+                     that fits on 32bits (i.e. 31bits absolute value) is mapped to 0.5
 
 -unsafeMath        : use OpenCL -cl-unsafe-math-optimizations (use at your own risk)
 -binary <file>     : specify a file containing the compiled kernels binary
