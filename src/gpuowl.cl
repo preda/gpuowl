@@ -1,9 +1,6 @@
 // Copyright Mihai Preda and George Woltman.
 
-/* List of user-serviceable -use flags and their effects
-
-NO_ASM : request to not use any inline __asm()
-NO_OMOD: do not use GCN output modifiers in __asm()
+/* List of user-serviceable -use flags and their effects : see also help (-h)
 
 OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
 IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 but needs testing>
@@ -17,15 +14,6 @@ NEWEST_FFT5
 
 NEW_FFT9 <default>
 OLD_FFT9
-
-CARRY32 <AMD default for PRP when appropriate>
-CARRY64 <nVidia default>, <AMD default for PM1 when appropriate>
-
-TRIG_COMPUTE=<n> (default 2), can be used to balance between compute and memory for trigonometrics. TRIG_COMPUTE=0 does more memory access, TRIG_COMPUTE=2 does more compute,
-and TRIG_COMPUTE=1 is in between.
-
-DEBUG      enable asserts. Slow, but allows to verify that all asserts hold.
-STATS      enable stats about roundoff distribution and carry magnitude
 */
 
 /* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
@@ -40,13 +28,13 @@ SMALL_HEIGHT
 MIDDLE
 
 -- Derived from above:
-BIG_HEIGHT = SMALL_HEIGHT * MIDDLE
-ND         number of dwords
-NWORDS     number of words
-NW
-NH
-G_W        "group width"
+BIG_HEIGHT == SMALL_HEIGHT * MIDDLE
+ND         number of dwords == WIDTH * MIDDLE * SMALL_HEIGHT
+NWORDS     number of words  == ND * 2
+G_W        "group width" (e.g. 256)
 G_H        "group height"
+NW         == WIDTH / G_W
+NH         == SMALL_HEIGHT / G_H
  */
 
 #if !defined(TRIG_COMPUTE)
@@ -97,9 +85,8 @@ G_H        "group height"
 #endif
 
 #if !CARRY32 && !CARRY64
-#if AMDGPU
+// Presumably the carry should behave the same on AMD and Nvidia.
 #define CARRY32 1
-#endif
 #endif
 
 // The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy

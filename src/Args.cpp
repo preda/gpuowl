@@ -85,11 +85,13 @@ void Args::printHelp() {
 -nospin            : disable progress spinner
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
-  -use NO_ASM      : do not use __asm() blocks
-  -use NO_OMOD     : do not use GCN
-  -use CARRY32     : force 32-bit carry (faster but risky)
-  -use CARRY64     : force 64-bit carry (slower but safer)
+  -use NO_ASM      : do not use __asm() blocks (inline assembly)
+  -use NO_OMOD     : do not use GCN output modifiers in __asm()
+  -use CARRY32     : force 32-bit carry (-use STATS=21 offers carry range statistics)
+  -use CARRY64     : force 64-bit carry (a bit slower but no danger of carry overflow)
   -use TRIG_COMPUTE=0|1|2 : select sin/cos tradeoffs (compute vs. precomputed)
+                     0 uses precomputed tables (more VRAM access, less DP compute)
+                     2 uses more DP compute and less VRAM table access
   -use DEBUG       : enable asserts in OpenCL kernels (slow)
   -use STATS       : enable roundoff (ROE) or carry statistics logging.
                      Allows selecting among the the kernels CarryFused, CarryFusedMul, CarryA, CarryMul using the bit masks:
@@ -97,7 +99,8 @@ void Args::printHelp() {
                      2 = CarryFusedMul
                      4 = CarryA
                      8 = CarryMul
-                     The bit mask 16 selects Carry statistics, otherwise ROE statistics.
+                    16 = analyze Carry instead of ROE
+                     (the bit mask 16 selects Carry statistics, otherwise ROE statistics)
                      E.g. STATS=15 enables ROE stats for all the four kernels above.
                           STATs=21 enables Carry stats for the CarryFused and CarryA.
                      For carry, the range [0, 2^32] is mapped to [0.0, 1.0] float values; as such the max carry
@@ -108,9 +111,6 @@ void Args::printHelp() {
 -device <N>        : select a specific device:
 )", B2_B1_ratio, proofPow, proofVerify, tmpDir.c_str(), resultsFile.c_str(), nSavefiles);
 
-  // Undocumented:
-  // -D <value>         : specify the P2 "D" value, one of: 210, 330, 420, 462, 660, 770, 924, 1540, 2310.
-  
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
     printf("%2u %s : %s %s\n", i, getUUID(i).c_str(), getLongInfo(deviceIds[i]).c_str(), isAmdGpu(deviceIds[i]) ? "AMD" : "not-AMD");
