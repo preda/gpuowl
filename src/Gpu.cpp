@@ -84,20 +84,20 @@ double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
 ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
   vector<double2> tab;
 
-  // smallTrigBlock(size / radix, 2, tab.data());
-
+#if 1
   for (u32 line = 1; line < radix; ++line) {
   for (u32 col = 0; col < size / radix; ++col) {
     tab.push_back(root1<double>(size, col * line));
   }
   }
   tab.resize(size);
-  
-  /*
+#else
+  tab.resize(size);
   auto *p = tab.data() + radix;
   for (u32 w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
   assert(p - tab.data() == size);
-  */
+#endif
+
   return {context, "smallTrig", tab};
 }
 
@@ -424,18 +424,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
   bufReady.zero();
 
-  vector<float2> readTrigSH, readTrigBH, readTrigN;
   {
-    HostAccessBuffer<float2>
-      bufSH{queue, "readTrig", SMALL_H/4 + 1},
-      bufBH{queue, "readTrigBH", BIG_H/8 + 1},
-      bufN{queue, "readTrigN", hN/8+1};
-        
-    Kernel{program.get(), queue, device, 32, "readHwTrig"}(bufSH, bufBH, bufN);
-    readTrigSH = bufSH.read();
-    readTrigBH = bufBH.read();
-    readTrigN = bufN.read();
-
     Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
                                                              ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
                                                              ConstBuffer{context, "dp3", makeTrig<double>(hN)},
