@@ -178,11 +178,7 @@ typedef double2 TT;
 #define IM(a) (a.y)
 
 void bar() {
-#if 0 && HAS_ASM
-   __asm("s_barrier");
-#else
    barrier(CLK_LOCAL_MEM_FENCE);
-#endif
 }
 
 TT U2(T a, T b) { return (TT) (a, b); }
@@ -339,10 +335,6 @@ void CARRY32_CHECK(i32 x) {
 // Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
 #define RNDVAL (3.0 * (1l << 51))
 
-// #define RNDVAL2 (RNDVAL + 3.0 * (1l << 32))
-// Top 32-bits of RNDVAL
-// #define TOPVAL (0x43380000)
-
 i64 doubleToLong(double x, float* maxROE) {
   // Unfortunatelly (i64) rint() is slow!
   // return rint(x);
@@ -409,6 +401,7 @@ typedef i64 CFcarry;
 // is often not enough.
 typedef i64 CFMcarry;
 
+// map abs(carry) to floats, with 2^32 corresponding to 1.0
 float OVERLOAD boundCarry(i32 c) { return ldexp(fabs((float) c), -32); }
 float OVERLOAD boundCarry(i64 c) { return ldexp(fabs((float) (i32) (c >> 8)), -24); }
 
@@ -560,27 +553,7 @@ void fft3(T2 *u) {
 }
 
 #include "fft5.cl"
-
-void fft6(T2 *u) {
-  const double COS1 = -0.5;					                  // cos(tau/3) == -0.5
-  const double SIN1 = 0.86602540378443864676372317075294;	// sin(tau/3) == sqrt(3)/2
-
-  X2(u[0], u[3]);						// (r1+ i1+),  (r1-  i1-)
-  X2_mul_t4(u[1], u[4]);					// (r2+ i2+),  (i2- -r2-)
-  X2_mul_t4(u[2], u[5]);					// (r3+ i3+),  (i3- -r3-)
-
-  X2_mul_t4(u[1], u[2]);					// (r2++  i2++),  (i2+- -r2+-)
-  X2_mul_t4(u[4], u[5]);					// (i2-+ -r2-+), (-r2-- -i2--)
-
-  T2 tmp35a = fmaT2(COS1, u[1], u[0]);
-  u[0] = u[0] + u[1];
-  T2 tmp26a = fmaT2(COS1, u[5], u[3]);
-  u[3] = u[3] + u[5];
-
-  fma_addsub(u[1], u[5], SIN1, tmp26a, u[4]);
-  fma_addsub(u[2], u[4], SIN1, tmp35a, u[2]);
-}
-
+#include "fft6.cl"
 #include "fft7.cl"
 #include "fft9.cl"
 #include "fft10.cl"
@@ -616,7 +589,11 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   
   for (u32 i = 1; i < n; ++i) {
+#if 1
     u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]);
+#else
+    u[i] = mul(u[i], trig[WG/f * i + (me / f)]);
+#endif
   }
 }
 
@@ -864,45 +841,6 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
   if (negate) { r = -r; }
   return r;
 }
-
-float fastSinSP(u32 k, u32 tau, u32 M) {
-  // These DP coefs are optimized for computing sin(2*pi*x) with x in [0, 1/8], using
-  // sin(2*pi*x) = R[0]*x + R[1]*x^3 + R[2]*x^5 + R[3]*x^7
-  double R[4] = {6.2831852886262363, -41.341663358481057, 81.592672353579971, -75.407767034374388};
-
-  // We divide the DP coefficients by the corresponding power of M, and *afterwards* truncate them to SP.
-  // These constants are all computed compile-time.
-  float S[4] = {
-      R[0] / M,
-      R[1] / (((double)M)*M*M),
-      R[2] / (((double)M)*M*M*M*M),
-      R[3] / (((double)M)*M*M*M*M*M*M)
-      };
-
-  // Because we took the M out, we can scale k with a power of two, i.e. without loss of precision.
-  assert(tau % M == 0);
-  assert(((tau / M) & (tau / M - 1)) == 0); // (tau/M is a power of 2)
-  float x = (-(float)k) / (tau / M);
-  float z = x * x;
-  return fma(x, S[0], fma(fma(S[3], z, S[2]), z, S[1]) * x * z); // 1ulp on [0, 1/8].
-
-  // sinpi() does argument reduction and a bunch of unnecessary stuff.
-  // return sinpi(2 * x);
-}
-
-float fastCosSP(u32 k, u32 tau) {
-  float x = (-1.0f / tau) * k;
-  
-#if HAS_ASM
-  // On our intended range, [0, pi/4], v_cos_f32 seems to have 2ulps precision which is good enough.
-  float out;
-  __asm("v_cos_f32_e32 %0, %1" : "=v"(out) : "v" (x));
-  return out;  
-#else
-  return cospi(2 * x);
-#endif
-}
-
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
@@ -1572,8 +1510,6 @@ KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u
   }
   carryOut[G_W * g + me] = carry;
 
-// STATS is a 4-bit bit-field. Each of the first 4 bits being set enables stats for kernels:
-// carry-fused, carry-fused-mul, carry-notfused, carry-notfused-mul
 #if STATS & (1 << (2 + DO_MUL3))
 #if STATS & 16
   updateStats(ROE, posROE, carryMax);
@@ -2099,21 +2035,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
 //== TAIL_FUSED_MUL NAME=tailMulLowLow,   MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=1
 //== TAIL_FUSED_MUL NAME=tailFusedMulLow, MUL_DELTA=0, MUL_LOW=1, MUL_2LOW=0
 //== TAIL_FUSED_MUL NAME=tailFusedMul,    MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=0
-
-KERNEL(64) readHwTrig(global float2* outSH, global float2* outBH, global float2* outN) {
-  for (u32 k = get_global_id(0); k <= SMALL_HEIGHT / 4; k += get_global_size(0)) {
-    outSH[k] = (float2) (fastCosSP(k, SMALL_HEIGHT * 2), fastSinSP(k, SMALL_HEIGHT * 2, 1));
-  }
-  
-  for (u32 k = get_global_id(0); k <= BIG_HEIGHT / 8; k += get_global_size(0)) {
-    outBH[k] = (float2) (fastCosSP(k, BIG_HEIGHT), fastSinSP(k, BIG_HEIGHT, MIDDLE));
-  }
-
-  for (u32 k = get_global_id(0); k <= ND / 8; k += get_global_size(0)) {
-    outN[k] = (float2) (fastCosSP(k, ND), fastSinSP(k, ND, MIDDLE));
-  }
-}
-
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
