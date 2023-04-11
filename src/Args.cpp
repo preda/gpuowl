@@ -86,7 +86,6 @@ void Args::printHelp() {
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
   -use NO_ASM      : do not use __asm() blocks (inline assembly)
-  -use NO_OMOD     : do not use GCN output modifiers in __asm()
   -use CARRY32     : force 32-bit carry (-use STATS=21 offers carry range statistics)
   -use CARRY64     : force 64-bit carry (a bit slower but no danger of carry overflow)
   -use TRIG_COMPUTE=0|1|2 : select sin/cos tradeoffs (compute vs. precomputed)
