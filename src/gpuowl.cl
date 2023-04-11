@@ -72,14 +72,6 @@ NH         == SMALL_HEIGHT / G_H
 #endif
 #endif // AMDGPU
 
-#if !HAS_ASM
-// disable everything that depends on ASM
-#define NO_OMOD 1
-#endif
-
-// tuning: disable
-#define NO_OMOD 1
-
 #if CARRY32 && CARRY64
 #error Conflict: both CARRY32 and CARRY64 requested
 #endif
@@ -171,16 +163,6 @@ NH         == SMALL_HEIGHT / G_H
 #define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
 #endif
 
-#if HAS_ASM && !NO_OMOD && !NO_SETMODE
-// turn IEEE mode and denormals off so that mul:2 and div:2 work
-#define ENABLE_MUL2() { \
-    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 9, 1), 0");\
-    __asm volatile ("s_setreg_imm32_b32 hwreg(HW_REG_MODE, 4, 4), 7");\
-}
-#else
-#define ENABLE_MUL2()
-#endif
-
 typedef int i32;
 typedef uint u32;
 typedef long i64;
@@ -213,34 +195,16 @@ OVERLOAD double mad1(double x, double y, double z) { return x * y + z; }
 OVERLOAD double mul(double x, double y) { return x * y; }
 
 T add1_m2(T x, T y) {
-#if !NO_OMOD && !SP
-  T tmp;
-   __asm volatile("v_add_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
-   return tmp;
-#else
    return 2 * sum(x, y);
-#endif
 }
 
 T sub1_m2(T x, T y) {
-#if !NO_OMOD && !SP
-  T tmp;
-  __asm volatile("v_add_f64 %0, %1, -%2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
-  return tmp;
-#else
   return 2 * sum(x, -y);
-#endif
 }
 
 // x * y * 2
 T mul1_m2(T x, T y) {
-#if !NO_OMOD && !SP
-  T tmp;
-  __asm volatile("v_mul_f64 %0, %1, %2 mul:2" : "=v" (tmp) : "v" (x), "v" (y));
-  return tmp;
-#else
   return 2 * mul(x, y);
-#endif
 }
 
 
@@ -254,23 +218,11 @@ OVERLOAD TT fancyMul(TT x, const TT y) {
 }
 
 T mad1_m2(T a, T b, T c) {
-#if !NO_OMOD && !SP
-  double out;
-  __asm volatile("v_fma_f64 %0, %1, %2, %3 mul:2" : "=v" (out) : "v" (a), "v" (b), "v" (c));
-  return out;
-#else
   return 2 * mad1(a, b, c);
-#endif
 }
 
 T mad1_m4(T a, T b, T c) {
-#if !NO_OMOD && !SP
-  double out;
-  __asm volatile("v_fma_f64 %0, %1, %2, %3 mul:4" : "=v" (out) : "v" (a), "v" (b), "v" (c));
-  return out;
-#else
   return 4 * mad1(a, b, c);
-#endif
 }
 
 // complex square
@@ -1162,7 +1114,6 @@ KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 g = get_group_id(0);
 
   readCarryFusedLine(in, u, g);
-  ENABLE_MUL2();
   fft_WIDTH(lds, u, smallTrig);  
   out += WIDTH * g;
   write(G_W, NW, u, out, 0);
@@ -1176,7 +1127,6 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 g = get_group_id(0);
 
   readTailFusedLine(in, u, g);
-  ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
 
   out += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
@@ -1193,7 +1143,6 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   io += g * SMALL_HEIGHT;
 
   read(G_H, NH, u, io, 0);
-  ENABLE_MUL2();
   fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, 0);
 }
@@ -1260,7 +1209,6 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
     u32 p = G_W * i + me;
     u[i] = U2(in[p].x, in[p].y) * U2(w1, w2);
   }
-  ENABLE_MUL2();
 
   fft_WIDTH(lds, u, smallTrig);
   
@@ -1511,8 +1459,6 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig) {
   in += starty * WIDTH + startx;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
 
-  ENABLE_MUL2();
-
   middleMul2(u, startx + mx, starty + my, 1);
 
   fft_MIDDLE(u);
@@ -1555,7 +1501,6 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   in += starty * BIG_HEIGHT + startx;
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
-  ENABLE_MUL2();
 
   middleMul(u, startx + mx, trig);
 
@@ -1595,7 +1540,6 @@ void updateStats(global uint *ROE, u32 posROE, float roundMax) {
 
 //{{ CARRYA
 KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(uint) ROE) {
-  ENABLE_MUL2();
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
@@ -1695,7 +1639,6 @@ KERNEL(G_W) NAME(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) r
   u32 b = bits[(G_W * line + me) / GPW] >> (me % GPW * (2 * NW));
 #undef GPW
   
-  ENABLE_MUL2();
   fft_WIDTH(lds, u, smallTrig);
 
 // Convert each u value into 2 words and a 32 or 64 bit carry
@@ -1969,8 +1912,6 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
-  ENABLE_MUL2();
-
   u32 line1 = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -2020,8 +1961,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   u32 line2 = line1 ? H - line1 : (H / 2);
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-
-  ENABLE_MUL2();
 
 #if TAIL_FUSED_LOW
   read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
@@ -2090,9 +2029,7 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   u32 line2 = line1 ? H - line1 : (H / 2);
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-  
-  ENABLE_MUL2();
-  
+    
 #if MUL_DELTA
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
