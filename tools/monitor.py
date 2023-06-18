@@ -48,6 +48,7 @@ class Gpu:
     memBusy: int
     memUsedGB: float
     pciId: str
+    memVendor: str
 
 def readGpu(d: int, readSlow = False):
     device = drm + f'card{d}/device/'
@@ -56,6 +57,7 @@ def readGpu(d: int, readSlow = False):
     pcieErr = readInt(device + 'pcie_replay_count', 1)
     memBusy = readInt(device + 'mem_busy_percent', 1)
     memUsed = readInt(device + 'mem_info_vram_used', 1)
+    memVendor = read(device + 'mem_info_vram_vendor')
     memUsedGB = memUsed * (1.0 / (1024 * 1024 * 1024))
     # pciId = read(device + 'thermal_throttling_logging').split()[0]
     pciId = read(device + 'uevent').split('PCI_SLOT_NAME=')[1].split()[0].lstrip('0000:')
@@ -79,7 +81,7 @@ def readGpu(d: int, readSlow = False):
         mclk = 0
         voltage = 0
     return Gpu(uid=uid, temps=temps, fan=fan, power=power, sclk=sclk, mclk=mclk, voltage=voltage,
-               pcie_bw=pcie_bw, pcie_speed=pcie_speed, pcieErr=pcieErr, memBusy=memBusy, memUsedGB=memUsedGB, pciId=pciId)
+               pcie_bw=pcie_bw, pcie_speed=pcie_speed, pcieErr=pcieErr, memBusy=memBusy, memUsedGB=memUsedGB, pciId=pciId, memVendor=memVendor)
 
 def printInfo(devices, readSlow):
     print(datetime.now())    
@@ -87,7 +89,7 @@ def printInfo(devices, readSlow):
     for d in devices:
         gpu = readGpu(d, readSlow)
         temps = '/'.join((str(x) for x in gpu.temps))
-        print(('%(card)d %(pciId)s %(uid)s %(voltage)dmV %(sclk)4d %(mclk)4d %(memUsedGB)5.2fGB    %(memBusy)2d%%    %(power)3dW %(fan)4d %(temps)s %(pcie_speed)-21s %(pcieErr)3d' + (' %(pcie_bw)s' if readSlow else ''))
+        print(('%(card)d %(pciId)s %(uid)s %(voltage)dmV %(sclk)4d %(mclk)4d %(memUsedGB)5.2fGB    %(memBusy)2d%%    %(power)3dW %(fan)4d %(temps)s %(pcie_speed)-21s %(pcieErr)3d' + (' %(pcie_bw)s' if readSlow else '') + ' %(memVendor)s')
               % dict(gpu.__dict__, card=d, temps=temps))
     
 devices = deviceList()
