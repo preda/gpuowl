@@ -9,6 +9,7 @@ import urllib
 import requests
 import os
 import upload
+import getpass
 
 from http import cookiejar
 from urllib.parse import urlencode
@@ -115,7 +116,7 @@ print("Watched dirs: ", ' '.join(dirs))
 
 password = options.password
 if not password:
-    password = input("Primenet password: ")
+    password = getpass.getpass("Primenet password")
 
 # Initial early login, to display any login errors early
 login(user, password)
