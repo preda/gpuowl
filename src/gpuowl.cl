@@ -217,7 +217,7 @@ void bar() {
 #if 0 && HAS_ASM
    __asm("s_barrier");
 #else
-   barrier(0);
+   barrier(CLK_LOCAL_MEM_FENCE);
 #endif
 }
 
