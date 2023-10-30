@@ -37,7 +37,8 @@ def readInt(path, scale=1e-6):
 class Gpu:
     uid: str
     temps: List[int]
-    fan: int 
+    fan: int
+    fanPwm : int
     power: int
     sclk: int
     mclk: int
@@ -60,36 +61,39 @@ def readGpu(d: int, readSlow = False):
     memVendor = read(device + 'mem_info_vram_vendor')
     memUsedGB = memUsed * (1.0 / (1024 * 1024 * 1024))
     # pciId = read(device + 'thermal_throttling_logging').split()[0]
-    pciId = read(device + 'uevent').split('PCI_SLOT_NAME=')[1].split()[0].lstrip('0000:')
+    pciId = read(device + 'uevent').split('PCI_SLOT_NAME=')[1].split()[0]
+    pciId = pciId[5:] if pciId[:5] == '0000:' else pciId
 
-    pcie_speed = list(filter(lambda x : x[-1] == '*', read(device + 'pp_dpm_pcie').split('\n')))[-1][:-2]
+    pcie_speed = list(filter(lambda x : x[-1] == '*', read(device + 'pp_dpm_pcie').split('\n')))[-1][:-2].lstrip('01: ')
     # print(pcie_speed)
     
     hwmon = hwmonPath(device)
     if hwmon:
         temps = [(int(read(hwmon + f'temp{i}_input')) + 500) // 1000 for i in range(1, 4)]
         fan = readInt(hwmon + 'fan1_input', 1)
-        power = readInt(hwmon + 'power1_average')
+        fanPwm = readInt(hwmon + 'pwm1', 1)
+        power = readInt(hwmon + 'power1_input')
         sclk = readInt(hwmon + 'freq1_input')
         mclk = readInt(hwmon + 'freq2_input')
         voltage = readInt(hwmon + 'in0_input', 1)
     else:
         temps = [0, 0, 0]
         fan = 0
+        fanPwm = 0
         power = 0
         sclk = 0
         mclk = 0
         voltage = 0
-    return Gpu(uid=uid, temps=temps, fan=fan, power=power, sclk=sclk, mclk=mclk, voltage=voltage,
+    return Gpu(uid=uid, temps=temps, fan=fan, fanPwm=fanPwm, power=power, sclk=sclk, mclk=mclk, voltage=voltage,
                pcie_bw=pcie_bw, pcie_speed=pcie_speed, pcieErr=pcieErr, memBusy=memBusy, memUsedGB=memUsedGB, pciId=pciId, memVendor=memVendor)
 
 def printInfo(devices, readSlow):
     print(datetime.now())    
-    print('# PCI     UID              VDD   SCLK MCLK Mem-used Mem-busy PWR  FAN  Temp     PCIe-config           Err' + (' PCIe BW' if readSlow else '') + ' ')
+    print('# PCI     UID              VDD   SCLK MCLK Mem-used Mem-busy PWR  FAN       Temp     PCIe-config           Err' + (' PCIe BW' if readSlow else '') + ' ')
     for d in devices:
         gpu = readGpu(d, readSlow)
         temps = '/'.join((str(x) for x in gpu.temps))
-        print(('%(card)d %(pciId)s %(uid)s %(voltage)dmV %(sclk)4d %(mclk)4d %(memUsedGB)5.2fGB    %(memBusy)2d%%    %(power)3dW %(fan)4d %(temps)s %(pcie_speed)-21s %(pcieErr)3d' + (' %(pcie_bw)s' if readSlow else '') + ' %(memVendor)s')
+        print(('%(card)d %(pciId)s %(uid)s %(voltage)dmV %(sclk)4d %(mclk)4d %(memUsedGB)5.2fGB    %(memBusy)2d%%    %(power)3d  %(fanPwm)3d=%(fan)4d  %(temps)s %(pcie_speed)-19s %(pcieErr)2d' + (' %(pcie_bw)s' if readSlow else '') + ' %(memVendor)s')
               % dict(gpu.__dict__, card=d, temps=temps))
     
 devices = deviceList()
