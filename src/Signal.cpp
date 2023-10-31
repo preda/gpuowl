@@ -6,7 +6,7 @@
 
 static volatile unsigned stop = 0;
 static void (*oldHandler)(int) = 0;
-static void myHandler(int dummy) { ++stop; }
+static void myHandler(int dummy) { stop = 1; }
 
 Signal::Signal() {
   if (!oldHandler) {
