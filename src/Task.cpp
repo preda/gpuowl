@@ -91,10 +91,10 @@ vector<string> commonFields(u32 E, const char *worktype, const string &status) {
 }
 
 vector<string> tailFields(const std::string &AID, const Args &args) {
-  assert(VERSION[0] == 'v');
+  assert(*VERSION); // version string isn't empty
   return {json("program", vector<string>{
                  json("name", "gpuowl"),
-                 json("version", VERSION + 1), // skip leading "v" from version
+                 json("version", (VERSION[0] == 'v') ? VERSION + 1 : VERSION), // skip leading "v" from version
                  json("port", platform()),
                }),
           maybe("user", args.user),
