@@ -178,7 +178,14 @@ typedef double2 TT;
 #define IM(a) (a.y)
 
 void bar() {
-   barrier(CLK_LOCAL_MEM_FENCE);
+  // barrier(CLK_LOCAL_MEM_FENCE) is correct, but it turns out that on some GPUs, in particular on RadeonVII,
+  // barrier(0) works as well and is faster. So allow selecting the faster path when it works with
+  // -use FAST_BARRIER
+#if FAST_BARRIER
+  barrier(0);
+#else
+  barrier(CLK_LOCAL_MEM_FENCE);
+#endif
 }
 
 TT U2(T a, T b) { return (TT) (a, b); }
