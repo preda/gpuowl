@@ -128,7 +128,7 @@ static string getBoardName(cl_device_id id) {
 }
 
 static string getHwName(cl_device_id id) {
-  char name[64];
+  char name[64] = {0};
   GET_INFO(id, CL_DEVICE_NAME, name);
   return name;
 }
