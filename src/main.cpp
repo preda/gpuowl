@@ -46,20 +46,24 @@ int main(int argc, char **argv) {
       Args args;
       args.parse(mainLine);
       if (!args.dir.empty()) { fs::current_path(args.dir); }
-      initLog("gpuowl.log");
     }
-
-    log("GpuOwl VERSION %s\n", VERSION);
-
+    
     fs::path poolDir = [&mainLine](){
                          Args args;
                          readConfig(args, "config.txt", false);
                          args.parse(mainLine);
                          return args.masterDir;
                        }();
-
+    
     Args args;
-    if (!poolDir.empty()) { readConfig(args, poolDir / "config.txt", true); }
+    if (!poolDir.empty()) {
+      initLog((poolDir / "gpuowl.log").c_str());
+      readConfig(args, poolDir / "config.txt", true);
+    } else {
+      initLog("gpuowl.log");
+    }
+    log("GpuOwl VERSION %s\n", VERSION);
+    
     readConfig(args, "config.txt", true);
     if (!mainLine.empty()) {
       log("config: %s\n", mainLine.c_str());
