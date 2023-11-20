@@ -2,7 +2,7 @@ BIN=build
 CXXFLAGS = -Wall -g -O3 -std=gnu++17
 CPPFLAGS = -I$(BIN)
 
-LIBPATH = -L/opt/rocm-5.1.1/opencl/lib -L/opt/rocm-4.0.0/opencl/lib -L/opt/rocm-3.3.0/opencl/lib/x86_64 -L/opt/rocm/opencl/lib -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
+LIBPATH = -L/opt/rocm-5.7.2/opencl/lib -L/opt/rocm-5.1.1/opencl/lib -L/opt/rocm-4.0.0/opencl/lib -L/opt/rocm-3.3.0/opencl/lib/x86_64 -L/opt/rocm/opencl/lib -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
 
 LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
 
