@@ -4,7 +4,7 @@ CPPFLAGS = -I$(BIN)
 
 LIBPATH = -L/opt/rocm-5.1.1/opencl/lib -L/opt/rocm-4.0.0/opencl/lib -L/opt/rocm-3.3.0/opencl/lib/x86_64 -L/opt/rocm/opencl/lib -L/opt/rocm/opencl/lib/x86_64 -L/opt/amdgpu-pro/lib/x86_64-linux-gnu -L.
 
-LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
+LDFLAGS = -lstdc++fs -lgmp -pthread ${LIBPATH}
 
 LINK = $(CXX) $(CXXFLAGS) -o $@ ${OBJS} ${LDFLAGS}
 
@@ -21,10 +21,10 @@ POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 
 
 $(BIN)/gpuowl: ${OBJS}
-	${LINK}
+	${LINK} -lOpenCL
 
 gpuowl-win.exe: ${OBJS}
-	${LINK} -static
+	${LINK} /c/Windows/System32/OpenCL.dll -static
 	strip $@
 
 clean:
