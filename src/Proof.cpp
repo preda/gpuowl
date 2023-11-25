@@ -171,10 +171,25 @@ u32 ProofSet::effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 curre
 }
     
 bool ProofSet::isValidTo(u32 limitK) const {
-  for (u32 k : points) {
-    if (k > limitK) { break; }
-    try { load(k); } catch (...) { return false; }
+  auto it = upper_bound(points.begin(), points.end(), limitK);
+
+  if (it == points.begin()) {
+    return true;
   }
+
+  --it;
+  try {
+    load(*it);
+  } catch (...) {
+    return false;
+  }
+
+  while (it != points.begin()) {
+    if (!cache.checkExists(*--it)) {
+      return false;
+    }
+  }
+  
   return true;
 }
 

@@ -60,6 +60,8 @@ class File {
 public:
   const std::string name;
 
+  static i64 size(const fs::path& name);
+
   static File openRead(const fs::path& name) { return File{name, "rb", false}; }
   static File openReadThrow(const fs::path& name) { return File{name, "rb", true}; }
   
