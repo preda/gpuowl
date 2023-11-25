@@ -64,7 +64,8 @@ def readGpu(d: int, readSlow = False):
     pciId = read(device + 'uevent').split('PCI_SLOT_NAME=')[1].split()[0]
     pciId = pciId[5:] if pciId[:5] == '0000:' else pciId
 
-    pcie_speed = list(filter(lambda x : x[-1] == '*', read(device + 'pp_dpm_pcie').split('\n')))[-1][:-2].lstrip('01: ')
+    pcie_active = list(filter(lambda x : x[-1] == '*', read(device + 'pp_dpm_pcie').split('\n'))) 
+    pcie_speed = pcie_active[-1][:-2].lstrip('01: ') if pcie_active else '?'
     # print(pcie_speed)
     
     hwmon = hwmonPath(device)
@@ -72,7 +73,11 @@ def readGpu(d: int, readSlow = False):
         temps = [(int(read(hwmon + f'temp{i}_input')) + 500) // 1000 for i in range(1, 4)]
         fan = readInt(hwmon + 'fan1_input', 1)
         fanPwm = readInt(hwmon + 'pwm1', 1)
+        
         power = readInt(hwmon + 'power1_input')
+        if power == 0:
+            power = readInt(hwmon + 'power1_average')
+            
         sclk = readInt(hwmon + 'freq1_input')
         mclk = readInt(hwmon + 'freq2_input')
         voltage = readInt(hwmon + 'in0_input', 1)
