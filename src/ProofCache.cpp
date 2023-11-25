@@ -16,6 +16,11 @@ bool ProofCache::write(u32 k, const Words& words) {
   return true;
 }
 
+
+bool ProofCache::checkExists(u32 k) const {
+  return File::size(proofPath / to_string(k)) == i64(E / 32 + 2) * 4;
+}
+
 Words ProofCache::read(u32 k) const {
   File f = File::openReadThrow(proofPath / to_string(k));
   vector<u32> words = f.read<u32>(E / 32 + 2);

@@ -37,4 +37,6 @@ public:
   }
 
   void clear() { pending.clear(); }
+
+  bool checkExists(u32 k) const;
 };
