@@ -8,7 +8,6 @@
 #include "Signal.h"
 #include "FFTConfig.h"
 #include "GmpUtil.h"
-#include "AllocTrac.h"
 #include "Queue.h"
 #include "Task.h"
 #include "Memlock.h"
@@ -19,7 +18,6 @@
 #include <algorithm>
 #include <future>
 #include <optional>
-#include <numeric>
 #include <bitset>
 #include <limits>
 #include <iomanip>
@@ -67,8 +65,14 @@ pair<T, T> root1(u32 N, u32 k) {
     assert(!(N&7));
     assert(k <= N/8);
     N /= 2;
+    
+#if 0
     auto angle = - M_PIl * k / N;
     return {cosl(angle), sinl(angle)};
+#else
+    double angle = - M_PIl * k / N;
+    return {cos(angle), sin(angle)};
+#endif
   }
 }
 
@@ -1530,10 +1534,10 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
       if (roeInfo.N) {
         Stats &roe = roeInfo.roe;
-        log("%9u %s %4.0f; %s: N=%u %.3f/%.0f\n",
+        log("%9u %s %4.0f; %s %.3f N=%u z=%.1f\n",
             k, hex(res).c_str(), secsPerIt * 1'000'000,
             (statsBits & 0x10 ) ? "Carry" : "ROE",
-            roeInfo.N, roe.max, roe.z(.5f)*10);
+            roe.max, roeInfo.N, roe.z(.5f));
       } else {
         log("%9u %s %4.0f\n",
             k, hex(res).c_str(), secsPerIt * 1'000'000);
