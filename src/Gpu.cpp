@@ -302,7 +302,7 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   defines.push_back({"FWEIGHTS", fWeights});
   
   string clSource = CL_SOURCE;
-  for (auto [key, val] : args.flags) {
+  for (const auto& [key, val] : args.flags) {
     if (clSource.find(key) == string::npos) {
       log("warning: -use key '%s' not recognized\n", key.c_str());
     }

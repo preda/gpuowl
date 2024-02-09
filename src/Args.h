@@ -35,7 +35,6 @@ public:
   
   bool timeKernels = false;
   bool cudaYield = false;
-  bool noSpin = false;
   bool safeMath = true;
   bool clean = true;
   
