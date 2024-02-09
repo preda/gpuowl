@@ -53,12 +53,18 @@ void check(int err, const char *file, int line, const char *func, string_view me
 
 vector<cl_device_id> getAllDeviceIDs();
 string getShortInfo(cl_device_id device);
-string getLongInfo(cl_device_id device);
+
+string getDeviceName(cl_device_id id);
+string getBoardName(cl_device_id id);
+float getGpuRamGB(cl_device_id id);
 
 // Get GPU free memory in bytes.
 u64 getFreeMem(cl_device_id id);
 bool hasFreeMemInfo(cl_device_id id);
 bool isAmdGpu(cl_device_id id);
+string getDriverVersion(cl_device_id id);
+
+string getBdfFromDevice(cl_device_id id);
 
 cl_context createContext(cl_device_id id);
 

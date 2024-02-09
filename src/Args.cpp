@@ -4,6 +4,7 @@
 #include "File.h"
 #include "FFTConfig.h"
 #include "clwrap.h"
+#include "gpuid.h"
 
 #include <vector>
 #include <string>
@@ -55,7 +56,6 @@ void Args::printHelp() {
 -pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
                      Multiple GpuOwl instances, each in its own directory, can share a pool of assignments and report
                      the results back to the common pool.
--uid <unique_id>   : specifies to use the GPU with the given unique_id (only on ROCm/Linux)
 -user <name>       : specify the user name.
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
@@ -82,7 +82,6 @@ void Args::printHelp() {
 -noclean           : do not delete data after the test is complete.
 -from <iteration>  : start at the given iteration instead of the most recent saved iteration
 -yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
--nospin            : disable progress spinner
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
   -use NO_ASM      : do not use __asm() blocks (inline assembly)
@@ -106,13 +105,31 @@ void Args::printHelp() {
                      that fits on 32bits (i.e. 31bits absolute value) is mapped to 0.5
 
 -unsafeMath        : use OpenCL -cl-unsafe-math-optimizations (use at your own risk)
--binary <file>     : specify a file containing the compiled kernels binary
--device <N>        : select a specific device:
+
+-device <N>        : select the GPU at position N in the list of devices
+-uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
+-pci    <BDF>      : select the GPU with the given PCI BDF, e.g. "0c:00.0"
+Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
+
 )", B2_B1_ratio, proofPow, proofVerify, tmpDir.c_str(), resultsFile.c_str(), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
+  if (!deviceIds.empty()) {
+    printf("N  : PCI BDF |     UID          | RAM GB |     Driver         |    Device\n");
+  }
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
-    printf("%2u %s : %s %s\n", i, getUUID(i).c_str(), getLongInfo(deviceIds[i]).c_str(), isAmdGpu(deviceIds[i]) ? "AMD" : "not-AMD");
+    cl_device_id id = deviceIds[i];
+    string bdf = getBdfFromDevice(id);
+    printf("%u  : %7s | %s |  %2.1f  | %s | %s | %s\n",
+           i,
+           bdf.c_str(),
+           getUidFromBdf(bdf).c_str(),
+           getGpuRamGB(id),
+           getDriverVersion(id).c_str(),
+           getDeviceName(id).c_str(),
+           getBoardName(id).c_str()
+           );
+
   }
   printf("\nFFT Configurations (specify with -fft <width>:<middle>:<height> from the set below):\n");
   
@@ -137,9 +154,10 @@ void Args::printHelp() {
   }
 }
 
+/*
 static int getSeqId(const std::string& uid) {
   for (int i = 0;; ++i) {
-    string foundId = getUUID(i);
+    string foundId = getUidFromPos(i);
     if (foundId == uid) {
       return i;
     } else if (foundId.empty()) {
@@ -148,6 +166,7 @@ static int getSeqId(const std::string& uid) {
   }
   throw std::runtime_error("Could not find GPU with unique-id "s + uid);
 }
+*/
 
 void Args::parse(const string& line) {
   auto args = splitArgLine(line);
@@ -221,10 +240,10 @@ void Args::parse(const string& line) {
     else if (key == "-cpu") { cpu = s; }
     else if (key == "-time") { timeKernels = true; }
     else if (key == "-device" || key == "-d") { device = stoi(s); }
-    else if (key == "-uid") { device = getSeqId(s); }
+    else if (key == "-uid") { device = getPosFromUid(s); }
+    else if (key == "-pci") { device = getPosFromBdf(s); }
     else if (key == "-dir") { dir = s; }
     else if (key == "-yield") { cudaYield = true; }
-    else if (key == "-nospin") { noSpin = true; }
     else if (key == "-carry") {
       if (s == "short" || s == "long") {
         carry = s == "short" ? CARRY_SHORT : CARRY_LONG;
@@ -282,7 +301,7 @@ void Args::parse(const string& line) {
 }
 
 void Args::setDefaults() {
-  uid = getUUID(device);
+  uid = getUidFromPos(device);
   log("device %d, unique id '%s'\n", device, uid.c_str());
   
   if (cpu.empty()) {

@@ -1,11 +1,11 @@
-// Copyright (C) 2017-2018 Mihai Preda.
+// Copyright (C) 2017-2024 Mihai Preda.
 
 #include "timeutil.h"
 #include "File.h"
 #include "clwrap.h"
 
+#include <cmath>
 #include <cstdio>
-#include <cstdarg>
 #include <cassert>
 #include <string>
 #include <new>
@@ -58,14 +58,26 @@ void check(int err, const char *file, int line, const char *func, string_view me
   }
 }
 
-std::string getUUID(int seqId) {
-  File f = File::openRead("/sys/class/drm/card"s + std::to_string(seqId) + "/device/unique_id");
-  std::string uuid = f ? f.readLine() : "";
-  if (!uuid.empty() && uuid.back() == '\n') { uuid.pop_back(); }
-  return uuid;
+static void getInfo_(cl_device_id id, int what, size_t bufSize, void *buf, string_view whatStr) {
+  CHECK2(clGetDeviceInfo(id, what, bufSize, buf, NULL), whatStr);
 }
 
-static vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
+#define GET_INFO(id, what, where) getInfo_(id, what, sizeof(where), &where, #what)
+
+
+string getBdfFromDevice(cl_device_id id) {
+  char topology[64] = {0};
+  cl_device_topology_amd top;
+  try {
+    GET_INFO(id, CL_DEVICE_TOPOLOGY_AMD, top);
+    snprintf(topology, sizeof(topology), "%02x:%02x.%x",
+             (unsigned) (unsigned char) top.pcie.bus, (unsigned) top.pcie.device, (unsigned) top.pcie.function);
+  } catch (const gpu_error& err) {
+  }
+  return topology;
+}
+
+vector<cl_device_id> getAllDeviceIDs() {
   cl_platform_id platforms[16];
   int nPlatforms = 0;
   CHECK1(clGetPlatformIDs(16, platforms, (unsigned *) &nPlatforms));
@@ -73,20 +85,22 @@ static vector<cl_device_id> getDeviceIDs(bool onlyGPU) {
   cl_device_id devices[64];
   for (int i = 0; i < nPlatforms; ++i) {
     unsigned n = 0;
-    auto kind = onlyGPU ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL;
+    auto kind = false ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL;
     CHECK1(clGetDeviceIDs(platforms[i], kind, 64, devices, &n));
     for (unsigned k = 0; k < n; ++k) { ret.push_back(devices[k]); }
   }
   return ret;
 }
 
-vector<cl_device_id> getAllDeviceIDs() { return getDeviceIDs(false); }
-
-static void getInfo_(cl_device_id id, int what, size_t bufSize, void *buf, string_view whatStr) {
-  CHECK2(clGetDeviceInfo(id, what, bufSize, buf, NULL), whatStr);
+string getDriverVersion(cl_device_id id) {
+  try {
+    char buf[256];
+    GET_INFO(id, CL_DRIVER_VERSION, buf);
+    return buf;
+  } catch (const gpu_error& e) {
+    return "";
+  }
 }
-
-#define GET_INFO(id, what, where) getInfo_(id, what, sizeof(where), &where, #what)
 
 bool hasFreeMemInfo(cl_device_id id) {
   try {
@@ -108,17 +122,17 @@ u64 getFreeMem(cl_device_id id) {
   }
 }
 
-u64 getTotalMem(cl_device_id id) {
+float getGpuRamGB(cl_device_id id) {
   try {
     u64 totSize = 0; 
     GET_INFO(id, CL_DEVICE_GLOBAL_MEM_SIZE, totSize);
-    return totSize * 1024; // KB to Bytes.    
+    return ldexp(totSize, -30); // to GB
   } catch (const gpu_error& err) {
-    return u64(64) * 1024 * 1024 * 1024; // return huge size (64G) when free-info not available
   }
+  return 0;
 }
 
-static string getBoardName(cl_device_id id) {
+string getBoardName(cl_device_id id) {
   char boardName[64] = {0};
   try {
     GET_INFO(id, CL_DEVICE_BOARD_NAME_AMD, boardName);
@@ -127,14 +141,12 @@ static string getBoardName(cl_device_id id) {
   return boardName;
 }
 
-static string getHwName(cl_device_id id) {
+string getDeviceName(cl_device_id id) {
   char name[64] = {0};
   GET_INFO(id, CL_DEVICE_NAME, name);
   return name;
 }
 
-
-#define CL_DEVICE_VENDOR_ID 0x1001
 bool isAmdGpu(cl_device_id id) {
   u32 pcieId = 0;
   GET_INFO(id, CL_DEVICE_VENDOR_ID, pcieId);
@@ -142,18 +154,6 @@ bool isAmdGpu(cl_device_id id) {
 }
 
 /*
-static string getTopology(cl_device_id id) {
-  char topology[64] = {0};
-  cl_device_topology_amd top;
-  try {
-    GET_INFO(id, CL_DEVICE_TOPOLOGY_AMD, top);
-    snprintf(topology, sizeof(topology), "%02x:%02x.%x",
-             (unsigned) (unsigned char) top.pcie.bus, (unsigned) top.pcie.device, (unsigned) top.pcie.function);
-  } catch (const gpu_error& err) {
-  }
-  return topology;
-}
-
 static string getFreq(cl_device_id device) {
   unsigned computeUnits, frequency;
   GET_INFO(device, CL_DEVICE_MAX_COMPUTE_UNITS, computeUnits);
@@ -165,8 +165,7 @@ static string getFreq(cl_device_id device) {
 }
 */
 
-string getShortInfo(cl_device_id device) { return getHwName(device); }
-string getLongInfo(cl_device_id device) { return getShortInfo(device) + "-" + getBoardName(device); }
+string getShortInfo(cl_device_id device) { return getDeviceName(device); }
 
 cl_device_id getDevice(u32 argsDeviceId) {
   auto devices = getAllDeviceIDs();

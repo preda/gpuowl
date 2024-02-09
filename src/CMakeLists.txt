@@ -5,7 +5,9 @@ add_custom_command(OUTPUT gpuowl.cl.cpp COMMAND expand ${CMAKE_CURRENT_SOURCE_DI
                    DEPENDS ${opencl_files} expand)
 
 add_executable(gpuowl gpuowl.cl.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp md5.cpp sha3.cpp AllocTrac.cpp GmpUtil.cpp FFTConfig.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp
-  File.cpp)
+  File.cpp
+  gpuid.h
+  gpuid.cpp)
 
 
 
