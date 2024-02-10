@@ -63,6 +63,28 @@ void Args::readConfig(const fs::path& path) {
 
 void Args::printHelp() {
   printf(R"(
+GpuOwl is an OpenCL program for primality testing of Mersenne numbers (numbers of the form 2^n - 1).
+To run GpuOwl you need a computer with one or more discrete GPUs.
+
+To check that OpenCL is installed correctly use the command "clinfo". If clinfo does not find any
+devices or otherwise fails, GpuOwl will not run -- you need to first fix the OpenCL installation
+to get clinfo to find devices.
+
+GpuOwl runs best on Linux with the ROCm OpenCL stack, but can also run on Windows and on Nvidia GPUs.
+
+For more information about Mersenne primes search see https://www.mersenne.org/
+
+First step: run "gpuowl -h". If this displays a list of OpenCL devices at the end, it means that
+gpuowl is detecting the GPUs correctly and will be able to run.
+
+To use GpuOwl you need to create a file named "worktodo.txt" containing the exponent to be tested.
+The tool primenet.py (found at gpuowl/tools/primenet.py) can be used to automatically obtain tasks
+from the mersenne project and add them to worktodo.txt.
+
+The configuration options listed below can be passed on the command line or can be put in a file
+named "config.txt" in the gpuowl run directory.
+
+
 -dir <folder>      : specify local work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
 -pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
                      Multiple GpuOwl instances, each in its own directory, can share a pool of assignments and report
@@ -95,6 +117,9 @@ void Args::printHelp() {
 -yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
+  -use FAST_BARRIER: on AMD Radeon VII and older AMD GPUs, use a faster barrier(). Do not use
+                     this option on Nvidia GPUs or on RDNA AMD GPUs where it produces errors
+                     (which are nevertheless detected).
   -use NO_ASM      : do not use __asm() blocks (inline assembly)
   -use CARRY32     : force 32-bit carry (-use STATS=21 offers carry range statistics)
   -use CARRY64     : force 64-bit carry (a bit slower but no danger of carry overflow)
@@ -120,6 +145,7 @@ void Args::printHelp() {
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
 -pci    <BDF>      : select the GPU with the given PCI BDF, e.g. "0c:00.0"
+
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
 )", B2_B1_ratio, proofPow, proofVerify, tmpDir.c_str(), resultsFile.c_str(), nSavefiles);
