@@ -1,4 +1,4 @@
-// Copyright Mihai Preda.
+// Copyright (C) Mihai Preda
 
 #include "Args.h"
 #include "File.h"
@@ -48,6 +48,17 @@ vector<pair<string, string>> splitArgLine(const string& inputLine) {
     ret.push_back(pair(m.str(1), m.str(2)));
   }
   return ret;
+}
+
+void Args::readConfig(const fs::path& path) {
+  if (File file = File::openRead(path)) {
+    while (true) {
+      string line = rstripNewline(file.readLine());
+      if (line.empty()) { break; }
+      // log("config: %s\n", line.c_str());
+      parse(line);
+    }
+  }
 }
 
 void Args::printHelp() {
@@ -154,21 +165,9 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
   }
 }
 
-/*
-static int getSeqId(const std::string& uid) {
-  for (int i = 0;; ++i) {
-    string foundId = getUidFromPos(i);
-    if (foundId == uid) {
-      return i;
-    } else if (foundId.empty()) {
-      break;
-    }
-  }
-  throw std::runtime_error("Could not find GPU with unique-id "s + uid);
-}
-*/
-
 void Args::parse(const string& line) {
+  if (line.empty()) { return; }
+  if (!silent) { log("config: %s\n", line.c_str()); }
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
     // log("key '%s'\n", key.c_str());
@@ -304,10 +303,6 @@ void Args::setDefaults() {
   uid = getUidFromPos(device);
   log("device %d, unique id '%s'\n", device, uid.c_str());
   
-  if (cpu.empty()) {
-    cpu = uid.empty() ? getShortInfo(getDevice(device)) + "-" + std::to_string(device) : uid;
-  }
-
   if (!masterDir.empty()) {
     assert(masterDir.is_absolute());
     if (proofResultDir.is_relative()) { proofResultDir = masterDir / proofResultDir; }
