@@ -16,11 +16,15 @@ public:
 
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
+  Args(bool silent = false) : silent{silent} {}
+  
   void parse(const string& line);
   void setDefaults();
   bool uses(const std::string& key) const { return flags.find(key) != flags.end(); }
   int value(const std::string& key) const;
+  void readConfig(const fs::path& path);
   
+  bool silent;
   string user;
   string cpu;
   string dump;

@@ -1,38 +1,19 @@
-// GpuOwl Mersenne primality tester; Copyright Mihai Preda.
+// GpuOwl Mersenne primality tester
+// Copyright (C) Mihai Preda
 
 #include "Args.h"
 #include "Task.h"
 #include "Worktodo.h"
-#include "common.h"
-#include "File.h"
 #include "version.h"
 #include "AllocTrac.h"
 #include "typeName.h"
 #include "log.h"
 
-#include <cstdio>
 #include <filesystem>
 
 extern string globalCpuName;
 
 namespace fs = std::filesystem;
-
-static void readConfig(Args& args, const fs::path& path, bool doLog) {
-  if (auto file = File::openRead(path)) {
-    // log("reading %s\n", path.c_str());
-    while (true) {
-      if (string line = file.readLine(); !line.empty()) {
-        line = rstripNewline(line);
-        if (doLog) { log("config: %s\n", line.c_str()); }
-        args.parse(line);
-      } else {
-        break;
-      }
-    }
-  } else {
-    if (doLog) { log("Note: not found '%s'\n", path.string().c_str()); }
-  }
-}
 
 int main(int argc, char **argv) {
   initLog();
@@ -43,35 +24,32 @@ int main(int argc, char **argv) {
   try {
     string mainLine = Args::mergeArgs(argc, argv);
     {
-      Args args;
+      Args args{true};
       args.parse(mainLine);
-      if (!args.dir.empty()) { fs::current_path(args.dir); }
+      if (!args.dir.empty()) {
+        fs::current_path(args.dir);
+      }
     }
     
-    fs::path poolDir = [&mainLine](){
-                         Args args;
-                         readConfig(args, "config.txt", false);
-                         args.parse(mainLine);
-                         return args.masterDir;
-                       }();
+    fs::path poolDir;
+    {
+      Args args{true};
+      args.readConfig("config.txt");
+      args.parse(mainLine);
+      poolDir = args.masterDir;
+      globalCpuName = args.cpu;
+    }
     
     Args args;
-    if (!poolDir.empty()) {
-      initLog((poolDir / "gpuowl.log").c_str());
-      readConfig(args, poolDir / "config.txt", true);
-    } else {
-      initLog("gpuowl.log");
-    }
+    
+    initLog((poolDir / "gpuowl.log").c_str());
     log("GpuOwl VERSION %s\n", VERSION);
     
-    readConfig(args, "config.txt", true);
-    if (!mainLine.empty()) {
-      log("config: %s\n", mainLine.c_str());
-      args.parse(mainLine);
-    }
+    if (!poolDir.empty()) { args.readConfig(poolDir / "config.txt"); }
+    args.readConfig("config.txt");
+    args.parse(mainLine);
     args.setDefaults();
-    if (!args.cpu.empty()) { globalCpuName = args.cpu; }
-    
+        
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
     if (args.prpExp) {
