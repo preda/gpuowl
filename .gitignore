@@ -1,4 +1,6 @@
 tmp?/
 __pycache__
-meson.build.user
 CMakeLists.txt.user
+good*
+build-*
+src/version.inc
