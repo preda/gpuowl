@@ -1,21 +1,32 @@
+GpuOwl
+
+
+
 Build
+-----
 
-GpuOwl can be built using Make or Meson.
+To build GpuOwl use "make".
+
+In the GpuOwl project directory (where the file Makefile is located) run make.
+This will produce a file "gpuowl" in the build-release subdirectory.
+
+Use "make" to do a release build in the "build-release" subdirectory.
+Use "make DEBUG=1" to produce a debug build in the "build-debug" subdirectory.
+Use "make exe" for a Windows build.
+Use "make clean" to remove the "build-debug" and "build-release" directories.
+
+Build example:
+
+$ git clone git@github.com:preda/gpuowl.git
+$ cd gpuowl
+$ make
+$ build-release/gpuowl -h
 
 
-1. Build using Make
+Run
+----
 
-Simply run "make" in the base folder (the one containing the file "Makefile").
-All the files produced by the build, including the executable "gpuowl", are written to the folder "build".
+1. run "clinfo" and see whether it finds any OpenCL devices. If clinfo does not find any devices, 
+you need to fix your OpenCL installation first.
 
-
-2. Build using Meson
-
-Starting in the base folder (the one containing the file "meson.build" and "Makefile"), create an empty build folder;
-cd to the build folder, and invoke meson pointing it to the base folder. Next run *ninja* to actually build.
-Example:
-
-mkdir mybuild
-cd mybuild
-meson ..
-ninja
+2. run "gpuowl -h", and verify that it displays a list of devices towards the end.
