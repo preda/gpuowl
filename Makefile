@@ -26,7 +26,7 @@ LDFLAGS = -lstdc++fs -lOpenCL -lgmp -pthread ${LIBPATH}
 
 LINK = $(CXX) $(CXXFLAGS) -o $@ ${OBJS} ${LDFLAGS}
 
-SRCS1 = gpuid.cpp File.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp gpuowl-wrap.cpp sha3.cpp md5.cpp
+SRCS1 = gpuid.cpp File.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp clbundle.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp sha3.cpp md5.cpp
 
 SRCS=$(addprefix src/, $(SRCS1))
 
@@ -54,9 +54,6 @@ $(BIN)/%.o : src/%.cpp $(DEPDIR)/%.d $(BIN)/version.inc
 	$(COMPILE.cc) $(OUTPUT_OPTION) $<
 	$(POSTCOMPILE)
 
-#$(BIN)/gpuowl-wrap.o : $(BIN)/gpuowl-wrap.cpp
-#	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $(OUTPUT_OPTION) $<
-
 $(DEPDIR)/%.d: ;
 .PRECIOUS: $(DEPDIR)/%.d
 
@@ -65,8 +62,11 @@ $(BIN)/version.inc: FORCE
 	diff -q -N $(BIN)/version.new $(BIN)/version.inc >/dev/null || mv $(BIN)/version.new $(BIN)/version.inc
 	echo Version: `cat $(BIN)/version.inc`
 
-src/gpuowl-wrap.cpp: src/*.cl
-	python3 tools/expand.py src/gpuowl.cl src/gpuowl-wrap.cpp
+
+# If any of the src/*.cl files have been updated, this rule regenerates src/gpuowl.cl.cpp which
+# is just a wrapping of the .cl files as a C string.
+src/clbundle.cpp: src/*.cl
+	python3 tools/expand.py src/gpuowl.cl src/clbundle.cpp
 
 FORCE:
 
