@@ -55,17 +55,19 @@ all: gpuowl amd
 clean:
 	rm -rf build-debug build-release
 
-$(BIN)/%.o : src/%.cpp $(DEPDIR)/%.d $(BIN)/version.inc
+$(BIN)/%.o : src/%.cpp $(DEPDIR)/%.d
 	$(COMPILE.cc) $(OUTPUT_OPTION) $<
 	$(POSTCOMPILE)
 
 $(DEPDIR)/%.d: ;
 .PRECIOUS: $(DEPDIR)/%.d
 
-$(BIN)/version.inc: FORCE
+src/version.cpp : src/version.inc
+
+src/version.inc: FORCE
 	echo \"`git describe --tags --long --dirty --always`\" > $(BIN)/version.new
-	diff -q -N $(BIN)/version.new src/version.inc >/dev/null || mv $(BIN)/version.new src/version.inc
-	echo Version: `cat src/version.inc`
+	diff -q -N $(BIN)/version.new $@ >/dev/null || mv $(BIN)/version.new $@
+	echo Version: `cat $@`
 
 # clbundle.cpp is just a wrapping of the OpenCL sources (*.cl) as a C string.
 # If any of the src/*.cl files have been updated, this rule regenerates clbundle.cpp
