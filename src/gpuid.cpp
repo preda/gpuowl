@@ -69,7 +69,7 @@ string getBdfFromUid(const string& uid) {
 
 int getPosFromBdf(const string& bdf) {
   auto openclIds = getAllDeviceIDs();
-  for (int pos = 0; pos < openclIds.size(); ++pos) {
+  for (int pos = 0; pos < int(openclIds.size()); ++pos) {
     if (bdf == getBdfFromDevice(openclIds[pos])) { return pos; }
   }
   
