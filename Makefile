@@ -54,8 +54,8 @@ $(BIN)/%.o : src/%.cpp $(DEPDIR)/%.d $(BIN)/version.inc
 	$(COMPILE.cc) $(OUTPUT_OPTION) $<
 	$(POSTCOMPILE)
 
-$(BIN)/gpuowl-wrap.o : $(BIN)/gpuowl-wrap.cpp
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $(OUTPUT_OPTION) $<
+#$(BIN)/gpuowl-wrap.o : $(BIN)/gpuowl-wrap.cpp
+#	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $(OUTPUT_OPTION) $<
 
 $(DEPDIR)/%.d: ;
 .PRECIOUS: $(DEPDIR)/%.d
@@ -65,8 +65,8 @@ $(BIN)/version.inc: FORCE
 	diff -q -N $(BIN)/version.new $(BIN)/version.inc >/dev/null || mv $(BIN)/version.new $(BIN)/version.inc
 	echo Version: `cat $(BIN)/version.inc`
 
-$(BIN)/gpuowl-wrap.cpp: src/*.cl
-	python3 tools/expand.py src/gpuowl.cl $(BIN)/gpuowl-wrap.cpp
+src/gpuowl-wrap.cpp: src/*.cl
+	python3 tools/expand.py src/gpuowl.cl src/gpuowl-wrap.cpp
 
 FORCE:
 
