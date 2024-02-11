@@ -40,12 +40,17 @@ POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 $(BIN)/gpuowl: ${OBJS}
 	${LINK}
 
+# Instead of linking with libOpenCL, link with libamdocl64
+$(BIN)/gpuowl-amd: ${OBJS}
+	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} -lstdc++fs -lgmp -pthread -lamdocl64 -L/opt/rocm/lib
+
 $(BIN)/gpuowl-win.exe: ${OBJS}
 	${LINK} -static
 	strip $@
 
 exe: $(BIN)/gpuowl-win.exe
-all: $(BIN)/gpuowl exe
+amd: $(BIN)/gpuowl-amd
+all: $(BIN)/gpuowl amd exe
 
 clean:
 	rm -rf build-debug build-release
