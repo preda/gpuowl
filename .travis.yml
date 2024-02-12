@@ -17,8 +17,8 @@ matrix:
     install: choco install python3 --version=3.8.8
     env: PATH=/c/Python38:/c/Python38/Scripts:$PATH
     script:
-      - mingw32-make gpuowl-win.exe
-      - ./gpuowl-win.exe -h
+      - mingw32-make exe
+      - ./build-release/gpuowl-win.exe -h
   allow_failures:
   - compiler: gcc
     os: linux
