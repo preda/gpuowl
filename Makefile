@@ -11,18 +11,21 @@
 ifeq ($(DEBUG), 1)
 
 BIN=build-debug
+
 CXXFLAGS = -Wall -g -Og -std=gnu++17
+STRIP=
 
 else
 
 BIN=build-release
-CXXFLAGS = -Wall -O3 -flto -std=gnu++17
+CXXFLAGS = -Wall -O2 -DNDEBUG -std=gnu++17
+STRIP=-s
 
 endif
 
 # CPPFLAGS = -I$(BIN)
 
-SRCS1 = gpuid.cpp File.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp GmpUtil.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp clbundle.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp sha3.cpp md5.cpp version.cpp
+SRCS1 = gpuid.cpp File.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp clbundle.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp sha3.cpp md5.cpp version.cpp
 
 SRCS=$(addprefix src/, $(SRCS1))
 
@@ -33,19 +36,17 @@ DEPFLAGS = -MT $@ -MMD -MP -MF $(DEPDIR)/$*.Td
 COMPILE.cc = $(CXX) $(DEPFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
 POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 
-LIBS = -lstdc++fs -lgmp -pthread $(LIBPATH)
+LIBS = $(LIBPATH)
 
 $(BIN)/gpuowl: ${OBJS}
-	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL
+	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL ${STRIP}
 
 # Instead of linking with libOpenCL, link with libamdocl64
 $(BIN)/gpuowl-amd: ${OBJS}
-	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lamdocl64 -L/opt/rocm/lib
+	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lamdocl64 -L/opt/rocm/lib ${STRIP}
 
-# The static build would likely only succeed on Windows
 $(BIN)/gpuowl-win.exe: ${OBJS}
-	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL -static
-	strip $@
+	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL ${STRIP}
 
 gpuowl: $(BIN)/gpuowl
 exe: $(BIN)/gpuowl-win.exe

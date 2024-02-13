@@ -96,10 +96,14 @@ vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E) {
   int *data = out.data();
   BitBucket bucket;
   
-  auto it = compactBits.cbegin(), itEnd = compactBits.cend();
+  auto it = compactBits.cbegin();
+  [[maybe_unused]] auto itEnd = compactBits.cend();
   for (u32 p = 0; p < N; ++p) {
     u32 len = bitlen(N, E, p);    
-    if (bucket.size < len) { assert(it != itEnd); bucket.put32(*it++); }
+    if (bucket.size < len) {
+      assert(it != itEnd);
+      bucket.put32(*it++);
+    }
     data[p] = bucket.popSigned(len);
   }
   assert(it == itEnd);
