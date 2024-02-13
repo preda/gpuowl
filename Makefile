@@ -38,20 +38,21 @@ POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 
 LIBS = $(LIBPATH)
 
-$(BIN)/gpuowl: ${OBJS}
+$(BIN)/prpowl: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL ${STRIP}
 
 # Instead of linking with libOpenCL, link with libamdocl64
-$(BIN)/gpuowl-amd: ${OBJS}
+$(BIN)/prpowl-amd: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lamdocl64 -L/opt/rocm/lib ${STRIP}
 
-$(BIN)/gpuowl-win.exe: ${OBJS}
-	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL ${STRIP}
+prpowl: $(BIN)/prpowl
 
-gpuowl: $(BIN)/gpuowl
-exe: $(BIN)/gpuowl-win.exe
-amd: $(BIN)/gpuowl-amd
-all: gpuowl amd
+exe: $(BIN)/prpowl
+	mv $(BIN)/prpowl $(BIN)/prpowl.exe
+        
+amd: $(BIN)/prpowl-amd
+
+all: prpowl amd
 
 clean:
 	rm -rf build-debug build-release
