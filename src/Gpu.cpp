@@ -370,7 +370,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   LOAD(transposeIn,  (W/64) * (BIG_H/64)),
   LOAD(transposeOut, (W/64) * (BIG_H/64)),
   LOAD(kernelMultiply,      hN / SMALL_H),
-  LOAD(kernelMultiplyDelta, hN / SMALL_H),
   LOAD(tailFusedSquare,   hN / SMALL_H / 2),
   LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
   LOAD(tailFusedMul,      hN / SMALL_H / 2),
@@ -463,61 +462,6 @@ static FFTConfig getFFTConfig(u32 E, string fftSpec) {
 vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   readResidue(bufSmallOut, buf, start);
   return bufSmallOut.read(128);
-}
-
-Words Gpu::fold(vector<Buffer<int>>& bufs) {
-  assert(!bufs.empty());
-
-  for (int retry = 0; retry < 2; ++retry) {
-    {
-      Buffer<double> A{queue, "A", N};
-      Buffer<double> B{queue, "B", N};
-      {
-        Buffer<int>& last = bufs.back();
-        fftP(buf3, last);
-        tW(B, buf3);
-        fftHin(A, B);
-      }
-
-      u32 n = bufs.size();
-      for (int i = n - 2; i >= 0; --i) {
-        Buffer<int>& buf = bufs[i];
-        fftP(buf3, buf);
-        tW(buf2, buf3);
-        tailFusedMulLow(A, buf2, A);
-        tH(buf3, A);
-        doCarry(A, buf3);
-        tW(buf3, A);
-        fftHin(A, buf3);
-
-        if (i == 0) {
-          tailSquare(buf3, B);
-          tH(B, buf3);
-          doCarry(buf3, B);
-          tW(B, buf3);
-        }
-    
-        tailFusedMulLow(buf3, B, A);
-        tH(B, buf3);
-    
-        if (i == 0) {
-          fftW(buf3, B);          
-          break;
-        } else {
-          doCarry(buf3, B);
-          tW(B, buf3);
-        }
-      }
-    }
-
-    Buffer<int> C{queue, "C", N};
-    carryA(C, buf3);
-    carryB(C);
-    Words folded = readAndCompress(C);
-    if (!folded.empty()) { return folded; }
-    log("P1 fold() error ZERO, will retry\n");
-  }
-  return {};
 }
 
 ROEInfo Gpu::readROE() {
@@ -1059,64 +1003,6 @@ void Gpu::square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) 
 void Gpu::square(Buffer<int>& data) {
   square(data, buf1, buf2);
 }
-
-// io *= in; with buffers in low position.
-void Gpu::multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp) {
-  tailMulLowLow(io, in);
-  tH(tmp, io);
-  doCarry(io, tmp);
-  tW(tmp, io);
-  fftHin(io, tmp);
-}
-
-struct SquaringSet {  
-  std::string name;
-  u32 N;
-  Buffer<double> A, B, C;
-  Gpu& gpu;
-
-  SquaringSet(Gpu& gpu, u32 N, string_view name)
-    : name(name)
-    , N(N)
-    , A{gpu.queue, this->name + ":A", N}
-    , B{gpu.queue, this->name + ":B", N}
-    , C{gpu.queue, this->name + ":C", N}
-    , gpu(gpu)
-  {}
-   
-  SquaringSet(const SquaringSet& rhs, string_view name) : SquaringSet{rhs.gpu, rhs.N, name} { copyFrom(rhs); }
-  
-  SquaringSet(Gpu& gpu, u32 N, const Buffer<double>& bufBase, Buffer<double>& bufTmp, Buffer<double>& bufTmp2, array<u64, 3> exponents, string_view name)
-    : SquaringSet(gpu, N, name) {
-    
-    gpu.exponentiateLow(C, bufBase, exponents[0], bufTmp, bufTmp2);
-    gpu.exponentiateLow(A, bufBase, exponents[2], bufTmp, bufTmp2);    
-    
-    if (exponents[1] == exponents[2]) {
-      B << A;
-    } else {
-      gpu.exponentiateLow(B, bufBase, exponents[1], bufTmp, bufTmp2);
-    }
-  }
-
-  SquaringSet& operator=(const SquaringSet& rhs) {
-    assert(N == rhs.N);
-    copyFrom(rhs);
-    return *this;
-  }
-
-  void step(Buffer<double>& bufTmp) {
-    gpu.multiplyLowLow(C, B, bufTmp);
-    gpu.multiplyLowLow(B, A, bufTmp);
-  }
-
-private:
-  void copyFrom(const SquaringSet& rhs) {
-    A << rhs.A;
-    B << rhs.B;
-    C << rhs.C;
-  }
-};
 
 template<typename Future> bool finished(const Future& f) {
   return f.valid() && f.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready;
