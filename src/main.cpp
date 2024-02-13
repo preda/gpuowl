@@ -17,7 +17,6 @@ namespace fs = std::filesystem;
 
 int main(int argc, char **argv) {
   initLog();
-  // log("GpuOwl VERSION %s\n", VERSION);
 
   int exitCode = 0;
 
@@ -43,7 +42,7 @@ int main(int argc, char **argv) {
     Args args;
     
     initLog((poolDir / "gpuowl.log").string().c_str());
-    log("GpuOwl VERSION %s\n", VERSION);
+    log("PRPOwl %s\n", VERSION);
     
     if (!poolDir.empty()) { args.readConfig(poolDir / "config.txt"); }
     args.readConfig("config.txt");
