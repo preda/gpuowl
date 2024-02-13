@@ -98,7 +98,6 @@ class Gpu {
   Kernel transposeIn, transposeOut;
 
   Kernel kernelMultiply;
-  Kernel kernelMultiplyDelta;
   Kernel tailFusedSquare;
   Kernel tailFusedMulLow;
   Kernel tailFusedMul;
@@ -165,9 +164,6 @@ class Gpu {
   
   vector<u32> writeBase(const vector<u32> &v);
 
-  // Both "io" and "in" are in "low" position
-  void multiplyLowLow(Buffer<double>& io, const Buffer<double>& in, Buffer<double>& tmp);
-
   void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
   
   void exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3);
@@ -210,8 +206,6 @@ public:
   void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(updatePos(1<<0), a, b); }
   void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(updatePos(1<<1), a, b);}
 
-  Words fold(vector<Buffer<int>>& bufs);
-  
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<double>& inB);
