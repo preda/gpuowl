@@ -2,8 +2,6 @@
 
 #pragma once
 
-#include "log.h"
-
 #include <cstdint>
 #include <string>
 #include <vector>

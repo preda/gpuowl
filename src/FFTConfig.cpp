@@ -2,6 +2,7 @@
 
 #include "FFTConfig.h"
 #include "common.h"
+#include "log.h"
 
 #include <cmath>
 #include <cassert>

@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "common.h"
+#include "log.h"
 #include <atomic>
 #include <new>
 #include <string>
@@ -33,7 +33,7 @@ public:
     if (size) {
       if (totalAlloc + size >= maxAlloc) {
         log("Reached GPU maxAlloc limit %.1f GB\n", float(maxAlloc) / (1024 * 1024 * 1024));
-        throw bad_alloc();
+        throw std::bad_alloc();
       }
       totalAlloc += size;
       // log("alloc %lu total %lu limit %lu\n", size, size_t(totalAlloc), maxAlloc);
