@@ -192,6 +192,7 @@ u32 ProofSet::effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 curre
     if (canDo(tmpDir, E, p, currentK)) { return p; }
   }
   assert(false);
+  return 0; // unreachable
 }
     
 bool ProofSet::isValidTo(u32 limitK) const {

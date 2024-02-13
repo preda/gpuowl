@@ -200,7 +200,6 @@ class Gpu {
   ROEInfo readROE();
   
   u32 updatePos(u32 bit) { return (statsBits & bit) ? roePos++ : roePos; }
-  void pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs, u32 nErr, ROEInfo roeInfo);
 
 public:
   const Args& args;
@@ -248,21 +247,6 @@ public:
 
   PRPResult isPrimePRP(const Args& args, const Task& task);
 
-  void pm1Block(vector<bool> bits, bool update);
-  bool pm1Check(vector<bool> sumBits, u32 blockSize);
-
-  void doPm1(const Args& args, const Task& task) {
-    u32 nErr = 0;
-    while (pm1Retry(args, task, nErr++)) {
-      if (nErr > 30) { throw "too many errors"; }
-    }
-  }
-
-  // return true to be invoked again (for retry)
-  bool pm1Retry(const Args& args, const Task& task, u32 nErr);
-
-  // std::variant<string, vector<u32>> factorPM1(u32 E, const Args& args, u32 B1, u32 B2);
-  
   u32 getFFTSize() { return N; }
 
   // return A^h * B
