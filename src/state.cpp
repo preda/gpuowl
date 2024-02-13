@@ -2,9 +2,9 @@
 
 #include "state.h"
 #include "shared.h"
+#include "log.h"
 
 #include <cassert>
-#include <memory>
 #include <cmath>
 
 static u32 bitlen(u32 N, u32 E, u32 k) { return E / N + isBigWord(N, E, k); }
