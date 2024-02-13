@@ -7,7 +7,6 @@
 #include "Args.h"
 #include "Signal.h"
 #include "FFTConfig.h"
-#include "GmpUtil.h"
 #include "Queue.h"
 #include "Task.h"
 #include "Memlock.h"
@@ -112,7 +111,7 @@ ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middl
   } else {  
     u32 size = smallH * (middle - 1);
     tab.resize(size);
-    auto *p = smallTrigBlock(smallH, middle, tab.data());
+    [[maybe_unused]] auto *p = smallTrigBlock(smallH, middle, tab.data());
     assert(p - tab.data() == size);
   }
   return {context, "middleTrig", tab};
@@ -1197,198 +1196,6 @@ vector<bool> takeTopBits(vector<bool>& v, u32 n) {
   }
   v.resize(v.size() - n);
   return ret;
-}
-
-void Gpu::pm1Block(vector<bool> bitsLE, bool update) {
-  if (update) {
-    modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
-  }
-
-  bool leadIn = true;
-  for (auto it = bitsLE.end(), beg = bitsLE.begin(); it > beg;) {
-    --it;
-    bool leadOut = (it == beg);
-    coreStep(bufData, bufData, leadIn, leadOut, *it);
-    leadIn = leadOut;
-  }
-}
-
-bool Gpu::pm1Check(vector<bool> sumBits, u32 blockSize) {
-  assert(!sumBits.empty() && sumBits.back());
-
-  writeIn(bufAux, makeWords(E, 1));
-
-  for (u32 i = sumBits.size(); i < blockSize; ++i) { sumBits.push_back(0); }
-  assert(sumBits.size() >= blockSize);
-
-  bool leadIn = true;
-  for (int i = sumBits.size() - 1; i >= 0; --i) {
-    // At this particular point we multiply-in bufCheck, which will thus suffer blockSize squarings in the end.
-    if (u32(i) == blockSize - 1) {
-      assert(leadIn); // we did a leadOut at the previous step if there was one.
-      modMul(bufAux, bufAux, bufCheck, buf1, buf2, buf3);
-    }
-
-    bool leadOut = (i == 0) || (u32(i) == blockSize);
-    coreStep(bufAux, bufAux, leadIn, leadOut, sumBits[i]);
-    leadIn = leadOut;
-  }
-
-  modMul(bufAux, bufAux, bufBase, buf1, buf2, buf3);
-  modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
-  return equalNotZero(bufCheck, bufAux);
-}
-
-void Gpu::pm1Log(u32 B1, u32 k, u32 nBits, string strOK, u64 res64, float secsPerIt, float checkSecs, u32 nErr, ROEInfo roeInfo) {
-  [[maybe_unused]] float percent = k * 100.0f / nBits;
-  float us = secsPerIt * 1'000'000;
-  string err = nErr ? " err "s + to_string(nErr) : "";
-  if (roeInfo.N) {
-    Stats &roe = roeInfo.roe;
-    log("%5.2f%% %1s %016" PRIx64 " %4.0f%s; %s: N=%u %.3f/%.0f\n",
-        percent, strOK.c_str(), res64, us, err.c_str(),
-        (statsBits & 0x10) ? "Carry" : "ROE", roeInfo.N, roe.max, roe.z(.5f)*10);
-  } else {
-    log("%5.2f%% %1s %016" PRIx64 " %4.0f%s\n",
-        percent, strOK.c_str(), res64, us, err.c_str());
-  }
-}
-
-bool Gpu::pm1Retry(const Args &args, const Task& task, u32 nErr) {
-  enum RetCode { DONE=false, RETRY=true};
-  const u32 blockSize = 200; // fixed for now
-
-  u32 E  = task.exponent;
-
-  // TODO: replace Saver with Pm1Saver which does not take the PRP stuff
-  Saver saver{E, args.nSavefiles, args.startFrom, args.mprimeDir};
-
-  auto [B1, k, data] = saver.loadP1();
-
-  u32 desiredB1 = task.B1 ? task.B1 : args.B1;
-  if (!B1) { B1 = desiredB1; }
-
-  if (B1 != desiredB1) { log("using B1=%u (from savefile) vs. B1=%u\n", B1, desiredB1); }
-  assert(B1);
-
-  if (k == 0) {
-    assert(data.empty());
-    data = makeWords(E, 1);
-  }
-
-  auto powerBits = powerSmoothLE(E, B1, blockSize);
-  const u32 nBits = powerBits.size();
-
-  assert(nBits % blockSize == 0);
-  assert(k % blockSize == 0); // can only save/verify P-1 at multiples of blockSize
-  assert(k <= nBits);
-
-  powerBits.resize(nBits - k); // drop the already processed bits
-
-  writeData(data);
-  // writeCheck(makeWords(E, 1u));
-  writeCheck(data); // bufCheck << bufData;
-  bufBase  << bufData;
-
-  log("%5.2f%% @%u/%u B1(%u) %016" PRIx64 "\n", k*100.0f/nBits, k, nBits, B1, dataResidue());
-
-  vector<bool> sumLE;
-  Signal signal;
-  bool updateCheck = false;
-  optional<P1State> pendingSave;
-
-  u32 lastTimerK = k;
-  // u32 newTimerK = timerK;
-  u32 startK = k;
-  optional<u64> logRes;
-  optional<bool> maybeOK = true;
-  float checkSecs = 0;
-
-  Timer timer;
-
-  bool getOut = false;
-  while (true) {
-    if (powerBits.empty()) { getOut = true; }
-
-    if (!getOut) {
-      auto bits = takeTopBits(powerBits, blockSize);
-      sumLE = addLE(sumLE, bits);
-
-      pm1Block(bits, updateCheck); // here's GPU work
-      updateCheck = true;
-    }
-
-    if (logRes) {
-      u32 deltaIts = k - lastTimerK;
-      assert(deltaIts % blockSize == 0);
-      u32 nIts = deltaIts + deltaIts / blockSize;
-      float secs = float(timer.reset()) - checkSecs;
-      float secsPerIt = nIts ? secs / nIts : 0.0f;
-      const char* strOK = maybeOK ? *maybeOK ? "K" : "E" : "";
-
-      pm1Log(B1, k, nBits, strOK, *logRes, secsPerIt, checkSecs, nErr, readROE());
-      lastTimerK = k;
-    }
-
-    if (pendingSave) {
-      bool isDone = pendingSave->k >= nBits;
-      saver.saveP1(*pendingSave, isDone);
-      pendingSave.reset();
-    }
-
-    if (getOut) { break; }
-
-    k += blockSize;
-
-    bool resZero = logRes && *logRes == 0;
-    logRes.reset();
-
-    bool doStop  = signal.stopRequested();
-    bool doCheck = resZero || doStop  || k % 40000 == 0 || k - startK == 2 * blockSize || powerBits.empty();
-    bool doLog   = doCheck || k % 10000 == 0;
-
-    if (!doCheck && !doLog) {
-      finish();
-      maybeOK.reset();
-      continue;
-    }
-
-    if (doCheck) {
-      data = readData();
-      Timer checkTimer;
-      if (data.empty()) { return RETRY; }
-      logRes = residue(data);
-
-      maybeOK = pm1Check(sumLE, blockSize);
-
-      updateCheck = false;
-      assert(maybeOK);
-      checkSecs = checkTimer.at();
-
-      if (maybeOK && *maybeOK) {
-        assert(!pendingSave);
-        pendingSave = P1State{.B1=B1, .k=k, .data=data};
-      }
-
-      if (!*maybeOK || doStop) { getOut = true; }
-
-      logTimeKernels();
-    } else {
-      assert(doLog);
-      logRes = dataResidue(); // implies finish()
-      checkSecs = 0;
-    }
-  }
-
-  assert(maybeOK);
-  if (maybeOK && !*maybeOK) { return RETRY; }
-
-  if (!powerBits.empty()) { throw "stop requested"; }
-
-  log("completed\n");
-  // auto factor = GCD(E, data, 1);
-  // log("factor \"%s\"\n", factor.c_str());
-  return DONE;
 }
 
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {

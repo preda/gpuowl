@@ -17,7 +17,7 @@ namespace fs = std::filesystem;
 
 int main(int argc, char **argv) {
   initLog();
-  log("GpuOwl VERSION %s\n", VERSION);
+  // log("GpuOwl VERSION %s\n", VERSION);
 
   int exitCode = 0;
 

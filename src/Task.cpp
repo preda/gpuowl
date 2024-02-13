@@ -5,16 +5,13 @@
 #include "Gpu.h"
 #include "Args.h"
 #include "File.h"
-#include "GmpUtil.h"
 #include "Worktodo.h"
 #include "Saver.h"
 #include "version.h"
 #include "Proof.h"
 #include "log.h"
 
-#include <cstdio>
 #include <cmath>
-#include <thread>
 #include <cassert>
 
 namespace {
@@ -182,20 +179,7 @@ void Task::execute(const Args& args) {
 
     Worktodo::deleteTask(*this);
     if (!isPrime) { Saver::cleanup(exponent, args); }
-  } else { // P-1
-    LogContext p1{"P1"};
-    assert(!line.empty());  // We want to pass the same line to mprime following first-stage
-    gpu->doPm1(args, *this);
-    File::openAppend(args.mprimeDir/"worktodo.add").write(line);
-    Worktodo::deleteTask(*this);
-    /*
-    {
-      char buf[256];
-      snprintf(buf, sizeof(buf), "Pminus1=%s,1,2,%u,-1,%u,%u,%u\n",
-               AID.empty() ? "N/A" : AID.c_str(), exponent, B1, B1, howFarFactored);
-      File fo = File::openAppend(args.mprimeDir/"worktodo.add");
-      fo.write(""s + buf);
-    }
-    */
+  } else {
+    throw "Only PRP task is supported";
   }
 }
