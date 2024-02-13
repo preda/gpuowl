@@ -7,10 +7,8 @@
 #include "common.h"
 
 #include <filesystem>
-#include <functional>
 #include <ios>
 #include <cassert>
-#include <cinttypes>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -29,10 +27,10 @@ error_code& noThrow() {
 vector<u32> Saver::listIterations(const string& prefix, const string& ext) {
   vector<u32> ret;
   if (!fs::exists(base)) { fs::create_directory(base); }
-  for (auto entry : fs::directory_iterator(base)) {
+  for (const auto& entry : fs::directory_iterator(base)) {
     if (entry.is_regular_file()) {
       string name = entry.path().filename().string();
-      u32 dot = name.find('.');
+      auto dot = name.find('.');
       if (name.size() >= prefix.size() && name.substr(0, prefix.size()) == prefix
           && dot != string::npos && name.substr(dot) == ext) {
         assert(dot > prefix.size());

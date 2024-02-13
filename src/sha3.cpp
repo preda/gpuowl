@@ -20,7 +20,6 @@
 
 #include "sha3.h"
 #include <cstring>
-#include <cassert>
 
 /*
 ** Macros to determine whether the machine is big or little endian,
