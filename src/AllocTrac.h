@@ -5,21 +5,8 @@
 #include "log.h"
 #include <atomic>
 #include <new>
-#include <string>
 
 using namespace std::string_literals;
-
-/*
-class gpu_bad_alloc : public std::bad_alloc {
-  std::string w;
-  
-public:
-  gpu_bad_alloc(const std::string& w) : w(w) {}
-  gpu_bad_alloc(size_t size) : gpu_bad_alloc("GPU size "s + std::to_string(size)) {}
-
-  const char *what() const noexcept override { return w.c_str(); }
-};
-*/
 
 class AllocTrac {
   static std::atomic<size_t> totalAlloc;  

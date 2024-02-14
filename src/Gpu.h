@@ -12,9 +12,6 @@
 #include <vector>
 #include <string>
 #include <memory>
-#include <variant>
-#include <atomic>
-#include <future>
 #include <filesystem>
 #include <cmath>
 
@@ -42,9 +39,6 @@ struct PRPResult {
   fs::path proofPath{};
 };
 
-struct Reload {
-};
-
 struct Stats {
   Stats() = default;
   Stats(float max, float mean, float sd) : max{max}, mean{mean}, sd{sd} {
@@ -67,7 +61,6 @@ struct ROEInfo {
 };
 
 class Gpu {
-  friend struct SquaringSet;
   u32 E;
   u32 N;
 
@@ -200,7 +193,6 @@ class Gpu {
 public:
   const Args& args;
 
-  // void carryA(Buffer<int>& a, Buffer<double>& b) { kernCarryA(roe2Pos++, a, b); }
   template<typename... Args> void carryA(const Args &...args) { kernCarryA(updatePos(1<<2), args...); }
   void carryM(Buffer<int>& a, Buffer<double>& b) { kernCarryM(updatePos(1<<3), a, b); }
   void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(updatePos(1<<0), a, b); }
