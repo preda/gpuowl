@@ -11,12 +11,12 @@
 ifeq ($(DEBUG), 1)
 
 BIN=build-debug
-CXXFLAGS = -Wall -g -std=gnu++17
+CXXFLAGS = -Wall -g -Og -std=gnu++17
 
 else
 
 BIN=build-release
-CXXFLAGS = -Wall -O2 -std=gnu++17
+CXXFLAGS = -Wall -O3 -flto -std=gnu++17
 
 endif
 
@@ -33,7 +33,7 @@ DEPFLAGS = -MT $@ -MMD -MP -MF $(DEPDIR)/$*.Td
 COMPILE.cc = $(CXX) $(DEPFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
 POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 
-LIBS = -lstdc++fs -lgmp -pthread
+LIBS = -lstdc++fs -lgmp -pthread $(LIBPATH)
 
 $(BIN)/gpuowl: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL

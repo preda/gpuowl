@@ -1,4 +1,3 @@
-[![Build Status](https://travis-ci.com/preda/gpuowl.svg?branch=master)](https://travis-ci.com/preda/gpuowl)
 [![Actions Status](https://github.com/preda/gpuowl/workflows/CI/badge.svg?branch=master)](https://github.com/preda/gpuowl/actions)
 
 # GpuOwl
@@ -135,11 +134,32 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
 
 ## Command-line Arguments
 ```
+GpuOwl is an OpenCL program for primality testing of Mersenne numbers (numbers of the form 2^n - 1).
+To run GpuOwl you need a computer with one or more discrete GPUs.
+
+To check that OpenCL is installed correctly use the command "clinfo". If clinfo does not find any
+devices or otherwise fails, GpuOwl will not run -- you need to first fix the OpenCL installation
+to get clinfo to find devices.
+
+GpuOwl runs best on Linux with the ROCm OpenCL stack, but can also run on Windows and on Nvidia GPUs.
+
+For more information about Mersenne primes search see https://www.mersenne.org/
+
+First step: run "gpuowl -h". If this displays a list of OpenCL devices at the end, it means that
+gpuowl is detecting the GPUs correctly and will be able to run.
+
+To use GpuOwl you need to create a file named "worktodo.txt" containing the exponent to be tested.
+The tool primenet.py (found at gpuowl/tools/primenet.py) can be used to automatically obtain tasks
+from the mersenne project and add them to worktodo.txt.
+
+The configuration options listed below can be passed on the command line or can be put in a file
+named "config.txt" in the gpuowl run directory.
+
+
 -dir <folder>      : specify local work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
 -pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
                      Multiple GpuOwl instances, each in its own directory, can share a pool of assignments and report
                      the results back to the common pool.
--uid <unique_id>   : specifies to use the GPU with the given unique_id (only on ROCm/Linux)
 -user <name>       : specify the user name.
 -cpu  <name>       : specify the hardware name.
 -time              : display kernel profiling information.
@@ -156,20 +176,46 @@ Simply start GpuOwl with any valid exponent, and the built-in error checking kic
                      A lower power reduces disk space requirements but increases the verification cost.
                      A proof of power 9 uses 6GB of disk space for a 100M exponent and enables faster verification.
 -autoverify <power> : Self-verify proofs generated with at least this power. Default 9.
--tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored.
+-tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored, default '.'.
+-mprimeDir <dir>   : folder where an instance of Prime95/mprime can be found (for P-1 second-stage)
 -results <file>    : name of results file, default 'results.txt'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc <size>   : limit GPU memory usage to size, which is a value with suffix M for MB and G for GB.
                      e.g. -maxAlloc 2048M or -maxAlloc 3.5G
--save <N>          : specify the number of savefiles to keep (default 12).
+-save <N>          : specify the number of savefiles to keep (default 20).
 -noclean           : do not delete data after the test is complete.
 -from <iteration>  : start at the given iteration instead of the most recent saved iteration
 -yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
--nospin            : disable progress spinner
--use NEW_FFT8,OLD_FFT5,NEW_FFT10: comma separated list of defines, see the #if tests in gpuowl.cl (used for perf tuning)
+
+-use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
+  -use FAST_BARRIER: on AMD Radeon VII and older AMD GPUs, use a faster barrier(). Do not use
+                     this option on Nvidia GPUs or on RDNA AMD GPUs where it produces errors
+                     (which are nevertheless detected).
+  -use NO_ASM      : do not use __asm() blocks (inline assembly)
+  -use CARRY32     : force 32-bit carry (-use STATS=21 offers carry range statistics)
+  -use CARRY64     : force 64-bit carry (a bit slower but no danger of carry overflow)
+  -use TRIG_COMPUTE=0|1|2 : select sin/cos tradeoffs (compute vs. precomputed)
+                     0 uses precomputed tables (more VRAM access, less DP compute)
+                     2 uses more DP compute and less VRAM table access
+  -use DEBUG       : enable asserts in OpenCL kernels (slow)
+  -use STATS       : enable roundoff (ROE) or carry statistics logging.
+                     Allows selecting among the the kernels CarryFused, CarryFusedMul, CarryA, CarryMul using the bit masks:
+                     1 = CarryFused
+                     2 = CarryFusedMul
+                     4 = CarryA
+                     8 = CarryMul
+                    16 = analyze Carry instead of ROE
+                     (the bit mask 16 selects Carry statistics, otherwise ROE statistics)
+                     E.g. STATS=15 enables ROE stats for all the four kernels above.
+                          STATs=21 enables Carry stats for the CarryFused and CarryA.
+                     For carry, the range [0, 2^32] is mapped to [0.0, 1.0] float values; as such the max carry
+                     that fits on 32bits (i.e. 31bits absolute value) is mapped to 0.5
+
 -unsafeMath        : use OpenCL -cl-unsafe-math-optimizations (use at your own risk)
--binary <file>     : specify a file containing the compiled kernels binary
--device <N>        : select a specific device:
+
+-device <N>        : select the GPU at position N in the list of devices
+-uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
+-pci    <BDF>      : select the GPU with the given PCI BDF, e.g. "0c:00.0"
 ```
 Device numbers start at zero.
 

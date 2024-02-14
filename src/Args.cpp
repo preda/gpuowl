@@ -148,7 +148,7 @@ named "config.txt" in the gpuowl run directory.
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", B2_B1_ratio, proofPow, proofVerify, tmpDir.c_str(), resultsFile.c_str(), nSavefiles);
+)", B2_B1_ratio, proofPow, proofVerify, tmpDir.string().c_str(), resultsFile.string().c_str(), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {

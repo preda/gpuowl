@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
     
     Args args;
     
-    initLog((poolDir / "gpuowl.log").c_str());
+    initLog((poolDir / "gpuowl.log").string().c_str());
     log("GpuOwl VERSION %s\n", VERSION);
     
     if (!poolDir.empty()) { args.readConfig(poolDir / "config.txt"); }
