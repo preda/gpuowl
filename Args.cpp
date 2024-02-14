@@ -65,8 +65,8 @@ void Args::printHelp() {
 -pm1 <exponent>    : run a single P-1 test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
 -verify <file>     : verify PRP-proof contained in <file>
--proof <power>     : Valid <power> values are 6 to 9.
-                     By default a proof of power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
+-proof <power>     : Valid <power> values are 1 to 12.
+                     By default a proof of up to power 8 is generated, using 3GB of temporary disk space for a 100M exponent.
                      A lower power reduces disk space requirements but increases the verification cost.
                      A proof of power 9 uses 6GB of disk space for a 100M exponent and enables faster verification.
 -tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored.
@@ -127,12 +127,12 @@ void Args::parse(string line) {
     if (key == "-h" || key == "--help") { printHelp(); throw "help"; }
     else if (key == "-proof") {
       int power = 0;
-      if (s.empty() || (power = stoi(s)) < 6 || power > 10) {
-        log("-proof expects <power> 6 - 9 (found '%s')\n", s.c_str());
-        throw "-proof expects <power> 6 - 9";
+      if (s.empty() || (power = stoi(s)) < 1 || power > 12) {
+        log("-proof expects <power> 1 - 12 (found '%s')\n", s.c_str());
+        throw "-proof expects <power> 1 - 12";
       }
       proofPow = power;
-      assert(proofPow >= 6 && proofPow <= 10);
+      assert(proofPow >= 1 && proofPow <= 12);
     } else if (key == "-tmpDir" || key == "-tmpdir") {
       if (s.empty()) {
         log("-tmpDir needs <dir>\n");
