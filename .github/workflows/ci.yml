@@ -11,7 +11,6 @@ jobs:
     name: Linux
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.cxx == 'clang++' }}
     strategy:
       matrix:
         os: [ubuntu-20.04, ubuntu-22.04]
@@ -20,31 +19,35 @@ jobs:
     env:
       CXX: ${{ matrix.cxx }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install
       run: |
         sudo apt-get -yqq update
-        sudo apt-get -yqq install cppcheck ocl-icd-opencl-dev
+        sudo apt-get -yqq install cppcheck ocl-icd-opencl-dev pocl-opencl-icd
         $CXX --version
     - name: Script
       run: |
-        make
-        ./build-release/gpuowl -h
-    - uses: actions/upload-artifact@v3
+        make -O -j "$(nproc)"
+        cd build-release
+        rm -f -- *.o
+        ./gpuowl -h
+    - uses: actions/upload-artifact@v4
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cxx }}_gpuowl
         path: ${{ github.workspace }}
     - name: Cppcheck
       run: cppcheck --enable=all --force .
+    - name: Clang-Tidy
+      if: ${{ matrix.cxx == 'clang++' }}
+      run: clang-tidy -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,-cert-dcl37-c,-cert-dcl51-cpp,clang-analyzer-*,concurrency-*,misc-const-correctness,misc-redundant-expression,misc-unused-*,modernize-*,-modernize-use-trailing-return-type,-modernize-use-using,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-anyofallof' -header-filter='.*' src/*.cpp -- -Wall -O3 -std=gnu++17 || true
     - name: ShellCheck
-      run: bash -c 'shopt -s globstar; shellcheck -s bash **/*.sh || true'
+      run: shopt -s globstar; shellcheck -o avoid-nullary-conditions,check-extra-masked-returns,check-set-e-suppressed,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh || true
 
   Windows:
     name: Windows
 
     runs-on: windows-latest
-    continue-on-error: true
     strategy:
       matrix:
         cxx: [g++, clang++]
@@ -52,12 +55,31 @@ jobs:
     env:
       CXX: ${{ matrix.cxx }}
     steps:
-    - uses: actions/checkout@v3
-    - name: Script
+    - uses: actions/checkout@v4
+    - name: Before Install
       run: |
-        make exe
-        .\build-release\gpuowl-win.exe -h
-    - uses: actions/upload-artifact@v3
+        echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "CPPFLAGS=-IC:\msys64\mingw64\include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "LIBPATH=-LC:\msys64\mingw64\lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+    - name: Install
+      run: |
+        pacman -S --noconfirm mingw-w64-x86_64-gmp mingw-w64-x86_64-opencl-icd
+        & $env:CXX --version
+    - name: Install Clang
+      if: ${{ matrix.cxx == 'clang++' }}
+      run: |
+        pacman -S --noconfirm mingw-w64-x86_64-clang
+        (Get-Content Makefile) -replace ' -flto', '' | Set-Content Makefile
+        & $env:CXX --version
+    - name: Script
+      run: | # Cannot use `make exe`, as the OpenCL ICD Loader does not support static linking
+        make -O -j $env:NUMBER_OF_PROCESSORS
+        cd build-release
+        rm *.o
+        mv gpuowl.exe gpuowl-win.exe
+        .\gpuowl-win.exe -h
+    - uses: actions/upload-artifact@v4
       if: always()
       with:
         name: win_${{ matrix.cxx }}_gpuowl
