@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "sha3.h"
 
 class Sha3Hash {

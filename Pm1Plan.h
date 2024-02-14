@@ -6,6 +6,7 @@
 #include <vector>
 #include <tuple>
 #include <bitset>
+#include <array>
 #include <cassert>
 
 using std::vector;
