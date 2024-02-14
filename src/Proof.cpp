@@ -158,11 +158,23 @@ ProofSet::ProofSet(const fs::path& tmpDir, u32 E, u32 power)
 }
 
 bool ProofSet::canDo(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
-  assert(power > 0 && power <= 10);
+  assert(power > 0 && power <= 12);
   return ProofSet{tmpDir, E, power}.isValidTo(currentK);
 }
 
 u32 ProofSet::effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
+  // Best proof powers adapted from Prime95/MPrime
+  const u32 best_power = E > 414200000 ? 11 : // 414.2e6
+                         E > 106500000 ? 10 : // 106.5e6
+                         E > 26600000 ? 9 :   // 26.6e6
+                         E > 6700000 ? 8 :    // 6.7e6
+                         E > 1700000 ? 7 :    // 1.7e6
+                         E > 420000 ? 6 :     // 420e3
+                         E > 105000 ? 5 : 0;  // 105e3
+
+  if (power > best_power)
+    power = best_power;
+
   for (u32 p = power; p > 0; --p) {
     log("validating proof residues for power %u\n", p);
     if (canDo(tmpDir, E, p, currentK)) { return p; }      

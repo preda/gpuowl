@@ -101,12 +101,12 @@ named "config.txt" in the gpuowl run directory.
 -rB2               : ratio of B2 to B1. Default %u, used only if B2 is not explicitly set
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -verify <file>     : verify PRP-proof contained in <file>
--proof <power>     : By default a proof of power %u is generated, using 3GB of temporary disk space for a 100M exponent.
+-proof <power>     : By default a proof of up to power %u is generated, using 3GB of temporary disk space for a 100M exponent.
                      A lower power reduces disk space requirements but increases the verification cost.
                      A proof of power 9 uses 6GB of disk space for a 100M exponent and enables faster verification.
 -autoverify <power> : Self-verify proofs generated with at least this power. Default %u.
 -tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored, default '%s'.
--mprimeDir <dir>   : folder where an instance of Prime95/mprime can be found (for P-1 second-stage)
+-mprimeDir <dir>   : folder where an instance of Prime95/mprime can be found (for P-1 second-stage), default '%s'.
 -results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -maxAlloc <size>   : limit GPU memory usage to size, which is a value with suffix M for MB and G for GB.
@@ -148,7 +148,7 @@ named "config.txt" in the gpuowl run directory.
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", B2_B1_ratio, proofPow, proofVerify, tmpDir.string().c_str(), resultsFile.string().c_str(), nSavefiles);
+)", B2_B1_ratio, proofPow, proofVerify, tmpDir.string().c_str(), mprimeDir.string().c_str(), resultsFile.string().c_str(), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
@@ -203,8 +203,8 @@ void Args::parse(const string& line) {
       clean = false;
     } else if (key == "-proof") {
       int power = 0;
-      if (s.empty() || (power = stoi(s)) < 1 || power > 10) {
-        log("-proof expects <power> 1-10 (found '%s')\n", s.c_str());
+      if (s.empty() || (power = stoi(s)) < 1 || power > 12) {
+        log("-proof expects <power> 1-12 (found '%s')\n", s.c_str());
         throw "-proof <power>";
       }
       proofPow = power;
