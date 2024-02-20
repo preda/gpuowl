@@ -37,7 +37,8 @@ array<string, 71> ERR_MES = {
 };
 
 static string errMes(int err) {
-  return (err <= 0 && err >= -70) ? ERR_MES[-err] : ""s;
+  return (err <= 0 && err >= -70) ? ERR_MES[-err] : 
+    (err == -1001) ? "ICD_NOT_FOUND" : ""s + to_string(err);
 }
 
 class gpu_error : public std::runtime_error {
@@ -102,6 +103,11 @@ string getDriverVersion(cl_device_id id) {
   }
 }
 
+string getDriverVersionByPos(int pos) {
+  assert(pos >= 0);
+  return getDriverVersion(getAllDeviceIDs().at(pos));
+}
+
 bool hasFreeMemInfo(cl_device_id id) {
   try {
     u64 dummy = 0;
@@ -133,7 +139,7 @@ float getGpuRamGB(cl_device_id id) {
 }
 
 string getBoardName(cl_device_id id) {
-  char boardName[64] = {0};
+  char boardName[128] = {0};
   try {
     GET_INFO(id, CL_DEVICE_BOARD_NAME_AMD, boardName);
   } catch (const gpu_error& err) {
@@ -142,7 +148,7 @@ string getBoardName(cl_device_id id) {
 }
 
 string getDeviceName(cl_device_id id) {
-  char name[64] = {0};
+  char name[128] = {0};
   GET_INFO(id, CL_DEVICE_NAME, name);
   return name;
 }

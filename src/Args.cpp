@@ -152,16 +152,15 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
-    printf("N  : PCI BDF |     UID          | RAM GB |     Driver         |    Device\n");
+    printf(" N  : PCI BDF |   UID            |   Driver           |    Device\n");
   }
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
     cl_device_id id = deviceIds[i];
     string bdf = getBdfFromDevice(id);
-    printf("%u  : %7s | %s |  %2.1f  | %s | %s | %s\n",
+    printf("%2u  : %7s | %16s | %s | %s | %s\n",
            i,
            bdf.c_str(),
            getUidFromBdf(bdf).c_str(),
-           getGpuRamGB(id),
            getDriverVersion(id).c_str(),
            getDeviceName(id).c_str(),
            getBoardName(id).c_str()
@@ -327,7 +326,7 @@ void Args::parse(const string& line) {
 
 void Args::setDefaults() {
   uid = getUidFromPos(device);
-  log("device %d, unique id '%s'\n", device, uid.c_str());
+  log("device %d, unique id '%s', driver '%s'\n", device, uid.c_str(), getDriverVersionByPos(device).c_str());
   
   if (!masterDir.empty()) {
     assert(masterDir.is_absolute());
