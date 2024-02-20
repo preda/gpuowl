@@ -52,9 +52,9 @@ NH         == SMALL_HEIGHT / G_H
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
-// 64-bit atomics used in kernel sum64
+// 64-bit atomics were used in kernel sum64
 // If 64-bit atomics aren't available, sum64() can be implemented with 32-bit
-#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+// #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 // #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
 #if DEBUG
@@ -971,7 +971,12 @@ KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
     sum += in[p];
   }
   sum = work_group_reduce_add(sum);
-  if (get_local_id(0) == 0) { atom_add(&out[0], sum); }
+  if (get_local_id(0) == 0) {
+    u32 low = sum;
+    u32 prev = atomic_add((global u32*)out, low);
+    u32 high = (sum + prev) >> 32;
+    atomic_add(((global u32*)out) + 1, high);
+  }
 }
 
 // outEqual must be "true" on entry.
