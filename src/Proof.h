@@ -70,7 +70,9 @@ private:
 
 public:
   
+  static u32 bestPower(u32 E);
   static u32 effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 currentK);
+  static double diskUsageGB(u32 E, u32 power);
   
   ProofSet(const fs::path& tmpDir, u32 E, u32 power);
     

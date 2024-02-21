@@ -162,22 +162,34 @@ bool ProofSet::canDo(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
   return ProofSet{tmpDir, E, power}.isValidTo(currentK);
 }
 
+u32 ProofSet::bestPower(u32 E) {
+  // Best proof powers assuming no disk space concern
+  // Adapted from Prime95/MPrime source, see "best_power" in commonb.c
+  
+  // We increment power by 1 for each fourfold increase of the exponent
+  // and set exponent=106500000 as the transition point to power=10.
+
+  assert(E > 0);
+  // log2(x)/2 is log4(x)
+  int power = 10 + floor(log2(E / 106.5e6) / 2);
+  return (power >= 5) ? power : 0;
+}
+
+double ProofSet::diskUsageGB(u32 E, u32 power) {
+  //  -3 because convert exponent bits to bytes
+  // -30 because convert bytes to GB
+  // +power because needs 2^power residues for proof generation
+  // and 5% on top
+  return power ? ldexp(E, -33 + int(power)) * 1.05 : 0.0;
+}
+
 u32 ProofSet::effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
-  // Best proof powers adapted from Prime95/MPrime
-  const u32 best_power = E > 414200000 ? 11 : // 414.2e6
-                         E > 106500000 ? 10 : // 106.5e6
-                         E > 26600000 ? 9 :   // 26.6e6
-                         E > 6700000 ? 8 :    // 6.7e6
-                         E > 1700000 ? 7 :    // 1.7e6
-                         E > 420000 ? 6 :     // 420e3
-                         E > 105000 ? 5 : 0;  // 105e3
-
-  if (power > best_power)
-    power = best_power;
-
+  // For now, don't force the bestPower(E) bound; instead a warning is logged in Gpu::isPrimePRP()
+  // power = min(power, bestPower(E));
+  
   for (u32 p = power; p > 0; --p) {
     log("validating proof residues for power %u\n", p);
-    if (canDo(tmpDir, E, p, currentK)) { return p; }      
+    if (canDo(tmpDir, E, p, currentK)) { return p; }
   }
   assert(false);
 }

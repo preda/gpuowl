@@ -1441,12 +1441,21 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
   if (power == u32(-1)) {
     power = ProofSet::effectivePower(args.tmpDir, E, args.proofPow, startK);
+    
+    if (power != args.proofPow) {
+      log("Proof using power %u (vs %u)\n", power, args.proofPow);
+    }
+    
     if (!power) {
-      log("Proof disabled because of missing checkpoints\n");
-    } else if (power != args.proofPow) {
-      log("Proof using power %u (vs %u) for %u\n", power, args.proofPow, E);
+      log("Proof generation disabled\n");
     } else {
-      log("Proof using power %u\n", power);
+      if (power > ProofSet::bestPower(E)) {
+        log("Warning: proof power %u is excessively large; use at most power %u\n",
+            power, ProofSet::bestPower(E));
+      }
+
+      log("Proof of power %u requires about %.1fGB of disk space\n",
+          power, ProofSet::diskUsageGB(E, power));
     }
   }
   
