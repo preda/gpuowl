@@ -188,7 +188,7 @@ u32 ProofSet::effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 curre
   // power = min(power, bestPower(E));
   
   for (u32 p = power; p > 0; --p) {
-    log("validating proof residues for power %u\n", p);
+    // log("validating proof residues for power %u\n", p);
     if (canDo(tmpDir, E, p, currentK)) { return p; }
   }
   assert(false);
