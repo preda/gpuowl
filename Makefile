@@ -25,7 +25,7 @@ endif
 
 # CPPFLAGS = -I$(BIN)
 
-SRCS1 = gpuid.cpp File.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp clbundle.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp sha3.cpp md5.cpp version.cpp
+SRCS1 = bundle.cpp gpuid.cpp File.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp sha3.cpp md5.cpp version.cpp
 
 SRCS=$(addprefix src/, $(SRCS1))
 
@@ -46,9 +46,6 @@ $(BIN)/prpowl-amd: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lamdocl64 -L/opt/rocm/lib ${STRIP}
 
 prpowl: $(BIN)/prpowl
-
-exe: $(BIN)/prpowl
-	mv $(BIN)/prpowl $(BIN)/prpowl.exe
         
 amd: $(BIN)/prpowl-amd
 
@@ -61,6 +58,12 @@ $(BIN)/%.o : src/%.cpp $(DEPDIR)/%.d
 	$(COMPILE.cc) $(OUTPUT_OPTION) $<
 	$(POSTCOMPILE)
 
+
+# src/bundle.cpp is just a wrapping of the OpenCL sources (*.cl) as a C string.
+
+src/bundle.cpp: genbundle.sh src/cl/*.cl
+	./genbundle.sh $^ > src/bundle.cpp
+
 $(DEPDIR)/%.d: ;
 .PRECIOUS: $(DEPDIR)/%.d
 
@@ -70,11 +73,6 @@ src/version.inc: FORCE
 	echo \"`git describe --tags --long --dirty --always`\" > $(BIN)/version.new
 	diff -q -N $(BIN)/version.new $@ >/dev/null || mv $(BIN)/version.new $@
 	echo Version: `cat $@`
-
-# clbundle.cpp is just a wrapping of the OpenCL sources (*.cl) as a C string.
-# If any of the src/*.cl files have been updated, this rule regenerates clbundle.cpp
-src/clbundle.cpp: src/*.cl
-	python3 tools/expand.py src/gpuowl.cl src/clbundle.cpp
 
 FORCE:
 

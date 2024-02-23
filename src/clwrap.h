@@ -72,11 +72,11 @@ cl_context createContext(cl_device_id id);
 cl_program compile(cl_context context, cl_device_id device, const string &source, const string &extraArgs,
                    const std::vector<string>& defines);
 
+#if 0
 cl_program loadBinary(cl_context, cl_device_id, const string& fileName);
-
 string getBinary(cl_program program);
-
 void dumpBinary(cl_program program, const string& fileName);
+#endif
 
 cl_kernel makeKernel(cl_program program, const char *name);
 

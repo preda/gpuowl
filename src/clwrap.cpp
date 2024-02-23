@@ -269,7 +269,6 @@ cl_program compile(cl_context context, cl_device_id device, const string &source
   string strDefines;
   for (const string& d : defines) { strDefines += "-D" + d + ' '; }
   
-  // Note: Gpu.cpp also sets -cl-unfasafe-math-optimizations unless -safeMath is specified.
   string args = strDefines + extraArgs + " -cl-std=CL2.0 -cl-finite-math-only ";
 
   // -cl-fast-relaxed-math  -cl-unsafe-math-optimizations -cl-denorms-are-zero -cl-mad-enable 
