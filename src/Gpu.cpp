@@ -313,11 +313,7 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   strDefines.insert(strDefines.begin(), defines.begin(), defines.end());
 
   cl_program program{};
-  if (args.binaryFile.empty()) {
-    program = compile(context, id, CL_SOURCE, clArgs, strDefines);
-  } else {
-    program = loadBinary(context, id, args.binaryFile);
-  }
+  program = compile(context, id, CL_SOURCE, clArgs, strDefines);
   if (!program) { throw "OpenCL compilation"; }
   // dumpBinary(program, "dump.bin");
   return program;
