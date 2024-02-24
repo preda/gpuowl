@@ -71,7 +71,7 @@ class Gpu {
 
   cl_device_id device;
   Context context;
-  Holder<cl_program> program;
+  Program program;
   QueuePtr queue;
   
   Kernel kernCarryFused;

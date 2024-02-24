@@ -42,9 +42,19 @@ int clReleaseContext(cl_context);
 int clReleaseProgram(cl_program);
 int clReleaseCommandQueue(cl_command_queue);
 int clEnqueueNDRangeKernel(cl_command_queue, cl_kernel, unsigned, const size_t *, const size_t *, const size_t *, unsigned, const cl_event *, cl_event *);
+
 cl_program clCreateProgramWithSource(cl_context, unsigned, const char **, const size_t *, int *);
 cl_program clCreateProgramWithBinary(cl_context, unsigned, const cl_device_id *, const size_t *, const unsigned char **, int *, int *);  
-int clBuildProgram(cl_program, unsigned, const cl_device_id *, const char *, void (*)(cl_program, void *), void *);
+
+int clBuildProgram(cl_program, unsigned, const cl_device_id *, const char *,
+                   void (*)(cl_program, void *), void *);
+int clCompileProgram(cl_program, unsigned, const cl_device_id *, const char *,
+                     unsigned numHeaders, const cl_program* headers, const char* const* headerNames,
+                     void (*)(cl_program, void *), void *);
+cl_program clLinkProgram(cl_context context, unsigned nDevice, const cl_device_id* devices, const char* options,
+                         unsigned nProgs, const cl_program* progs,
+                         void (*)(cl_program, void *), void *, int* err);
+
 int clGetProgramBuildInfo(cl_program, cl_device_id, cl_program_build_info, size_t, void *, size_t *);
 int clGetProgramInfo(cl_program, cl_program_info, size_t, void *, size_t *);
 int clGetDeviceInfo(cl_device_id, cl_device_info, size_t, void *, size_t *);

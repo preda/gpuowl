@@ -1,7 +1,9 @@
 // Copyright (C) Mihai Preda
 // Generated file, do not edit. See genbundle.sh and src/cl/*.cl
 
-const char* CL_SOURCE[] = {
+#include <vector>
+
+static const std::vector<const char*> CL_FILES{
 // src/cl/fft10.cl
 R"cltag(
 // See prime95's gwnum/zr10.mac file for more detailed explanation of the formulas below
@@ -2961,4 +2963,6 @@ kernel void testKernel(global double* in, global float* out) {
 )cltag",
 
 };
-const char* CL_FILES[]={"fft10","fft11","fft12","fft13","fft14","fft15","fft5","fft6","fft7","fft9","gpuowl",};
+static const std::vector<const char*> CL_FILE_NAMES{"fft10","fft11","fft12","fft13","fft14","fft15","fft5","fft6","fft7","fft9","gpuowl",};
+const std::vector<const char*>& getClFileNames() { return CL_FILES; }
+const std::vector<const char*>& getClFiles() { return CL_FILE_NAMES; }

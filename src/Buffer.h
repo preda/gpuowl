@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <cassert>
 
 template<typename T>
 class ConstBuffer {
