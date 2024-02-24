@@ -12,12 +12,13 @@ ifeq ($(DEBUG), 1)
 
 BIN=build-debug
 
-CXXFLAGS = -Wall -g -Og -std=gnu++17
+CXXFLAGS = -Wall -g -std=gnu++17
 STRIP=
 
 else
 
 BIN=build-release
+
 CXXFLAGS = -Wall -O2 -DNDEBUG -std=gnu++17
 STRIP=-s
 
@@ -25,7 +26,7 @@ endif
 
 # CPPFLAGS = -I$(BIN)
 
-SRCS1 = bundle.cpp gpuid.cpp File.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp sha3.cpp md5.cpp version.cpp
+SRCS1 = bundle.cpp KernelCompiler.cpp gpuid.cpp File.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp sha3.cpp md5.cpp version.cpp
 
 SRCS=$(addprefix src/, $(SRCS1))
 
@@ -38,18 +39,18 @@ POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 
 LIBS = $(LIBPATH)
 
-$(BIN)/prpowl: ${OBJS}
+$(BIN)/prpll: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL ${STRIP}
 
 # Instead of linking with libOpenCL, link with libamdocl64
-$(BIN)/prpowl-amd: ${OBJS}
+$(BIN)/prpll-amd: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lamdocl64 -L/opt/rocm/lib ${STRIP}
 
-prpowl: $(BIN)/prpowl
+prpll: $(BIN)/prpll
         
-amd: $(BIN)/prpowl-amd
+amd: $(BIN)/prpll-amd
 
-all: prpowl amd
+all: prpll amd
 
 clean:
 	rm -rf build-debug build-release
