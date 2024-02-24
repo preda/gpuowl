@@ -3,6 +3,7 @@
 #include "Gpu.h"
 #include "Proof.h"
 #include "Saver.h"
+#include "bundle.h"
 #include "state.h"
 #include "Args.h"
 #include "Signal.h"
@@ -33,8 +34,6 @@
 
 static_assert(sizeof(double2) == 16, "size double2");
 static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
-
-extern const char *CL_SOURCE;
 
 using float3 = tuple<float, float, float>;
 
@@ -266,7 +265,7 @@ struct Define {
   operator string() const { return str; }
 };
 
-cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
+Program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
   if (!args.safeMath) { clArgs += " -cl-unsafe-math-optimizations"; }
   
@@ -301,7 +300,9 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   defines.push_back({"IWEIGHTS", iWeights});
   defines.push_back({"FWEIGHTS", fWeights});
   
-  string clSource = CL_SOURCE;
+  auto rawSources = getCLSources();
+  map<string, Program> clSources;
+  
   for (const auto& [key, val] : args.flags) {
     if (clSource.find(key) == string::npos) {
       log("warning: -use key '%s' not recognized\n", key.c_str());
@@ -312,8 +313,7 @@ cl_program compile(const Args& args, cl_context context, cl_device_id id, u32 N,
   vector<string> strDefines;
   strDefines.insert(strDefines.begin(), defines.begin(), defines.end());
 
-  cl_program program{};
-  program = compile(context, id, CL_SOURCE, clArgs, strDefines);
+  Program program = compile(context, id, CL_SOURCE, clArgs, strDefines);
   if (!program) { throw "OpenCL compilation"; }
   // dumpBinary(program, "dump.bin");
   return program;

@@ -7,9 +7,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include <cassert>
 #include <memory>
-#include <any>
 
 using cl_queue = cl_command_queue;
 
@@ -41,6 +39,7 @@ template<typename T> using Holder = std::unique_ptr<T, Deleter<T> >;
 using QueueHolder = std::unique_ptr<cl_queue>;
 using KernelHolder = std::unique_ptr<cl_kernel>;
 using EventHolder = std::unique_ptr<cl_event>;
+using Program = std::unique_ptr<cl_program>;
 
 class Context;
 
@@ -69,14 +68,12 @@ string getBdfFromDevice(cl_device_id id);
 
 cl_context createContext(cl_device_id id);
 
-cl_program compile(cl_context context, cl_device_id device, const string &source, const string &extraArgs,
+Program loadSource(cl_context context, const string& source);
+
+Program compile(cl_context context, cl_device_id device, const string &source, const string &extraArgs,
                    const std::vector<string>& defines);
 
-#if 0
-cl_program loadBinary(cl_context, cl_device_id, const string& fileName);
-string getBinary(cl_program program);
-void dumpBinary(cl_program program, const string& fileName);
-#endif
+string getBuildLog(cl_program program, cl_device_id deviceId);
 
 cl_kernel makeKernel(cl_program program, const char *name);
 

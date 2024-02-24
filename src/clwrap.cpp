@@ -215,13 +215,25 @@ void dumpBinary(cl_program program, const string &fileName) {
   File::openWrite(fileName).write(getBinary(program));
 }
 
-static cl_program loadSource(cl_context context, const string &source) {
+Program loadSource(cl_context context, const string &source) {
   const char *ptr = source.c_str();
   size_t size = source.size();
   int err = 0;
   cl_program program = clCreateProgramWithSource(context, 1, &ptr, &size, &err);
   CHECK2(err, "clCreateProgramWithSource");
-  return program;
+  return Program{program};
+}
+
+string getBuildLog(cl_program program, cl_device_id deviceId) {
+  size_t logSize;
+  clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
+  if (logSize > 1) {
+    std::unique_ptr<char[]> buf(new char[logSize + 1]);
+    clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
+    buf.get()[logSize] = 0;
+    return buf.get();
+  }
+  return {};
 }
 
 static void build(cl_program program, cl_device_id device, string args) {
@@ -236,19 +248,11 @@ static void build(cl_program program, cl_device_id device, string args) {
   }
   
   if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }
+  if (string mes = getBuildLog(program, device); !mes.empty()) { log("%s\n", mes.c_str()); }
   
-  size_t logSize;
-  clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
-  if (logSize > 1) {
-    std::unique_ptr<char[]> buf(new char[logSize + 1]);
-    clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
-    buf.get()[logSize] = 0;
-    log("%s\n", buf.get());
-  }
   if (ok) {
     log("OpenCL compilation in %.2f s\n", timer.reset());
   } else {
-    release(program);
     CHECK2(err, "clBuildProgram");
   }
 }
@@ -265,7 +269,7 @@ cl_program loadBinary(cl_context context, cl_device_id id, const string &fileNam
   return program;
 }
 
-cl_program compile(cl_context context, cl_device_id device, const string &source, const string &extraArgs,
+Program compile(cl_context context, cl_device_id device, const string &source, const string &extraArgs,
                    const vector<string> &defines) {
   string strDefines;
   for (const string& d : defines) { strDefines += "-D" + d + ' '; }
@@ -275,14 +279,12 @@ cl_program compile(cl_context context, cl_device_id device, const string &source
   // -cl-fast-relaxed-math  -cl-unsafe-math-optimizations -cl-denorms-are-zero -cl-mad-enable 
   log("OpenCL args \"%s\"\n", args.c_str());
   
-  cl_program program = 0;
-
+  Program program;
   if ((program = loadSource(context, source))) {
-    build(program, device, std::move(args));
-    return program;
+    build(program.get(), device, std::move(args));
   }
   
-  return 0;
+  return program;
 }
   // Other options:
   // * -cl-uniform-work-group-size
