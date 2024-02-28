@@ -70,7 +70,9 @@ string getBdfFromUid(const string& uid) {
 int getPosFromBdf(const string& bdf) {
   auto openclIds = getAllDeviceIDs();
   for (int pos = 0; pos < int(openclIds.size()); ++pos) {
-    if (bdf == getBdfFromDevice(openclIds[pos])) { return pos; }
+    auto bdfAtPos = getBdfFromDevice(openclIds[pos]);
+    // log("BDF '%s' at %d\n", bdfAtPos.c_str(), pos);
+    if (bdf == bdfAtPos) { return pos; }
   }
   
   log("OpenCL device with BDF '%s' not found\n", bdf.c_str());

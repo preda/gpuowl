@@ -85,6 +85,7 @@ vector<cl_device_id> getAllDeviceIDs() {
   vector<cl_device_id> ret;
   cl_device_id devices[64];
   for (int i = 0; i < nPlatforms; ++i) {
+    // log("platform %d\n", i);
     unsigned n = 0;
     auto kind = false ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL;
     CHECK1(clGetDeviceIDs(platforms[i], kind, 64, devices, &n));
