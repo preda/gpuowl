@@ -4,12 +4,13 @@
 
 #include "clwrap.h"
 
-#include "common.h"
 #include <vector>
+#include <string>
 
 class KernelCompiler {
   cl_context context;
   cl_device_id deviceId;
+  std::string baseArgs;
   
   std::vector<Program> clSources;
   std::vector<std::pair<std::string, std::string>> files;
@@ -18,5 +19,7 @@ class KernelCompiler {
   Program compile(const string& fileName, const string& args);
   
 public:
-  KernelCompiler(cl_context context, cl_device_id deviceId);    
+  KernelCompiler(cl_context context, cl_device_id deviceId, const string& args);
+  
+  KernelHolder load(const string& fileName, const string& kernelName, const string& args);
 };

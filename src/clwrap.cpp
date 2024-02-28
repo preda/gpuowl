@@ -268,12 +268,8 @@ cl_program loadBinary(cl_context context, cl_device_id id, const string &fileNam
   return program;
 }
 
-Program compile(cl_context context, cl_device_id device, const string &source, const string &extraArgs,
-                   const vector<string> &defines) {
-  string strDefines;
-  for (const string& d : defines) { strDefines += "-D" + d + ' '; }
-  
-  string args = strDefines + extraArgs + " -cl-std=CL2.0 -cl-finite-math-only ";
+Program compile(cl_context context, cl_device_id device, const string &source, string args) {
+  args += " -cl-std=CL2.0 -cl-finite-math-only ";
 
   // -cl-fast-relaxed-math  -cl-unsafe-math-optimizations -cl-denorms-are-zero -cl-mad-enable 
   log("OpenCL args \"%s\"\n", args.c_str());

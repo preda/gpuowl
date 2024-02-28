@@ -8,6 +8,17 @@ add_executable(gpuowl bundle.cpp ProofCache.cpp Proof.cpp
   bundle.h
   bundleImpl.cpp
   KernelCompiler.h
-  KernelCompiler.cpp)
+  KernelCompiler.cpp
+  cl/ffthin.cl
+  cl/ffthout.cl
+  cl/etc.cl
+  cl/fftMiddleIn.cl
+  cl/fftmiddleout.cl
+  cl/tailfusedmul.cl
+  cl/tailsquare.cl
+  cl/multiply.cl
+  cl/carry.cl
+  cl/carryb.cl
+  )
 
 target_link_libraries(gpuowl gmp OpenCL)
