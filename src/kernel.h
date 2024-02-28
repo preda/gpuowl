@@ -1,4 +1,4 @@
-// Copyright Mihai Preda.
+// Copyright (C) Mihai Preda.
 
 #pragma once
 
@@ -11,13 +11,30 @@
 #include <stdexcept>
 
 class Kernel {
-  KernelHolder kernel;
-  int groupSize;
+  string name;
   QueuePtr queue;
   size_t workSize;
-  string name;
+  u32 groupSize{};
+  
+  KernelHolder kernel{};
 
 public:
+  Kernel(const string& name, QueuePtr queue, u32 groupSize, size_t workSize):
+    name{name},
+    queue{queue},
+    workSize{workSize},
+    groupSize{groupSize}
+  {
+    assert(workSize % groupSize == 0);
+  }
+
+  void init(KernelHolder kern) {
+    assert(kern);
+    kernel = std::move(kern);
+    // groupSize = getWorkGroupSize(kernel.get(), device, name.c_str());
+  }
+    
+  /*
   Kernel(cl_program program, QueuePtr queue, cl_device_id device, u32 nWorkGroups, const std::string &name) :
     kernel(makeKernel(program, name.c_str())),
     groupSize(kernel ? getWorkGroupSize(kernel.get(), device, name.c_str()) : 0),
@@ -35,6 +52,7 @@ public:
   {
     assert(groupSize == 0 || (workSize % groupSize == 0));
   }
+  */
 
   
   template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(pos, tail...); }

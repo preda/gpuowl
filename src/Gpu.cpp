@@ -3,7 +3,6 @@
 #include "Gpu.h"
 #include "Proof.h"
 #include "Saver.h"
-#include "bundle.h"
 #include "state.h"
 #include "Args.h"
 #include "Signal.h"
@@ -11,6 +10,7 @@
 #include "Queue.h"
 #include "Task.h"
 #include "Memlock.h"
+#include "KernelCompiler.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -265,10 +265,7 @@ struct Define {
   operator string() const { return str; }
 };
 
-Program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
-  string clArgs = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
-  if (!args.safeMath) { clArgs += " -cl-unsafe-math-optimizations"; }
-  
+string clArgs(cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   vector<Define> defines =
     {{"EXP", E},
      {"WIDTH", WIDTH},
@@ -299,24 +296,20 @@ Program compile(const Args& args, cl_context context, cl_device_id id, u32 N, u3
   }
   defines.push_back({"IWEIGHTS", iWeights});
   defines.push_back({"FWEIGHTS", fWeights});
-  
-  auto rawSources = getCLSources();
-  map<string, Program> clSources;
+  string s;
+  for (const auto& d : defines) {
+    s += " -D" + d;
+  }
+  return s;
+}
+
+string clArgs(const Args& args, u32 N) {
+  string s = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
   
   for (const auto& [key, val] : args.flags) {
-    if (clSource.find(key) == string::npos) {
-      log("warning: -use key '%s' not recognized\n", key.c_str());
-    }
-    defines.push_back({key, val});
+    s += " -D" + key + '=' + toLiteral(val);
   }
-
-  vector<string> strDefines;
-  strDefines.insert(strDefines.begin(), defines.begin(), defines.end());
-
-  Program program = compile(context, id, CL_SOURCE, clArgs, strDefines);
-  if (!program) { throw "OpenCL compilation"; }
-  // dumpBinary(program, "dump.bin");
-  return program;
+  return s;
 }
 
 }
@@ -343,40 +336,43 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   timeKernels(timeKernels),
   device(device),
   context{device},
-  program(compile(args, context.get(), device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW)),
   queue(Queue::make(context, timeKernels, args.cudaYield)),
 
   // Specifies size in number of workgroups
-#define LOAD(name, nGroups) name{program.get(), queue, device, nGroups, #name}
+#define LOAD(name, groupSize, workSize) name{#name, queue, groupSize, workSize}
+  // program.get(), queue, device, nGroups, #name}
   // Specifies size in "work size": workSize == nGroups * groupSize
-#define LOAD_WS(name, workSize) name{program.get(), queue, device, #name, workSize}
+  // #define LOAD_WS(name, workSize) name{program.get(), queue, device, #name, workSize}
   
-  LOAD(kernCarryFused,    BIG_H + 1),
-  LOAD(kernCarryFusedMul, BIG_H + 1),
-  LOAD(fftP, BIG_H),
-  LOAD(fftW,   BIG_H),
-  LOAD(fftHin,  hN / SMALL_H),
-  LOAD(fftHout, hN / SMALL_H),
-  LOAD_WS(fftMiddleIn,  hN / (BIG_H / SMALL_H)),
-  LOAD_WS(fftMiddleOut, hN / (BIG_H / SMALL_H)),
-  LOAD_WS(kernCarryA,  hN / CARRY_LEN),
-  LOAD_WS(kernCarryM,  hN / CARRY_LEN),
-  LOAD_WS(carryB,  hN / CARRY_LEN),
-  LOAD(transposeW,   (W/64) * (BIG_H/64)),
-  LOAD(transposeH,   (W/64) * (BIG_H/64)),
-  LOAD(transposeIn,  (W/64) * (BIG_H/64)),
-  LOAD(transposeOut, (W/64) * (BIG_H/64)),
-  LOAD(kernelMultiply,      hN / SMALL_H),
-  LOAD(tailFusedSquare,   hN / SMALL_H / 2),
-  LOAD(tailFusedMulLow,   hN / SMALL_H / 2),
-  LOAD(tailFusedMul,      hN / SMALL_H / 2),
-  LOAD(tailSquareLow,     hN / SMALL_H / 2),
-  LOAD(tailMulLowLow,     hN / SMALL_H / 2),
-  LOAD(readResidue, 1),
-  LOAD(isNotZero, 256),
-  LOAD(isEqual, 256),
-  LOAD(sum64, 256),
-#undef LOAD_WS
+  LOAD(kernCarryFused,    W / nW, W * (BIG_H + 1) / nW),
+  LOAD(kernCarryFusedMul, W / nW, W * (BIG_H + 1) / nW),
+  
+  LOAD(fftP,         hN / nW),
+  LOAD(fftW,         hN / nW),
+  LOAD(fftHin,       hN / nH),
+  LOAD(fftHout,      hN / nH),
+  LOAD(fftMiddleIn,  hN / (BIG_H / SMALL_H)),
+  LOAD(fftMiddleOut, hN / (BIG_H / SMALL_H)),
+  LOAD(kernCarryA,   hN / CARRY_LEN),
+  LOAD(kernCarryM,   hN / CARRY_LEN),
+  LOAD(carryB,       hN / CARRY_LEN),
+  
+  LOAD(transposeIn,  hN / 64),
+  LOAD(transposeOut, hN / 64),
+  
+  LOAD(kernelMultiply,    hN / 2),
+  
+  LOAD(tailFusedSquare,   hN / nH / 2),
+  
+  LOAD(tailFusedMulLow,   hN / nH / 2),
+  LOAD(tailFusedMul,      hN / nH / 2),
+  
+  LOAD(tailSquareLow,     hN / nH / 2),
+  
+  LOAD(readResidue, 64),
+  LOAD(isNotZero, 256 * 256),
+  LOAD(isEqual, 256 * 256),
+  LOAD(sum64, 256 * 256),
 #undef LOAD
 
   bufTrigW{genSmallTrig(context, W, nW)},
@@ -400,23 +396,42 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   statsBits{u32(args.value("STATS"))},
   args{args}
 {
-  // dumpBinary(program.get(), "isa.bin");
+  // Program program{compile(args, context.get(), device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW)};
+  
+  string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args, N);
+  
+  KernelCompiler compiler{context.get(), device, commonArgs};
+  
+  kernCarryFused.init(compiler.load("carryfused.cl", "carryFused", "-DCF_MUL=0")); // CF_MUL=0
   kernCarryFused.setFixedArgs(   3, bufCarry, bufReady, bufTrigW, bufBits, bufROE);
+  
+  kernCarryFusedMul.init(compiler.load("carryfused.cl", "carryFused", "-DCF_MUL=1")); // CF_MUL=1
   kernCarryFusedMul.setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE);
+  
+  fftP.init(compiler.load("fftp.cl", "fftP", {}));
   fftP.setFixedArgs(2, bufTrigW);
+  
+  fftW.init(compiler.load("fftw.cl", "fftW", {}));
   fftW.setFixedArgs(2, bufTrigW);
+  
+  fftHin.init(compiler.load("ffthin.cl", "fftHin", {}));
   fftHin.setFixedArgs(2, bufTrigH);
+  
+  fftHout.init(compiler.load("ffthout.cl", "fftHout", {}));
   fftHout.setFixedArgs(1, bufTrigH);
+  
+  fftMiddleIn.init(compiler.load("fftmiddlein.cl", "fftMiddleIn", {}));
   fftMiddleIn.setFixedArgs(2, bufTrigM);
+  
+  fftMiddleOut.init(compiler.load("fftmiddleout.cl", "fftMiddleOut", {}));
   fftMiddleOut.setFixedArgs(2, bufTrigM);
-    
+  
   kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE);
   kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
 
   tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);
   tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
-  tailMulLowLow.setFixedArgs(2, bufTrigH);
   
   tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrigH);
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
@@ -435,9 +450,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   }
 
   bufROE.zero();
-  finish();
-  
-  program.reset();
+  finish();  
 }
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
