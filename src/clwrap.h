@@ -70,8 +70,7 @@ cl_context createContext(cl_device_id id);
 
 Program loadSource(cl_context context, const string& source);
 
-Program compile(cl_context context, cl_device_id device, const string &source, const string &extraArgs,
-                   const std::vector<string>& defines);
+Program compile(cl_context context, cl_device_id device, const string &source, string args);
 
 string getBuildLog(cl_program program, cl_device_id deviceId);
 

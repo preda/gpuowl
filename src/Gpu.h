@@ -71,7 +71,7 @@ class Gpu {
 
   cl_device_id device;
   Context context;
-  Program program;
+  // Program program;
   QueuePtr queue;
   
   Kernel kernCarryFused;
@@ -87,7 +87,6 @@ class Gpu {
   Kernel kernCarryM;
   Kernel carryB;
   
-  Kernel transposeW, transposeH;
   Kernel transposeIn, transposeOut;
 
   Kernel kernelMultiply;
@@ -95,8 +94,7 @@ class Gpu {
   Kernel tailFusedMulLow;
   Kernel tailFusedMul;
   Kernel tailSquareLow;
-  Kernel tailMulLowLow;
-  
+
   Kernel readResidue;
   Kernel isNotZero;
   Kernel isEqual;
