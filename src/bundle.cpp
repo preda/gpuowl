@@ -11,8 +11,8 @@ R"cltag(
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
-//{{ CARRYA
-KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(uint) ROE) {
+KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(uint) ROE,
+                  BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
@@ -53,10 +53,6 @@ KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u
 #endif
 #endif
 }
-//}}
-
-//== CARRYA NAME=kernCarryA,DO_MUL3=0
-//== CARRYA NAME=kernCarryM,DO_MUL3=1
 )cltag",
 
 // src/cl/carryb.cl
@@ -101,10 +97,8 @@ R"cltag(
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-// See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
-//{{ CARRY_FUSED
 KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits, P(uint) ROE) {
+                 CP(u32) bits, P(uint) ROE, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -230,10 +224,32 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
   fft_WIDTH(lds, u, smallTrig);
   write(G_W, NW, u, out, WIDTH * line);
 }
+)cltag",
+
+// src/cl/carryutil.cl
+R"cltag(
+//{{ carries
+Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, float *maxROE, float* carryMax) {
+  iCARRY midCarry;
+  Word a = carryStep(doubleToLong(u.x, maxROE) + inCarry, &midCarry, b1);
+  Word b = carryStep(doubleToLong(u.y, maxROE) + midCarry, outCarry, b2);
+// #if STATS & 0x5
+  *carryMax = max(*carryMax, max(boundCarry(midCarry), boundCarry(*outCarry)));
+// #endif
+  return (Word2) (a, b);
+}
+
+Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
+  i32 tmpCarry;
+  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
+  u.y += tmpCarry;
+  return u;
+}
+
 //}}
 
-//== CARRY_FUSED NAME=kernCarryFused,    CF_MUL=0
-//== CARRY_FUSED NAME=kernCarryFusedMul, CF_MUL=1
+//== carries CARRY=32
+//== carries CARRY=64
 )cltag",
 
 // src/cl/etc.cl
@@ -242,6 +258,7 @@ R"cltag(
 
 #include "gpuowl.cl"
 
+/*
 KERNEL(64) writeGlobals(global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
                         global double2* trigW,
                         global double2* threadWeights, global double2* carryWeights
@@ -259,6 +276,7 @@ KERNEL(64) writeGlobals(global double2* trig2ShDP, global double2* trigBhDP, glo
   for (u32 k = get_global_id(0); k < G_W; k += get_global_size(0)) { THREAD_WEIGHTS[k] = threadWeights[k]; }
   for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
 }
+*/
 
 // Read 64 Word2 starting at position 'startDword'.
 KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
@@ -1271,7 +1289,7 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
 R"cltag(
 #include "gpuowl.cl"
 
-KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig) {
+KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
   T2 u[MIDDLE];
   
   u32 SIZEY = IN_WG / IN_SIZEX;
@@ -1292,11 +1310,11 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig) {
   in += starty * WIDTH + startx;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
 
-  middleMul2(u, startx + mx, starty + my, 1);
+  middleMul2(u, startx + mx, starty + my, 1, TRIG_BHW);
 
   fft_MIDDLE(u);
 
-  middleMul(u, starty + my, trig);
+  middleMul(u, starty + my, trig, TRIG_BHW);
   local T lds[IN_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
@@ -1315,7 +1333,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig) {
 R"cltag(
 #include "gpuowl.cl"
 
-KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
+KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   T2 u[MIDDLE];
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
@@ -1340,7 +1358,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
 
-  middleMul(u, startx + mx, trig);
+  middleMul(u, startx + mx, trig, TRIG_BHW);
 
   fft_MIDDLE(u);
 
@@ -1350,7 +1368,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
   double factor = 1.0 / (4 * 4 * NWORDS);
 
-  middleMul2(u, starty + my, startx + mx, factor);
+  middleMul2(u, starty + my, startx + mx, factor, TRIG_BHW);
   local T lds[OUT_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
 
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
@@ -1372,7 +1390,7 @@ R"cltag(
 #include "gpuowl.cl"
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
-KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
   local T2 lds[WIDTH / 2];
 
   T2 u[NW];
@@ -1836,28 +1854,13 @@ float OVERLOAD boundCarry(i64 c) { return ldexp(fabs((float) (i32) (c >> 8)), -2
 
 typedef TT T2;
 
-//{{ carries
-Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, float *maxROE, float* carryMax) {
-  iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x, maxROE) + inCarry, &midCarry, b1);
-  Word b = carryStep(doubleToLong(u.y, maxROE) + midCarry, outCarry, b2);
-// #if STATS & 0x5
-  *carryMax = max(*carryMax, max(boundCarry(midCarry), boundCarry(*outCarry)));
-// #endif
-  return (Word2) (a, b);
-}
+#define iCARRY i32
+#include "carryutil.cl"
+#undef iCARRY
 
-Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
-  i32 tmpCarry;
-  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
-  u.y += tmpCarry;
-  return u;
-}
-
-//}}
-
-//== carries CARRY=32
-//== carries CARRY=64
+#define iCARRY i64
+#include "carryutil.cl"
+#undef iCARRY
 
 Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, float* maxROE, float* carryMax) {
   i64 midCarry;
@@ -2232,8 +2235,10 @@ double2 reducedCosSin(u32 k, u32 N) {
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
-global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
+// global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
+// global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
+
+typedef global const double2* BigTab;
 
 #if TRIG_COMPUTE == 0
 global double2 TRIG_N[ND / 8 + 1];
@@ -2241,10 +2246,10 @@ global double2 TRIG_N[ND / 8 + 1];
 global double2 TRIG_W[WIDTH / 2 + 1];
 #endif
 
-TT THREAD_WEIGHTS[G_W];
-TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
+// TT THREAD_WEIGHTS[G_W];
+// TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
-double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
+double2 tableTrig(u32 k, u32 n, u32 kBound, BigTab trigTable) {
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
   assert(kBound <= 2 * n);  // angle <= 2 tau
@@ -2273,12 +2278,12 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-double2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
-double2 slowTrig_BH(u32 k, u32 kBound)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
+double2 slowTrig_2SH(u32 k, u32 kBound, BigTab TRIG_2SH) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
+double2 slowTrig_BH(u32 k, u32 kBound, BigTab TRIG_BH)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
 // Inverse trigonometric direction is chosen as an FFT convention.
-double2 slowTrig_N(u32 k, u32 kBound)   {
+double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
   u32 n = ND;
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
@@ -2300,15 +2305,17 @@ double2 slowTrig_N(u32 k, u32 kBound)   {
 
 #if TRIG_COMPUTE >= 2
   double2 r = reducedCosSin(k, n);
-#elif TRIG_COMPUTE == 1
+#else // TRIG_COMPUTE == 1 or TRIG_COMPUTE == 0
   u32 a = (k + WIDTH/2) / WIDTH;
   i32 b = k - a * WIDTH;
   
-  double2 cs1 = TRIG_BH[a];
+  // double2 cs1 = TRIG_BH[a];
+  double2 cs1 = TRIG_BHW[a];
   double c1 = cs1.x;
   double s1 = cs1.y;
   
-  double2 cs2 = TRIG_W[abs(b)];
+  // double2 cs2 = TRIG_W[abs(b)];
+  double2 cs2 = TRIG_BHW[BIG_HEIGHT/8 + 1 + abs(b)];
   double c2 = cs2.x;
   double s2 = (b < 0) ? -cs2.y : cs2.y; 
 
@@ -2318,10 +2325,6 @@ double2 slowTrig_N(u32 k, u32 kBound)   {
   double c = fma(-s1, s2, fma(c1, c2, c1));
   double s = fma(c1, s2, fma(s1, c2, s1));
   double2 r = (double2)(c, s);
-#elif TRIG_COMPUTE == 0
-  double2 r = TRIG_N[k];
-#else
-#error set TRIG_COMPUTE to 0, 1 or 2.
 #endif
 
   if (flip) { r = -swap(r); }
@@ -2497,17 +2500,17 @@ void fft_MIDDLE(T2 *u) {
 #define WADD(i, w) u[i] = mul(u[i], w)
 #define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
 
-void middleMul(T2 *u, u32 s, Trig trig) {
+void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
-  T2 w = slowTrig_BH(s, SMALL_HEIGHT);
+  T2 w = slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
 
 #if MM_CHAIN == 3
 // This is our slowest version - used when we are extremely worried about round off error.
 // Maximum multiply chain length is 1.
   WADD(1, w);
   if ((MIDDLE - 2) % 3) {
-    T2 base = slowTrig_BH(s * 2, SMALL_HEIGHT * 2);
+    T2 base = slowTrig_BH(s * 2, SMALL_HEIGHT * 2, TRIG_BH);
     WADD(2, base);
     if ((MIDDLE - 2) % 3 == 2) {
       WADD(3, base);
@@ -2515,7 +2518,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
     }
   }
   for (i32 i = (MIDDLE - 2) % 3 + 3; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_BH(s * i, SMALL_HEIGHT * i);
+    T2 base = slowTrig_BH(s * i, SMALL_HEIGHT * i, TRIG_BH);
     WADD(i - 1, base);
     WADD(i, base);
     WADD(i + 1, base);
@@ -2537,7 +2540,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
     group_size = MIDDLE - 3;
 #endif
     i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint);
+    T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
     T2 base2 = base;
     WADD(midpoint, base);
     for (i32 i = 1; i <= group_size / 2; ++i) {
@@ -2565,16 +2568,16 @@ void middleMul(T2 *u, u32 s, Trig trig) {
 #endif
 }
 
-void middleMul2(T2 *u, u32 x, u32 y, double factor) {
+void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
-  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
+  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
   
 #if MM2_CHAIN == 3
 // This is our slowest version - used when we are extremely worried about round off error.
 // Maximum multiply chain length is 1.
   if (MIDDLE % 3) {
-    T2 base = slowTrig_N(x * y, ND / MIDDLE) * factor;
+    T2 base = slowTrig_N(x * y, ND / MIDDLE, TRIG_BHW) * factor;
     WADD(0, base);
     if (MIDDLE % 3 == 2) {
       WADD(1, base);
@@ -2582,7 +2585,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor) {
     }
   }
   for (i32 i = MIDDLE % 3 + 1; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * i + x * y, ND / MIDDLE * (i + 1)) * factor;
+    T2 base = slowTrig_N(x * SMALL_HEIGHT * i + x * y, ND / MIDDLE * (i + 1), TRIG_BHW) * factor;
     WADD(i - 1, base);
     WADD(i, base);
     WADD(i + 1, base);
@@ -2602,7 +2605,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor) {
     group_size = MIDDLE;
 #endif
     i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * midpoint + x * y, ND / MIDDLE * (midpoint + 1)) * factor;
+    T2 base = slowTrig_N(x * SMALL_HEIGHT * midpoint + x * y, ND / MIDDLE * (midpoint + 1), TRIG_BHW) * factor;
     T2 base2 = base;
     WADD(midpoint, base);
     for (i32 i = 1; i <= group_size / 2; ++i) {
@@ -2618,7 +2621,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor) {
 
 // This is our fastest version - used when we are not worried about round off error.
 // Maximum multiply chain length equals MIDDLE.
-  T2 base = slowTrig_N(x * y, ND/MIDDLE) * factor;
+  T2 base = slowTrig_N(x * y, ND/MIDDLE, TRIG_BHW) * factor;
   for (i32 i = 0; i < MIDDLE; ++i) {
     WADD(i, base);
     base = mul(base, w);
@@ -2828,8 +2831,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
 R"cltag(
 #include "gpuowl.cl"
 
-//{{ MULTIPLY
-KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
+KERNEL(SMALL_HEIGHT / 2) kernelMultiply(P(T2) io, CP(T2) in, BigTab TRIG_BHW) {
   u32 W = SMALL_HEIGHT;
   u32 H = ND / W;
 
@@ -2837,13 +2839,8 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
   u32 me = get_local_id(0);
 
   if (line1 == 0 && me == 0) {
-#if MULTIPLY_DELTA
-    io[0]     = foo2_m2(conjugate(io[0]), conjugate(inA[0] - inB[0]));
-    io[W / 2] = conjugate(mul_m4(io[W / 2], inA[W / 2] - inB[W / 2]));
-#else
     io[0]     = foo2_m2(conjugate(io[0]), conjugate(in[0]));
     io[W / 2] = conjugate(mul_m4(io[W / 2], in[W / 2]));
-#endif
     return;
   }
 
@@ -2854,21 +2851,12 @@ KERNEL(SMALL_HEIGHT / 2) NAME(P(T2) io, CP(T2) in) {
   u32 v = g2 * W + (W - 1) - me + (line1 == 0);
   T2 a = io[k];
   T2 b = io[v];
-#if MULTIPLY_DELTA
-  T2 c = inA[k] - inB[k];
-  T2 d = inA[v] - inB[v];
-#else
   T2 c = in[k];
   T2 d = in[v];
-#endif
-  onePairMul(a, b, c, d, swap_squared(slowTrig_N(me * H + line1, ND / 4)));
+  onePairMul(a, b, c, d, swap_squared(slowTrig_N(me * H + line1, ND / 4, TRIG_BHW)));
   io[k] = a;
   io[v] = b;
 }
-//}}
-
-//== MULTIPLY NAME=kernelMultiply, MULTIPLY_DELTA=0
-
 )cltag",
 
 // src/cl/tailfusedmul.cl
@@ -2877,19 +2865,11 @@ R"cltag(
 
 #include "gpuowl.cl"
 
-//{{ TAIL_FUSED_MUL
-#if MUL_2LOW
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig2) {
-#else
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
-#if MUL_DELTA
-                 CP(T2) b,
-#endif
-                 Trig smallTrig1, Trig smallTrig2) {
+KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig1, Trig smallTrig2,
+                         BigTab TRIG_2SH, BigTab TRIG_BHW) {
   // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
-#endif
   
   local T2 lds[SMALL_HEIGHT / 2];
 
@@ -2904,15 +2884,7 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
     
-#if MUL_DELTA
-  readTailFusedLine(in, u, line1);
-  readTailFusedLine(in, v, line2);
-  readDelta(G_H, NH, p, a, b, memline1 * SMALL_HEIGHT);
-  readDelta(G_H, NH, q, a, b, memline2 * SMALL_HEIGHT);
-  fft_HEIGHT(lds, u, smallTrig1);
-  bar();
-  fft_HEIGHT(lds, v, smallTrig1);
-#elif MUL_LOW
+#if MUL_LOW
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
   read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
@@ -2920,11 +2892,6 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   fft_HEIGHT(lds, u, smallTrig1);
   bar();
   fft_HEIGHT(lds, v, smallTrig1);
-#elif MUL_2LOW
-  read(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
-  read(G_H, NH, p, in, memline1 * SMALL_HEIGHT);
-  read(G_H, NH, q, in, memline2 * SMALL_HEIGHT);
 #else
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
@@ -2943,19 +2910,19 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   if (line1 == 0) {
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2), true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH), true);
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
 
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
-    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2), false);
+    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH), false);
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig_N(line1 + me * H, ND / 4), false);
+    pairMul(NH, u, v, p, q, slowTrig_N(line1 + me * H, ND / 4, TRIG_BHW), false);
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }
@@ -2968,19 +2935,14 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, CP(T2) a,
   fft_HEIGHT(lds, u, smallTrig2);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
-//}}
-
-//== TAIL_FUSED_MUL NAME=tailMulLowLow,   MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=1
-//== TAIL_FUSED_MUL NAME=tailFusedMulLow, MUL_DELTA=0, MUL_LOW=1, MUL_2LOW=0
-//== TAIL_FUSED_MUL NAME=tailFusedMul,    MUL_DELTA=0, MUL_LOW=0, MUL_2LOW=0
 )cltag",
 
 // src/cl/tailsquare.cl
 R"cltag(
 #include "gpuowl.cl"
 
-//{{ TAIL_SQUARE
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
+KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2,
+                            BigTab TRIG_2SH, BigTab TRIG_BHW) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];
@@ -3008,16 +2970,16 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);    
-    pairSq(NH/2, u,   u + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2), true);
+    pairSq(NH/2, u,   u + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH), true);
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2), false);
+    pairSq(NH/2, v,   v + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH), false);
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / 4), false);
+    pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / 4, TRIG_BHW), false);
     reverseLine(G_H, lds, v);
   }
 
@@ -3028,13 +2990,9 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
-//}}
-
-//== TAIL_SQUARE NAME=tailFusedSquare, TAIL_FUSED_LOW=0
-//== TAIL_SQUARE NAME=tailSquareLow,   TAIL_FUSED_LOW=1
 )cltag",
 
 };
-static const std::vector<const char*> CL_FILE_NAMES{"carry","carryb","carryfused","etc","fft10","fft11","fft12","fft13","fft14","fft15","fft5","fft6","fft7","fft9","ffthin","ffthout","fftmiddlein","fftmiddleout","fftp","fftw","gpuowl","multiply","tailfusedmul","tailsquare",};
-const std::vector<const char*>& getClFileNames() { return CL_FILES; }
-const std::vector<const char*>& getClFiles() { return CL_FILE_NAMES; }
+static const std::vector<const char*> CL_FILE_NAMES{"carry.cl","carryb.cl","carryfused.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft5.cl","fft6.cl","fft7.cl","fft9.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","gpuowl.cl","multiply.cl","tailfusedmul.cl","tailsquare.cl",};
+const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }
+const std::vector<const char*>& getClFiles() { return CL_FILES; }

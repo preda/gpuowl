@@ -2,6 +2,7 @@
 
 #include "gpuowl.cl"
 
+/*
 KERNEL(64) writeGlobals(global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
                         global double2* trigW,
                         global double2* threadWeights, global double2* carryWeights
@@ -19,6 +20,7 @@ KERNEL(64) writeGlobals(global double2* trig2ShDP, global double2* trigBhDP, glo
   for (u32 k = get_global_id(0); k < G_W; k += get_global_size(0)) { THREAD_WEIGHTS[k] = threadWeights[k]; }
   for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
 }
+*/
 
 // Read 64 Word2 starting at position 'startDword'.
 KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {

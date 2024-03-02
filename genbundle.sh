@@ -11,7 +11,7 @@ names=
 
 for xx in $*
 do
-    x=`basename $xx .cl`
+    x=`basename $xx`
     
     if [ "$x" = "genbundle.sh" ] ; then continue ; fi
     
@@ -29,6 +29,6 @@ echo \}\;
 echo static const std::vector\<const char*\> CL_FILE_NAMES\{${names}\}\;
 
 cat <<EOM
-const std::vector<const char*>& getClFileNames() { return CL_FILES; }
-const std::vector<const char*>& getClFiles() { return CL_FILE_NAMES; }
+const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }
+const std::vector<const char*>& getClFiles() { return CL_FILES; }
 EOM

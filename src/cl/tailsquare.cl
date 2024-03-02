@@ -1,7 +1,7 @@
 #include "gpuowl.cl"
 
-//{{ TAIL_SQUARE
-KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
+KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2,
+                            BigTab TRIG_2SH, BigTab TRIG_BHW) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];
@@ -29,16 +29,16 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);    
-    pairSq(NH/2, u,   u + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2), true);
+    pairSq(NH/2, u,   u + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH), true);
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2), false);
+    pairSq(NH/2, v,   v + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH), false);
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / 4), false);
+    pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / 4, TRIG_BHW), false);
     reverseLine(G_H, lds, v);
   }
 
@@ -49,7 +49,3 @@ KERNEL(G_H) NAME(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2) {
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
-//}}
-
-//== TAIL_SQUARE NAME=tailFusedSquare, TAIL_FUSED_LOW=0
-//== TAIL_SQUARE NAME=tailSquareLow,   TAIL_FUSED_LOW=1

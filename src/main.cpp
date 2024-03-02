@@ -17,7 +17,8 @@ namespace fs = std::filesystem;
 
 int main(int argc, char **argv) {
   initLog();
-
+  log("PRPLL %s\n", VERSION);
+  
   int exitCode = 0;
 
   try {
@@ -42,7 +43,7 @@ int main(int argc, char **argv) {
     Args args;
     
     initLog((poolDir / "gpuowl.log").string().c_str());
-    log("PRPOwl %s\n", VERSION);
+    log("PRPLL %s\n", VERSION);
     
     if (!poolDir.empty()) { args.readConfig(poolDir / "config.txt"); }
     args.readConfig("config.txt");

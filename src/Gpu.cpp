@@ -118,17 +118,16 @@ ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middl
 }
 
 template<typename T>
-vector<pair<T, T>> makeTrig(u32 n) {
+vector<pair<T, T>> makeTrig(u32 n, vector<pair<T,T>> tab = {}) {
   assert(n % 8 == 0);
-  vector<pair<T, T>> tab;
-  tab.reserve(n/8 + 1);
+  tab.reserve(tab.size() + n/8 + 1);
   for (u32 k = 0; k <= n/8; ++k) { tab.push_back(root1<T>(n, k)); }
   return tab;
 }
 
 template<typename T>
-vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN) {
-  vector<pair<T, T>> tab;
+vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN, vector<pair<T, T>> tab = {}) {
+  tab.reserve(tab.size() + W/2 + 1);
   for (u32 k = 0; k <= W/2; ++k) {
     auto[c, s] = root1<f128>(hN, k);
     tab.push_back({c - 1, s});
@@ -337,47 +336,50 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   device(device),
   context{device},
   queue(Queue::make(context, timeKernels, args.cudaYield)),
-
-  // Specifies size in number of workgroups
-#define LOAD(name, groupSize, workSize) name{#name, queue, groupSize, workSize}
-  // program.get(), queue, device, nGroups, #name}
-  // Specifies size in "work size": workSize == nGroups * groupSize
-  // #define LOAD_WS(name, workSize) name{program.get(), queue, device, #name, workSize}
   
-  LOAD(kernCarryFused,    W / nW, W * (BIG_H + 1) / nW),
-  LOAD(kernCarryFusedMul, W / nW, W * (BIG_H + 1) / nW),
+#define K(name, ...) name(#name, queue, __VA_ARGS__)
+  K(kernCarryFused,    "carryfused.cl", "carryFused", "-DCF_MUL=0", W / nW, W * (BIG_H + 1) / nW),
+  K(kernCarryFusedMul, "carryfused.cl", "carryFused", "-DCF_MUL=1", W / nW, W * (BIG_H + 1) / nW),
   
-  LOAD(fftP,         hN / nW),
-  LOAD(fftW,         hN / nW),
-  LOAD(fftHin,       hN / nH),
-  LOAD(fftHout,      hN / nH),
-  LOAD(fftMiddleIn,  hN / (BIG_H / SMALL_H)),
-  LOAD(fftMiddleOut, hN / (BIG_H / SMALL_H)),
-  LOAD(kernCarryA,   hN / CARRY_LEN),
-  LOAD(kernCarryM,   hN / CARRY_LEN),
-  LOAD(carryB,       hN / CARRY_LEN),
+  K(fftP, "fftp.cl", "fftP", "",        W / nW, hN / nW),
+  K(fftW, "fftw.cl", "fftW", "",        W / nW, hN / nW),
   
-  LOAD(transposeIn,  hN / 64),
-  LOAD(transposeOut, hN / 64),
+  K(fftHin,  "ffthin.cl",  "fftHin",  "",      SMALL_H / nH, hN / nH),
+  K(fftHout, "ffthout.cl", "fftHout", "",      SMALL_H / nH, hN / nH),
   
-  LOAD(kernelMultiply,    hN / 2),
+  K(fftMiddleIn,  "fftmiddlein.cl",  "fftMiddleIn",  "", 256, hN / (BIG_H / SMALL_H)),
+  K(fftMiddleOut, "fftmiddleout.cl", "fftMiddleOut", "", 256, hN / (BIG_H / SMALL_H)),
   
-  LOAD(tailFusedSquare,   hN / nH / 2),
+  K(kernCarryA, "carry.cl", "carry", "-DDO_MUL3=0", W / nW, hN / CARRY_LEN),
+  K(kernCarryM, "carry.cl", "carry", "-DDO_MUL3=1", W / nW, hN / CARRY_LEN),
+  K(carryB, "carryb.cl", "carryB", "", W / nW, hN / CARRY_LEN),
   
-  LOAD(tailFusedMulLow,   hN / nH / 2),
-  LOAD(tailFusedMul,      hN / nH / 2),
+  K(transposeIn,  "etc.cl", "transposeIn",  "", 64, hN / 64),
+  K(transposeOut, "etc.cl", "transposeOut", "", 64, hN / 64),
   
-  LOAD(tailSquareLow,     hN / nH / 2),
+  K(kernelMultiply, "multiply.cl", "kernelMultiply", "", SMALL_H / 2, hN / 2),
   
-  LOAD(readResidue, 64),
-  LOAD(isNotZero, 256 * 256),
-  LOAD(isEqual, 256 * 256),
-  LOAD(sum64, 256 * 256),
-#undef LOAD
+  K(tailFusedSquare, "tailsquare.cl", "tailFusedSquare", "-DTAIL_FUSED_LOW=0", SMALL_H / nH, hN / nH / 2),
+  K(tailSquareLow,   "tailsquare.cl", "tailFusedSquare", "-DTAIL_FUSED_LOW=1", SMALL_H / nH, hN / nH / 2),
+  
+  K(tailFusedMul, "tailfusedmul.cl", "tailFusedMul", "-DMUL_LOW=0",  SMALL_H / nH, hN / nH / 2),
+  K(tailFusedMulLow, "tailfusedmul.cl", "tailFusedMul", "-DMUL_LOW=1", SMALL_H / nH, hN / nH / 2),
+  
+  K(readResidue, "etc.cl", "readResidue", "", 64, 64),
+  K(isNotZero, "etc.cl", "isNotZero", "", 256, 256 * 256),
+  K(isEqual, "etc.cl", "isEqual", "", 256, 256 * 256),
+  K(sum64, "etc.cl", "sum64", "", 256, 256 * 256),
+#undef K
 
   bufTrigW{genSmallTrig(context, W, nW)},
   bufTrigH{genSmallTrig(context, SMALL_H, nH)},
   bufTrigM{genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
+  
+  bufTrigBHW{context, "trigBHW", makeTinyTrig(W, hN, makeTrig<double>(BIG_H))},
+  bufTrig2SH{context, "trig2SH", makeTrig<double>(2 * SMALL_H)},
+  bufThreadWeights{context, "threadWeights", weights.threadWeightsIF},
+  bufCarryWeights{context,  "carryWeights",  weights.carryWeightsIF},
+  
   bufBits{context, "bits", weights.bitsCF},
   bufBitsC{context, "bitsC", weights.bitsC},
   bufData{queue, "data", N},
@@ -396,58 +398,49 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   statsBits{u32(args.value("STATS"))},
   args{args}
 {
-  // Program program{compile(args, context.get(), device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW)};
-  
   string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args, N);
   
   KernelCompiler compiler{context.get(), device, commonArgs};
+  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul,
+       &fftP, &fftW, &fftHin, &fftHout,
+       &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryB,
+       &transposeIn, &transposeOut, &kernelMultiply,
+       &tailFusedMulLow, &tailFusedMul, &tailFusedSquare, &tailSquareLow, 
+       &readResidue, &isNotZero, &isEqual, &sum64}) {
+    k->load(compiler, device);
+  }
   
-  kernCarryFused.init(compiler.load("carryfused.cl", "carryFused", "-DCF_MUL=0")); // CF_MUL=0
-  kernCarryFused.setFixedArgs(   3, bufCarry, bufReady, bufTrigW, bufBits, bufROE);
-  
-  kernCarryFusedMul.init(compiler.load("carryfused.cl", "carryFused", "-DCF_MUL=1")); // CF_MUL=1
-  kernCarryFusedMul.setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE);
-  
-  fftP.init(compiler.load("fftp.cl", "fftP", {}));
-  fftP.setFixedArgs(2, bufTrigW);
-  
-  fftW.init(compiler.load("fftw.cl", "fftW", {}));
+  kernCarryFused.setFixedArgs(   3, bufCarry, bufReady, bufTrigW, bufBits, bufROE,
+                                 bufThreadWeights, bufCarryWeights);
+  kernCarryFusedMul.setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE,
+                                 bufThreadWeights, bufCarryWeights);
+  fftP.setFixedArgs(2, bufTrigW, bufThreadWeights, bufCarryWeights);  
   fftW.setFixedArgs(2, bufTrigW);
-  
-  fftHin.init(compiler.load("ffthin.cl", "fftHin", {}));
   fftHin.setFixedArgs(2, bufTrigH);
-  
-  fftHout.init(compiler.load("ffthout.cl", "fftHout", {}));
   fftHout.setFixedArgs(1, bufTrigH);
   
-  fftMiddleIn.init(compiler.load("fftmiddlein.cl", "fftMiddleIn", {}));
-  fftMiddleIn.setFixedArgs(2, bufTrigM);
+  fftMiddleIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
+  fftMiddleOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
+  kernelMultiply.setFixedArgs(2, bufTrigBHW);
   
-  fftMiddleOut.init(compiler.load("fftmiddleout.cl", "fftMiddleOut", {}));
-  fftMiddleOut.setFixedArgs(2, bufTrigM);
-  
-  kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE);
-  kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE);
+  kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
+  kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
-
-  tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH);
-  tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH);
-  
-  tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrigH);
-  tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH);
+  tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH, bufTrig2SH, bufTrigBHW);
 
   bufReady.zero();
 
-  {
-    Kernel{program.get(), queue, device, 32, "writeGlobals"}(ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
-                                                             ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
-                                                             ConstBuffer{context, "dp3", makeTrig<double>(hN)},
-                                                             ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)},
-
-                                                             ConstBuffer{context, "w2", weights.threadWeightsIF},
-                                                             ConstBuffer{context, "w3", weights.carryWeightsIF}
-                                                             );
-  }
+  /*
+  writeGlobals(ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
+               ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
+               ConstBuffer{context, "dp3", makeTrig<double>(hN)},
+               ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)},
+               ConstBuffer{context, "w2", weights.threadWeightsIF},
+               ConstBuffer{context, "w3", weights.carryWeightsIF});
+               */
 
   bufROE.zero();
   finish();  
@@ -628,14 +621,14 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   writeCheck(check);
   bufData << bufCheck;
   bufAux  << bufCheck;
-
+  
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     modSqLoop(bufData, 0, n);
     modMul(bufData, bufData, bufAux, buf1, buf2, buf3);
     bufAux << bufData;
   }
-
+  
   assert((n & (n - 1)) == 0);
   assert(blockSize % n == 0);
     
@@ -842,6 +835,14 @@ void Gpu::doCarry(Buffer<double>& out, Buffer<double>& in) {
 void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3) {
   if (leadIn) {
     fftP(buf2, in);
+    // auto d = readData(); log("Data %u\n", d[0]); // RM
+    /*
+    auto t = buf2.read();
+    for (int i = 0; i < t.size(); ++i) {
+      if (t[i] != 0) { log("[%d] = %f\n", i, t[i]); }
+    }
+    */
+    // log("buf2 %f\n", t[0]);
     tW(buf1, buf2);    
   }
   
@@ -1052,15 +1053,6 @@ fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
   throw "bad proof generation";
 }
 
-/*
-vector<bool> reverse(const vector<bool>& c) {
-  vector<bool> ret;
-  ret.reserve(c.size());
-  for (auto it = c.end(), beg = c.begin(); it > beg;) { ret.push_back(*--it); }
-  return ret;
-}
-*/
-
 [[nodiscard]] vector<bool> addLE(const vector<bool>& a, const vector<bool>& b) {
   vector<bool> c;
   c.reserve(max(a.size(), b.size()) + 1);
@@ -1113,8 +1105,19 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   
  reload:
   {
-    PRPState loaded = saver.loadPRP(args.blockSize);    
+    PRPState loaded = saver.loadPRP(args.blockSize);
+    
+    /*
+    writeCheck(loaded.check);
+    bufData << bufCheck;
+    auto d = readData();
+    log("Data %u\n", d[0]);
+    */
+    
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
+    
+    // auto d = readData();
+    // log("Data %u\n", d[0]);
     
     u64 res = dataResidue();
     if (res == loaded.res64) {

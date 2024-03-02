@@ -2,7 +2,9 @@
 
 #pragma once
 
-#include "Buffer.h"
+#include "common.h"
+#include "clwrap.h"
+#include "Context.h"
 
 #include <algorithm>
 #include <map>
