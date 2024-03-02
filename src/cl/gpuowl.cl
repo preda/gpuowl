@@ -414,28 +414,13 @@ float OVERLOAD boundCarry(i64 c) { return ldexp(fabs((float) (i32) (c >> 8)), -2
 
 typedef TT T2;
 
-//{{ carries
-Word2 OVERLOAD carryPair(T2 u, iCARRY *outCarry, bool b1, bool b2, iCARRY inCarry, float *maxROE, float* carryMax) {
-  iCARRY midCarry;
-  Word a = carryStep(doubleToLong(u.x, maxROE) + inCarry, &midCarry, b1);
-  Word b = carryStep(doubleToLong(u.y, maxROE) + midCarry, outCarry, b2);
-// #if STATS & 0x5
-  *carryMax = max(*carryMax, max(boundCarry(midCarry), boundCarry(*outCarry)));
-// #endif
-  return (Word2) (a, b);
-}
+#define iCARRY i32
+#include "carryutil.cl"
+#undef iCARRY
 
-Word2 OVERLOAD carryFinal(Word2 u, iCARRY inCarry, bool b1) {
-  i32 tmpCarry;
-  u.x = carryStep(u.x + inCarry, &tmpCarry, b1);
-  u.y += tmpCarry;
-  return u;
-}
-
-//}}
-
-//== carries CARRY=32
-//== carries CARRY=64
+#define iCARRY i64
+#include "carryutil.cl"
+#undef iCARRY
 
 Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, float* maxROE, float* carryMax) {
   i64 midCarry;
@@ -810,8 +795,10 @@ double2 reducedCosSin(u32 k, u32 N) {
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
-global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
+// global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
+// global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
+
+typedef global const double2* BigTab;
 
 #if TRIG_COMPUTE == 0
 global double2 TRIG_N[ND / 8 + 1];
@@ -819,10 +806,10 @@ global double2 TRIG_N[ND / 8 + 1];
 global double2 TRIG_W[WIDTH / 2 + 1];
 #endif
 
-TT THREAD_WEIGHTS[G_W];
-TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
+// TT THREAD_WEIGHTS[G_W];
+// TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
 
-double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
+double2 tableTrig(u32 k, u32 n, u32 kBound, BigTab trigTable) {
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
   assert(kBound <= 2 * n);  // angle <= 2 tau
@@ -851,12 +838,12 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, global double2* trigTable) {
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-double2 slowTrig_2SH(u32 k, u32 kBound) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
-double2 slowTrig_BH(u32 k, u32 kBound)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
+double2 slowTrig_2SH(u32 k, u32 kBound, BigTab TRIG_2SH) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
+double2 slowTrig_BH(u32 k, u32 kBound, BigTab TRIG_BH)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
 // Inverse trigonometric direction is chosen as an FFT convention.
-double2 slowTrig_N(u32 k, u32 kBound)   {
+double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
   u32 n = ND;
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
@@ -878,15 +865,17 @@ double2 slowTrig_N(u32 k, u32 kBound)   {
 
 #if TRIG_COMPUTE >= 2
   double2 r = reducedCosSin(k, n);
-#elif TRIG_COMPUTE == 1
+#else // TRIG_COMPUTE == 1 or TRIG_COMPUTE == 0
   u32 a = (k + WIDTH/2) / WIDTH;
   i32 b = k - a * WIDTH;
   
-  double2 cs1 = TRIG_BH[a];
+  // double2 cs1 = TRIG_BH[a];
+  double2 cs1 = TRIG_BHW[a];
   double c1 = cs1.x;
   double s1 = cs1.y;
   
-  double2 cs2 = TRIG_W[abs(b)];
+  // double2 cs2 = TRIG_W[abs(b)];
+  double2 cs2 = TRIG_BHW[BIG_HEIGHT/8 + 1 + abs(b)];
   double c2 = cs2.x;
   double s2 = (b < 0) ? -cs2.y : cs2.y; 
 
@@ -896,10 +885,6 @@ double2 slowTrig_N(u32 k, u32 kBound)   {
   double c = fma(-s1, s2, fma(c1, c2, c1));
   double s = fma(c1, s2, fma(s1, c2, s1));
   double2 r = (double2)(c, s);
-#elif TRIG_COMPUTE == 0
-  double2 r = TRIG_N[k];
-#else
-#error set TRIG_COMPUTE to 0, 1 or 2.
 #endif
 
   if (flip) { r = -swap(r); }
@@ -1075,17 +1060,17 @@ void fft_MIDDLE(T2 *u) {
 #define WADD(i, w) u[i] = mul(u[i], w)
 #define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
 
-void middleMul(T2 *u, u32 s, Trig trig) {
+void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
-  T2 w = slowTrig_BH(s, SMALL_HEIGHT);
+  T2 w = slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
 
 #if MM_CHAIN == 3
 // This is our slowest version - used when we are extremely worried about round off error.
 // Maximum multiply chain length is 1.
   WADD(1, w);
   if ((MIDDLE - 2) % 3) {
-    T2 base = slowTrig_BH(s * 2, SMALL_HEIGHT * 2);
+    T2 base = slowTrig_BH(s * 2, SMALL_HEIGHT * 2, TRIG_BH);
     WADD(2, base);
     if ((MIDDLE - 2) % 3 == 2) {
       WADD(3, base);
@@ -1093,7 +1078,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
     }
   }
   for (i32 i = (MIDDLE - 2) % 3 + 3; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_BH(s * i, SMALL_HEIGHT * i);
+    T2 base = slowTrig_BH(s * i, SMALL_HEIGHT * i, TRIG_BH);
     WADD(i - 1, base);
     WADD(i, base);
     WADD(i + 1, base);
@@ -1115,7 +1100,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
     group_size = MIDDLE - 3;
 #endif
     i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint);
+    T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
     T2 base2 = base;
     WADD(midpoint, base);
     for (i32 i = 1; i <= group_size / 2; ++i) {
@@ -1143,16 +1128,16 @@ void middleMul(T2 *u, u32 s, Trig trig) {
 #endif
 }
 
-void middleMul2(T2 *u, u32 x, u32 y, double factor) {
+void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
-  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
+  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
   
 #if MM2_CHAIN == 3
 // This is our slowest version - used when we are extremely worried about round off error.
 // Maximum multiply chain length is 1.
   if (MIDDLE % 3) {
-    T2 base = slowTrig_N(x * y, ND / MIDDLE) * factor;
+    T2 base = slowTrig_N(x * y, ND / MIDDLE, TRIG_BHW) * factor;
     WADD(0, base);
     if (MIDDLE % 3 == 2) {
       WADD(1, base);
@@ -1160,7 +1145,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor) {
     }
   }
   for (i32 i = MIDDLE % 3 + 1; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * i + x * y, ND / MIDDLE * (i + 1)) * factor;
+    T2 base = slowTrig_N(x * SMALL_HEIGHT * i + x * y, ND / MIDDLE * (i + 1), TRIG_BHW) * factor;
     WADD(i - 1, base);
     WADD(i, base);
     WADD(i + 1, base);
@@ -1180,7 +1165,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor) {
     group_size = MIDDLE;
 #endif
     i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * midpoint + x * y, ND / MIDDLE * (midpoint + 1)) * factor;
+    T2 base = slowTrig_N(x * SMALL_HEIGHT * midpoint + x * y, ND / MIDDLE * (midpoint + 1), TRIG_BHW) * factor;
     T2 base2 = base;
     WADD(midpoint, base);
     for (i32 i = 1; i <= group_size / 2; ++i) {
@@ -1196,7 +1181,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor) {
 
 // This is our fastest version - used when we are not worried about round off error.
 // Maximum multiply chain length equals MIDDLE.
-  T2 base = slowTrig_N(x * y, ND/MIDDLE) * factor;
+  T2 base = slowTrig_N(x * y, ND/MIDDLE, TRIG_BHW) * factor;
   for (i32 i = 0; i < MIDDLE; ++i) {
     WADD(i, base);
     base = mul(base, w);

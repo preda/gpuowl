@@ -19,7 +19,7 @@
 
 int Args::value(const string& key) const {
   auto it = flags.find(key);
-  if (it == flags.end()) { return 0; }
+  if (it == flags.end()) { return -1; }
   return atoi(it->second.c_str());
 }
 

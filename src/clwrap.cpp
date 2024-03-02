@@ -36,7 +36,7 @@ array<string, 71> ERR_MES = {
 "INVALID_DEVICE_QUEUE"
 };
 
-static string errMes(int err) {
+string errMes(int err) {
   return (err <= 0 && err >= -70) ? ERR_MES[-err] : 
     (err == -1001) ? "ICD_NOT_FOUND" : ""s + to_string(err);
 }

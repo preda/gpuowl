@@ -1,6 +1,6 @@
 #include "gpuowl.cl"
 
-KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
+KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   T2 u[MIDDLE];
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
@@ -25,7 +25,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
 
-  middleMul(u, startx + mx, trig);
+  middleMul(u, startx + mx, trig, TRIG_BHW);
 
   fft_MIDDLE(u);
 
@@ -35,7 +35,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
   double factor = 1.0 / (4 * 4 * NWORDS);
 
-  middleMul2(u, starty + my, startx + mx, factor);
+  middleMul2(u, starty + my, startx + mx, factor, TRIG_BHW);
   local T lds[OUT_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
 
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);

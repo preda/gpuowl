@@ -71,7 +71,6 @@ class Gpu {
 
   cl_device_id device;
   Context context;
-  // Program program;
   QueuePtr queue;
   
   Kernel kernCarryFused;
@@ -91,21 +90,26 @@ class Gpu {
 
   Kernel kernelMultiply;
   Kernel tailFusedSquare;
-  Kernel tailFusedMulLow;
-  Kernel tailFusedMul;
   Kernel tailSquareLow;
+  Kernel tailFusedMul;
+  Kernel tailFusedMulLow;
 
   Kernel readResidue;
   Kernel isNotZero;
   Kernel isEqual;
   Kernel sum64;
-  
   // Kernel testKernel;
 
   // Trigonometry constant buffers, used in FFTs.
   ConstBuffer<double2> bufTrigW;
   ConstBuffer<double2> bufTrigH;
   ConstBuffer<double2> bufTrigM;
+  
+  ConstBuffer<double2> bufTrigBHW;
+  ConstBuffer<double2> bufTrig2SH;
+  ConstBuffer<double> bufThreadWeights;
+  ConstBuffer<double> bufCarryWeights;
+  
 
   ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
   ConstBuffer<u32> bufBitsC; // bigWord bits aligned for CarryA/M

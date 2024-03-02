@@ -4,10 +4,8 @@
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
-// See tools/expand.py for the meaning of '//{{', '//}}', '//==' -- a form of macro expansion
-//{{ CARRY_FUSED
 KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits, P(uint) ROE) {
+                 CP(u32) bits, P(uint) ROE, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -133,7 +131,3 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
   fft_WIDTH(lds, u, smallTrig);
   write(G_W, NW, u, out, WIDTH * line);
 }
-//}}
-
-//== CARRY_FUSED NAME=kernCarryFused,    CF_MUL=0
-//== CARRY_FUSED NAME=kernCarryFusedMul, CF_MUL=1

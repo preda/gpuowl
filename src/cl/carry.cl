@@ -3,8 +3,8 @@
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
-//{{ CARRYA
-KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(uint) ROE) {
+KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(uint) ROE,
+                  BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
@@ -45,7 +45,3 @@ KERNEL(G_W) NAME(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u
 #endif
 #endif
 }
-//}}
-
-//== CARRYA NAME=kernCarryA,DO_MUL3=0
-//== CARRYA NAME=kernCarryM,DO_MUL3=1

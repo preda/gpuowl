@@ -3,7 +3,7 @@
 #include "gpuowl.cl"
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
-KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig) {
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
   local T2 lds[WIDTH / 2];
 
   T2 u[NW];

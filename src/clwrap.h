@@ -45,6 +45,7 @@ class Context;
 
 std::string getUUID(int seqId);
 
+std::string errMes(int err);
 void check(int err, const char *file, int line, const char *func, string_view mes);
 
 #define CHECK1(err) check(err, __FILE__, __LINE__, __func__, #err)
@@ -77,10 +78,10 @@ string getBuildLog(cl_program program, cl_device_id deviceId);
 cl_kernel makeKernel(cl_program program, const char *name);
 
 template<typename T>
-void setArg(cl_kernel k, int pos, const T &value) { CHECK1(clSetKernelArg(k, pos, sizeof(value), &value)); }
+void setArg(cl_kernel k, int pos, const T &value, const string& name) { CHECK2(clSetKernelArg(k, pos, sizeof(value), &value), name.c_str()); }
 
 template<>
-void setArg<int>(cl_kernel k, int pos, const int &value);
+void setArg<int>(cl_kernel k, int pos, const int &value, const string& name);
 
 cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr = 0);
 cl_queue makeQueue(cl_device_id d, cl_context c, bool profile);
