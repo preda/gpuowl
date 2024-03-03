@@ -29,12 +29,14 @@ Program KernelCompiler::newProgram(const string& fileName) const {
 // * -fno-bin-llvmir
 // * various: -fno-bin-source -fno-bin-amdil
 
-KernelCompiler::KernelCompiler(string_view cacheDir, cl_context context, cl_device_id deviceId, const string& args) :
+KernelCompiler::KernelCompiler(string_view cacheDir, cl_context context, cl_device_id deviceId,
+                               const string& args, string_view dump) :
   cacheDir{cacheDir},
   context{context},
   deviceId{deviceId},
   linkArgs{"-cl-finite-math-only " },
-  baseArgs{linkArgs + "-cl-std=CL2.0 " + args}
+  baseArgs{linkArgs + "-cl-std=CL2.0 " + args},
+  dump{dump}
 {
 
   string hw = getDriverVersion(deviceId) + ':' + getDeviceName(deviceId);
@@ -64,6 +66,9 @@ Program KernelCompiler::compile(const string& fileName, const string& extraArgs)
   if (!p1) { return {}; }
   
   string args = baseArgs + ' ' + extraArgs;
+  if (!dump.empty()) {
+    args += " -save-temps="s + dump + "/" + fileName;
+  }
   int err = clCompileProgram(p1.get(), 1, &deviceId, args.c_str(),
                              clSources.size(), (const cl_program*) (clSources.data()), getClFileNames().data(),
                              nullptr, nullptr);

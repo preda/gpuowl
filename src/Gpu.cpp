@@ -302,9 +302,10 @@ string clArgs(cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MI
   return s;
 }
 
-string clArgs(const Args& args, u32 N) {
-  string s = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
+string clArgs(const Args& args) {
+  // string s = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
   
+  string s;
   for (const auto& [key, val] : args.flags) {
     s += " -D" + key + '=' + toLiteral(val);
   }
@@ -398,9 +399,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   statsBits{u32(args.value("STATS"))},
   args{args}
 {
-  string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args, N);
+  string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
-  KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs};
+  KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs, args.dump};
   for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul,
        &fftP, &fftW, &fftHin, &fftHout,
        &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryB,
