@@ -83,7 +83,14 @@ string getBdfFromDevice(cl_device_id id) {
 vector<cl_device_id> getAllDeviceIDs() {
   cl_platform_id platforms[16];
   int nPlatforms = 0;
-  CHECK1(clGetPlatformIDs(16, platforms, (unsigned *) &nPlatforms));
+  int err = clGetPlatformIDs(16, platforms, (unsigned *) &nPlatforms);
+  if (err == -1001) {
+    log("No OpenCL platforms found (ICD_NOT_FOUND)\n");
+    assert(nPlatforms == 0);
+  } else {
+    CHECK2(err, "clGetPlatformIDs");
+  }
+
   vector<cl_device_id> ret;
   cl_device_id devices[64];
   for (int i = 0; i < nPlatforms; ++i) {
