@@ -1,7 +1,6 @@
 #include "gpuowl.cl"
 
-KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTrig2,
-                            BigTab TRIG_2SH, BigTab TRIG_BHW) {
+KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab TRIG_BHW) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];
@@ -20,9 +19,9 @@ KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTri
 #else
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
-  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, u, smallTrig);
   bar();
-  fft_HEIGHT(lds, v, smallTrig1);
+  fft_HEIGHT(lds, v, smallTrig);
 #endif
 
   u32 me = get_local_id(0);
@@ -43,9 +42,9 @@ KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTri
   }
 
   bar();
-  fft_HEIGHT(lds, v, smallTrig1);
+  fft_HEIGHT(lds, v, smallTrig);
   bar();
-  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }

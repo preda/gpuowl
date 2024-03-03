@@ -427,24 +427,14 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
   kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
-  tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrigH, bufTrig2SH, bufTrigBHW);
-  tailFusedMul.setFixedArgs(3, bufTrigH, bufTrigH, bufTrig2SH, bufTrigBHW);
-  tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrigH, bufTrig2SH, bufTrigBHW);
-  tailSquareLow.setFixedArgs(2, bufTrigH, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailFusedMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailSquareLow.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
 
   bufReady.zero();
-
-  /*
-  writeGlobals(ConstBuffer{context, "dp1", makeTrig<double>(2 * SMALL_H)},
-               ConstBuffer{context, "dp2", makeTrig<double>(BIG_H)},
-               ConstBuffer{context, "dp3", makeTrig<double>(hN)},
-               ConstBuffer{context, "dp4", makeTinyTrig<double>(W, hN)},
-               ConstBuffer{context, "w2", weights.threadWeightsIF},
-               ConstBuffer{context, "w3", weights.carryWeightsIF});
-               */
-
   bufROE.zero();
-  finish();  
+  finish();
 }
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
