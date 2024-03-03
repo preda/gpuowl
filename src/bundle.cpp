@@ -258,26 +258,6 @@ R"cltag(
 
 #include "gpuowl.cl"
 
-/*
-KERNEL(64) writeGlobals(global double2* trig2ShDP, global double2* trigBhDP, global double2* trigNDP,
-                        global double2* trigW,
-                        global double2* threadWeights, global double2* carryWeights
-                        ) {
-  for (u32 k = get_global_id(0); k < 2 * SMALL_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_2SH[k] = trig2ShDP[k]; }
-  for (u32 k = get_global_id(0); k < BIG_HEIGHT/8 + 1; k += get_global_size(0)) { TRIG_BH[k] = trigBhDP[k]; }
-
-#if TRIG_COMPUTE == 0
-  for (u32 k = get_global_id(0); k < ND/8 + 1; k += get_global_size(0)) { TRIG_N[k] = trigNDP[k]; }
-#elif TRIG_COMPUTE == 1
-  for (u32 k = get_global_id(0); k <= WIDTH/2; k += get_global_size(0)) { TRIG_W[k] = trigW[k]; }
-#endif
-
-  // Weights
-  for (u32 k = get_global_id(0); k < G_W; k += get_global_size(0)) { THREAD_WEIGHTS[k] = threadWeights[k]; }
-  for (u32 k = get_global_id(0); k < BIG_HEIGHT / CARRY_LEN; k += get_global_size(0)) { CARRY_WEIGHTS[k] = carryWeights[k]; }  
-}
-*/
-
 // Read 64 Word2 starting at position 'startDword'.
 KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
   u32 me = get_local_id(0);
@@ -321,18 +301,6 @@ KERNEL(256) isNotZero(P(bool) outNotZero, u32 sizeBytes, global i64 *in) {
       return;
     }
   }
-}
-
-// from transposed to sequential.
-KERNEL(64) transposeOut(P(Word2) out, CP(Word2) in) {
-  local Word2 lds[4096];
-  transposeWords(WIDTH, BIG_HEIGHT, lds, in, out);
-}
-
-// from sequential to transposed.
-KERNEL(64) transposeIn(P(Word2) out, CP(Word2) in) {
-  local Word2 lds[4096];
-  transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
 }
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
@@ -1438,7 +1406,7 @@ KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
 
 // src/cl/gpuowl.cl
 R"cltag(
-// Copyright Mihai Preda and George Woltman.
+// Copyright (C) Mihai Preda and George Woltman.
 
 /* List of user-serviceable -use flags and their effects : see also help (-h)
 
@@ -1492,8 +1460,7 @@ NH         == SMALL_HEIGHT / G_H
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
-// 64-bit atomics were used in kernel sum64
-// If 64-bit atomics aren't available, sum64() can be implemented with 32-bit
+// 64-bit atomics are not used ATM
 // #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 // #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
 
@@ -2235,9 +2202,6 @@ double2 reducedCosSin(u32 k, u32 N) {
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
-// global double2 TRIG_2SH[SMALL_HEIGHT / 4 + 1];
-// global double2 TRIG_BH[BIG_HEIGHT / 8 + 1];
-
 typedef global const double2* BigTab;
 
 #if TRIG_COMPUTE == 0
@@ -2332,28 +2296,6 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
   if (negate) { r = -r; }
   
   return r;
-}
-
-void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out) {
-  u32 GPW = W / 64, GPH = H / 64;
-
-  u32 g = get_group_id(0);
-  u32 gy = g % GPH;
-  u32 gx = g / GPH;
-  gx = (gy + gx) % GPW;
-
-  in   += 64 * W * gy + 64 * gx;
-  out  += 64 * gy + 64 * H * gx;
-  u32 me = get_local_id(0);
-  #pragma unroll 1
-  for (i32 i = 0; i < 64; ++i) {
-    lds[i * 64 + me] = in[i * W + me];
-  }
-  bar();
-  #pragma unroll 1
-  for (i32 i = 0; i < 64; ++i) {
-    out[i * H + me] = lds[me * 64 + i];
-  }
 }
 
 #define P(x) global x * restrict
@@ -2992,7 +2934,48 @@ KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig1, Trig smallTri
 }
 )cltag",
 
+// src/cl/transpose.cl
+R"cltag(
+// Copyright (C) Mihai Preda
+
+#include "gpuowl.cl"
+
+void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out) {
+  u32 GPW = W / 64, GPH = H / 64;
+
+  u32 g = get_group_id(0);
+  u32 gy = g % GPH;
+  u32 gx = g / GPH;
+  gx = (gy + gx) % GPW;
+
+  in   += 64 * W * gy + 64 * gx;
+  out  += 64 * gy + 64 * H * gx;
+  u32 me = get_local_id(0);
+  #pragma unroll 1
+  for (i32 i = 0; i < 64; ++i) {
+    lds[i * 64 + me] = in[i * W + me];
+  }
+  bar();
+  #pragma unroll 1
+  for (i32 i = 0; i < 64; ++i) {
+    out[i * H + me] = lds[me * 64 + i];
+  }
+}
+
+// from transposed to sequential.
+KERNEL(64) transposeOut(P(Word2) out, CP(Word2) in) {
+  local Word2 lds[4096];
+  transposeWords(WIDTH, BIG_HEIGHT, lds, in, out);
+}
+
+// from sequential to transposed.
+KERNEL(64) transposeIn(P(Word2) out, CP(Word2) in) {
+  local Word2 lds[4096];
+  transposeWords(BIG_HEIGHT, WIDTH, lds, in, out);
+}
+)cltag",
+
 };
-static const std::vector<const char*> CL_FILE_NAMES{"carry.cl","carryb.cl","carryfused.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft5.cl","fft6.cl","fft7.cl","fft9.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","gpuowl.cl","multiply.cl","tailfusedmul.cl","tailsquare.cl",};
+static const std::vector<const char*> CL_FILE_NAMES{"carry.cl","carryb.cl","carryfused.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft5.cl","fft6.cl","fft7.cl","fft9.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","gpuowl.cl","multiply.cl","tailfusedmul.cl","tailsquare.cl","transpose.cl",};
 const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }
 const std::vector<const char*>& getClFiles() { return CL_FILES; }

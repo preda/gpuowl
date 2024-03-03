@@ -44,6 +44,7 @@ KernelCompiler::KernelCompiler(string_view cacheDir, cl_context context, cl_devi
 
   SHA3 hasher;
   hasher.update(hw);
+  hasher.update(baseArgs);
 
   auto& clNames = getClFileNames();
   auto& clFiles = getClFiles();

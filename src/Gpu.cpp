@@ -355,8 +355,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   K(kernCarryM, "carry.cl", "carry", "-DDO_MUL3=1", W / nW, hN / CARRY_LEN),
   K(carryB, "carryb.cl", "carryB", "", W / nW, hN / CARRY_LEN),
   
-  K(transposeIn,  "etc.cl", "transposeIn",  "", 64, hN / 64),
-  K(transposeOut, "etc.cl", "transposeOut", "", 64, hN / 64),
+  K(transposeIn,  "transpose.cl", "transposeIn",  "", 64, hN / 64),
+  K(transposeOut, "transpose.cl", "transposeOut", "", 64, hN / 64),
   
   K(kernelMultiply, "multiply.cl", "kernelMultiply", "", SMALL_H / 2, hN / 2),
   
