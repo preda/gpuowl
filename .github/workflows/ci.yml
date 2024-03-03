@@ -30,11 +30,11 @@ jobs:
         make -O -j "$(nproc)"
         cd build-release
         rm -f -- *.o
-        ./gpuowl -h
+        ./prpll -h
     - uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: ${{ matrix.os }}_${{ matrix.cxx }}_gpuowl
+        name: ${{ matrix.os }}_${{ matrix.cxx }}_prpll
         path: ${{ github.workspace }}
     - name: Cppcheck
       run: cppcheck --enable=all --force .
@@ -77,10 +77,9 @@ jobs:
         make -O -j $env:NUMBER_OF_PROCESSORS
         cd build-release
         rm *.o
-        mv gpuowl.exe gpuowl-win.exe
-        .\gpuowl-win.exe -h
+        .\prpll.exe -h
     - uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: win_${{ matrix.cxx }}_gpuowl
+        name: win_${{ matrix.cxx }}_prpll
         path: ${{ github.workspace }}
