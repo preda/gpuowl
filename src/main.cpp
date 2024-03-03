@@ -61,11 +61,15 @@ int main(int argc, char **argv) {
     }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
-  } catch (const std::exception& e) {
+  }
+  /*catch (const std::exception& e) {
     log("Exception %s: %s\n", typeName(e), e.what());
+    throw;
   } catch (...) {
     log("Unexpected exception\n");
+    throw;
   }
+  */
 
   // background.wait();
   // if (factorFoundForExp) { Worktodo::deletePRP(factorFoundForExp); }

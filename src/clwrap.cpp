@@ -37,8 +37,10 @@ array<string, 71> ERR_MES = {
 };
 
 string errMes(int err) {
-  return (err <= 0 && err >= -70) ? ERR_MES[-err] : 
-    (err == -1001) ? "ICD_NOT_FOUND" : ""s + to_string(err);
+  string nb = " ("s + to_string(err) + ")";
+  string mes = (err <= 0 && err >= -70) ? ERR_MES[-err] : 
+    (err == -1001) ? "ICD_NOT_FOUND" : ""s;
+  return mes + nb;
 }
 
 class gpu_error : public std::runtime_error {
@@ -228,6 +230,7 @@ string getBuildLog(cl_program program, cl_device_id deviceId) {
   size_t logSize;
   clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
   if (logSize > 1) {
+    logSize = std::min(logSize, size_t(2048));
     std::unique_ptr<char[]> buf(new char[logSize + 1]);
     clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
     buf.get()[logSize] = 0;
