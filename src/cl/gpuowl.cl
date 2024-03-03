@@ -572,8 +572,10 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 
 #if AMDGPU
 typedef constant const T2* Trig;
+typedef constant const double2* BigTab;
 #else
 typedef global const T2* Trig;
+typedef global const double2* BigTab;
 #endif
 
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
@@ -793,8 +795,6 @@ double2 reducedCosSin(u32 k, u32 N) {
   assert(k <= N/8);
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
-
-typedef global const double2* BigTab;
 
 #if TRIG_COMPUTE == 0
 global double2 TRIG_N[ND / 8 + 1];
