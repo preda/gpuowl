@@ -7,6 +7,8 @@
 # Uncomment below as desired to set a particular compiler or force a debug build:
 # CXX = g++-12
 # DEBUG = 1
+# or export those into environment, or pass on the command line e.g.
+# make all DEBUG=1 CXX=g++-12
 
 ifeq ($(DEBUG), 1)
 
@@ -23,8 +25,6 @@ CXXFLAGS = -Wall -O2 -DNDEBUG -std=gnu++17
 STRIP=-s
 
 endif
-
-# CPPFLAGS = -I$(BIN)
 
 SRCS1 = bundle.cpp KernelCompiler.cpp Kernel.cpp gpuid.cpp File.cpp ProofCache.cpp Proof.cpp Memlock.cpp log.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp Saver.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp sha3.cpp md5.cpp version.cpp
 

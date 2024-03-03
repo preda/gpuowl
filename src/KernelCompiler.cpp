@@ -49,7 +49,7 @@ Program KernelCompiler::compile(const string& fileName, const string& extraArgs)
                              nullptr, nullptr);
   if (string mes = getBuildLog(p1.get(), deviceId); !mes.empty()) { log("%s\n", mes.c_str()); }
   if (err != CL_SUCCESS) {
-    log("Compiling '%s' error %d (args %s)\n", fileName.c_str(), err, args.c_str());
+    log("Compiling '%s' error %s (args %s)\n", fileName.c_str(), errMes(err).c_str(), args.c_str());
     return {};
   }
   
@@ -57,7 +57,7 @@ Program KernelCompiler::compile(const string& fileName, const string& extraArgs)
                            1, (cl_program *) &p1, nullptr, nullptr, &err)};
   if (string mes = getBuildLog(p1.get(), deviceId); !mes.empty()) { log("%s\n", mes.c_str()); }
   if (err != CL_SUCCESS) {
-    log("OpenCL link error %s (%d) (args %s)\n", errMes(err).c_str(), err, linkArgs.c_str());
+    log("Linking '%s' error %s (args %s)\n", fileName.c_str(), errMes(err).c_str(), linkArgs.c_str());
   }
   return p2;
 }
