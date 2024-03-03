@@ -7,3 +7,4 @@ src/version.inc
 *.log
 t?
 results.txt
+kernel-cache

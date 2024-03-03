@@ -69,13 +69,12 @@ string getBdfFromDevice(cl_device_id id);
 
 cl_context createContext(cl_device_id id);
 
-Program loadSource(cl_context context, const string& source);
-
-Program compile(cl_context context, cl_device_id device, const string &source, string args);
-
 string getBuildLog(cl_program program, cl_device_id deviceId);
 
-cl_kernel makeKernel(cl_program program, const char *name);
+Program loadBinary(cl_context context, cl_device_id deviceId, string_view fileName);
+Program loadSource(cl_context context, const string& source);
+cl_kernel loadKernel(cl_program program, const char *name);
+void saveBinary(cl_program program, string_view fileName);
 
 template<typename T>
 void setArg(cl_kernel k, int pos, const T &value, const string& name) { CHECK2(clSetKernelArg(k, pos, sizeof(value), &value), name.c_str()); }

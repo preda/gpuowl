@@ -204,19 +204,6 @@ void release(cl_queue queue)     { CHECK1(clReleaseCommandQueue(queue)); }
 void release(cl_kernel k)        { CHECK1(clReleaseKernel(k)); }
 void release(cl_event event)     { CHECK1(clReleaseEvent(event)); }
 
-string getBinary(cl_program program) {
-  size_t size;
-  CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
-  auto buf = make_unique<char[]>(size + 1);
-  char *ptr = buf.get();
-  CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &ptr, NULL));
-  return {buf.get(), size};
-}
-
-void dumpBinary(cl_program program, const string &fileName) {
-  File::openWrite(fileName).write(getBinary(program));
-}
-
 Program loadSource(cl_context context, const string &source) {
   const char *ptr = source.c_str();
   size_t size = source.size();
@@ -230,7 +217,7 @@ string getBuildLog(cl_program program, cl_device_id deviceId) {
   size_t logSize;
   clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
   if (logSize > 1) {
-    logSize = std::min(logSize, size_t(2048));
+    logSize = std::min(logSize, size_t(5000));
     std::unique_ptr<char[]> buf(new char[logSize + 1]);
     clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
     buf.get()[logSize] = 0;
@@ -239,58 +226,39 @@ string getBuildLog(cl_program program, cl_device_id deviceId) {
   return {};
 }
 
-static void build(cl_program program, cl_device_id device, string args) {
-  Timer timer;
-  int err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
-  bool ok = (err == CL_SUCCESS);
-  if (!ok) {
-    log("ASM compilation failed, retrying compilation using NO_ASM\n");
-    args += " -DNO_ASM=1";
-    err = clBuildProgram(program, 0, NULL, args.c_str(), NULL, NULL);
-    ok = (err == CL_SUCCESS);
-  }
-  
-  if (!ok) { log("OpenCL compilation error %d (args %s)\n", err, args.c_str()); }
-  if (string mes = getBuildLog(program, device); !mes.empty()) { log("%s\n", mes.c_str()); }
-  
-  if (ok) {
-    log("OpenCL compilation in %.2f s\n", timer.reset());
-  } else {
-    CHECK2(err, "clBuildProgram");
-  }
-}
-
-cl_program loadBinary(cl_context context, cl_device_id id, const string &fileName) {
-  string bytes = File::openRead(fileName).readAll();
+Program loadBinary(cl_context context, cl_device_id id, string_view fileName) {
+  File f = File::openRead(fileName);
+  if (!f) { return {}; }
+  string bytes = f.readAll();
   size_t size = bytes.size();
   const unsigned char *ptr = reinterpret_cast<const unsigned char *>(bytes.c_str());
   int err = 0;
   cl_program program = clCreateProgramWithBinary(context, 1, &id, &size, &ptr, NULL, &err);
-  CHECK2(err, "clCreateProgramWithBinary");
-  assert(program);
-  build(program, id, "");
-  return program;
-}
-
-Program compile(cl_context context, cl_device_id device, const string &source, string args) {
-  args += " -cl-std=CL2.0 -cl-finite-math-only ";
-
-  // -cl-fast-relaxed-math  -cl-unsafe-math-optimizations -cl-denorms-are-zero -cl-mad-enable 
-  log("OpenCL args \"%s\"\n", args.c_str());
-  
-  Program program;
-  if ((program = loadSource(context, source))) {
-    build(program.get(), device, std::move(args));
+  if (err) {
+    log("Load binary %s : %s\n", string(fileName).c_str(), errMes(err).c_str());
+    return {};
   }
-  
-  return program;
+  if ((err = clBuildProgram(program, 1, &id, NULL, NULL, NULL))) {
+    log("Build binary %s : %s\n", string(fileName).c_str(), errMes(err).c_str());
+    return {};
+  }
+  return Program{program};
 }
-  // Other options:
-  // * -cl-uniform-work-group-size
-  // * -fno-bin-llvmir
-  // * various: -fno-bin-source -fno-bin-amdil
 
-cl_kernel makeKernel(cl_program program, const char *name) {
+string getBinary(cl_program program) {
+  size_t size;
+  CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size, NULL));
+  auto buf = make_unique<char[]>(size + 1);
+  char *ptr = buf.get();
+  CHECK1(clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(&buf), &ptr, NULL));
+  return {buf.get(), size};
+}
+
+void saveBinary(cl_program program, string_view fileName) {
+  File::openWrite(fileName).write(getBinary(program));
+}
+
+cl_kernel loadKernel(cl_program program, const char *name) {
   int err;
   cl_kernel k = clCreateKernel(program, name, &err);
   if (err == CL_INVALID_KERNEL_NAME) { return nullptr; }

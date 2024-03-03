@@ -400,7 +400,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 {
   string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args, N);
   
-  KernelCompiler compiler{context.get(), device, commonArgs};
+  KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs};
   for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul,
        &fftP, &fftW, &fftHin, &fftHout,
        &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryB,
