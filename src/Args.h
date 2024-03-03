@@ -21,7 +21,7 @@ public:
   void parse(const string& line);
   void setDefaults();
   bool uses(const std::string& key) const { return flags.find(key) != flags.end(); }
-  int value(const std::string& key) const;
+  int value(const std::string& key, int valNotFound = -1) const;
   void readConfig(const fs::path& path);
   
   bool silent;

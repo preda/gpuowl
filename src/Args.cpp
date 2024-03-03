@@ -17,9 +17,9 @@
 #include <sstream>
 #include <algorithm>
 
-int Args::value(const string& key) const {
+int Args::value(const string& key, int valNotFound) const {
   auto it = flags.find(key);
-  if (it == flags.end()) { return -1; }
+  if (it == flags.end()) { return valNotFound; }
   return atoi(it->second.c_str());
 }
 
