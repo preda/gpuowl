@@ -2210,9 +2210,6 @@ global double2 TRIG_N[ND / 8 + 1];
 global double2 TRIG_W[WIDTH / 2 + 1];
 #endif
 
-// TT THREAD_WEIGHTS[G_W];
-// TT CARRY_WEIGHTS[BIG_HEIGHT / CARRY_LEN];
-
 double2 tableTrig(u32 k, u32 n, u32 kBound, BigTab trigTable) {
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k

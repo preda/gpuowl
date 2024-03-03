@@ -826,14 +826,6 @@ void Gpu::doCarry(Buffer<double>& out, Buffer<double>& in) {
 void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3) {
   if (leadIn) {
     fftP(buf2, in);
-    // auto d = readData(); log("Data %u\n", d[0]); // RM
-    /*
-    auto t = buf2.read();
-    for (int i = 0; i < t.size(); ++i) {
-      if (t[i] != 0) { log("[%d] = %f\n", i, t[i]); }
-    }
-    */
-    // log("buf2 %f\n", t[0]);
     tW(buf1, buf2);    
   }
   
@@ -1097,19 +1089,9 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
  reload:
   {
     PRPState loaded = saver.loadPRP(args.blockSize);
-    
-    /*
-    writeCheck(loaded.check);
-    bufData << bufCheck;
-    auto d = readData();
-    log("Data %u\n", d[0]);
-    */
-    
+        
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
-    
-    // auto d = readData();
-    // log("Data %u\n", d[0]);
-    
+        
     u64 res = dataResidue();
     if (res == loaded.res64) {
       log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res);
