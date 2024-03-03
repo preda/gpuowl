@@ -297,7 +297,7 @@ string clArgs(cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MI
   defines.push_back({"FWEIGHTS", fWeights});
   string s;
   for (const auto& d : defines) {
-    s += " -D" + d;
+    s += " -D"s + string(d);
   }
   return s;
 }
