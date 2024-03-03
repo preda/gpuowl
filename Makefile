@@ -14,14 +14,14 @@ ifeq ($(DEBUG), 1)
 
 BIN=build-debug
 
-CXXFLAGS = -Wall -g -std=gnu++17
+CXXFLAGS = -Wall -g -std=c++20
 STRIP=
 
 else
 
 BIN=build-release
 
-CXXFLAGS = -Wall -O2 -DNDEBUG -std=gnu++17
+CXXFLAGS = -Wall -O2 -DNDEBUG -std=c++20
 STRIP=-s
 
 endif

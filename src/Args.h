@@ -50,6 +50,7 @@ public:
   fs::path tmpDir = ".";
   fs::path proofResultDir = "proof";
   fs::path proofToVerifyDir = "proof-tmp";
+  fs::path cacheDir = "kernel-cache";
   fs::path mprimeDir = ".";
 
   bool keepProof = false;

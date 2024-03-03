@@ -8,6 +8,7 @@
 #include <string>
 
 class KernelCompiler {
+  std::string cacheDir;
   cl_context context;
   cl_device_id deviceId;
   std::string linkArgs;
@@ -15,12 +16,14 @@ class KernelCompiler {
   
   std::vector<Program> clSources;
   std::vector<std::pair<std::string, std::string>> files;
+
+  u64 contextHash{};
   
   Program newProgram(const string& fileName) const;
   Program compile(const string& fileName, const string& args) const;
   
 public:
-  KernelCompiler(cl_context context, cl_device_id deviceId, const string& args);
+  KernelCompiler(string_view cacheDir, cl_context context, cl_device_id deviceId, const string& args);
   
   KernelHolder load(const string& fileName, const string& kernelName, const string& args) const;
 };

@@ -1,7 +1,9 @@
 #include "KernelCompiler.h"
+#include "Sha3Hash.h"
 #include "log.h"
 #include "timeutil.h"
 #include <cassert>
+#include <cinttypes>
 
 using namespace std;
 
@@ -21,12 +23,26 @@ Program KernelCompiler::newProgram(const string& fileName) const {
   return {};
 }
 
-KernelCompiler::KernelCompiler(cl_context context, cl_device_id deviceId, const string& args) :
+// -cl-fast-relaxed-math  -cl-unsafe-math-optimizations -cl-denorms-are-zero -cl-mad-enable
+// Other options:
+// * -cl-uniform-work-group-size
+// * -fno-bin-llvmir
+// * various: -fno-bin-source -fno-bin-amdil
+
+KernelCompiler::KernelCompiler(string_view cacheDir, cl_context context, cl_device_id deviceId, const string& args) :
+  cacheDir{cacheDir},
   context{context},
   deviceId{deviceId},
   linkArgs{"-cl-finite-math-only " },
   baseArgs{linkArgs + "-cl-std=CL2.0 " + args}
 {
+
+  string hw = getDriverVersion(deviceId) + ':' + getDeviceName(deviceId);
+  log("OpenCL context %s, args %s\n", hw.c_str(), baseArgs.c_str());
+
+  SHA3 hasher;
+  hasher.update(hw);
+
   auto& clNames = getClFileNames();
   auto& clFiles = getClFiles();
   assert(clNames.size() == clFiles.size());
@@ -35,8 +51,12 @@ KernelCompiler::KernelCompiler(cl_context context, cl_device_id deviceId, const 
     auto &src = clFiles[i];
     files.push_back({clNames[i], src});
     clSources.push_back(loadSource(context, src));
+
+    hasher.update(clNames[i]);
+    hasher.update(src);
   }
-  log("CL args: %s\n", baseArgs.c_str());
+  contextHash = std::move(hasher).finish()[0];
+  log("OpenCL %d files, hash %016" PRIx64 "\n", n, contextHash);
 }
 
 Program KernelCompiler::compile(const string& fileName, const string& extraArgs) const {
@@ -62,14 +82,41 @@ Program KernelCompiler::compile(const string& fileName, const string& extraArgs)
   return p2;
 }
 
+static string to_hex(u64 d) {
+  char buf[64];
+  snprintf(buf, sizeof(buf), "%016" PRIx64, d);
+  return buf;
+}
+
 KernelHolder KernelCompiler::load(const string& fileName, const string& kernelName, const string& args) const {
   Timer timer;
-  Program program = compile(fileName, args);
-  KernelHolder ret{makeKernel(program.get(), kernelName.c_str())};
-  if (!ret) {
-    log("Can't load kernel '%s' from '%s'\n", kernelName.c_str(), fileName.c_str());
-    throw "Can't load "s + kernelName;
+  bool fromCache = true;
+
+  string f = kernelName + '-' + to_hex(SHA3::hash(contextHash, fileName, kernelName, args)[0]);
+  string cacheFile = cacheDir + '/' + f;
+  Program program = loadBinary(context, deviceId, cacheFile);
+
+
+  if (!program) {
+    fromCache = false;
+    program = compile(fileName, args);
   }
-  log("Loaded kernel '%s' from '%s' in %.0fms\n", kernelName.c_str(), fileName.c_str(), timer.at() * 1000);
+
+  if (!program) {
+    log("Can't compile %s\n", fileName.c_str());
+    throw "Can't compile " + fileName;
+  }
+
+  KernelHolder ret{loadKernel(program.get(), kernelName.c_str())};
+  if (!ret) {
+    log("Can't find %s in %s\n", kernelName.c_str(), fileName.c_str());
+    throw "Can't find "s + kernelName + " in " + fileName;
+  }
+
+  if (!fromCache) {
+    saveBinary(program.get(), cacheFile);
+    log("Loaded %s from %s in %.0fms\n", kernelName.c_str(), fileName.c_str(), timer.at() * 1000);
+  }
+
   return ret;
 }
