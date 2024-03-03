@@ -2,7 +2,7 @@
 
 #include "gpuowl.cl"
 
-KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig1, Trig smallTrig2,
+KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
                          BigTab TRIG_2SH, BigTab TRIG_BHW) {
   // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
@@ -26,21 +26,21 @@ KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig1, Trig s
   readTailFusedLine(in, v, line2);
   read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
   read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
-  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, u, smallTrig);
   bar();
-  fft_HEIGHT(lds, v, smallTrig1);
+  fft_HEIGHT(lds, v, smallTrig);
 #else
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
   readTailFusedLine(a, p, line1);
   readTailFusedLine(a, q, line2);
-  fft_HEIGHT(lds, u, smallTrig1);
+  fft_HEIGHT(lds, u, smallTrig);
   bar();
-  fft_HEIGHT(lds, v, smallTrig1);
+  fft_HEIGHT(lds, v, smallTrig);
   bar();
-  fft_HEIGHT(lds, p, smallTrig1);
+  fft_HEIGHT(lds, p, smallTrig);
   bar();
-  fft_HEIGHT(lds, q, smallTrig1);
+  fft_HEIGHT(lds, q, smallTrig);
 #endif
 
   u32 me = get_local_id(0);
@@ -65,10 +65,10 @@ KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig1, Trig s
   }
 
   bar();
-  fft_HEIGHT(lds, v, smallTrig2);
+  fft_HEIGHT(lds, v, smallTrig);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
 
   bar();
-  fft_HEIGHT(lds, u, smallTrig2);
+  fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }
