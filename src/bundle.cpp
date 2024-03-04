@@ -2485,7 +2485,7 @@ void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
 }
 )cltag",
 
-// src/cl/tailfusedmul.cl
+// src/cl/tailmul.cl
 R"cltag(
 // Copyright (C) Mihai Preda and George Woltman
 
@@ -2547,7 +2547,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   }
 }
 
-KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
+KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
                          BigTab TRIG_2SH, BigTab TRIG_BHW) {
   // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
@@ -2678,7 +2678,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   }
 }
 
-KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab TRIG_BHW) {
+KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab TRIG_BHW) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];
@@ -2691,7 +2691,7 @@ KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2S
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
 
-#if TAIL_FUSED_LOW
+#if MUL_LOW
   read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
   read(G_H, NH, v, in, memline2 * SMALL_HEIGHT);
 #else
@@ -3006,6 +3006,6 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
 )cltag",
 
 };
-static const std::vector<const char*> CL_FILE_NAMES{"carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft5.cl","fft6.cl","fft7.cl","fft9.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","gpuowl.cl","middle.cl","tailfusedmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl",};
+static const std::vector<const char*> CL_FILE_NAMES{"carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft5.cl","fft6.cl","fft7.cl","fft9.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","gpuowl.cl","middle.cl","tailmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl",};
 const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }
 const std::vector<const char*>& getClFiles() { return CL_FILES; }
