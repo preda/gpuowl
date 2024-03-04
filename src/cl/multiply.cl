@@ -1,4 +1,7 @@
+// Copyright (C) Mihai Preda
+
 #include "gpuowl.cl"
+#include "trig.cl"
 
 KERNEL(SMALL_HEIGHT / 2) kernelMultiply(P(T2) io, CP(T2) in, BigTab TRIG_BHW) {
   u32 W = SMALL_HEIGHT;
