@@ -89,7 +89,7 @@ class Gpu {
   Kernel transposeIn, transposeOut;
 
   Kernel kernelMultiply;
-  Kernel tailFusedSquare;
+  Kernel tailSquare;
   Kernel tailSquareLow;
   Kernel tailFusedMul;
   Kernel tailFusedMulLow;
@@ -145,7 +145,6 @@ class Gpu {
 
   void tW(Buffer<double>& out, Buffer<double>& in);
   void tH(Buffer<double>& out, Buffer<double>& in);
-  void tailSquare(Buffer<double>& out, Buffer<double>& in) { tailFusedSquare(out, in); }
   
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(Buffer<int>& buf, const vector<i32> &words);
@@ -206,10 +205,6 @@ public:
   void square(Buffer<int>& data);
 
   void finish() { queue->finish(); }
-
-  // acc := acc * data; with "data" in lowish position.
-  void accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
-
   
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   static void doDiv9(u32 E, Words& words);

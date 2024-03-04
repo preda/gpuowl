@@ -64,31 +64,32 @@ void Args::readConfig(const fs::path& path) {
 
 void Args::printHelp() {
   printf(R"(
-GpuOwl is an OpenCL program for primality testing of Mersenne numbers (numbers of the form 2^n - 1).
-To run GpuOwl you need a computer with one or more discrete GPUs.
+PRPLL is "PRobable Prime and Lucas-Lehmer Cathegorizer", AKA "Purple-cat"
+PRPLL is under active development and not ready for production use.
+
+PRPLL is an OpenCL (GPU) program for primality testing Mersenne numbers (of the form 2^n - 1).
 
 To check that OpenCL is installed correctly use the command "clinfo". If clinfo does not find any
-devices or otherwise fails, GpuOwl will not run -- you need to first fix the OpenCL installation
-to get clinfo to find devices.
+devices or otherwise fails, this program will not run.
 
-GpuOwl runs best on Linux with the ROCm OpenCL stack, but can also run on Windows and on Nvidia GPUs.
+This program is tested on Linux/ROCm (AMD GPUs); it may also run on Windows and on Nvidia GPUs.
 
-For more information about Mersenne primes search see https://www.mersenne.org/
+For information about Mersenne primes search see https://www.mersenne.org/
 
-First step: run "gpuowl -h". If this displays a list of OpenCL devices at the end, it means that
-gpuowl is detecting the GPUs correctly and will be able to run.
+Run "prpll -h"; If this displays a list of OpenCL devices, it means that PRPLL is detecting the GPUs
+and should be able to run.
 
-To use GpuOwl you need to create a file named "worktodo.txt" containing the exponent to be tested.
-The tool primenet.py (found at gpuowl/tools/primenet.py) can be used to automatically obtain tasks
-from the mersenne project and add them to worktodo.txt.
+To use PRPLL you need to create a file named "worktodo.txt" containing the exponent to be tested.
+The tool primenet.py (found at tools/primenet.py) can be used to automatically obtain tasks
+from the mersenne project.
 
 The configuration options listed below can be passed on the command line or can be put in a file
-named "config.txt" in the gpuowl run directory.
+named "config.txt" in the prpll run directory.
 
 
 -dir <folder>      : specify local work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
 -pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
-                     Multiple GpuOwl instances, each in its own directory, can share a pool of assignments and report
+                     Multiple PRPLL instances, each in its own directory, can share a pool of assignments and report
                      the results back to the common pool.
 -user <name>       : specify the user name.
 -cpu  <name>       : specify the hardware name.
@@ -97,9 +98,6 @@ named "config.txt" in the gpuowl run directory.
 -block <value>     : PRP error-check block size. Must divide 10'000.
 -log <step>        : log every <step> iterations. Multiple of 10'000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
--B1                : P-1 B1 bound
--B2                : P-1 B2 bound
--rB2               : ratio of B2 to B1. Default %u, used only if B2 is not explicitly set
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -verify <file>     : verify PRP-proof contained in <file>
 -proof <power>     : generate proof of power <power> (default %u).
@@ -111,8 +109,6 @@ named "config.txt" in the gpuowl run directory.
 -mprimeDir <dir>   : folder where an instance of Prime95/mprime can be found (for P-1 second-stage), default '%s'.
 -results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
--maxAlloc <size>   : limit GPU memory usage to size, which is a value with suffix M for MB and G for GB.
-                     e.g. -maxAlloc 2048M or -maxAlloc 3.5G
 -save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
 -from <iteration>  : start at the given iteration instead of the most recent saved iteration
@@ -142,15 +138,13 @@ named "config.txt" in the gpuowl run directory.
                      For carry, the range [0, 2^32] is mapped to [0.0, 1.0] float values; as such the max carry
                      that fits on 32bits (i.e. 31bits absolute value) is mapped to 0.5
 
--unsafeMath        : use OpenCL -cl-unsafe-math-optimizations (use at your own risk)
-
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
 -pci    <BDF>      : select the GPU with the given PCI BDF, e.g. "0c:00.0"
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", B2_B1_ratio, proofPow, ProofSet::diskUsageGB(120000000, 10), proofVerify, tmpDir.string().c_str(), mprimeDir.string().c_str(), resultsFile.string().c_str(), nSavefiles);
+)", proofPow, ProofSet::diskUsageGB(120000000, 10), proofVerify, tmpDir.string().c_str(), mprimeDir.string().c_str(), resultsFile.string().c_str(), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
@@ -257,9 +251,6 @@ void Args::parse(const string& line) {
     else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
-    else if (key == "-B1" || key == "-b1") { B1 = stoi(s); }
-    else if (key == "-B2" || key == "-b2") { B2 = stoi(s); }
-    else if (key == "-rB2") { B2_B1_ratio = stoi(s); }
     else if (key == "-fft") { fftSpec = s; }
     else if (key == "-dump") { dump = s; }
     else if (key == "-user") { user = s; }
@@ -312,8 +303,6 @@ void Args::parse(const string& line) {
       nSavefiles = stoi(s);      
     } else if (key == "-from") {
       startFrom = stoi(s);
-    } else if (key == "-D") {
-      D = stoi(s);
     } else {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";

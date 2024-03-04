@@ -60,11 +60,6 @@ public:
   u32 logStep   = 0;
   string fftSpec;
 
-  u32 B1 = 2'000'000;
-  u32 B2 = 0;
-  u32 B2_B1_ratio = 20;
-  u32 D = 0;
-  
   u32 prpExp = 0;
   
   size_t maxAlloc = 0;
