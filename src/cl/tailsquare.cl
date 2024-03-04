@@ -55,7 +55,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   }
 }
 
-KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab TRIG_BHW) {
+KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab TRIG_BHW) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];
@@ -68,7 +68,7 @@ KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2S
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
 
-#if TAIL_FUSED_LOW
+#if MUL_LOW
   read(G_H, NH, u, in, memline1 * SMALL_HEIGHT);
   read(G_H, NH, v, in, memline2 * SMALL_HEIGHT);
 #else

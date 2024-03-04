@@ -90,8 +90,8 @@ class Gpu {
 
   Kernel tailSquare;
   Kernel tailSquareLow;
-  Kernel tailFusedMul;
-  Kernel tailFusedMulLow;
+  Kernel tailMul;
+  Kernel tailMulLow;
 
   Kernel readResidue;
   Kernel isNotZero;
@@ -162,9 +162,7 @@ class Gpu {
 
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
-  void tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp);
   
-
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
 

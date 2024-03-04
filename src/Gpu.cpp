@@ -349,11 +349,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   K(transposeIn,  "transpose.cl", "transposeIn",  "", 64, hN / 64),
   K(transposeOut, "transpose.cl", "transposeOut", "", 64, hN / 64),
   
-  K(tailSquare, "tailsquare.cl", "tailFusedSquare", "-DTAIL_FUSED_LOW=0", SMALL_H / nH, hN / nH / 2),
-  K(tailSquareLow,   "tailsquare.cl", "tailFusedSquare", "-DTAIL_FUSED_LOW=1", SMALL_H / nH, hN / nH / 2),
+  K(tailSquare, "tailsquare.cl", "tailSquare", "-DMUL_LOW=0", SMALL_H / nH, hN / nH / 2),
+  K(tailSquareLow,   "tailsquare.cl", "tailSquare", "-DMUL_LOW=1", SMALL_H / nH, hN / nH / 2),
   
-  K(tailFusedMul, "tailfusedmul.cl", "tailFusedMul", "-DMUL_LOW=0",  SMALL_H / nH, hN / nH / 2),
-  K(tailFusedMulLow, "tailfusedmul.cl", "tailFusedMul", "-DMUL_LOW=1", SMALL_H / nH, hN / nH / 2),
+  K(tailMul, "tailmul.cl", "tailMul", "-DMUL_LOW=0",  SMALL_H / nH, hN / nH / 2),
+  K(tailMulLow, "tailmul.cl", "tailMul", "-DMUL_LOW=1", SMALL_H / nH, hN / nH / 2),
   
   K(readResidue, "etc.cl", "readResidue", "", 64, 64),
   K(isNotZero, "etc.cl", "isNotZero", "", 256, 256 * 256),
@@ -396,7 +396,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
        &fftP, &fftW, &fftHin, &fftHout,
        &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryB,
        &transposeIn, &transposeOut,
-       &tailFusedMulLow, &tailFusedMul, &tailSquare, &tailSquareLow,
+       &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
        &readResidue, &isNotZero, &isEqual, &sum64}) {
     k->load(compiler, device);
   }
@@ -416,8 +416,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
   kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
-  tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
-  tailFusedMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailMulLow.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailSquare.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
 
@@ -555,10 +555,6 @@ vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
 vector<u32> Gpu::readCheck() { return readAndCompress(bufCheck); }
 vector<u32> Gpu::readData() { return readAndCompress(bufData); }
 
-void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp) {
-  tailFusedMul(out, in, inTmp);
-}
-
 // out := inA * inB;
 void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3) {
     fftP(tmp1, inA);
@@ -585,7 +581,6 @@ void Gpu::mul(Buffer<int>& io, Buffer<int>& inB) { mul(io, io, inB); }
 
 void Gpu::mul(Buffer<int>& io, Buffer<double>& buf1) {
   // We know that coreStep() stores double output in buf1; so we're going to use buf2 & buf3 for temps.
-  // tW(buf2, buf1);
   mul(io, io, buf1, buf2, buf3, false);
 }
 
@@ -772,7 +767,7 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
     if (testBit(exp, p)) {
       doCarry(tmp, out);
       fftMiddleIn(out, tmp);
-      tailFusedMulLow(tmp, out, base);
+      tailMulLow(tmp, out, base);
       fftMiddleOut(out, tmp);
     }
     
