@@ -51,7 +51,6 @@ public:
   fs::path proofResultDir = "proof";
   fs::path proofToVerifyDir = "proof-tmp";
   fs::path cacheDir = "kernel-cache";
-  fs::path mprimeDir = ".";
 
   bool keepProof = false;
 
@@ -66,7 +65,6 @@ public:
 
   u32 iters = 0;
   u32 nSavefiles = 20;
-  u32 startFrom = u32(-1);
   
   void printHelp();
 };

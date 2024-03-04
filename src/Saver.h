@@ -1,14 +1,14 @@
-// GpuOwl Mersenne primality tester; Copyright (C) Mihai Preda.
+// Copyright (C) Mihai Preda.
 
 #pragma once
 
-#include "File.h"
 #include "common.h"
 
 #include <vector>
 #include <string>
 #include <cinttypes>
 #include <queue>
+#include <filesystem>
 
 class Args;
 
@@ -20,13 +20,11 @@ struct PRPState {
   u32 nErrors{};
 };
 
-struct P1State {
-  u32 B1;
-  u32 k;
-  Words data;
-};
-
 class Saver {
+  const u32 E;
+  const u32 nKeep = 20;
+  const fs::path base = fs::current_path() / to_string(E);
+
   // E, k, block-size, res64, nErrors
   static constexpr const char *PRP_v10 = "OWL PRP 10 %u %u %u %016" SCNx64 " %u\n";
 
@@ -39,6 +37,9 @@ class Saver {
 
   static constexpr const char *P1_v3 = "OWL P1 3 E=%u B1=%u k=%u\n";
 
+  // E, k, CRC
+  static constexpr const char *LL_v1 = "OWL LL 1 E=%u k=%u CRC=%u\n";
+
   // ----
 
   u32 lastK = 0;
@@ -46,8 +47,8 @@ class Saver {
   using T = pair<float, u32>;
   using Heap = priority_queue<T, std::vector<T>, std::greater<T>>;
   Heap minValPRP;
+  Heap minValLL;
   
-
   float value(u32 k);
   void del(u32 k);
 
@@ -66,34 +67,28 @@ class Saver {
   }
 
   fs::path pathPRP(u32 k) const { return path(str9(k), ".prp"); }
-  fs::path pathP1() const       { return base / to_string(E) + ".p1"; }
+  fs::path pathLL(u32 k) const { return path(str9(k), ".ll"); }
 
   void savedPRP(u32 k);
 
   PRPState loadPRPAux(u32 k);
-  vector<u32> listIterations(const string& prefix, const string& ext);
-  vector<u32> listIterations();
+
+  vector<u32> listIterations(const string& ext);
+  vector<u32> listIterationsPRP() { return listIterations(".prp"); }
+  vector<u32> listIterationsLL() { return listIterations(".ll"); }
+
   void scan(u32 upToK = u32(-1));
   
-  const u32 E;
-  const fs::path base = fs::current_path() / to_string(E);
-  const u32 nKeep;
-  fs::path mprimeDir;
   
 public:
   static void cycle(const fs::path& name);
   static void cleanup(u32 E, const Args& args);
   
-  Saver(u32 E, u32 nKeep, u32 startFrom, const fs::path& mprimeDir);
-
+  Saver(u32 E);
 
   PRPState loadPRP(u32 iniBlockSize);  
   void savePRP(const PRPState& state);
 
-  P1State loadP1();
-  void saveP1(const P1State& state, bool isDone);
-  void saveP1Prime95(const P1State& state);
-
-  // Will delete all PRP & P-1 savefiles at iteration kBad up to currentK as bad.
-  void deleteBadSavefiles(u32 kBad, u32 currentK);
+  PRPState loadLL();
+  void saveLL(const PRPState& state);
 };
