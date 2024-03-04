@@ -35,8 +35,6 @@
 static_assert(sizeof(double2) == 16, "size double2");
 static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
 
-using float3 = tuple<float, float, float>;
-
 struct Weights {
   vector<double> threadWeightsIF;  
   vector<double> carryWeightsIF;
@@ -89,9 +87,9 @@ ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
 
 #if 1
   for (u32 line = 1; line < radix; ++line) {
-  for (u32 col = 0; col < size / radix; ++col) {
-    tab.push_back(root1<double>(size, col * line));
-  }
+    for (u32 col = 0; col < size / radix; ++col) {
+      tab.push_back(root1<double>(size, col * line));
+    }
   }
   tab.resize(size);
 #else
@@ -245,11 +243,6 @@ string toLiteral(const vector<T>& v) {
 
 string toLiteral(const string& s) { return s; }
 
-[[maybe_unused]] string toLiteral(float3 v) {
-  auto [a, b, c] = v;
-  return "("s + toLiteral(a) + ',' + toLiteral(b) + ',' + toLiteral(c) + ')';
-}
-
 struct Define {
   const string str;
 
@@ -360,7 +353,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   K(kernelMultiply, "multiply.cl", "kernelMultiply", "", SMALL_H / 2, hN / 2),
   
-  K(tailFusedSquare, "tailsquare.cl", "tailFusedSquare", "-DTAIL_FUSED_LOW=0", SMALL_H / nH, hN / nH / 2),
+  K(tailSquare, "tailsquare.cl", "tailFusedSquare", "-DTAIL_FUSED_LOW=0", SMALL_H / nH, hN / nH / 2),
   K(tailSquareLow,   "tailsquare.cl", "tailFusedSquare", "-DTAIL_FUSED_LOW=1", SMALL_H / nH, hN / nH / 2),
   
   K(tailFusedMul, "tailfusedmul.cl", "tailFusedMul", "-DMUL_LOW=0",  SMALL_H / nH, hN / nH / 2),
@@ -407,7 +400,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
        &fftP, &fftW, &fftHin, &fftHout,
        &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryB,
        &transposeIn, &transposeOut, &kernelMultiply,
-       &tailFusedMulLow, &tailFusedMul, &tailFusedSquare, &tailSquareLow, 
+       &tailFusedMulLow, &tailFusedMul, &tailSquare, &tailSquareLow,
        &readResidue, &isNotZero, &isEqual, &sum64}) {
     k->load(compiler, device);
   }
@@ -430,7 +423,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
   tailFusedMulLow.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailFusedMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
-  tailFusedSquare.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailSquare.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
 
   bufReady.zero();
@@ -973,16 +966,6 @@ template<typename To, typename From> To pun(From x) {
 
 template<typename T> float asFloat(T x) { return pun<float>(x); }
 
-}
-
-void Gpu::accumulate(Buffer<int>& acc, Buffer<double>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
-  fftP(tmp1, acc);
-  tW(tmp2, tmp1);
-  tailMul(tmp1, data, tmp2);
-  tH(tmp2, tmp1);
-  fftW(tmp1, tmp2);
-  carryA(acc, tmp1);
-  carryB(acc);
 }
 
 void Gpu::square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
