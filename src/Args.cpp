@@ -106,12 +106,10 @@ named "config.txt" in the prpll run directory.
                      e.g. proof power 10 for a 120M exponent uses about %.0fGB of disk space.
 -autoverify <power> : Self-verify proofs generated with at least this power. Default %u.
 -tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored, default '%s'.
--mprimeDir <dir>   : folder where an instance of Prime95/mprime can be found (for P-1 second-stage), default '%s'.
 -results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
--from <iteration>  : start at the given iteration instead of the most recent saved iteration
 -yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
@@ -144,7 +142,7 @@ named "config.txt" in the prpll run directory.
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", proofPow, ProofSet::diskUsageGB(120000000, 10), proofVerify, tmpDir.string().c_str(), mprimeDir.string().c_str(), resultsFile.string().c_str(), nSavefiles);
+)", proofPow, ProofSet::diskUsageGB(120000000, 10), proofVerify, tmpDir.string().c_str(), resultsFile.string().c_str(), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
@@ -216,12 +214,6 @@ void Args::parse(const string& line) {
         throw "-tmpDir needs <dir>";
       }
       tmpDir = s;
-    } else if (key == "-mprimeDir") {
-      if (s.empty()) {
-        log("-mprimeDir needs <dir>\n");
-        throw "-mprimeDir needs <dir>";
-      }
-      mprimeDir = s;
     } else if (key == "-keep") {
       if (s != "proof") {
         log("-keep requires 'proof'\n");
@@ -301,8 +293,6 @@ void Args::parse(const string& line) {
       binaryFile = s;
     } else if (key == "-save") {
       nSavefiles = stoi(s);      
-    } else if (key == "-from") {
-      startFrom = stoi(s);
     } else {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";

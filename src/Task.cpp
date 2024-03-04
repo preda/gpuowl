@@ -113,12 +113,6 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
 }
 
 }
-/*
-string Task::kindStr() const {
-  assert(kind == PRP || kind == PM1);
-  return kind == PRP ? "PRP" : "PM1";
-}
-*/
 
 void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const {
   vector<string> fields{json("res64", Hex{res64}),
@@ -140,7 +134,7 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
   
   writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
 }
-
+/*
 void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) const {
   assert(B1);
   bool hasFactor = !factor.empty();
@@ -154,6 +148,7 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) c
                factor.empty() ? "" : (json("factors") + ':' + "[\""s + factor + "\"]")
               });
 }
+*/
 
 void Task::execute(const Args& args) {
   LogContext pushContext(std::to_string(exponent));
@@ -166,17 +161,14 @@ void Task::execute(const Args& args) {
     return;
   }
 
-  assert(kind == PRP || kind == PM1);
+  assert(kind == PRP);
 
   auto gpu = Gpu::make(exponent, args);
   auto fftSize = gpu->getFFTSize();
 
   if (kind == PRP) {
-    auto [factor, isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(args, *this);
-    if (factor.empty()) {
-      writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
-    }
-
+    auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(args, *this);
+    writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
     Worktodo::deleteTask(*this);
     if (!isPrime) { Saver::cleanup(exponent, args); }
   } else {

@@ -32,9 +32,9 @@ std::optional<Task> parse(const std::string& line) {
   if(sscanf(tail.c_str(), "%11[a-zA-Z]=%n", kindStr, &pos) == 1) {
     string kind = kindStr;
     tail = tail.substr(pos);
-    if (kind == "PRP" || kind == "PRPDC" || kind == "Pfactor" || kind == "PFactor") {
+    if (kind == "PRP" || kind == "PRPDC") {
       if (tail.find('"') != string::npos) {
-        log("GpuOwl does not support PRP-CF!\n");
+        log("PRPLL does not support PRP-CF!\n");
       } else {
         char AIDStr[64] = {0};
         u32 howFarFactored = 0;
@@ -44,7 +44,7 @@ std::optional<Task> parse(const std::string& line) {
             || ((AIDStr[0]=0, sscanf(tail.c_str(), "%u", &exp)) == 1 && exp > 1000)) {
           string AID = AIDStr;
           if (AID == "N/A" || AID == "0") { AID = ""; }
-          return {{kind=="Pfactor"||kind=="PFactor" ? Task::PM1 : Task::PRP, exp, AID, line, B1, B2, howFarFactored}};
+          return {{Task::PRP, exp, AID, line}};
         }
       }
     }

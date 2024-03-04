@@ -32,7 +32,6 @@ namespace fs = std::filesystem;
 inline u64 residue(const Words& words) { return (u64(words[1]) << 32) | words[0]; }
 
 struct PRPResult {
-  string factor;
   bool isPrime{};
   u64 res64 = 0;
   u32 nErrors = 0;
@@ -223,6 +222,7 @@ public:
   vector<u32> readData();
 
   PRPResult isPrimePRP(const Args& args, const Task& task);
+  PRPResult isPrimeLL(const Args& args, const Task& task);
 
   u32 getFFTSize() { return N; }
 

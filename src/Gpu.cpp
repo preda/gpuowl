@@ -1036,7 +1036,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 power = -1;
   u32 startK = 0;
 
-  Saver saver{E, args.nSavefiles, args.startFrom, args.mprimeDir};
+  Saver saver{E};
   Signal signal;
 
   // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.
@@ -1221,7 +1221,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           
         if (k >= kEndEnd) {
           fs::path proofFile = saveProof(args, proofSet);
-          return {"", isPrime, finalRes64, nErrors, proofFile.string()};          
+          return {isPrime, finalRes64, nErrors, proofFile.string()};
         }        
       } else {
         doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
@@ -1248,4 +1248,10 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       iterationTimer.reset(k);
     }
   }
+}
+
+PRPResult Gpu::isPrimeLL(const Args& args, const Task& task) {
+  // u32 E = task.exponent;
+  // u32 k = 0;
+  return {}; //TODO
 }

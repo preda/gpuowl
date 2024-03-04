@@ -2,14 +2,12 @@
 
 #include "Saver.h"
 #include "File.h"
-#include "Blake2.h"
 #include "Args.h"
 #include "common.h"
 
 #include <filesystem>
 #include <ios>
 #include <cassert>
-#include <string>
 
 namespace fs = std::filesystem;
 
@@ -24,7 +22,8 @@ error_code& noThrow() {
 
 }
 
-vector<u32> Saver::listIterations(const string& prefix, const string& ext) {
+vector<u32> Saver::listIterations(const string& ext) {
+  const string prefix = to_string(E) + '-';
   vector<u32> ret;
   if (!fs::exists(base)) { fs::create_directory(base); }
   for (const auto& entry : fs::directory_iterator(base)) {
@@ -45,10 +44,6 @@ vector<u32> Saver::listIterations(const string& prefix, const string& ext) {
     }
   }
   return ret;
-}
-
-vector<u32> Saver::listIterations() {
-  return listIterations(to_string(E) + '-', ".prp");
 }
 
 void Saver::cleanup(u32 E, const Args& args) {
@@ -76,34 +71,22 @@ float Saver::value(u32 k) {
   return nice / float(dist);
 }
 
-Saver::Saver(u32 E, u32 nKeep, u32 startFrom, const fs::path& mprimeDir)
-  : E{E}, nKeep{max(nKeep, 5u)}, mprimeDir{mprimeDir} {
-  scan(startFrom);
+Saver::Saver(u32 E)
+  : E{E} {
+  scan();
 }
 
 void Saver::scan(u32 upToK) {
   lastK = 0;
   minValPRP = {};
   
-  vector<u32> iterations = listIterations();
+  vector<u32> iterations = listIterationsPRP();
   for (u32 k : iterations) {
     if (k <= upToK) {
       minValPRP.push({value(k), k});
       lastK = max(lastK, k);
     }
   }
-}
-
-void Saver::deleteBadSavefiles(u32 kBad, u32 currentK) {
-  assert(kBad <= currentK);
-  vector<u32> iterations = listIterations();
-  for (u32 k : iterations) {
-    if (k >= kBad && k <= currentK) {
-      log("Deleting bad savefile @ %u\n", k);
-      del(k);
-    }
-  }
-  scan(kBad);
 }
 
 void Saver::del(u32 k) {
@@ -183,109 +166,6 @@ void Saver::savePRP(const PRPState& state) {
   }
   loadPRPAux(k);
   savedPRP(k);
-}
-
-// --- P1 ---
-
-P1State Saver::loadP1() {
-  if (File fi = File::openRead(pathP1()); fi) {
-    string header = fi.readLine();
-    u32 fileE, fileB1, fileK;
-    if (sscanf(header.c_str(), P1_v3, &fileE, &fileB1, &fileK) != 3) {
-      log("In file '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
-      throw "bad savefile";
-    }
-
-    assert(fileE == E);
-
-    auto data  = fi.readChecked<u32>(nWords(E));
-    return {fileB1, fileK, data};
-  } else {
-    log("P1: no savefile found, starting from the beginning\n");
-    return P1State{};
-  }
-}
-
-// See Prime95 source code:
-// https://www.mersenne.org/ftp_root/gimps/p95v308b15.source.zip
-// in ecm.cpp : pm1_save()
-void Saver::saveP1Prime95(const P1State& state) {
-  File fo = File::openWrite(pathP1() + ".prime95");
-
-  const u32 MAGIC = 0x317a394b;
-  const u32 VERSION = 7;
-  fo.write(MAGIC);   // 0
-  fo.write(VERSION); // 4
-
-  {
-    // K * B^E - C;
-    const double K = 1;
-    const u32 B = 2;
-    const i32 C = -1;
-    fo.write(K); // 8
-    fo.write(B); // 16
-    fo.write(E); // 20
-    fo.write(C); // 24
-  }
-
-  char stage[12] = "S5";
-  fo.write(stage);   // 28
-
-  double PERCENT = 0;
-  fo.write(PERCENT); // 40
-
-  u32 sum = 0;
-  fo.write(sum);     // 48
-
-  u32 STATE_DONE = 5;
-  fo.write(STATE_DONE);
-  sum += STATE_DONE;
-
-  fo.write(u64(state.B1));
-  sum += state.B1;
-
-  fo.write(u64(state.B1));
-  sum += state.B1;
-
-  const u32 HAVE_X = 1;
-  fo.write(HAVE_X);
-  sum += HAVE_X;
-
-  auto data = state.data;
-  while (data.back() == 0) { data.pop_back(); }
-
-  u32 len = data.size();
-  fo.write(len);
-  sum += len;
-  sum += len;
-
-  fo.write(data);
-  for (u32 x : data) { sum += x; }
-
-  const u32 SUM_OFFSET = 48;
-  fo.seek(SUM_OFFSET);
-  fo.write(sum);
-}
-
-void Saver::saveP1(const P1State& state, bool isDone) {
-  assert(state.data.size() == nWords(E));
-  assert(state.B1);
-  {
-    File fo = File::openWrite(pathP1() + ".new");
-    if (fo.printf(P1_v3, E, state.B1, state.k) <= 0) {
-      throw(ios_base::failure("can't write header"));
-    }
-    fo.writeChecked(state.data);
-  }
-
-  if (isDone) {
-    saveP1Prime95(state);
-    fs::path mprimeName = mprimeDir / ("m"s + to_string(E));
-    fs::copy(pathP1() + ".prime95", mprimeName + ".new");
-    cycle(mprimeName);
-  }
-
-  cycle(pathP1());
 }
 
 void Saver::cycle(const fs::path& name) {
