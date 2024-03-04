@@ -29,7 +29,7 @@ KERNEL(SMALL_HEIGHT / 2) kernelMultiply(P(T2) io, CP(T2) in, BigTab TRIG_BHW) {
   T2 b = io[v];
   T2 c = in[k];
   T2 d = in[v];
-  onePairMul(a, b, c, d, swap_squared(slowTrig_N(me * H + line1, ND / 4, TRIG_BHW)));
+  onePairMul(a, b, c, d, swap_squared(slowTrig_N(me * H + line1, ND / 2, TRIG_BHW)));
   io[k] = a;
   io[v] = b;
 }
