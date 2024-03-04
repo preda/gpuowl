@@ -88,7 +88,6 @@ class Gpu {
   
   Kernel transposeIn, transposeOut;
 
-  Kernel kernelMultiply;
   Kernel tailSquare;
   Kernel tailSquareLow;
   Kernel tailFusedMul;

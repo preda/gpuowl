@@ -351,8 +351,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   K(transposeIn,  "transpose.cl", "transposeIn",  "", 64, hN / 64),
   K(transposeOut, "transpose.cl", "transposeOut", "", 64, hN / 64),
   
-  K(kernelMultiply, "multiply.cl", "kernelMultiply", "", SMALL_H / 2, hN / 2),
-  
   K(tailSquare, "tailsquare.cl", "tailFusedSquare", "-DTAIL_FUSED_LOW=0", SMALL_H / nH, hN / nH / 2),
   K(tailSquareLow,   "tailsquare.cl", "tailFusedSquare", "-DTAIL_FUSED_LOW=1", SMALL_H / nH, hN / nH / 2),
   
@@ -399,7 +397,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul,
        &fftP, &fftW, &fftHin, &fftHout,
        &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryB,
-       &transposeIn, &transposeOut, &kernelMultiply,
+       &transposeIn, &transposeOut,
        &tailFusedMulLow, &tailFusedMul, &tailSquare, &tailSquareLow,
        &readResidue, &isNotZero, &isEqual, &sum64}) {
     k->load(compiler, device);
@@ -416,7 +414,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   fftMiddleIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
   fftMiddleOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
-  kernelMultiply.setFixedArgs(2, bufTrigBHW);
   
   kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
   kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
@@ -561,14 +558,7 @@ vector<u32> Gpu::readCheck() { return readAndCompress(bufCheck); }
 vector<u32> Gpu::readData() { return readAndCompress(bufData); }
 
 void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp) {
-  if (true) {
-    tailFusedMul(out, in, inTmp);
-  } else {
-    fftHin(out, inTmp);
-    fftHin(inTmp, in);
-    kernelMultiply(out, inTmp);
-    fftHout(out);
-  }
+  tailFusedMul(out, in, inTmp);
 }
 
 // out := inA * inB;
