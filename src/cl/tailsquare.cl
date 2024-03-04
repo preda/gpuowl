@@ -1,5 +1,8 @@
+// Copyright (C) Mihai Preda
+
 #include "gpuowl.cl"
 #include "trig.cl"
+#include "fftheight.cl"
 
 KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab TRIG_BHW) {
   local T2 lds[SMALL_HEIGHT / 2];

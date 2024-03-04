@@ -1,4 +1,7 @@
+// Copyright (C) Mihai Preda
+
 #include "gpuowl.cl"
+#include "fftheight.cl"
 
 // Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)
 KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {

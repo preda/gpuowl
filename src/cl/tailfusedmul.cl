@@ -2,6 +2,7 @@
 
 #include "gpuowl.cl"
 #include "trig.cl"
+#include "fftheight.cl"
 
 KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
                          BigTab TRIG_2SH, BigTab TRIG_BHW) {

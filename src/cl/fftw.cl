@@ -1,4 +1,7 @@
+// Copyright (C) Mihai Preda
+
 #include "gpuowl.cl"
+#include "fftwidth.cl"
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
