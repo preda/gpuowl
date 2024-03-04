@@ -2485,48 +2485,14 @@ void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
 }
 )cltag",
 
-// src/cl/multiply.cl
+// src/cl/tailfusedmul.cl
 R"cltag(
-// Copyright (C) Mihai Preda
+// Copyright (C) Mihai Preda and George Woltman
 
 #include "gpuowl.cl"
 #include "trig.cl"
-#include "onepairmul.cl"
-
-// From original code t = swap(base) and we need sq(conjugate(t)).  This macro computes sq(conjugate(t)) from base^2.
-#define swap_squared(a) (-a)
-
-KERNEL(SMALL_HEIGHT / 2) kernelMultiply(P(T2) io, CP(T2) in, BigTab TRIG_BHW) {
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
-
-  u32 line1 = get_group_id(0);
-  u32 me = get_local_id(0);
-
-  if (line1 == 0 && me == 0) {
-    io[0]     = foo2_m2(conjugate(io[0]), conjugate(in[0]));
-    io[W / 2] = conjugate(mul_m4(io[W / 2], in[W / 2]));
-    return;
-  }
-
-  u32 line2 = (H - line1) % H;
-  u32 g1 = transPos(line1, MIDDLE, WIDTH);
-  u32 g2 = transPos(line2, MIDDLE, WIDTH);
-  u32 k = g1 * W + me;
-  u32 v = g2 * W + (W - 1) - me + (line1 == 0);
-  T2 a = io[k];
-  T2 b = io[v];
-  T2 c = in[k];
-  T2 d = in[v];
-  onePairMul(a, b, c, d, swap_squared(slowTrig_N(me * H + line1, ND / 2, TRIG_BHW)));
-  io[k] = a;
-  io[v] = b;
-}
-)cltag",
-
-// src/cl/onepairmul.cl
-R"cltag(
-// Copyright (C) Mihai Preda and George Woltman
+#include "fftheight.cl"
+#include "tailutil.cl"
 
 // This implementation compared to the original version that is no longer included in this file takes
 // better advantage of the AMD OMOD (output modifier) feature.
@@ -2556,17 +2522,6 @@ R"cltag(
   a = tmp; \
   X2conja(a, b); \
 }
-)cltag",
-
-// src/cl/tailfusedmul.cl
-R"cltag(
-// Copyright (C) Mihai Preda
-
-#include "gpuowl.cl"
-#include "trig.cl"
-#include "fftheight.cl"
-#include "tailutil.cl"
-#include "onepairmul.cl"
 
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   u32 me = get_local_id(0);
@@ -3051,6 +3006,6 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
 )cltag",
 
 };
-static const std::vector<const char*> CL_FILE_NAMES{"carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft5.cl","fft6.cl","fft7.cl","fft9.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","gpuowl.cl","middle.cl","multiply.cl","onepairmul.cl","tailfusedmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl",};
+static const std::vector<const char*> CL_FILE_NAMES{"carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft5.cl","fft6.cl","fft7.cl","fft9.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","gpuowl.cl","middle.cl","tailfusedmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl",};
 const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }
 const std::vector<const char*>& getClFiles() { return CL_FILES; }
