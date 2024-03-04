@@ -2,6 +2,10 @@
 
 #include "gpuowl.cl"
 #include "trig.cl"
+#include "onepairmul.cl"
+
+// From original code t = swap(base) and we need sq(conjugate(t)).  This macro computes sq(conjugate(t)) from base^2.
+#define swap_squared(a) (-a)
 
 KERNEL(SMALL_HEIGHT / 2) kernelMultiply(P(T2) io, CP(T2) in, BigTab TRIG_BHW) {
   u32 W = SMALL_HEIGHT;
