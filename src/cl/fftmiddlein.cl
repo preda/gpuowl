@@ -1,4 +1,6 @@
-#include "gpuowl.cl"
+// Copyright (C) Mihai Preda
+
+#include "middle.cl"
 
 KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
   T2 u[MIDDLE];
