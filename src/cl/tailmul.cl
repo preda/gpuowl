@@ -115,7 +115,7 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig_N(line1 + me * H, ND / 4, TRIG_BHW), false);
+    pairMul(NH, u, v, p, q, slowTrig_N(line1 + me * H, ND / NH, TRIG_BHW), false);
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }
