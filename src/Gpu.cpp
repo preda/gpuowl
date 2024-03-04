@@ -296,8 +296,6 @@ string clArgs(cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MI
 }
 
 string clArgs(const Args& args) {
-  // string s = args.dump.empty() ? ""s : (" -save-temps="s + args.dump + "/" + numberK(N));
-  
   string s;
   for (const auto& [key, val] : args.flags) {
     s += " -D" + key + '=' + toLiteral(val);
@@ -564,9 +562,9 @@ void Gpu::tailMul(Buffer<double>& out, Buffer<double>& in, Buffer<double>& inTmp
 // out := inA * inB;
 void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3) {
     fftP(tmp1, inA);
-    tW(tmp2, tmp1);
+    fftMiddleIn(tmp2, tmp1);
     tailMul(tmp1, inB, tmp2);
-    tH(tmp2, tmp1);
+    fftMiddleOut(tmp2, tmp1);
     fftW(tmp1, tmp2);
     if (mul3) { carryM(out, tmp1); } else { carryA(out, tmp1); }
     carryB(out);
@@ -576,7 +574,7 @@ void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<do
 void Gpu::modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
 
   fftP(buf1, inB);
-  tW(buf3, buf1);
+  fftMiddleIn(buf3, buf1);
   
   mul(out, inA, buf3, buf1, buf2, mul3);
 };
@@ -641,14 +639,6 @@ void Gpu::logTimeKernels() {
     }
     log("Total time %.3f s\n", total);
   }
-}
-
-void Gpu::tW(Buffer<double>& out, Buffer<double>& in) {
-  fftMiddleIn(out, in);
-}
-
-void Gpu::tH(Buffer<double>& out, Buffer<double>& in) {
-  fftMiddleOut(out, in);
 }
 
 vector<int> Gpu::readOut(ConstBuffer<int> &buf) {
@@ -736,7 +726,7 @@ void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buf
     bufInOut.set(1);
   } else if (exp > 1) {
     fftP(buf2, bufInOut);
-    tW(buf3, buf2);
+    fftMiddleIn(buf3, buf2);
     fftHin(buf1, buf3);
     exponentiateCore(buf2, buf1, exp, buf3);
     fftW(buf3, buf2);
@@ -750,7 +740,7 @@ void Gpu::exponentiate(Buffer<double>& out, const Buffer<double>& base, u64 exp,
   assert(exp > 1);
   exponentiateCore(out, base, exp, tmp1);
   doCarry(tmp1, out);
-  tW(out, tmp1);
+  fftMiddleIn(out, tmp1);
 }
 
 // All buffers are in "low" position.
@@ -773,7 +763,7 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
   assert(exp >= 2);
 
   tailSquareLow(tmp, base);
-  tH(out, tmp);
+  fftMiddleOut(out, tmp);
   
   int p = 63;
   while (!testBit(exp, p)) { --p; }
@@ -781,17 +771,17 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
   for (--p; ; --p) {
     if (testBit(exp, p)) {
       doCarry(tmp, out);
-      tW(out, tmp);
+      fftMiddleIn(out, tmp);
       tailFusedMulLow(tmp, out, base);
-      tH(out, tmp);
+      fftMiddleOut(out, tmp);
     }
     
     if (!p) { break; }
 
     doCarry(tmp, out);
-    tW(out, tmp);
+    fftMiddleIn(out, tmp);
     tailSquare(tmp, out);
-    tH(out, tmp);
+    fftMiddleOut(out, tmp);
   }
 }
 
@@ -810,12 +800,12 @@ void Gpu::doCarry(Buffer<double>& out, Buffer<double>& in) {
 void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3) {
   if (leadIn) {
     fftP(buf2, in);
-    tW(buf1, buf2);    
+    fftMiddleIn(buf1, buf2);
   }
   
   tailSquare(buf2, buf1);
   
-  tH(buf1, buf2);
+  fftMiddleOut(buf1, buf2);
 
   if (leadOut) {
     fftW(buf2, buf1);
@@ -824,7 +814,7 @@ void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut,
   } else {
     assert(!useLongCarry);
     if (mul3) { carryFusedMul(buf2, buf1); } else { carryFused(buf2, buf1); }
-    tW(buf1, buf2);
+    fftMiddleIn(buf1, buf2);
   }
 }
 
@@ -960,9 +950,9 @@ template<typename T> float asFloat(T x) { return pun<float>(x); }
 
 void Gpu::square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
   fftP(tmp1, data);
-  tW(tmp2, tmp1);
+  fftMiddleIn(tmp2, tmp1);
   tailSquare(tmp1, tmp2);
-  tH(tmp2, tmp1);
+  fftMiddleOut(tmp2, tmp1);
   fftW(tmp1, tmp2);
   carryA(data, tmp1);
   carryB(data);  

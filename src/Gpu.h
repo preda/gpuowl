@@ -141,9 +141,6 @@ class Gpu {
   unsigned statsBits;
   
   vector<int> readSmall(Buffer<int>& buf, u32 start);
-
-  void tW(Buffer<double>& out, Buffer<double>& in);
-  void tH(Buffer<double>& out, Buffer<double>& in);
   
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(Buffer<int>& buf, const vector<i32> &words);
