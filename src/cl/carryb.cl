@@ -1,4 +1,6 @@
-#include "gpuowl.cl"
+// Copyright (C) Mihai Preda
+
+#include "carryutil.cl"
 
 KERNEL(G_W) carryB(P(Word2) io, CP(CarryABM) carryIn, CP(u32) bits) {
   u32 g  = get_group_id(0);

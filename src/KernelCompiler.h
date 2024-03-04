@@ -20,7 +20,6 @@ class KernelCompiler {
 
   u64 contextHash{};
   
-  Program newProgram(const string& fileName) const;
   Program compile(const string& fileName, const string& args) const;
   
 public:

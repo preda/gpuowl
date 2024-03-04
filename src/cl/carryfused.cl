@@ -1,6 +1,6 @@
 // Copyright (C) Mihai Preda
 
-#include "gpuowl.cl"
+#include "carryutil.cl"
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.

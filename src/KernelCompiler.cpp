@@ -13,16 +13,6 @@ const std::vector<const char*>& getClFiles();
 
 static_assert(sizeof(Program) == sizeof(cl_program));
 
-Program KernelCompiler::newProgram(const string& fileName) const {
-  for (const auto& [name, src] : files) {
-    if (name == fileName) {
-      return loadSource(context, src);
-    }
-  }
-  log("KernelCompiler: can't find '%s'\n", fileName.c_str());
-  return {};
-}
-
 // -cl-fast-relaxed-math  -cl-unsafe-math-optimizations -cl-denorms-are-zero -cl-mad-enable
 // Other options:
 // * -cl-uniform-work-group-size
@@ -63,8 +53,8 @@ KernelCompiler::KernelCompiler(string_view cacheDir, cl_context context, cl_devi
 }
 
 Program KernelCompiler::compile(const string& fileName, const string& extraArgs) const {
-  Program p1 = newProgram(fileName);
-  if (!p1) { return {}; }
+  Program p1 = loadSource(context, "#include \""s + fileName + "\"\n");
+  assert(p1);
   
   string args = baseArgs + ' ' + extraArgs;
   if (!dump.empty()) {
@@ -102,7 +92,6 @@ KernelHolder KernelCompiler::load(const string& fileName, const string& kernelNa
   string cacheFile = cacheDir + '/' + f;
   Program program = loadBinary(context, deviceId, cacheFile);
 
-
   if (!program) {
     fromCache = false;
     program = compile(fileName, args);
@@ -121,7 +110,7 @@ KernelHolder KernelCompiler::load(const string& fileName, const string& kernelNa
 
   if (!fromCache) {
     saveBinary(program.get(), cacheFile);
-    log("Loaded %s from %s in %.0fms\n", kernelName.c_str(), fileName.c_str(), timer.at() * 1000);
+    log("Loaded %s (%s): %.0fms\n", kernelName.c_str(), fileName.c_str(), timer.at() * 1000);
   }
 
   return ret;

@@ -61,6 +61,8 @@ int main(int argc, char **argv) {
     }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
+  } catch (const string& mes) {
+    log("Exiting because \"%s\"\n", mes.c_str());
   }
   /*catch (const std::exception& e) {
     log("Exception %s: %s\n", typeName(e), e.what());
