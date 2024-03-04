@@ -98,6 +98,7 @@ R"cltag(
 // Copyright (C) Mihai Preda
 
 #include "carryutil.cl"
+#include "fftwidth.cl"
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway" carry data forwarding from one group to the next.
@@ -1357,9 +1358,65 @@ void fft9(T2 *u) {
 #endif
 )cltag",
 
+// src/cl/fftheight.cl
+R"cltag(
+// Copyright (C) Mihai Preda
+
+// #include "gpuowl.cl"
+
+void fft256h(local T2 *lds, T2 *u, Trig trig) {
+  for (u32 s = 0; s <= 4; s += 2) {
+    if (s) { bar(); }
+    fft4(u);
+    shuflAndMul(64, lds, trig, u, 4, 1u << s);
+  }
+  fft4(u);
+}
+
+void fft512h(local T2 *lds, T2 *u, Trig trig) {
+  for (u32 s = 0; s <= 3; s += 3) {
+    if (s) { bar(); }
+    fft8(u);
+    shuflAndMul(64, lds, trig, u, 8, 1u << s);
+  }
+  fft8(u);
+}
+
+void fft1Kh(local T2 *lds, T2 *u, Trig trig) {
+  for (i32 s = 0; s <= 6; s += 2) {
+    if (s) { bar(); }
+    fft4(u);
+    shuflAndMul(256, lds, trig, u, 4, 1u << s);
+  }
+  fft4(u);
+}
+
+void fft4Kh(local T2 *lds, T2 *u, Trig trig) {
+  for (u32 s = 0; s <= 6; s += 3) {
+    if (s) { bar(); }
+    fft8(u);
+    shuflAndMul(512, lds, trig, u, 8, 1u << s);
+  }
+  fft8(u);
+}
+
+void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
+#if SMALL_HEIGHT == 256
+  fft256h(lds, u, trig);
+#elif SMALL_HEIGHT == 512
+  fft512h(lds, u, trig);
+#elif SMALL_HEIGHT == 1024
+  fft1Kh(lds, u, trig);
+#else
+#error unexpected SMALL_HEIGHT.
+#endif
+}
+)cltag",
+
 // src/cl/ffthin.cl
 R"cltag(
 #include "gpuowl.cl"
+#include "fftheight.cl"
 
 // Do an FFT Height after a transposeW (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
@@ -1379,6 +1436,7 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
 // src/cl/ffthout.cl
 R"cltag(
 #include "gpuowl.cl"
+#include "fftheight.cl"
 
 // Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)
 KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
@@ -1502,6 +1560,7 @@ R"cltag(
 // Copyright (C) Mihai Preda
 
 #include "gpuowl.cl"
+#include "fftwidth.cl"
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
 KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
@@ -1534,7 +1593,10 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS,
 
 // src/cl/fftw.cl
 R"cltag(
+// Copyright (C) Mihai Preda
+
 #include "gpuowl.cl"
+#include "fftwidth.cl"
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
@@ -1547,6 +1609,72 @@ KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
   fft_WIDTH(lds, u, smallTrig);  
   out += WIDTH * g;
   write(G_W, NW, u, out, 0);
+}
+)cltag",
+
+// src/cl/fftwidth.cl
+R"cltag(
+// Copyright (C) Mihai Preda
+
+// #include "gpuowl.cl"
+// See also: fftheight.cl
+
+// 64x4
+void fft256w(local T2 *lds, T2 *u, Trig trig) {
+  UNROLL_WIDTH_CONTROL
+  for (u32 s = 0; s <= 4; s += 2) {
+    if (s) { bar(); }
+    fft4(u);
+    shuflAndMul(64, lds, trig, u, 4, 1u << s);
+  }
+  fft4(u);
+}
+
+// 64x8
+void fft512w(local T2 *lds, T2 *u, Trig trig) {
+  UNROLL_WIDTH_CONTROL
+  for (u32 s = 0; s <= 3; s += 3) {
+    if (s) { bar(); }
+    fft8(u);
+    shuflAndMul(64, lds, trig, u, 8, 1u << s);
+  }
+  fft8(u);
+}
+
+// 256x4
+void fft1Kw(local T2 *lds, T2 *u, Trig trig) {
+  UNROLL_WIDTH_CONTROL
+  for (i32 s = 0; s <= 6; s += 2) {
+    if (s) { bar(); }
+    fft4(u);
+    shuflAndMul(256, lds, trig, u, 4, 1u << s);
+  }
+  fft4(u);
+}
+
+// 512x8
+void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
+  UNROLL_WIDTH_CONTROL
+  for (u32 s = 0; s <= 6; s += 3) {
+    if (s) { bar(); }
+    fft8(u);
+    shuflAndMul(512, lds, trig, u, 8, 1u << s);
+  }
+  fft8(u);
+}
+
+void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
+#if WIDTH == 256
+  fft256w(lds, u, trig);
+#elif WIDTH == 512
+  fft512w(lds, u, trig);
+#elif WIDTH == 1024
+  fft1Kw(lds, u, trig);
+#elif WIDTH == 4096
+  fft4Kw(lds, u, trig);
+#else
+#error unexpected WIDTH.
+#endif
 }
 )cltag",
 
@@ -2005,86 +2133,6 @@ void shuflAndMul(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {
   shufl(WG, lds, u, n, f);
 }
 
-// 64x4
-void fft256w(local T2 *lds, T2 *u, Trig trig) {
-  UNROLL_WIDTH_CONTROL
-  for (u32 s = 0; s <= 4; s += 2) {
-    if (s) { bar(); }
-    fft4(u);
-    shuflAndMul(64, lds, trig, u, 4, 1u << s);
-  }
-  fft4(u);
-}
-
-void fft256h(local T2 *lds, T2 *u, Trig trig) {
-  for (u32 s = 0; s <= 4; s += 2) {
-    if (s) { bar(); }
-    fft4(u);
-    shuflAndMul(64, lds, trig, u, 4, 1u << s);
-  }
-  fft4(u);
-}
-
-// 64x8
-void fft512w(local T2 *lds, T2 *u, Trig trig) {
-  UNROLL_WIDTH_CONTROL
-  for (u32 s = 0; s <= 3; s += 3) {
-    if (s) { bar(); }
-    fft8(u);
-    shuflAndMul(64, lds, trig, u, 8, 1u << s);
-  }
-  fft8(u);
-}
-
-void fft512h(local T2 *lds, T2 *u, Trig trig) {
-  for (u32 s = 0; s <= 3; s += 3) {
-    if (s) { bar(); }
-    fft8(u);
-    shuflAndMul(64, lds, trig, u, 8, 1u << s);
-  }
-  fft8(u);
-}
-
-// 256x4
-void fft1Kw(local T2 *lds, T2 *u, Trig trig) {
-  UNROLL_WIDTH_CONTROL
-  for (i32 s = 0; s <= 6; s += 2) {
-    if (s) { bar(); }
-    fft4(u);
-    shuflAndMul(256, lds, trig, u, 4, 1u << s);
-  }
-  fft4(u);
-}
-
-void fft1Kh(local T2 *lds, T2 *u, Trig trig) {
-  for (i32 s = 0; s <= 6; s += 2) {
-    if (s) { bar(); }
-    fft4(u);
-    shuflAndMul(256, lds, trig, u, 4, 1u << s);
-  }
-  fft4(u);
-}
-
-// 512x8
-void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
-  UNROLL_WIDTH_CONTROL
-  for (u32 s = 0; s <= 6; s += 3) {
-    if (s) { bar(); }
-    fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, 1u << s);
-  }
-  fft8(u);
-}
-
-void fft4Kh(local T2 *lds, T2 *u, Trig trig) {
-  for (u32 s = 0; s <= 6; s += 3) {
-    if (s) { bar(); }
-    fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, 1u << s);
-  }
-  fft8(u);
-}
-
 void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
   for (i32 i = 0; i < N; ++i) { u[i] = in[base + i * WG + (u32) get_local_id(0)]; }
 }
@@ -2106,32 +2154,6 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
 #define CP(x) const P(x)
 
 u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * middle; }
-
-void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
-#if WIDTH == 256
-  fft256w(lds, u, trig);
-#elif WIDTH == 512
-  fft512w(lds, u, trig);
-#elif WIDTH == 1024
-  fft1Kw(lds, u, trig);
-#elif WIDTH == 4096
-  fft4Kw(lds, u, trig);
-#else
-#error unexpected WIDTH.  
-#endif  
-}
-
-void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
-#if SMALL_HEIGHT == 256
-  fft256h(lds, u, trig);
-#elif SMALL_HEIGHT == 512
-  fft512h(lds, u, trig);
-#elif SMALL_HEIGHT == 1024
-  fft1Kh(lds, u, trig);
-#else
-#error unexpected SMALL_HEIGHT.
-#endif
-}
 
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
@@ -2644,6 +2666,7 @@ R"cltag(
 
 #include "gpuowl.cl"
 #include "trig.cl"
+#include "fftheight.cl"
 
 KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
                          BigTab TRIG_2SH, BigTab TRIG_BHW) {
@@ -2721,6 +2744,7 @@ KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
 R"cltag(
 #include "gpuowl.cl"
 #include "trig.cl"
+#include "fftheight.cl"
 
 KERNEL(G_H) tailFusedSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab TRIG_BHW) {
   local T2 lds[SMALL_HEIGHT / 2];
@@ -3008,6 +3032,6 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
 )cltag",
 
 };
-static const std::vector<const char*> CL_FILE_NAMES{"carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft5.cl","fft6.cl","fft7.cl","fft9.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","gpuowl.cl","middle.cl","multiply.cl","tailfusedmul.cl","tailsquare.cl","transpose.cl","trig.cl",};
+static const std::vector<const char*> CL_FILE_NAMES{"carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft5.cl","fft6.cl","fft7.cl","fft9.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","gpuowl.cl","middle.cl","multiply.cl","tailfusedmul.cl","tailsquare.cl","transpose.cl","trig.cl",};
 const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }
 const std::vector<const char*>& getClFiles() { return CL_FILES; }

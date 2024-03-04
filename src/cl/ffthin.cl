@@ -1,4 +1,7 @@
+// Copyright (C) Mihai Preda
+
 #include "gpuowl.cl"
+#include "fftheight.cl"
 
 // Do an FFT Height after a transposeW (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
