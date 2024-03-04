@@ -49,7 +49,7 @@ KernelCompiler::KernelCompiler(string_view cacheDir, cl_context context, cl_devi
     hasher.update(src);
   }
   contextHash = std::move(hasher).finish()[0];
-  log("OpenCL %d files, hash %016" PRIx64 "\n", n, contextHash);
+  // log("OpenCL %d files, hash %016" PRIx64 "\n", n, contextHash);
 }
 
 Program KernelCompiler::compile(const string& fileName, const string& extraArgs) const {

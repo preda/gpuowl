@@ -3,6 +3,32 @@
 #include "gpuowl.cl"
 #include "trig.cl"
 #include "fftheight.cl"
+#include "tailutil.cl"
+#include "onepairmul.cl"
+
+void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
+  u32 me = get_local_id(0);
+
+  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
+    if (special && i == 0 && me == 0) {
+      u[i] = conjugate(foo2_m2(u[i], p[i]));
+      v[i] = mul_m4(conjugate(v[i]), conjugate(q[i]));
+    } else {
+      onePairMul(u[i], v[i], p[i], q[i], swap_squared(base_squared));
+    }
+
+    if (N == NH) {
+      onePairMul(u[i+NH/2], v[i+NH/2], p[i+NH/2], q[i+NH/2], swap_squared(-base_squared));
+    }
+
+    T2 new_base_squared = mul(base_squared, U2(0, -1));
+    onePairMul(u[i+NH/4], v[i+NH/4], p[i+NH/4], q[i+NH/4], swap_squared(new_base_squared));
+
+    if (N == NH) {
+      onePairMul(u[i+3*NH/4], v[i+3*NH/4], p[i+3*NH/4], q[i+3*NH/4], swap_squared(-new_base_squared));
+    }
+  }
+}
 
 KERNEL(G_H) tailFusedMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
                          BigTab TRIG_2SH, BigTab TRIG_BHW) {
