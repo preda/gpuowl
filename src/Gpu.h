@@ -78,6 +78,7 @@ class Gpu {
 
   Kernel kernCarryA;
   Kernel kernCarryM;
+  Kernel carryLL;
   Kernel carryB;
 
   Kernel fftP;

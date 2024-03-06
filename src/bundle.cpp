@@ -20,7 +20,8 @@ KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(
   u32 gx = g % NW;
   u32 gy = g / NW;
 
-  CarryABM carry = 0;  
+  // & vs. && to workaround spurious warning
+  CarryABM carry = (LL & (me == 0) & (g == 0)) ? -2 : 0;
   float roundMax = 0;
   float carryMax = 0;
 
@@ -99,10 +100,6 @@ R"cltag(
 
 #include "carryutil.cl"
 #include "fftwidth.cl"
-
-#if !defined(LL)
-#define LL 0
-#endif
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
@@ -275,6 +272,11 @@ i32 xtract32(i64 x, u32 bits) { i32 tmp; __asm("v_alignbit_b32 %0, %1, %2, %3" :
 i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 i32 xtract32(i64 x, u32 bits) { return x >> bits; }
 #endif
+
+#if !defined(LL)
+#define LL 0
+#endif
+
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
