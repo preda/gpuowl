@@ -4,11 +4,9 @@
 
 #include "Queue.h"
 #include "Buffer.h"
-#include "timeutil.h"
 #include "common.h"
 
 #include <string>
-#include <stdexcept>
 
 class KernelCompiler;
 
@@ -27,14 +25,7 @@ class Kernel {
 public:
   Kernel(string_view name, QueuePtr queue,
          string_view fileName, string_view nameInFile,
-         size_t workSize, string_view defines = ""):
-    name{name},
-    fileName{fileName},
-    nameInFile{nameInFile},
-    defines{defines},
-    queue{queue},
-    workSize{workSize}
-  {}
+         size_t workSize, string_view defines = "");
 
   void load(const KernelCompiler& compiler, cl_device_id deviceId);
   
@@ -44,8 +35,6 @@ public:
     setArgs(name, 0, args...);
     run();
   }
-
-  string getName() { return name; }
 
 private:
   template<typename T> void setArgs(const string& name, int pos, const ConstBuffer<T>& buf) { setArgs(name, pos, buf.get()); }
@@ -58,11 +47,5 @@ private:
     setArgs(name, pos + 1, tail...);
   }
   
-  void run() {
-    if (kernel) {
-      queue->run(kernel.get(), groupSize, workSize, name);
-    } else {
-      throw std::runtime_error("OpenCL kernel "s + name + " not found");
-    }
-  }
+  void run();
 };

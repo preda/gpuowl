@@ -10,6 +10,7 @@
 #include "version.h"
 #include "Proof.h"
 #include "log.h"
+#include "timeutil.h"
 
 #include <cmath>
 #include <cassert>

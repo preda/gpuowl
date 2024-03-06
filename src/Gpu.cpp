@@ -11,6 +11,7 @@
 #include "Memlock.h"
 #include "KernelCompiler.h"
 #include "SaveMan.h"
+#include "timeutil.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>

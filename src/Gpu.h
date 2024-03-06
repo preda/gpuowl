@@ -7,7 +7,7 @@
 #include "Queue.h"
 
 #include "common.h"
-#include "kernel.h"
+#include "Kernel.h"
 
 #include <vector>
 #include <string>
