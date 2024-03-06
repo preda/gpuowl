@@ -20,54 +20,23 @@ class Kernel {
   
   QueuePtr queue;
   size_t workSize;
-  u32 groupSize{};
+  u32 groupSize = 0;
   
   KernelHolder kernel{};
 
 public:
   Kernel(string_view name, QueuePtr queue,
          string_view fileName, string_view nameInFile,
-         string_view defines,
-         u32 groupSize, size_t workSize):
+         size_t workSize, string_view defines = ""):
     name{name},
     fileName{fileName},
     nameInFile{nameInFile},
     defines{defines},
     queue{queue},
-    workSize{workSize},
-    groupSize{groupSize}
-  {
-    assert(workSize % groupSize == 0);
-  }
-
-  void load(const KernelCompiler& compiler, cl_device_id deviceId);
-  
-  void init(KernelHolder kern) {
-    assert(kern);
-    kernel = std::move(kern);
-    // groupSize = getWorkGroupSize(kernel.get(), device, name.c_str());
-  }
-    
-  /*
-  Kernel(cl_program program, QueuePtr queue, cl_device_id device, u32 nWorkGroups, const std::string &name) :
-    kernel(makeKernel(program, name.c_str())),
-    groupSize(kernel ? getWorkGroupSize(kernel.get(), device, name.c_str()) : 0),
-    queue(std::move(queue)),
-    workSize(nWorkGroups * groupSize),
-    name(name)
+    workSize{workSize}
   {}
 
-  Kernel(cl_program program, QueuePtr queue, cl_device_id device, const std::string &name, size_t workSize) :
-    kernel(makeKernel(program, name.c_str())),
-    groupSize(kernel ? getWorkGroupSize(kernel.get(), device, name.c_str()) : 0),
-    queue(std::move(queue)),
-    workSize(workSize),
-    name(name)
-  {
-    assert(groupSize == 0 || (workSize % groupSize == 0));
-  }
-  */
-
+  void load(const KernelCompiler& compiler, cl_device_id deviceId);
   
   template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(name, pos, tail...); }
   

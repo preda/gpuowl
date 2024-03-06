@@ -331,36 +331,42 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   queue(Queue::make(context, timeKernels, args.cudaYield)),
   
 #define K(name, ...) name(#name, queue, __VA_ARGS__)
-  K(kernCarryFused,    "carryfused.cl", "carryFused", "", W / nW, W * (BIG_H + 1) / nW),
-  K(kernCarryFusedMul, "carryfused.cl", "carryFused", "-DMUL3=1", W / nW, W * (BIG_H + 1) / nW),
-  K(carryFusedLL,      "carryfused.cl", "carryFused", "-DLL=1", W / nW, W * (BIG_H + 1) / nW),
+
+  //  W / nW
+  K(kernCarryFused,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW),
+  K(kernCarryFusedMul, "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DMUL3=1"),
+  K(carryFusedLL,      "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DLL=1"),
+
+  K(kernCarryA, "carry.cl", "carry", hN / CARRY_LEN),
+  K(kernCarryM, "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1"),
+  K(carryB, "carryb.cl", "carryB",   hN / CARRY_LEN),
+
+  K(fftP, "fftp.cl", "fftP", hN / nW),
+  K(fftW, "fftw.cl", "fftW", hN / nW),
   
-  K(fftP, "fftp.cl", "fftP", "",        W / nW, hN / nW),
-  K(fftW, "fftw.cl", "fftW", "",        W / nW, hN / nW),
+  // SMALL_H / nH
+  K(fftHin,  "ffthin.cl",  "fftHin",  hN / nH),
+  K(fftHout, "ffthout.cl", "fftHout", hN / nH),
+
+  K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH / 2),
+  K(tailSquareLow, "tailsquare.cl", "tailSquare", hN / nH / 2, "-DMUL_LOW=1"),
+  K(tailMul,       "tailmul.cl", "tailMul",       hN / nH / 2),
+  K(tailMulLow,    "tailmul.cl", "tailMul",       hN / nH / 2, "-DMUL_LOW=1"),
   
-  K(fftHin,  "ffthin.cl",  "fftHin",  "",      SMALL_H / nH, hN / nH),
-  K(fftHout, "ffthout.cl", "fftHout", "",      SMALL_H / nH, hN / nH),
+  // 256
+  K(fftMiddleIn,  "fftmiddlein.cl",  "fftMiddleIn",  hN / (BIG_H / SMALL_H)),
+  K(fftMiddleOut, "fftmiddleout.cl", "fftMiddleOut", hN / (BIG_H / SMALL_H)),
   
-  K(fftMiddleIn,  "fftmiddlein.cl",  "fftMiddleIn",  "", 256, hN / (BIG_H / SMALL_H)),
-  K(fftMiddleOut, "fftmiddleout.cl", "fftMiddleOut", "", 256, hN / (BIG_H / SMALL_H)),
+  // 64
+  K(transposeIn,  "transpose.cl", "transposeIn",  hN / 64),
+  K(transposeOut, "transpose.cl", "transposeOut", hN / 64),
   
-  K(kernCarryA, "carry.cl", "carry", "", W / nW, hN / CARRY_LEN),
-  K(kernCarryM, "carry.cl", "carry", "-DMUL3=1", W / nW, hN / CARRY_LEN),
-  K(carryB, "carryb.cl", "carryB", "", W / nW, hN / CARRY_LEN),
-  
-  K(transposeIn,  "transpose.cl", "transposeIn",  "", 64, hN / 64),
-  K(transposeOut, "transpose.cl", "transposeOut", "", 64, hN / 64),
-  
-  K(tailSquare, "tailsquare.cl", "tailSquare", "", SMALL_H / nH, hN / nH / 2),
-  K(tailSquareLow,   "tailsquare.cl", "tailSquare", "-DMUL_LOW=1", SMALL_H / nH, hN / nH / 2),
-  
-  K(tailMul, "tailmul.cl", "tailMul", "",  SMALL_H / nH, hN / nH / 2),
-  K(tailMulLow, "tailmul.cl", "tailMul", "-DMUL_LOW=1", SMALL_H / nH, hN / nH / 2),
-  
-  K(readResidue, "etc.cl", "readResidue", "", 64, 64),
-  K(isNotZero, "etc.cl", "isNotZero", "", 256, 256 * 256),
-  K(isEqual, "etc.cl", "isEqual", "", 256, 256 * 256),
-  K(sum64, "etc.cl", "sum64", "", 256, 256 * 256),
+  K(readResidue, "etc.cl", "readResidue", 64),
+
+  // 256
+  K(isNotZero, "etc.cl", "isNotZero", 256 * 256),
+  K(isEqual,   "etc.cl", "isEqual",   256 * 256),
+  K(sum64,     "etc.cl", "sum64",     256 * 256),
 #undef K
 
   bufTrigW{genSmallTrig(context, W, nW)},

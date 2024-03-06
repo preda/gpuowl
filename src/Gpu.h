@@ -76,23 +76,26 @@ class Gpu {
   Kernel kernCarryFusedMul;
   Kernel carryFusedLL;
 
-  Kernel fftP;
-  Kernel fftW;
-  Kernel fftHin;
-  Kernel fftHout;
-  Kernel fftMiddleIn;
-  Kernel fftMiddleOut;
-  
   Kernel kernCarryA;
   Kernel kernCarryM;
   Kernel carryB;
-  
-  Kernel transposeIn, transposeOut;
+
+  Kernel fftP;
+  Kernel fftW;
+
+  Kernel fftHin;
+  Kernel fftHout;
 
   Kernel tailSquare;
   Kernel tailSquareLow;
   Kernel tailMul;
   Kernel tailMulLow;
+
+  Kernel fftMiddleIn;
+  Kernel fftMiddleOut;
+
+  Kernel transposeIn, transposeOut;
+
 
   Kernel readResidue;
   Kernel isNotZero;
