@@ -110,7 +110,7 @@ KernelHolder KernelCompiler::load(const string& fileName, const string& kernelNa
 
   if (!fromCache) {
     saveBinary(program.get(), cacheFile);
-    log("Loaded %s (%s): %.0fms\n", kernelName.c_str(), fileName.c_str(), timer.at() * 1000);
+    log("Loaded %s %s: %.0fms\n", kernelName.c_str(), args.c_str(), timer.at() * 1000);
   }
 
   return ret;
