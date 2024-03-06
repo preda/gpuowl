@@ -12,7 +12,8 @@ KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(
   u32 gx = g % NW;
   u32 gy = g / NW;
 
-  CarryABM carry = 0;  
+  // & vs. && to workaround spurious warning
+  CarryABM carry = (LL & (me == 0) & (g == 0)) ? -2 : 0;
   float roundMax = 0;
   float carryMax = 0;
 

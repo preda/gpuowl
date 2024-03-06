@@ -3,10 +3,6 @@
 #include "carryutil.cl"
 #include "fftwidth.cl"
 
-#if !defined(LL)
-#define LL 0
-#endif
-
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,

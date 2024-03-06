@@ -10,6 +10,11 @@ i32  lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 i32 xtract32(i64 x, u32 bits) { return x >> bits; }
 #endif
 
+#if !defined(LL)
+#define LL 0
+#endif
+
+
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance
 // that the carry will not fit in 32-bits -- corrupting results.  That said, I did test 2000 iterations of an exponent

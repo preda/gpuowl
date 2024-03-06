@@ -340,6 +340,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
   K(kernCarryA, "carry.cl", "carry", hN / CARRY_LEN),
   K(kernCarryM, "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1"),
+  K(carryLL,    "carry.cl", "carry", hN / CARRY_LEN, "-DLL=1"),
   K(carryB, "carryb.cl", "carryB",   hN / CARRY_LEN),
 
   K(fftP, "fftp.cl", "fftP", hN / nW),
@@ -403,7 +404,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs, args.dump};
   for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &carryFusedLL,
        &fftP, &fftW, &fftHin, &fftHout,
-       &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryB,
+       &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryLL, &carryB,
        &transposeIn, &transposeOut,
        &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
        &readResidue, &isNotZero, &isEqual, &sum64}) {
@@ -422,8 +423,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
   fftMiddleOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
   
-  kernCarryA.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
-  kernCarryM.setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
+  for (Kernel* k : {&kernCarryA, &kernCarryM, &carryLL}) {
+    k->setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
+  }
+
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
   tailMulLow.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
