@@ -30,8 +30,10 @@ using Words = vector<u32>;
 
 inline u64 res64(const Words& words) { return words.empty() ? 0 : ((u64(words[1]) << 32) | words[0]); }
 
+inline u32 nWords(u32 E) { return (E - 1) / 32 + 1; }
+
 inline Words makeWords(u32 E, u32 value) {
-  Words ret((E-1)/32 +1);
+  Words ret(nWords(E));
   ret[0] = value;
   return ret;
 }
@@ -44,12 +46,12 @@ inline u32 crc32(const std::vector<u32>& words) { return crc32(words.data(), siz
 
 std::string formatBound(u32 b);
 
-template<typename To, typename From> To as(From from) {
-  union Pun {
-    Pun(const From& f) : from{f} {}    
+template<typename To, typename From> To as(From x) {
+  static_assert(sizeof(To) == sizeof(From));
+  union {
     From from;
     To to;
-    static_assert(sizeof(To) == sizeof(From));
-  };
-  return Pun{from}.to;
+  } u;
+  u.from = x;
+  return u.to;
 }

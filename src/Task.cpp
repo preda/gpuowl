@@ -6,7 +6,7 @@
 #include "Args.h"
 #include "File.h"
 #include "Worktodo.h"
-#include "Saver.h"
+#include "SaveMan.h"
 #include "version.h"
 #include "Proof.h"
 #include "log.h"
@@ -170,7 +170,7 @@ void Task::execute(const Args& args) {
     auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(args, *this);
     writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
     Worktodo::deleteTask(*this);
-    if (!isPrime) { Saver::cleanup(exponent, args); }
+    if (!isPrime) { StateSaver<PRPState>{exponent}.clear(); }
   } else {
     throw "Only PRP task is supported";
   }

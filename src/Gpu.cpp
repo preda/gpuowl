@@ -2,7 +2,6 @@
 
 #include "Gpu.h"
 #include "Proof.h"
-#include "Saver.h"
 #include "state.h"
 #include "Args.h"
 #include "Signal.h"
@@ -11,6 +10,7 @@
 #include "Task.h"
 #include "Memlock.h"
 #include "KernelCompiler.h"
+#include "SaveMan.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -23,6 +23,7 @@
 #include <limits>
 #include <iomanip>
 #include <array>
+#include <cinttypes>
 
 #ifndef M_PIl
 #define M_PIl 3.141592653589793238462643383279502884L
@@ -929,17 +930,8 @@ u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
   }
 }
 
-template<typename To, typename From> To pun(From x) {
-  static_assert(sizeof(To) == sizeof(From));
-  union {
-    From from;
-    To to;
-  } u;
-  u.from = x;
-  return u.to;
-}
 
-template<typename T> float asFloat(T x) { return pun<float>(x); }
+template<typename T> float asFloat(T x) { return as<float>(x); }
 
 }
 
@@ -1036,7 +1028,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 power = -1;
   u32 startK = 0;
 
-  Saver saver{E};
+  StateSaver<PRPState> saver{E};
   Signal signal;
 
   // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.
@@ -1047,7 +1039,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   
  reload:
   {
-    PRPState loaded = saver.loadPRP(args.blockSize);
+    PRPState loaded = saver.load();
         
     writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
         
@@ -1213,7 +1205,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         lastFailedRes64.reset();
         skipNextCheckUpdate = true;
 
-        if (k < kEnd) { saver.savePRP(PRPState{k, blockSize, res, check, nErrors}); }
+        if (k < kEnd) { saver.save({E, k, blockSize, res, check, nErrors}); }
 
         float secsSave = iterationTimer.reset(k);
           
