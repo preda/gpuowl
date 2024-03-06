@@ -105,7 +105,6 @@ named "config.txt" in the prpll run directory.
                      A higher power increases disk usage a lot.
                      e.g. proof power 10 for a 120M exponent uses about %.0fGB of disk space.
 -autoverify <power> : Self-verify proofs generated with at least this power. Default %u.
--tmpDir <dir>      : specify a folder with plenty of disk space where temporary proof checkpoints will be stored, default '%s'.
 -results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -save <N>          : specify the number of savefiles to keep (default %u).
@@ -142,7 +141,7 @@ named "config.txt" in the prpll run directory.
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", proofPow, ProofSet::diskUsageGB(120000000, 10), proofVerify, tmpDir.string().c_str(), resultsFile.string().c_str(), nSavefiles);
+)", proofPow, ProofSet::diskUsageGB(120000000, 10), proofVerify, resultsFile.string().c_str(), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
@@ -208,12 +207,6 @@ void Args::parse(const string& line) {
         throw "-autoverify <power>";
       }
       proofVerify = stoi(s);
-    } else if (key == "-tmpDir" || key == "-tmpdir") {
-      if (s.empty()) {
-        log("-tmpDir needs <dir>\n");
-        throw "-tmpDir needs <dir>";
-      }
-      tmpDir = s;
     } else if (key == "-keep") {
       if (s != "proof") {
         log("-keep requires 'proof'\n");
@@ -317,11 +310,6 @@ void Args::setDefaults() {
   }
 
   for (auto& p : {proofResultDir, proofToVerifyDir, cacheDir}) { fs::create_directory(p); }
-
-  if (!fs::exists(tmpDir)) {
-    log("The tmpDir '%s' does not exist\n", tmpDir.string().c_str());
-    throw "tmpDir does not exist";
-  }
 
   File::openAppend(resultsFile);  // verify that it's possible to write results
 }
