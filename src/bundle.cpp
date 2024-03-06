@@ -39,7 +39,7 @@ KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(
     double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
     T2 x = conjugate(in[p]) * U2(w1, w2);
         
-#if DO_MUL3
+#if MUL3
     out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax, &carryMax);
 #else
     out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax, &carryMax);
@@ -47,7 +47,7 @@ KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(
   }
   carryOut[G_W * g + me] = carry;
 
-#if STATS & (1 << (2 + DO_MUL3))
+#if STATS & (1 << (2 + MUL3))
 #if STATS & 16
   updateStats(ROE, posROE, carryMax);
 #else
@@ -133,7 +133,7 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
   T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
   weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(line % CARRY_LEN), fweightUnitStep(line % CARRY_LEN)));
 
-#if CF_MUL
+#if MUL3
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
   CFMcarry carry[NW+1];
 #else
@@ -157,7 +157,7 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
 
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
-#if CF_MUL    
+#if MUL3
     wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax, &carryMax);    
 #else
     wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1),
@@ -167,7 +167,7 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
 #endif
   }
 
-#if STATS & (1 << CF_MUL)
+#if STATS & (1 << MUL3)
 #if STATS & 16
   updateStats(ROE, posROE, carryMax);
 #else

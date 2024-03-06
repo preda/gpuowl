@@ -31,7 +31,7 @@ KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(
     double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
     T2 x = conjugate(in[p]) * U2(w1, w2);
         
-#if DO_MUL3
+#if MUL3
     out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax, &carryMax);
 #else
     out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax, &carryMax);
@@ -39,7 +39,7 @@ KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(
   }
   carryOut[G_W * g + me] = carry;
 
-#if STATS & (1 << (2 + DO_MUL3))
+#if STATS & (1 << (2 + MUL3))
 #if STATS & 16
   updateStats(ROE, posROE, carryMax);
 #else
