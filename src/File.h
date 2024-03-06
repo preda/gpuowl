@@ -69,7 +69,7 @@ public:
   
   static void append(const fs::path& name, std::string_view text) { File::openAppend(name).write(text); }
 
-  // File() : f{} {}
+  File() : f{}, readOnly{true} {}
 
   File(FILE* f, const string& name) : f{f}, readOnly{false}, name{name} {}
   

@@ -6,7 +6,7 @@
 #include "File.h"
 #include "common.h"
 #include "Args.h"
-#include "Saver.h"
+#include "SaveMan.h"
 
 #include <cassert>
 #include <string>
@@ -53,6 +53,13 @@ std::optional<Task> parse(const std::string& line) {
   return std::nullopt;
 }
 
+static void cycle(const fs::path& name) {
+  std::error_code dummy;
+  fs::remove(name + ".bak");
+  fs::rename(name, name + ".bak", dummy);
+  fs::rename(name + ".new", name, dummy);
+}
+
 bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   assert(!targetLine.empty());
   bool lineDeleted = false;
@@ -72,7 +79,7 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
     log("'%s': could not find the line '%s' to delete\n", fileName.string().c_str(), targetLine.c_str());
     return false;
   }
-  Saver::cycle(fileName);
+  cycle(fileName);
   return true;
 }
 
