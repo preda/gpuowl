@@ -331,8 +331,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   queue(Queue::make(context, timeKernels, args.cudaYield)),
   
 #define K(name, ...) name(#name, queue, __VA_ARGS__)
-  K(kernCarryFused,    "carryfused.cl", "carryFused", "-DCF_MUL=0", W / nW, W * (BIG_H + 1) / nW),
+  K(kernCarryFused,    "carryfused.cl", "carryFused", "", W / nW, W * (BIG_H + 1) / nW),
   K(kernCarryFusedMul, "carryfused.cl", "carryFused", "-DCF_MUL=1", W / nW, W * (BIG_H + 1) / nW),
+  K(carryFusedLL,      "carryfused.cl", "carryFused", "-DLL=1", W / nW, W * (BIG_H + 1) / nW),
   
   K(fftP, "fftp.cl", "fftP", "",        W / nW, hN / nW),
   K(fftW, "fftw.cl", "fftW", "",        W / nW, hN / nW),
@@ -393,7 +394,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
   KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs, args.dump};
-  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul,
+  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &carryFusedLL,
        &fftP, &fftW, &fftHin, &fftHout,
        &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryB,
        &transposeIn, &transposeOut,
@@ -402,11 +403,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
     k->load(compiler, device);
   }
   
-  kernCarryFused.setFixedArgs(   3, bufCarry, bufReady, bufTrigW, bufBits, bufROE,
-                                 bufThreadWeights, bufCarryWeights);
-  kernCarryFusedMul.setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE,
-                                 bufThreadWeights, bufCarryWeights);
-  fftP.setFixedArgs(2, bufTrigW, bufThreadWeights, bufCarryWeights);  
+  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &carryFusedLL}) {
+    k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufThreadWeights, bufCarryWeights);
+  }
+
+  fftP.setFixedArgs(2, bufTrigW, bufThreadWeights, bufCarryWeights);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
