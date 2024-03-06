@@ -426,6 +426,9 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
 }
 
+#define P(x) global x * restrict
+#define CP(x) const P(x)
+
 #if AMDGPU
 typedef constant const T2* Trig;
 typedef constant const double2* BigTab;
@@ -433,6 +436,9 @@ typedef constant const double2* BigTab;
 typedef global const T2* Trig;
 typedef global const double2* BigTab;
 #endif
+
+
+#define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
@@ -465,11 +471,6 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
     u[i] = a[pos] - b[pos];
   }
 }
-
-#define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
-
-#define P(x) global x * restrict
-#define CP(x) const P(x)
 
 u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * middle; }
 

@@ -100,10 +100,14 @@ R"cltag(
 #include "carryutil.cl"
 #include "fftwidth.cl"
 
+#if !defined(LL)
+#define LL 0
+#endif
+
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
-// It uses "stairway" carry data forwarding from one group to the next.
+// It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                 CP(u32) bits, P(uint) ROE, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
+                       CP(u32) bits, P(uint) ROE, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -156,7 +160,10 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
 #if CF_MUL    
     wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax, &carryMax);    
 #else
-    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax, &carryMax);
+    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1),
+                      // For an LL test, add -2 as the very initial "carry in"
+                      // We'd normally use logical &&, but the compiler whines with warning and bitwise fixes it
+                      (LL & (me==0) & (line==0)) ? -2 : 0, &roundMax, &carryMax);
 #endif
   }
 
@@ -2112,6 +2119,9 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
 }
 
+#define P(x) global x * restrict
+#define CP(x) const P(x)
+
 #if AMDGPU
 typedef constant const T2* Trig;
 typedef constant const double2* BigTab;
@@ -2119,6 +2129,9 @@ typedef constant const double2* BigTab;
 typedef global const T2* Trig;
 typedef global const double2* BigTab;
 #endif
+
+
+#define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
@@ -2151,11 +2164,6 @@ void readDelta(u32 WG, u32 N, T2 *u, const global T2 *a, const global T2 *b, u32
     u[i] = a[pos] - b[pos];
   }
 }
-
-#define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
-
-#define P(x) global x * restrict
-#define CP(x) const P(x)
 
 u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * middle; }
 

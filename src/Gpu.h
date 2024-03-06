@@ -74,6 +74,8 @@ class Gpu {
   
   Kernel kernCarryFused;
   Kernel kernCarryFusedMul;
+  Kernel carryFusedLL;
+
   Kernel fftP;
   Kernel fftW;
   Kernel fftHin;
