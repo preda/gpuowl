@@ -8,3 +8,7 @@ src/version.inc
 t?
 results.txt
 kernel-cache
+prp-*/
+ll-*/
+proof-*/
+config.txt

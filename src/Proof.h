@@ -58,23 +58,22 @@ public:
   const u32 power;
   
 private:  
-  fs::path exponentDir;
-  fs::path proofPath{exponentDir / "proof"};
+  fs::path proofPath;
   ProofCache cache{E, proofPath};
 
   vector<u32> points;  
   
   bool isValidTo(u32 limitK) const;
 
-  static bool canDo(const fs::path& tmpDir, u32 E, u32 power, u32 currentK);
+  static bool canDo(u32 E, u32 power, u32 currentK);
 
 public:
   
   static u32 bestPower(u32 E);
-  static u32 effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 currentK);
+  static u32 effectivePower(u32 E, u32 power, u32 currentK);
   static double diskUsageGB(u32 E, u32 power);
   
-  ProofSet(const fs::path& tmpDir, u32 E, u32 power);
+  ProofSet(u32 E, u32 power);
     
   u32 next(u32 k) const;
 

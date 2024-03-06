@@ -128,13 +128,12 @@ bool Proof::verify(Gpu *gpu) const {
 
 // ---- ProofSet ----
 
-ProofSet::ProofSet(const fs::path& tmpDir, u32 E, u32 power)
-  : E{E}, power{power}, exponentDir(tmpDir / to_string(E)) {
+ProofSet::ProofSet(u32 E, u32 power)
+  : E{E}, power{power}, proofPath("proof-"s + to_string(E)) {
   
   assert(E & 1); // E is supposed to be prime
   assert(power > 0);
     
-  fs::create_directory(exponentDir);
   fs::create_directory(proofPath);
 
   vector<u32> spans;
@@ -157,9 +156,9 @@ ProofSet::ProofSet(const fs::path& tmpDir, u32 E, u32 power)
   assert(points.size() == (1u << power));
 }
 
-bool ProofSet::canDo(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
+bool ProofSet::canDo(u32 E, u32 power, u32 currentK) {
   assert(power > 0 && power <= 12);
-  return ProofSet{tmpDir, E, power}.isValidTo(currentK);
+  return ProofSet{E, power}.isValidTo(currentK);
 }
 
 u32 ProofSet::bestPower(u32 E) {
@@ -183,13 +182,10 @@ double ProofSet::diskUsageGB(u32 E, u32 power) {
   return power ? ldexp(E, -33 + int(power)) * 1.05 : 0.0;
 }
 
-u32 ProofSet::effectivePower(const fs::path& tmpDir, u32 E, u32 power, u32 currentK) {
-  // For now, don't force the bestPower(E) bound; instead a warning is logged in Gpu::isPrimePRP()
-  // power = min(power, bestPower(E));
-  
+u32 ProofSet::effectivePower(u32 E, u32 power, u32 currentK) {
   for (u32 p = power; p > 0; --p) {
     // log("validating proof residues for power %u\n", p);
-    if (canDo(tmpDir, E, p, currentK)) { return p; }
+    if (canDo(E, p, currentK)) { return p; }
   }
   assert(false);
   return 0; // unreachable

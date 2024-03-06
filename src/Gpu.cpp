@@ -1070,7 +1070,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   if (!startK) { startK = k; }
 
   if (power == u32(-1)) {
-    power = ProofSet::effectivePower(args.tmpDir, E, args.proofPow, startK);
+    power = ProofSet::effectivePower(E, args.proofPow, startK);
     
     if (power != args.proofPow) {
       log("Proof using power %u (vs %u)\n", power, args.proofPow);
@@ -1089,7 +1089,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
   }
   
-  ProofSet proofSet{args.tmpDir, E, power};
+  ProofSet proofSet{E, power};
 
   bool isPrime = false;
   IterationTimer iterationTimer{startK};
