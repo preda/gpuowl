@@ -53,7 +53,9 @@ int main(int argc, char **argv) {
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
     if (args.prpExp) {
-      Worktodo::makePRP(args, args.prpExp).execute(args);
+      Worktodo::makePRP(args.prpExp).execute(args);
+    } else if (args.llExp) {
+      Worktodo::makeLL(args.llExp).execute(args);
     } else if (!args.verifyPath.empty()) {
       Worktodo::makeVerify(args, args.verifyPath).execute(args);
     } else {

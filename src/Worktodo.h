@@ -13,9 +13,12 @@ public:
   static std::optional<Task> getTask(Args &args);
   static bool deleteTask(const Task &task);
   
-  static Task makePRP(Args &args, u32 exponent) {
-    Task task{Task::PRP, exponent};
-    return task;
+  static Task makePRP(u32 exponent) {
+    return {Task::PRP, exponent};
+  }
+
+  static Task makeLL(u32 exponent) {
+    return {Task::LL, exponent};
   }
 
   static Task makeVerify(Args& args, string path) { return Task{.kind=Task::VERIFY, .verifyPath=path}; }
