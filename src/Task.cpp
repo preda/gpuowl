@@ -14,6 +14,7 @@
 
 #include <cmath>
 #include <cassert>
+#include <cinttypes>
 
 namespace {
 
@@ -173,8 +174,13 @@ void Task::execute(const Args& args) {
     Worktodo::deleteTask(*this);
     if (!isPrime) { StateSaver<PRPState>{exponent}.clear(); }
   } else if (kind == LL){
-    gpu->isPrimeLL(args, *this);
-    // TODO
+    auto [isPrime, res64] = gpu->isPrimeLL(args, *this);
+    // Do not clear LL savefiles regardless of primality
+    if (isPrime) {
+      log("%u is PRIME!\n", exponent);
+    } else {
+      log("%u is not prime: %016" PRIx64 "\n", exponent, res64);
+    }
   } else {
     throw "Unexpected task kind";
   }
