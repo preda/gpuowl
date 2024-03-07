@@ -1,14 +1,12 @@
-GpuOwl
-
-
+PRPLL "purrple cat[egorizer]"
 
 Build
 -----
 
-To build GpuOwl use "make".
+To build PRPLL use "make".
 
-In the GpuOwl project directory (where the file Makefile is located) run make.
-This will produce a file "gpuowl" in the build-release subdirectory.
+In the gpuowl project directory (where the file Makefile is located) run make.
+This will produce a file "prpll" in the build-debug or build-release subdirectory.
 
 Use "make" to do a release build in the "build-release" subdirectory.
 Use "make DEBUG=1" to produce a debug build in the "build-debug" subdirectory.
@@ -20,7 +18,7 @@ Build example:
 $ git clone git@github.com:preda/gpuowl.git
 $ cd gpuowl
 $ make
-$ build-release/gpuowl -h
+$ build-release/prpll -h
 
 
 Run
@@ -29,4 +27,4 @@ Run
 1. run "clinfo" and see whether it finds any OpenCL devices. If clinfo does not find any devices, 
 you need to fix your OpenCL installation first.
 
-2. run "gpuowl -h", and verify that it displays a list of devices towards the end.
+2. run "prpll -h", and verify that it displays a list of devices towards the end.
