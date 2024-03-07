@@ -605,7 +605,7 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
-    modSqLoop(bufData, 0, n);
+    squareLoop(bufData, 0, n);
     modMul(bufData, bufData, bufAux, buf1, buf2, buf3);
     bufAux << bufData;
   }
@@ -617,16 +617,16 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
   assert(blockSize >= 2);
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
-    modSqLoop(bufData, 0, n);
+    squareLoop(bufData, 0, n);
     modMul(bufData, bufData, bufAux, buf1, buf2, buf3);
   }
   
-  modSqLoop(bufData, 0, n);
+  squareLoop(bufData, 0, n);
   modMul(bufData, bufData, bufAux, buf1, buf2, buf3, true);
 }
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  modSqLoopMul3(bufAux, bufCheck, 0, blockSize, true);
+  squareLoop(bufAux, bufCheck, 0, blockSize, true);
   modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);  
   return equalNotZero(bufCheck, bufAux);
 }
@@ -698,7 +698,7 @@ Words Gpu::expExp2(const Words& A, u32 n) {
   u32 k = 0;
   while (true) {
     u32 its = std::min(blockSize, n - k);
-    modSqLoop(bufData, 0, its);
+    squareLoop(bufData, 0, its);
     k += its;
     spin();
     queue->finish();
@@ -805,7 +805,7 @@ void Gpu::doCarry(Buffer<double>& out, Buffer<double>& in) {
   }
 }
 
-void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3) {
+void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3) {
   if (leadIn) {
     fftP(buf2, in);
     fftMiddleIn(buf1, buf2);
@@ -826,12 +826,12 @@ void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut,
   }
 }
 
-u32 Gpu::modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3) {
+u32 Gpu::squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3) {
   assert(from < to);
   bool leadIn = true;
   for (u32 k = from; k < to; ++k) {
     bool leadOut = useLongCarry || (k == to - 1);
-    coreStep(out, (k==from) ? in : out, leadIn, leadOut, doTailMul3 && (k == to - 1));
+    square(out, (k==from) ? in : out, leadIn, leadOut, doTailMul3 && (k == to - 1));
     leadIn = leadOut;
   }
   return to;
@@ -1108,7 +1108,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
     bool leadOut = doStop || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
 
-    coreStep(bufData, leadIn, leadOut, false);
+    square(bufData, leadIn, leadOut, false);
     leadIn = leadOut;    
     
     if (k == persistK) {
@@ -1165,8 +1165,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       float secsPerIt = iterationTimer.reset(k);
 
       Words check = readCheck();
-      if (check.empty()) { log("Check read ZERO\n"); }
-
       bool ok = !check.empty() && this->doCheck(blockSize, buf1, buf2, buf3);
 
       float secsCheck = iterationTimer.reset(k);
