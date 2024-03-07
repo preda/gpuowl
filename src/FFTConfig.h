@@ -13,7 +13,7 @@
 string numberK(u32 n);
 
 struct FFTConfig {
-  static constexpr const float MIN_BPW = 6;
+  static constexpr const float MIN_BPW = 3;
 
   // On 2020-03-30, I examined the middle=10 FFTs from 1.25M to 80M.
   // On this date, exponent 95460001 had an average roundoff error of 0.2441.

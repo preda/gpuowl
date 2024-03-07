@@ -38,6 +38,11 @@ struct PRPResult {
   fs::path proofPath{};
 };
 
+struct LLResult {
+  bool isPrime;
+  u64 res64;
+};
+
 struct Stats {
   Stats() = default;
   Stats(float max, float mean, float sd) : max{max}, mean{mean}, sd{sd} {
@@ -74,11 +79,11 @@ class Gpu {
   
   Kernel kernCarryFused;
   Kernel kernCarryFusedMul;
-  Kernel carryFusedLL;
+  Kernel kernCarryFusedLL;
 
   Kernel kernCarryA;
   Kernel kernCarryM;
-  Kernel carryLL;
+  Kernel kernCarryLL;
   Kernel carryB;
 
   Kernel fftP;
@@ -150,8 +155,9 @@ class Gpu {
   vector<int> readOut(ConstBuffer<int> &buf);
   void writeIn(Buffer<int>& buf, const vector<i32> &words);
 
-  void square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3);
-  void square(Buffer<int>& io, bool leadIn, bool leadOut, bool mul3) { square(io, io, leadIn, leadOut, mul3); }
+  void square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool doMul3, bool doLL = false);
+  // void square(Buffer<int>& io, bool leadIn, bool leadOut, bool mul3) { square(io, io, leadIn, leadOut, mul3); }
+  void squareLL(Buffer<int>& io, bool leadIn, bool leadOut) { square(io, io, leadIn, leadOut, false, true); }
 
   u32 squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3);
   u32 squareLoop(Buffer<int>& io, u32 from, u32 to) { return squareLoop(io, io, from, to, false); }
@@ -193,10 +199,14 @@ class Gpu {
 public:
   const Args& args;
 
-  template<typename... Args> void carryA(const Args &...args) { kernCarryA(updatePos(1<<2), args...); }
-  void carryM(Buffer<int>& a, Buffer<double>& b) { kernCarryM(updatePos(1<<3), a, b); }
+  void carryA(Buffer<int>& a, Buffer<double>& b)     { kernCarryA(updatePos(1<<2), a, b); }
+  void carryA(Buffer<double>& a, Buffer<double>& b)  { kernCarryA(updatePos(1<<2), a, b); }
+  void carryM(Buffer<int>& a, Buffer<double>& b)  { kernCarryM(updatePos(1<<3), a, b); }
+  void carryLL(Buffer<int>& a, Buffer<double>& b) { kernCarryLL(updatePos(1<<2), a, b); }
+
   void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(updatePos(1<<0), a, b); }
   void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(updatePos(1<<1), a, b);}
+  void carryFusedLL(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedLL(updatePos(1<<0), a, b);}
 
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<int>& inB);
@@ -228,7 +238,7 @@ public:
   vector<u32> readData();
 
   PRPResult isPrimePRP(const Args& args, const Task& task);
-  PRPResult isPrimeLL(const Args& args, const Task& task);
+  LLResult isPrimeLL(const Args& args, const Task& task);
 
   u32 getFFTSize() { return N; }
 

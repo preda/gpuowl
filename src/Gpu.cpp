@@ -335,11 +335,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   //  W / nW
   K(kernCarryFused,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW),
   K(kernCarryFusedMul, "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DMUL3=1"),
-  K(carryFusedLL,      "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DLL=1"),
+  K(kernCarryFusedLL,  "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DLL=1"),
 
-  K(kernCarryA, "carry.cl", "carry", hN / CARRY_LEN),
-  K(kernCarryM, "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1"),
-  K(carryLL,    "carry.cl", "carry", hN / CARRY_LEN, "-DLL=1"),
+  K(kernCarryA,  "carry.cl", "carry", hN / CARRY_LEN),
+  K(kernCarryM,  "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1"),
+  K(kernCarryLL, "carry.cl", "carry", hN / CARRY_LEN, "-DLL=1"),
   K(carryB, "carryb.cl", "carryB",   hN / CARRY_LEN),
 
   K(fftP, "fftp.cl", "fftP", hN / nW),
@@ -401,16 +401,16 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
   KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs, args.dump};
-  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &carryFusedLL,
+  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL,
        &fftP, &fftW, &fftHin, &fftHout,
-       &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryLL, &carryB,
+       &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &kernCarryLL, &carryB,
        &transposeIn, &transposeOut,
        &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
        &readResidue, &kernIsEqual, &sum64}) {
     k->load(compiler, device);
   }
   
-  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &carryFusedLL}) {
+  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL}) {
     k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufThreadWeights, bufCarryWeights);
   }
 
@@ -422,7 +422,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
   fftMiddleOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
   
-  for (Kernel* k : {&kernCarryA, &kernCarryM, &carryLL}) {
+  for (Kernel* k : {&kernCarryA, &kernCarryM, &kernCarryLL}) {
     k->setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
   }
 
@@ -522,8 +522,6 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
     throw "FFT size too large";
   }
 
-  // log("Expected maximum carry32: %X0000\n", config.getMaxCarry32(N, E));
-
   bool useLongCarry = (bitsPerWord < 10.5f) || (args.carry == Args::CARRY_LONG);
 
   if (useLongCarry) { log("using long carry kernels\n"); }
@@ -594,7 +592,7 @@ void Gpu::mul(Buffer<int>& io, Buffer<int>& inA, Buffer<int>& inB) { modMul(io, 
 void Gpu::mul(Buffer<int>& io, Buffer<int>& inB) { mul(io, io, inB); }
 
 void Gpu::mul(Buffer<int>& io, Buffer<double>& buf1) {
-  // We know that coreStep() stores double output in buf1; so we're going to use buf2 & buf3 for temps.
+  // We know that mul() stores double output in buf1; so we're going to use buf2 & buf3 for temps.
   mul(io, io, buf1, buf2, buf3, false);
 }
 
@@ -806,7 +804,13 @@ void Gpu::doCarry(Buffer<double>& out, Buffer<double>& in) {
   }
 }
 
-void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3) {
+void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool doMul3, bool doLL) {
+  // LL does not do Mul3
+  assert(!(doMul3 && doLL));
+
+  // useLongCarry always sets leadOut
+  assert(!(useLongCarry && !leadOut));
+
   if (leadIn) {
     fftP(buf2, in);
     fftMiddleIn(buf1, buf2);
@@ -818,11 +822,22 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
 
   if (leadOut) {
     fftW(buf2, buf1);
-    if (mul3) { carryM(out, buf2); } else { carryA(out, buf2); }
+    if (!doLL && !doMul3) {
+      carryA(out, buf2);
+    } else if (doLL) {
+      carryLL(out, buf2);
+    } else {
+      carryM(out, buf2);
+    }
     carryB(out);
   } else {
-    assert(!useLongCarry); // because useLongCarry always sets leadOut=true
-    if (mul3) { carryFusedMul(buf2, buf1); } else { carryFused(buf2, buf1); }
+    if (!doLL && !doMul3) {
+      carryFused(buf2, buf1);
+    } else if (doLL) {
+      carryFusedLL(buf2, buf1);
+    } else {
+      carryFusedMul(buf2, buf1);
+    }
     fftMiddleIn(buf1, buf2);
   }
 }
@@ -1108,7 +1123,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
     bool leadOut = doStop || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
 
-    square(bufData, leadIn, leadOut, false);
+    square(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;    
     
     if (k == persistK) {
@@ -1211,11 +1226,13 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   }
 }
 
-PRPResult Gpu::isPrimeLL(const Args& args, const Task& task) {
+LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
   u32 E = task.exponent;
 
   StateSaver<LLState> saver{E};
   Signal signal;
+
+  reload:
 
   u32 startK = 0;
   {
@@ -1229,21 +1246,64 @@ PRPResult Gpu::isPrimeLL(const Args& args, const Task& task) {
     log("LL loaded @ %u : %016" PRIx64 "\n", startK, res);
   }
 
+  IterationTimer iterationTimer{startK};
+
   u32 k = startK;
   u32 kEnd = E - 2;
   bool leadIn = true;
 
-  while (k < kEnd) {
+  while (true) {
+    ++k;
+    bool doStop = (k >= kEnd) || (args.iters && k - startK >= args.iters);
+
     if (signal.stopRequested()) {
-      // TODO
+      doStop = true;
+      log("Stopping, please wait..\n");
+      signal.release();
     }
 
-    // coreStep(bufData, bufData, leadIn, leadOut, false);
+    bool doLog = (k % 10000 == 0) || doStop;
+    bool leadOut = doLog || useLongCarry;
 
+    squareLL(bufData, leadIn, leadOut);
+
+    if (!doLog) {
+      if (k % 100 == 0) { finish(); } // Periodically flush the queue
+      continue;
+    }
+
+    u64 res64 = 0;
+    auto data = readData();
+    bool isAllZero = data.empty();
+
+    if (isAllZero) {
+      if (k < kEnd) {
+        log("Error: early ZERO @ %u\n", k);
+        if (doStop) {
+          throw "stop requested";
+        } else {
+          goto reload;
+        }
+      }
+      res64 = 0;
+    } else {
+      assert(data.size() >= 2);
+      res64 = (u64(data[1]) << 32) | data[0];
+      saver.save({E, k, std::move(data)});
+    }
+
+    float secsPerIt = iterationTimer.reset(k);
+
+    auto roeInfo = readROE();
+    if (roeInfo.N) {
+      // TODO
+      log("%9u %016" PRIx64 " %4.0f\n", k, res64, secsPerIt * 1'000'000);
+    } else {
+      log("%9u %016" PRIx64 " %4.0f\n", k, res64, secsPerIt * 1'000'000);
+    }
+
+    if (k >= kEnd) { return {isAllZero, res64}; }
+
+    if (doStop) { throw "stop requested"; }
   }
-
-
-
-
-  return {}; //TODO
 }

@@ -43,9 +43,8 @@ KERNEL(256) isEqual(global i64 *in1, global i64 *in2, P(int) outEqual, u32 sizeB
 }
 #endif
 
-// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #if TEST_KERNEL
-
+// Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 kernel void testKernel(global double* in, global float* out) {
   uint me = get_local_id(0);
 
