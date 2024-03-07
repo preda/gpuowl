@@ -18,7 +18,6 @@
 
 #include <cstring>
 #include <algorithm>
-#include <future>
 #include <optional>
 #include <bitset>
 #include <limits>
@@ -366,9 +365,8 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   K(readResidue, "etc.cl", "readResidue", 64),
 
   // 256
-  K(isNotZero, "etc.cl", "isNotZero", 256 * 256),
-  K(isEqual,   "etc.cl", "isEqual",   256 * 256),
-  K(sum64,     "etc.cl", "sum64",     256 * 256),
+  K(kernIsEqual, "etc.cl", "isEqual", 256 * 256),
+  K(sum64,       "etc.cl", "sum64",   256 * 256),
 #undef K
 
   bufTrigW{genSmallTrig(context, W, nW)},
@@ -390,6 +388,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufReady{queue, "ready", BIG_H},
   bufSmallOut{queue, "smallOut", 256},
   bufSumOut{queue, "sumOut", 1},
+  bufTrue{queue, "bufTrue", 1},
   bufROE{queue, "ROE", ROE_SIZE},
   roePos{0},
   buf1{queue, "buf1", N},
@@ -407,7 +406,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
        &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &carryLL, &carryB,
        &transposeIn, &transposeOut,
        &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
-       &readResidue, &isNotZero, &isEqual, &sum64}) {
+       &readResidue, &kernIsEqual, &sum64}) {
     k->load(compiler, device);
   }
   
@@ -435,6 +434,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
   bufReady.zero();
   bufROE.zero();
+  bufTrue.write({1});
   finish();
 }
 
@@ -628,7 +628,7 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   squareLoop(bufAux, bufCheck, 0, blockSize, true);
   modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);  
-  return equalNotZero(bufCheck, bufAux);
+  return isEqual(bufCheck, bufAux);
 }
 
 void Gpu::logTimeKernels() {
@@ -837,12 +837,11 @@ u32 Gpu::squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool do
   return to;
 }
 
-bool Gpu::equalNotZero(Buffer<int>& buf1, Buffer<int>& buf2) {
-  bufSmallOut.zero(1);
-  u32 sizeBytes = N * sizeof(int);
-  isNotZero(bufSmallOut, sizeBytes, buf1);
-  isEqual(bufSmallOut, sizeBytes, buf1, buf2);
-  return bufSmallOut.read(1)[0];
+bool Gpu::isEqual(Buffer<int>& in1, Buffer<int>& in2) {
+  kernIsEqual(bufTrue, u32(N * sizeof(int)), in1, in2);
+  bool isEq = bufTrue.read(1)[0];
+  if (!isEq) { bufTrue.write({1}); }
+  return isEq;
 }
   
 u64 Gpu::bufResidue(Buffer<int> &buf) {

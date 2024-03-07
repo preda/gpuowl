@@ -77,7 +77,9 @@ cl_kernel loadKernel(cl_program program, const char *name);
 void saveBinary(cl_program program, string_view fileName);
 
 template<typename T>
-void setArg(cl_kernel k, int pos, const T &value, const string& name) { CHECK2(clSetKernelArg(k, pos, sizeof(value), &value), name.c_str()); }
+void setArg(cl_kernel k, int pos, const T &value, const string& name) {
+  CHECK2(clSetKernelArg(k, pos, sizeof(value), &value), (name + '[' + to_string(pos) + "] size " + to_string(sizeof(value))).c_str());
+}
 
 template<>
 void setArg<int>(cl_kernel k, int pos, const int &value, const string& name);
