@@ -2,6 +2,7 @@
 
 #include "gpuowl.cl"
 
+#if READRESIDUE
 // Read 64 Word2 starting at position 'startDword'.
 KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
   u32 me = get_local_id(0);
@@ -10,7 +11,9 @@ KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
   u32 x = k / BIG_HEIGHT;
   out[me] = in[WIDTH * y + x];
 }
+#endif
 
+#if SUM64
 KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
   if (get_global_id(0) == 0) { out[0] = 0; }
   
@@ -26,19 +29,22 @@ KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
     atomic_add(((global u32*)out) + 1, high);
   }
 }
+#endif
 
+#if ISEQUAL
 // outEqual must be "true" on entry.
-KERNEL(256) isEqual(P(bool) outEqual, u32 sizeBytes, global i64 *in1, global i64 *in2) {
+KERNEL(256) isEqual(global i64 *in1, global i64 *in2, P(int) outEqual, u32 sizeBytes) {
   for (i32 p = get_global_id(0); p < sizeBytes / sizeof(i64); p += get_global_size(0)) {
     if (in1[p] != in2[p]) {
-      *outEqual = false;
+      *outEqual = 0;
       return;
     }
   }
 }
+#endif
 
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
-#ifdef TEST_KERNEL
+#if TEST_KERNEL
 
 kernel void testKernel(global double* in, global float* out) {
   uint me = get_local_id(0);

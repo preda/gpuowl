@@ -362,11 +362,11 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   K(transposeIn,  "transpose.cl", "transposeIn",  hN / 64),
   K(transposeOut, "transpose.cl", "transposeOut", hN / 64),
   
-  K(readResidue, "etc.cl", "readResidue", 64),
+  K(readResidue, "etc.cl", "readResidue", 64, "-DREADRESIDUE=1"),
 
   // 256
-  K(kernIsEqual, "etc.cl", "isEqual", 256 * 256),
-  K(sum64,       "etc.cl", "sum64",   256 * 256),
+  K(kernIsEqual, "etc.cl", "isEqual", 256 * 256, "-DISEQUAL=1"),
+  K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
 #undef K
 
   bufTrigW{genSmallTrig(context, W, nW)},
@@ -431,6 +431,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   tailMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailSquare.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailSquareLow.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
+  kernIsEqual.setFixedArgs(2, bufTrue, u32(N * sizeof(int)));
 
   bufReady.zero();
   bufROE.zero();
@@ -838,7 +839,7 @@ u32 Gpu::squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool do
 }
 
 bool Gpu::isEqual(Buffer<int>& in1, Buffer<int>& in2) {
-  kernIsEqual(bufTrue, u32(N * sizeof(int)), in1, in2);
+  kernIsEqual(in1, in2);
   bool isEq = bufTrue.read(1)[0];
   if (!isEq) { bufTrue.write({1}); }
   return isEq;
