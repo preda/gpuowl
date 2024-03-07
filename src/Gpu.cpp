@@ -533,6 +533,9 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
                           getDevice(args.device), timeKernels, useLongCarry);
 }
 
+template<typename T>
+static bool isAllZero(vector<T> v) { return std::all_of(v.begin(), v.end(), [](T x) { return x == 0;}); }
+
 vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
   for (int nRetry = 0; nRetry < 3; ++nRetry) {
     sum64(bufSumOut, u32(buf.size * sizeof(int)), buf);
@@ -540,26 +543,24 @@ vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
     vector<u64> expectedVect(1);
     bufSumOut.readAsync(expectedVect);
     vector<int> data = readOut(buf);
-    u64 expectedSum = expectedVect[0];
+    u64 gpuSum = expectedVect[0];
     
     u64 sum = 0;
-    bool allZero = true;
     for (auto it = data.begin(), end = data.end(); it < end; it += 2) {
-      u64 v = u32(*it) | (u64(*(it + 1)) << 32);
-      sum += v;
-      allZero &= !v;
+      sum += u32(*it) | (u64(*(it + 1)) << 32);
     }
 
-    if (sum != expectedSum || (allZero && nRetry == 0)) {
-      log("GPU -> Host read #%d failed (check %x vs %x)\n", nRetry, unsigned(sum), unsigned(expectedSum));
-    } else {
-      if (allZero) {
-        log("Read ZERO\n");
-        return {};
-      } else {
-        return compactBits(std::move(data),  E);
-      }
+    if (sum != gpuSum) {
+      log("GPU read failed: %016" PRIx64 " (gpu) != %016" PRIx64 " (host)\n", gpuSum, sum);
+      continue; // have another try
     }
+
+    if (gpuSum == 0 && isAllZero(data)) {
+      log("Read all-zero\n");
+      return {};
+    }
+
+    return compactBits(std::move(data), E);
   }
   throw "Persistent read errors: GPU->Host";
 }
@@ -625,7 +626,7 @@ void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& bu
 }
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
-  modSqLoopMul3(bufAux, bufCheck, 0, blockSize);  
+  modSqLoopMul3(bufAux, bufCheck, 0, blockSize, true);
   modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);  
   return equalNotZero(bufCheck, bufAux);
 }
@@ -819,29 +820,18 @@ void Gpu::coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut,
     if (mul3) { carryM(out, buf2); } else { carryA(out, buf2); }
     carryB(out);
   } else {
-    assert(!useLongCarry);
+    assert(!useLongCarry); // because useLongCarry always sets leadOut=true
     if (mul3) { carryFusedMul(buf2, buf1); } else { carryFused(buf2, buf1); }
     fftMiddleIn(buf1, buf2);
   }
 }
 
-u32 Gpu::modSqLoop(Buffer<int>& io, u32 from, u32 to) {
-  assert(from <= to);
-  bool leadIn = true;
-  for (u32 k = from; k < to; ++k) {
-    bool leadOut = useLongCarry || (k == to - 1);
-    coreStep(io, io, leadIn, leadOut, false);
-    leadIn = leadOut;
-  }
-  return to;
-}
-
-u32 Gpu::modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to) {
+u32 Gpu::modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3) {
   assert(from < to);
   bool leadIn = true;
   for (u32 k = from; k < to; ++k) {
     bool leadOut = useLongCarry || (k == to - 1);
-    coreStep(out, (k==from) ? in : out, leadIn, leadOut, (k == to - 1));
+    coreStep(out, (k==from) ? in : out, leadIn, leadOut, doTailMul3 && (k == to - 1));
     leadIn = leadOut;
   }
   return to;
@@ -941,36 +931,6 @@ u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
   }
 }
 
-
-template<typename T> float asFloat(T x) { return as<float>(x); }
-
-}
-
-void Gpu::square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2) {
-  fftP(tmp1, data);
-  fftMiddleIn(tmp2, tmp1);
-  tailSquare(tmp1, tmp2);
-  fftMiddleOut(tmp2, tmp1);
-  fftW(tmp1, tmp2);
-  carryA(data, tmp1);
-  carryB(data);  
-}
-
-void Gpu::square(Buffer<int>& data) {
-  square(data, buf1, buf2);
-}
-
-template<typename Future> bool finished(const Future& f) {
-  return f.valid() && f.wait_for(chrono::steady_clock::duration::zero()) == future_status::ready;
-}
-
-template<typename Future> bool wait(const Future& f) {
-  if (f.valid()) {
-    f.wait();
-    return true;
-  } else {
-    return false;
-  }
 }
 
 // ----
@@ -1148,7 +1108,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
     bool leadOut = doStop || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
 
-    coreStep(bufData, bufData, leadIn, leadOut, false);
+    coreStep(bufData, leadIn, leadOut, false);
     leadIn = leadOut;    
     
     if (k == persistK) {
@@ -1254,7 +1214,38 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 }
 
 PRPResult Gpu::isPrimeLL(const Args& args, const Task& task) {
-  // u32 E = task.exponent;
-  // u32 k = 0;
+  u32 E = task.exponent;
+
+  StateSaver<LLState> saver{E};
+  Signal signal;
+
+  u32 startK = 0;
+  {
+    LLState state = saver.load();
+
+    startK = state.k;
+    writeData(state.data);
+    u64 expectedRes = (u64(state.data[1]) << 32) | state.data[0];
+    u64 res = dataResidue();
+    assert(res == expectedRes);
+    log("LL loaded @ %u : %016" PRIx64 "\n", startK, res);
+  }
+
+  u32 k = startK;
+  u32 kEnd = E - 2;
+  bool leadIn = true;
+
+  while (k < kEnd) {
+    if (signal.stopRequested()) {
+      // TODO
+    }
+
+    // coreStep(bufData, bufData, leadIn, leadOut, false);
+
+  }
+
+
+
+
   return {}; //TODO
 }

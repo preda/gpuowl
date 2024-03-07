@@ -59,6 +59,7 @@ public:
   string fftSpec;
 
   u32 prpExp = 0;
+  u32 llExp = 0;
   
   size_t maxAlloc = 0;
 

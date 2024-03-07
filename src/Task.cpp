@@ -162,7 +162,7 @@ void Task::execute(const Args& args) {
     return;
   }
 
-  assert(kind == PRP);
+  assert(kind == PRP || kind == LL);
 
   auto gpu = Gpu::make(exponent, args);
   auto fftSize = gpu->getFFTSize();
@@ -172,7 +172,10 @@ void Task::execute(const Args& args) {
     writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
     Worktodo::deleteTask(*this);
     if (!isPrime) { StateSaver<PRPState>{exponent}.clear(); }
+  } else if (kind == LL){
+    gpu->isPrimeLL(args, *this);
+    // TODO
   } else {
-    throw "Only PRP task is supported";
+    throw "Unexpected task kind";
   }
 }

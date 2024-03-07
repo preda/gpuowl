@@ -151,8 +151,14 @@ class Gpu {
   void writeIn(Buffer<int>& buf, const vector<i32> &words);
 
   void coreStep(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool mul3);
-  u32 modSqLoop(Buffer<int>& io, u32 from, u32 to);
-  u32 modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to);
+  void coreStep(Buffer<int>& inOut, bool leadIn, bool leadOut, bool mul3) {
+    coreStep(inOut, inOut, leadIn, leadOut, mul3);
+  }
+
+  u32 modSqLoopMul3(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3);
+  u32 modSqLoop(Buffer<int>& io, u32 from, u32 to) {
+    return modSqLoopMul3(io, io, from, to, false);
+  }
 
   bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
   u64 bufResidue(Buffer<int>& buf);
@@ -180,8 +186,6 @@ class Gpu {
   
   void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3 = false);
 
-  // data := data * data;
-  void square(Buffer<int>& data, Buffer<double>& tmp1, Buffer<double>& tmp2);
   
   u32 maxBuffers();
 
@@ -244,4 +248,5 @@ public:
   // return A^(2^n)
   Words expExp2(const Words& A, u32 n);
   vector<Buffer<i32>> makeBufVector(u32 size);
+private:
 };
