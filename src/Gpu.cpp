@@ -524,7 +524,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
   bool useLongCarry = (bitsPerWord < 10.5f) || (args.carry == Args::CARRY_LONG);
 
-  if (useLongCarry) { log("using long carry kernels\n"); }
+  if (useLongCarry) { log("Using long carry\n"); }
 
   bool timeKernels = args.timeKernels;
 
@@ -1268,7 +1268,7 @@ LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
     squareLL(bufData, leadIn, leadOut);
 
     if (!doLog) {
-      if (k % 100 == 0) { finish(); } // Periodically flush the queue
+      if (k % 500 == 499) { finish(); } // Periodically flush the queue
       continue;
     }
 
