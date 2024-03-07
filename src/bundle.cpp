@@ -445,16 +445,6 @@ KERNEL(256) isEqual(P(bool) outEqual, u32 sizeBytes, global i64 *in1, global i64
   }
 }
 
-// outNotZero must be "false" on entry.
-KERNEL(256) isNotZero(P(bool) outNotZero, u32 sizeBytes, global i64 *in) {
-  for (i32 p = get_global_id(0); p < sizeBytes / sizeof(i64); p += get_global_size(0)) {
-    if (in[p] != 0) {
-      *outNotZero = true;
-      return;
-    }
-  }
-}
-
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 #ifdef TEST_KERNEL
 

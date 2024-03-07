@@ -99,8 +99,7 @@ class Gpu {
 
 
   Kernel readResidue;
-  Kernel isNotZero;
-  Kernel isEqual;
+  Kernel kernIsEqual;
   Kernel sum64;
   // Kernel testKernel;
 
@@ -129,9 +128,10 @@ class Gpu {
   
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
 
-  // Small aux buffer used to read res64.
+  // Small aux buffers.
   HostAccessBuffer<int> bufSmallOut;
   HostAccessBuffer<u64> bufSumOut;
+  HostAccessBuffer<int> bufTrue;
 
   // The round-off error ("ROE"), one float element per iteration.
   HostAccessBuffer<float> bufROE;
@@ -156,7 +156,7 @@ class Gpu {
   u32 squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3);
   u32 squareLoop(Buffer<int>& io, u32 from, u32 to) { return squareLoop(io, io, from, to, false); }
 
-  bool equalNotZero(Buffer<int>& bufCheck, Buffer<int>& bufAux);
+  bool isEqual(Buffer<int>& bufCheck, Buffer<int>& bufAux);
   u64 bufResidue(Buffer<int>& buf);
   
   vector<u32> writeBase(const vector<u32> &v);
