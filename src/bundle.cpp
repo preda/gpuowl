@@ -1862,8 +1862,7 @@ typedef int2 Word2;
 typedef i64 CarryABM;
 
 typedef double T;
-typedef double2 TT;
-typedef TT T2;
+typedef double2 T2;
 
 #define RE(a) (a.x)
 #define IM(a) (a.y)
@@ -1882,7 +1881,7 @@ void bar() {
 #endif
 }
 
-TT U2(T a, T b) { return (TT) (a, b); }
+T2 U2(T a, T b) { return (T2) (a, b); }
 
 OVERLOAD double sum(double a, double b) { return a + b; }
 
@@ -1910,7 +1909,7 @@ OVERLOAD T fancyMul(T x, const T y) {
   return fma(x, y, x);
 }
 
-OVERLOAD TT fancyMul(TT x, const TT y) {
+OVERLOAD T2 fancyMul(T2 x, const T2 y) {
   return U2(fancyMul(RE(x), RE(y)), fancyMul(IM(x), IM(y)));
 }
 
@@ -1923,10 +1922,10 @@ T mad1_m4(T a, T b, T c) {
 }
 
 // complex square
-OVERLOAD TT sq(TT a) { return U2(mad1(RE(a), RE(a), - IM(a) * IM(a)), mul1_m2(RE(a), IM(a))); }
+OVERLOAD T2 sq(T2 a) { return U2(mad1(RE(a), RE(a), - IM(a) * IM(a)), mul1_m2(RE(a), IM(a))); }
 
 // complex mul
-OVERLOAD TT mul(TT a, TT b) { return U2(mad1(RE(a), RE(b), - IM(a) * IM(b)), mad1(RE(a), IM(b), IM(a) * RE(b))); }
+OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad1(RE(a), RE(b), - IM(a) * IM(b)), mad1(RE(a), IM(b), IM(a) * RE(b))); }
 
 bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
@@ -1937,30 +1936,30 @@ u32 bitlen(bool b) { return EXP / NWORDS + b; }
 
 
 // complex add * 2
-TT add_m2(TT a, TT b) { return U2(add1_m2(RE(a), RE(b)), add1_m2(IM(a), IM(b))); }
+T2 add_m2(T2 a, T2 b) { return U2(add1_m2(RE(a), RE(b)), add1_m2(IM(a), IM(b))); }
 
 // complex mul * 2
-TT mul_m2(TT a, TT b) { return U2(mad1_m2(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m2(RE(a), IM(b), mul(IM(a), RE(b)))); }
+T2 mul_m2(T2 a, T2 b) { return U2(mad1_m2(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m2(RE(a), IM(b), mul(IM(a), RE(b)))); }
 
 // complex mul * 4
-TT mul_m4(TT a, TT b) { return U2(mad1_m4(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m4(RE(a), IM(b), mul(IM(a), RE(b)))); }
+T2 mul_m4(T2 a, T2 b) { return U2(mad1_m4(RE(a), RE(b), -mul(IM(a), IM(b))), mad1_m4(RE(a), IM(b), mul(IM(a), RE(b)))); }
 
 // complex fma
-TT mad_m1(TT a, TT b, TT c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
+T2 mad_m1(T2 a, T2 b, T2 c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
 
 // complex fma * 2
-TT mad_m2(TT a, TT b, TT c) { return U2(mad1_m2(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1_m2(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
+T2 mad_m2(T2 a, T2 b, T2 c) { return U2(mad1_m2(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1_m2(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
 
-TT mul_t4(TT a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
+T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
 
 
-TT mul_t8(TT a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-TT mul_3t8(TT a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
+T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
-TT swap(TT a)      { return U2(IM(a), RE(a)); }
-TT conjugate(TT a) { return U2(RE(a), -IM(a)); }
+T2 swap(T2 a)      { return U2(IM(a), RE(a)); }
+T2 conjugate(T2 a) { return U2(RE(a), -IM(a)); }
 
-TT weight(Word2 a, TT w) { return w * U2(RE(a), IM(a)); }
+T2 weight(Word2 a, T2 w) { return w * U2(RE(a), IM(a)); }
 
 u32 bfi(u32 u, u32 mask, u32 bits) {
 #if HAS_ASM
