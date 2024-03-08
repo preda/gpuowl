@@ -71,7 +71,7 @@ $(DEPDIR)/%.d: ;
 src/version.cpp : src/version.inc
 
 src/version.inc: FORCE
-	echo \"`git describe --tags --long --dirty --always --match v/prpll/*`\" > $(BIN)/version.new
+	echo \"`basename \`git describe --tags --long --dirty --always --match v/prpll/*\``\" > $(BIN)/version.new
 	diff -q -N $(BIN)/version.new $@ >/dev/null || mv $(BIN)/version.new $@
 	echo Version: `cat $@`
 
