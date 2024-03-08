@@ -10,7 +10,7 @@
 #include "Task.h"
 #include "Memlock.h"
 #include "KernelCompiler.h"
-#include "SaveMan.h"
+#include "Saver.h"
 #include "timeutil.h"
 
 #define _USE_MATH_DEFINES
@@ -1014,7 +1014,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 power = -1;
   u32 startK = 0;
 
-  StateSaver<PRPState> saver{E};
+  Saver<PRPState> saver{E};
   Signal signal;
 
   // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.
@@ -1229,7 +1229,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
   u32 E = task.exponent;
 
-  StateSaver<LLState> saver{E};
+  Saver<LLState> saver{E};
   Signal signal;
 
   reload:
