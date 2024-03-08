@@ -1242,6 +1242,7 @@ LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
     writeData(state.data);
     u64 expectedRes = (u64(state.data[1]) << 32) | state.data[0];
     u64 res = dataResidue();
+    if (res != expectedRes) { throw "Invalid savefile (res64)"; }
     assert(res == expectedRes);
     log("LL loaded @ %u : %016" PRIx64 "\n", startK, res);
   }

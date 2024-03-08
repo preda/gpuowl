@@ -11,7 +11,6 @@
 #include <cassert>
 #include <filesystem>
 #include <cinttypes>
-#include <climits>
 
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error Byte order must be Little Endian
@@ -129,12 +128,12 @@ bool Proof::verify(Gpu *gpu) const {
 // ---- ProofSet ----
 
 ProofSet::ProofSet(u32 E, u32 power)
-  : E{E}, power{power}, proofPath("proof-"s + to_string(E)) {
+  : E{E}, power{power}, proofPath(fs::path(to_string(E)) / "proof") {
   
   assert(E & 1); // E is supposed to be prime
   assert(power > 0);
     
-  fs::create_directory(proofPath);
+  fs::create_directories(proofPath);
 
   vector<u32> spans;
   for (u32 span = (E + 1) / 2; spans.size() < power; span = (span + 1) / 2) { spans.push_back(span); }
