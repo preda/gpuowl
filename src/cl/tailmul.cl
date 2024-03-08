@@ -1,9 +1,9 @@
 // Copyright (C) Mihai Preda and George Woltman
 
-#include "gpuowl.cl"
+#include "base.cl"
+#include "tailutil.cl"
 #include "trig.cl"
 #include "fftheight.cl"
-#include "tailutil.cl"
 
 // This implementation compared to the original version that is no longer included in this file takes
 // better advantage of the AMD OMOD (output modifier) feature.

@@ -1,6 +1,7 @@
 // Copyright (C) Mihai Preda
 
 #include "carryutil.cl"
+#include "weight.cl"
 #include "fftwidth.cl"
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.

@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda
 
+#include "base.cl"
+#include "math.cl"
 #include "middle.cl"
 
 KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {

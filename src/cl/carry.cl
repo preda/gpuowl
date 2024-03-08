@@ -1,6 +1,7 @@
 // Copyright (C) Mihai Preda
 
 #include "carryutil.cl"
+#include "weight.cl"
 
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.

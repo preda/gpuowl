@@ -180,4 +180,34 @@ typedef double2 T2;
 #define P(x) global x * restrict
 #define CP(x) const P(x)
 
+#if AMDGPU
+typedef constant const T2* Trig;
+typedef constant const double2* BigTab;
+#else
+typedef global const T2* Trig;
+typedef global const double2* BigTab;
+#endif
+
+// Propagate carry this many pairs of words.
+#define CARRY_LEN 8
+
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
+
+void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
+  for (i32 i = 0; i < N; ++i) { u[i] = in[base + i * WG + (u32) get_local_id(0)]; }
+}
+
+void write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base) {
+  for (i32 i = 0; i < N; ++i) { out[base + i * WG + (u32) get_local_id(0)] = u[i]; }
+}
+
+void bar() {
+  // barrier(CLK_LOCAL_MEM_FENCE) is correct, but it turns out that on some GPUs, in particular on RadeonVII,
+  // barrier(0) works as well and is faster. So allow selecting the faster path when it works with
+  // -use FAST_BARRIER
+#if FAST_BARRIER
+  barrier(0);
+#else
+  barrier(CLK_LOCAL_MEM_FENCE);
+#endif
+}
