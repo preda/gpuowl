@@ -1,6 +1,6 @@
 // Copyright (C) Mihai Preda
 
-#include "gpuowl.cl"
+#include "base.cl"
 
 #if READRESIDUE
 // Read 64 Word2 starting at position 'startDword'.
