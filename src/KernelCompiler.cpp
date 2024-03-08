@@ -88,9 +88,14 @@ KernelHolder KernelCompiler::load(const string& fileName, const string& kernelNa
   Timer timer;
   bool fromCache = true;
 
-  string f = kernelName + '-' + to_hex(SHA3::hash(contextHash, fileName, kernelName, args)[0]);
-  string cacheFile = cacheDir + '/' + f;
-  Program program = loadBinary(context, deviceId, cacheFile);
+  Program program;
+  string cacheFile;
+
+  if (useCache) {
+    string f = kernelName + '-' + to_hex(SHA3::hash(contextHash, fileName, kernelName, args)[0]);
+    cacheFile = cacheDir + '/' + f;
+    program = loadBinary(context, deviceId, cacheFile);
+  }
 
   if (!program) {
     fromCache = false;
@@ -109,7 +114,7 @@ KernelHolder KernelCompiler::load(const string& fileName, const string& kernelNa
   }
 
   if (!fromCache) {
-    saveBinary(program.get(), cacheFile);
+    if (useCache) { saveBinary(program.get(), cacheFile); }
     log("Loaded %s %s: %.0fms\n", kernelName.c_str(), args.c_str(), timer.at() * 1000);
   }
 

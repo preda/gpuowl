@@ -14,6 +14,7 @@ class KernelCompiler {
   std::string linkArgs;
   std::string baseArgs;
   std::string dump;
+  const bool useCache{false};
   
   std::vector<Program> clSources;
   std::vector<std::pair<std::string, std::string>> files;
