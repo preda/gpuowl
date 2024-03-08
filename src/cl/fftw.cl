@@ -1,6 +1,7 @@
 // Copyright (C) Mihai Preda
 
-#include "gpuowl.cl"
+#include "base.cl"
+#include "math.cl"
 #include "fftwidth.cl"
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)

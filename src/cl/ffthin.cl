@@ -1,6 +1,7 @@
 // Copyright (C) Mihai Preda
 
-#include "gpuowl.cl"
+#include "base.cl"
+#include "math.cl"
 #include "fftheight.cl"
 
 // Do an FFT Height after a transposeW (which may not have fully transposed data, leading to non-sequential input)

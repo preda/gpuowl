@@ -1,6 +1,8 @@
 // Copyright (C) Mihai Preda
 
-#include "gpuowl.cl"
+#include "base.cl"
+#include "math.cl"
+#include "weight.cl"
 #include "fftwidth.cl"
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.

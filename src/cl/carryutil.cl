@@ -1,6 +1,16 @@
 // Copyright (C) Mihai Preda
 
-#include "gpuowl.cl"
+#include "base.cl"
+#include "math.cl"
+
+#if STATS
+void updateStats(global uint *ROE, u32 posROE, float roundMax) {
+  assert(roundMax >= 0);
+  u32 groupRound = work_group_reduce_max(as_uint(roundMax));
+
+  if (get_local_id(0) == 0) { atomic_max(ROE + posROE, groupRound); }
+}
+#endif
 
 #if HAS_ASM
 i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
@@ -14,6 +24,8 @@ i32 xtract32(i64 x, u32 bits) { return x >> bits; }
 #define LL 0
 #endif
 
+u32 bitlen(bool b) { return EXP / NWORDS + b; }
+bool test(u32 bits, u32 pos) { return (bits >> pos) & 1; }
 
 // We support two sizes of carry in carryFused.  A 32-bit carry halves the amount of memory used by CarryShuttle,
 // but has some risks.  As FFT sizes increase and/or exponents approach the limit of an FFT size, there is a chance

@@ -1,6 +1,7 @@
 // Copyright (C) Mihai Preda
 
-#include "gpuowl.cl"
+#include "base.cl"
+#include "math.cl"
 #include "fftheight.cl"
 
 // Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)

@@ -1,6 +1,6 @@
 // Copyright (C) Mihai Preda
 
-#include "gpuowl.cl"
+#include "base.cl"
 
 void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out) {
   u32 GPW = W / 64, GPH = H / 64;
