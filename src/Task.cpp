@@ -6,7 +6,7 @@
 #include "Args.h"
 #include "File.h"
 #include "Worktodo.h"
-#include "SaveMan.h"
+#include "Saver.h"
 #include "version.h"
 #include "Proof.h"
 #include "log.h"
@@ -172,7 +172,7 @@ void Task::execute(const Args& args) {
     auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(args, *this);
     writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
     Worktodo::deleteTask(*this);
-    if (!isPrime) { StateSaver<PRPState>{exponent}.clear(); }
+    if (!isPrime) { Saver<PRPState>{exponent}.clear(); }
   } else if (kind == LL){
     auto [isPrime, res64] = gpu->isPrimeLL(args, *this);
     // Do not clear LL savefiles regardless of primality

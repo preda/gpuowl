@@ -10,17 +10,14 @@
 #include "Kernel.h"
 
 #include <vector>
-#include <string>
 #include <memory>
 #include <filesystem>
 #include <cmath>
 
 struct PRPResult;
-struct PRPState;
 struct Task;
 
 class Args;
-class Saver;
 class Signal;
 class ProofSet;
 
