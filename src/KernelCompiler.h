@@ -15,6 +15,7 @@ class KernelCompiler {
   std::string baseArgs;
   std::string dump;
   const bool useCache{false};
+  const bool verbose;
   
   std::vector<Program> clSources;
   std::vector<std::pair<std::string, std::string>> files;
@@ -25,7 +26,7 @@ class KernelCompiler {
   
 public:
   KernelCompiler(string_view cacheDir, cl_context context, cl_device_id deviceId,
-                 const string& args, string_view dump);
+                 const string& args, string_view dump, bool verbose);
   
   KernelHolder load(const string& fileName, const string& kernelName, const string& args) const;
 };

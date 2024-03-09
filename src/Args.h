@@ -41,6 +41,7 @@ public:
   bool cudaYield = false;
   bool safeMath = true;
   bool clean = true;
+  bool verbose = false;
   
   u32 proofPow = 9;
   u32 proofVerify = 10;

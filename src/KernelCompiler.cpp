@@ -20,13 +20,14 @@ static_assert(sizeof(Program) == sizeof(cl_program));
 // * various: -fno-bin-source -fno-bin-amdil
 
 KernelCompiler::KernelCompiler(string_view cacheDir, cl_context context, cl_device_id deviceId,
-                               const string& args, string_view dump) :
+                               const string& args, string_view dump, bool verbose) :
   cacheDir{cacheDir},
   context{context},
   deviceId{deviceId},
   linkArgs{"-cl-finite-math-only " },
   baseArgs{linkArgs + "-cl-std=CL2.0 " + args},
-  dump{dump}
+  dump{dump},
+  verbose{verbose}
 {
 
   string hw = getDriverVersion(deviceId) + ':' + getDeviceName(deviceId);
@@ -115,7 +116,7 @@ KernelHolder KernelCompiler::load(const string& fileName, const string& kernelNa
 
   if (!fromCache) {
     if (useCache) { saveBinary(program.get(), cacheFile); }
-    log("Loaded %s %s: %.0fms\n", kernelName.c_str(), args.c_str(), timer.at() * 1000);
+    if (verbose) { log("Loaded %s %s: %.0fms\n", kernelName.c_str(), args.c_str(), timer.at() * 1000); }
   }
 
   return ret;

@@ -46,11 +46,12 @@ $(BIN)/prpll: ${OBJS}
 $(BIN)/prpll-amd: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lamdocl64 -L/opt/rocm/lib ${STRIP}
 
+
+all: prpll amd
+
 prpll: $(BIN)/prpll
         
 amd: $(BIN)/prpll-amd
-
-all: prpll amd
 
 clean:
 	rm -rf build-debug build-release
