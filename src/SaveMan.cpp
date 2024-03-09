@@ -14,7 +14,10 @@ SaveMan::SaveMan(std::string_view kind, u32 exponent) :
   kind{kind},
   exponent{exponent}
 {
-  base = fs::current_path() / to_string(exponent) / this->kind;
+
+  base = (kind == "prp") ? fs::current_path() / to_string(exponent)
+                         : fs::current_path() / (this->kind + '-' + to_string(exponent));
+
   if (!fs::exists(base)) { fs::create_directories(base); }
 
   vector<u32> ks = listIterations();
