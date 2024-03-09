@@ -7,6 +7,8 @@
 #include <vector>
 #include <string>
 
+class Args;
+
 class KernelCompiler {
   std::string cacheDir;
   cl_context context;
@@ -14,7 +16,7 @@ class KernelCompiler {
   std::string linkArgs;
   std::string baseArgs;
   std::string dump;
-  const bool useCache{false};
+  const bool useCache;
   const bool verbose;
   
   std::vector<Program> clSources;
@@ -25,8 +27,7 @@ class KernelCompiler {
   Program compile(const string& fileName, const string& args) const;
   
 public:
-  KernelCompiler(string_view cacheDir, cl_context context, cl_device_id deviceId,
-                 const string& args, string_view dump, bool verbose);
+  KernelCompiler(const Args& args, cl_context context, cl_device_id deviceId, const string& clArgs);
   
   KernelHolder load(const string& fileName, const string& kernelName, const string& args) const;
 };

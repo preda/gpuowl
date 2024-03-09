@@ -39,6 +39,12 @@ POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 
 LIBS = $(LIBPATH)
 
+all: prpll amd
+
+prpll: $(BIN)/prpll
+
+amd: $(BIN)/prpll-amd
+
 $(BIN)/prpll: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL ${STRIP}
 
@@ -46,12 +52,6 @@ $(BIN)/prpll: ${OBJS}
 $(BIN)/prpll-amd: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lamdocl64 -L/opt/rocm/lib ${STRIP}
 
-
-all: prpll amd
-
-prpll: $(BIN)/prpll
-        
-amd: $(BIN)/prpll-amd
 
 clean:
 	rm -rf build-debug build-release

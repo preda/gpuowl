@@ -328,7 +328,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   timeKernels(timeKernels),
   device(device),
   context{device},
-  queue(Queue::make(context, timeKernels, args.cudaYield)),
+  queue(Queue::make(context, timeKernels || args.forceProfile, args.cudaYield)),
   
 #define K(name, ...) name(#name, queue, __VA_ARGS__)
 
@@ -400,7 +400,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
   {
-    KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs, args.dump, args.verbose};
+    KernelCompiler compiler{args, context.get(), device, commonArgs};
     Timer compileTimer;
     for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL,
          &fftP, &fftW, &fftHin, &fftHout,

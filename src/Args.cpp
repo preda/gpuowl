@@ -113,6 +113,8 @@ named "config.txt" in the prpll run directory.
 -save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
 -yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
+-cache             : use binary kernel cache (for developers)
+-profile           : enable queue profiling even when not timing kernels
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
   -use FAST_BARRIER: on AMD Radeon VII and older AMD GPUs, use a faster barrier(). Do not use
@@ -200,6 +202,10 @@ void Args::parse(const string& line) {
       throw "version";
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
+    } else if (key == "-profile") {
+      forceProfile = true;
+    } else if (key == "-cache") {
+      useCache = true;
     } else if (key == "-noclean") {
       clean = false;
     } else if (key == "-proof") {

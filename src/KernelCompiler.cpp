@@ -2,6 +2,8 @@
 #include "Sha3Hash.h"
 #include "log.h"
 #include "timeutil.h"
+#include "Args.h"
+
 #include <cassert>
 #include <cinttypes>
 
@@ -19,15 +21,15 @@ static_assert(sizeof(Program) == sizeof(cl_program));
 // * -fno-bin-llvmir
 // * various: -fno-bin-source -fno-bin-amdil
 
-KernelCompiler::KernelCompiler(string_view cacheDir, cl_context context, cl_device_id deviceId,
-                               const string& args, string_view dump, bool verbose) :
-  cacheDir{cacheDir},
+KernelCompiler::KernelCompiler(const Args& args, cl_context context, cl_device_id deviceId, const string& clArgs) :
+  cacheDir{args.cacheDir.string()},
   context{context},
   deviceId{deviceId},
   linkArgs{"-cl-finite-math-only " },
-  baseArgs{linkArgs + "-cl-std=CL2.0 " + args},
-  dump{dump},
-  verbose{verbose}
+  baseArgs{linkArgs + "-cl-std=CL2.0 " + clArgs},
+  dump{args.dump},
+  useCache{args.useCache},
+  verbose{args.verbose}
 {
 
   string hw = getDriverVersion(deviceId) + ':' + getDeviceName(deviceId);
@@ -115,7 +117,10 @@ KernelHolder KernelCompiler::load(const string& fileName, const string& kernelNa
   }
 
   if (!fromCache) {
-    if (useCache) { saveBinary(program.get(), cacheFile); }
+    if (useCache) {
+      if (verbose) { log("saving binary to '%s'\n", cacheFile.c_str()); }
+      saveBinary(program.get(), cacheFile);
+    }
     if (verbose) { log("Loaded %s %s: %.0fms\n", kernelName.c_str(), args.c_str(), timer.at() * 1000); }
   }
 
