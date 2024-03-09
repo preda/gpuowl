@@ -12,7 +12,7 @@ void updateStats(global uint *ROE, u32 posROE, float roundMax) {
 }
 #endif
 
-#if HAS_ASM
+#if 0 && HAS_ASM
 i32  lowBits(i32 u, u32 bits) { i32 tmp; __asm("v_bfe_i32 %0, %1, 0, %2" : "=v" (tmp) : "v" (u), "v" (bits)); return tmp; }
 i32 xtract32(i64 x, u32 bits) { i32 tmp; __asm("v_alignbit_b32 %0, %1, %2, %3" : "=v"(tmp) : "v"(as_int2(x).y), "v"(as_int2(x).x), "v"(bits)); return tmp; }
 #else
