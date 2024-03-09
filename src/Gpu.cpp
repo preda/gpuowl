@@ -37,8 +37,8 @@ static_assert(sizeof(double2) == 16, "size double2");
 static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
 
 struct Weights {
-  vector<double> threadWeightsIF;  
-  vector<double> carryWeightsIF;
+  vector<double> weightsIF;
+  // vector<double> carryWeightsIF;
   vector<u32> bitsCF;
   vector<u32> bitsC;
 };
@@ -156,22 +156,22 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   u32 groupWidth = W / nW;
 
   // Inverse + Forward
-  vector<double> threadWeightsIF;
+  vector<double> weightsIF;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
     auto iw = invWeight(N, E, H, 0, thread, 0);
-    threadWeightsIF.push_back(iw - 1);
+    weightsIF.push_back(iw - 1);
     auto w = weight(N, E, H, 0, thread, 0);
-    threadWeightsIF.push_back(w - 1);
+    weightsIF.push_back(w - 1);
   }
 
-  // Inverse only. Also the group order matches CarryA/M (not fftP/CarryFused).
-  vector<double> carryWeightsIF;
+  // the group order matches CarryA/M (not fftP/CarryFused).
+  // vector<double> carryWeightsIF;
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
     auto iw = invWeight(N, E, H, gy * CARRY_LEN, 0, 0);
-    carryWeightsIF.push_back(2 * boundUnderOne(iw));
+    weightsIF.push_back(2 * boundUnderOne(iw));
     
     auto w = weight(N, E, H, gy * CARRY_LEN, 0, 0);
-    carryWeightsIF.push_back(2 * w);
+    weightsIF.push_back(2 * w);
   }
   
   vector<u32> bits;
@@ -210,7 +210,7 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{threadWeightsIF, carryWeightsIF, bits, bitsC};
+  return Weights{weightsIF, bits, bitsC};
 }
 
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
@@ -375,8 +375,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   bufTrigBHW{context, "trigBHW", makeTinyTrig(W, hN, makeTrig<double>(BIG_H))},
   bufTrig2SH{context, "trig2SH", makeTrig<double>(2 * SMALL_H)},
-  bufThreadWeights{context, "threadWeights", weights.threadWeightsIF},
-  bufCarryWeights{context,  "carryWeights",  weights.carryWeightsIF},
+  bufWeights{context, "weights", weights.weightsIF},
   
   bufBits{context, "bits", weights.bitsCF},
   bufBitsC{context, "bitsC", weights.bitsC},
@@ -411,10 +410,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   }
   
   for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL}) {
-    k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufThreadWeights, bufCarryWeights);
+    k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufWeights);
   }
 
-  fftP.setFixedArgs(2, bufTrigW, bufThreadWeights, bufCarryWeights);
+  fftP.setFixedArgs(2, bufTrigW, bufWeights);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
@@ -423,7 +422,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftMiddleOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
   
   for (Kernel* k : {&kernCarryA, &kernCarryM, &kernCarryLL}) {
-    k->setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufThreadWeights, bufCarryWeights);
+    k->setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufWeights);
   }
 
   carryB.setFixedArgs(1, bufCarry, bufBitsC);

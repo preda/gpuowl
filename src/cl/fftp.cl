@@ -6,7 +6,7 @@
 #include "fftwidth.cl"
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
-KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS) {
   local T2 lds[WIDTH / 2];
 
   T2 u[NW];
@@ -18,7 +18,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS,
 
   u32 me = get_local_id(0);
 
-  T base = optionalHalve(fancyMul(CARRY_WEIGHTS[g / CARRY_LEN].y, THREAD_WEIGHTS[me].y));
+  T base = optionalHalve(fancyMul(THREAD_WEIGHTS[G_W + g / CARRY_LEN].y, THREAD_WEIGHTS[me].y));
   base = optionalHalve(fancyMul(base, fweightUnitStep(g % CARRY_LEN)));
 
   for (u32 i = 0; i < NW; ++i) {
