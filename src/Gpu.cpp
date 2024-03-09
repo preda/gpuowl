@@ -399,14 +399,18 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   log("Stats: %x\n", statsBits);
   string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
-  KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs, args.dump};
-  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL,
-       &fftP, &fftW, &fftHin, &fftHout,
-       &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &kernCarryLL, &carryB,
-       &transposeIn, &transposeOut,
-       &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
-       &readResidue, &kernIsEqual, &sum64}) {
-    k->load(compiler, device);
+  {
+    KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs, args.dump};
+    Timer compileTimer;
+    for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL,
+         &fftP, &fftW, &fftHin, &fftHout,
+         &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &kernCarryLL, &carryB,
+         &transposeIn, &transposeOut,
+         &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
+         &readResidue, &kernIsEqual, &sum64}) {
+      k->load(compiler, device);
+    }
+    log("Total compilation time %.2fs\n", compileTimer.at());
   }
   
   for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL}) {

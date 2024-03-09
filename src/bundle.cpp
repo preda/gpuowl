@@ -1272,6 +1272,24 @@ void fft15(T2 *u) {
 }
 )cltag",
 
+// src/cl/fft3.cl
+R"cltag(
+// Copyright (C) Mihai Preda
+
+void fft3by(T2 *u, u32 incr) {
+  const double COS1 = -0.5;					// cos(tau/3), -0.5
+  const double SIN1 = 0.86602540378443864676372317075294;	// sin(tau/3), sqrt(3)/2, 0.86602540378443864676372317075294
+  X2_mul_t4(u[1*incr], u[2*incr]);				// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))
+  T2 tmp23 = u[0*incr] + COS1 * u[1*incr];
+  u[0*incr] = u[0*incr] + u[1*incr];
+  fma_addsub(u[1*incr], u[2*incr], SIN1, tmp23, u[2*incr]);
+}
+
+void fft3(T2 *u) {
+  fft3by(u, 1);
+}
+)cltag",
+
 // src/cl/fft4.cl
 R"cltag(
 // Copyright (C) Mihai Preda
@@ -2144,31 +2162,25 @@ T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a)
 R"cltag(
 // Copyright (C) Mihai Preda
 
-#include "fftbase.cl"
 #include "trig.cl"
 
 void fft2(T2* u) { X2(u[0], u[1]); }
 
-void fft3by(T2 *u, u32 incr) {
-  const double COS1 = -0.5;					// cos(tau/3), -0.5
-  const double SIN1 = 0.86602540378443864676372317075294;	// sin(tau/3), sqrt(3)/2, 0.86602540378443864676372317075294
-  X2_mul_t4(u[1*incr], u[2*incr]);				// (r2+r3 i2+i3),  (i2-i3 -(r2-r3))
-  T2 tmp23 = u[0*incr] + COS1 * u[1*incr];
-  u[0*incr] = u[0*incr] + u[1*incr];
-  fma_addsub(u[1*incr], u[2*incr], SIN1, tmp23, u[2*incr]);
-}
-
-void fft3(T2 *u) {
-  fft3by(u, 1);
-}
-
-#if MIDDLE == 5
+#if MIDDLE == 3
+#include "fft3.cl"
+#elif MIDDLE == 4
+#include "fft4.cl"
+#elif MIDDLE == 5
 #include "fft5.cl"
 #elif MIDDLE == 6
 #include "fft6.cl"
 #elif MIDDLE == 7
 #include "fft7.cl"
+#elif MIDDLE == 8
+#include "fft4.cl"
+#include "fft8.cl"
 #elif MIDDLE == 9
+#include "fft3.cl"
 #include "fft9.cl"
 #elif MIDDLE == 10
 #include "fft10.cl"
@@ -2181,6 +2193,7 @@ void fft3(T2 *u) {
 #elif MIDDLE == 14
 #include "fft14.cl"
 #elif MIDDLE == 15
+#include "fft3.cl"
 #include "fft15.cl"
 #endif
 
@@ -3025,6 +3038,6 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
 )cltag",
 
 };
-static const std::vector<const char*> CL_FILE_NAMES{"base.cl","carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft4.cl","fft5.cl","fft6.cl","fft7.cl","fft8.cl","fft9.cl","fftbase.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","math.cl","middle.cl","tailmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl","weight.cl",};
+static const std::vector<const char*> CL_FILE_NAMES{"base.cl","carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft3.cl","fft4.cl","fft5.cl","fft6.cl","fft7.cl","fft8.cl","fft9.cl","fftbase.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","math.cl","middle.cl","tailmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl","weight.cl",};
 const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }
 const std::vector<const char*>& getClFiles() { return CL_FILES; }
