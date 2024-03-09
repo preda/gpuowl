@@ -400,7 +400,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
   {
-    KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs, args.dump};
+    KernelCompiler compiler{args.cacheDir.string().c_str(), context.get(), device, commonArgs, args.dump, args.verbose};
     Timer compileTimer;
     for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL,
          &fftP, &fftW, &fftHin, &fftHout,
@@ -410,7 +410,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          &readResidue, &kernIsEqual, &sum64}) {
       k->load(compiler, device);
     }
-    log("Compilation time: %.2fs\n", compileTimer.at());
+    log("OpenCL compilation: %.2fs\n", compileTimer.at());
   }
   
   for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL}) {

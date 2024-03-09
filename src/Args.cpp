@@ -91,8 +91,10 @@ named "config.txt" in the prpll run directory.
 -pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
                      Multiple PRPLL instances, each in its own directory, can share a pool of assignments and report
                      the results back to the common pool.
--user <name>       : specify the user name.
--cpu  <name>       : specify the hardware name.
+-verbose           : print more log, useful for developers
+-version           : print only the version and exit
+-user <name>       : specify the mersenne.org user name (for result reporting)
+-cpu  <name>       : specify a name of the GPU for result reporting to mersenne.org
 -time              : display kernel profiling information.
 -fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
 -block <value>     : PRP error-check block size. Must divide 10'000.
@@ -191,7 +193,13 @@ void Args::parse(const string& line) {
   for (const auto& [key, s] : args) {
     // log("key '%s'\n", key.c_str());
     if (key == "-h" || key == "--help") {
-      printHelp(); throw "help";
+      printHelp();
+      throw "help";
+    } else if (key == "-version") {
+      // log("PRPLL %s\n", VERSION);
+      throw "version";
+    } else if (key == "-verbose" || key == "-v") {
+      verbose = true;
     } else if (key == "-noclean") {
       clean = false;
     } else if (key == "-proof") {
