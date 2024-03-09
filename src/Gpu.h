@@ -112,9 +112,7 @@ class Gpu {
   
   ConstBuffer<double2> bufTrigBHW;
   ConstBuffer<double2> bufTrig2SH;
-  ConstBuffer<double> bufThreadWeights;
-  ConstBuffer<double> bufCarryWeights;
-  
+  ConstBuffer<double> bufWeights;
 
   ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
   ConstBuffer<u32> bufBitsC; // bigWord bits aligned for CarryA/M

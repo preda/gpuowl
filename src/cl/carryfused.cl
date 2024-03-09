@@ -7,7 +7,7 @@
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                       CP(u32) bits, P(uint) ROE, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
+                       CP(u32) bits, P(uint) ROE, BigTab THREAD_WEIGHTS) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -30,7 +30,7 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   Word2 wu[NW];
-  T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
+  T2 weights = fancyMul(THREAD_WEIGHTS[G_W + line / CARRY_LEN], THREAD_WEIGHTS[me]);
   weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(line % CARRY_LEN), fweightUnitStep(line % CARRY_LEN)));
 
 #if MUL3

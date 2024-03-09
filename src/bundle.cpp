@@ -232,7 +232,7 @@ R"cltag(
 // Input arrives conjugated and inverse-weighted.
 
 KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(uint) ROE,
-                  BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
+                  BigTab THREAD_WEIGHTS) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
   u32 gx = g % NW;
@@ -248,7 +248,7 @@ KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
 
-  T base = optionalDouble(fancyMul(CARRY_WEIGHTS[gy].x, THREAD_WEIGHTS[me].x));
+  T base = optionalDouble(fancyMul(THREAD_WEIGHTS[G_W + gy].x, THREAD_WEIGHTS[me].x));
   
     base = optionalDouble(fancyMul(base, iweightStep(gx)));
 
@@ -323,7 +323,7 @@ R"cltag(
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                       CP(u32) bits, P(uint) ROE, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
+                       CP(u32) bits, P(uint) ROE, BigTab THREAD_WEIGHTS) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -346,7 +346,7 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   Word2 wu[NW];
-  T2 weights = fancyMul(CARRY_WEIGHTS[line / CARRY_LEN], THREAD_WEIGHTS[me]);
+  T2 weights = fancyMul(THREAD_WEIGHTS[G_W + line / CARRY_LEN], THREAD_WEIGHTS[me]);
   weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(line % CARRY_LEN), fweightUnitStep(line % CARRY_LEN)));
 
 #if MUL3
@@ -1917,7 +1917,7 @@ R"cltag(
 #include "fftwidth.cl"
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
-KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS, BigTab CARRY_WEIGHTS) {
+KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS) {
   local T2 lds[WIDTH / 2];
 
   T2 u[NW];
@@ -1929,7 +1929,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS,
 
   u32 me = get_local_id(0);
 
-  T base = optionalHalve(fancyMul(CARRY_WEIGHTS[g / CARRY_LEN].y, THREAD_WEIGHTS[me].y));
+  T base = optionalHalve(fancyMul(THREAD_WEIGHTS[G_W + g / CARRY_LEN].y, THREAD_WEIGHTS[me].y));
   base = optionalHalve(fancyMul(base, fweightUnitStep(g % CARRY_LEN)));
 
   for (u32 i = 0; i < NW; ++i) {
