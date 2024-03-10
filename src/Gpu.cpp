@@ -547,24 +547,24 @@ vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
     vector<int> data = readOut(buf);
     u64 gpuSum = expectedVect[0];
     
-    u64 sum = 0;
+    u64 hostSum = 0;
     for (auto it = data.begin(), end = data.end(); it < end; it += 2) {
-      sum += u32(*it) | (u64(*(it + 1)) << 32);
+      hostSum += u32(*it) | (u64(*(it + 1)) << 32);
     }
 
-    if (sum != gpuSum) {
-      log("GPU read failed: %016" PRIx64 " (gpu) != %016" PRIx64 " (host)\n", gpuSum, sum);
+    if (hostSum != gpuSum) {
+      log("GPU read failed: %016" PRIx64 " (gpu) != %016" PRIx64 " (host)\n", gpuSum, hostSum);
       continue; // have another try
     }
 
     if (gpuSum == 0 && isAllZero(data)) {
-      log("Read all-zero\n");
+      log("Read ZERO\n");
       return {};
     }
 
     return compactBits(std::move(data), E);
   }
-  throw "Persistent read errors: GPU->Host";
+  throw "GPU persistent read errors";
 }
 
 vector<u32> Gpu::readCheck() { return readAndCompress(bufCheck); }
@@ -589,10 +589,6 @@ void Gpu::modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<do
   
   mul(out, inA, buf3, buf1, buf2, mul3);
 };
-
-void Gpu::mul(Buffer<int>& io, Buffer<int>& inA, Buffer<int>& inB) { modMul(io, inA, inB, buf1, buf2, buf3); }
-
-void Gpu::mul(Buffer<int>& io, Buffer<int>& inB) { mul(io, io, inB); }
 
 void Gpu::mul(Buffer<int>& io, Buffer<double>& buf1) {
   // We know that mul() stores double output in buf1; so we're going to use buf2 & buf3 for temps.
@@ -734,7 +730,9 @@ Words Gpu::expMul2(const Words& A, u64 h, const Words& B) {
 void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   if (exp == 0) {
     bufInOut.set(1);
-  } else if (exp > 1) {
+  } else {
+    assert (exp > 1);
+
     fftP(buf2, bufInOut);
     fftMiddleIn(buf3, buf2);
     fftHin(buf1, buf3);
@@ -742,25 +740,6 @@ void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buf
     fftW(buf3, buf2);
     carryA(bufInOut, buf3);
     carryB(bufInOut);
-  }
-}
-
-// All buffers are in "low" position.
-void Gpu::exponentiate(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1) {
-  assert(exp > 1);
-  exponentiateCore(out, base, exp, tmp1);
-  doCarry(tmp1, out);
-  fftMiddleIn(out, tmp1);
-}
-
-// All buffers are in "low" position.
-void Gpu::exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1, Buffer<double>& tmp2) {
-  assert(exp > 0);
-  if (exp == 1) {
-    out << base;
-  } else {
-    exponentiate(tmp2, base, exp, tmp1);
-    fftHin(out, tmp2);
   }
 }
 
