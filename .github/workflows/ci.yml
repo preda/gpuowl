@@ -27,7 +27,7 @@ jobs:
         $CXX --version
     - name: Script
       run: |
-        make -O -j "$(nproc)"
+        make prpll -O -j "$(nproc)"
         cd build-release
         rm -f -- *.o
         ./prpll -h
@@ -74,7 +74,7 @@ jobs:
         & $env:CXX --version
     - name: Script
       run: | # Cannot use `make exe`, as the OpenCL ICD Loader does not support static linking
-        make -O -j $env:NUMBER_OF_PROCESSORS
+        make prpll -O -j $env:NUMBER_OF_PROCESSORS
         cd build-release
         rm *.o
         .\prpll.exe -h

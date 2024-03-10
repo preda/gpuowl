@@ -99,7 +99,6 @@ class Gpu {
 
   Kernel transposeIn, transposeOut;
 
-
   Kernel readResidue;
   Kernel kernIsEqual;
   Kernel sum64;
@@ -165,8 +164,6 @@ class Gpu {
   void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
   
   void exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3);
-  void exponentiate(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1);
-  void exponentiateLow(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp1, Buffer<double>& tmp2);
 
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
@@ -203,8 +200,6 @@ public:
   void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(updatePos(1<<1), a, b);}
   void carryFusedLL(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedLL(updatePos(1<<0), a, b);}
 
-  void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB);
-  void mul(Buffer<int>& io, Buffer<int>& inB);
   void mul(Buffer<int>& io, Buffer<double>& inB);
   void square(Buffer<int>& data);
 

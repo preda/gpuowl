@@ -256,7 +256,9 @@ Proof ProofSet::computeProof(Gpu *gpu) const {
       }
     }
     assert(bufIt == bufVect.begin() + 1);
-    middles.push_back(gpu->readAndCompress(bufVect.front()));
+    Words w = gpu->readAndCompress(bufVect.front());
+    if (w.empty()) { throw "Read ZERO during proof generation"; }
+    middles.push_back(w);
     hash = proof::hashWords(E, hash, middles.back());
     hashes.push_back(hash[0]);
 
