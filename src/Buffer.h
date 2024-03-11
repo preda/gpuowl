@@ -106,7 +106,8 @@ public:
     auto readSize = sizeOrFull ? sizeOrFull : this->size;
     assert(readSize <= this->size);
     vector<T> ret(readSize);
-    ::read(this->queue->get(), true, this->get(), readSize * sizeof(T), ret.data());
+    this->queue->readSync(this->get(), readSize * sizeof(T), ret.data());
+    // ::read(this->queue->get(), true, this->get(), readSize * sizeof(T), ret.data());
     return ret;
   }
 
@@ -117,10 +118,10 @@ public:
     ::read(this->queue->get(), false, this->get(), readSize * sizeof(T), out.data(), start * sizeof(T));
   }
 
-  // sync write
   void write(const vector<T>& vect) {
     assert(this->size >= vect.size());
-    ::write(this->queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
+    this->queue->write(this->get(), vect.size() * sizeof(T), vect.data());
+    // ::write(this->queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
   }
 
   operator vector<T>() const { return read(); }

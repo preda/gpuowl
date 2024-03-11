@@ -11,6 +11,9 @@
 namespace fs = std::filesystem;
 
 class Args {
+private:
+    int proofPow = -1;
+
 public:
   static std::string mergeArgs(int argc, char **argv);
 
@@ -23,6 +26,7 @@ public:
   bool uses(const std::string& key) const { return flags.find(key) != flags.end(); }
   int value(const std::string& key, int valNotFound = -1) const;
   void readConfig(const fs::path& path);
+  u32 getProofPow(u32 exponent) const;
   
   bool silent;
   string user;
@@ -48,7 +52,6 @@ public:
   // Use forceProfile to enable queue profiling regardless of kernel timing.
   bool forceProfile = false;
 
-  u32 proofPow = 9;
   u32 proofVerify = 10;
 
   fs::path resultsFile = "results.txt";

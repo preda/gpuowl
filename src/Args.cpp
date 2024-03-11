@@ -62,6 +62,11 @@ void Args::readConfig(const fs::path& path) {
   }
 }
 
+u32 Args::getProofPow(u32 exponent) const {
+  assert(proofPow >= -1);
+  return (proofPow == -1) ? ProofSet::bestPower(exponent) : proofPow;
+}
+
 void Args::printHelp() {
   printf(R"(
 PRPLL is "PRobable Prime and Lucas-Lehmer Cathegorizer", AKA "Purple-cat"
@@ -103,7 +108,7 @@ named "config.txt" in the prpll run directory.
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
 -verify <file>     : verify PRP-proof contained in <file>
--proof <power>     : generate proof of power <power> (default %u).
+-proof <power>     : generate proof of power <power> (default: optimal depending on exponent).
                      A lower power reduces disk space requirements but increases the verification cost.
                      A higher power increases disk usage a lot.
                      e.g. proof power 10 for a 120M exponent uses about %.0fGB of disk space.
@@ -146,7 +151,7 @@ named "config.txt" in the prpll run directory.
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", proofPow, ProofSet::diskUsageGB(120000000, 10), proofVerify, resultsFile.string().c_str(), nSavefiles);
+)", ProofSet::diskUsageGB(120000000, 10), proofVerify, resultsFile.string().c_str(), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {

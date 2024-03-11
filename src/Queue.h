@@ -5,13 +5,16 @@
 #include "common.h"
 #include "clwrap.h"
 #include "Context.h"
+#include "log.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 #include <unistd.h>
+#include <assert.h>
 
 template<typename T> class ConstBuffer;
 template<typename T> class Buffer;
@@ -31,6 +34,46 @@ public:
   bool isComplete() { return getEventInfo(this->get()) == CL_COMPLETE; }
 };
 
+class FlushPolicy {
+private:
+  u32 pos;
+  u32 posNextFlush;
+  u32 step;
+
+public:
+  FlushPolicy() { reset(); }
+
+  void reset() {
+    pos = 0;
+    posNextFlush = 1;
+    step = 1;
+  }
+
+  u32 get() const { return pos; }
+
+  // return true if should flash now
+  bool inc() {
+
+#if 1
+    return false;
+#else
+    ++pos;
+    return pos == 4;
+#endif
+
+    // return false;
+    /*
+    assert(pos <= posNextFlush);
+    if (pos >= posNextFlush) {
+      step = std::min(step * 3, 100u);
+      posNextFlush += step;
+      return true;
+    }
+    return false;
+    */
+  }
+};
+
 using QueuePtr = std::shared_ptr<class Queue>;
 
 class Queue : public QueueHolder {
@@ -39,22 +82,40 @@ class Queue : public QueueHolder {
   std::vector<std::pair<Event, TimeMap::iterator>> events;
   bool profile{};
   bool cudaYield{};
+  FlushPolicy flushPos;
+
+  static constexpr const u32 FLUSH_FACTOR = 4;
 
 public:
   Queue(cl_queue q, bool profile, bool cudaYield) : QueueHolder{q}, profile{profile}, cudaYield{cudaYield} {}  
   static QueuePtr make(const Context& context, bool profile, bool cudaYield) { return make_shared<Queue>(makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield); }
   
+  void readSync(cl_mem buf, u32 size, void* out) {
+    ::read(get(), true, buf, size, out);
+    flushPos.reset();
+  }
+
+  void write(cl_mem buf, u32 size, const void* data) {
+    ::write(get(), true, buf, size, data);
+  }
+
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
-    Event event{::run(get(), kernel, groupSize, workSize, name, profile || cudaYield)};
-    auto it = profile ? timeMap.insert({name, TimeInfo{}}).first : timeMap.end();
-    if (profile) {
-      events.emplace_back(std::move(event), it);
-    } else if (cudaYield) {
-      if (events.empty()) {
-        events.emplace_back(std::move(event), it);
-      } else {
-        events.front() = std::make_pair(std::move(event), it);
+    if (!profile && !cudaYield) {
+      ::run(get(), kernel, groupSize, workSize, name, false);
+    } else {
+      Event event{::run(get(), kernel, groupSize, workSize, name, true)};
+      auto it = profile ? timeMap.insert({name, TimeInfo{}}).first : timeMap.end();
+
+      if (cudaYield && !profile && !events.empty()) {
+        assert(events.size() == 1);
+        events.pop_back();
       }
+
+      events.emplace_back(std::move(event), it);
+    }
+    if (flushPos.inc()) {
+      // log("flush at %u\n", flushPos.get());
+      flush();
     }
   }
 
@@ -78,6 +139,7 @@ public:
     
     if (profile) { for (auto& [event, it] : events) { it->second.add(event.secs()); } }
     events.clear();
+    flushPos.reset();
   }
 
   using Profile = std::vector<std::pair<TimeInfo, std::string>>;

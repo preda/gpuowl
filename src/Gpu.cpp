@@ -677,19 +677,11 @@ public:
   }
 };
 
-void spin() {
-  static size_t spinPos = 0;
-  const char spinner[] = "-\\|/";
-  printf("\r%c", spinner[spinPos]);
-  fflush(stdout);
-  if (++spinPos >= sizeof(spinner) - 1) { spinPos = 0; }
-}
-
 }
 
 Words Gpu::expExp2(const Words& A, u32 n) {
-  u32 blockSize = 400;
-  u32 logStep = 20000;
+  u32 logStep   = 10000;
+  u32 blockSize = logStep;
   
   writeData(A);
   IterationTimer timer{0};
@@ -698,10 +690,11 @@ Words Gpu::expExp2(const Words& A, u32 n) {
     u32 its = std::min(blockSize, n - k);
     squareLoop(bufData, 0, its);
     k += its;
-    spin();
     queue->finish();
-    float secsPerIt = timer.reset(k);
-    if (k % logStep == 0) { log("%u / %u, %.0f us/it\n", k, n, secsPerIt * 1'000'000); }
+    if (k % logStep == 0) {
+      float secsPerIt = timer.reset(k);
+      log("%u / %u, %.0f us/it\n", k, n, secsPerIt * 1'000'000);
+    }
     if (k >= n) { break; }
   }
   return readData();
@@ -822,6 +815,7 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
     }
     fftMiddleIn(buf1, buf2);
   }
+  // queue->flush();
 }
 
 u32 Gpu::squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3) {
@@ -1038,10 +1032,10 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   if (!startK) { startK = k; }
 
   if (power == u32(-1)) {
-    power = ProofSet::effectivePower(E, args.proofPow, startK);
+    power = ProofSet::effectivePower(E, args.getProofPow(E), startK);
     
-    if (power != args.proofPow) {
-      log("Proof using power %u (vs %u)\n", power, args.proofPow);
+    if (power != args.getProofPow(E)) {
+      log("Proof using power %u (vs %u)\n", power, args.getProofPow(E));
     }
     
     if (!power) {
