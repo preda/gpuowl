@@ -118,11 +118,14 @@ public:
     ::read(this->queue->get(), false, this->get(), readSize * sizeof(T), out.data(), start * sizeof(T));
   }
 
+  void write(vector<i32>&& vect) { this->queue->write(this->get(), std::move(vect)); }
+
+#if 0
   void write(const vector<T>& vect) {
     assert(this->size >= vect.size());
     this->queue->write(this->get(), vect.size() * sizeof(T), vect.data());
-    // ::write(this->queue->get(), true, this->get(), vect.size() * sizeof(T), vect.data());
   }
+#endif
 
   operator vector<T>() const { return read(); }
 
