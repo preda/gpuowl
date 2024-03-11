@@ -102,7 +102,10 @@ int getWorkGroupSize(cl_kernel k, cl_device_id device, const char *name);
 std::string getKernelArgName(cl_kernel k, int pos);
 
 cl_device_id getDevice(u32 argsDevId);
-u64 getEventNanos(cl_event event);
+
+// Returns the 3 intervals: queued, submit, run
+std::array<i64, 3> getEventNanos(cl_event event);
+
 u32 getEventInfo(cl_event event);
 
 cl_context getQueueContext(cl_command_queue q);

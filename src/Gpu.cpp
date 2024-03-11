@@ -2,6 +2,7 @@
 
 #include "Gpu.h"
 #include "Proof.h"
+#include "TimeInfo.h"
 #include "state.h"
 #include "Args.h"
 #include "Signal.h"
@@ -329,7 +330,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   context{device},
   queue(Queue::make(args, context, timeKernels || args.forceProfile, args.cudaYield)),
   
-#define K(name, ...) name(#name, queue, __VA_ARGS__)
+#define K(name, ...) name(#name, profile.make(#name), queue, __VA_ARGS__)
 
   //  W / nW
   K(kernCarryFused,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW),
@@ -630,19 +631,23 @@ bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buf
 
 void Gpu::logTimeKernels() {
   if (timeKernels) {
-    Queue::Profile profile = queue->getProfile();
-    queue->clearProfile();
-    double total = 0;
-    for (auto& p : profile) { total += p.first.total; }
+    auto prof = profile.get();
+    u64 total = 0;
+    for (const TimeInfo* p : prof) { total += p->times[2]; }
   
-    for (auto& [stats, name]: profile) {
-      float percent = 100 / total * stats.total;
+    for (const TimeInfo* p : prof) {
+      u32 n = p->n;
+      assert(n);
+      double f = 1e-3 / n;
+      double percent = 100.0 / total * p->times[2];
       if (percent >= .01f) {
-        log("%5.2f%% %-14s : %6.0f us/call x %5d calls\n",
-            percent, name.c_str(), stats.total * (1e6f / stats.n), stats.n);
+        log("%5.2f%% %-14s : %6.0f us/call x %5d calls  (%6.0f %6.0f)\n",
+            percent, p->name.c_str(), p->times[2] * f, n, p->times[0] * f, p->times[1] * f);
       }
     }
-    log("Total time %.3f s\n", total);
+    log("Total time %.3fs\n", total * 1e-9);
+
+    profile.reset();
   }
 }
 
@@ -822,8 +827,9 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
     fftMiddleIn(buf1, buf2);
   }
 
+  // queue->flush();
   // The flush() below is not needed. It appears to help a bit the performance.
-#if 1
+#if 0
   if (leadIn || leadOut) { queue->flush(); }
 #endif
 }

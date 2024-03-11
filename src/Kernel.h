@@ -9,6 +9,7 @@
 #include <string>
 
 class KernelCompiler;
+class TimeInfo;
 
 class Kernel {
   const string name;
@@ -16,6 +17,8 @@ class Kernel {
   const string nameInFile;
   const string defines;
   
+  TimeInfo *timeInfo;
+
   QueuePtr queue;
   size_t workSize;
   u32 groupSize = 0;
@@ -23,9 +26,11 @@ class Kernel {
   KernelHolder kernel{};
 
 public:
-  Kernel(string_view name, QueuePtr queue,
+  Kernel(string_view name, TimeInfo* timeInfo, QueuePtr queue,
          string_view fileName, string_view nameInFile,
          size_t workSize, string_view defines = "");
+
+  ~Kernel();
 
   void load(const KernelCompiler& compiler, cl_device_id deviceId);
   

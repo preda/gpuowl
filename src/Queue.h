@@ -1,4 +1,4 @@
-// Copyright Mihai Preda.
+// Copyright (C) Mihai Preda
 
 #pragma once
 
@@ -8,18 +8,18 @@
 #include "log.h"
 #include "Args.h"
 
-#include <algorithm>
-#include <cmath>
-#include <map>
 #include <memory>
-#include <string>
 #include <vector>
 #include <unistd.h>
-#include <assert.h>
+#include <array>
+
+// class Kernel;
+class Args;
 
 template<typename T> class ConstBuffer;
 template<typename T> class Buffer;
 
+/*
 struct TimeInfo {
   double total{};
   u32 n{};
@@ -28,11 +28,13 @@ struct TimeInfo {
   void add(float deltaTime, u32 deltaN = 1) { total += deltaTime; n += deltaN; }
   void clear() { total = 0; n = 0; }
 };
+*/
 
 class Event : public EventHolder {
 public:
-  double secs() { return getEventNanos(this->get()) * 1e-9f; }
+  // double secs() { return getEventNanos(this->get()) * 1e-9f; }
   bool isComplete() { return getEventInfo(this->get()) == CL_COMPLETE; }
+  std::array<i64, 3> times() { return getEventNanos(get()); }
 };
 
 class FlushPolicy {
@@ -66,10 +68,14 @@ public:
 
 using QueuePtr = std::shared_ptr<class Queue>;
 
+struct TimeInfo;
+
 class Queue : public QueueHolder {
-  using TimeMap = std::map<std::string, TimeInfo>;
-  TimeMap timeMap;
-  std::vector<std::pair<Event, TimeMap::iterator>> events;
+  // using TimeMap = std::map<std::string, TimeInfo>;
+  // TimeMap timeMap;
+
+  std::vector<std::pair<Event, TimeInfo*>> events;
+
   bool profile{};
   bool cudaYield{};
   FlushPolicy flushPos;
@@ -77,101 +83,31 @@ class Queue : public QueueHolder {
 
   static constexpr const u32 FLUSH_FACTOR = 4;
 
-  void synced() {
-    // log("synced %u\n", u32(pendingWrite.size()));
-    flushPos.reset();
-    pendingWrite.clear();
-  }
+  void synced();
 
 public:
-  Queue(const Args& args, cl_queue q, bool profile, bool cudaYield) :
-    QueueHolder{q},
-    profile{profile},
-    cudaYield{cudaYield},
-    flushPos{args}
-  {}
+  static QueuePtr make(const Args& args, const Context& context, bool profile, bool cudaYield);
 
-  static QueuePtr make(const Args& args, const Context& context, bool profile, bool cudaYield) {
-    return make_shared<Queue>(args, makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield);
-  }
+  Queue(const Args& args, cl_queue q, bool profile, bool cudaYield);
+
+  void run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo);
+
+  void readSync(cl_mem buf, u32 size, void* out);
+
+  void write(cl_mem buf, u32 size, const void* data);
+
+  void write(cl_mem buf, vector<i32>&& vect);
+
+
+  bool allEventsCompleted();
+
+  void flush();
   
-  void readSync(cl_mem buf, u32 size, void* out) {
-    ::read(get(), true, buf, size, out);
-    synced();
-  }
+  void finish();
 
-  void write(cl_mem buf, u32 size, const void* data) {
-    ::write(get(), true, buf, size, data);
-  }
+  using Profile = std::vector<TimeInfo>;
 
-  void write(cl_mem buf, vector<i32>&& vect) {
-    pendingWrite.push_back(std::move(vect));
-    auto& v = pendingWrite.back();
-    ::write(get(), false, buf, v.size() * sizeof(i32), v.data());
-  }
+  Profile getProfile();
 
-  void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
-    if (!profile && !cudaYield) {
-      ::run(get(), kernel, groupSize, workSize, name, false);
-    } else {
-      Event event{::run(get(), kernel, groupSize, workSize, name, true)};
-      auto it = profile ? timeMap.insert({name, TimeInfo{}}).first : timeMap.end();
-
-      if (cudaYield && !profile && !events.empty()) {
-        assert(events.size() == 1);
-        events.pop_back();
-      }
-
-      events.emplace_back(std::move(event), it);
-    }
-    if (flushPos.inc()) {
-      // log("flush at %u\n", flushPos.get());
-      flush();
-    }
-  }
-
-  bool allEventsCompleted() { return events.empty() || events.back().first.isComplete(); }
-
-  void flush() { ::flush(get()); }
-  
-  void finish() {
-    if (cudaYield) {
-      flush();
-      while (!allEventsCompleted()) {
-#if defined(__CYGWIN__)
-	sleep(1);
-#else
-	usleep(500);
-#endif
-      }
-    }
-    
-    ::finish(get());
-    
-    if (profile) { for (auto& [event, it] : events) { it->second.add(event.secs()); } }
-    events.clear();
-    synced();
-  }
-
-  using Profile = std::vector<std::pair<TimeInfo, std::string>>;
-  Profile getProfile() {
-    Profile p;
-    for (auto& [name, info] : timeMap) { p.emplace_back(info, name); }
-    std::sort(p.begin(), p.end());
-    return p;
-  }
-
-  void clearProfile() {
-    events.clear();
-    timeMap.clear();
-  }
-
-  /*
-  template<typename T> void zero(Buffer<T>& buf, size_t sizeOrFull = 0) {
-    auto size = sizeOrFull ? sizeOrFull : buf.size;
-    assert(size <= buf.size);
-    T zero = 0;
-    fillBuf(get(), buf.get(), &zero, sizeof(T), size * sizeof(T));
-  }
-  */
+  void clearProfile();
 };

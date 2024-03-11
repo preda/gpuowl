@@ -6,6 +6,7 @@
 #include "MD5.h"
 #include "Gpu.h"
 
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <cassert>

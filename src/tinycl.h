@@ -88,8 +88,8 @@ int clGetKernelInfo(cl_kernel, cl_kernel_info, size_t, void *, size_t *);
 int clGetKernelArgInfo(cl_kernel, unsigned, cl_kernel_arg_info, size_t, void *, size_t *);
 int clGetKernelWorkGroupInfo(cl_kernel, cl_device_id, cl_kernel_work_group_info, size_t, void *, size_t *);
 
-int clGetEventInfo(cl_event, cl_event_info, size_t, void*, size_t*);
-int clGetEventProfilingInfo(cl_event, cl_profiling_info, size_t, void*, size_t*);
+int clGetEventInfo(cl_event, cl_event_info paramName, size_t paramValueSize, void* paramValue, size_t* sizeRet);
+int clGetEventProfilingInfo(cl_event, cl_profiling_info, size_t, void*, size_t* sizeRet);
   
 void* clSVMAlloc(cl_context, cl_svm_mem_flags, size_t, unsigned alignment);
 void clSVMFree(cl_context, void*);
@@ -131,8 +131,12 @@ int clSetKernelArgSVMPointer(cl_kernel, unsigned, const void *);
 #define CL_MEM_SVM_FINE_GRAIN_BUFFER (1 << 10)
 #define CL_MEM_SVM_ATOMICS           (1 << 11)
 
-#define CL_QUEUE_PROFILING_ENABLE    (1 << 1)
-#define CL_QUEUE_PROPERTIES       0x1093
+
+#define CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE      (1 << 0)
+#define CL_QUEUE_PROFILING_ENABLE                   (1 << 1)
+#define CL_QUEUE_ON_DEVICE                          (1 << 2)
+#define CL_QUEUE_ON_DEVICE_DEFAULT                  (1 << 3)
+
 
 /* cl_command_queue_info */
 #define CL_QUEUE_CONTEXT                            0x1090
@@ -140,6 +144,7 @@ int clSetKernelArgSVMPointer(cl_kernel, unsigned, const void *);
 #define CL_QUEUE_REFERENCE_COUNT                    0x1092
 #define CL_QUEUE_PROPERTIES                         0x1093
 #define CL_QUEUE_SIZE                               0x1094
+#define CL_QUEUE_DEVICE_DEFAULT                     0x1095
 
 #define CL_PROFILING_COMMAND_QUEUED                 0x1280
 #define CL_PROFILING_COMMAND_SUBMIT                 0x1281
