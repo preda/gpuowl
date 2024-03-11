@@ -83,8 +83,15 @@ class Queue : public QueueHolder {
   bool profile{};
   bool cudaYield{};
   FlushPolicy flushPos;
+  vector<vector<i32>> pendingWrite;
 
   static constexpr const u32 FLUSH_FACTOR = 4;
+
+  void synced() {
+    // log("synced %u\n", u32(pendingWrite.size()));
+    flushPos.reset();
+    pendingWrite.clear();
+  }
 
 public:
   Queue(cl_queue q, bool profile, bool cudaYield) : QueueHolder{q}, profile{profile}, cudaYield{cudaYield} {}  
@@ -92,11 +99,17 @@ public:
   
   void readSync(cl_mem buf, u32 size, void* out) {
     ::read(get(), true, buf, size, out);
-    flushPos.reset();
+    synced();
   }
 
   void write(cl_mem buf, u32 size, const void* data) {
     ::write(get(), true, buf, size, data);
+  }
+
+  void write(cl_mem buf, vector<i32>&& vect) {
+    pendingWrite.push_back(std::move(vect));
+    auto& v = pendingWrite.back();
+    ::write(get(), false, buf, v.size() * sizeof(i32), v.data());
   }
 
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, const string &name) {
@@ -139,7 +152,7 @@ public:
     
     if (profile) { for (auto& [event, it] : events) { it->second.add(event.secs()); } }
     events.clear();
-    flushPos.reset();
+    synced();
   }
 
   using Profile = std::vector<std::pair<TimeInfo, std::string>>;

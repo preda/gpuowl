@@ -16,7 +16,6 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 
-#include <cstring>
 #include <algorithm>
 #include <optional>
 #include <bitset>
@@ -595,9 +594,9 @@ void Gpu::mul(Buffer<int>& io, Buffer<double>& buf1) {
   mul(io, io, buf1, buf2, buf3, false);
 }
 
-void Gpu::writeState(const vector<u32> &check, u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+void Gpu::writeState(vector<u32>&& check, u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   assert(blockSize > 0);
-  writeCheck(check);
+  writeIn(bufCheck, std::move(check));
   bufData << bufCheck;
   bufAux  << bufCheck;
   
@@ -654,8 +653,8 @@ vector<int> Gpu::readOut(ConstBuffer<int> &buf) {
 
 void Gpu::writeIn(Buffer<int>& buf, const vector<u32>& words) { writeIn(buf, expandBits(words, N, E)); }
 
-void Gpu::writeIn(Buffer<int>& buf, const vector<i32>& words) {
-  bufAux.write(words);
+void Gpu::writeIn(Buffer<int>& buf, vector<i32>&& words) {
+  bufAux.write(std::move(words));
   transposeIn(buf, bufAux);
 }
 
@@ -683,7 +682,7 @@ Words Gpu::expExp2(const Words& A, u32 n) {
   u32 logStep   = 10000;
   u32 blockSize = logStep;
   
-  writeData(A);
+  writeIn(bufData, std::move(A));
   IterationTimer timer{0};
   u32 k = 0;
   while (true) {
@@ -707,15 +706,22 @@ void Gpu::expMul(Buffer<i32>& A, u64 h, Buffer<i32>& B) {
 }
 
 // return A^x * B
-Words Gpu::expMul(const Words& A, u64 h, const Words& B) {
-  writeData(A);
-  writeCheck(B);
+Words Gpu::expMul(const Words& A, u64 h, Words&& B) {
+  writeIn(bufData, std::move(A));
+  writeIn(bufCheck, std::move(B));
   expMul(bufData, h, bufCheck);
   return readData();
 }
 
-Words Gpu::expMul2(const Words& A, u64 h, const Words& B) {
-  expMul(A, h, B);
+Words Gpu::expMul(const Words& A, u64 h, const Words& B) {
+  writeIn(bufData, std::move(A));
+  writeIn(bufCheck, B);
+  expMul(bufData, h, bufCheck);
+  return readData();
+}
+
+Words Gpu::expMul2(const Words& A, u64 h, Words&& B) {
+  expMul(A, h, std::move(B));
   modMul(bufData, bufData, bufCheck, buf1, buf2, buf3);
   return readData();
 }
@@ -1003,7 +1009,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   {
     PRPState loaded = saver.load();
         
-    writeState(loaded.check, loaded.blockSize, buf1, buf2, buf3);
+    writeState(std::move(loaded.check), loaded.blockSize, buf1, buf2, buf3);
         
     u64 res = dataResidue();
     if (res == loaded.res64) {
@@ -1215,8 +1221,8 @@ LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
     LLState state = saver.load();
 
     startK = state.k;
-    writeData(state.data);
     u64 expectedRes = (u64(state.data[1]) << 32) | state.data[0];
+    writeIn(bufData, std::move(state.data));
     u64 res = dataResidue();
     if (res != expectedRes) { throw "Invalid savefile (res64)"; }
     assert(res == expectedRes);

@@ -147,7 +147,7 @@ class Gpu {
   vector<int> readSmall(Buffer<int>& buf, u32 start);
   
   vector<int> readOut(ConstBuffer<int> &buf);
-  void writeIn(Buffer<int>& buf, const vector<i32> &words);
+  void writeIn(Buffer<int>& buf, vector<i32>&& words);
 
   void square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool doMul3, bool doLL = false);
   // void square(Buffer<int>& io, bool leadIn, bool leadOut, bool mul3) { square(io, io, leadIn, leadOut, mul3); }
@@ -166,7 +166,7 @@ class Gpu {
   void exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3);
 
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
-  void writeState(const vector<u32> &check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
+  void writeState(vector<u32>&& check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
@@ -214,8 +214,8 @@ public:
 
   vector<u32> readAndCompress(ConstBuffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
-  void writeData(const vector<u32> &v) { writeIn(bufData, v); }
-  void writeCheck(const vector<u32> &v) { writeIn(bufCheck, v); }
+  // void writeData(const vector<u32> &v) { writeIn(bufData, v); }
+  // void writeCheck(const vector<u32> &v) { writeIn(bufCheck, v); }
   
   u64 dataResidue()  { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }
@@ -233,10 +233,11 @@ public:
   u32 getFFTSize() { return N; }
 
   // return A^h * B
+  Words expMul(const Words& A, u64 h, Words&& B);
   Words expMul(const Words& A, u64 h, const Words& B);
 
   // return A^h * B^2
-  Words expMul2(const Words& A, u64 h, const Words& B);
+  Words expMul2(const Words& A, u64 h, Words&& B);
 
   // A:= A^h * B
   void expMul(Buffer<i32>& A, u64 h, Buffer<i32>& B);
