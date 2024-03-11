@@ -74,6 +74,7 @@ public:
 
   u32 iters = 0;
   u32 nSavefiles = 20;
+  u32 flush = 0;
   
   void printHelp();
 };
