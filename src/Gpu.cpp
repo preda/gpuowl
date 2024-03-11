@@ -327,7 +327,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   timeKernels(timeKernels),
   device(device),
   context{device},
-  queue(Queue::make(context, timeKernels || args.forceProfile, args.cudaYield)),
+  queue(Queue::make(args, context, timeKernels || args.forceProfile, args.cudaYield)),
   
 #define K(name, ...) name(#name, queue, __VA_ARGS__)
 
@@ -821,7 +821,11 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
     }
     fftMiddleIn(buf1, buf2);
   }
-  // queue->flush();
+
+  // The flush() below is not needed. It appears to help a bit the performance.
+#if 1
+  if (leadIn || leadOut) { queue->flush(); }
+#endif
 }
 
 u32 Gpu::squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3) {

@@ -6,6 +6,7 @@
 #include "clwrap.h"
 #include "Context.h"
 #include "log.h"
+#include "Args.h"
 
 #include <algorithm>
 #include <cmath>
@@ -36,41 +37,30 @@ public:
 
 class FlushPolicy {
 private:
+  const u32 step;
   u32 pos;
-  u32 posNextFlush;
-  u32 step;
+  u32 posFlush;
 
 public:
-  FlushPolicy() { reset(); }
+  FlushPolicy(const Args& args) :
+    step{args.flush}
+  {
+    reset();
+  }
 
   void reset() {
     pos = 0;
-    posNextFlush = 1;
-    step = 1;
+    posFlush = step;
   }
 
   u32 get() const { return pos; }
 
-  // return true if should flash now
+  // return true if should flush now
   bool inc() {
-
-#if 1
-    return false;
-#else
     ++pos;
-    return pos == 4;
-#endif
-
-    // return false;
-    /*
-    assert(pos <= posNextFlush);
-    if (pos >= posNextFlush) {
-      step = std::min(step * 3, 100u);
-      posNextFlush += step;
-      return true;
-    }
-    return false;
-    */
+    if (!step || pos != posFlush) { return false; }
+    // posNextFlush += step;
+    return true;
   }
 };
 
@@ -94,8 +84,16 @@ class Queue : public QueueHolder {
   }
 
 public:
-  Queue(cl_queue q, bool profile, bool cudaYield) : QueueHolder{q}, profile{profile}, cudaYield{cudaYield} {}  
-  static QueuePtr make(const Context& context, bool profile, bool cudaYield) { return make_shared<Queue>(makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield); }
+  Queue(const Args& args, cl_queue q, bool profile, bool cudaYield) :
+    QueueHolder{q},
+    profile{profile},
+    cudaYield{cudaYield},
+    flushPos{args}
+  {}
+
+  static QueuePtr make(const Args& args, const Context& context, bool profile, bool cudaYield) {
+    return make_shared<Queue>(args, makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield);
+  }
   
   void readSync(cl_mem buf, u32 size, void* out) {
     ::read(get(), true, buf, size, out);
