@@ -5,16 +5,19 @@
 
 #include <stdexcept>
 
-Kernel::Kernel(string_view name, QueuePtr queue,
+Kernel::Kernel(string_view name, TimeInfo* timeInfo, QueuePtr queue,
        string_view fileName, string_view nameInFile,
        size_t workSize, string_view defines):
   name{name},
   fileName{fileName},
   nameInFile{nameInFile},
   defines{defines},
+  timeInfo{timeInfo},
   queue{queue},
   workSize{workSize}
 {}
+
+Kernel::~Kernel() = default;
 
 void Kernel::load(const KernelCompiler& compiler, cl_device_id deviceId) {
   assert(!kernel);
@@ -27,7 +30,7 @@ void Kernel::load(const KernelCompiler& compiler, cl_device_id deviceId) {
 
 void Kernel::run() {
   if (kernel) {
-    queue->run(kernel.get(), groupSize, workSize, name);
+    queue->run(kernel.get(), groupSize, workSize, timeInfo);
   } else {
     throw std::runtime_error("OpenCL kernel "s + name + " not found");
   }

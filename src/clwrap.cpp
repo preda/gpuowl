@@ -282,6 +282,10 @@ cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr)
   return buf;
 }
 
+// CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE
+// CL_QUEUE_ON_DEVICE
+// CL_QUEUE_ON_DEVICE_DEFAULT
+
 cl_queue makeQueue(cl_device_id d, cl_context c, bool profile) {
   int err;
   cl_queue_properties props[4] = {0};
@@ -351,12 +355,27 @@ u32 getEventInfo(cl_event event) {
   return status;
 }
 
-u64 getEventNanos(cl_event event) {  
-  u64 start = 0;
-  u64 end = 0;
-  CHECK1(clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(start), &start, 0));
-  CHECK1(clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(end), &end, 0));
-  return end - start;
+static i64 delta(u64 a, u64 b) { return b - a; }
+  // return b >= a ? i64(b - a) : -i64(a - b); }
+
+array<i64, 3> getEventNanos(cl_event event) {
+  u64 prev{};
+  array<i64, 3> ret{};
+
+  constexpr const u32 what[] = {
+    CL_PROFILING_COMMAND_QUEUED,
+    CL_PROFILING_COMMAND_SUBMIT,
+    CL_PROFILING_COMMAND_START,
+    CL_PROFILING_COMMAND_END
+  };
+
+  for (int i = 0; i < 4; ++i) {
+    u64 t{};
+    CHECK1(clGetEventProfilingInfo(event, what[i], sizeof(t), &t, 0));
+    if (i) { ret[i - 1] = delta(prev, t); }
+    prev = t;
+  }
+  return ret;
 }
 
 cl_context getQueueContext(cl_command_queue q) {

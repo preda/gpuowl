@@ -9,6 +9,9 @@ add_executable(gpuowl bundle.cpp ProofCache.cpp Proof.cpp
   Kernel.cpp
   SaveMan.cpp
   Saver.cpp
+  Queue.cpp
+  TimeInfo.cpp
+  Profile.cpp
   )
 
 target_link_libraries(gpuowl OpenCL)

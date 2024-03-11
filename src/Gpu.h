@@ -8,6 +8,7 @@
 
 #include "common.h"
 #include "Kernel.h"
+#include "Profile.h"
 
 #include <vector>
 #include <memory>
@@ -73,6 +74,7 @@ class Gpu {
   cl_device_id device;
   Context context;
   QueuePtr queue;
+  Profile profile{};
   
   Kernel kernCarryFused;
   Kernel kernCarryFusedMul;
@@ -102,6 +104,7 @@ class Gpu {
   Kernel readResidue;
   Kernel kernIsEqual;
   Kernel sum64;
+
   // Kernel testKernel;
 
   // Trigonometry constant buffers, used in FFTs.
