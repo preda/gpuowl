@@ -30,9 +30,9 @@ ProofInfo getInfo(const fs::path& proofFile);
 
 class Proof {  
 public:
-  const u32 E;
-  const Words B;
-  const vector<Words> middles;
+  u32 E;
+  Words B;
+  vector<Words> middles;
 
   /*Example header:
     PRP PROOF\n
@@ -44,7 +44,7 @@ public:
   static const constexpr char* HEADER_v2 = "PRP PROOF\nVERSION=2\nHASHSIZE=64\nPOWER=%u\nNUMBER=M%u%c";
 
   static Proof load(const fs::path& path);
-  
+
   void save(const fs::path& proofResultDir) const;
 
   fs::path file(const fs::path& proofDir) const;

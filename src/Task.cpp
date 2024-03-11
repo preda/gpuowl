@@ -153,10 +153,15 @@ void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) c
 */
 
 void Task::execute(const Args& args) {
+  Proof proof{};
+  if (kind == VERIFY) {
+    proof = Proof::load(verifyPath);
+    exponent = proof.E;
+  }
+
   LogContext pushContext(std::to_string(exponent));
   
   if (kind == VERIFY) {
-    Proof proof = Proof::load(verifyPath);
     auto gpu = Gpu::make(proof.E, args);
     bool ok = proof.verify(gpu.get());
     log("proof '%s' %s\n", verifyPath.c_str(), ok ? "verified" : "failed");
@@ -164,6 +169,7 @@ void Task::execute(const Args& args) {
   }
 
   assert(kind == PRP || kind == LL);
+  assert(exponent);
 
   auto gpu = Gpu::make(exponent, args);
   auto fftSize = gpu->getFFTSize();
