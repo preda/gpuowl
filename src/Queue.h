@@ -13,22 +13,10 @@
 #include <unistd.h>
 #include <array>
 
-// class Kernel;
 class Args;
 
 template<typename T> class ConstBuffer;
 template<typename T> class Buffer;
-
-/*
-struct TimeInfo {
-  double total{};
-  u32 n{};
-
-  bool operator<(const TimeInfo& rhs) const { return total > rhs.total; }
-  void add(float deltaTime, u32 deltaN = 1) { total += deltaTime; n += deltaN; }
-  void clear() { total = 0; n = 0; }
-};
-*/
 
 class Event : public EventHolder {
 public:
@@ -85,6 +73,8 @@ class Queue : public QueueHolder {
 
   void synced();
 
+  vector<cl_event> inOrder() const;
+
 public:
   static QueuePtr make(const Args& args, const Context& context, bool profile, bool cudaYield);
 
@@ -92,12 +82,23 @@ public:
 
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo);
 
-  void readSync(cl_mem buf, u32 size, void* out);
+  void readSync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo);
+  void readAsync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo);
 
-  void write(cl_mem buf, u32 size, const void* data);
+  template<typename T>
+  void writeSync(cl_mem buf, const vector<T>& v, TimeInfo* tInfo) {
+    events.emplace_back(Event{::write(get(), inOrder(), true, buf, v.size() * sizeof(T), v.data())}, tInfo);
+    synced();
+  }
 
-  void write(cl_mem buf, vector<i32>&& vect);
+  void writeAsync(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo);
 
+  template<typename T>
+  void fillBuf(cl_mem buf, T pattern, u32 size, TimeInfo* tInfo) {
+    events.emplace_back(Event{::fillBuf(get(), inOrder(), buf, &pattern, sizeof(T), size)}, tInfo);
+  }
+
+  void copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo);
 
   bool allEventsCompleted();
 

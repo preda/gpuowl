@@ -12,6 +12,8 @@
 #include <vector>
 #include <cassert>
 
+class TimeInfo;
+
 template<typename T>
 class ConstBuffer {
   std::unique_ptr<cl_mem> ptr;
@@ -41,7 +43,8 @@ public:
   {}
 
   ConstBuffer(const Context& context, std::string_view name, const std::vector<T>& vect)
-    : ConstBuffer(context.get(), name, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, vect.size(), vect.data())
+    : ConstBuffer(context, name, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS,
+                  vect.size(), vect.data())
   {}
   
   ConstBuffer(ConstBuffer&& rhs) = default;
@@ -62,33 +65,39 @@ template<typename T>
 class Buffer : public ConstBuffer<T> {
 protected:
   QueuePtr queue;
+  TimeInfo *tInfo;
   
-  Buffer(QueuePtr queue, std::string_view name, size_t size, unsigned kind)
+  Buffer(TimeInfo *tInfo, QueuePtr queue, std::string_view name, size_t size, unsigned kind)
     : ConstBuffer<T>{getQueueContext(queue->get()), name, kind, size}
     , queue{queue}
+    , tInfo{tInfo}
   {}
-    
+
+  void fill(T value, u32 len) {
+    assert(len <= this->size);
+    queue->fillBuf(this->get(), value, (len ? len : this->size) * sizeof(T), this->tInfo);
+  }
+
 public:
-  Buffer(QueuePtr queue, std::string_view name, size_t size)
-    : Buffer(queue, name, size, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS) {}
+  Buffer(TimeInfo *tInfo, QueuePtr queue, std::string_view name, size_t size)
+    : Buffer(tInfo, queue, name, size, CL_MEM_READ_WRITE | CL_MEM_HOST_NO_ACCESS) {}
 
   Buffer(Buffer&& rhs) = default;
 
   void zero(size_t len = 0) {
-    assert(len <= this->size);
-    T zero{};
-    fillBuf(queue->get(), this->get(), &zero, sizeof(T), (len ? len : this->size) * sizeof(T));
+    fill(0, len);
   }
 
   void set(T value) {
     zero();
-    fillBuf(queue->get(), this->get(), &value, sizeof(T), sizeof(T));
+    fill(value, 1);
   }
 
   // device-side copy
   void operator<<(const ConstBuffer<T>& rhs) {
     assert(this->size == rhs.size);
-    copyBuf(queue->get(), rhs.get(), this->get(), this->size * sizeof(T));
+    queue->copyBuf(rhs.get(), this->get(), this->size * sizeof(T), this->tInfo);
+    // copyBuf(queue->get(), rhs.get(), this->get(), this->size * sizeof(T));
   }
 };
 
@@ -98,27 +107,26 @@ public:
   // using Buffer<T>::operator=;
   using Buffer<T>::operator<<;
   
-  HostAccessBuffer(QueuePtr queue, std::string_view name, size_t size)
-    : Buffer<T>(queue, name, size, CL_MEM_READ_WRITE) {}
+  HostAccessBuffer(TimeInfo* tInfo, QueuePtr queue, std::string_view name, size_t size)
+    : Buffer<T>(tInfo, queue, name, size, CL_MEM_READ_WRITE) {}
 
   // sync read
   vector<T> read(size_t sizeOrFull = 0) const {
     auto readSize = sizeOrFull ? sizeOrFull : this->size;
     assert(readSize <= this->size);
     vector<T> ret(readSize);
-    this->queue->readSync(this->get(), readSize * sizeof(T), ret.data());
-    // ::read(this->queue->get(), true, this->get(), readSize * sizeof(T), ret.data());
+    this->queue->readSync(this->get(), readSize * sizeof(T), ret.data(), this->tInfo);
     return ret;
   }
 
-  void readAsync(vector<T>& out, size_t sizeOrFull = 0, size_t start = 0) const {
+  void readAsync(vector<T>& out, size_t sizeOrFull = 0) const {
     auto readSize = sizeOrFull ? sizeOrFull : this->size;
     assert(readSize <= this->size);
     out.resize(readSize);
-    ::read(this->queue->get(), false, this->get(), readSize * sizeof(T), out.data(), start * sizeof(T));
+    this->queue->readAsync(this->get(), readSize * sizeof(T), out.data(), this->tInfo);
   }
 
-  void write(vector<i32>&& vect) { this->queue->write(this->get(), std::move(vect)); }
+  void write(vector<i32>&& vect) { this->queue->writeAsync(this->get(), std::move(vect), this->tInfo); }
 
 #if 0
   void write(const vector<T>& vect) {

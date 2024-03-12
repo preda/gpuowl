@@ -146,6 +146,8 @@ class Gpu {
   Buffer<double> buf2;
   Buffer<double> buf3;
   unsigned statsBits;
+  TimeInfo* timeBufVect;
+
   
   vector<int> readSmall(Buffer<int>& buf, u32 start);
   

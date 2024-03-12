@@ -369,6 +369,9 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
 #undef K
 
+
+#define BUF(name, ...) name{profile.make(#name), queue, #name, __VA_ARGS__}
+
   bufTrigW{genSmallTrig(context, W, nW)},
   bufTrigH{genSmallTrig(context, SMALL_H, nH)},
   bufTrigM{genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
@@ -379,21 +382,30 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   bufBits{context, "bits", weights.bitsCF},
   bufBitsC{context, "bitsC", weights.bitsC},
-  bufData{queue, "data", N},
-  bufAux{queue, "aux", N},
-  bufCheck{queue, "check", N},
-  bufBase{queue, "base", N},
-  bufCarry{queue, "carry", N / 2},
-  bufReady{queue, "ready", BIG_H},
-  bufSmallOut{queue, "smallOut", 256},
-  bufSumOut{queue, "sumOut", 1},
-  bufTrue{queue, "bufTrue", 1},
-  bufROE{queue, "ROE", ROE_SIZE},
+
+  BUF(bufData, N),
+  BUF(bufAux, N),
+
+
+  BUF(bufCheck, N),
+  BUF(bufBase, N),
+  BUF(bufCarry, N / 2),
+  BUF(bufReady, BIG_H),
+
+  BUF(bufSmallOut, 256),
+  BUF(bufSumOut,     1),
+  BUF(bufTrue,       1),
+  BUF(bufROE, ROE_SIZE),
+
   roePos{0},
-  buf1{queue, "buf1", N},
-  buf2{queue, "buf2", N},
-  buf3{queue, "buf3", N},
+
+  BUF(buf1, N),
+  BUF(buf2, N),
+  BUF(buf3, N),
+#undef BUF
+
   statsBits{u32(args.value("STATS", 0))},
+  timeBufVect{profile.make("proofBufVect")},
   args{args}
 {
   log("Stats: %x\n", statsBits);
@@ -444,7 +456,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
   vector<Buffer<i32>> r;
-  for (u32 i = 0; i < size; ++i) { r.emplace_back(queue, "vector", N); }
+  for (u32 i = 0; i < size; ++i) { r.emplace_back(timeBufVect, queue, "vector", N); }
   return r;
 }
 
@@ -640,9 +652,10 @@ void Gpu::logTimeKernels() {
       assert(n);
       double f = 1e-3 / n;
       double percent = 100.0 / total * p->times[2];
-      if (percent >= .01f) {
+      if (true || percent >= .01f) {
         log("%5.2f%% %-14s : %6.0f us/call x %5d calls  (%6.0f %6.0f)\n",
-            percent, p->name.c_str(), p->times[2] * f, n, p->times[0] * f, p->times[1] * f);
+            percent, p->name.c_str(), p->times[2] * f, n,
+            p->times[0] * f, p->times[1] * f);
       }
     }
     log("Total time %.3fs\n", total * 1e-9);
@@ -1119,7 +1132,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     leadIn = leadOut;    
     
     if (k == persistK) {
-      Words data = readData();
+      Words data = readData(); // syncs
       if (data.empty()) {
         log("Data error ZERO\n");
         ++nErrors;
