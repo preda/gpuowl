@@ -4,11 +4,19 @@
 // #include "Kernel.h"
 #include "Args.h"
 #include "TimeInfo.h"
+#include <cassert>
 
 void Queue::synced() {
-  // log("synced %u\n", u32(pendingWrite.size()));
-  flushPos.reset();
+  // log("synced %u %u\n", u32(events.size()), u32(pendingWrite.size()));
+
+  for (auto& [event, tinfo] : events) {
+    assert(event.isComplete());
+    tinfo->add(event.times());
+  }
+
+  events.clear();
   pendingWrite.clear();
+  flushPos.reset();
 }
 
 Queue::Queue(const Args& args, cl_queue q, bool profile, bool cudaYield) :
@@ -22,25 +30,31 @@ QueuePtr Queue::make(const Args& args, const Context& context, bool profile, boo
   return make_shared<Queue>(args, makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield);
 }
 
-void Queue::readSync(cl_mem buf, u32 size, void* out) {
-  ::read(get(), true, buf, size, out);
+vector<cl_event> Queue::inOrder() const {
+  return events.empty() ? vector<cl_event>{} : vector<cl_event>{events.back().first.get()};
+}
+
+void Queue::readSync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
+  events.emplace_back(Event{read(get(), inOrder(), true, buf, size, out)}, tInfo);
   synced();
 }
 
-void Queue::write(cl_mem buf, u32 size, const void* data) {
-  ::write(get(), true, buf, size, data);
+void Queue::readAsync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
+  events.emplace_back(Event{read(get(), inOrder(), false, buf, size, out)}, tInfo);
 }
 
-void Queue::write(cl_mem buf, vector<i32>&& vect) {
+void Queue::writeAsync(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo) {
   pendingWrite.push_back(std::move(vect));
   auto& v = pendingWrite.back();
-  ::write(get(), false, buf, v.size() * sizeof(i32), v.data());
+  events.emplace_back(Event{::write(get(), inOrder(), false, buf, v.size() * sizeof(i32), v.data())}, tInfo);
+}
+
+void Queue::copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo) {
+  events.emplace_back(Event{::copyBuf(get(), inOrder(), src, dst, size)}, tInfo);
 }
 
 void Queue::run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo) {
-  Event event{::run(get(), kernel, groupSize, workSize, tInfo->name, true)};
-  events.emplace_back(std::move(event), tInfo);
-
+  events.emplace_back(Event{::run(get(), kernel, groupSize, workSize, inOrder(), tInfo->name)}, tInfo);
   if (flushPos.inc()) { flush(); }
 }
 
@@ -61,8 +75,5 @@ void Queue::finish() {
   }
 
   ::finish(get());
-
-  for (auto& [event, tinfo] : events) { tinfo->add(event.times()); }
-  events.clear();
   synced();
 }

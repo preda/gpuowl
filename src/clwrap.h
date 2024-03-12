@@ -90,13 +90,19 @@ cl_queue makeQueue(cl_device_id d, cl_context c, bool profile);
 void flush( cl_queue q);
 void finish(cl_queue q);
 
-EventHolder run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize, const string &name, bool generateEvent);
-void read(cl_queue queue, bool blocking, cl_mem buf, size_t size, void *data, size_t start = 0);
-void write(cl_queue queue, bool blocking, cl_mem buf, size_t size, const void *data, size_t start = 0);
+EventHolder run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize,
+                vector<cl_event>&& waits, const string &name);
 
-void copyBuf(cl_queue queue, const cl_mem src, cl_mem dst, size_t size);
+EventHolder read(cl_queue queue, vector<cl_event>&& waits,
+                 bool blocking, cl_mem buf, size_t size, void *data, size_t start = 0);
 
-void fillBuf(cl_queue q, cl_mem buf, void *pat, size_t patSize, size_t size = 0, size_t start = 0);
+EventHolder write(cl_queue queue, vector<cl_event>&& waits,
+                  bool blocking, cl_mem buf, size_t size, const void *data, size_t start = 0);
+
+EventHolder copyBuf(cl_queue queue, vector<cl_event>&& waits, const cl_mem src, cl_mem dst, size_t size);
+
+EventHolder fillBuf(cl_queue q, vector<cl_event>&& waits, cl_mem buf, void *pat, size_t patSize, size_t size);
+
 int getKernelNumArgs(cl_kernel k);
 int getWorkGroupSize(cl_kernel k, cl_device_id device, const char *name);
 std::string getKernelArgName(cl_kernel k, int pos);
