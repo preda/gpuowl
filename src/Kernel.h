@@ -42,9 +42,7 @@ public:
   }
 
 private:
-  template<typename T> void setArgs(const string& name, int pos, const ConstBuffer<T>& buf) { setArgs(name, pos, buf.get()); }
   template<typename T> void setArgs(const string& name, int pos, const Buffer<T>& buf) { setArgs(name, pos, buf.get()); }
-  template<typename T> void setArgs(const string& name, int pos, const HostAccessBuffer<T>& buf) { setArgs(name, pos, buf.get()); }
   template<typename T> void setArgs(const string& name, int pos, const T &arg) { ::setArg(kernel.get(), pos, arg, name); }
   
   template<typename T, typename... Args> void setArgs(const string& name, int pos, const T &arg, const Args &...tail) {

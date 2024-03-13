@@ -108,20 +108,20 @@ class Gpu {
   // Kernel testKernel;
 
   // Trigonometry constant buffers, used in FFTs.
-  ConstBuffer<double2> bufTrigW;
-  ConstBuffer<double2> bufTrigH;
-  ConstBuffer<double2> bufTrigM;
+  Buffer<double2> bufTrigW;
+  Buffer<double2> bufTrigH;
+  Buffer<double2> bufTrigM;
   
-  ConstBuffer<double2> bufTrigBHW;
-  ConstBuffer<double2> bufTrig2SH;
-  ConstBuffer<double> bufWeights;
+  Buffer<double2> bufTrigBHW;
+  Buffer<double2> bufTrig2SH;
+  Buffer<double> bufWeights;
 
-  ConstBuffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
-  ConstBuffer<u32> bufBitsC; // bigWord bits aligned for CarryA/M
+  Buffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
+  Buffer<u32> bufBitsC; // bigWord bits aligned for CarryA/M
 
   // "integer word" buffers. These are "small buffers": N x int.
-  HostAccessBuffer<int> bufData;   // Main int buffer with the words.
-  HostAccessBuffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
+  Buffer<int> bufData;   // Main int buffer with the words.
+  Buffer<int> bufAux;    // Auxiliary int buffer, used in transposing data in/out and in check.
   Buffer<int> bufCheck;  // Buffers used with the error check.
   Buffer<int> bufBase;   // used in P-1 error check.
 
@@ -131,12 +131,12 @@ class Gpu {
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
 
   // Small aux buffers.
-  HostAccessBuffer<int> bufSmallOut;
-  HostAccessBuffer<u64> bufSumOut;
-  HostAccessBuffer<int> bufTrue;
+  Buffer<int> bufSmallOut;
+  Buffer<u64> bufSumOut;
+  Buffer<int> bufTrue;
 
   // The round-off error ("ROE"), one float element per iteration.
-  HostAccessBuffer<float> bufROE;
+  Buffer<float> bufROE;
 
   // The next position to write in the ROE buffer.
   u32 roePos;
@@ -151,7 +151,7 @@ class Gpu {
   
   vector<int> readSmall(Buffer<int>& buf, u32 start);
   
-  vector<int> readOut(ConstBuffer<int> &buf);
+  vector<int> readOut(Buffer<int> &buf);
   void writeIn(Buffer<int>& buf, vector<i32>&& words);
 
   void square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool doMul3, bool doLL = false);
@@ -217,7 +217,7 @@ public:
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       cl_device_id device, bool timeKernels, bool useLongCarry);
 
-  vector<u32> readAndCompress(ConstBuffer<int>& buf);
+  vector<u32> readAndCompress(Buffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   // void writeData(const vector<u32> &v) { writeIn(bufData, v); }
   // void writeCheck(const vector<u32> &v) { writeIn(bufCheck, v); }
