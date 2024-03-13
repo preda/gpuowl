@@ -83,7 +83,7 @@ double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   return p;
 }
 
-ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
+vector<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
   vector<double2> tab;
 
 #if 1
@@ -100,10 +100,10 @@ ConstBuffer<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
   assert(p - tab.data() == size);
 #endif
 
-  return {context, "smallTrig", tab};
+  return tab;
 }
 
-ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
+vector<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
   vector<double2> tab;
   if (middle == 1) {
     tab.resize(1);
@@ -113,7 +113,7 @@ ConstBuffer<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middl
     [[maybe_unused]] auto *p = smallTrigBlock(smallH, middle, tab.data());
     assert(p - tab.data() == size);
   }
-  return {context, "middleTrig", tab};
+  return tab;
 }
 
 template<typename T>
@@ -372,16 +372,16 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
 #define BUF(name, ...) name{profile.make(#name), queue, #name, __VA_ARGS__}
 
-  bufTrigW{genSmallTrig(context, W, nW)},
-  bufTrigH{genSmallTrig(context, SMALL_H, nH)},
-  bufTrigM{genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
+  BUF(bufTrigW, genSmallTrig(context, W, nW)),
+  BUF(bufTrigH, genSmallTrig(context, SMALL_H, nH)),
+  BUF(bufTrigM, genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)),
   
-  bufTrigBHW{context, "trigBHW", makeTinyTrig(W, hN, makeTrig<double>(BIG_H))},
-  bufTrig2SH{context, "trig2SH", makeTrig<double>(2 * SMALL_H)},
-  bufWeights{context, "weights", weights.weightsIF},
+  BUF(bufTrigBHW, makeTinyTrig(W, hN, makeTrig<double>(BIG_H))),
+  BUF(bufTrig2SH, makeTrig<double>(2 * SMALL_H)),
+  BUF(bufWeights, weights.weightsIF),
   
-  bufBits{context, "bits", weights.bitsCF},
-  bufBitsC{context, "bitsC", weights.bitsC},
+  BUF(bufBits,  weights.bitsCF),
+  BUF(bufBitsC, weights.bitsC),
 
   BUF(bufData, N),
   BUF(bufAux, N),
@@ -550,7 +550,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 template<typename T>
 static bool isAllZero(vector<T> v) { return std::all_of(v.begin(), v.end(), [](T x) { return x == 0;}); }
 
-vector<u32> Gpu::readAndCompress(ConstBuffer<int>& buf)  {
+vector<u32> Gpu::readAndCompress(Buffer<int>& buf)  {
   for (int nRetry = 0; nRetry < 3; ++nRetry) {
     sum64(bufSumOut, u32(buf.size * sizeof(int)), buf);
     
@@ -664,7 +664,7 @@ void Gpu::logTimeKernels() {
   }
 }
 
-vector<int> Gpu::readOut(ConstBuffer<int> &buf) {
+vector<int> Gpu::readOut(Buffer<int> &buf) {
   transposeOut(bufAux, buf);
   return bufAux.read();
 }
