@@ -69,20 +69,19 @@ class Gpu {
   u32 hN, nW, nH, bufSize;
   u32 WIDTH;
   bool useLongCarry;
-  bool timeKernels;
 
   cl_device_id device;
   Context context;
   QueuePtr queue;
   Profile profile{};
   
-  Kernel kernCarryFused;
-  Kernel kernCarryFusedMul;
-  Kernel kernCarryFusedLL;
+  Kernel kCarryFused;
+  Kernel kCarryFusedMul;
+  Kernel kCarryFusedLL;
 
-  Kernel kernCarryA;
-  Kernel kernCarryM;
-  Kernel kernCarryLL;
+  Kernel kCarryA;
+  Kernel kCarryM;
+  Kernel kCarryLL;
   Kernel carryB;
 
   Kernel fftP;
@@ -96,10 +95,10 @@ class Gpu {
   Kernel tailMul;
   Kernel tailMulLow;
 
-  Kernel fftMiddleIn;
-  Kernel fftMiddleOut;
+  Kernel fftMidIn;
+  Kernel fftMidOut;
 
-  Kernel transposeIn, transposeOut;
+  Kernel transpIn, transpOut;
 
   Kernel readResidue;
   Kernel kernIsEqual;
@@ -174,7 +173,7 @@ class Gpu {
   void writeState(vector<u32>&& check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry, struct Weights&& weights);
+      cl_device_id device, bool useLongCarry, struct Weights&& weights);
 
   void printRoundoff(u32 E);
 
@@ -196,14 +195,14 @@ class Gpu {
 public:
   const Args& args;
 
-  void carryA(Buffer<int>& a, Buffer<double>& b)     { kernCarryA(updatePos(1<<2), a, b); }
-  void carryA(Buffer<double>& a, Buffer<double>& b)  { kernCarryA(updatePos(1<<2), a, b); }
-  void carryM(Buffer<int>& a, Buffer<double>& b)  { kernCarryM(updatePos(1<<3), a, b); }
-  void carryLL(Buffer<int>& a, Buffer<double>& b) { kernCarryLL(updatePos(1<<2), a, b); }
+  void carryA(Buffer<int>& a, Buffer<double>& b)     { kCarryA(updatePos(1<<2), a, b); }
+  void carryA(Buffer<double>& a, Buffer<double>& b)  { kCarryA(updatePos(1<<2), a, b); }
+  void carryM(Buffer<int>& a, Buffer<double>& b)  { kCarryM(updatePos(1<<3), a, b); }
+  void carryLL(Buffer<int>& a, Buffer<double>& b) { kCarryLL(updatePos(1<<2), a, b); }
 
-  void carryFused(Buffer<double>& a, Buffer<double>& b) { kernCarryFused(updatePos(1<<0), a, b); }
-  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedMul(updatePos(1<<1), a, b);}
-  void carryFusedLL(Buffer<double>& a, Buffer<double>& b) { kernCarryFusedLL(updatePos(1<<0), a, b);}
+  void carryFused(Buffer<double>& a, Buffer<double>& b) { kCarryFused(updatePos(1<<0), a, b); }
+  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kCarryFusedMul(updatePos(1<<1), a, b);}
+  void carryFusedLL(Buffer<double>& a, Buffer<double>& b) { kCarryFusedLL(updatePos(1<<0), a, b);}
 
   void mul(Buffer<int>& io, Buffer<double>& inB);
   void square(Buffer<int>& data);
@@ -215,7 +214,7 @@ public:
   static bool equals9(const Words& words);
   
   Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      cl_device_id device, bool timeKernels, bool useLongCarry);
+      cl_device_id device, bool useLongCarry);
 
   vector<u32> readAndCompress(Buffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);

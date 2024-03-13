@@ -41,16 +41,11 @@ public:
   
   int device = 0;
   
-  bool timeKernels = false;
   bool cudaYield = false;
   bool safeMath = true;
   bool clean = true;
   bool verbose = false;
   bool useCache = false;
-
-  // Normally we enable CL queue profile only when timing kernels.
-  // Use forceProfile to enable queue profiling regardless of kernel timing.
-  bool forceProfile = false;
 
   u32 proofVerify = 10;
 
