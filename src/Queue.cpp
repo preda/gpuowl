@@ -15,19 +15,18 @@ void Queue::synced() {
   }
 
   events.clear();
-  pendingWrite.clear();
+  // pendingWrite.clear();
   flushPos.reset();
 }
 
-Queue::Queue(const Args& args, cl_queue q, bool profile, bool cudaYield) :
+Queue::Queue(const Args& args, cl_queue q, bool cudaYield) :
   QueueHolder{q},
-  profile{profile},
   cudaYield{cudaYield},
   flushPos{args}
 {}
 
-QueuePtr Queue::make(const Args& args, const Context& context, bool profile, bool cudaYield) {
-  return make_shared<Queue>(args, makeQueue(context.deviceId(), context.get(), profile), profile, cudaYield);
+QueuePtr Queue::make(const Args& args, const Context& context, bool cudaYield) {
+  return make_shared<Queue>(args, makeQueue(context.deviceId(), context.get()), cudaYield);
 }
 
 vector<cl_event> Queue::inOrder() const {
@@ -43,11 +42,13 @@ void Queue::readAsync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
   events.emplace_back(Event{read(get(), inOrder(), false, buf, size, out)}, tInfo);
 }
 
-void Queue::writeAsync(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo) {
+#if 0
+void Queue::write(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo) {
   pendingWrite.push_back(std::move(vect));
   auto& v = pendingWrite.back();
   events.emplace_back(Event{::write(get(), inOrder(), false, buf, v.size() * sizeof(i32), v.data())}, tInfo);
 }
+#endif
 
 void Queue::copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo) {
   events.emplace_back(Event{::copyBuf(get(), inOrder(), src, dst, size)}, tInfo);

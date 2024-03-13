@@ -100,7 +100,6 @@ named "config.txt" in the prpll run directory.
 -version           : print only the version and exit
 -user <name>       : specify the mersenne.org user name (for result reporting)
 -cpu  <name>       : specify a name of the GPU for result reporting to mersenne.org
--time              : display kernel profiling information.
 -fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
 -block <value>     : PRP error-check block size. Must divide 10'000.
 -log <step>        : log every <step> iterations. Multiple of 10'000.
@@ -215,8 +214,6 @@ void Args::parse(const string& line) {
       flush = stoi(s);
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
-    } else if (key == "-profile") {
-      forceProfile = true;
     } else if (key == "-cache") {
       useCache = true;
     } else if (key == "-noclean") {
@@ -269,7 +266,6 @@ void Args::parse(const string& line) {
     else if (key == "-dump") { dump = s; }
     else if (key == "-user") { user = s; }
     else if (key == "-cpu") { cpu = s; }
-    else if (key == "-time") { timeKernels = true; }
     else if (key == "-device" || key == "-d") { device = stoi(s); }
     else if (key == "-uid") { device = getPosFromUid(s); }
     else if (key == "-pci") { device = getPosFromBdf(s); }

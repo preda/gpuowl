@@ -44,7 +44,7 @@ private:
   }
 
 public:
-  Buffer(TimeInfo* tInfo, QueuePtr queue, std::string_view name, const std::vector<T>& vect)
+  Buffer(TimeInfo* tInfo, QueuePtr queue, std::string_view name, std::vector<T>&& vect)
     : Buffer(tInfo, queue, name,
              vect.size(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, vect.data())
   {}
@@ -79,15 +79,7 @@ public:
     queue->readAsync(get(), readSize * sizeof(T), out.data(), tInfo);
   }
 
-  void write(vector<i32>&& vect) { queue->writeAsync(get(), std::move(vect), tInfo); }
-
-#if 0
-  void write(const vector<T>& vect) {
-    assert(size >= vect.size());
-    queue->write(get(), vect.size() * sizeof(T), vect.data());
-  }
-#endif
-
+  void write(vector<i32>&& vect) { queue->write(get(), std::move(vect), tInfo); }
 
   void zero(size_t len = 0) {
     fill(0, len);

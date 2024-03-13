@@ -307,8 +307,8 @@ string clArgs(const Args& args) {
 }
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool timeKernels, bool useLongCarry)
-  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, timeKernels, useLongCarry, genWeights(E, W, BIG_H, nW)}
+         cl_device_id device, bool useLongCarry)
+  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, useLongCarry, genWeights(E, W, BIG_H, nW)}
 {}
 
 using float2 = pair<float, float>;
@@ -316,7 +316,7 @@ using float2 = pair<float, float>;
 #define ROE_SIZE 111000
 
 Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool timeKernels, bool useLongCarry, Weights&& weights) :
+         cl_device_id device, bool useLongCarry, Weights&& weights) :
   E(E),
   N(W * BIG_H * 2),
   hN(N / 2),
@@ -325,21 +325,20 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufSize(N * sizeof(double)),
   WIDTH(W),
   useLongCarry(useLongCarry),
-  timeKernels(timeKernels),
   device(device),
   context{device},
-  queue(Queue::make(args, context, timeKernels || args.forceProfile, args.cudaYield)),
+  queue(Queue::make(args, context, args.cudaYield)),
   
 #define K(name, ...) name(#name, profile.make(#name), queue, __VA_ARGS__)
 
   //  W / nW
-  K(kernCarryFused,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW),
-  K(kernCarryFusedMul, "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DMUL3=1"),
-  K(kernCarryFusedLL,  "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DLL=1"),
+  K(kCarryFused,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW),
+  K(kCarryFusedMul, "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DMUL3=1"),
+  K(kCarryFusedLL,  "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DLL=1"),
 
-  K(kernCarryA,  "carry.cl", "carry", hN / CARRY_LEN),
-  K(kernCarryM,  "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1"),
-  K(kernCarryLL, "carry.cl", "carry", hN / CARRY_LEN, "-DLL=1"),
+  K(kCarryA,  "carry.cl", "carry", hN / CARRY_LEN),
+  K(kCarryM,  "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1"),
+  K(kCarryLL, "carry.cl", "carry", hN / CARRY_LEN, "-DLL=1"),
   K(carryB, "carryb.cl", "carryB",   hN / CARRY_LEN),
 
   K(fftP, "fftp.cl", "fftP", hN / nW),
@@ -355,12 +354,12 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   K(tailMulLow,    "tailmul.cl", "tailMul",       hN / nH / 2, "-DMUL_LOW=1"),
   
   // 256
-  K(fftMiddleIn,  "fftmiddlein.cl",  "fftMiddleIn",  hN / (BIG_H / SMALL_H)),
-  K(fftMiddleOut, "fftmiddleout.cl", "fftMiddleOut", hN / (BIG_H / SMALL_H)),
+  K(fftMidIn,  "fftmiddlein.cl",  "fftMiddleIn",  hN / (BIG_H / SMALL_H)),
+  K(fftMidOut, "fftmiddleout.cl", "fftMiddleOut", hN / (BIG_H / SMALL_H)),
   
   // 64
-  K(transposeIn,  "transpose.cl", "transposeIn",  hN / 64),
-  K(transposeOut, "transpose.cl", "transposeOut", hN / 64),
+  K(transpIn,  "transpose.cl", "transposeIn",  hN / 64),
+  K(transpOut, "transpose.cl", "transposeOut", hN / 64),
   
   K(readResidue, "etc.cl", "readResidue", 64, "-DREADRESIDUE=1"),
 
@@ -378,14 +377,13 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   BUF(bufTrigBHW, makeTinyTrig(W, hN, makeTrig<double>(BIG_H))),
   BUF(bufTrig2SH, makeTrig<double>(2 * SMALL_H)),
-  BUF(bufWeights, weights.weightsIF),
+  BUF(bufWeights, std::move(weights.weightsIF)),
   
-  BUF(bufBits,  weights.bitsCF),
-  BUF(bufBitsC, weights.bitsC),
+  BUF(bufBits,  std::move(weights.bitsCF)),
+  BUF(bufBitsC, std::move(weights.bitsC)),
 
   BUF(bufData, N),
   BUF(bufAux, N),
-
 
   BUF(bufCheck, N),
   BUF(bufBase, N),
@@ -414,10 +412,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   {
     KernelCompiler compiler{args, context.get(), device, commonArgs};
     Timer compileTimer;
-    for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL,
+    for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL,
          &fftP, &fftW, &fftHin, &fftHout,
-         &fftMiddleIn, &fftMiddleOut, &kernCarryA, &kernCarryM, &kernCarryLL, &carryB,
-         &transposeIn, &transposeOut,
+         &fftMidIn, &fftMidOut, &kCarryA, &kCarryM, &kCarryLL, &carryB,
+         &transpIn, &transpOut,
          &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
          &readResidue, &kernIsEqual, &sum64}) {
       k->load(compiler, device);
@@ -425,7 +423,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
     log("OpenCL compilation: %.2fs\n", compileTimer.at());
   }
   
-  for (Kernel* k : {&kernCarryFused, &kernCarryFusedMul, &kernCarryFusedLL}) {
+  for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL}) {
     k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufWeights);
   }
 
@@ -434,10 +432,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   fftHin.setFixedArgs(2, bufTrigH);
   fftHout.setFixedArgs(1, bufTrigH);
   
-  fftMiddleIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
-  fftMiddleOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
+  fftMidIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
+  fftMidOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
   
-  for (Kernel* k : {&kernCarryA, &kernCarryM, &kernCarryLL}) {
+  for (Kernel* k : {&kCarryA, &kCarryM, &kCarryLL}) {
     k->setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufWeights);
   }
 
@@ -541,10 +539,8 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
   if (useLongCarry) { log("Using long carry\n"); }
 
-  bool timeKernels = args.timeKernels;
-
   return make_unique<Gpu>(args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
-                          getDevice(args.device), timeKernels, useLongCarry);
+                          getDevice(args.device), useLongCarry);
 }
 
 template<typename T>
@@ -569,6 +565,7 @@ vector<u32> Gpu::readAndCompress(Buffer<int>& buf)  {
       continue; // have another try
     }
 
+    // A buffer containing all-zero is exceptional, so mark that through the empty vector.
     if (gpuSum == 0 && isAllZero(data)) {
       log("Read ZERO\n");
       return {};
@@ -585,9 +582,9 @@ vector<u32> Gpu::readData() { return readAndCompress(bufData); }
 // out := inA * inB;
 void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3) {
     fftP(tmp1, inA);
-    fftMiddleIn(tmp2, tmp1);
+    fftMidIn(tmp2, tmp1);
     tailMul(tmp1, inB, tmp2);
-    fftMiddleOut(tmp2, tmp1);
+    fftMidOut(tmp2, tmp1);
     fftW(tmp1, tmp2);
     if (mul3) { carryM(out, tmp1); } else { carryA(out, tmp1); }
     carryB(out);
@@ -597,7 +594,7 @@ void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<do
 void Gpu::modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
 
   fftP(buf1, inB);
-  fftMiddleIn(buf3, buf1);
+  fftMidIn(buf3, buf1);
   
   mul(out, inA, buf3, buf1, buf2, mul3);
 };
@@ -642,30 +639,34 @@ bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buf
 }
 
 void Gpu::logTimeKernels() {
-  if (timeKernels) {
-    auto prof = profile.get();
-    u64 total = 0;
-    for (const TimeInfo* p : prof) { total += p->times[2]; }
+  auto prof = profile.get();
+  u64 total = 0;
+  for (const TimeInfo* p : prof) { total += p->times[2]; }
   
-    for (const TimeInfo* p : prof) {
-      u32 n = p->n;
-      assert(n);
-      double f = 1e-3 / n;
-      double percent = 100.0 / total * p->times[2];
-      if (true || percent >= .01f) {
-        log("%5.2f%% %-14s : %6.0f us/call x %5d calls  (%6.0f %6.0f)\n",
-            percent, p->name.c_str(), p->times[2] * f, n,
-            p->times[0] * f, p->times[1] * f);
-      }
-    }
-    log("Total time %.3fs\n", total * 1e-9);
+  char buf[256];
+  // snprintf(buf, sizeof(buf), "Profile:\n ");
 
-    profile.reset();
+  string s = "Profile:\n";
+  for (const TimeInfo* p : prof) {
+    u32 n = p->n;
+    assert(n);
+    double f = 1e-3 / n;
+    double percent = 100.0 / total * p->times[2];
+    if (!args.verbose && percent < 0.2) { break; }
+    snprintf(buf, sizeof(buf),
+             args.verbose ? "%s %5.2f%% %-11s : %6.0f us/call x %5d calls  (%6.0f %6.0f)\n"
+                          : "%s %5.2f%% %-11s %4.0f x%6d  %4.0fu %4.0fu\n",
+             args.cpu.c_str(),
+             percent, p->name.c_str(), p->times[2] * f, n, p->times[0] * f, p->times[1] * f);
+    s += buf;
   }
+  log("%s", s.c_str());
+  // log("Total time %.3fs\n", total * 1e-9);
+  profile.reset();
 }
 
 vector<int> Gpu::readOut(Buffer<int> &buf) {
-  transposeOut(bufAux, buf);
+  transpOut(bufAux, buf);
   return bufAux.read();
 }
 
@@ -673,7 +674,7 @@ void Gpu::writeIn(Buffer<int>& buf, const vector<u32>& words) { writeIn(buf, exp
 
 void Gpu::writeIn(Buffer<int>& buf, vector<i32>&& words) {
   bufAux.write(std::move(words));
-  transposeIn(buf, bufAux);
+  transpIn(buf, bufAux);
 }
 
 namespace {
@@ -751,7 +752,7 @@ void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buf
     assert (exp > 1);
 
     fftP(buf2, bufInOut);
-    fftMiddleIn(buf3, buf2);
+    fftMidIn(buf3, buf2);
     fftHin(buf1, buf3);
     exponentiateCore(buf2, buf1, exp, buf3);
     fftW(buf3, buf2);
@@ -769,7 +770,7 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
   assert(exp >= 2);
 
   tailSquareLow(tmp, base);
-  fftMiddleOut(out, tmp);
+  fftMidOut(out, tmp);
   
   int p = 63;
   while (!testBit(exp, p)) { --p; }
@@ -777,17 +778,17 @@ void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 
   for (--p; ; --p) {
     if (testBit(exp, p)) {
       doCarry(tmp, out);
-      fftMiddleIn(out, tmp);
+      fftMidIn(out, tmp);
       tailMulLow(tmp, out, base);
-      fftMiddleOut(out, tmp);
+      fftMidOut(out, tmp);
     }
     
     if (!p) { break; }
 
     doCarry(tmp, out);
-    fftMiddleIn(out, tmp);
+    fftMidIn(out, tmp);
     tailSquare(tmp, out);
-    fftMiddleOut(out, tmp);
+    fftMidOut(out, tmp);
   }
 }
 
@@ -812,12 +813,12 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
 
   if (leadIn) {
     fftP(buf2, in);
-    fftMiddleIn(buf1, buf2);
+    fftMidIn(buf1, buf2);
   }
   
   tailSquare(buf2, buf1);
   
-  fftMiddleOut(buf1, buf2);
+  fftMidOut(buf1, buf2);
 
   if (leadOut) {
     fftW(buf2, buf1);
@@ -837,7 +838,7 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
     } else {
       carryFusedMul(buf2, buf1);
     }
-    fftMiddleIn(buf1, buf2);
+    fftMidIn(buf1, buf2);
   }
 
   // queue->flush();

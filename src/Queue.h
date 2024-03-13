@@ -64,10 +64,9 @@ class Queue : public QueueHolder {
 
   std::vector<std::pair<Event, TimeInfo*>> events;
 
-  bool profile{};
   bool cudaYield{};
   FlushPolicy flushPos;
-  vector<vector<i32>> pendingWrite;
+  // vector<vector<i32>> pendingWrite;
 
   static constexpr const u32 FLUSH_FACTOR = 4;
 
@@ -76,9 +75,9 @@ class Queue : public QueueHolder {
   vector<cl_event> inOrder() const;
 
 public:
-  static QueuePtr make(const Args& args, const Context& context, bool profile, bool cudaYield);
+  static QueuePtr make(const Args& args, const Context& context, bool cudaYield);
 
-  Queue(const Args& args, cl_queue q, bool profile, bool cudaYield);
+  Queue(const Args& args, cl_queue q, bool cudaYield);
 
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo);
 
@@ -86,12 +85,12 @@ public:
   void readAsync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo);
 
   template<typename T>
-  void writeSync(cl_mem buf, const vector<T>& v, TimeInfo* tInfo) {
+  void write(cl_mem buf, const vector<T>& v, TimeInfo* tInfo) {
     events.emplace_back(Event{::write(get(), inOrder(), true, buf, v.size() * sizeof(T), v.data())}, tInfo);
     synced();
   }
 
-  void writeAsync(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo);
+  // void write(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo);
 
   template<typename T>
   void fillBuf(cl_mem buf, T pattern, u32 size, TimeInfo* tInfo) {

@@ -85,7 +85,7 @@ template<>
 void setArg<int>(cl_kernel k, int pos, const int &value, const string& name);
 
 cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr = 0);
-cl_queue makeQueue(cl_device_id d, cl_context c, bool profile);
+cl_queue makeQueue(cl_device_id d, cl_context c);
 
 void flush( cl_queue q);
 void finish(cl_queue q);
