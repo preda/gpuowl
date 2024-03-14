@@ -369,7 +369,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 #undef K
 
 
-#define BUF(name, ...) name{profile.make(#name), queue, #name, __VA_ARGS__}
+#define BUF(name, ...) name{profile.make(#name), queue, __VA_ARGS__}
 
   BUF(bufTrigW, genSmallTrig(context, W, nW)),
   BUF(bufTrigH, genSmallTrig(context, SMALL_H, nH)),
@@ -454,7 +454,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
   vector<Buffer<i32>> r;
-  for (u32 i = 0; i < size; ++i) { r.emplace_back(timeBufVect, queue, "vector", N); }
+  for (u32 i = 0; i < size; ++i) { r.emplace_back(timeBufVect, queue, N); }
   return r;
 }
 
