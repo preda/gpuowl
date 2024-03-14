@@ -330,7 +330,7 @@ EventHolder copyBuf(cl_queue queue, vector<cl_event>&& waits,
 }
 
 EventHolder fillBuf(cl_queue q, vector<cl_event>&& waits,
-                    cl_mem buf, void *pat, size_t patSize, size_t size) {
+                    cl_mem buf, const void *pat, size_t patSize, size_t size) {
   assert(size);
   cl_event event{};
   CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, 0 /*start*/, size,
