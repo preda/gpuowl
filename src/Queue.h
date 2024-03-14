@@ -11,26 +11,33 @@
 #include <memory>
 #include <vector>
 #include <unistd.h>
-#include <array>
 
 class Args;
 
 template<typename T> class ConstBuffer;
 template<typename T> class Buffer;
 
-class Event : public EventHolder {
+struct TimeInfo;
+
+class Event {
+  mutable bool isFinalized{false};
+
 public:
-  // double secs() { return getEventNanos(this->get()) * 1e-9f; }
-  bool isComplete() { return getEventInfo(this->get()) == CL_COMPLETE; }
-  std::array<i64, 3> times() { return getEventNanos(get()); }
+  EventHolder event;
+  TimeInfo *tInfo;
+
+  Event(EventHolder&& e, TimeInfo *tInfo);
+  Event(Event&& oth) = default;
+  ~Event();
+
+  cl_event get() const { return event.get(); }
+  bool isDone() const;
 };
 
 using QueuePtr = std::shared_ptr<class Queue>;
 
-struct TimeInfo;
-
 class Queue : public QueueHolder {
-  std::vector<std::pair<Event, TimeInfo*>> events;
+  std::vector<Event> events;
 
   bool cudaYield{};
   // vector<vector<i32>> pendingWrite;
@@ -38,6 +45,15 @@ class Queue : public QueueHolder {
   void synced();
 
   vector<cl_event> inOrder() const;
+
+  void writeTE(cl_mem buf, u64 size, const void* data, TimeInfo *tInfo) {
+    events.emplace_back(::write(get(), inOrder(), true, buf, size, data), tInfo);
+    synced();
+  }
+
+  void fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo) {
+    events.emplace_back(::fillBuf(get(), inOrder(), buf, pattern, patSize, size), tInfo);
+  }
 
 public:
   static QueuePtr make(const Args& args, const Context& context, bool cudaYield);
@@ -51,15 +67,15 @@ public:
 
   template<typename T>
   void write(cl_mem buf, const vector<T>& v, TimeInfo* tInfo) {
-    events.emplace_back(Event{::write(get(), inOrder(), true, buf, v.size() * sizeof(T), v.data())}, tInfo);
-    synced();
+    writeTE(buf, v.size() * sizeof(T), v.data(), tInfo);
   }
 
   // void write(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo);
 
   template<typename T>
   void fillBuf(cl_mem buf, T pattern, u32 size, TimeInfo* tInfo) {
-    events.emplace_back(Event{::fillBuf(get(), inOrder(), buf, &pattern, sizeof(T), size)}, tInfo);
+    fillBufTE(buf, sizeof(T), &pattern, size, tInfo);
+    // events.emplace_back(::fillBuf(get(), inOrder(), buf, &pattern, sizeof(T), size), tInfo);
   }
 
   void copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo);

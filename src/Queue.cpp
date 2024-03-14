@@ -8,11 +8,6 @@
 void Queue::synced() {
   // log("synced %u %u\n", u32(events.size()), u32(pendingWrite.size()));
 
-  for (auto& [event, tinfo] : events) {
-    assert(event.isComplete());
-    tinfo->add(event.times());
-  }
-
   events.clear();
   // pendingWrite.clear();
 }
@@ -27,16 +22,16 @@ QueuePtr Queue::make(const Args& args, const Context& context, bool cudaYield) {
 }
 
 vector<cl_event> Queue::inOrder() const {
-  return events.empty() ? vector<cl_event>{} : vector<cl_event>{events.back().first.get()};
+  return events.empty() ? vector<cl_event>{} : vector<cl_event>{events.back().get()};
 }
 
 void Queue::readSync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
-  events.emplace_back(Event{read(get(), inOrder(), true, buf, size, out)}, tInfo);
+  events.emplace_back(read(get(), inOrder(), true, buf, size, out), tInfo);
   synced();
 }
 
 void Queue::readAsync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
-  events.emplace_back(Event{read(get(), inOrder(), false, buf, size, out)}, tInfo);
+  events.emplace_back(read(get(), inOrder(), false, buf, size, out), tInfo);
 }
 
 #if 0
@@ -48,14 +43,14 @@ void Queue::write(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo) {
 #endif
 
 void Queue::copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo) {
-  events.emplace_back(Event{::copyBuf(get(), inOrder(), src, dst, size)}, tInfo);
+  events.emplace_back(::copyBuf(get(), inOrder(), src, dst, size), tInfo);
 }
 
 void Queue::run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo) {
-  events.emplace_back(Event{::run(get(), kernel, groupSize, workSize, inOrder(), tInfo->name)}, tInfo);
+  events.emplace_back(::run(get(), kernel, groupSize, workSize, inOrder(), tInfo->name), tInfo);
 }
 
-bool Queue::allEventsCompleted() { return events.empty() || events.back().first.isComplete(); }
+bool Queue::allEventsCompleted() { return events.empty() || events.back().isDone(); }
 
 void Queue::flush() { ::flush(get()); }
 
@@ -73,4 +68,28 @@ void Queue::finish() {
 
   ::finish(get());
   synced();
+}
+
+Event::Event(EventHolder&& e, TimeInfo* tInfo) :
+  event{std::move(e)},
+  tInfo{tInfo}
+{
+  assert(tInfo);
+}
+
+Event::~Event() {
+  if (event) {
+    [[maybe_unused]] bool finalized = isDone();
+    assert(finalized);
+  }
+}
+
+bool Event::isDone() const {
+  if (!isFinalized) {
+    if (getEventInfo(event.get()) == CL_COMPLETE) {
+      tInfo->add(getEventNanos(get()));
+      isFinalized = true;
+    }
+  }
+  return isFinalized;
 }
