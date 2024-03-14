@@ -7,37 +7,22 @@
 #include "Context.h"
 #include "log.h"
 #include "Args.h"
+#include "Event.h"
 
+#include <deque>
 #include <memory>
 #include <vector>
 #include <unistd.h>
 
 class Args;
+class TimeInfo;
 
-template<typename T> class ConstBuffer;
 template<typename T> class Buffer;
-
-struct TimeInfo;
-
-class Event {
-  mutable bool isFinalized{false};
-
-public:
-  EventHolder event;
-  TimeInfo *tInfo;
-
-  Event(EventHolder&& e, TimeInfo *tInfo);
-  Event(Event&& oth) = default;
-  ~Event();
-
-  cl_event get() const { return event.get(); }
-  bool isDone() const;
-};
 
 using QueuePtr = std::shared_ptr<class Queue>;
 
 class Queue : public QueueHolder {
-  std::vector<Event> events;
+  std::deque<Event> events;
 
   bool cudaYield{};
   // vector<vector<i32>> pendingWrite;
