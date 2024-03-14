@@ -12,6 +12,7 @@ add_executable(gpuowl bundle.cpp ProofCache.cpp Proof.cpp
   Queue.cpp
   TimeInfo.cpp
   Profile.cpp
+  Event.cpp
   )
 
 target_link_libraries(gpuowl OpenCL)
