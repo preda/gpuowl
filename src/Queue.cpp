@@ -1,7 +1,6 @@
 // Copyright (C) Mihai Preda
 
 #include "Queue.h"
-// #include "Kernel.h"
 #include "Args.h"
 #include "TimeInfo.h"
 #include <cassert>
@@ -16,13 +15,11 @@ void Queue::synced() {
 
   events.clear();
   // pendingWrite.clear();
-  flushPos.reset();
 }
 
 Queue::Queue(const Args& args, cl_queue q, bool cudaYield) :
   QueueHolder{q},
-  cudaYield{cudaYield},
-  flushPos{args}
+  cudaYield{cudaYield}
 {}
 
 QueuePtr Queue::make(const Args& args, const Context& context, bool cudaYield) {
@@ -56,7 +53,6 @@ void Queue::copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo) {
 
 void Queue::run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo) {
   events.emplace_back(Event{::run(get(), kernel, groupSize, workSize, inOrder(), tInfo->name)}, tInfo);
-  if (flushPos.inc()) { flush(); }
 }
 
 bool Queue::allEventsCompleted() { return events.empty() || events.back().first.isComplete(); }

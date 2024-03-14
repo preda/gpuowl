@@ -25,50 +25,15 @@ public:
   std::array<i64, 3> times() { return getEventNanos(get()); }
 };
 
-class FlushPolicy {
-private:
-  const u32 step;
-  u32 pos;
-  u32 posFlush;
-
-public:
-  FlushPolicy(const Args& args) :
-    step{args.flush}
-  {
-    reset();
-  }
-
-  void reset() {
-    pos = 0;
-    posFlush = step;
-  }
-
-  u32 get() const { return pos; }
-
-  // return true if should flush now
-  bool inc() {
-    ++pos;
-    if (!step || pos != posFlush) { return false; }
-    // posNextFlush += step;
-    return true;
-  }
-};
-
 using QueuePtr = std::shared_ptr<class Queue>;
 
 struct TimeInfo;
 
 class Queue : public QueueHolder {
-  // using TimeMap = std::map<std::string, TimeInfo>;
-  // TimeMap timeMap;
-
   std::vector<std::pair<Event, TimeInfo*>> events;
 
   bool cudaYield{};
-  FlushPolicy flushPos;
   // vector<vector<i32>> pendingWrite;
-
-  static constexpr const u32 FLUSH_FACTOR = 4;
 
   void synced();
 
