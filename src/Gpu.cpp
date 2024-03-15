@@ -449,7 +449,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufReady.zero();
   bufROE.zero();
   bufTrue.write({1});
-  finish();
+  queue->finish();
 }
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
@@ -655,9 +655,9 @@ void Gpu::logTimeKernels() {
     if (!args.verbose && percent < 0.2) { break; }
     snprintf(buf, sizeof(buf),
              args.verbose ? "%s %5.2f%% %-11s : %6.0f us/call x %5d calls  (%6.0f %6.0f)\n"
-                          : "%s %5.2f%% %-11s %4.0f x%6d  %4.0fu %4.0fu\n",
+                          : "%s %5.2f%% %-11s %4.0f x%6d  %.1f %.1f\n",
              args.cpu.c_str(),
-             percent, p->name.c_str(), p->times[2] * f, n, p->times[0] * f, p->times[1] * f);
+             percent, p->name.c_str(), p->times[2] * f, n, p->times[0] * (f * 1e-3), p->times[1] * (f * 1e-3));
     s += buf;
   }
   log("%s", s.c_str());
@@ -840,12 +840,6 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
     }
     fftMidIn(buf1, buf2);
   }
-
-  // queue->flush();
-  // The flush() below is not needed. It appears to help a bit the performance.
-#if 0
-  if (leadIn || leadOut) { queue->flush(); }
-#endif
 }
 
 u32 Gpu::squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3) {
@@ -1152,7 +1146,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     if (!leadOut) {
-      if (k % blockSize == 0) { finish(); }
+      // if (k % blockSize == 0) { queue->finish(); }
       continue;
     }
 
@@ -1275,7 +1269,7 @@ LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
     squareLL(bufData, leadIn, leadOut);
 
     if (!doLog) {
-      if (k % 500 == 499) { finish(); } // Periodically flush the queue
+      // if (k % 500 == 499) { finish(); } // Periodically flush the queue
       continue;
     }
 

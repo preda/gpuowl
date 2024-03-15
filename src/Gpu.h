@@ -207,8 +207,6 @@ public:
   void mul(Buffer<int>& io, Buffer<double>& inB);
   void square(Buffer<int>& data);
 
-  void finish() { queue->finish(); }
-  
   static unique_ptr<Gpu> make(u32 E, const Args &args);
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);

@@ -338,6 +338,12 @@ EventHolder fillBuf(cl_queue q, vector<cl_event>&& waits,
   return EventHolder{event};
 }
 
+void waitForEvents(vector<cl_event>&& waits) {
+  if (!waits.empty()) {
+    CHECK1(clWaitForEvents(waits.size(), waits.data()));
+  }
+}
+
 int getKernelNumArgs(cl_kernel k) {
   int nArgs = 0;
   CHECK1(clGetKernelInfo(k, CL_KERNEL_NUM_ARGS, sizeof(nArgs), &nArgs, NULL));

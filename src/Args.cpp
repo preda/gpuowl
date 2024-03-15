@@ -119,7 +119,6 @@ named "config.txt" in the prpll run directory.
 -yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
 -cache             : use binary kernel cache (for developers)
 -profile           : enable queue profiling even when not timing kernels
--flush <N>         : do a CL queue flush every N kernel invocations (e.g. 10). Default 0 meaning never flush.
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
   -use FAST_BARRIER: on AMD Radeon VII and older AMD GPUs, use a faster barrier(). Do not use
@@ -206,12 +205,6 @@ void Args::parse(const string& line) {
     } else if (key == "-version") {
       // log("PRPLL %s\n", VERSION);
       throw "version";
-    } else if (key == "-flush") {
-      if (s.empty()) {
-        log("-flush expects <N>\n");
-        throw "-flush <N>";
-      }
-      flush = stoi(s);
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-cache") {
