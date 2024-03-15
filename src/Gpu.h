@@ -106,13 +106,16 @@ class Gpu {
 
   // Kernel testKernel;
 
-  // Trigonometry constant buffers, used in FFTs.
+  // Twiddles: trigonometry constant buffers, used in FFTs.
+  // The twiddles depend only on FFT config and do not depend on the exponent.
   Buffer<double2> bufTrigW;
   Buffer<double2> bufTrigH;
   Buffer<double2> bufTrigM;
   
   Buffer<double2> bufTrigBHW;
   Buffer<double2> bufTrig2SH;
+
+  // The weights and the "bigWord bits" depend on the exponent.
   Buffer<double> bufWeights;
 
   Buffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
@@ -144,10 +147,10 @@ class Gpu {
   Buffer<double> buf1;
   Buffer<double> buf2;
   Buffer<double> buf3;
+
   unsigned statsBits;
   TimeInfo* timeBufVect;
 
-  
   vector<int> readSmall(Buffer<int>& buf, u32 start);
   
   vector<int> readOut(Buffer<int> &buf);
@@ -195,14 +198,14 @@ class Gpu {
 public:
   const Args& args;
 
-  void carryA(Buffer<int>& a, Buffer<double>& b)     { kCarryA(updatePos(1<<2), a, b); }
-  void carryA(Buffer<double>& a, Buffer<double>& b)  { kCarryA(updatePos(1<<2), a, b); }
-  void carryM(Buffer<int>& a, Buffer<double>& b)  { kCarryM(updatePos(1<<3), a, b); }
-  void carryLL(Buffer<int>& a, Buffer<double>& b) { kCarryLL(updatePos(1<<2), a, b); }
+  void carryA(Buffer<int>& a, Buffer<double>& b)    { kCarryA(updatePos(1<<2), a, b); }
+  void carryA(Buffer<double>& a, Buffer<double>& b) { kCarryA(updatePos(1<<2), a, b); }
+  void carryM(Buffer<int>& a, Buffer<double>& b)    { kCarryM(updatePos(1<<3), a, b); }
+  void carryLL(Buffer<int>& a, Buffer<double>& b)   { kCarryLL(updatePos(1<<2), a, b); }
 
-  void carryFused(Buffer<double>& a, Buffer<double>& b) { kCarryFused(updatePos(1<<0), a, b); }
+  void carryFused(Buffer<double>& a, Buffer<double>& b)    { kCarryFused(updatePos(1<<0), a, b); }
   void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kCarryFusedMul(updatePos(1<<1), a, b);}
-  void carryFusedLL(Buffer<double>& a, Buffer<double>& b) { kCarryFusedLL(updatePos(1<<0), a, b);}
+  void carryFusedLL(Buffer<double>& a, Buffer<double>& b)  { kCarryFusedLL(updatePos(1<<0), a, b);}
 
   void mul(Buffer<int>& io, Buffer<double>& inB);
   void square(Buffer<int>& data);
@@ -216,8 +219,6 @@ public:
 
   vector<u32> readAndCompress(Buffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
-  // void writeData(const vector<u32> &v) { writeIn(bufData, v); }
-  // void writeCheck(const vector<u32> &v) { writeIn(bufCheck, v); }
   
   u64 dataResidue()  { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }

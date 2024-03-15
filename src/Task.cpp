@@ -136,21 +136,6 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
   
   writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
 }
-/*
-void Task::writeResultPM1(const Args& args, const string& factor, u32 fftSize) const {
-  assert(B1);
-  bool hasFactor = !factor.empty();
-
-  u32 reportB2 = B2;
-
-  writeResult(exponent, "PM1", hasFactor ? "F" : "NF", AID, args,
-              {json("B1", B1),
-               (reportB2 > B1) ? json("B2", reportB2) : "",
-               json("fft-length", fftSize),
-               factor.empty() ? "" : (json("factors") + ':' + "[\""s + factor + "\"]")
-              });
-}
-*/
 
 void Task::execute(const Args& args) {
   Proof proof{};

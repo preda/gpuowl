@@ -368,19 +368,18 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
 #undef K
 
+  bufTrigW{context, genSmallTrig(context, W, nW)},
+  bufTrigH{context, genSmallTrig(context, SMALL_H, nH)},
+  bufTrigM{context, genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
+  
+  bufTrigBHW{context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H))},
+  bufTrig2SH{context, makeTrig<double>(2 * SMALL_H)},
+  bufWeights{context, std::move(weights.weightsIF)},
+  
+  bufBits{context, std::move(weights.bitsCF)},
+  bufBitsC{context, std::move(weights.bitsC)},
 
 #define BUF(name, ...) name{profile.make(#name), queue, __VA_ARGS__}
-
-  BUF(bufTrigW, genSmallTrig(context, W, nW)),
-  BUF(bufTrigH, genSmallTrig(context, SMALL_H, nH)),
-  BUF(bufTrigM, genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)),
-  
-  BUF(bufTrigBHW, makeTinyTrig(W, hN, makeTrig<double>(BIG_H))),
-  BUF(bufTrig2SH, makeTrig<double>(2 * SMALL_H)),
-  BUF(bufWeights, std::move(weights.weightsIF)),
-  
-  BUF(bufBits,  std::move(weights.bitsCF)),
-  BUF(bufBitsC, std::move(weights.bitsC)),
 
   BUF(bufData, N),
   BUF(bufAux, N),
