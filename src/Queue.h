@@ -25,20 +25,18 @@ class Queue : public QueueHolder {
   std::deque<Event> events;
 
   bool cudaYield{};
-  // vector<vector<i32>> pendingWrite;
-
   void synced();
+  void clearCompleted();
 
-  vector<cl_event> inOrder() const;
-
-  void writeTE(cl_mem buf, u64 size, const void* data, TimeInfo *tInfo) {
-    events.emplace_back(::write(get(), inOrder(), true, buf, size, data), tInfo);
-    synced();
+  u32 nActive() {
+    clearCompleted();
+    return events.size();
   }
 
-  void fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo) {
-    events.emplace_back(::fillBuf(get(), inOrder(), buf, pattern, patSize, size), tInfo);
-  }
+  vector<cl_event> inOrder();
+
+  void writeTE(cl_mem buf, u64 size, const void* data, TimeInfo *tInfo);
+  void fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo);
 
 public:
   static QueuePtr make(const Args& args, const Context& context, bool cudaYield);
@@ -55,25 +53,14 @@ public:
     writeTE(buf, v.size() * sizeof(T), v.data(), tInfo);
   }
 
-  // void write(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo);
-
   template<typename T>
   void fillBuf(cl_mem buf, T pattern, u32 size, TimeInfo* tInfo) {
     fillBufTE(buf, sizeof(T), &pattern, size, tInfo);
-    // events.emplace_back(::fillBuf(get(), inOrder(), buf, &pattern, sizeof(T), size), tInfo);
   }
 
   void copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo);
 
-  bool allEventsCompleted();
-
   void flush();
   
   void finish();
-
-  using Profile = std::vector<TimeInfo>;
-
-  Profile getProfile();
-
-  void clearProfile();
 };

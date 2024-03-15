@@ -14,12 +14,12 @@ Event::Event(EventHolder&& e, TimeInfo* tInfo) :
 
 Event::~Event() {
   if (event) {
-    [[maybe_unused]] bool finalized = isDone();
+    [[maybe_unused]] bool finalized = isCompleted();
     assert(finalized);
   }
 }
 
-bool Event::isDone() const {
+bool Event::isCompleted() const {
   if (!isFinalized) {
     if (getEventInfo(event.get()) == CL_COMPLETE) {
       tInfo->add(getEventNanos(get()));

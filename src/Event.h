@@ -18,5 +18,5 @@ public:
   ~Event();
 
   cl_event get() const { return event.get(); }
-  bool isDone() const;
+  bool isCompleted() const;
 };

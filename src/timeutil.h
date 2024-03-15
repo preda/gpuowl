@@ -6,12 +6,15 @@
 
 #include <chrono>
 #include <string>
+#include <thread>
 
 class Timer {
   using clock = std::chrono::steady_clock;
   clock::time_point start;
 
 public:
+  static void usleep(u32 us) { std::this_thread::sleep_for(std::chrono::microseconds(us)); }
+
   Timer() : start(clock::now()) {}
   
 
@@ -23,17 +26,6 @@ public:
     start = now;
     return ret;
   }
-
-  // void reset() { start = clock::now(); }
-
-  /*
-  u64 deltaNanos() {
-    auto now = clock::now();
-    u64 ret = std::chrono::duration<u64, std::nano>(now - start).count();
-    start = now;
-    return ret;
-  }
-  */
 };
 
 std::string timeStr();
