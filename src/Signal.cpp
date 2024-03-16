@@ -8,7 +8,7 @@ using namespace std;
 
 static volatile sig_atomic_t signalled = 0;
 
-static void (*oldHandler)(int) = 0;
+static void (* volatile oldHandler)(int) = 0;
 
 static void signalHandler(int signal) { signalled = signal; }
 

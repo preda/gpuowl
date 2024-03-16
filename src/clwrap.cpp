@@ -286,7 +286,7 @@ cl_queue makeQueue(cl_device_id d, cl_context c) {
   int err;
   cl_queue_properties props[4] = {0};
   props[0] = CL_QUEUE_PROPERTIES;
-  props[1] = CL_QUEUE_PROFILING_ENABLE | CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
+  props[1] = CL_QUEUE_PROFILING_ENABLE; /*| CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE*/;
   cl_queue q = clCreateCommandQueueWithProperties(c, d, props, &err);
   CHECK2(err, "clCreateCommandQueue");
   return q;
@@ -378,6 +378,7 @@ array<i64, 3> getEventNanos(cl_event event) {
   u64 prev{};
   array<i64, 3> ret{};
 
+  // return {0,0,0};
   constexpr const u32 what[] = {
     CL_PROFILING_COMMAND_QUEUED,
     CL_PROFILING_COMMAND_SUBMIT,
