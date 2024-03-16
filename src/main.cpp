@@ -17,6 +17,19 @@ extern string globalCpuName;
 
 namespace fs = std::filesystem;
 
+void threadWorker(Args& args, Context& context, i32 instance) {
+  log("Starting thread %d\n", instance);
+  try {
+    while (auto task = Worktodo::getTask(args, instance)) { task->execute(context, args); }
+  } catch (const char *mes) {
+    log("Exception \"%s\"\n", mes);
+  } catch (const string& mes) {
+    log("Exception \"%s\"\n", mes.c_str());
+  } catch (const std::exception& e) {
+    log("Exception %s: %s\n", typeName(e), e.what());
+  }
+}
+
 int main(int argc, char **argv) {
   initLog();
   log("PRPLL %s\n", VERSION);
@@ -56,18 +69,8 @@ int main(int argc, char **argv) {
     
     Context context(getDevice(args.device));
 
-    jthread thread0{[&args, &context](stop_token stopToken, i32 instance) {
-        try {
-          while (auto task = Worktodo::getTask(args, instance)) { task->execute(context, args); }
-        } catch (const char *mes) {
-          log("Exception \"%s\"\n", mes);
-        } catch (const string& mes) {
-          log("Exception \"%s\"\n", mes.c_str());
-        } catch (const std::exception& e) {
-          log("Exception %s: %s\n", typeName(e), e.what());
-        }
-      },
-                    0};
+    jthread thread0{threadWorker, ref(args), ref(context), 0};
+    jthread thread1{threadWorker, ref(args), ref(context), 1};
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const string& mes) {

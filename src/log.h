@@ -1,3 +1,5 @@
+// Copyright (C) Mihai Preda
+
 #pragma once
 
 #include <string>
