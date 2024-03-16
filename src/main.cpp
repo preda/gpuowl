@@ -52,15 +52,7 @@ int main(int argc, char **argv) {
         
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
-    if (args.prpExp) {
-      Worktodo::makePRP(args.prpExp).execute(args);
-    } else if (args.llExp) {
-      Worktodo::makeLL(args.llExp).execute(args);
-    } else if (!args.verifyPath.empty()) {
-      Worktodo::makeVerify(args, args.verifyPath).execute(args);
-    } else {
-      while (auto task = Worktodo::getTask(args)) { task->execute(args); }
-    }
+    while (auto task = Worktodo::getTask(args)) { task->execute(args); }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const string& mes) {

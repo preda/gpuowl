@@ -70,7 +70,6 @@ class Gpu {
   u32 WIDTH;
   bool useLongCarry;
 
-  cl_device_id device;
   Context context;
   QueuePtr queue;
   Profile profile{};
