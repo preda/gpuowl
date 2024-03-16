@@ -11,6 +11,7 @@
 #include <cassert>
 #include <string>
 #include <optional>
+#include <mutex>
 
 namespace {
 
@@ -82,19 +83,24 @@ std::optional<Task> firstGoodTask(const fs::path& fileName) {
   return nullopt;
 }
 
-optional<Task> getWork(Args& args) {
-  string worktodoTxt = "worktodo.txt";
+string workName(i32 instance) {
+  return instance ? ("work-" + to_string(instance) + ".txt") : "worktodo.txt"s;
+}
+
+optional<Task> getWork(Args& args, i32 instance) {
+  static mutex mut;
 
  again:
   // Try to get a task from the local worktodo.txt
-  if (optional<Task> task = firstGoodTask(worktodoTxt)) {
+  if (optional<Task> task = firstGoodTask(workName(instance))) {
     return task;
   }
 
   if (!args.masterDir.empty()) {
-    fs::path globalWorktodo = args.masterDir / worktodoTxt;
+    fs::path globalWorktodo = args.masterDir / "worktodo.txt";
+    lock_guard lock(mut);
     if (optional<Task> task = firstGoodTask(globalWorktodo)) {
-      File::append(worktodoTxt, task->line);
+      File::append(workName(instance), task->line);
       deleteLine(globalWorktodo, task->line);
       goto again;
     }
@@ -105,25 +111,27 @@ optional<Task> getWork(Args& args) {
 
 }
 
-std::optional<Task> Worktodo::getTask(Args &args) {
-  if (args.prpExp) {
-    u32 exp = args.prpExp;
-    args.prpExp = 0;
-    return Task{Task::PRP, exp};
-  } else if (args.llExp) {
-    u32 exp = args.llExp;
-    args.llExp = 0;
-    return Task{Task::LL, exp};
-  } else if (!args.verifyPath.empty()) {
-    auto path = args.verifyPath;
-    args.verifyPath.clear();
-    return Task{.kind=Task::VERIFY, .verifyPath=path};
+std::optional<Task> Worktodo::getTask(Args &args, i32 instance) {
+  if (instance == 0) {
+    if (args.prpExp) {
+      u32 exp = args.prpExp;
+      args.prpExp = 0;
+      return Task{Task::PRP, exp};
+    } else if (args.llExp) {
+      u32 exp = args.llExp;
+      args.llExp = 0;
+      return Task{Task::LL, exp};
+    } else if (!args.verifyPath.empty()) {
+      auto path = args.verifyPath;
+      args.verifyPath.clear();
+      return Task{.kind=Task::VERIFY, .verifyPath=path};
+    }
   }
-  return getWork(args);
+  return getWork(args, instance);
 }
 
-bool Worktodo::deleteTask(const Task &task) {
+bool Worktodo::deleteTask(const Task &task, i32 instance) {
   // Some tasks don't originate in worktodo.txt and thus don't need deleting.
   if (task.line.empty()) { return true; }
-  return deleteLine("worktodo.txt", task.line);
+  return deleteLine(workName(instance), task.line);
 }

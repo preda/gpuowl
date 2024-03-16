@@ -162,7 +162,7 @@ void Task::execute(const Args& args) {
   if (kind == PRP) {
     auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(args, *this);
     writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
-    Worktodo::deleteTask(*this);
+    Worktodo::deleteTask(*this, 0);
     if (!isPrime) { Saver<PRPState>{exponent}.clear(); }
   } else if (kind == LL){
     auto [isPrime, res64] = gpu->isPrimeLL(args, *this);

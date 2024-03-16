@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
         
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
-    while (auto task = Worktodo::getTask(args)) { task->execute(args); }
+    while (auto task = Worktodo::getTask(args, 0)) { task->execute(args); }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const string& mes) {
