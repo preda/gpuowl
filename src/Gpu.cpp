@@ -306,17 +306,16 @@ string clArgs(const Args& args) {
 
 }
 
-Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool useLongCarry)
-  : Gpu{args, E, W, BIG_H, SMALL_H, nW, nH, device, useLongCarry, genWeights(E, W, BIG_H, nW)}
+Gpu::Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, bool useLongCarry)
+  : Gpu{context, args, E, W, BIG_H, SMALL_H, nW, nH, useLongCarry, genWeights(E, W, BIG_H, nW)}
 {}
 
 using float2 = pair<float, float>;
 
 #define ROE_SIZE 111000
 
-Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         cl_device_id device, bool useLongCarry, Weights&& weights) :
+Gpu::Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
+         bool useLongCarry, Weights&& weights) :
   E(E),
   N(W * BIG_H * 2),
   hN(N / 2),
@@ -325,7 +324,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufSize(N * sizeof(double)),
   WIDTH(W),
   useLongCarry(useLongCarry),
-  context{device},
+  // context{device},
   queue(Queue::make(args, context, args.cudaYield)),
   
 #define K(name, ...) name(#name, profile.make(#name), queue, __VA_ARGS__)
@@ -405,10 +404,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   args{args}
 {
   log("Stats: %x\n", statsBits);
-  string commonArgs = clArgs(device, N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
+  string commonArgs = clArgs(context.deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
   {
-    KernelCompiler compiler{args, context.get(), device, commonArgs};
+    KernelCompiler compiler{args, context.get(), context.deviceId(), commonArgs};
     Timer compileTimer;
     for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL,
          &fftP, &fftW, &fftHin, &fftHout,
@@ -416,7 +415,7 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          &transpIn, &transpOut,
          &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
          &readResidue, &kernIsEqual, &sum64}) {
-      k->load(compiler, device);
+      k->load(compiler, context.deviceId());
     }
     log("OpenCL compilation: %.2fs\n", compileTimer.at());
   }
@@ -510,7 +509,7 @@ ROEInfo Gpu::readROE() {
   }
 }
 
-unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
+unique_ptr<Gpu> Gpu::make(Context& context, u32 E, const Args &args) {
   FFTConfig config = getFFTConfig(E, args.fftSpec);
   u32 WIDTH        = config.width;
   u32 SMALL_HEIGHT = config.height;
@@ -537,8 +536,7 @@ unique_ptr<Gpu> Gpu::make(u32 E, const Args &args) {
 
   if (useLongCarry) { log("Using long carry\n"); }
 
-  return make_unique<Gpu>(args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH,
-                          getDevice(args.device), useLongCarry);
+  return make_unique<Gpu>(context, args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH, useLongCarry);
 }
 
 template<typename T>

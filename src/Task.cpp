@@ -137,7 +137,7 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
   writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
 }
 
-void Task::execute(const Args& args) {
+void Task::execute(Context& context, const Args& args) {
   Proof proof{};
   if (kind == VERIFY) {
     proof = Proof::load(verifyPath);
@@ -147,7 +147,7 @@ void Task::execute(const Args& args) {
   LogContext pushContext(std::to_string(exponent));
   
   if (kind == VERIFY) {
-    auto gpu = Gpu::make(proof.E, args);
+    auto gpu = Gpu::make(context, proof.E, args);
     bool ok = proof.verify(gpu.get());
     log("proof '%s' %s\n", verifyPath.c_str(), ok ? "verified" : "failed");
     return;
@@ -156,7 +156,7 @@ void Task::execute(const Args& args) {
   assert(kind == PRP || kind == LL);
   assert(exponent);
 
-  auto gpu = Gpu::make(exponent, args);
+  auto gpu = Gpu::make(context, exponent, args);
   auto fftSize = gpu->getFFTSize();
 
   if (kind == PRP) {
