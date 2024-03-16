@@ -6,8 +6,6 @@
 #include "Args.h"
 #include "common.h"
 #include <string>
-#include <cstdio>
-#include <atomic>
 
 class Args;
 class Result;
@@ -22,7 +20,6 @@ struct Task {
   string line; // the verbatim worktodo line, used in deleteTask().
 
   string verifyPath; // For Verify
-    
   void execute(Context& context, const Args& args);
 
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;

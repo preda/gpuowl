@@ -11,6 +11,7 @@
 #include "Context.h"
 
 #include <filesystem>
+#include <thread>
 
 extern string globalCpuName;
 
@@ -53,11 +54,20 @@ int main(int argc, char **argv) {
         
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
-//     jthread()
-
     Context context(getDevice(args.device));
 
-    while (auto task = Worktodo::getTask(args, 0)) { task->execute(context, args); }
+    jthread thread0{[&args, &context](stop_token stopToken, i32 instance) {
+        try {
+          while (auto task = Worktodo::getTask(args, instance)) { task->execute(context, args); }
+        } catch (const char *mes) {
+          log("Exception \"%s\"\n", mes);
+        } catch (const string& mes) {
+          log("Exception \"%s\"\n", mes.c_str());
+        } catch (const std::exception& e) {
+          log("Exception %s: %s\n", typeName(e), e.what());
+        }
+      },
+                    0};
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const string& mes) {
@@ -72,8 +82,6 @@ int main(int argc, char **argv) {
   }
   */
 
-  // background.wait();
-  // if (factorFoundForExp) { Worktodo::deletePRP(factorFoundForExp); }
   log("Bye\n");
   return exitCode; // not used yet.
 }
