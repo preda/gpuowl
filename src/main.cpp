@@ -8,6 +8,7 @@
 #include "AllocTrac.h"
 #include "typeName.h"
 #include "log.h"
+#include "Context.h"
 
 #include <filesystem>
 
@@ -52,7 +53,11 @@ int main(int argc, char **argv) {
         
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
-    while (auto task = Worktodo::getTask(args, 0)) { task->execute(args); }
+//     jthread()
+
+    Context context(getDevice(args.device));
+
+    while (auto task = Worktodo::getTask(args, 0)) { task->execute(context, args); }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const string& mes) {

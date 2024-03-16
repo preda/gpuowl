@@ -11,6 +11,7 @@
 
 class Args;
 class Result;
+class Context;
 
 struct Task {
   enum Kind {PRP, VERIFY, LL};
@@ -22,7 +23,7 @@ struct Task {
 
   string verifyPath; // For Verify
     
-  void execute(const Args& args);
+  void execute(Context& context, const Args& args);
 
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;
   void writeResultLL();

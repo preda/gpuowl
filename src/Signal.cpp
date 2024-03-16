@@ -2,28 +2,30 @@
 
 #include "Signal.h"
 
-#include <signal.h>
+#include <csignal>
 
-static volatile unsigned stop = 0;
+using namespace std;
+
+static volatile sig_atomic_t signalled = 0;
+
 static void (*oldHandler)(int) = 0;
-static void myHandler(int dummy) { stop = 1; }
+
+static void signalHandler(int signal) { signalled = signal; }
 
 Signal::Signal() {
   if (!oldHandler) {
-    oldHandler = signal(SIGINT, myHandler);
+    oldHandler = signal(SIGINT, signalHandler);
     isOwner = true;
-    // assert(oldHandler);
   }
 }
 
 Signal::~Signal() { release(); }
 
-unsigned Signal::stopRequested() { return stop; }
+unsigned Signal::stopRequested() { return signalled; }
 
 void Signal::release() {
   if (isOwner) {
     isOwner = false;
-    // assert(oldHandler);
     signal(SIGINT, oldHandler);
     oldHandler = 0;
   }
