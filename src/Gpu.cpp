@@ -1142,7 +1142,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     if (!leadOut) {
-      // if (k % blockSize == 0) { queue->finish(); }
+      if (k % blockSize == 0) { queue->finish(); }
       continue;
     }
 

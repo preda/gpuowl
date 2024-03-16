@@ -5,7 +5,6 @@
 #include "common.h"
 #include "clwrap.h"
 #include "Context.h"
-#include "log.h"
 #include "Args.h"
 #include "Event.h"
 

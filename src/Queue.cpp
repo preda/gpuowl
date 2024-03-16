@@ -30,7 +30,7 @@ QueuePtr Queue::make(const Args& args, const Context& context, bool cudaYield) {
 vector<cl_event> Queue::inOrder() {
   [[maybe_unused]] u32 n1 = nActive();
 
-#if 1
+#if 0
   if (n1 >= 200) { ::waitForEvents({events.at(50).get()}); }
     // Timer t;
     // log("Were %u, slept %.2fms, remain %u\n", n1, t.at() * 1000, nActive());
