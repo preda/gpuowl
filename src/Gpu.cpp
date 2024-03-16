@@ -325,7 +325,6 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   bufSize(N * sizeof(double)),
   WIDTH(W),
   useLongCarry(useLongCarry),
-  device(device),
   context{device},
   queue(Queue::make(args, context, args.cudaYield)),
   
@@ -374,10 +373,10 @@ Gpu::Gpu(const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
   
   bufTrigBHW{context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H))},
   bufTrig2SH{context, makeTrig<double>(2 * SMALL_H)},
+
   bufWeights{context, std::move(weights.weightsIF)},
-  
-  bufBits{context, std::move(weights.bitsCF)},
-  bufBitsC{context, std::move(weights.bitsC)},
+  bufBits{context,    std::move(weights.bitsCF)},
+  bufBitsC{context,   std::move(weights.bitsC)},
 
 #define BUF(name, ...) name{profile.make(#name), queue, __VA_ARGS__}
 

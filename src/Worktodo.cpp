@@ -1,4 +1,4 @@
-// GpuOwL, a Mersenne primality tester. Copyright (C) Mihai Preda.
+// Copyright (C) Mihai Preda.
 
 #include "Worktodo.h"
 
@@ -17,17 +17,9 @@ namespace {
 std::optional<Task> parse(const std::string& line) {
   u32 exp = 0;
   int pos = 0;
-  u32 B1 = 0;
-  u32 B2 = 0;
 
   string tail = line;
   
-  if (sscanf(tail.c_str(), "B1=%u,B2=%u;%n", &B1, &B2, &pos) == 2
-      || sscanf(tail.c_str(), "B1=%u;%n", &B1, &pos) == 1
-      || sscanf(tail.c_str(), "B2=%u;%n", &B2, &pos) == 1) {
-    tail = tail.substr(pos);
-  }
-
   char kindStr[32] = {0};
   if(sscanf(tail.c_str(), "%11[a-zA-Z]=%n", kindStr, &pos) == 1) {
     string kind = kindStr;
@@ -90,17 +82,15 @@ std::optional<Task> firstGoodTask(const fs::path& fileName) {
   return nullopt;
 }
 
-}
-
-std::optional<Task> Worktodo::getTask(Args &args) {
+optional<Task> getWork(Args& args) {
   string worktodoTxt = "worktodo.txt";
-  
+
  again:
   // Try to get a task from the local worktodo.txt
-  if (optional<Task> task = firstGoodTask(worktodoTxt)) {    
+  if (optional<Task> task = firstGoodTask(worktodoTxt)) {
     return task;
   }
-  
+
   if (!args.masterDir.empty()) {
     fs::path globalWorktodo = args.masterDir / worktodoTxt;
     if (optional<Task> task = firstGoodTask(globalWorktodo)) {
@@ -109,8 +99,27 @@ std::optional<Task> Worktodo::getTask(Args &args) {
       goto again;
     }
   }
-  
+
   return std::nullopt;
+}
+
+}
+
+std::optional<Task> Worktodo::getTask(Args &args) {
+  if (args.prpExp) {
+    u32 exp = args.prpExp;
+    args.prpExp = 0;
+    return Task{Task::PRP, exp};
+  } else if (args.llExp) {
+    u32 exp = args.llExp;
+    args.llExp = 0;
+    return Task{Task::LL, exp};
+  } else if (!args.verifyPath.empty()) {
+    auto path = args.verifyPath;
+    args.verifyPath.clear();
+    return Task{.kind=Task::VERIFY, .verifyPath=path};
+  }
+  return getWork(args);
 }
 
 bool Worktodo::deleteTask(const Task &task) {
