@@ -12,5 +12,4 @@ class Worktodo {
 public:
   static std::optional<Task> getTask(Args &args, i32 instance);
   static bool deleteTask(const Task &task, i32 instance);
-  static void loop(Args& args, i32 instance);
 };

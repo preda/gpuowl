@@ -1,3 +1,5 @@
+// Copyright (C) Mihai Preda
+
 #include "log.h"
 #include "File.h"
 #include "timeutil.h"
@@ -7,7 +9,8 @@
 
 vector<File> logFiles;
 string globalCpuName;
-string context;
+
+thread_local string context;
 
 void initLog() { logFiles.emplace_back(stdout, "stdout"); }
 
