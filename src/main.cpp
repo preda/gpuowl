@@ -12,6 +12,8 @@
 #include "Context.h"
 
 #include <filesystem>
+#include <future>
+#include <thread>
 
 extern string globalCpuName;
 
@@ -69,6 +71,7 @@ int main(int argc, char **argv) {
     
     Context context(getDevice(args.device));
     Queue queue{args, context};
+    jthread t2{gpuWorker, ref(args), &queue, 1};
     gpuWorker(args, &queue, 0);
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);

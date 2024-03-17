@@ -35,37 +35,44 @@ vector<cl_event> Queue::inOrder() {
 }
 
 void Queue::writeTE(cl_mem buf, u64 size, const void* data, TimeInfo* tInfo) {
+  LOCK(mut);
   events.emplace_back(::write(get(), inOrder(), true, buf, size, data), tInfo);
   synced();
 }
 
 void Queue::fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo) {
+  LOCK(mut);
   events.emplace_back(::fillBuf(get(), inOrder(), buf, pattern, patSize, size), tInfo);
 }
 
 void Queue::readSync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
+  LOCK(mut);
   events.emplace_back(read(get(), inOrder(), true, buf, size, out), tInfo);
   synced();
 }
 
 void Queue::readAsync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
+  LOCK(mut);
   events.emplace_back(read(get(), inOrder(), false, buf, size, out), tInfo);
 }
 
 void Queue::copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo) {
+  LOCK(mut);
   events.emplace_back(::copyBuf(get(), inOrder(), src, dst, size), tInfo);
 }
 
 void Queue::run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo) {
+  LOCK(mut);
   events.emplace_back(::run(get(), kernel, groupSize, workSize, inOrder(), tInfo->name), tInfo);
 }
 
-void Queue::flush() { ::flush(get()); }
-
 void Queue::finish() {
+  LOCK(mut);
   ::finish(get());
   synced();
 }
+
+void Queue::flush() { ::flush(get()); }
 
 #if 0
 void Queue::write(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo) {
