@@ -70,8 +70,7 @@ class Gpu {
   u32 WIDTH;
   bool useLongCarry;
 
-  // Context context;
-  QueuePtr queue;
+  Queue* queue;
   Profile profile{};
   
   Kernel kCarryFused;
@@ -174,7 +173,7 @@ class Gpu {
   void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
   void writeState(vector<u32>&& check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   
-  Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
+  Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       bool useLongCarry, struct Weights&& weights);
 
   void printRoundoff(u32 E);
@@ -209,11 +208,11 @@ public:
   void mul(Buffer<int>& io, Buffer<double>& inB);
   void square(Buffer<int>& data);
 
-  static unique_ptr<Gpu> make(Context& context, u32 E, const Args &args);
+  static unique_ptr<Gpu> make(Queue* q, u32 E, const Args &args);
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);
   
-  Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
+  Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       bool useLongCarry);
 
   vector<u32> readAndCompress(Buffer<int>& buf);

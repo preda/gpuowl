@@ -5,7 +5,7 @@
 
 #include <stdexcept>
 
-Kernel::Kernel(string_view name, TimeInfo* timeInfo, QueuePtr queue,
+Kernel::Kernel(string_view name, TimeInfo* timeInfo, Queue* queue,
        string_view fileName, string_view nameInFile,
        size_t workSize, string_view defines):
   name{name},
@@ -19,11 +19,11 @@ Kernel::Kernel(string_view name, TimeInfo* timeInfo, QueuePtr queue,
 
 Kernel::~Kernel() = default;
 
-void Kernel::load(const KernelCompiler& compiler, cl_device_id deviceId) {
+void Kernel::load(const KernelCompiler& compiler) {
   assert(!kernel);
   kernel = compiler.load(fileName, nameInFile, defines);
   assert(kernel);
-  groupSize = getWorkGroupSize(kernel.get(), deviceId, name.c_str());
+  groupSize = getWorkGroupSize(kernel.get(), compiler.deviceId, name.c_str());
   assert(groupSize);
   assert(workSize % groupSize == 0);
 }
