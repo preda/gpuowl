@@ -41,7 +41,6 @@ public:
   
   int device = 0;
   
-  bool cudaYield = false;
   bool safeMath = true;
   bool clean = true;
   bool verbose = false;

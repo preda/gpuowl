@@ -325,7 +325,7 @@ Gpu::Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_
   WIDTH(W),
   useLongCarry(useLongCarry),
   // context{device},
-  queue(Queue::make(args, context, args.cudaYield)),
+  queue(Queue::make(args, context)),
   
 #define K(name, ...) name(#name, profile.make(#name), queue, __VA_ARGS__)
 

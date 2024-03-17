@@ -3,7 +3,6 @@
 #include "Queue.h"
 #include "Args.h"
 #include "TimeInfo.h"
-#include "timeutil.h"
 
 #include <cassert>
 
@@ -18,13 +17,12 @@ void Queue::clearCompleted() {
   while (!events.empty() && events.front().isCompleted()) { events.pop_front(); }
 }
 
-Queue::Queue(const Args& args, cl_queue q, bool cudaYield) :
-  QueueHolder{q},
-  cudaYield{cudaYield}
+Queue::Queue(const Args& args, cl_queue q) :
+  QueueHolder{q}
 {}
 
-QueuePtr Queue::make(const Args& args, const Context& context, bool cudaYield) {
-  return make_shared<Queue>(args, makeQueue(context.deviceId(), context.get()), cudaYield);
+QueuePtr Queue::make(const Args& args, const Context& context) {
+  return make_shared<Queue>(args, makeQueue(context.deviceId(), context.get()));
 }
 
 vector<cl_event> Queue::inOrder() {
@@ -68,11 +66,6 @@ void Queue::run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* t
 void Queue::flush() { ::flush(get()); }
 
 void Queue::finish() {
-  if (cudaYield) {
-    flush();
-    while (nActive()) { Timer::usleep(1000); }
-  }
-
   ::finish(get());
   synced();
 }
