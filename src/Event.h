@@ -4,7 +4,7 @@
 
 #include "clwrap.h"
 
-struct TimeInfo;
+class TimeInfo;
 
 class Event {
   mutable bool isFinalized{false};
