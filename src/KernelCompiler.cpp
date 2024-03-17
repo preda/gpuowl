@@ -1,4 +1,5 @@
 #include "KernelCompiler.h"
+#include "Context.h"
 #include "Sha3Hash.h"
 #include "log.h"
 #include "timeutil.h"
@@ -21,15 +22,15 @@ static_assert(sizeof(Program) == sizeof(cl_program));
 // * -fno-bin-llvmir
 // * various: -fno-bin-source -fno-bin-amdil
 
-KernelCompiler::KernelCompiler(const Args& args, cl_context context, cl_device_id deviceId, const string& clArgs) :
+KernelCompiler::KernelCompiler(const Args& args, const Context* context, const string& clArgs) :
   cacheDir{args.cacheDir.string()},
-  context{context},
-  deviceId{deviceId},
+  context{context->get()},
   linkArgs{"-cl-finite-math-only " },
   baseArgs{linkArgs + "-cl-std=CL2.0 " + clArgs},
   dump{args.dump},
   useCache{args.useCache},
-  verbose{args.verbose}
+  verbose{args.verbose},
+  deviceId{context->deviceId()}
 {
 
   string hw = getDriverVersion(deviceId) + ':' + getDeviceName(deviceId);
@@ -46,7 +47,7 @@ KernelCompiler::KernelCompiler(const Args& args, cl_context context, cl_device_i
   for (int i = 0; i < n; ++i) {
     auto &src = clFiles[i];
     files.push_back({clNames[i], src});
-    clSources.push_back(loadSource(context, src));
+    clSources.push_back(loadSource(context->get(), src));
 
     hasher.update(clNames[i]);
     hasher.update(src);

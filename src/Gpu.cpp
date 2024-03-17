@@ -83,7 +83,7 @@ double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   return p;
 }
 
-vector<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
+vector<double2> genSmallTrig(u32 size, u32 radix) {
   vector<double2> tab;
 
 #if 1
@@ -103,7 +103,7 @@ vector<double2> genSmallTrig(const Context& context, u32 size, u32 radix) {
   return tab;
 }
 
-vector<double2> genMiddleTrig(const Context& context, u32 smallH, u32 middle) {
+vector<double2> genMiddleTrig(u32 smallH, u32 middle) {
   vector<double2> tab;
   if (middle == 1) {
     tab.resize(1);
@@ -306,15 +306,15 @@ string clArgs(const Args& args) {
 
 }
 
-Gpu::Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, bool useLongCarry)
-  : Gpu{context, args, E, W, BIG_H, SMALL_H, nW, nH, useLongCarry, genWeights(E, W, BIG_H, nW)}
+Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, bool useLongCarry)
+  : Gpu{q, args, E, W, BIG_H, SMALL_H, nW, nH, useLongCarry, genWeights(E, W, BIG_H, nW)}
 {}
 
 using float2 = pair<float, float>;
 
 #define ROE_SIZE 111000
 
-Gpu::Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
+Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
          bool useLongCarry, Weights&& weights) :
   E(E),
   N(W * BIG_H * 2),
@@ -325,7 +325,7 @@ Gpu::Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_
   WIDTH(W),
   useLongCarry(useLongCarry),
   // context{device},
-  queue(Queue::make(args, context)),
+  queue(q),
   
 #define K(name, ...) name(#name, profile.make(#name), queue, __VA_ARGS__)
 
@@ -366,16 +366,16 @@ Gpu::Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_
   K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
 #undef K
 
-  bufTrigW{context, genSmallTrig(context, W, nW)},
-  bufTrigH{context, genSmallTrig(context, SMALL_H, nH)},
-  bufTrigM{context, genMiddleTrig(context, SMALL_H, BIG_H / SMALL_H)},
+  bufTrigW{q->context, genSmallTrig(W, nW)},
+  bufTrigH{q->context, genSmallTrig(SMALL_H, nH)},
+  bufTrigM{q->context, genMiddleTrig(SMALL_H, BIG_H / SMALL_H)},
   
-  bufTrigBHW{context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H))},
-  bufTrig2SH{context, makeTrig<double>(2 * SMALL_H)},
+  bufTrigBHW{q->context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H))},
+  bufTrig2SH{q->context, makeTrig<double>(2 * SMALL_H)},
 
-  bufWeights{context, std::move(weights.weightsIF)},
-  bufBits{context,    std::move(weights.bitsCF)},
-  bufBitsC{context,   std::move(weights.bitsC)},
+  bufWeights{q->context, std::move(weights.weightsIF)},
+  bufBits{q->context,    std::move(weights.bitsCF)},
+  bufBitsC{q->context,   std::move(weights.bitsC)},
 
 #define BUF(name, ...) name{profile.make(#name), queue, __VA_ARGS__}
 
@@ -404,10 +404,10 @@ Gpu::Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_
   args{args}
 {
   log("Stats: %x\n", statsBits);
-  string commonArgs = clArgs(context.deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
+  string commonArgs = clArgs(queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
   {
-    KernelCompiler compiler{args, context.get(), context.deviceId(), commonArgs};
+    KernelCompiler compiler{args, queue->context, commonArgs};
     Timer compileTimer;
     for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL,
          &fftP, &fftW, &fftHin, &fftHout,
@@ -415,7 +415,7 @@ Gpu::Gpu(Context& context, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_
          &transpIn, &transpOut,
          &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
          &readResidue, &kernIsEqual, &sum64}) {
-      k->load(compiler, context.deviceId());
+      k->load(compiler);
     }
     log("OpenCL compilation: %.2fs\n", compileTimer.at());
   }
@@ -509,7 +509,7 @@ ROEInfo Gpu::readROE() {
   }
 }
 
-unique_ptr<Gpu> Gpu::make(Context& context, u32 E, const Args &args) {
+unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, const Args &args) {
   FFTConfig config = getFFTConfig(E, args.fftSpec);
   u32 WIDTH        = config.width;
   u32 SMALL_HEIGHT = config.height;
@@ -536,7 +536,7 @@ unique_ptr<Gpu> Gpu::make(Context& context, u32 E, const Args &args) {
 
   if (useLongCarry) { log("Using long carry\n"); }
 
-  return make_unique<Gpu>(context, args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH, useLongCarry);
+  return make_unique<Gpu>(q, args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH, useLongCarry);
 }
 
 template<typename T>

@@ -9,16 +9,13 @@
 #include "Event.h"
 
 #include <deque>
-#include <memory>
 #include <vector>
 #include <unistd.h>
 
 class Args;
 class TimeInfo;
 
-template<typename T> class Buffer;
-
-using QueuePtr = std::shared_ptr<class Queue>;
+// template<typename T> class Buffer;
 
 class Queue : public QueueHolder {
   std::deque<Event> events;
@@ -37,9 +34,9 @@ class Queue : public QueueHolder {
   void fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo);
 
 public:
-  static QueuePtr make(const Args& args, const Context& context);
+  const Context* context;
 
-  Queue(const Args& args, cl_queue q);
+  Queue(const Args& args, const Context& context);
 
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo);
 

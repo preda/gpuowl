@@ -17,13 +17,10 @@ void Queue::clearCompleted() {
   while (!events.empty() && events.front().isCompleted()) { events.pop_front(); }
 }
 
-Queue::Queue(const Args& args, cl_queue q) :
-  QueueHolder{q}
+Queue::Queue(const Args& args, const Context& context) :
+  QueueHolder{makeQueue(context.deviceId(), context.get())},
+  context{&context}
 {}
-
-QueuePtr Queue::make(const Args& args, const Context& context) {
-  return make_shared<Queue>(args, makeQueue(context.deviceId(), context.get()));
-}
 
 vector<cl_event> Queue::inOrder() {
   [[maybe_unused]] u32 n1 = nActive();

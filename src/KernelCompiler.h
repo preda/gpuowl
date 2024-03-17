@@ -8,11 +8,11 @@
 #include <string>
 
 class Args;
+class Context;
 
 class KernelCompiler {
   std::string cacheDir;
   cl_context context;
-  cl_device_id deviceId;
   std::string linkArgs;
   std::string baseArgs;
   std::string dump;
@@ -27,7 +27,9 @@ class KernelCompiler {
   Program compile(const string& fileName, const string& args) const;
   
 public:
-  KernelCompiler(const Args& args, cl_context context, cl_device_id deviceId, const string& clArgs);
+  const cl_device_id deviceId;
+
+  KernelCompiler(const Args& args, const Context* context, const string& clArgs);
   
   KernelHolder load(const string& fileName, const string& kernelName, const string& args) const;
 };

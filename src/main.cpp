@@ -17,10 +17,10 @@ extern string globalCpuName;
 
 namespace fs = std::filesystem;
 
-void gpuWorker(Args& args, Context& context, i32 instance) {
+void gpuWorker(Args& args, Queue *q, i32 instance) {
   log("Starting worker %d\n", instance);
   try {
-    while (auto task = Worktodo::getTask(args, instance)) { task->execute(context, args); }
+    while (auto task = Worktodo::getTask(args, instance)) { task->execute(q, args); }
   } catch (const char *mes) {
     log("Exception \"%s\"\n", mes);
   } catch (const string& mes) {
@@ -68,14 +68,8 @@ int main(int argc, char **argv) {
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
     Context context(getDevice(args.device));
-
-
-#if ENABLE_SECOND_QUEUE
-    QueuePtr q{Queue::make(args, context)};
-#endif
-
-    gpuWorker(args, context, 0);
-
+    Queue queue{args, context};
+    gpuWorker(args, &queue, 0);
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const string& mes) {

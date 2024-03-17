@@ -24,10 +24,10 @@ public:
 private:
   AllocTrac allocTrac;
 
-  QueuePtr queue;
+  Queue* queue;
   TimeInfo *tInfo;
   
-  Buffer(cl_context context, TimeInfo *tInfo, QueuePtr queue, size_t size, unsigned flags, const T* ptr = nullptr)
+  Buffer(cl_context context, TimeInfo *tInfo, Queue* queue, size_t size, unsigned flags, const T* ptr = nullptr)
     : ptr{makeBuf_(context, flags, size * sizeof(T), ptr)}
     , size{size}
     , allocTrac(size * sizeof(T))
@@ -41,14 +41,14 @@ private:
   }
 
 public:
-  Buffer(const Context& context, std::vector<T>&& vect)
-    : Buffer(context.get(), nullptr /* no time info */, {} /* no queue */, vect.size(),
+  Buffer(const Context* context, std::vector<T>&& vect)
+    : Buffer(context->get(), nullptr /* no time info */, nullptr /* no queue */, vect.size(),
              CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR | CL_MEM_HOST_NO_ACCESS, vect.data())
   {}
 
 
-  Buffer(TimeInfo *tInfo, QueuePtr queue, size_t size)
-    : Buffer(getQueueContext(queue->get()), tInfo, queue, size, CL_MEM_READ_WRITE /*| CL_MEM_HOST_NO_ACCESS*/) {}
+  Buffer(TimeInfo *tInfo, Queue* queue, size_t size)
+    : Buffer(queue->context->get(), tInfo, queue, size, CL_MEM_READ_WRITE /*| CL_MEM_HOST_NO_ACCESS*/) {}
 
   Buffer(Buffer&& rhs) = default;
 

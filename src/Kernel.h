@@ -19,20 +19,20 @@ class Kernel {
   
   TimeInfo *timeInfo;
 
-  QueuePtr queue;
+  Queue* queue;
   size_t workSize;
   u32 groupSize = 0;
   
   KernelHolder kernel{};
 
 public:
-  Kernel(string_view name, TimeInfo* timeInfo, QueuePtr queue,
+  Kernel(string_view name, TimeInfo* timeInfo, Queue* queue,
          string_view fileName, string_view nameInFile,
          size_t workSize, string_view defines = "");
 
   ~Kernel();
 
-  void load(const KernelCompiler& compiler, cl_device_id deviceId);
+  void load(const KernelCompiler& compiler);
   
   template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(name, pos, tail...); }
   
