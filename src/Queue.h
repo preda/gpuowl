@@ -23,7 +23,6 @@ using QueuePtr = std::shared_ptr<class Queue>;
 class Queue : public QueueHolder {
   std::deque<Event> events;
 
-  bool cudaYield{};
   void synced();
   void clearCompleted();
 
@@ -38,9 +37,9 @@ class Queue : public QueueHolder {
   void fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo);
 
 public:
-  static QueuePtr make(const Args& args, const Context& context, bool cudaYield);
+  static QueuePtr make(const Args& args, const Context& context);
 
-  Queue(const Args& args, cl_queue q, bool cudaYield);
+  Queue(const Args& args, cl_queue q);
 
   void run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo);
 

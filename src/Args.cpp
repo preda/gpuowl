@@ -116,7 +116,6 @@ named "config.txt" in the prpll run directory.
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
--yield             : enable work-around for Nvidia GPUs busy wait. Do not use on AMD GPUs!
 -cache             : use binary kernel cache (for developers)
 -profile           : enable queue profiling even when not timing kernels
 
@@ -263,7 +262,6 @@ void Args::parse(const string& line) {
     else if (key == "-uid") { device = getPosFromUid(s); }
     else if (key == "-pci") { device = getPosFromBdf(s); }
     else if (key == "-dir") { dir = s; }
-    else if (key == "-yield") { cudaYield = true; }
     else if (key == "-carry") {
       if (s == "short" || s == "long") {
         carry = s == "short" ? CARRY_SHORT : CARRY_LONG;

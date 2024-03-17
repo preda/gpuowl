@@ -3,7 +3,6 @@
 
 #include "Args.h"
 #include "Queue.h"
-#include "Signal.h"
 #include "Task.h"
 #include "Worktodo.h"
 #include "version.h"
@@ -13,7 +12,6 @@
 #include "Context.h"
 
 #include <filesystem>
-#include <thread>
 
 extern string globalCpuName;
 
@@ -73,7 +71,7 @@ int main(int argc, char **argv) {
 
 
 #if ENABLE_SECOND_QUEUE
-    QueuePtr q{Queue::make(args, context, false)};
+    QueuePtr q{Queue::make(args, context)};
 #endif
 
     gpuWorker(args, context, 0);
