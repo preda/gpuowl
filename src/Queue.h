@@ -11,28 +11,29 @@
 #include <deque>
 #include <vector>
 #include <mutex>
-#include <unistd.h>
 
 class Args;
 class TimeInfo;
 
-// template<typename T> class Buffer;
+class Events : public std::deque<Event> {
+
+public:
+  using std::deque<Event>::deque;
+
+  Events(const Events& oth);
+
+  void clearCompleted();
+  void synced();
+  u32 nActive();
+  vector<cl_event> inOrder();
+};
 
 class Queue : public QueueHolder {
   mutex mut;
-#define LOCK(m) lock_guard _locked(m)
+  std::vector<Events> queues;
 
-  std::deque<Event> events;
-
-  void synced();
-  void clearCompleted();
-
-  u32 nActive() {
-    clearCompleted();
-    return events.size();
-  }
-
-  vector<cl_event> inOrder();
+  // Lock the global Queue, return the per-thread queue and guard
+  std::pair<Events*, unique_lock<mutex>> access();
 
   void writeTE(cl_mem buf, u64 size, const void* data, TimeInfo *tInfo);
   void fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo);
@@ -42,6 +43,9 @@ public:
   const Context* context;
 
   Queue(const Args& args, const Context& context);
+
+  static int registerThread();
+  static int tid();
 
   template<typename T>
   void write(cl_mem buf, const vector<T>& v, TimeInfo* tInfo) { writeTE(buf, v.size() * sizeof(T), v.data(), tInfo); }

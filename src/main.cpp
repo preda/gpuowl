@@ -12,7 +12,6 @@
 #include "Context.h"
 
 #include <filesystem>
-#include <future>
 #include <thread>
 
 extern string globalCpuName;
@@ -20,7 +19,7 @@ extern string globalCpuName;
 namespace fs = std::filesystem;
 
 void gpuWorker(Args& args, Queue *q, i32 instance) {
-  log("Starting worker %d\n", instance);
+  log("Starting worker %d at thread %d\n", instance, Queue::registerThread());
   try {
     while (auto task = Worktodo::getTask(args, instance)) { task->execute(q, args); }
   } catch (const char *mes) {
