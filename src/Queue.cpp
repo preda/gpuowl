@@ -4,17 +4,51 @@
 #include "Args.h"
 #include "TimeInfo.h"
 
+#include <atomic>
 #include <cassert>
 
-void Queue::synced() {
-  // log("synced %u %u\n", u32(events.size()), u32(pendingWrite.size()));
+static thread_local int threadId = -1;
+static atomic<int> nThread = 0;
+
+// Because Event is unique_ptr<cl_event>, it can't be copied.
+// As a consequence, Events (which is a container of Event) can't be copied either.
+// Except the empty Events which can be copied as there's not Event copy involved in that case.
+Events::Events(const Events& oth) { assert(oth.empty()); }
+
+void Events::clearCompleted() { while (!empty() && front().isCompleted()) { pop_front(); } }
+
+void Events::synced() {
   clearCompleted();
-  assert(events.empty());
-  events.clear();
+  assert(empty());
 }
 
-void Queue::clearCompleted() {
-  while (!events.empty() && events.front().isCompleted()) { events.pop_front(); }
+u32 Events::nActive() {
+  clearCompleted();
+  return size();
+}
+
+vector<cl_event> Events::inOrder() {
+  [[maybe_unused]] u32 n1 = nActive();
+  return empty() ? vector<cl_event>{} : vector<cl_event>{back().get()};
+
+#if 0
+  if (n1 >= 200) { ::waitForEvents({events.at(50).get()}); }
+    // Timer t;
+    // log("Were %u, slept %.2fms, remain %u\n", n1, t.at() * 1000, nActive());
+#endif
+}
+
+// static method
+int Queue::tid() {
+  assert(threadId >= 0);
+  return threadId;
+}
+
+// static method
+int Queue::registerThread() {
+  assert(threadId == -1);
+  threadId = nThread++;
+  return threadId;
 }
 
 Queue::Queue(const Args& args, const Context& context) :
@@ -22,57 +56,51 @@ Queue::Queue(const Args& args, const Context& context) :
   context{&context}
 {}
 
-vector<cl_event> Queue::inOrder() {
-  [[maybe_unused]] u32 n1 = nActive();
-
-#if 0
-  if (n1 >= 200) { ::waitForEvents({events.at(50).get()}); }
-    // Timer t;
-    // log("Were %u, slept %.2fms, remain %u\n", n1, t.at() * 1000, nActive());
-#endif
-
-  return events.empty() ? vector<cl_event>{} : vector<cl_event>{events.back().get()};
+std::pair<Events*, unique_lock<mutex> > Queue::access() {
+  assert(threadId >= 0);
+  unique_lock guard{mut};
+  if (threadId >= int(queues.size())) { queues.resize(threadId + 1); }
+  return {&queues.at(threadId), std::move(guard)};
 }
 
 void Queue::writeTE(cl_mem buf, u64 size, const void* data, TimeInfo* tInfo) {
-  LOCK(mut);
-  events.emplace_back(::write(get(), inOrder(), true, buf, size, data), tInfo);
-  synced();
+  auto [events, guard] = access();
+  events->emplace_back(::write(get(), events->inOrder(), true, buf, size, data), tInfo);
+  events->synced();
 }
 
 void Queue::fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo) {
-  LOCK(mut);
-  events.emplace_back(::fillBuf(get(), inOrder(), buf, pattern, patSize, size), tInfo);
+  auto [events, guard] = access();
+  events->emplace_back(::fillBuf(get(), events->inOrder(), buf, pattern, patSize, size), tInfo);
 }
 
 void Queue::readSync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
-  LOCK(mut);
-  events.emplace_back(read(get(), inOrder(), true, buf, size, out), tInfo);
-  synced();
+  auto [events, guard] = access();
+  events->emplace_back(read(get(), events->inOrder(), true, buf, size, out), tInfo);
+  events->synced();
 }
 
 void Queue::readAsync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
-  LOCK(mut);
-  events.emplace_back(read(get(), inOrder(), false, buf, size, out), tInfo);
+  auto [events, guard] = access();
+  events->emplace_back(read(get(), events->inOrder(), false, buf, size, out), tInfo);
 }
 
 void Queue::copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo) {
-  LOCK(mut);
-  events.emplace_back(::copyBuf(get(), inOrder(), src, dst, size), tInfo);
+  auto [events, guard] = access();
+  events->emplace_back(::copyBuf(get(), events->inOrder(), src, dst, size), tInfo);
 }
 
 void Queue::run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo) {
-  LOCK(mut);
-  events.emplace_back(::run(get(), kernel, groupSize, workSize, inOrder(), tInfo->name), tInfo);
+  auto [events, guard] = access();
+  events->emplace_back(::run(get(), kernel, groupSize, workSize, events->inOrder(), tInfo->name), tInfo);
 }
 
 void Queue::finish() {
-  LOCK(mut);
-  ::finish(get());
-  synced();
+  auto [events, guard] = access();
+  auto wait = events->inOrder();
+  guard.unlock();
+  waitForEvents(std::move(wait));
 }
-
-void Queue::flush() { ::flush(get()); }
 
 #if 0
 void Queue::write(cl_mem buf, vector<i32>&& vect, TimeInfo* tInfo) {
