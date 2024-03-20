@@ -1,4 +1,4 @@
-GpuOwl code style, C++ and OpenCL
+# GpuOwl code style, C++ and OpenCL
 
 - indent 2 spaces
 - no "tab" chars in source code -- configure the editor to convert tabs to spaces
@@ -8,6 +8,7 @@ GpuOwl code style, C++ and OpenCL
 - one space between if/while/for and open parens
 
 Example:
+
 ```C++
 int example(int value) {
   if (value > 0) {
