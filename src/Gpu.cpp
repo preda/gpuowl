@@ -650,7 +650,7 @@ void Gpu::logTimeKernels() {
     double percent = 100.0 / total * p->times[2];
     if (!args.verbose && percent < 0.2) { break; }
     snprintf(buf, sizeof(buf),
-             args.verbose ? "%s %5.2f%% %-11s : %6.0f us/call x %5d calls  (%6.0f %6.0f)\n"
+             args.verbose ? "%s %5.2f%% %-11s : %6.0f us/call x %5d calls  (%5.1f %5.1f)\n"
                           : "%s %5.2f%% %-11s %4.0f x%6d  %.1f %.1f\n",
              args.cpu.c_str(),
              percent, p->name.c_str(), p->times[2] * f, n, p->times[0] * (f * 1e-3), p->times[1] * (f * 1e-3));

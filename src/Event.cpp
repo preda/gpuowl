@@ -5,26 +5,27 @@
 
 #include <cassert>
 
-Event::Event(EventHolder&& e, TimeInfo* tInfo) :
+Event::Event(EventHolder&& e, TimeInfo* tInfo, u64 seq) :
   event{std::move(e)},
-  tInfo{tInfo}
+  tInfo{tInfo},
+  seq{seq}
 {
   assert(tInfo);
 }
 
 Event::~Event() {
-  if (event) {
-    [[maybe_unused]] bool finalized = isCompleted();
-    assert(finalized);
-  }
+  [[maybe_unused]] bool done = isComplete();
+  assert(done);
 }
 
-bool Event::isCompleted() const {
-  if (!isFinalized) {
-    if (getEventInfo(event.get()) == CL_COMPLETE) {
+bool Event::isComplete() {
+  if (event && getEventInfo(event.get()) == CL_COMPLETE) {
       tInfo->add(getEventNanos(get()));
-      isFinalized = true;
-    }
+      event.reset();
   }
-  return isFinalized;
+  return !event;
 }
+
+bool Event::isRunning() { return event && getEventInfo(event.get()) == CL_RUNNING; }
+bool Event::isQueued() { return event && getEventInfo(event.get()) == CL_QUEUED; }
+bool Event::isSubmitted() { return event && getEventInfo(event.get()) == CL_SUBMITTED; }

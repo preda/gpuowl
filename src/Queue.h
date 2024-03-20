@@ -31,6 +31,7 @@ public:
 class Queue : public QueueHolder {
   mutex mut;
   std::vector<Events> queues;
+  u64 seq{};
 
   // Lock the global Queue, return the per-thread queue and guard
   std::pair<Events*, unique_lock<mutex>> access();
@@ -38,6 +39,7 @@ class Queue : public QueueHolder {
   void writeTE(cl_mem buf, u64 size, const void* data, TimeInfo *tInfo);
   void fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo);
   void flush();
+  void print();
 
 public:
   const Context* context;
