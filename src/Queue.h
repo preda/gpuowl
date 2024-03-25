@@ -10,31 +10,18 @@
 
 #include <deque>
 #include <vector>
-#include <mutex>
 
 class Args;
 class TimeInfo;
 
 class Events : public std::deque<Event> {
-
 public:
-  using std::deque<Event>::deque;
-
-  Events(const Events& oth);
-
   void clearCompleted();
   void synced();
-  u32 nActive();
-  vector<cl_event> inOrder();
 };
 
 class Queue : public QueueHolder {
-  mutex mut;
-  std::vector<Events> queues;
-  u64 seq{};
-
-  // Lock the global Queue, return the per-thread queue and guard
-  std::pair<Events*, unique_lock<mutex>> access();
+  Events events;
 
   void writeTE(cl_mem buf, u64 size, const void* data, TimeInfo *tInfo);
   void fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo);

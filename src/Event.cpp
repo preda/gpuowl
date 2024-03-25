@@ -5,10 +5,9 @@
 
 #include <cassert>
 
-Event::Event(EventHolder&& e, TimeInfo* tInfo, u64 seq) :
+Event::Event(EventHolder&& e, TimeInfo* tInfo) :
   event{std::move(e)},
-  tInfo{tInfo},
-  seq{seq}
+  tInfo{tInfo}
 {
   assert(tInfo);
 }
