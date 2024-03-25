@@ -12,9 +12,8 @@ class Event {
 public:
   EventHolder event;
   TimeInfo *tInfo;
-  u64 seq;
 
-  Event(EventHolder&& e, TimeInfo *tInfo, u64 seq);
+  Event(EventHolder&& e, TimeInfo *tInfo);
   Event(Event&& oth) = default;
   ~Event();
 

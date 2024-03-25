@@ -286,7 +286,9 @@ cl_queue makeQueue(cl_device_id d, cl_context c) {
   int err;
   cl_queue_properties props[4] = {0};
   props[0] = CL_QUEUE_PROPERTIES;
-  props[1] = CL_QUEUE_PROFILING_ENABLE | CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
+  props[1] = CL_QUEUE_PROFILING_ENABLE;
+  // CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE not supported on ROCm 6.1 or earlier
+
   cl_queue q = clCreateCommandQueueWithProperties(c, d, props, &err);
   CHECK2(err, "clCreateCommandQueue");
   return q;
