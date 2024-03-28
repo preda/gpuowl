@@ -15,11 +15,10 @@
 #include <filesystem>
 #include <thread>
 
-extern string globalCpuName;
-
 namespace fs = std::filesystem;
 
 void gpuWorker(Args& args, Queue *q, i32 instance) {
+  LogContext context{(instance ? args.cpu : ""s) + to_string(instance) + ' '};
   log("Starting worker %d\n", instance);
   try {
     while (auto task = Worktodo::getTask(args, instance)) { task->execute(q, args); }
@@ -31,6 +30,8 @@ void gpuWorker(Args& args, Queue *q, i32 instance) {
     log("Exception %s: %s\n", typeName(e), e.what());
   }
 }
+
+unique_ptr<LogContext> cpuNameContext;
 
 int main(int argc, char **argv) {
   initLog();
@@ -54,7 +55,7 @@ int main(int argc, char **argv) {
       args.readConfig("config.txt");
       args.parse(mainLine);
       poolDir = args.masterDir;
-      globalCpuName = args.cpu;
+      cpuNameContext = make_unique<LogContext>(args.cpu);
     }
     
     Args args;
@@ -70,11 +71,13 @@ int main(int argc, char **argv) {
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
     
     Context context(getDevice(args.device));
-    Queue q2{args, context};
     Signal signal;
-    jthread t2{gpuWorker, ref(args), &q2, 1};
-    Queue queue{args, context};
-    gpuWorker(args, &queue, 0);
+
+    vector<Queue> queues;
+    for (int i = 0; i < args.workers; ++i) { queues.emplace_back(args, context); }
+    vector<jthread> threads;
+    for (int i = 1; i < int(args.workers); ++i) { threads.emplace_back(gpuWorker, ref(args), &queues[i], i); }
+    gpuWorker(args, &queues[0], 0);
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const string& mes) {
@@ -82,5 +85,6 @@ int main(int argc, char **argv) {
   }
 
   log("Bye\n");
+  cpuNameContext.reset();
   return exitCode; // not used yet.
 }

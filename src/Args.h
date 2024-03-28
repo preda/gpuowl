@@ -56,6 +56,7 @@ public:
   bool keepProof = false;
 
   int carry = CARRY_AUTO;
+  u32 workers = 1;
   u32 blockSize = 400;
   u32 logStep   = 0;
   string fftSpec;

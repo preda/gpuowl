@@ -100,6 +100,7 @@ named "config.txt" in the prpll run directory.
 -version           : print only the version and exit
 -user <name>       : specify the mersenne.org user name (for result reporting)
 -cpu  <name>       : specify a name of the GPU for result reporting to mersenne.org
+-workers <N>       : specify the number of parallel PRP tests to run (default 1)
 -fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
 -block <value>     : PRP error-check block size. Must divide 10'000.
 -log <step>        : log every <step> iterations. Multiple of 10'000.
@@ -206,6 +207,15 @@ void Args::parse(const string& line) {
       throw "version";
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
+    } else if (key == "-workers") {
+      if (s.empty()) {
+        log("-workers expects <N>\n");
+        throw "-workers <N>";
+      }
+      workers = stoi(s);
+      if (workers < 1 || workers > 4) {
+        throw "Number of workers must be between 1 and 4";
+      }
     } else if (key == "-cache") {
       useCache = true;
     } else if (key == "-noclean") {
