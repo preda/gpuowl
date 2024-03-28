@@ -12,6 +12,7 @@ void log(const char *fmt, ...);
 
 void initLog();
 void initLog(const char *);
+std::string logContext();
 
 struct LogContext {
   explicit LogContext(const std::string& s);

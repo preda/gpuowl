@@ -8,9 +8,11 @@
 #include <mutex>
 
 vector<File> logFiles;
-string globalCpuName;
 
 thread_local string context;
+thread_local vector<string> contextParts;
+
+string logContext() { return context; }
 
 void initLog() { logFiles.emplace_back(stdout, "stdout"); }
 
@@ -35,11 +37,11 @@ void log(const char *fmt, ...) {
   vsnprintf(buf, sizeof(buf), fmt, va);
   va_end(va);
   
-  string prefix = shortTimeStr() + " "s + (globalCpuName.empty() ? "" : globalCpuName + " "s) + context;
+  string prefix = shortTimeStr() + ' ' + context;
 
   std::unique_lock lock(logMutex);
   for (auto &f : logFiles) {
-    fprintf(f.get(), f.get() == stdout ? "\r%s %s" : "%s %s", prefix.c_str(), buf);
+    fprintf(f.get(), "%s %s", prefix.c_str(), buf);
 #if !(defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE))
     fflush(f.get());
 #endif
@@ -47,12 +49,13 @@ void log(const char *fmt, ...) {
 }
 
 LogContext::LogContext(const string& s) : part{s} {
-  assert(!s.empty()); // && (s.find(' ') == string::npos));
-  context = context + s;
+  contextParts.push_back(s);
+  context += s;
 }
 
 LogContext::~LogContext() {
-  auto p = context.rfind(part);
-  assert(p != string::npos);
-  context = context.substr(0, p);
+  assert(!contextParts.empty());
+  assert(context.size() >= contextParts.back().size());
+  context = context.substr(0, context.size() - contextParts.back().size());
+  contextParts.pop_back();
 }
