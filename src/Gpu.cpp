@@ -1011,7 +1011,6 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 startK = 0;
 
   Saver<PRPState> saver{E};
-  Signal signal;
 
   // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.
   std::optional<u64> lastFailedRes64;
@@ -1114,7 +1113,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     bool doStop = false;
 
     if (k % blockSize == 0) {
-      doStop = signal.stopRequested() || (args.iters && k - startK >= args.iters);
+      doStop = Signal::stopRequested() || (args.iters && k - startK >= args.iters);
     }
 
     bool leadOut = doStop || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
@@ -1165,10 +1164,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       }
     }
       
-    if (doStop) {
-      log("Stopping, please wait..\n");
-      signal.release();
-    }
+    if (doStop) { log("Stopping, please wait..\n"); }
             
     if (doCheck) {
       // if (printStats) { printRoundoff(E); }
@@ -1226,8 +1222,6 @@ LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
   u32 E = task.exponent;
 
   Saver<LLState> saver{E};
-  Signal signal;
-
   reload:
 
   u32 startK = 0;
@@ -1253,10 +1247,9 @@ LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
     ++k;
     bool doStop = (k >= kEnd) || (args.iters && k - startK >= args.iters);
 
-    if (signal.stopRequested()) {
+    if (Signal::stopRequested()) {
       doStop = true;
       log("Stopping, please wait..\n");
-      signal.release();
     }
 
     bool doLog = (k % 10000 == 0) || doStop;

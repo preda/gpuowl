@@ -3,6 +3,7 @@
 
 #include "Args.h"
 #include "Queue.h"
+#include "Signal.h"
 #include "Task.h"
 #include "Worktodo.h"
 #include "version.h"
@@ -70,6 +71,7 @@ int main(int argc, char **argv) {
     
     Context context(getDevice(args.device));
     Queue q2{args, context};
+    Signal signal;
     jthread t2{gpuWorker, ref(args), &q2, 1};
     Queue queue{args, context};
     gpuWorker(args, &queue, 0);

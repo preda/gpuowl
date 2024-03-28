@@ -35,7 +35,6 @@ public:
   string dir;
   
   string uid;
-  string binaryFile;
   string verifyPath;
   std::map<std::string, std::string> flags;
   
