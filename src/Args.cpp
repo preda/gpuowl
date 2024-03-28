@@ -298,8 +298,6 @@ void Args::parse(const string& line) {
       }
     } else if (key == "-unsafeMath") {
       safeMath = false;
-    } else if (key == "-binary") {
-      binaryFile = s;
     } else if (key == "-save") {
       nSavefiles = stoi(s);      
     } else {
