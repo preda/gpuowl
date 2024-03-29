@@ -326,7 +326,7 @@ void Args::parse(const string& line) {
 
 void Args::setDefaults() {
   uid = getUidFromPos(device);
-  log("device %d, unique id '%s', driver '%s'\n", device, uid.c_str(), getDriverVersionByPos(device).c_str());
+  log("device %d, OpenCL %s, unique id '%s'\n", device, getDriverVersionByPos(device).c_str(), uid.c_str());
   
   if (!masterDir.empty()) {
     assert(masterDir.is_absolute());

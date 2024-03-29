@@ -403,7 +403,7 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   timeBufVect{profile.make("proofBufVect")},
   args{args}
 {
-  log("Stats: %x\n", statsBits);
+  if (args.verbose) { log("Stats: %x\n", statsBits); }
   string commonArgs = clArgs(queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
   {
@@ -417,7 +417,7 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
          &readResidue, &kernIsEqual, &sum64}) {
       k->load(compiler);
     }
-    log("OpenCL compilation: %.2fs\n", compileTimer.at());
+    if (args.verbose) { log("OpenCL compilation: %.2fs\n", compileTimer.at()); }
   }
   
   for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL}) {
