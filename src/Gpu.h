@@ -155,7 +155,6 @@ class Gpu {
   void writeIn(Buffer<int>& buf, vector<i32>&& words);
 
   void square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool doMul3, bool doLL = false);
-  // void square(Buffer<int>& io, bool leadIn, bool leadOut, bool mul3) { square(io, io, leadIn, leadOut, mul3); }
   void squareLL(Buffer<int>& io, bool leadIn, bool leadOut) { square(io, io, leadIn, leadOut, false, true); }
 
   u32 squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3);

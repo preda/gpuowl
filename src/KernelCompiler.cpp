@@ -34,7 +34,7 @@ KernelCompiler::KernelCompiler(const Args& args, const Context* context, const s
 {
 
   string hw = getDriverVersion(deviceId) + ':' + getDeviceName(deviceId);
-  log("OpenCL context %s, args %s\n", hw.c_str(), baseArgs.c_str());
+  if (args.verbose) { log("OpenCL: %s, args %s\n", hw.c_str(), baseArgs.c_str()); }
 
   SHA3 hasher;
   hasher.update(hw);

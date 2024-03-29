@@ -19,7 +19,7 @@ namespace fs = std::filesystem;
 
 void gpuWorker(Args& args, Queue *q, i32 instance) {
   LogContext context{(instance ? args.cpu : ""s) + to_string(instance) + ' '};
-  log("Starting worker %d\n", instance);
+  // log("Starting worker %d\n", instance);
   try {
     while (auto task = Worktodo::getTask(args, instance)) { task->execute(q, args); }
   } catch (const char *mes) {
