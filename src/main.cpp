@@ -35,9 +35,18 @@ void gpuWorker(Args& args, Queue *q, TrigBufCache* bufCache, i32 instance) {
 
 unique_ptr<LogContext> cpuNameContext;
 
+#ifdef __MINGW32__ // for Windows
+extern int putenv(const char *);
+#endif
+
 int main(int argc, char **argv) {
+
+#ifdef __MINGW32__
+  putenv("ROC_SIGNAL_POOL_SIZE=32");
+#else
   // Required to work around a ROCm bug when using multiple queues
   setenv("ROC_SIGNAL_POOL_SIZE", "32", 0);
+#endif
 
   initLog();
   log("PRPLL %s\n", VERSION);
