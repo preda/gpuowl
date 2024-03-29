@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
     Signal signal;
 
     vector<Queue> queues;
-    for (int i = 0; i < args.workers; ++i) { queues.emplace_back(args, context); }
+    for (int i = 0; i < int(args.workers); ++i) { queues.emplace_back(args, context); }
     vector<jthread> threads;
     for (int i = 1; i < int(args.workers); ++i) { threads.emplace_back(gpuWorker, ref(args), &queues[i], i); }
     gpuWorker(args, &queues[0], 0);

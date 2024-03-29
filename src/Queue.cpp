@@ -16,17 +16,18 @@ void Events::synced() {
 }
 
 Queue::Queue(const Args& args, const Context& context) :
-  QueueHolder{makeQueue(context.deviceId(), context.get())},
+  QueueHolder{makeQueue(context.deviceId(), context.get(), args.profile)},
+  hasEvents{args.profile},
   context{&context}
 {}
 
 void Queue::writeTE(cl_mem buf, u64 size, const void* data, TimeInfo* tInfo) {
-  events.emplace_back(::write(get(), {}, true, buf, size, data), tInfo);
+  add(::write(get(), {}, true, buf, size, data, hasEvents), tInfo);
   events.synced();
 }
 
 void Queue::fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo) {
-  events.emplace_back(::fillBuf(get(), {}, buf, pattern, patSize, size), tInfo);
+  add(::fillBuf(get(), {}, buf, pattern, patSize, size, hasEvents), tInfo);
 }
 
 string status(Events& events) {
@@ -40,32 +41,25 @@ void Queue::print() {
   log("%s\n", status(events).c_str());
 }
 
+void Queue::add(EventHolder&& e, TimeInfo* ti) {
+  if (hasEvents) { events.emplace_back(std::move(e), ti); }
+}
+
 void Queue::readSync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
-  events.emplace_back(read(get(), {}, true, buf, size, out), tInfo);
+  add(read(get(), {}, true, buf, size, out, hasEvents), tInfo);
   events.synced();
 }
 
 void Queue::readAsync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo) {
-  events.emplace_back(read(get(), {}, false, buf, size, out), tInfo);
+  add(read(get(), {}, false, buf, size, out, hasEvents), tInfo);
 }
 
 void Queue::copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo) {
-  events.emplace_back(::copyBuf(get(), {}, src, dst, size), tInfo);
+  add(::copyBuf(get(), {}, src, dst, size, hasEvents), tInfo);
 }
 
 void Queue::run(cl_kernel kernel, size_t groupSize, size_t workSize, TimeInfo* tInfo) {
-#if 0
-  if (n1 >= 100) {
-    cl_event e = events->at(10).get();
-    guard.unlock();
-    Timer t;
-    waitForEvents({e});
-    std::tie(events, guard) = access();
-    // log("Were %u, slept %.2fms, remain %u\n", n1, t.at() * 1000, events->nActive());
-  }
-#endif
-
-  events.emplace_back(::run(get(), kernel, groupSize, workSize, {}, tInfo->name), tInfo);
+  add(::run(get(), kernel, groupSize, workSize, {}, tInfo->name, hasEvents), tInfo);
 }
 
 void Queue::finish() {

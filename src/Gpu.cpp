@@ -638,6 +638,7 @@ void Gpu::logTimeKernels() {
   auto prof = profile.get();
   u64 total = 0;
   for (const TimeInfo* p : prof) { total += p->times[2]; }
+  if (!total) { return; } // no profile
   
   char buf[256];
   // snprintf(buf, sizeof(buf), "Profile:\n ");
