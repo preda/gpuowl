@@ -207,6 +207,8 @@ void Args::parse(const string& line) {
       throw "version";
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
+    } else if (key == "-notime") {
+      profile = false;
     } else if (key == "-workers") {
       if (s.empty()) {
         log("-workers expects <N>\n");

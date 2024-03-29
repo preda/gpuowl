@@ -85,23 +85,23 @@ template<>
 void setArg<int>(cl_kernel k, int pos, const int &value, const string& name);
 
 cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr = 0);
-cl_queue makeQueue(cl_device_id d, cl_context c);
+cl_queue makeQueue(cl_device_id d, cl_context c, bool enableProfile);
 
 void flush( cl_queue q);
 void finish(cl_queue q);
 
 EventHolder run(cl_queue queue, cl_kernel kernel, size_t groupSize, size_t workSize,
-                vector<cl_event>&& waits, const string &name);
+                vector<cl_event>&& waits, const string &name, bool genEvent);
 
 EventHolder read(cl_queue queue, vector<cl_event>&& waits,
-                 bool blocking, cl_mem buf, size_t size, void *data, size_t start = 0);
+                 bool blocking, cl_mem buf, size_t size, void *data, bool genEvent);
 
 EventHolder write(cl_queue queue, vector<cl_event>&& waits,
-                  bool blocking, cl_mem buf, size_t size, const void *data, size_t start = 0);
+                  bool blocking, cl_mem buf, size_t size, const void *data, bool genEvent);
 
-EventHolder copyBuf(cl_queue queue, vector<cl_event>&& waits, const cl_mem src, cl_mem dst, size_t size);
+EventHolder copyBuf(cl_queue queue, vector<cl_event>&& waits, const cl_mem src, cl_mem dst, size_t size, bool genEvent);
 
-EventHolder fillBuf(cl_queue q, vector<cl_event>&& waits, cl_mem buf, const void *pat, size_t patSize, size_t size);
+EventHolder fillBuf(cl_queue q, vector<cl_event>&& waits, cl_mem buf, const void *pat, size_t patSize, size_t size, bool genEvent);
 
 void waitForEvents(vector<cl_event>&& waits);
 

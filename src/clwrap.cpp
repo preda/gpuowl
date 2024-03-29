@@ -282,11 +282,11 @@ cl_mem makeBuf_(cl_context context, unsigned kind, size_t size, const void *ptr)
   return buf;
 }
 
-cl_queue makeQueue(cl_device_id d, cl_context c) {
+cl_queue makeQueue(cl_device_id d, cl_context c, bool isProfile) {
   int err;
   cl_queue_properties props[4] = {0};
   props[0] = CL_QUEUE_PROPERTIES;
-  props[1] = CL_QUEUE_PROFILING_ENABLE;
+  props[1] = isProfile ? CL_QUEUE_PROFILING_ENABLE : 0;
   // CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE not supported on ROCm 6.1 or earlier
 
   cl_queue q = clCreateCommandQueueWithProperties(c, d, props, &err);
@@ -300,44 +300,47 @@ void finish(cl_queue q) { CHECK1(clFinish(q)); }
 EventHolder run(cl_queue queue, cl_kernel kernel,
                 size_t groupSize, size_t workSize,
                 vector<cl_event>&& waits,
-                const string &name) {
+                const string &name, bool genEvent) {
   cl_event event{};
   CHECK2(clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &workSize, &groupSize,
-                                waits.size(), waits.empty() ? 0 : waits.data(), &event), name.c_str());
-  return EventHolder{event};
+                                waits.size(), waits.empty() ? 0 : waits.data(), genEvent ? &event : nullptr),
+         name.c_str());
+  return genEvent ? EventHolder{event} : EventHolder{};
 }
 
 EventHolder read(cl_queue queue, vector<cl_event>&& waits,
-                 bool blocking, cl_mem buf, size_t size, void *data, size_t start) {
+                 bool blocking, cl_mem buf, size_t size, void *data, bool genEvent) {
+  size_t start = 0;
   cl_event event{};
   CHECK1(clEnqueueReadBuffer(queue, buf, blocking, start, size, data,
-                             waits.size(), waits.empty() ? 0 : waits.data(), &event));
-  return EventHolder{event};
+                             waits.size(), waits.empty() ? 0 : waits.data(), genEvent ? &event : nullptr));
+  return genEvent ? EventHolder{event} : EventHolder{};
 }
 
 EventHolder write(cl_queue queue, vector<cl_event>&& waits,
-                  bool blocking, cl_mem buf, size_t size, const void *data, size_t start) {
+                  bool blocking, cl_mem buf, size_t size, const void *data, bool genEvent) {
+  size_t start = 0;
   cl_event event{};
   CHECK1(clEnqueueWriteBuffer(queue, buf, blocking, start, size, data,
-                              waits.size(), waits.empty() ? 0 : waits.data(), &event));
-  return EventHolder{event};
+                              waits.size(), waits.empty() ? 0 : waits.data(), genEvent ? &event : nullptr));
+  return genEvent ? EventHolder{event} : EventHolder{};
 }
 
 EventHolder copyBuf(cl_queue queue, vector<cl_event>&& waits,
-                    const cl_mem src, cl_mem dst, size_t size) {
+                    const cl_mem src, cl_mem dst, size_t size, bool genEvent) {
   cl_event event{};
   CHECK1(clEnqueueCopyBuffer(queue, src, dst, 0, 0, size,
-                             waits.size(), waits.empty() ? 0 : waits.data(), &event));
-  return EventHolder{event};
+                             waits.size(), waits.empty() ? 0 : waits.data(), genEvent ? &event : nullptr));
+  return genEvent ? EventHolder{event} : EventHolder{};
 }
 
 EventHolder fillBuf(cl_queue q, vector<cl_event>&& waits,
-                    cl_mem buf, const void *pat, size_t patSize, size_t size) {
+                    cl_mem buf, const void *pat, size_t patSize, size_t size, bool genEvent) {
   assert(size);
   cl_event event{};
   CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, 0 /*start*/, size,
-                             waits.size(), waits.empty() ? 0 : waits.data(), &event));
-  return EventHolder{event};
+                             waits.size(), waits.empty() ? 0 : waits.data(), genEvent ? &event : nullptr));
+  return genEvent ? EventHolder{event} : EventHolder{};
 }
 
 void waitForEvents(vector<cl_event>&& waits) {

@@ -22,11 +22,13 @@ public:
 
 class Queue : public QueueHolder {
   Events events;
+  bool hasEvents;
 
   void writeTE(cl_mem buf, u64 size, const void* data, TimeInfo *tInfo);
   void fillBufTE(cl_mem buf, u32 patSize, const void* pattern, u64 size, TimeInfo* tInfo);
   void flush();
   void print();
+  void add(EventHolder &&e, TimeInfo* ti);
 
 public:
   const Context* context;
