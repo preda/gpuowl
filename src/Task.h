@@ -13,7 +13,8 @@ class Context;
 class Queue;
 class TrigBufCache;
 
-struct Task {
+class Task {
+public:
   enum Kind {PRP, VERIFY, LL};
 
   Kind kind;
