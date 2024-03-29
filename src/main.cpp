@@ -35,6 +35,9 @@ void gpuWorker(Args& args, Queue *q, TrigBufCache* bufCache, i32 instance) {
 unique_ptr<LogContext> cpuNameContext;
 
 int main(int argc, char **argv) {
+  // Required to work around a ROCm bug when using multiple queues
+  setenv("ROC_SIGNAL_POOL_SIZE", "32", 0);
+
   initLog();
   log("PRPLL %s\n", VERSION);
   
@@ -70,7 +73,7 @@ int main(int argc, char **argv) {
     args.setDefaults();
         
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
-    
+
     Context context(getDevice(args.device));
     TrigBufCache bufCache{&context};
     Signal signal;
