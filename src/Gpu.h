@@ -21,9 +21,12 @@ struct Task;
 class Args;
 class Signal;
 class ProofSet;
+class TrigBufCache;
 
 using double2 = pair<double, double>;
 using float2 = pair<float, float>;
+using TrigBuf = Buffer<double2>;
+using TrigPtr = shared_ptr<TrigBuf>;
 
 namespace fs = std::filesystem;
 
@@ -106,12 +109,12 @@ class Gpu {
 
   // Twiddles: trigonometry constant buffers, used in FFTs.
   // The twiddles depend only on FFT config and do not depend on the exponent.
-  Buffer<double2> bufTrigW;
-  Buffer<double2> bufTrigH;
-  Buffer<double2> bufTrigM;
+  TrigPtr bufTrigW;
+  TrigPtr bufTrigH;
+  TrigPtr bufTrigM;
   
-  Buffer<double2> bufTrigBHW;
-  Buffer<double2> bufTrig2SH;
+  TrigPtr bufTrigBHW;
+  TrigPtr bufTrig2SH;
 
   // The weights and the "bigWord bits" depend on the exponent.
   Buffer<double> bufWeights;
@@ -173,7 +176,7 @@ class Gpu {
   void writeState(vector<u32>&& check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   
   Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      bool useLongCarry, struct Weights&& weights);
+      TrigBufCache*, struct Weights&& weights);
 
   void printRoundoff(u32 E);
 
@@ -195,6 +198,13 @@ class Gpu {
 public:
   const Args& args;
 
+  static void doDiv9(u32 E, Words& words);
+  static bool equals9(const Words& words);
+
+  static unique_ptr<Gpu> make(Queue* q, u32 E, const Args &args, TrigBufCache *trigCache);
+
+  Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, TrigBufCache*);
+
   void carryA(Buffer<int>& a, Buffer<double>& b)    { kCarryA(updatePos(1<<2), a, b); }
   void carryA(Buffer<double>& a, Buffer<double>& b) { kCarryA(updatePos(1<<2), a, b); }
   void carryM(Buffer<int>& a, Buffer<double>& b)    { kCarryM(updatePos(1<<3), a, b); }
@@ -206,13 +216,6 @@ public:
 
   void mul(Buffer<int>& io, Buffer<double>& inB);
   void square(Buffer<int>& data);
-
-  static unique_ptr<Gpu> make(Queue* q, u32 E, const Args &args);
-  static void doDiv9(u32 E, Words& words);
-  static bool equals9(const Words& words);
-  
-  Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      bool useLongCarry);
 
   vector<u32> readAndCompress(Buffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
