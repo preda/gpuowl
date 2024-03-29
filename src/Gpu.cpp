@@ -13,6 +13,7 @@
 #include "KernelCompiler.h"
 #include "Saver.h"
 #include "timeutil.h"
+#include "TrigBufCache.h"
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -304,10 +305,64 @@ string clArgs(const Args& args) {
   return s;
 }
 
+} // namespace
+
+TrigBufCache::~TrigBufCache() = default;
+
+TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
+  lock_guard lock{mut};
+  auto& m = small;
+  decay_t<decltype(m)>::key_type key{W, nW};
+  if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
+      log("Reused smallTrig\n");
+      return p;
+    } }
+  auto p = make_shared<TrigBuf>(context, genSmallTrig(W, nW));
+  m[key] = p;
+  return p;
 }
 
-Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, bool useLongCarry)
-  : Gpu{q, args, E, W, BIG_H, SMALL_H, nW, nH, useLongCarry, genWeights(E, W, BIG_H, nW)}
+TrigPtr TrigBufCache::middleTrig(u32 SMALL_H, u32 nH) {
+  lock_guard lock{mut};
+  auto& m = middle;
+  decay_t<decltype(m)>::key_type key{SMALL_H, nH};
+  if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
+      log("Reused middleTrig\n");
+      return p;
+    } }
+  auto p = make_shared<TrigBuf>(context, genMiddleTrig(SMALL_H, nH));
+  m[key] = p;
+  return p;
+}
+
+TrigPtr TrigBufCache::trigBHW(u32 W, u32 hN, u32 BIG_H) {
+  lock_guard lock{mut};
+  auto& m = bhw;
+  decay_t<decltype(m)>::key_type key{W, hN, BIG_H};
+  if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
+      log("Reused trigBHW\n");
+      return p;
+    } }
+  auto p = make_shared<TrigBuf>(context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H)));
+  m[key] = p;
+  return p;
+}
+
+TrigPtr TrigBufCache::trig2SH(u32 SMALL_H) {
+  lock_guard lock{mut};
+  auto& m = sh;
+  decay_t<decltype(m)>::key_type key{SMALL_H};
+  if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
+      log("Reused trig2SH\n");
+      return p;
+    } }
+  auto p = make_shared<TrigBuf>(context, makeTrig<double>(2 * SMALL_H));
+  m[key] = p;
+  return p;
+}
+
+Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, TrigBufCache* trigBufCache)
+  : Gpu{q, args, E, W, BIG_H, SMALL_H, nW, nH, trigBufCache, genWeights(E, W, BIG_H, nW)}
 {}
 
 using float2 = pair<float, float>;
@@ -315,7 +370,7 @@ using float2 = pair<float, float>;
 #define ROE_SIZE 111000
 
 Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         bool useLongCarry, Weights&& weights) :
+         TrigBufCache* cache, Weights&& weights) :
   E(E),
   N(W * BIG_H * 2),
   hN(N / 2),
@@ -323,7 +378,7 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   nH(nH),
   bufSize(N * sizeof(double)),
   WIDTH(W),
-  useLongCarry(useLongCarry),
+  useLongCarry{args.carry == Args::CARRY_LONG},
   // context{device},
   queue(q),
   
@@ -366,12 +421,12 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
 #undef K
 
-  bufTrigW{q->context, genSmallTrig(W, nW)},
-  bufTrigH{q->context, genSmallTrig(SMALL_H, nH)},
-  bufTrigM{q->context, genMiddleTrig(SMALL_H, BIG_H / SMALL_H)},
-  
-  bufTrigBHW{q->context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H))},
-  bufTrig2SH{q->context, makeTrig<double>(2 * SMALL_H)},
+  bufTrigW{cache->smallTrig(W, nW)},
+  bufTrigH{cache->smallTrig(SMALL_H, nH)},
+  bufTrigM{cache->middleTrig(SMALL_H, BIG_H / SMALL_H)},
+
+  bufTrigBHW{cache->trigBHW(W, hN, BIG_H)},
+  bufTrig2SH{cache->trig2SH(SMALL_H)},
 
   bufWeights{q->context, std::move(weights.weightsIF)},
   bufBits{q->context,    std::move(weights.bitsCF)},
@@ -403,7 +458,11 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   timeBufVect{profile.make("proofBufVect")},
   args{args}
 {
+  useLongCarry = useLongCarry || (E / float(N) < 10.5f);
+
+  if (useLongCarry) { log("Using long carry!\n"); }
   if (args.verbose) { log("Stats: %x\n", statsBits); }
+
   string commonArgs = clArgs(queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
   {
@@ -509,7 +568,7 @@ ROEInfo Gpu::readROE() {
   }
 }
 
-unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, const Args &args) {
+unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, const Args &args, TrigBufCache* trigBufCache) {
   FFTConfig config = getFFTConfig(E, args.fftSpec);
   u32 WIDTH        = config.width;
   u32 SMALL_HEIGHT = config.height;
@@ -532,11 +591,7 @@ unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, const Args &args) {
     throw "FFT size too large";
   }
 
-  bool useLongCarry = (bitsPerWord < 10.5f) || (args.carry == Args::CARRY_LONG);
-
-  if (useLongCarry) { log("Using long carry\n"); }
-
-  return make_unique<Gpu>(q, args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH, useLongCarry);
+  return make_unique<Gpu>(q, args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH, trigBufCache);
 }
 
 template<typename T>
