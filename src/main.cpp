@@ -15,6 +15,7 @@
 
 #include <filesystem>
 #include <thread>
+#include <cstdlib>
 
 namespace fs = std::filesystem;
 
