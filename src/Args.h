@@ -44,7 +44,7 @@ public:
   bool clean = true;
   bool verbose = false;
   bool useCache = false;
-  bool profile = true;
+  bool profile = false;
 
   u32 proofVerify = 10;
 
