@@ -23,7 +23,7 @@ public:
   string line; // the verbatim worktodo line, used in deleteTask().
 
   string verifyPath; // For Verify
-  void execute(Queue* q, const Args& args, TrigBufCache*);
+  void execute(Queue* q, const Args& args, TrigBufCache*, u32 instance);
 
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;
   void writeResultLL();

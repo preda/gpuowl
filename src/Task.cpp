@@ -137,7 +137,7 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
   writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
 }
 
-void Task::execute(Queue *q, const Args& args, TrigBufCache* bufCache) {
+void Task::execute(Queue *q, const Args& args, TrigBufCache* bufCache, u32 instance) {
   Proof proof{};
   if (kind == VERIFY) {
     proof = Proof::load(verifyPath);
@@ -162,7 +162,7 @@ void Task::execute(Queue *q, const Args& args, TrigBufCache* bufCache) {
   if (kind == PRP) {
     auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(args, *this);
     writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
-    Worktodo::deleteTask(*this, 0);
+    Worktodo::deleteTask(*this, instance);
     if (!isPrime) { Saver<PRPState>{exponent}.clear(); }
   } else if (kind == LL){
     auto [isPrime, res64] = gpu->isPrimeLL(args, *this);
