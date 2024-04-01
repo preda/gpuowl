@@ -13,6 +13,7 @@ add_executable(gpuowl bundle.cpp ProofCache.cpp Proof.cpp
   TimeInfo.cpp
   Profile.cpp
   Event.cpp
+  TrigBufCache.cpp
   )
 
 target_link_libraries(gpuowl OpenCL)
