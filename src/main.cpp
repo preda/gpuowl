@@ -20,7 +20,7 @@
 namespace fs = std::filesystem;
 
 void gpuWorker(Args& args, Queue *q, TrigBufCache* bufCache, i32 instance) {
-  LogContext context{(instance ? args.cpu : ""s) + to_string(instance) + ' '};
+  LogContext context{(instance ? args.tailDir() : ""s) + to_string(instance) + ' '};
   // log("Starting worker %d\n", instance);
   try {
     while (auto task = Worktodo::getTask(args, instance)) { task->execute(q, args, bufCache, instance); }
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
       args.readConfig("config.txt");
       args.parse(mainLine);
       poolDir = args.masterDir;
-      cpuNameContext = make_unique<LogContext>(args.cpu);
+      cpuNameContext = make_unique<LogContext>(args.tailDir());
     }
     
     Args args;

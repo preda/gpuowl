@@ -97,9 +97,8 @@ vector<string> tailFields(const std::string &AID, const Args &args) {
                  json("port", platform()),
                }),
           maybe("user", args.user),
-          maybe("computer", args.cpu),
           maybe("aid", AID),
-          maybe("uid", args.uid),
+          maybe("uid", args.uid.empty() ? args.tailDir() : args.uid),
           json("timestamp", timeStr())
   };
 }
