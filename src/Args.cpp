@@ -71,7 +71,7 @@ string Args::tailDir() const { return fs::path{dir}.filename().string(); }
 
 void Args::printHelp() {
   printf(R"(
-PRPLL is "PRobable Prime and Lucas-Lehmer Cathegorizer", AKA "Purple-cat"
+PRPLL is "PRobable Prime and Lucas-Lehmer Cathegorizer", AKA "Purrple-cat"
 PRPLL is under active development and not ready for production use.
 
 PRPLL is an OpenCL (GPU) program for primality testing Mersenne numbers (of the form 2^n - 1).

@@ -104,13 +104,10 @@ bool Proof::verify(Gpu *gpu) const {
     hash = proof::hashWords(E, hash, M);
     u64 h = hash[0];    
     
-    if (span % 2) {
-      B = gpu->expMul2(M, h, std::move(B));
-    } else {
-      B = gpu->expMul(M, h, std::move(B));
-    }
+    bool doSquareB = span % 2;
+    B = gpu->expMul(M, h, B, doSquareB);
 
-    A = gpu->expMul(A, h, M);
+    A = gpu->expMul(A, h, M, false);
 
     log("%u : A %016" PRIx64 ", B %016" PRIx64 ", h %016" PRIx64 "\n", i, res64(A), res64(B), h);
   }
