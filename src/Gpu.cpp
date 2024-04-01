@@ -9,7 +9,6 @@
 #include "FFTConfig.h"
 #include "Queue.h"
 #include "Task.h"
-#include "Memlock.h"
 #include "KernelCompiler.h"
 #include "Saver.h"
 #include "timeutil.h"
@@ -592,12 +591,12 @@ public:
 
 Words Gpu::expExp2(const Words& A, u32 n) {
   u32 logStep   = 10000;
-  u32 blockSize = logStep;
+  u32 blockSize = 100;
   
   writeIn(bufData, std::move(A));
   IterationTimer timer{0};
   u32 k = 0;
-  while (true) {
+  while (k < n) {
     u32 its = std::min(blockSize, n - k);
     squareLoop(bufData, 0, its);
     k += its;
@@ -606,7 +605,6 @@ Words Gpu::expExp2(const Words& A, u32 n) {
       float secsPerIt = timer.reset(k);
       log("%u / %u, %.0f us/it\n", k, n, secsPerIt * 1'000'000);
     }
-    if (k >= n) { break; }
   }
   return readData();
 }
@@ -833,8 +831,6 @@ u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
 // ----
 
 fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
-  Memlock memlock{args.masterDir, u32(args.device)};
-  
   for (int retry = 0; retry < 2; ++retry) {
     Proof proof = proofSet.computeProof(this);
     fs::path tmpFile = proof.file(args.proofToVerifyDir);

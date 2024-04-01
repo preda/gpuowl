@@ -190,8 +190,6 @@ class Gpu {
 
   void modMul(Buffer<int>& ioA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
   
-  u32 maxBuffers();
-
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
   ROEInfo readROE();
   
