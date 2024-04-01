@@ -67,6 +67,8 @@ u32 Args::getProofPow(u32 exponent) const {
   return (proofPow == -1) ? ProofSet::bestPower(exponent) : proofPow;
 }
 
+string Args::tailDir() const { return fs::path{dir}.filename().string(); }
+
 void Args::printHelp() {
   printf(R"(
 PRPLL is "PRobable Prime and Lucas-Lehmer Cathegorizer", AKA "Purple-cat"
@@ -99,7 +101,6 @@ named "config.txt" in the prpll run directory.
 -verbose           : print more log, useful for developers
 -version           : print only the version and exit
 -user <name>       : specify the mersenne.org user name (for result reporting)
--cpu  <name>       : specify a name of the GPU for result reporting to mersenne.org
 -workers <N>       : specify the number of parallel PRP tests to run (default 1)
 -fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
 -block <value>     : PRP error-check block size. Must divide 10'000.
@@ -268,7 +269,6 @@ void Args::parse(const string& line) {
     else if (key == "-fft") { fftSpec = s; }
     else if (key == "-dump") { dump = s; }
     else if (key == "-user") { user = s; }
-    else if (key == "-cpu") { cpu = s; }
     else if (key == "-device" || key == "-d") { device = stoi(s); }
     else if (key == "-uid") { device = getPosFromUid(s); }
     else if (key == "-pci") { device = getPosFromBdf(s); }

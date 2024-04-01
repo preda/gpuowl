@@ -27,10 +27,10 @@ public:
   int value(const std::string& key, int valNotFound = -1) const;
   void readConfig(const fs::path& path);
   u32 getProofPow(u32 exponent) const;
+  string tailDir() const;
   
   bool silent;
   string user;
-  string cpu;
   string dump;
   string dir;
   

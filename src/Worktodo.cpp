@@ -92,7 +92,7 @@ optional<Task> getWork(Args& args, i32 instance) {
   static mutex mut;
 
  again:
-  // Try to get a task from the local worktodo.txt
+  // Try to get a task from the local work file
   if (optional<Task> task = bestTask(workName(instance))) {
     return task;
   }
