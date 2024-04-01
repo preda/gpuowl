@@ -76,30 +76,31 @@ bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   return true;
 }
 
-std::optional<Task> firstGoodTask(const fs::path& fileName) {
+// Among the valid tasks from fileName, return the "best" which means with the smallest exponent
+static std::optional<Task> bestTask(const fs::path& fileName) {
+  optional<Task> best;
   for (const string& line : File::openRead(fileName)) {
-    if (optional<Task> maybeTask = parse(line)) { return maybeTask; }
+    optional<Task> task = parse(line);
+    if (task && (!best || task->exponent < best->exponent)) { best = task; }
   }
-  return nullopt;
+  return best;
 }
 
-string workName(i32 instance) {
-  return instance ? ("work-" + to_string(instance) + ".txt") : "worktodo.txt"s;
-}
+static string workName(i32 instance) { return "work-" + to_string(instance) + ".txt"; }
 
 optional<Task> getWork(Args& args, i32 instance) {
   static mutex mut;
 
  again:
   // Try to get a task from the local worktodo.txt
-  if (optional<Task> task = firstGoodTask(workName(instance))) {
+  if (optional<Task> task = bestTask(workName(instance))) {
     return task;
   }
 
   if (!args.masterDir.empty()) {
     fs::path globalWorktodo = args.masterDir / "worktodo.txt";
     lock_guard lock(mut);
-    if (optional<Task> task = firstGoodTask(globalWorktodo)) {
+    if (optional<Task> task = bestTask(globalWorktodo)) {
       File::append(workName(instance), task->line);
       deleteLine(globalWorktodo, task->line);
       goto again;
