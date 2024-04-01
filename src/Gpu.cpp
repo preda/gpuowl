@@ -851,39 +851,6 @@ fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
   throw "bad proof generation";
 }
 
-[[nodiscard]] vector<bool> addLE(const vector<bool>& a, const vector<bool>& b) {
-  vector<bool> c;
-  c.reserve(max(a.size(), b.size()) + 1);
-
-  u32 carry = 0;
-  auto ia = a.begin();
-  auto ib = b.begin();
-  for (; ia != a.end() && ib != b.end(); ++ia, ++ib) {
-    u32 s = *ia + *ib + carry;
-    c.push_back(s & 1u);
-    carry = (s >> 1);
-  }
-  for (auto it = ia == a.end() ? ib : ia, end = ia == a.end() ? b.end() : a.end(); it != end; ++it) {
-    u32 s = *it + carry;
-    c.push_back(s & 1u);
-    carry = (s >> 1);
-  }
-  if (carry) { c.push_back(1); }
-  while (!c.empty() && !c.back()) { c.pop_back(); }
-  return c;
-}
-
-vector<bool> takeTopBits(vector<bool>& v, u32 n) {
-  assert(v.size() >= n);
-  vector<bool> ret;
-  ret.reserve(n);
-  for (auto it = prev(v.end(), n), end = v.end(); it != end; ++it) {
-    ret.push_back(*it);
-  }
-  v.resize(v.size() - n);
-  return ret;
-}
-
 PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   u32 E = task.exponent;
   u32 k = 0, blockSize = 0;
