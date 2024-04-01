@@ -106,14 +106,13 @@ bool Proof::verify(Gpu *gpu) const {
     
     bool doSquareB = span % 2;
     B = gpu->expMul(M, h, B, doSquareB);
-
     A = gpu->expMul(A, h, M, false);
 
     log("%u : A %016" PRIx64 ", B %016" PRIx64 ", h %016" PRIx64 "\n", i, res64(A), res64(B), h);
   }
     
   log("proof verification: doing %d iterations\n", span);
-  A = gpu->expExp2(std::move(A), span);
+  A = gpu->expExp2(A, span);
 
   bool ok = (A == B);
   if (ok) {
