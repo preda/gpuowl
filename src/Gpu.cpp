@@ -474,29 +474,27 @@ vector<u32> Gpu::readCheck() { return readAndCompress(bufCheck); }
 vector<u32> Gpu::readData() { return readAndCompress(bufData); }
 
 // out := inA * inB;
-void Gpu::mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3) {
-    fftP(tmp1, inA);
+void Gpu::mul(Buffer<int>& ioA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3) {
+    fftP(tmp1, ioA);
     fftMidIn(tmp2, tmp1);
     tailMul(tmp1, inB, tmp2);
     fftMidOut(tmp2, tmp1);
     fftW(tmp1, tmp2);
-    if (mul3) { carryM(out, tmp1); } else { carryA(out, tmp1); }
-    carryB(out);
+    if (mul3) { carryM(ioA, tmp1); } else { carryA(ioA, tmp1); }
+    carryB(ioA);
 }
-
-// out := inA * inB;
-void Gpu::modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
-
-  fftP(buf1, inB);
-  fftMidIn(buf3, buf1);
-  
-  mul(out, inA, buf3, buf1, buf2, mul3);
-};
 
 void Gpu::mul(Buffer<int>& io, Buffer<double>& buf1) {
   // We know that mul() stores double output in buf1; so we're going to use buf2 & buf3 for temps.
-  mul(io, io, buf1, buf2, buf3, false);
+  mul(io, buf1, buf2, buf3, false);
 }
+
+// out := inA * inB;
+void Gpu::modMul(Buffer<int>& ioA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
+  fftP(buf1, inB);
+  fftMidIn(buf3, buf1);  
+  mul(ioA, buf3, buf1, buf2, mul3);
+};
 
 void Gpu::writeState(vector<u32>&& check, u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   assert(blockSize > 0);
@@ -507,7 +505,7 @@ void Gpu::writeState(vector<u32>&& check, u32 blockSize, Buffer<double>& buf1, B
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     squareLoop(bufData, 0, n);
-    modMul(bufData, bufData, bufAux, buf1, buf2, buf3);
+    modMul(bufData, bufAux, buf1, buf2, buf3);
     bufAux << bufData;
   }
   
@@ -519,16 +517,16 @@ void Gpu::writeState(vector<u32>&& check, u32 blockSize, Buffer<double>& buf1, B
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
     squareLoop(bufData, 0, n);
-    modMul(bufData, bufData, bufAux, buf1, buf2, buf3);
+    modMul(bufData, bufAux, buf1, buf2, buf3);
   }
   
   squareLoop(bufData, 0, n);
-  modMul(bufData, bufData, bufAux, buf1, buf2, buf3, true);
+  modMul(bufData, bufAux, buf1, buf2, buf3, true);
 }
   
 bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   squareLoop(bufAux, bufCheck, 0, blockSize, true);
-  modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);  
+  modMul(bufCheck, bufData, buf1, buf2, buf3);
   return isEqual(bufCheck, bufAux);
 }
 
@@ -616,36 +614,23 @@ Words Gpu::expExp2(const Words& A, u32 n) {
 // A:= A^h * B
 void Gpu::expMul(Buffer<i32>& A, u64 h, Buffer<i32>& B) {
   exponentiate(A, h, buf1, buf2, buf3);
-  modMul(A, A, B, buf1, buf2, buf3);
+  modMul(A, B, buf1, buf2, buf3);
 }
 
 // return A^x * B
-Words Gpu::expMul(const Words& A, u64 h, Words&& B) {
-  writeIn(bufData, std::move(A));
-  writeIn(bufCheck, std::move(B));
-  expMul(bufData, h, bufCheck);
-  return readData();
-}
-
-Words Gpu::expMul(const Words& A, u64 h, const Words& B) {
-  writeIn(bufData, std::move(A));
+Words Gpu::expMul(const Words& A, u64 h, const Words& B, bool doSquareB) {
   writeIn(bufCheck, B);
-  expMul(bufData, h, bufCheck);
-  return readData();
-}
+  if (doSquareB) { square(bufCheck); }
 
-Words Gpu::expMul2(const Words& A, u64 h, Words&& B) {
-  expMul(A, h, std::move(B));
-  modMul(bufData, bufData, bufCheck, buf1, buf2, buf3);
+  writeIn(bufData, A);
+  expMul(bufData, h, bufCheck);
   return readData();
 }
 
 void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   if (exp == 0) {
     bufInOut.set(1);
-  } else {
-    assert (exp > 1);
-
+  } else if (exp > 1) {
     fftP(buf2, bufInOut);
     fftMidIn(buf3, buf2);
     fftHin(buf1, buf3);
@@ -736,6 +721,8 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
     fftMidIn(buf1, buf2);
   }
 }
+
+void Gpu::square(Buffer<int>& io) { square(io, io, true, true, false, false); }
 
 u32 Gpu::squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3) {
   assert(from < to);
@@ -1001,7 +988,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       skipNextCheckUpdate = false;
     } else if (k % blockSize == 0) {
       if (leadIn) {
-        modMul(bufCheck, bufCheck, bufData, buf1, buf2, buf3);
+        modMul(bufCheck, bufData, buf1, buf2, buf3);
       } else {
         mul(bufCheck, buf1);
       }

@@ -160,6 +160,8 @@ class Gpu {
   void square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool doMul3, bool doLL = false);
   void squareLL(Buffer<int>& io, bool leadIn, bool leadOut) { square(io, io, leadIn, leadOut, false, true); }
 
+  void square(Buffer<int>& io);
+
   u32 squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool doTailMul3);
   u32 squareLoop(Buffer<int>& io, u32 from, u32 to) { return squareLoop(io, io, from, to, false); }
 
@@ -183,10 +185,10 @@ class Gpu {
   // does either carrryFused() or the expanded version depending on useLongCarry
   void doCarry(Buffer<double>& out, Buffer<double>& in);
 
-  void modMul(Buffer<int>& out, Buffer<int>& inA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
-  
-  void mul(Buffer<int>& out, Buffer<int>& inA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3 = false);
+  void mul(Buffer<int>& ioA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3 = false);
+  void mul(Buffer<int>& io, Buffer<double>& inB);
 
+  void modMul(Buffer<int>& ioA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
   
   u32 maxBuffers();
 
@@ -214,9 +216,6 @@ public:
   void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kCarryFusedMul(updatePos(1<<1), a, b);}
   void carryFusedLL(Buffer<double>& a, Buffer<double>& b)  { kCarryFusedLL(updatePos(1<<0), a, b);}
 
-  void mul(Buffer<int>& io, Buffer<double>& inB);
-  void square(Buffer<int>& data);
-
   vector<u32> readAndCompress(Buffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   
@@ -236,11 +235,10 @@ public:
   u32 getFFTSize() { return N; }
 
   // return A^h * B
-  Words expMul(const Words& A, u64 h, Words&& B);
-  Words expMul(const Words& A, u64 h, const Words& B);
+  Words expMul(const Words& A, u64 h, const Words& B, bool doSquareB);
 
   // return A^h * B^2
-  Words expMul2(const Words& A, u64 h, Words&& B);
+  Words expMul2(const Words& A, u64 h, const Words& B);
 
   // A:= A^h * B
   void expMul(Buffer<i32>& A, u64 h, Buffer<i32>& B);
@@ -248,5 +246,4 @@ public:
   // return A^(2^n)
   Words expExp2(const Words& A, u32 n);
   vector<Buffer<i32>> makeBufVector(u32 size);
-private:
 };
