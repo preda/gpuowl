@@ -115,7 +115,7 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   auto& m = small;
   decay_t<decltype(m)>::key_type key{W, nW};
   if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
-      log("Reused smallTrig\n");
+      // log("Reused smallTrig\n");
       return p;
     } }
   auto p = make_shared<TrigBuf>(context, genSmallTrig(W, nW));
@@ -128,7 +128,7 @@ TrigPtr TrigBufCache::middleTrig(u32 SMALL_H, u32 nH) {
   auto& m = middle;
   decay_t<decltype(m)>::key_type key{SMALL_H, nH};
   if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
-      log("Reused middleTrig\n");
+      // log("Reused middleTrig\n");
       return p;
     } }
   auto p = make_shared<TrigBuf>(context, genMiddleTrig(SMALL_H, nH));
@@ -141,7 +141,7 @@ TrigPtr TrigBufCache::trigBHW(u32 W, u32 hN, u32 BIG_H) {
   auto& m = bhw;
   decay_t<decltype(m)>::key_type key{W, hN, BIG_H};
   if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
-      log("Reused trigBHW\n");
+      // log("Reused trigBHW\n");
       return p;
     } }
   auto p = make_shared<TrigBuf>(context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H)));
@@ -154,7 +154,7 @@ TrigPtr TrigBufCache::trig2SH(u32 SMALL_H) {
   auto& m = sh;
   decay_t<decltype(m)>::key_type key{SMALL_H};
   if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
-      log("Reused trig2SH\n");
+      // log("Reused trig2SH\n");
       return p;
     } }
   auto p = make_shared<TrigBuf>(context, makeTrig<double>(2 * SMALL_H));
