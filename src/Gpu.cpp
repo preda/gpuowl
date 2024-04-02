@@ -244,7 +244,6 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   K(fftHout, "ffthout.cl", "fftHout", hN / nH),
 
   K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH / 2),
-  K(tailSquareLow, "tailsquare.cl", "tailSquare", hN / nH / 2, "-DMUL_LOW=1"),
   K(tailMul,       "tailmul.cl", "tailMul",       hN / nH / 2),
   K(tailMulLow,    "tailmul.cl", "tailMul",       hN / nH / 2, "-DMUL_LOW=1"),
   
@@ -314,7 +313,7 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
          &fftP, &fftW, &fftHin, &fftHout,
          &fftMidIn, &fftMidOut, &kCarryA, &kCarryM, &kCarryLL, &carryB,
          &transpIn, &transpOut,
-         &tailMulLow, &tailMul, &tailSquare, &tailSquareLow,
+         &tailMulLow, &tailMul, &tailSquare,
          &readResidue, &kernIsEqual, &sum64}) {
       k->load(compiler);
     }
@@ -341,7 +340,6 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   tailMulLow.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailSquare.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
-  tailSquareLow.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
   kernIsEqual.setFixedArgs(2, bufTrue, u32(N * sizeof(int)));
 
   bufReady.zero();
@@ -625,48 +623,44 @@ Words Gpu::expMul(const Words& A, u64 h, const Words& B, bool doSquareB) {
   return readData();
 }
 
+static bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
+
+void Gpu::bottomHalf(Buffer<double>& out, Buffer<double>& inTmp) {
+  fftMidIn(out, inTmp);
+  tailSquare(inTmp, out);
+  fftMidOut(out, inTmp);
+}
+
+// See "left-to-right binary exponentiation" on wikipedia
 void Gpu::exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
   if (exp == 0) {
     bufInOut.set(1);
   } else if (exp > 1) {
-    fftP(buf2, bufInOut);
-    fftMidIn(buf3, buf2);
-    fftHin(buf1, buf3);
-    exponentiateCore(buf2, buf1, exp, buf3);
+    fftP(buf3, bufInOut);
+    fftMidIn(buf2, buf3);
+    fftHin(buf1, buf2); // save "base" to buf1
+
+    int p = 63;
+    while (!testBit(exp, p)) { --p; }
+
+    for (--p; ; --p) {
+      bottomHalf(buf2, buf3);
+
+      if (testBit(exp, p)) {
+        doCarry(buf3, buf2);
+        fftMidIn(buf2, buf3);
+        tailMulLow(buf3, buf2, buf1);
+        fftMidOut(buf2, buf3);
+      }
+
+      if (!p) { break; }
+
+      doCarry(buf3, buf2);
+    }
+
     fftW(buf3, buf2);
     carryA(bufInOut, buf3);
     carryB(bufInOut);
-  }
-}
-
-namespace {
-bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
-}
-
-// See "left-to-right binary exponentiation" on wikipedia
-void Gpu::exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp) {
-  assert(exp >= 2);
-
-  tailSquareLow(tmp, base);
-  fftMidOut(out, tmp);
-  
-  int p = 63;
-  while (!testBit(exp, p)) { --p; }
-  
-  for (--p; ; --p) {
-    if (testBit(exp, p)) {
-      doCarry(tmp, out);
-      fftMidIn(out, tmp);
-      tailMulLow(tmp, out, base);
-      fftMidOut(out, tmp);
-    }
-    
-    if (!p) { break; }
-
-    doCarry(tmp, out);
-    fftMidIn(out, tmp);
-    tailSquare(tmp, out);
-    fftMidOut(out, tmp);
   }
 }
 
@@ -689,14 +683,9 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
   // useLongCarry always sets leadOut
   assert(!(useLongCarry && !leadOut));
 
-  if (leadIn) {
-    fftP(buf2, in);
-    fftMidIn(buf1, buf2);
-  }
+  if (leadIn) { fftP(buf2, in); }
   
-  tailSquare(buf2, buf1);
-  
-  fftMidOut(buf1, buf2);
+  bottomHalf(buf1, buf2);
 
   if (leadOut) {
     fftW(buf2, buf1);
@@ -716,7 +705,6 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
     } else {
       carryFusedMul(buf2, buf1);
     }
-    fftMidIn(buf1, buf2);
   }
 }
 
@@ -950,11 +938,14 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     if (skipNextCheckUpdate) {
       skipNextCheckUpdate = false;
     } else if (k % blockSize == 0) {
+      assert(leadIn);
+      modMul(bufCheck, bufData, buf1, buf2, buf3);
+      /*
       if (leadIn) {
-        modMul(bufCheck, bufData, buf1, buf2, buf3);
       } else {
         mul(bufCheck, buf1);
       }
+      */
     }
 
     ++k; // !! early inc
@@ -965,7 +956,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       doStop = Signal::stopRequested() || (args.iters && k - startK >= args.iters);
     }
 
-    bool leadOut = doStop || (k % 10000 == 0) || (k % blockSize == 0 && k >= kEndEnd) || k == persistK || k == kEnd || useLongCarry;
+    bool leadOut = doStop || (k % 10000 == 0) || (k % blockSize == 0) || k == persistK || k == kEnd || useLongCarry;
 
     square(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;    
@@ -1107,7 +1098,7 @@ LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
     squareLL(bufData, leadIn, leadOut);
 
     if (!doLog) {
-      // if (k % 500 == 499) { finish(); } // Periodically flush the queue
+      if (k % 100 == 99) { queue->finish(); } // Periodically flush the queue
       continue;
     }
 

@@ -92,7 +92,6 @@ class Gpu {
   Kernel fftHout;
 
   Kernel tailSquare;
-  Kernel tailSquareLow;
   Kernel tailMul;
   Kernel tailMulLow;
 
@@ -169,12 +168,11 @@ class Gpu {
   u64 bufResidue(Buffer<int>& buf);
   
   vector<u32> writeBase(const vector<u32> &v);
-
-  void exponentiateCore(Buffer<double>& out, const Buffer<double>& base, u64 exp, Buffer<double>& tmp);
   
   void exponentiate(Buffer<int>& bufInOut, u64 exp, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3);
 
-  void topHalf(Buffer<double>& out, Buffer<double>& inTmp);
+  void bottomHalf(Buffer<double>& out, Buffer<double>& inTmp);
+
   void writeState(vector<u32>&& check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
   
   Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,

@@ -31,14 +31,14 @@ string getBdfFromSysfs(int pos) {
 
 /* BDF is PCIe Bus:Device.Function e.g. "6a:00.0" */
 int getSysfsFromBdf(const string& wantBdf) {  
-  for (u32 pos = 0; filesystem::exists("/sys/class/drm/card"s + std::to_string(pos)); ++pos) {
+  for (u32 pos = 0; !pos || filesystem::exists("/sys/class/drm/card"s + std::to_string(pos)); ++pos) {
     if (wantBdf == getBdfFromSysfs(pos)) { return pos; }
   }
   return -1; // not found
 }
 
 int getSysfsFromUid(const string& wantUid) {
-  for (u32 pos = 0; filesystem::exists("/sys/class/drm/card"s + std::to_string(pos)); ++pos) {
+  for (u32 pos = 0; !pos || filesystem::exists("/sys/class/drm/card"s + std::to_string(pos)); ++pos) {
     if (File f = File::openRead("/sys/class/drm/card"s + std::to_string(pos) + "/device/unique_id")) {
       string uid = f.readLine();
       if (!uid.empty() && uid.back() == '\n') { uid.pop_back(); }
