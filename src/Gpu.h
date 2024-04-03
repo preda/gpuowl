@@ -173,7 +173,7 @@ class Gpu {
 
   void bottomHalf(Buffer<double>& out, Buffer<double>& inTmp);
 
-  void writeState(vector<u32>&& check, u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
+  void writeState(vector<u32>&& check, u32 blockSize);
   
   Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       TrigBufCache*, struct Weights&& weights);
@@ -186,7 +186,7 @@ class Gpu {
   void mul(Buffer<int>& ioA, Buffer<double>& inB, Buffer<double>& tmp1, Buffer<double>& tmp2, bool mul3 = false);
   void mul(Buffer<int>& io, Buffer<double>& inB);
 
-  void modMul(Buffer<int>& ioA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3 = false);
+  void modMul(Buffer<int>& ioA, Buffer<int>& inB, bool mul3 = false);
   
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
   ROEInfo readROE();
@@ -218,7 +218,7 @@ public:
   u64 dataResidue()  { return bufResidue(bufData); }
   u64 checkResidue() { return bufResidue(bufCheck); }
     
-  bool doCheck(u32 blockSize, Buffer<double>&, Buffer<double>&, Buffer<double>&);
+  bool doCheck(u32 blockSize);
 
   void logTimeKernels();
 

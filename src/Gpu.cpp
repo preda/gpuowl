@@ -487,13 +487,13 @@ void Gpu::mul(Buffer<int>& io, Buffer<double>& buf1) {
 }
 
 // out := inA * inB;
-void Gpu::modMul(Buffer<int>& ioA, Buffer<int>& inB, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3, bool mul3) {
-  fftP(buf1, inB);
-  fftMidIn(buf3, buf1);  
-  mul(ioA, buf3, buf1, buf2, mul3);
+void Gpu::modMul(Buffer<int>& ioA, Buffer<int>& inB, bool mul3) {
+  fftP(buf2, inB);
+  fftMidIn(buf1, buf2);
+  mul(ioA, buf1, buf2, buf3, mul3);
 };
 
-void Gpu::writeState(vector<u32>&& check, u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+void Gpu::writeState(vector<u32>&& check, u32 blockSize) {
   assert(blockSize > 0);
   writeIn(bufCheck, std::move(check));
   bufData << bufCheck;
@@ -502,7 +502,7 @@ void Gpu::writeState(vector<u32>&& check, u32 blockSize, Buffer<double>& buf1, B
   u32 n = 0;
   for (n = 1; blockSize % (2 * n) == 0; n *= 2) {
     squareLoop(bufData, 0, n);
-    modMul(bufData, bufAux, buf1, buf2, buf3);
+    modMul(bufData, bufAux);
     bufAux << bufData;
   }
   
@@ -514,16 +514,16 @@ void Gpu::writeState(vector<u32>&& check, u32 blockSize, Buffer<double>& buf1, B
   
   for (u32 i = 0; i < blockSize - 2; ++i) {
     squareLoop(bufData, 0, n);
-    modMul(bufData, bufAux, buf1, buf2, buf3);
+    modMul(bufData, bufAux);
   }
   
   squareLoop(bufData, 0, n);
-  modMul(bufData, bufAux, buf1, buf2, buf3, true);
+  modMul(bufData, bufAux, true);
 }
   
-bool Gpu::doCheck(u32 blockSize, Buffer<double>& buf1, Buffer<double>& buf2, Buffer<double>& buf3) {
+bool Gpu::doCheck(u32 blockSize) {
   squareLoop(bufAux, bufCheck, 0, blockSize, true);
-  modMul(bufCheck, bufData, buf1, buf2, buf3);
+  modMul(bufCheck, bufData);
   return isEqual(bufCheck, bufAux);
 }
 
@@ -610,7 +610,7 @@ Words Gpu::expExp2(const Words& A, u32 n) {
 // A:= A^h * B
 void Gpu::expMul(Buffer<i32>& A, u64 h, Buffer<i32>& B) {
   exponentiate(A, h, buf1, buf2, buf3);
-  modMul(A, B, buf1, buf2, buf3);
+  modMul(A, B);
 }
 
 // return A^x * B
@@ -859,7 +859,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   {
     PRPState loaded = saver.load();
         
-    writeState(std::move(loaded.check), loaded.blockSize, buf1, buf2, buf3);
+    writeState(std::move(loaded.check), loaded.blockSize);
         
     u64 res = dataResidue();
     if (res == loaded.res64) {
@@ -939,13 +939,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       skipNextCheckUpdate = false;
     } else if (k % blockSize == 0) {
       assert(leadIn);
-      modMul(bufCheck, bufData, buf1, buf2, buf3);
-      /*
-      if (leadIn) {
-      } else {
-        mul(bufCheck, buf1);
-      }
-      */
+      modMul(bufCheck, bufData);
     }
 
     ++k; // !! early inc
@@ -1012,7 +1006,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       float secsPerIt = iterationTimer.reset(k);
 
       Words check = readCheck();
-      bool ok = !check.empty() && this->doCheck(blockSize, buf1, buf2, buf3);
+      bool ok = !check.empty() && this->doCheck(blockSize);
 
       float secsCheck = iterationTimer.reset(k);
         
