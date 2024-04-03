@@ -151,6 +151,8 @@ ProofSet::ProofSet(u32 E, u32 power)
   assert(points.back() < E);
   points.push_back(E);
   assert(points.size() == (1u << power));
+  points.push_back(u32(-1)); // guard element
+  cacheIt = points.begin();
 }
 
 bool ProofSet::canDo(u32 E, u32 power, u32 currentK) {
@@ -212,8 +214,10 @@ bool ProofSet::isValidTo(u32 limitK) const {
 }
 
 u32 ProofSet::next(u32 k) const {
-  auto it = upper_bound(points.begin(), points.end(), k);
-  return (it == points.end()) ? u32(-1) : *it;
+  if (*cacheIt <= k || (cacheIt > points.begin() && *prev(cacheIt) > k)) {
+    cacheIt = upper_bound(points.begin(), points.end(), k);
+  }
+  return *cacheIt;
 }
 
 void ProofSet::save(u32 k, const Words& words) {
