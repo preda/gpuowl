@@ -921,7 +921,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   const u32 kEnd = E;
   assert(k < kEnd);
 
-  // We continue beyound kEnd: up to the next multiple of 1024 if proof is enabled (kProofEnd), and up to the next blockSize
+  // We continue beyound kEnd: to the next multiple of blockSize, to do a check there
   u32 kEndEnd = roundUp(kEnd, blockSize);
 
   bool skipNextCheckUpdate = false;

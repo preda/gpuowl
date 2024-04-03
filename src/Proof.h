@@ -67,6 +67,8 @@ private:
 
   static bool canDo(u32 E, u32 power, u32 currentK);
 
+  mutable decltype(points)::const_iterator cacheIt{};
+
 public:
   
   static u32 bestPower(u32 E);
