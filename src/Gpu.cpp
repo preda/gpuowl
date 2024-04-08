@@ -441,8 +441,12 @@ vector<u32> Gpu::readAndCompress(Buffer<int>& buf)  {
     sum64(bufSumOut, u32(buf.size * sizeof(int)), buf);
     
     vector<u64> expectedVect(1);
+
+    Timer t;
     bufSumOut.readAsync(expectedVect);
     vector<int> data = readOut(buf);
+    log("read %f\n", t.reset());
+
     u64 gpuSum = expectedVect[0];
     
     u64 hostSum = 0;
@@ -980,7 +984,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     }
 
     if (k == kEnd) {
-      auto words = readData();
+      Words words = readData();
       isPrime = equals9(words);
       doDiv9(E, words);
       finalRes64 = residue(words);

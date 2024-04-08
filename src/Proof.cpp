@@ -1,7 +1,6 @@
 // Copyright (C) Mihai Preda.
 
 #include "Proof.h"
-#include "ProofCache.h"
 #include "Sha3Hash.h"
 #include "MD5.h"
 #include "Gpu.h"
@@ -190,6 +189,10 @@ u32 ProofSet::effectivePower(u32 E, u32 power, u32 currentK) {
   return 0; // unreachable
 }
     
+bool ProofSet::fileExists(u32 k) const {
+  return File::size(proofPath / to_string(k)) == i64(E / 32 + 2) * 4;
+}
+
 bool ProofSet::isValidTo(u32 limitK) const {
   auto it = upper_bound(points.begin(), points.end(), limitK);
 
@@ -205,9 +208,7 @@ bool ProofSet::isValidTo(u32 limitK) const {
   }
 
   while (it != points.begin()) {
-    if (!cache.checkExists(*--it)) {
-      return false;
-    }
+    if (!fileExists(*--it)) { return false; }
   }
   
   return true;
@@ -223,13 +224,29 @@ u32 ProofSet::next(u32 k) const {
 void ProofSet::save(u32 k, const Words& words) {
   assert(k > 0 && k <= E);
   assert(k == *lower_bound(points.begin(), points.end(), k));
-  cache.save(k, words);
+
+  {
+    File f = File::openWrite(proofPath / to_string(k));
+    f.write(words);
+    f.write<u32>({crc32(words)});
+  }
+
+  assert(words == load(k));
 }
 
 Words ProofSet::load(u32 k) const {
   assert(k > 0 && k <= E);
   assert(k == *lower_bound(points.begin(), points.end(), k));
-  return cache.load(k);
+
+  File f = File::openReadThrow(proofPath / to_string(k));
+  vector<u32> words = f.read<u32>(E / 32 + 2);
+  u32 checksum = words.back();
+  words.pop_back();
+  if (checksum != crc32(words)) {
+    log("checksum %x (expected %x) in '%s'\n", crc32(words), checksum, f.name.c_str());
+    throw fs::filesystem_error{"checksum mismatch", {}};
+  }
+  return words;
 }
 
 Proof ProofSet::computeProof(Gpu *gpu) const {

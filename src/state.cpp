@@ -3,6 +3,7 @@
 #include "state.h"
 #include "shared.h"
 #include "log.h"
+#include "timeutil.h"
 
 #include <cassert>
 #include <cmath>
@@ -25,6 +26,7 @@ static u32 unbalance(int w, int nBits, int *carry) {
 }
 
 std::vector<u32> compactBits(const vector<int> &dataVect, u32 E) {
+  Timer t;
   std::vector<u32> out;
   out.reserve((E - 1) / 32 + 1);
 
@@ -64,6 +66,7 @@ std::vector<u32> compactBits(const vector<int> &dataVect, u32 E) {
   }
 
   assert(out.size() == (E - 1) / 32 + 1);
+  log("compact %f\n", t.reset());
   return out;
 }
 

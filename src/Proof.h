@@ -3,7 +3,6 @@
 #pragma once
 
 #include "File.h"
-#include "ProofCache.h"
 #include "common.h"
 
 namespace fs = std::filesystem;
@@ -59,7 +58,7 @@ public:
   
 private:  
   fs::path proofPath;
-  ProofCache cache{E, proofPath};
+  // ProofCache cache{E, proofPath};
 
   vector<u32> points;  
   
@@ -69,6 +68,7 @@ private:
 
   mutable decltype(points)::const_iterator cacheIt{};
 
+  bool fileExists(u32 k) const;
 public:
   
   static u32 bestPower(u32 E);
