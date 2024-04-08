@@ -2,6 +2,7 @@
 
 #include "Worktodo.h"
 
+#include "CycleFile.h"
 #include "Task.h"
 #include "File.h"
 #include "common.h"
@@ -46,34 +47,26 @@ std::optional<Task> parse(const std::string& line) {
   return std::nullopt;
 }
 
-static void cycle(const fs::path& name) {
-  std::error_code dummy;
-  fs::remove(name + ".bak");
-  fs::rename(name, name + ".bak", dummy);
-  fs::rename(name + ".new", name, dummy);
-}
-
 bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
   assert(!targetLine.empty());
   bool lineDeleted = false;
-  {
-    auto fo{File::openWrite(fileName + ".new")};
-    for (const string& line : File::openReadThrow(fileName)) {
-      // log("line '%s'\n", line.c_str());
-      if (!lineDeleted && line == targetLine) {
-        lineDeleted = true;
-      } else {
-        fo.write(line);
-      }
+
+  CycleFile fo{fileName};
+  for (const string& line : File::openReadThrow(fileName)) {
+    // log("line '%s'\n", line.c_str());
+    if (!lineDeleted && line == targetLine) {
+      lineDeleted = true;
+    } else {
+      fo->write(line);
     }
   }
 
   if (!lineDeleted) {
-    log("'%s': could not find the line '%s' to delete\n", fileName.string().c_str(), targetLine.c_str());
-    return false;
+    log("'%s': did not find the line '%s' to delete\n", fileName.string().c_str(), targetLine.c_str());
+    fo.reset();
   }
-  cycle(fileName);
-  return true;
+
+  return lineDeleted;
 }
 
 // Among the valid tasks from fileName, return the "best" which means with the smallest exponent

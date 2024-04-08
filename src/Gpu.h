@@ -6,6 +6,7 @@
 #include "Context.h"
 #include "Queue.h"
 
+#include "Saver.h"
 #include "common.h"
 #include "Kernel.h"
 #include "Profile.h"
@@ -173,7 +174,7 @@ class Gpu {
 
   void bottomHalf(Buffer<double>& out, Buffer<double>& inTmp);
 
-  void writeState(vector<u32>&& check, u32 blockSize);
+  void writeState(const vector<u32>& check, u32 blockSize);
   
   Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       TrigBufCache*, struct Weights&& weights);
@@ -192,6 +193,8 @@ class Gpu {
   ROEInfo readROE();
   
   u32 updatePos(u32 bit) { return (statsBits & bit) ? roePos++ : roePos; }
+
+  bool loadPRP(Saver<PRPState>& saver, u64& lastFailedRes64, u32& outK, u32& outBlockSize, u32& nErrors);
 
 public:
   const Args& args;
@@ -242,4 +245,6 @@ public:
   // return A^(2^n)
   Words expExp2(const Words& A, u32 n);
   vector<Buffer<i32>> makeBufVector(u32 size);
+private:
+  u32 getProofPower(u32 k);
 };

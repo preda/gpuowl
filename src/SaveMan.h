@@ -34,6 +34,7 @@ public:
   File write(u32 k);
   File readLast();
 
+
   void removeAll();
   u32 getLastK() const { return lastK; }
 };
