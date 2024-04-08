@@ -15,7 +15,6 @@
 #include "TrigBufCache.h"
 
 #include <algorithm>
-#include <optional>
 #include <bitset>
 #include <limits>
 #include <iomanip>
@@ -493,9 +492,9 @@ void Gpu::modMul(Buffer<int>& ioA, Buffer<int>& inB, bool mul3) {
   mul(ioA, buf1, buf2, buf3, mul3);
 };
 
-void Gpu::writeState(vector<u32>&& check, u32 blockSize) {
+void Gpu::writeState(const vector<u32>& check, u32 blockSize) {
   assert(blockSize > 0);
-  writeIn(bufCheck, std::move(check));
+  writeIn(bufCheck, check);
   bufData << bufCheck;
   bufAux  << bufCheck;
   
@@ -839,78 +838,91 @@ fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
   throw "bad proof generation";
 }
 
-PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
-  u32 E = task.exponent;
-  u32 k = 0, blockSize = 0;
-  u32 nErrors = 0;
-  
-  u32 power = -1;
-  u32 startK = 0;
+bool Gpu::loadPRP(Saver<PRPState>& saver, u64& lastFailedRes64, u32& outK, u32& outBlockSize, u32& nErrors) {
+  PRPState loaded = saver.load();
+  PRPState quickLoad = saver.unverifiedLoad();
+  u64 res{};
 
-  Saver<PRPState> saver{E};
+  if (quickLoad.k > loaded.k) {
+    writeState(quickLoad.check, quickLoad.blockSize);
+    res = dataResidue();
+    if (res != quickLoad.res64) {
+      log("EE %9u quick load: %016" PRIx64 " vs. %016" PRIx64 "\n", quickLoad.k, res, quickLoad.res64);
+      saver.dropUnverified();
+      return false;
+    }
 
-  // Used to detect a repetitive failure, which is more likely to indicate a software rather than a HW problem.
-  std::optional<u64> lastFailedRes64;
-
-  // Number of sequential errors (with no success in between). If this ever gets high enough, stop.
-  int nSeqErrors = 0;
-  
- reload:
-  {
-    PRPState loaded = saver.load();
-        
-    writeState(std::move(loaded.check), loaded.blockSize);
-        
-    u64 res = dataResidue();
-    if (res == loaded.res64) {
-      log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res);
-      // On the OK branch do not clear lastFailedRes64 -- we still want to compare it with the GEC check.
-    } else {
+    outK = quickLoad.k;
+    outBlockSize = quickLoad.blockSize;
+    if (nErrors == 0) { nErrors = quickLoad.nErrors; }
+    assert(nErrors >= quickLoad.nErrors);
+  } else {
+    writeState(loaded.check, loaded.blockSize);
+    res = dataResidue();
+    if (res != loaded.res64) {
       log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", loaded.k, res, loaded.res64);
-      if (lastFailedRes64 && res == *lastFailedRes64) {
+      if (res == lastFailedRes64) {
         throw "error on load";
       }
       lastFailedRes64 = res;
-      goto reload;
+      return false;
     }
-    
-    k = loaded.k;
-    blockSize = loaded.blockSize;
+
+    outK = loaded.k;
+    outBlockSize = loaded.blockSize;
     if (nErrors == 0) { nErrors = loaded.nErrors; }
     assert(nErrors >= loaded.nErrors);
   }
 
-  assert(blockSize > 0 && 10000 % blockSize == 0);
+  log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", outK, outBlockSize, res);
+  return true;
+}
+
+u32 Gpu::getProofPower(u32 k) {
+  u32 power = ProofSet::effectivePower(E, args.getProofPow(E), k);
+
+  if (power != args.getProofPow(E)) {
+    log("Proof using power %u (vs %u)\n", power, args.getProofPow(E));
+  }
+
+  if (!power) {
+    log("Proof generation disabled\n");
+  } else {
+    if (power > ProofSet::bestPower(E)) {
+      log("Warning: proof power %u is excessively large; use at most power %u\n", power, ProofSet::bestPower(E));
+    }
+
+    log("Proof of power %u requires about %.1fGB of disk space\n", power, ProofSet::diskUsageGB(E, power));
+  }
+  return power;
+}
+
+PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
+  const constexpr u32 LOG_STEP = 20'000; // log every 20k its
+  const constexpr u32 FLUSH_STEP = 100; // empty queue every its
+
+  u32 E = task.exponent;
+  u32 k = 0;
+  u32 blockSize = 0;
+  u32 nErrors = 0;
+  int nSeqErrors = 0;
+  u64 lastFailedRes64{};
+
+  Saver<PRPState> saver{E};
+  
+ reload:
+  while(!loadPRP(saver, lastFailedRes64, k, blockSize, nErrors));
+
+  assert(blockSize > 0 && LOG_STEP % blockSize == 0);
   
   u32 checkStep = checkStepForErrors(args.logStep, nErrors);
-  assert(checkStep % 10000 == 0);
+  assert(checkStep % LOG_STEP == 0);
 
-  if (!startK) { startK = k; }
-
-  if (power == u32(-1)) {
-    power = ProofSet::effectivePower(E, args.getProofPow(E), startK);
-    
-    if (power != args.getProofPow(E)) {
-      log("Proof using power %u (vs %u)\n", power, args.getProofPow(E));
-    }
-    
-    if (!power) {
-      log("Proof generation disabled\n");
-    } else {
-      if (power > ProofSet::bestPower(E)) {
-        log("Warning: proof power %u is excessively large; use at most power %u\n",
-            power, ProofSet::bestPower(E));
-      }
-
-      log("Proof of power %u requires about %.1fGB of disk space\n",
-          power, ProofSet::diskUsageGB(E, power));
-    }
-  }
+  u32 power = getProofPower(k);
   
   ProofSet proofSet{E, power};
 
   bool isPrime = false;
-  IterationTimer iterationTimer{startK};
 
   u64 finalRes64 = 0;
 
@@ -932,6 +944,9 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   assert(k % blockSize == 0);
   assert(checkStep % blockSize == 0);
 
+  u32 startK = k;
+  IterationTimer iterationTimer{k};
+
   while (true) {
     assert(k < kEndEnd);
     
@@ -944,13 +959,11 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
 
     ++k; // !! early inc
 
-    bool doStop = false;
+    bool doStop = (k % blockSize == 0) && (Signal::stopRequested() || (args.iters && k - startK >= args.iters));
+    bool leadOut = (k % blockSize == 0) || k == persistK || k == kEnd || useLongCarry;
 
-    if (k % blockSize == 0) {
-      doStop = Signal::stopRequested() || (args.iters && k - startK >= args.iters);
-    }
-
-    bool leadOut = doStop || (k % 10000 == 0) || (k % blockSize == 0) || k == persistK || k == kEnd || useLongCarry;
+    assert(!doStop || leadOut);
+    if (doStop) { log("Stopping, please wait..\n"); }
 
     square(bufData, bufData, leadIn, leadOut, false);
     leadIn = leadOut;    
@@ -974,18 +987,33 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
     }
 
-    if (!leadOut) {
-      if (k % blockSize == 0) { queue->finish(); }
+    bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
+    bool doLog = k % LOG_STEP == 0;
+
+    if (!leadOut || (!doCheck && !doLog)) {
+      if (k % FLUSH_STEP == 0) { queue->finish(); }
       continue;
     }
 
-    u64 res = dataResidue(); // implies finish()
-    bool doCheck = !res || doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
-      
-    if (k % 10000 == 0 && !doCheck) {
-      auto roeInfo = readROE();
-      float secsPerIt = iterationTimer.reset(k);
+    assert(doCheck || doLog);
+    u64 res = dataResidue();
+    float secsPerIt = iterationTimer.reset(k);
 
+    Words check = readCheck();
+    if (check.empty()) {
+      ++nErrors;
+      log("%9u %016" PRIx64 " read NULL check\n", k, res);
+      if (++nSeqErrors > 2) { throw "sequential errors"; }
+      goto reload;
+    }
+      
+    if (!doCheck) {
+      // auto roeInfo = readROE(); // finish
+      float readCheckSecs = iterationTimer.reset(k);
+      saver.unverifiedSave({E, k, blockSize, res, check, nErrors});
+      float saveSecs = iterationTimer.reset(k);
+
+#if 0
       if (roeInfo.N) {
         Stats &roe = roeInfo.roe;
         log("%9u %s %4.0f; %s %.3f N=%u z=%.1f\n",
@@ -993,26 +1021,19 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
             (statsBits & 0x10 ) ? "Carry" : "ROE",
             roe.max, roeInfo.N, roe.z(.5f));
       } else {
-        log("%9u %s %4.0f\n",
-            k, hex(res).c_str(), secsPerIt * 1'000'000);
-      }
-    }
-      
-    if (doStop) { log("Stopping, please wait..\n"); }
-            
-    if (doCheck) {
+#endif
+        log("%9u %s %4.0f; save %.0fms + %.0fms\n", k, hex(res).c_str(), secsPerIt * 1'000'000,
+            readCheckSecs * 1000, saveSecs * 1000);
+//      }
+    } else {
       // if (printStats) { printRoundoff(E); }
-
-      float secsPerIt = iterationTimer.reset(k);
-
-      Words check = readCheck();
-      bool ok = !check.empty() && this->doCheck(blockSize);
-
+      assert(!check.empty());
+      bool ok = this->doCheck(blockSize);
       float secsCheck = iterationTimer.reset(k);
-        
+
       if (ok) {
         nSeqErrors = 0;
-        lastFailedRes64.reset();
+        lastFailedRes64 = 0;
         skipNextCheckUpdate = true;
 
         if (k < kEnd) { saver.save({E, k, blockSize, res, check, nErrors}); }
@@ -1026,13 +1047,13 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
           return {isPrime, finalRes64, nErrors, proofFile.string()};
         }        
       } else {
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
         ++nErrors;
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
         if (++nSeqErrors > 2) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
           throw "too many errors";
         }
-        if (lastFailedRes64 && (res == *lastFailedRes64)) {
+        if (res == lastFailedRes64) {
           log("Consistent error %016" PRIx64 ", will stop.\n", res);
           throw "consistent error";
         }

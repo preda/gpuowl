@@ -31,6 +31,7 @@ struct LLState {
 template<typename State>
 class Saver {
   std::unique_ptr<SaveMan> man;
+  u32 exponent;
 
 public:
   Saver(u32 exponent);
@@ -39,4 +40,9 @@ public:
   State load();
   void save(const State& s);
   void clear();
+
+  // For PRP, we can save a verified save (see save() above) or an unverified save.
+  void unverifiedSave(const PRPState& s);
+  PRPState unverifiedLoad();
+  void dropUnverified();
 };

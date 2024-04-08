@@ -79,14 +79,7 @@ public:
   File& operator=(const File& other) = delete;
   File& operator=(File&& other) = delete;
 
-  ~File() {
-    if (!f) { return; }
-
-    if (!readOnly) { datasync(); }
-
-    fclose(f);
-    f = nullptr;
-  }
+  ~File();
   
   class It {
   public:
@@ -112,12 +105,12 @@ public:
   It end() { return It{}; }
   
   template<typename T>
-  void write(const vector<T>& v) { write(v.data(), v.size() * sizeof(T)); }
+  void write(const vector<T>& v) const { write(v.data(), v.size() * sizeof(T)); }
 
   template<typename T>
-  void write(const T& x) { write(&x, sizeof(T)); }
+  void write(const T& x) const { write(&x, sizeof(T)); }
 
-  void write(const void* data, u32 nBytes) {
+  void write(const void* data, u32 nBytes) const {
     if (!fwrite(data, nBytes, 1, get())) { throw(std::ios_base::failure((name + ": can't write data").c_str())); }
   }
   
@@ -130,7 +123,7 @@ public:
 
   void flush() { fflush(get()); }
   
-  int printf(const char *fmt, ...) __attribute__((format(printf, 2, 3))) {
+  int printf(const char *fmt, ...) const __attribute__((format(printf, 2, 3))) {
     va_list va;
     va_start(va, fmt);
     int ret = vfprintf(f, fmt, va);

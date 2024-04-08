@@ -104,7 +104,6 @@ File SaveMan::write(u32 k)
   return f;
 }
 
-File SaveMan::readLast()
-{
-  return lastK ? File::openRead(path(lastK)) : File{};
+File SaveMan::readLast() {
+  return lastK ? File::openReadThrow(path(lastK)) : File{};
 }
