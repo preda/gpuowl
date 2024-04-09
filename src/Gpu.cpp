@@ -206,8 +206,6 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   : Gpu{q, args, E, W, BIG_H, SMALL_H, nW, nH, trigBufCache, genWeights(E, W, BIG_H, nW)}
 {}
 
-using float2 = pair<float, float>;
-
 #define ROE_SIZE 111000
 
 Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
@@ -436,40 +434,38 @@ unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, const Args &args, TrigBufCache* trigB
 template<typename T>
 static bool isAllZero(vector<T> v) { return std::all_of(v.begin(), v.end(), [](T x) { return x == 0;}); }
 
-vector<u32> Gpu::readAndCompress(Buffer<int>& buf)  {
+// Read from GPU, verifying the transfer with a sum, and retry on failure.
+vector<int> Gpu::readChecked(Buffer<int>& buf) {
   for (int nRetry = 0; nRetry < 3; ++nRetry) {
     sum64(bufSumOut, u32(buf.size * sizeof(int)), buf);
-    
+
     vector<u64> expectedVect(1);
 
-    Timer t;
     bufSumOut.readAsync(expectedVect);
     vector<int> data = readOut(buf);
-    log("read %f\n", t.reset());
 
     u64 gpuSum = expectedVect[0];
-    
+
     u64 hostSum = 0;
     for (auto it = data.begin(), end = data.end(); it < end; it += 2) {
       hostSum += u32(*it) | (u64(*(it + 1)) << 32);
     }
 
-    if (hostSum != gpuSum) {
-      log("GPU read failed: %016" PRIx64 " (gpu) != %016" PRIx64 " (host)\n", gpuSum, hostSum);
-      continue; // have another try
+    if (hostSum == gpuSum) {
+      // A buffer containing all-zero is exceptional, so mark that through the empty vector.
+      if (gpuSum == 0 && isAllZero(data)) {
+        log("Read ZERO\n");
+        return {};
+      }
+      return data;
     }
 
-    // A buffer containing all-zero is exceptional, so mark that through the empty vector.
-    if (gpuSum == 0 && isAllZero(data)) {
-      log("Read ZERO\n");
-      return {};
-    }
-
-    return compactBits(std::move(data), E);
+    log("GPU read failed: %016" PRIx64 " (gpu) != %016" PRIx64 " (host)\n", gpuSum, hostSum);
   }
   throw "GPU persistent read errors";
 }
 
+Words Gpu::readAndCompress(Buffer<int>& buf)  { return compactBits(readChecked(buf), E); }
 vector<u32> Gpu::readCheck() { return readAndCompress(bufCheck); }
 vector<u32> Gpu::readData() { return readAndCompress(bufData); }
 
@@ -1003,8 +999,8 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
     u64 res = dataResidue();
     float secsPerIt = iterationTimer.reset(k);
 
-    Words check = readCheck();
-    if (check.empty()) {
+    vector<int> rawCheck = readChecked(bufCheck);
+    if (rawCheck.empty()) {
       ++nErrors;
       log("%9u %016" PRIx64 " read NULL check\n", k, res);
       if (++nSeqErrors > 2) { throw "sequential errors"; }
@@ -1013,29 +1009,28 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       
     if (!doCheck) {
       // auto roeInfo = readROE(); // finish
-      float readCheckSecs = iterationTimer.reset(k);
-      saver.unverifiedSave({E, k, blockSize, res, check, nErrors});
-      float saveSecs = iterationTimer.reset(k);
+      background([=, &saver] {
+        saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
+      });
+      log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
 
-#if 0
+/*
       if (roeInfo.N) {
         Stats &roe = roeInfo.roe;
         log("%9u %s %4.0f; %s %.3f N=%u z=%.1f\n",
             k, hex(res).c_str(), secsPerIt * 1'000'000,
             (statsBits & 0x10 ) ? "Carry" : "ROE",
             roe.max, roeInfo.N, roe.z(.5f));
-      } else {
-#endif
-        log("%9u %s %4.0f; save %.0fms + %.0fms\n", k, hex(res).c_str(), secsPerIt * 1'000'000,
-            readCheckSecs * 1000, saveSecs * 1000);
-//      }
+      }
+*/
     } else {
-      // if (printStats) { printRoundoff(E); }
-      assert(!check.empty());
       bool ok = this->doCheck(blockSize);
-      float secsCheck = iterationTimer.reset(k);
 
       if (ok) {
+        Words check = compactBits(rawCheck, E);
+        assert(!check.empty());
+        float secsCheck = iterationTimer.reset(k);
+
         nSeqErrors = 0;
         lastFailedRes64 = 0;
         skipNextCheckUpdate = true;
@@ -1052,7 +1047,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
         }        
       } else {
         ++nErrors;
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
+        doBigLog(E, k, res, ok, secsPerIt, 0, 0, kEndEnd, nErrors);
         if (++nSeqErrors > 2) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
           throw "too many errors";

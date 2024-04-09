@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "Background.h"
 #include "Buffer.h"
 #include "Context.h"
 #include "Queue.h"
@@ -25,7 +26,6 @@ class ProofSet;
 class TrigBufCache;
 
 using double2 = pair<double, double>;
-using float2 = pair<float, float>;
 using TrigBuf = Buffer<double2>;
 using TrigPtr = shared_ptr<TrigBuf>;
 
@@ -151,6 +151,7 @@ class Gpu {
 
   unsigned statsBits;
   TimeInfo* timeBufVect;
+  Background background{};
 
   vector<int> readSmall(Buffer<int>& buf, u32 start);
   
@@ -179,8 +180,6 @@ class Gpu {
   Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
       TrigBufCache*, struct Weights&& weights);
 
-  void printRoundoff(u32 E);
-
   // does either carrryFused() or the expanded version depending on useLongCarry
   void doCarry(Buffer<double>& out, Buffer<double>& in);
 
@@ -195,6 +194,8 @@ class Gpu {
   u32 updatePos(u32 bit) { return (statsBits & bit) ? roePos++ : roePos; }
 
   bool loadPRP(Saver<PRPState>& saver, u64& lastFailedRes64, u32& outK, u32& outBlockSize, u32& nErrors);
+
+  vector<int> readChecked(Buffer<int>& buf);
 
 public:
   const Args& args;
@@ -215,7 +216,6 @@ public:
   void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kCarryFusedMul(updatePos(1<<1), a, b);}
   void carryFusedLL(Buffer<double>& a, Buffer<double>& b)  { kCarryFusedLL(updatePos(1<<0), a, b);}
 
-  vector<u32> readAndCompress(Buffer<int>& buf);
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   
   u64 dataResidue()  { return bufResidue(bufData); }
@@ -225,6 +225,7 @@ public:
 
   void logTimeKernels();
 
+  Words readAndCompress(Buffer<int>& buf);
   vector<u32> readCheck();
   vector<u32> readData();
 
