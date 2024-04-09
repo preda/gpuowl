@@ -224,29 +224,27 @@ u32 ProofSet::next(u32 k) const {
 void ProofSet::save(u32 k, const Words& words) {
   assert(k > 0 && k <= E);
   assert(k == *lower_bound(points.begin(), points.end(), k));
-
-  {
-    File f = File::openWrite(proofPath / to_string(k));
-    f.write(words);
-    f.write<u32>({crc32(words)});
-  }
-
-  assert(words == load(k));
+  File::openWrite(proofPath / to_string(k)).writeChecked(words);
+  assert(load(k) == words);
 }
 
 Words ProofSet::load(u32 k) const {
   assert(k > 0 && k <= E);
   assert(k == *lower_bound(points.begin(), points.end(), k));
 
+#if 1
+  // Attempt to read the old format (with CRC at the end)
+  // will be dropped once the old format is gone
+  {
   File f = File::openReadThrow(proofPath / to_string(k));
   vector<u32> words = f.read<u32>(E / 32 + 2);
   u32 checksum = words.back();
   words.pop_back();
-  if (checksum != crc32(words)) {
-    log("checksum %x (expected %x) in '%s'\n", crc32(words), checksum, f.name.c_str());
-    throw fs::filesystem_error{"checksum mismatch", {}};
+  if (checksum == crc32(words)) { return words; }
   }
-  return words;
+#endif
+
+  return File::openReadThrow(proofPath / to_string(k)).readChecked<u32>(E/32 + 1);
 }
 
 Proof ProofSet::computeProof(Gpu *gpu) const {
