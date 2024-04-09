@@ -202,8 +202,7 @@ public:
 
   template<typename T>
   void writeChecked(const vector<T>& data) {
-    u32 crc = crc32(data);
-    write(&crc, sizeof(crc));
+    write(u32(crc32(data)));
     write(data);
   }
 
