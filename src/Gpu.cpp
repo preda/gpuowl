@@ -202,14 +202,17 @@ string clArgs(const Args& args) {
 
 } // namespace
 
-Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, TrigBufCache* trigBufCache)
-  : Gpu{q, args, E, W, BIG_H, SMALL_H, nW, nH, trigBufCache, genWeights(E, W, BIG_H, nW)}
+Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH)
+  : Gpu{q, shared, E, W, BIG_H, SMALL_H, nW, nH, genWeights(E, W, BIG_H, nW)}
 {}
 
 #define ROE_SIZE 111000
 
-Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-         TrigBufCache* cache, Weights&& weights) :
+Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, Weights&& weights) :
+  queue(q),
+  background{shared.background},
+  args{*shared.args},
+
   E(E),
   N(W * BIG_H * 2),
   hN(N / 2),
@@ -218,8 +221,6 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   bufSize(N * sizeof(double)),
   WIDTH(W),
   useLongCarry{args.carry == Args::CARRY_LONG},
-  // context{device},
-  queue(q),
   
 #define K(name, ...) name(#name, profile.make(#name), queue, __VA_ARGS__)
 
@@ -259,12 +260,12 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
 #undef K
 
-  bufTrigW{cache->smallTrig(W, nW)},
-  bufTrigH{cache->smallTrig(SMALL_H, nH)},
-  bufTrigM{cache->middleTrig(SMALL_H, BIG_H / SMALL_H)},
+  bufTrigW{shared.bufCache->smallTrig(W, nW)},
+  bufTrigH{shared.bufCache->smallTrig(SMALL_H, nH)},
+  bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H)},
 
-  bufTrigBHW{cache->trigBHW(W, hN, BIG_H)},
-  bufTrig2SH{cache->trig2SH(SMALL_H)},
+  bufTrigBHW{shared.bufCache->trigBHW(W, hN, BIG_H)},
+  bufTrig2SH{shared.bufCache->trig2SH(SMALL_H)},
 
   bufWeights{q->context, std::move(weights.weightsIF)},
   bufBits{q->context,    std::move(weights.bitsCF)},
@@ -293,8 +294,7 @@ Gpu::Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 #undef BUF
 
   statsBits{u32(args.value("STATS", 0))},
-  timeBufVect{profile.make("proofBufVect")},
-  args{args}
+  timeBufVect{profile.make("proofBufVect")}
 {
   useLongCarry = useLongCarry || (E / float(N) < 10.5f);
 
@@ -405,8 +405,8 @@ ROEInfo Gpu::readROE() {
   }
 }
 
-unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, const Args &args, TrigBufCache* trigBufCache) {
-  FFTConfig config = getFFTConfig(E, args.fftSpec);
+unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared) {
+  FFTConfig config = getFFTConfig(E, shared.args->fftSpec);
   u32 WIDTH        = config.width;
   u32 SMALL_HEIGHT = config.height;
   u32 MIDDLE       = config.middle;
@@ -428,7 +428,7 @@ unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, const Args &args, TrigBufCache* trigB
     throw "FFT size too large";
   }
 
-  return make_unique<Gpu>(q, args, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH, trigBufCache);
+  return make_unique<Gpu>(q, shared, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH);
 }
 
 template<typename T>
@@ -897,7 +897,7 @@ u32 Gpu::getProofPower(u32 k) {
   return power;
 }
 
-PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
+PRPResult Gpu::isPrimePRP(const Task& task) {
   const constexpr u32 LOG_STEP = 20'000; // log every 20k its
   const constexpr u32 FLUSH_STEP = 100; // empty queue every its
 
@@ -1009,7 +1009,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
       
     if (!doCheck) {
       // auto roeInfo = readROE(); // finish
-      background([=, &saver] {
+      (*background) ([=, &saver] {
         saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
       log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
@@ -1072,7 +1072,7 @@ PRPResult Gpu::isPrimePRP(const Args &args, const Task& task) {
   }
 }
 
-LLResult Gpu::isPrimeLL(const Args& args, const Task& task) {
+LLResult Gpu::isPrimeLL(const Task& task) {
   u32 E = task.exponent;
 
   Saver<LLState> saver{E};

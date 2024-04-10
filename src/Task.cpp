@@ -136,7 +136,7 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
   writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
 }
 
-void Task::execute(Queue *q, const Args& args, TrigBufCache* bufCache, u32 instance) {
+void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
   Proof proof{};
   if (kind == VERIFY) {
     proof = Proof::load(verifyPath);
@@ -146,7 +146,7 @@ void Task::execute(Queue *q, const Args& args, TrigBufCache* bufCache, u32 insta
   LogContext pushContext(std::to_string(exponent));
   
   if (kind == VERIFY) {
-    auto gpu = Gpu::make(q, proof.E, args, bufCache);
+    auto gpu = Gpu::make(q, proof.E, shared);
     bool ok = proof.verify(gpu.get());
     log("proof '%s' %s\n", verifyPath.c_str(), ok ? "verified" : "failed");
     return;
@@ -155,16 +155,16 @@ void Task::execute(Queue *q, const Args& args, TrigBufCache* bufCache, u32 insta
   assert(kind == PRP || kind == LL);
   assert(exponent);
 
-  auto gpu = Gpu::make(q, exponent, args, bufCache);
+  auto gpu = Gpu::make(q, exponent, shared);
   auto fftSize = gpu->getFFTSize();
 
   if (kind == PRP) {
-    auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(args, *this);
-    writeResultPRP(args, isPrime, res64, fftSize, nErrors, proofPath);
+    auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(*this);
+    writeResultPRP(*shared.args, isPrime, res64, fftSize, nErrors, proofPath);
     Worktodo::deleteTask(*this, instance);
     if (!isPrime) { Saver<PRPState>{exponent}.clear(); }
   } else if (kind == LL){
-    auto [isPrime, res64] = gpu->isPrimeLL(args, *this);
+    auto [isPrime, res64] = gpu->isPrimeLL(*this);
     // Do not clear LL savefiles regardless of primality
     if (isPrime) {
       log("%u is PRIME!\n", exponent);

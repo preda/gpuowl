@@ -1,10 +1,11 @@
-// gpuOwL, a GPU OpenCL Lucas-Lehmer primality checker.
-// Copyright (C) 2017-2018 Mihai Preda.
+// Copyright (C) Mihai Preda
 
 #pragma once
 
 #include "Args.h"
 #include "common.h"
+#include "GpuCommon.h"
+
 #include <string>
 
 class Args;
@@ -23,7 +24,7 @@ public:
   string line; // the verbatim worktodo line, used in deleteTask().
 
   string verifyPath; // For Verify
-  void execute(Queue* q, const Args& args, TrigBufCache*, u32 instance);
+  void execute(GpuCommon shared, Queue* q, u32 instance);
 
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;
   void writeResultLL();
