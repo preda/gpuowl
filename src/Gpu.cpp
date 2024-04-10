@@ -969,13 +969,13 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
     leadIn = leadOut;    
     
     if (k == persistK) {
-      Words data = readData(); // syncs
-      if (data.empty()) {
+      vector<int> rawData = readChecked(bufData);
+      if (rawData.empty()) {
         log("Data error ZERO\n");
         ++nErrors;
         goto reload;
       }
-      proofSet.save(k, data);
+      (*background)([=, &proofSet] { proofSet.save(k, compactBits(rawData, E)); });
       persistK = proofSet.next(k);
     }
 
