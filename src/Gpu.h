@@ -11,6 +11,7 @@
 #include "common.h"
 #include "Kernel.h"
 #include "Profile.h"
+#include "GpuCommon.h"
 
 #include <vector>
 #include <memory>
@@ -20,10 +21,8 @@
 struct PRPResult;
 struct Task;
 
-class Args;
 class Signal;
 class ProofSet;
-class TrigBufCache;
 
 using double2 = pair<double, double>;
 using TrigBuf = Buffer<double2>;
@@ -67,6 +66,10 @@ struct ROEInfo {
 };
 
 class Gpu {
+  Queue* queue;
+  Background* background;
+  const Args& args;
+
   u32 E;
   u32 N;
 
@@ -74,7 +77,7 @@ class Gpu {
   u32 WIDTH;
   bool useLongCarry;
 
-  Queue* queue;
+
   Profile profile{};
   
   Kernel kCarryFused;
@@ -151,7 +154,6 @@ class Gpu {
 
   unsigned statsBits;
   TimeInfo* timeBufVect;
-  Background background{};
 
   vector<int> readSmall(Buffer<int>& buf, u32 start);
   
@@ -177,8 +179,7 @@ class Gpu {
 
   void writeState(const vector<u32>& check, u32 blockSize);
   
-  Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH,
-      TrigBufCache*, struct Weights&& weights);
+  Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, struct Weights&& weights);
 
   // does either carrryFused() or the expanded version depending on useLongCarry
   void doCarry(Buffer<double>& out, Buffer<double>& in);
@@ -198,14 +199,13 @@ class Gpu {
   vector<int> readChecked(Buffer<int>& buf);
 
 public:
-  const Args& args;
 
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);
 
-  static unique_ptr<Gpu> make(Queue* q, u32 E, const Args &args, TrigBufCache *trigCache);
+  static unique_ptr<Gpu> make(Queue* q, u32 E, GpuCommon shared);
 
-  Gpu(Queue* q, const Args& args, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, TrigBufCache*);
+  Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH);
 
   void carryA(Buffer<int>& a, Buffer<double>& b)    { kCarryA(updatePos(1<<2), a, b); }
   void carryA(Buffer<double>& a, Buffer<double>& b) { kCarryA(updatePos(1<<2), a, b); }
@@ -229,8 +229,8 @@ public:
   vector<u32> readCheck();
   vector<u32> readData();
 
-  PRPResult isPrimePRP(const Args& args, const Task& task);
-  LLResult isPrimeLL(const Args& args, const Task& task);
+  PRPResult isPrimePRP(const Task& task);
+  LLResult isPrimeLL(const Task& task);
 
   u32 getFFTSize() { return N; }
 

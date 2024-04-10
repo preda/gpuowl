@@ -53,9 +53,7 @@ class Background {
 
 public:
   Background() :
-    thread{&Background::run, this}
-  {
-
+    thread{&Background::run, this} {
   }
 
   ~Background() {

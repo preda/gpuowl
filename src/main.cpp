@@ -2,6 +2,7 @@
 // Copyright (C) Mihai Preda
 
 #include "Args.h"
+#include "Background.h"
 #include "Queue.h"
 #include "Signal.h"
 #include "Task.h"
@@ -12,18 +13,18 @@
 #include "log.h"
 #include "Context.h"
 #include "TrigBufCache.h"
+#include "GpuCommon.h"
 
 #include <filesystem>
 #include <thread>
-#include <cstdlib>
 
 namespace fs = std::filesystem;
 
-void gpuWorker(Args& args, Queue *q, TrigBufCache* bufCache, i32 instance) {
-  LogContext context{(instance ? args.tailDir() : ""s) + to_string(instance) + ' '};
+void gpuWorker(GpuCommon shared, Queue *q, i32 instance) {
+  LogContext context{(instance ? shared.args->tailDir() : ""s) + to_string(instance) + ' '};
   // log("Starting worker %d\n", instance);
   try {
-    while (auto task = Worktodo::getTask(args, instance)) { task->execute(q, args, bufCache, instance); }
+    while (auto task = Worktodo::getTask(*shared.args, instance)) { task->execute(shared, q, instance); }
   } catch (const char *mes) {
     log("Exception \"%s\"\n", mes);
   } catch (const string& mes) {
@@ -88,14 +89,17 @@ int main(int argc, char **argv) {
     Context context(getDevice(args.device));
     TrigBufCache bufCache{&context};
     Signal signal;
+    Background background;
+    GpuCommon shared{&args, &bufCache, &background};
 
     vector<Queue> queues;
     for (int i = 0; i < int(args.workers); ++i) { queues.emplace_back(args, context); }
+
     vector<jthread> threads;
     for (int i = 1; i < int(args.workers); ++i) {
-      threads.emplace_back(gpuWorker, ref(args), &queues[i], &bufCache, i);
+      threads.emplace_back(gpuWorker, shared, &queues[i], i);
     }
-    gpuWorker(args, &queues[0], &bufCache, 0);
+    gpuWorker(shared, &queues[0], 0);
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
   } catch (const string& mes) {
