@@ -94,7 +94,7 @@ static fs::path unverifiedName(u32 exponent) {
 }
 
 template<>
-void Saver<PRPState>::unverifiedSave(const PRPState& s) {
+void Saver<PRPState>::unverifiedSave(const PRPState& s) const {
   auto fo = CycleFile{unverifiedName(exponent)};
   ::save(*fo, s);
 }

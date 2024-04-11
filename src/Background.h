@@ -11,19 +11,20 @@
 #include <functional>
 #include <mutex>
 #include <thread>
-#include <vector>
+#include <deque>
 
 class Background {
-  std::vector<std::function<void()> > tasks;
+  unsigned maxSize;
+  std::deque<std::function<void()> > tasks;
   std::jthread thread;
   std::mutex mut;
   std::condition_variable cond;
   bool stopRequested{};
 
   void run() {
-    while (true) {
-      decltype(tasks) localTasks;
+    std::function<void()> task;
 
+    while (true) {
       {
         std::unique_lock lock(mut);
         while (tasks.empty()) {
@@ -33,26 +34,31 @@ class Background {
             cond.wait(lock);
           }
         }
-        std::swap(tasks, localTasks);
+        task = tasks.front();
       }
 
-      assert(!localTasks.empty());
-      for (auto it = localTasks.begin(), end = localTasks.end(); it != end; ++it) {
-        try {
-          (*it)();
-        } catch (const char *mes) {
-          log("Exception \"%s\"\n", mes);
-        } catch (const std::string& mes) {
-          log("Exception \"%s\"\n", mes.c_str());
-        } catch (const std::exception& e) {
-          log("Exception %s: %s\n", typeName(e), e.what());
-        }
+      try {
+        task();
+      } catch (const char *mes) {
+        log("Exception \"%s\"\n", mes);
+      } catch (const std::string& mes) {
+        log("Exception \"%s\"\n", mes.c_str());
+      } catch (const std::exception& e) {
+        log("Exception %s: %s\n", typeName(e), e.what());
+      }
+
+      {
+        std::unique_lock lock(mut);
+        assert(!tasks.empty());
+        tasks.pop_front();
+        if (tasks.size() == maxSize - 1 || tasks.empty()) { cond.notify_all(); }
       }
     }
   }
 
 public:
-  Background() :
+  Background(unsigned size = 2) :
+    maxSize{size},
     thread{&Background::run, this} {
   }
 
@@ -62,10 +68,17 @@ public:
     cond.notify_all();
   }
 
+  void waitEmpty() {
+    std::unique_lock lock(mut);
+    while (!tasks.empty()) { cond.wait(lock); }
+  }
+
   template<typename T> void operator()(T task) {
-    std::lock_guard lock(mut);
+    std::unique_lock lock(mut);
+    while (tasks.size() >= maxSize) {
+      cond.wait(lock);
+    }
     tasks.push_back(task);
     cond.notify_all();
   }
-
 };

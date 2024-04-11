@@ -206,12 +206,17 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   : Gpu{q, shared, E, W, BIG_H, SMALL_H, nW, nH, genWeights(E, W, BIG_H, nW)}
 {}
 
+Gpu::~Gpu() {
+  background->waitEmpty();
+}
+
 #define ROE_SIZE 111000
 
 Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, Weights&& weights) :
   queue(q),
   background{shared.background},
   args{*shared.args},
+  saver{E},
 
   E(E),
   N(W * BIG_H * 2),
@@ -907,8 +912,6 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   u32 nErrors = 0;
   int nSeqErrors = 0;
   u64 lastFailedRes64{};
-
-  Saver<PRPState> saver{E};
   
  reload:
   while(!loadPRP(saver, lastFailedRes64, k, blockSize, nErrors));
@@ -1009,7 +1012,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
       
     if (!doCheck) {
       // auto roeInfo = readROE(); // finish
-      (*background)([=, &saver] {
+      (*background)([=, this] {
         saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
       log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
@@ -1034,7 +1037,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         skipNextCheckUpdate = true;
 
         if (k < kEnd) {
-          (*background)([=, rawCheck = std::move(rawCheck), &saver] {
+          (*background)([=, this, rawCheck = std::move(rawCheck)] {
             saver.save({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
           });
         }

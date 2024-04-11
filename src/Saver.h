@@ -41,7 +41,7 @@ public:
   void clear();
 
   // For PRP, we can save a verified save (see save() above) or an unverified save.
-  void unverifiedSave(const PRPState& s);
+  void unverifiedSave(const PRPState& s) const;
   PRPState unverifiedLoad();
   void dropUnverified();
 };

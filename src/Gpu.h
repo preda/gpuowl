@@ -69,6 +69,7 @@ class Gpu {
   Queue* queue;
   Background* background;
   const Args& args;
+  Saver<PRPState> saver;
 
   u32 E;
   u32 N;
@@ -206,6 +207,7 @@ public:
   static unique_ptr<Gpu> make(Queue* q, u32 E, GpuCommon shared);
 
   Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH);
+  ~Gpu();
 
   void carryA(Buffer<int>& a, Buffer<double>& b)    { kCarryA(updatePos(1<<2), a, b); }
   void carryA(Buffer<double>& a, Buffer<double>& b) { kCarryA(updatePos(1<<2), a, b); }
