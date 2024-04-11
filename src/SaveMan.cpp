@@ -3,10 +3,10 @@
 #include "SaveMan.h"
 #include "File.h"
 
+#include <cmath>
 #include <vector>
-#include <queue>
 #include <filesystem>
-
+#include <algorithm>
 
 const constexpr u32 nKeep = 20;
 
@@ -14,17 +14,12 @@ SaveMan::SaveMan(std::string_view kind, u32 exponent) :
   kind{kind},
   exponent{exponent}
 {
-
   base = (kind == "prp") ? fs::current_path() / to_string(exponent)
                          : fs::current_path() / (this->kind + '-' + to_string(exponent));
 
   if (!fs::exists(base)) { fs::create_directories(base); }
-
-  vector<u32> ks = listIterations();
-  for (u32 k : ks) {
-    minVal.push({value(k), k});
-    lastK = max(lastK, k);
-  }
+  points = listIterations();
+  std::sort(points.begin(), points.end());
 }
 
 vector<u32> SaveMan::listIterations() {
@@ -55,24 +50,6 @@ void SaveMan::removeAll() {
   fs::remove_all(base, dummy);
 }
 
-float SaveMan::value(u32 k) {
-  assert(k > 0);
-  u32 dist = (k < exponent) ? (exponent - k) : 1;
-  u32 nice = 1;
-
-  while (k % 2 == 0) {
-    k /= 2;
-    nice *= 2;
-  }
-
-  while (k % 5 == 0) {
-    k /= 5;
-    nice *= 5;
-  }
-
-  return nice / float(dist);
-}
-
 static string str9(u32 k) {
   char buf[32];
   snprintf(buf, sizeof(buf), "%09u", k);
@@ -88,22 +65,33 @@ void SaveMan::del(u32 k) {
   fs::remove(path(k), dummy);
 }
 
-File SaveMan::write(u32 k)
-{
-  assert(k > lastK);
+static u32 tweak(u32 p) {
+  assert(p);
+  u32 m = 1;
+  while (p % 10 == 0) { p /= 10; m *= 10; }
+  return (p - 1) * m;
+}
+
+File SaveMan::write(u32 k) {
+  assert(k > 1 && k > getLastK());
   File f = File::openWrite(path(k));
 
-  if (minVal.size() > nKeep) {
-    u32 kDel = minVal.top().second;
-    minVal.pop();
-    del(kDel);
-  }
+  float r = nKeep / log2f(k);
+  for (int i = points.size() - 1; i >= 0; --i) {
+    u32 p = tweak(points[i]);
+    assert(p < k);
 
-  minVal.push({value(k), k});
-  lastK = k;
+    if (r * log2f(k - p) < points.size() - i) {
+      del(points[i]);
+      points.erase(points.begin() + i);
+      break;
+    }
+  }
+  points.push_back(k);
   return f;
 }
 
 File SaveMan::readLast() {
-  return lastK ? File::openReadThrow(path(lastK)) : File{};
+  u32 k = getLastK();
+  return k ? File::openReadThrow(path(k)) : File{};
 }
