@@ -76,12 +76,12 @@ File SaveMan::write(u32 k) {
   assert(k > 1 && k > getLastK());
   File f = File::openWrite(path(k));
 
-  float r = nKeep / log2f(k);
   for (int i = points.size() - 1; i >= 0; --i) {
     u32 p = tweak(points[i]);
     assert(p < k);
 
-    if (r * log2f(k - p) < points.size() - i) {
+    float r = float(p) / k;
+    if (nKeep * (1 - r * r) < points.size() - i) {
       del(points[i]);
       points.erase(points.begin() + i);
       break;
