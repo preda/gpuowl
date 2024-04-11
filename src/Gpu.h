@@ -44,25 +44,24 @@ struct LLResult {
   u64 res64;
 };
 
-struct Stats {
-  Stats() = default;
-  Stats(float max, float mean, float sd) : max{max}, mean{mean}, sd{sd} {
+class RoeStats {
+public:
+  RoeStats() = default;
+  RoeStats(u32 n, float max, float mean, float sd) : N{n}, max{max}, mean{mean}, sd{sd} {
     // https://en.wikipedia.org/wiki/Gumbel_distribution
     gumbelBeta = sd * 0.7797f; // sqrt(6)/pi
     gumbelMiu = mean - gumbelBeta * 0.5772f; // Euler-Mascheroni
   }
 
-  float z(float x) { return (x - gumbelMiu) / gumbelBeta; }
-  float gumbelCDF(float x) { return expf(-expf(-z(x))); }
-  float gumbelRightCDF(float x) { return -expm1f(-expf(-z(x))); }
+  float z(float x) const { return (x - gumbelMiu) / gumbelBeta; }
+  float gumbelCDF(float x) const { return expf(-expf(-z(x))); }
+  float gumbelRightCDF(float x) const { return -expm1f(-expf(-z(x))); }
 
-  float max, mean, sd;
-  float gumbelMiu, gumbelBeta;
-};
+  std::string toString(u32 statsBits) const;
 
-struct ROEInfo {
-  u32 N;
-  Stats roe;
+  u32 N{};
+  float max{}, mean{}, sd{};
+  float gumbelMiu{}, gumbelBeta{};
 };
 
 class Gpu {
@@ -191,7 +190,7 @@ class Gpu {
   void modMul(Buffer<int>& ioA, Buffer<int>& inB, bool mul3 = false);
   
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
-  ROEInfo readROE();
+  RoeStats readROE();
   
   u32 updatePos(u32 bit) { return (statsBits & bit) ? roePos++ : roePos; }
 
@@ -211,12 +210,12 @@ public:
 
   void carryA(Buffer<int>& a, Buffer<double>& b)    { kCarryA(updatePos(1<<2), a, b); }
   void carryA(Buffer<double>& a, Buffer<double>& b) { kCarryA(updatePos(1<<2), a, b); }
-  void carryM(Buffer<int>& a, Buffer<double>& b)    { kCarryM(updatePos(1<<3), a, b); }
   void carryLL(Buffer<int>& a, Buffer<double>& b)   { kCarryLL(updatePos(1<<2), a, b); }
+  void carryM(Buffer<int>& a, Buffer<double>& b)    { kCarryM(updatePos(1<<3), a, b); }
 
   void carryFused(Buffer<double>& a, Buffer<double>& b)    { kCarryFused(updatePos(1<<0), a, b); }
-  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kCarryFusedMul(updatePos(1<<1), a, b);}
   void carryFusedLL(Buffer<double>& a, Buffer<double>& b)  { kCarryFusedLL(updatePos(1<<0), a, b);}
+  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kCarryFusedMul(updatePos(1<<1), a, b);}
 
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   
