@@ -14,27 +14,34 @@ static constexpr const char *PRP_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u
 static constexpr const char *LL_v1 = "OWL LL 1 E=%u k=%u CRC=%u\n";
 
 template<typename State>
-State load(File&& f, u32 E);
+State load(File&& f, u32 E, u32 blockSize);
 
-template<> PRPState load<PRPState>(File&& fi, u32 exponent) {
-  if (!fi) { return {exponent, 0, 400, 3, makeWords(exponent, 1), 0}; }
+template<> PRPState load<PRPState>(File&& fi, u32 exponent, u32 defBlockSize) {
+  assert(defBlockSize && defBlockSize % 100 == 0 && 10'000 % defBlockSize == 0);
+  if (!fi) { return {exponent, 0, defBlockSize, 3, makeWords(exponent, 1), 0}; }
 
-  u32 fileE{}, fileK{}, blockSize{}, nErrors{}, crc{};
+  u32 fileE{}, fileK{}, fileBlockSize{}, nErrors{}, crc{};
   u64 res64{};
   vector<u32> check;
 
   string header = fi.readLine();
-  if (sscanf(header.c_str(), PRP_v12, &fileE, &fileK, &blockSize, &res64, &nErrors, &crc) != 6) {
+  if (sscanf(header.c_str(), PRP_v12, &fileE, &fileK, &fileBlockSize, &res64, &nErrors, &crc) != 6) {
     log("Loading PRP from '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
     throw "bad savefile";
   }
 
+#if 0
+  if (fileBlockSize != defBlockSize) {
+    log("Using blockSize=%u from file instead of %u\n", fileBlockSize, defBlockSize);
+  }
+#endif
+
   assert(exponent == fileE);
   check = fi.readWithCRC<u32>(nWords(exponent), crc);
-  return {exponent, fileK, blockSize, res64, check, nErrors};
+  return {exponent, fileK, fileBlockSize, res64, check, nErrors};
 }
 
-template<> LLState load<LLState>(File&& fi, u32 exponent) {
+template<> LLState load<LLState>(File&& fi, u32 exponent, u32 defBlockSize) {
   if (!fi) { return {exponent, 0, makeWords(exponent, 4)}; }
 
   u32 fileE{}, fileK{}, crc{};
@@ -68,9 +75,10 @@ void save(const File& fo, const LLState& state) {
 }
 
 template<typename State>
-Saver<State>::Saver(u32 exponent) :
+Saver<State>::Saver(u32 exponent, u32 blockSize) :
   man{State::KIND, exponent},
-  exponent{exponent}
+  exponent{exponent},
+  blockSize{blockSize}
 {}
 
 template<typename State>
@@ -78,7 +86,7 @@ Saver<State>::~Saver() = default;
 
 template<typename State>
 State Saver<State>::load() {
-  return ::load<State>(man.readLast(), man.exponent);
+  return ::load<State>(man.readLast(), man.exponent, blockSize);
 }
 
 template<typename State>
@@ -101,7 +109,7 @@ void Saver<PRPState>::unverifiedSave(const PRPState& s) const {
 
 template<>
 PRPState Saver<PRPState>::unverifiedLoad() {
-  return ::load<PRPState>(File::openRead(unverifiedName(exponent)), exponent);
+  return ::load<PRPState>(File::openRead(unverifiedName(exponent)), exponent, blockSize);
 }
 
 template<typename State>

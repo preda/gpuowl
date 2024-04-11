@@ -31,9 +31,10 @@ template<typename State>
 class Saver {
   SaveMan man;
   u32 exponent;
+  u32 blockSize;
 
 public:
-  Saver(u32 exponent);
+  Saver(u32 exponent, u32 blockSize);
   ~Saver();
 
   State load();
