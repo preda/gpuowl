@@ -207,6 +207,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 {}
 
 Gpu::~Gpu() {
+  // Tasks on the background thread may capture this, so wait until those are complete before destruction
   background->waitEmpty();
 }
 
