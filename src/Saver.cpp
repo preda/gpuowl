@@ -69,7 +69,7 @@ void save(const File& fo, const LLState& state) {
 
 template<typename State>
 Saver<State>::Saver(u32 exponent) :
-  man{make_unique<SaveMan>(State::KIND, exponent)},
+  man{State::KIND, exponent},
   exponent{exponent}
 {}
 
@@ -78,16 +78,16 @@ Saver<State>::~Saver() = default;
 
 template<typename State>
 State Saver<State>::load() {
-  return ::load<State>(man->readLast(), man->exponent);
+  return ::load<State>(man.readLast(), man.exponent);
 }
 
 template<typename State>
 void Saver<State>::save(const State& s) {
-  ::save(man->write(s.k), s);
+  ::save(man.write(s.k), s);
 }
 
 template<typename State>
-void Saver<State>::clear() { man->removeAll(); }
+void Saver<State>::clear() { man.removeAll(); }
 
 static fs::path unverifiedName(u32 exponent) {
   return fs::current_path() / to_string(exponent) / "unverified.prp";

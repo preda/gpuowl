@@ -2,9 +2,8 @@
 
 #pragma once
 
+#include "SaveMan.h"
 #include "common.h"
-
-#include <memory>
 
 class File;
 class SaveMan;
@@ -30,7 +29,7 @@ struct LLState {
 
 template<typename State>
 class Saver {
-  std::unique_ptr<SaveMan> man;
+  SaveMan man;
   u32 exponent;
 
 public:

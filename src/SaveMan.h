@@ -19,7 +19,6 @@ private:
   fs::path path(u32 k);
 
 public:
-
   const u32 exponent;
 
   SaveMan(std::string_view kind, u32 exponent);
