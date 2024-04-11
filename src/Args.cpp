@@ -103,8 +103,7 @@ named "config.txt" in the prpll run directory.
 -user <name>       : specify the mersenne.org user name (for result reporting)
 -workers <N>       : specify the number of parallel PRP tests to run (default 1)
 -fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
--block <value>     : PRP error-check block size. Must divide 10'000.
--log <step>        : log every <step> iterations. Multiple of 10'000.
+-block <value>     : PRP block size, one of: 1000, 500, 200. Default 1000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
@@ -262,7 +261,6 @@ void Args::parse(const string& line) {
       u32 multiple = (s.back() == 'G') ? (1u << 30) : (1u << 20);
       maxAlloc = size_t(stod(s) * multiple + .5);
     }
-    else if (key == "-log") { logStep = stoi(s); assert(logStep && (logStep % 10000 == 0)); }
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
     else if (key == "-ll" || key == "-LL") { llExp = stoll(s); }
@@ -282,8 +280,8 @@ void Args::parse(const string& line) {
       }
     } else if (key == "-block") {
       blockSize = stoi(s);
-      if (10000 % blockSize) {
-        log("BlockSize %u must divide 10'000\n", blockSize);
+      if (blockSize != 1000 && blockSize != 500 && blockSize != 200) {
+        log("-block must be one of 1000, 5000, 200\n");
         throw "invalid block size";
       }
     } else if (key == "-use") {
@@ -315,11 +313,6 @@ void Args::parse(const string& line) {
       log("Argument '%s' '%s' not understood\n", key.c_str(), s.c_str());
       throw "args";
     }
-  }
-
-  if (logStep % 10000) {
-    log("log step (%u) must be a multiple of 10'000\n", logStep);
-    throw "invalid log step";
   }
 }
 

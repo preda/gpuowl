@@ -217,7 +217,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   queue(q),
   background{shared.background},
   args{*shared.args},
-  saver{E},
+  saver{E, args.blockSize},
 
   E(E),
   N(W * BIG_H * 2),
@@ -818,13 +818,22 @@ void Gpu::doDiv9(u32 E, Words& words) {
 }
 
 namespace {
-u32 checkStepForErrors(u32 argsCheckStep, u32 nErrors) {
-  if (argsCheckStep) { return argsCheckStep; }  
-  switch (nErrors) {
-    case 0:  return 200'000;
-    case 1:  return 100'000;
-    default: return  50'000;
+
+u32 baseCheckStep(u32 blockSize) {
+  switch (blockSize) {
+    case 200:  return 40'000;
+    case 400:  return 160'000;
+    case 500:  return 200'000;
+    case 1000: return 1'000'000;
+    default:
+      assert(false);
+      return 0;
   }
+}
+
+u32 checkStepForErrors(u32 blockSize, u32 nErrors) {
+  u32 step = baseCheckStep(blockSize);
+  return nErrors ? step / 2 : step;
 }
 
 }
@@ -927,7 +936,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
   assert(blockSize > 0 && LOG_STEP % blockSize == 0);
   
-  u32 checkStep = checkStepForErrors(args.logStep, nErrors);
+  u32 checkStep = checkStepForErrors(blockSize, nErrors);
   assert(checkStep % LOG_STEP == 0);
 
   u32 power = getProofPower(k);
@@ -1026,14 +1035,6 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
       });
 
       log("%9u %016" PRIx64 " %4.0f %s\n", k, res, secsPerIt * 1'000'000, roeInfo.toString(statsBits).c_str());
-      /*
-      if (roeInfo.N) {
-        log("%9u %016" PRIx64 " %4.0f; %s %.3f N=%u z=%.1f\n", k, res, secsPerIt * 1'000'000,
-            (statsBits & 0x10 ) ? "Carry" : "ROE", roeInfo.max, roeInfo.N, roeInfo.z(.5f));
-      } else {
-        log("%9u %016" PRIx64 " %4.0f\n", k, res, secsPerIt * 1'000'000);
-      }
-      */
     } else {
       bool ok = this->doCheck(blockSize);
       float secsCheck = iterationTimer.reset(k);
@@ -1085,7 +1086,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 LLResult Gpu::isPrimeLL(const Task& task) {
   u32 E = task.exponent;
 
-  Saver<LLState> saver{E};
+  Saver<LLState> saver{E, 0};
   reload:
 
   u32 startK = 0;

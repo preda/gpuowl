@@ -162,7 +162,7 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
     auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(*this);
     writeResultPRP(*shared.args, isPrime, res64, fftSize, nErrors, proofPath);
     Worktodo::deleteTask(*this, instance);
-    if (!isPrime) { Saver<PRPState>{exponent}.clear(); }
+    if (!isPrime) { gpu->getSaver()->clear(); }
   } else if (kind == LL){
     auto [isPrime, res64] = gpu->isPrimeLL(*this);
     // Do not clear LL savefiles regardless of primality
