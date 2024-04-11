@@ -125,12 +125,12 @@ bool Proof::verify(Gpu *gpu) const {
 // ---- ProofSet ----
 
 ProofSet::ProofSet(u32 E, u32 power)
-  : E{E}, power{power}, proofPath(fs::path(to_string(E)) / "proof") {
+  : E{E}, power{power} {
   
   assert(E & 1); // E is supposed to be prime
   assert(power > 0);
     
-  fs::create_directories(proofPath);
+  fs::create_directories(proofPath(E));
 
   vector<u32> spans;
   for (u32 span = (E + 1) / 2; spans.size() < power; span = (span + 1) / 2) { spans.push_back(span); }
@@ -143,15 +143,35 @@ ProofSet::ProofSet(u32 E, u32 power)
   }
 
   assert(points.size() == (1u << power));
-    
+  assert(points.front() == 0);
+
+  points.front() = E;
   std::sort(points.begin(), points.end());
 
-  points.erase(points.begin());
-  assert(points.back() < E);
-  points.push_back(E);
   assert(points.size() == (1u << power));
+  assert(points.back() == E);
+  assert(*prev(points.end(), 2) < E);
+
   points.push_back(u32(-1)); // guard element
   cacheIt = points.begin();
+
+  for ([[maybe_unused]] u32 p : points) {
+    assert(p > E || isInPoints(E, power, p));
+  }
+}
+
+bool ProofSet::isInPoints(u32 E, u32 power, u32 k) {
+  if (k == E) { return true; } // special-case E
+  u32 start = 0;
+  for (u32 p = 0, span = (E + 1) / 2; p < power; ++p, span = (span + 1) / 2) {
+    assert(k >= start);
+    if (k > start + span) {
+      start += span;
+    } else if (k == start + span) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool ProofSet::canDo(u32 E, u32 power, u32 currentK) {
@@ -190,7 +210,7 @@ u32 ProofSet::effectivePower(u32 E, u32 power, u32 currentK) {
 }
     
 bool ProofSet::fileExists(u32 k) const {
-  return File::size(proofPath / to_string(k)) == i64(E / 32 + 2) * 4;
+  return File::size(proofPath(E) / to_string(k)) == i64(E / 32 + 2) * 4;
 }
 
 bool ProofSet::isValidTo(u32 limitK) const {
@@ -221,22 +241,23 @@ u32 ProofSet::next(u32 k) const {
   return *cacheIt;
 }
 
-void ProofSet::save(u32 k, const Words& words) {
-  assert(k > 0 && k <= E);
-  assert(k == *lower_bound(points.begin(), points.end(), k));
-  File::openWrite(proofPath / to_string(k)).writeChecked(words);
-  assert(load(k) == words);
+void ProofSet::save(u32 E, u32 power, u32 k, const Words& words) {
+  assert(k && k <= E);
+  assert(isInPoints(E, power, k));
+
+  File::openWrite(proofPath(E) / to_string(k)).writeChecked(words);
+  assert(load(E, power, k) == words);
 }
 
-Words ProofSet::load(u32 k) const {
-  assert(k > 0 && k <= E);
-  assert(k == *lower_bound(points.begin(), points.end(), k));
+Words ProofSet::load(u32 E, u32 power, u32 k) {
+  assert(k && k <= E);
+  assert(isInPoints(E, power, k));
 
 #if 1
   // Attempt to read the old format (with CRC at the end)
   // will be dropped once the old format is gone
   {
-  File f = File::openReadThrow(proofPath / to_string(k));
+  File f = File::openReadThrow(proofPath(E) / to_string(k));
   vector<u32> words = f.read<u32>(E / 32 + 2);
   u32 checksum = words.back();
   words.pop_back();
@@ -244,7 +265,7 @@ Words ProofSet::load(u32 k) const {
   }
 #endif
 
-  return File::openReadThrow(proofPath / to_string(k)).readChecked<u32>(E/32 + 1);
+  return File::openReadThrow(proofPath(E) / to_string(k)).readChecked<u32>(E/32 + 1);
 }
 
 Proof ProofSet::computeProof(Gpu *gpu) const {
