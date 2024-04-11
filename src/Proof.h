@@ -57,9 +57,6 @@ public:
   const u32 power;
   
 private:  
-  fs::path proofPath;
-  // ProofCache cache{E, proofPath};
-
   vector<u32> points;  
   
   bool isValidTo(u32 limitK) const;
@@ -69,19 +66,25 @@ private:
   mutable decltype(points)::const_iterator cacheIt{};
 
   bool fileExists(u32 k) const;
+
+  static fs::path proofPath(u32 E) { return fs::path(to_string(E)) / "proof"; }
 public:
   
   static u32 bestPower(u32 E);
   static u32 effectivePower(u32 E, u32 power, u32 currentK);
   static double diskUsageGB(u32 E, u32 power);
+  static bool isInPoints(u32 E, u32 power, u32 k);
   
   ProofSet(u32 E, u32 power);
     
   u32 next(u32 k) const;
 
-  void save(u32 k, const Words& words);
-
-  Words load(u32 k) const;
+  static void save(u32 E, u32 power, u32 k, const Words& words);
+  static Words load(u32 E, u32 power, u32 k);
         
+  void save(u32 k, const Words& words) const { return save(E, power, k, words); }
+  Words load(u32 k) const { return load(E, power, k); }
+
+
   Proof computeProof(Gpu *gpu) const;
 };

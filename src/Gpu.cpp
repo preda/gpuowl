@@ -975,7 +975,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         ++nErrors;
         goto reload;
       }
-      (*background)([=, &proofSet] { proofSet.save(k, compactBits(rawData, E)); });
+      (*background)([=] { ProofSet::save(E, power, k, compactBits(rawData, E)); });
       persistK = proofSet.next(k);
     }
 
@@ -1009,7 +1009,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
       
     if (!doCheck) {
       // auto roeInfo = readROE(); // finish
-      (*background) ([=, &saver] {
+      (*background)([=, &saver] {
         saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
       log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
@@ -1025,21 +1025,21 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 */
     } else {
       bool ok = this->doCheck(blockSize);
+      float secsCheck = iterationTimer.reset(k);
 
       if (ok) {
-        Words check = compactBits(rawCheck, E);
-        assert(!check.empty());
-        float secsCheck = iterationTimer.reset(k);
 
         nSeqErrors = 0;
         lastFailedRes64 = 0;
         skipNextCheckUpdate = true;
 
-        if (k < kEnd) { saver.save({E, k, blockSize, res, check, nErrors}); }
+        if (k < kEnd) {
+          (*background)([=, rawCheck = std::move(rawCheck), &saver] {
+            saver.save({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
+          });
+        }
 
-        float secsSave = iterationTimer.reset(k);
-          
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, secsSave, kEndEnd, nErrors);
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
           
         if (k >= kEndEnd) {
           fs::path proofFile = saveProof(args, proofSet);
