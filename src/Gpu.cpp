@@ -211,7 +211,7 @@ Gpu::~Gpu() {
   background->waitEmpty();
 }
 
-#define ROE_SIZE 111000
+#define ROE_SIZE 300000
 
 Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, Weights&& weights) :
   queue(q),
@@ -372,7 +372,7 @@ vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   return bufSmallOut.read(128);
 }
 
-ROEInfo Gpu::readROE() {
+RoeStats Gpu::readROE() {
   assert(roePos <= ROE_SIZE);
   if (roePos) {
     vector<float> roe = bufROE.read(roePos);
@@ -405,7 +405,7 @@ ROEInfo Gpu::readROE() {
     float sdRoe = sqrtf(n * sum2Roe - sumRoe * sumRoe) * invN;
     float meanRoe = float(sumRoe) * invN;
 
-    return {n, {maxRoe, meanRoe, sdRoe}};
+    return {n, maxRoe, meanRoe, sdRoe};
   } else {
     return {};
   }
@@ -758,20 +758,28 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
   return formatETA(etaSecs);
 }
 
-static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, float secsCheck, float secsSave, u32 nIters) {
+string RoeStats::toString(u32 statsBits) const {
+  if (!N) { return {}; }
+
   char buf[256];
-  
-  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it + check %.2fs + save %.2fs; ETA %s",
-           status.c_str(), k, k / float(nIters) * 100, hex(res).c_str(),
-           secsPerIt * 1'000'000, secsCheck, secsSave, getETA(k, nIters, secsPerIt).c_str());
+  snprintf(buf, sizeof(buf), "%s %.3f N=%u z=%.1f",
+           (statsBits & 0x10 ) ? "Carry" : "ROE", max, N, z(.5f));
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, float secsSave, u32 nIters, u32 nErrors) {
-  char buf[64] = {0};
+static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, float secsCheck, u32 nIters) {
+  char buf[256];
   
-  log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, secsSave, nIters).c_str(),
-      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), buf);
+  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it + check %.2fs; ETA %s",
+           status.c_str(), k, k / float(nIters) * 100, hex(res).c_str(),
+           secsPerIt * 1'000'000, secsCheck, getETA(k, nIters, secsPerIt).c_str());
+  return buf;
+}
+
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, u32 nIters, u32 nErrors,
+                     RoeStats roe, u32 statsBits) {
+  log("%s%s %s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, nIters).c_str(),
+      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), roe.toString(statsBits).c_str());
 }
 
 bool Gpu::equals9(const Words& a) {
@@ -1010,29 +1018,27 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
       if (++nSeqErrors > 2) { throw "sequential errors"; }
       goto reload;
     }
-      
+
     if (!doCheck) {
-      // auto roeInfo = readROE(); // finish
+      auto roeInfo = readROE();
       (*background)([=, this] {
         saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
-      log("%9u %s %4.0f\n", k, hex(res).c_str(), secsPerIt * 1'000'000);
 
-/*
+      log("%9u %016" PRIx64 " %4.0f %s\n", k, res, secsPerIt * 1'000'000, roeInfo.toString(statsBits).c_str());
+      /*
       if (roeInfo.N) {
-        Stats &roe = roeInfo.roe;
-        log("%9u %s %4.0f; %s %.3f N=%u z=%.1f\n",
-            k, hex(res).c_str(), secsPerIt * 1'000'000,
-            (statsBits & 0x10 ) ? "Carry" : "ROE",
-            roe.max, roeInfo.N, roe.z(.5f));
+        log("%9u %016" PRIx64 " %4.0f; %s %.3f N=%u z=%.1f\n", k, res, secsPerIt * 1'000'000,
+            (statsBits & 0x10 ) ? "Carry" : "ROE", roeInfo.max, roeInfo.N, roeInfo.z(.5f));
+      } else {
+        log("%9u %016" PRIx64 " %4.0f\n", k, res, secsPerIt * 1'000'000);
       }
-*/
+      */
     } else {
       bool ok = this->doCheck(blockSize);
       float secsCheck = iterationTimer.reset(k);
 
       if (ok) {
-
         nSeqErrors = 0;
         lastFailedRes64 = 0;
         skipNextCheckUpdate = true;
@@ -1043,7 +1049,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
           });
         }
 
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, 0, kEndEnd, nErrors);
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, kEndEnd, nErrors, readROE(), statsBits);
           
         if (k >= kEndEnd) {
           fs::path proofFile = saveProof(args, proofSet);
@@ -1051,7 +1057,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         }        
       } else {
         ++nErrors;
-        doBigLog(E, k, res, ok, secsPerIt, 0, 0, kEndEnd, nErrors);
+        doBigLog(E, k, res, ok, secsPerIt, 0, kEndEnd, nErrors, readROE(), statsBits);
         if (++nSeqErrors > 2) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
           throw "too many errors";
