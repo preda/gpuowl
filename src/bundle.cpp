@@ -8,6 +8,8 @@ static const std::vector<const char*> CL_FILES{
 R"cltag(
 // Copyright (C) Mihai Preda and George Woltman.
 
+#pragma once
+
 /* List of user-serviceable -use flags and their effects : see also help (-h)
 
 OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
@@ -1700,6 +1702,7 @@ void shuflAndMul(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {
 R"cltag(
 // Copyright (C) Mihai Preda
 
+#include "base.cl"
 #include "fftbase.cl"
 
 u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * middle; }
@@ -2067,10 +2070,9 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
 R"cltag(
 // Copyright (C) Mihai Preda
 
-T2 U2(T a, T b) { return (T2) (a, b); }
+#include "base.cl"
 
-double mad1(double x, double y, double z) { return x * y + z; }
-// fma(x, y, z); }
+T2 U2(T a, T b) { return (T2) (a, b); }
 
 OVERLOAD T fancyMul(T x, const T y) {
   // x * (y + 1);
@@ -2081,17 +2083,22 @@ OVERLOAD T2 fancyMul(T2 x, const T2 y) {
   return U2(fancyMul(RE(x), RE(y)), fancyMul(IM(x), IM(y)));
 }
 
-// complex square
-OVERLOAD T2 sq(T2 a) { return U2(mad1(RE(a), RE(a), - IM(a) * IM(a)), 2 * RE(a) * IM(a)); }
-
-// complex mul
-OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad1(RE(a), RE(b), -IM(a)*IM(b)), mad1(RE(a), IM(b), IM(a)*RE(b))); }
+// fma(x, y, z); }
+OVERLOAD double mad(double x, double y, double z) { return x * y + z; }
 
 // complex fma
-T2 mad_m1(T2 a, T2 b, T2 c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
+OVERLOAD T2 mad(T2 a, T2 b, T2 c) {
+  return U2(mad(RE(a), RE(b), mad(IM(a), -IM(b), RE(c))), mad(RE(a), IM(b), mad(IM(a), RE(b), IM(c))));
+}
+
+// complex square
+OVERLOAD T2 sq(T2 a) { return U2(mad(RE(a), RE(a), - IM(a) * IM(a)), 2 * RE(a) * IM(a)); }
+
+// complex mul
+OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad(RE(a), RE(b), -IM(a)*IM(b)), mad(RE(a), IM(b), IM(a)*RE(b))); }
+
 
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
-
 T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 
@@ -2117,9 +2124,9 @@ T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
 // Partial complex multiplies:  the mul by sin is delayed so that it can be later propagated to an FMA instruction
 // complex mul by cos-i*sin given cos/sin, sin
-T2 partial_cmul(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, IM(a)), mad1(IM(a), c_over_s, -RE(a))); }
+T2 partial_cmul(T2 a, T c_over_s) { return U2(mad(RE(a), c_over_s, IM(a)), mad(IM(a), c_over_s, -RE(a))); }
 // complex mul by cos+i*sin given cos/sin, sin
-T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad1(RE(a), c_over_s, -IM(a)), mad1(IM(a), c_over_s, RE(a))); }
+T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad(RE(a), c_over_s, -IM(a)), mad(IM(a), c_over_s, RE(a))); }
 
 // a = c + sin * d; b = c - sin * d;
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; T2 t = c + d; b = c - d; a = t; }
@@ -2416,8 +2423,8 @@ R"cltag(
 #define onePairMul(a, b, c, d, conjugate_t_squared) { \
   X2conjb(a, b); \
   X2conjb(c, d); \
-  T2 tmp = mad_m1(a, c, mul(mul(b, d), conjugate_t_squared)); \
-  b = mad_m1(b, c, mul(a, d)); \
+  T2 tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared)); \
+  b = mad(b, c, mul(a, d)); \
   a = tmp; \
   X2conja(a, b); \
 }
@@ -2522,7 +2529,6 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
 R"cltag(
 // Copyright (C) Mihai Preda and George Woltman
 
-#include "base.cl"
 #include "tailutil.cl"
 #include "trig.cl"
 #include "fftheight.cl"
@@ -2549,7 +2555,7 @@ R"cltag(
   X2conjb(a, b); \
   T2 b2 = sq(b); \
   b = 2 * mul(a, b); \
-  a = mad_m1(b2, conjugate_t_squared, sq(a)); \
+  a = mad(b2, conjugate_t_squared, sq(a)); \
   X2conja(a, b); \
 }
 

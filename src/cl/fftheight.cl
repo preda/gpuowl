@@ -1,5 +1,6 @@
 // Copyright (C) Mihai Preda
 
+#include "base.cl"
 #include "fftbase.cl"
 
 u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * middle; }

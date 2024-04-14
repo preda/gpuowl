@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda and George Woltman.
 
+#pragma once
+
 /* List of user-serviceable -use flags and their effects : see also help (-h)
 
 OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>

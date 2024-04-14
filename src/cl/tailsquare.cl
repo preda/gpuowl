@@ -1,6 +1,5 @@
 // Copyright (C) Mihai Preda and George Woltman
 
-#include "base.cl"
 #include "tailutil.cl"
 #include "trig.cl"
 #include "fftheight.cl"
@@ -27,7 +26,7 @@
   X2conjb(a, b); \
   T2 b2 = sq(b); \
   b = 2 * mul(a, b); \
-  a = mad_m1(b2, conjugate_t_squared, sq(a)); \
+  a = mad(b2, conjugate_t_squared, sq(a)); \
   X2conja(a, b); \
 }
 
