@@ -922,7 +922,6 @@ u32 Gpu::getProofPower(u32 k) {
 
 PRPResult Gpu::isPrimePRP(const Task& task) {
   const constexpr u32 LOG_STEP = 20'000; // log every 20k its
-  const constexpr u32 FLUSH_STEP = 100; // empty queue every its
 
   u32 E = task.exponent;
   u32 k = 0;
@@ -1012,7 +1011,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
     bool doLog = k % LOG_STEP == 0;
 
     if (!leadOut || (!doCheck && !doLog)) {
-      if (k % FLUSH_STEP == 0) { queue->finish(); }
+      if (k % args.flushStep == 0) { queue->finish(); }
       continue;
     }
 
