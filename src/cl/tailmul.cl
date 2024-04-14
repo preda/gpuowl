@@ -39,7 +39,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
 
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
-      u[i] = conjugate(foo2_m2(u[i], p[i]));
+      u[i] = conjugate(2 * foo2(u[i], p[i]));
       v[i] = mul_m4(conjugate(v[i]), conjugate(q[i]));
     } else {
       onePairMul(u[i], v[i], p[i], q[i], swap_squared(base_squared));

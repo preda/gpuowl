@@ -60,7 +60,6 @@ T2 swap(T2 a)      { return U2(IM(a), RE(a)); }
 T2 conjugate(T2 a) { return U2(RE(a), -IM(a)); }
 
 T2 addsub(T2 a) { return U2(RE(a) + IM(a), RE(a) - IM(a)); }
-T2 addsub_m2(T2 a) { return U2(add1_m2(RE(a), IM(a)), sub1_m2(RE(a), IM(a))); }
 
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
