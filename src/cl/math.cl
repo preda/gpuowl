@@ -21,14 +21,6 @@ OVERLOAD T2 fancyMul(T2 x, const T2 y) {
   return U2(fancyMul(RE(x), RE(y)), fancyMul(IM(x), IM(y)));
 }
 
-T mad1_m2(T a, T b, T c) {
-  return 2 * mad1(a, b, c);
-}
-
-T mad1_m4(T a, T b, T c) {
-  return 4 * mad1(a, b, c);
-}
-
 // complex square
 OVERLOAD T2 sq(T2 a) { return U2(mad1(RE(a), RE(a), - IM(a) * IM(a)), mul1_m2(RE(a), IM(a))); }
 
@@ -39,16 +31,13 @@ OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad1(RE(a), RE(b), -IM(a)*IM(b)), mad1(R
 T2 add_m2(T2 a, T2 b) { return U2(add1_m2(RE(a), RE(b)), add1_m2(IM(a), IM(b))); }
 
 // complex mul * 2
-T2 mul_m2(T2 a, T2 b) { return U2(mad1_m2(RE(a), RE(b), -IM(a)*IM(b)), mad1_m2(RE(a), IM(b), IM(a)*RE(b))); }
+T2 mul_m2(T2 a, T2 b) { return 2 * U2(mad1(RE(a), RE(b), -IM(a)*IM(b)), mad1(RE(a), IM(b), IM(a)*RE(b))); }
 
 // complex mul * 4
-T2 mul_m4(T2 a, T2 b) { return U2(mad1_m4(RE(a), RE(b), -IM(a)*IM(b)), mad1_m4(RE(a), IM(b), IM(a)*RE(b))); }
+T2 mul_m4(T2 a, T2 b) { return 4 * U2(mad1(RE(a), RE(b), -IM(a)*IM(b)), mad1(RE(a), IM(b), IM(a)*RE(b))); }
 
 // complex fma
 T2 mad_m1(T2 a, T2 b, T2 c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
-
-// complex fma * 2
-T2 mad_m2(T2 a, T2 b, T2 c) { return U2(mad1_m2(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1_m2(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
 
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
 
