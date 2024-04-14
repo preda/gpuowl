@@ -26,7 +26,7 @@
 #define onePairSq(a, b, conjugate_t_squared) {\
   X2conjb(a, b); \
   T2 b2 = sq(b); \
-  b = mul_m2(a, b); \
+  b = 2 * mul(a, b); \
   a = mad_m1(b2, conjugate_t_squared, sq(a)); \
   X2conja(a, b); \
 }
