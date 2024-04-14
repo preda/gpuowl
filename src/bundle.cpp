@@ -2072,13 +2072,6 @@ T2 U2(T a, T b) { return (T2) (a, b); }
 double mad1(double x, double y, double z) { return x * y + z; }
 // fma(x, y, z); }
 
-T add1_m2(T x, T y) { return 2 * (x + y); }
-T sub1_m2(T x, T y) { return 2 * (x - y); }
-
-// x * y * 2
-T mul1_m2(T x, T y) { return x * y * 2; }
-
-
 OVERLOAD T fancyMul(T x, const T y) {
   // x * (y + 1);
   return fma(x, y, x);
@@ -2089,25 +2082,15 @@ OVERLOAD T2 fancyMul(T2 x, const T2 y) {
 }
 
 // complex square
-OVERLOAD T2 sq(T2 a) { return U2(mad1(RE(a), RE(a), - IM(a) * IM(a)), mul1_m2(RE(a), IM(a))); }
+OVERLOAD T2 sq(T2 a) { return U2(mad1(RE(a), RE(a), - IM(a) * IM(a)), 2 * RE(a) * IM(a)); }
 
 // complex mul
 OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad1(RE(a), RE(b), -IM(a)*IM(b)), mad1(RE(a), IM(b), IM(a)*RE(b))); }
-
-// complex add * 2
-T2 add_m2(T2 a, T2 b) { return U2(add1_m2(RE(a), RE(b)), add1_m2(IM(a), IM(b))); }
-
-// complex mul * 2
-T2 mul_m2(T2 a, T2 b) { return 2 * U2(mad1(RE(a), RE(b), -IM(a)*IM(b)), mad1(RE(a), IM(b), IM(a)*RE(b))); }
-
-// complex mul * 4
-T2 mul_m4(T2 a, T2 b) { return 4 * U2(mad1(RE(a), RE(b), -IM(a)*IM(b)), mad1(RE(a), IM(b), IM(a)*RE(b))); }
 
 // complex fma
 T2 mad_m1(T2 a, T2 b, T2 c) { return U2(mad1(RE(a), RE(b), mad1(IM(a), -IM(b), RE(c))), mad1(RE(a), IM(b), mad1(IM(a), RE(b), IM(c)))); }
 
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
-
 
 T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
@@ -2445,7 +2428,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
       u[i] = conjugate(2 * foo2(u[i], p[i]));
-      v[i] = mul_m4(conjugate(v[i]), conjugate(q[i]));
+      v[i] = 4 * mul(conjugate(v[i]), conjugate(q[i]));
     } else {
       onePairMul(u[i], v[i], p[i], q[i], swap_squared(base_squared));
     }
@@ -2565,7 +2548,7 @@ R"cltag(
 #define onePairSq(a, b, conjugate_t_squared) {\
   X2conjb(a, b); \
   T2 b2 = sq(b); \
-  b = mul_m2(a, b); \
+  b = 2 * mul(a, b); \
   a = mad_m1(b2, conjugate_t_squared, sq(a)); \
   X2conja(a, b); \
 }
