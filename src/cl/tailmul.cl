@@ -28,8 +28,8 @@
 #define onePairMul(a, b, c, d, conjugate_t_squared) { \
   X2conjb(a, b); \
   X2conjb(c, d); \
-  T2 tmp = mad_m1(a, c, mul(mul(b, d), conjugate_t_squared)); \
-  b = mad_m1(b, c, mul(a, d)); \
+  T2 tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared)); \
+  b = mad(b, c, mul(a, d)); \
   a = tmp; \
   X2conja(a, b); \
 }
