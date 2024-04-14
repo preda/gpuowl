@@ -47,12 +47,5 @@ T2 foo2(T2 a, T2 b) {
   return addsub(U2(RE(a) * RE(b), IM(a) * IM(b)));
 }
 
-T2 foo2_m2(T2 a, T2 b) {
-  a = addsub(a);
-  b = addsub(b);
-  return addsub_m2(U2(RE(a) * RE(b), IM(a) * IM(b)));
-}
-
 // computes 2*[x^2+y^2 + i*(2*x*y)]. i.e. 2 * cyclical autoconvolution of (x, y)
 T2 foo(T2 a) { return foo2(a, a); }
-T2 foo_m2(T2 a) { return foo2_m2(a, a); }

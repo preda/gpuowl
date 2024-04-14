@@ -36,7 +36,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
 
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
-      u[i] = foo_m2(conjugate(u[i]));
+      u[i] = 2 * foo(conjugate(u[i]));
       v[i] = 4 * sq(conjugate(v[i]));
     } else {
       onePairSq(u[i], v[i], swap_squared(base_squared));

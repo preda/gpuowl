@@ -2127,7 +2127,6 @@ T2 swap(T2 a)      { return U2(IM(a), RE(a)); }
 T2 conjugate(T2 a) { return U2(RE(a), -IM(a)); }
 
 T2 addsub(T2 a) { return U2(RE(a) + IM(a), RE(a) - IM(a)); }
-T2 addsub_m2(T2 a) { return U2(add1_m2(RE(a), IM(a)), sub1_m2(RE(a), IM(a))); }
 
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
@@ -2456,7 +2455,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
 
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
-      u[i] = conjugate(foo2_m2(u[i], p[i]));
+      u[i] = conjugate(2 * foo2(u[i], p[i]));
       v[i] = mul_m4(conjugate(v[i]), conjugate(q[i]));
     } else {
       onePairMul(u[i], v[i], p[i], q[i], swap_squared(base_squared));
@@ -2587,7 +2586,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
 
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
-      u[i] = foo_m2(conjugate(u[i]));
+      u[i] = 2 * foo(conjugate(u[i]));
       v[i] = 4 * sq(conjugate(v[i]));
     } else {
       onePairSq(u[i], v[i], swap_squared(base_squared));
@@ -2702,15 +2701,8 @@ T2 foo2(T2 a, T2 b) {
   return addsub(U2(RE(a) * RE(b), IM(a) * IM(b)));
 }
 
-T2 foo2_m2(T2 a, T2 b) {
-  a = addsub(a);
-  b = addsub(b);
-  return addsub_m2(U2(RE(a) * RE(b), IM(a) * IM(b)));
-}
-
 // computes 2*[x^2+y^2 + i*(2*x*y)]. i.e. 2 * cyclical autoconvolution of (x, y)
 T2 foo(T2 a) { return foo2(a, a); }
-T2 foo_m2(T2 a) { return foo2_m2(a, a); }
 )cltag",
 
 // src/cl/transpose.cl
