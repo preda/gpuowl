@@ -25,13 +25,20 @@
 // ALSO NOTE: the new code can be improved further (saves a complex squaring) if the t value is squared already,
 // plus the caller saves a mul_t8 instruction by dealing with squared t values!
 
-#define onePairMul(a, b, c, d, conjugate_t_squared) { \
-  X2conjb(a, b); \
-  X2conjb(c, d); \
-  T2 tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared)); \
-  b = mad(b, c, mul(a, d)); \
-  a = tmp; \
-  X2conja(a, b); \
+void onePairMul(T2* pa, T2* pb, T2* pc, T2* pd, T2 conjugate_t_squared) {
+  T2 a = *pa, b = *pb, c = *pc, d = *pd;
+
+  X2conjb(a, b);
+  X2conjb(c, d);
+  T2 tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared));
+  b = mad(b, c, mul(a, d));
+  a = tmp;
+  X2conja(a, b);
+
+  *pa = a;
+  *pb = b;
+  *pc = c;
+  *pd = d;
 }
 
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
@@ -42,18 +49,18 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
       u[i] = conjugate(2 * foo2(u[i], p[i]));
       v[i] = 4 * mul(conjugate(v[i]), conjugate(q[i]));
     } else {
-      onePairMul(u[i], v[i], p[i], q[i], swap_squared(base_squared));
+      onePairMul(&u[i], &v[i], &p[i], &q[i], swap_squared(base_squared));
     }
 
     if (N == NH) {
-      onePairMul(u[i+NH/2], v[i+NH/2], p[i+NH/2], q[i+NH/2], swap_squared(-base_squared));
+      onePairMul(&u[i+NH/2], &v[i+NH/2], &p[i+NH/2], &q[i+NH/2], swap_squared(-base_squared));
     }
 
     T2 new_base_squared = mul(base_squared, U2(0, -1));
-    onePairMul(u[i+NH/4], v[i+NH/4], p[i+NH/4], q[i+NH/4], swap_squared(new_base_squared));
+    onePairMul(&u[i+NH/4], &v[i+NH/4], &p[i+NH/4], &q[i+NH/4], swap_squared(new_base_squared));
 
     if (N == NH) {
-      onePairMul(u[i+3*NH/4], v[i+3*NH/4], p[i+3*NH/4], q[i+3*NH/4], swap_squared(-new_base_squared));
+      onePairMul(&u[i+3*NH/4], &v[i+3*NH/4], &p[i+3*NH/4], &q[i+3*NH/4], swap_squared(-new_base_squared));
     }
   }
 }
