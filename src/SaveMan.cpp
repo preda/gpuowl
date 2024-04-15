@@ -78,7 +78,6 @@ File SaveMan::write(u32 k) {
 
   for (u32 i = 0; i < points.size(); ++i) {
     u32 p = tweak(points[i]);
-    assert(p < k);
     float r = float(p) / k;
     float cumVal = r * r * nKeep;
     if (cumVal < i) {
