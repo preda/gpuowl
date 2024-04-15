@@ -18,15 +18,17 @@ OVERLOAD double mad(double x, double y, double z) { return x * y + z; }
 
 // complex fma
 OVERLOAD T2 mad(T2 a, T2 b, T2 c) {
-  return U2(mad(RE(a), RE(b), mad(IM(a), -IM(b), RE(c))), mad(RE(a), IM(b), mad(IM(a), RE(b), IM(c))));
+  return U2(mad(a.x, b.x, mad(a.y, -b.y, c.x)), mad(a.x, b.y, mad(a.y, b.x, c.y)));
 }
 
 // complex square
-OVERLOAD T2 sq(T2 a) { return U2(mad(RE(a), RE(a), - IM(a) * IM(a)), 2 * RE(a) * IM(a)); }
+T2 sq(T2 a) { return U2(mad(a.x, a.x, - a.y * a.y), 2 * a.x * a.y); }
+
+// a^2 + c
+T2 sqa(T2 a, T2 c) { return U2(mad(a.x, a.x, mad(a.y, -a.y, c.x)), mad(2 * a.x, a.y, c.y)); }
 
 // complex mul
 OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad(RE(a), RE(b), -IM(a)*IM(b)), mad(RE(a), IM(b), IM(a)*RE(b))); }
-
 
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
 T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }

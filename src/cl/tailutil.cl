@@ -36,9 +36,6 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
   }
 }
 
-// From original code t = swap(base) and we need sq(conjugate(t)).  This macro computes sq(conjugate(t)) from base^2.
-#define swap_squared(a) (-a)
-
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 // which happens to be the cyclical convolution (a.x, a.y)x(b.x, b.y) * 2
 T2 foo2(T2 a, T2 b) {

@@ -28,11 +28,12 @@ void onePairSq(T2* pa, T2* pb, T2 conjugate_t_squared) {
 
   X2conjb(a, b);
 
-  T2 b2 = sq(b);
-  b = 2 * mul(a, b);
-  a = mad(b2, conjugate_t_squared, sq(a));
+  T2 tmp = a;
+  a = sqa(a, mul(sq(b), conjugate_t_squared));
+  b = 2 * mul(tmp, b);
 
   X2conja(a, b);
+
   *pa = a;
   *pb = b;
 }
@@ -45,18 +46,19 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
       u[i] = 2 * foo(conjugate(u[i]));
       v[i] = 4 * sq(conjugate(v[i]));
     } else {
-      onePairSq(&u[i], &v[i], swap_squared(base_squared));
+      onePairSq(&u[i], &v[i], -base_squared);
     }
 
     if (N == NH) {
-      onePairSq(&u[i+NH/2], &v[i+NH/2], swap_squared(-base_squared));
+      onePairSq(&u[i+NH/2], &v[i+NH/2], base_squared);
     }
 
-    T2 new_base_squared = mul(base_squared, U2(0, -1));
-    onePairSq(&u[i+NH/4], &v[i+NH/4], swap_squared(new_base_squared));
+    // T2 new_base_squared = mul(base_squared, U2(0, -1));
+    T2 new_base_squared = U2(IM(base_squared), -RE(base_squared));
+    onePairSq(&u[i+NH/4], &v[i+NH/4], -new_base_squared);
 
     if (N == NH) {
-      onePairSq(&u[i+3*NH/4], &v[i+3*NH/4], swap_squared(-new_base_squared));
+      onePairSq(&u[i+3*NH/4], &v[i+3*NH/4], new_base_squared);
     }
   }
 }
