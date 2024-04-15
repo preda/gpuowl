@@ -2100,7 +2100,6 @@ T2 sqa(T2 a, T2 c) { return U2(mad(a.x, a.x, mad(a.y, -a.y, c.x)), mad(2 * a.x, 
 // complex mul
 OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad(RE(a), RE(b), -IM(a)*IM(b)), mad(RE(a), IM(b), IM(a)*RE(b))); }
 
-
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
 T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
 T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
@@ -2428,9 +2427,12 @@ void onePairMul(T2* pa, T2* pb, T2* pc, T2* pd, T2 conjugate_t_squared) {
 
   X2conjb(a, b);
   X2conjb(c, d);
-  T2 tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared));
-  b = mad(b, c, mul(a, d));
-  a = tmp;
+
+  T2 tmp = a;
+
+  a = mad(a, c, mul(mul(b, d), conjugate_t_squared));
+  b = mad(b, c, mul(tmp, d));
+
   X2conja(a, b);
 
   *pa = a;
@@ -2544,9 +2546,6 @@ R"cltag(
 #include "trig.cl"
 #include "fftheight.cl"
 
-// This implementation compared to the original version that is no longer included in this file takes
-// better advantage of the AMD OMOD (output modifier) feature.
-//
 // Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
 // Now consider these lines from the original implementation (comments appear alongside):
 //      b = mul_by_conjugate(b, t); 			bt'
@@ -2555,12 +2554,6 @@ R"cltag(
 //      b = sq(b);					a^2 - 2abt' + (bt')^2
 //      X2(a, b);					2a^2 + 2(bt')^2, 4abt'
 //      b = mul(b, t);					                 4ab
-// Original code is 2 complex muls, 2 complex squares, 4 complex adds
-// New code is 2 complex squares, 2 complex muls, 1 complex add PLUS a complex-mul-by-2 and a complex-mul-by-4
-// NOTE:  We actually, return the result divided by 2 so that our cost for the above is
-// reduced to 2 complex squares, 2 complex muls, 1 complex add PLUS a complex-mul-by-2
-// ALSO NOTE: the new code works just as well if the input t value is pre-squared, but the code that calls
-// onePairSq can save a mul_t8 instruction by dealing with squared t values.
 
 void onePairSq(T2* pa, T2* pb, T2 conjugate_t_squared) {
   T2 a = *pa;
