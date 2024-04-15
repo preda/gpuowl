@@ -69,19 +69,19 @@ static u32 tweak(u32 p) {
   assert(p);
   u32 m = 1;
   while (p % 10 == 0) { p /= 10; m *= 10; }
-  return (p - 1) * m;
+  return (p + 1) * m;
 }
 
 File SaveMan::write(u32 k) {
   assert(k > 1 && k > getLastK());
   File f = File::openWrite(path(k));
 
-  for (int i = points.size() - 1; i >= 0; --i) {
+  for (u32 i = 0; i < points.size(); ++i) {
     u32 p = tweak(points[i]);
     assert(p < k);
-
     float r = float(p) / k;
-    if (nKeep * (1 - r * r) < points.size() - i) {
+    float cumVal = r * r * nKeep;
+    if (cumVal < i) {
       del(points[i]);
       points.erase(points.begin() + i);
       break;
