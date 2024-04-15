@@ -2088,11 +2088,14 @@ OVERLOAD double mad(double x, double y, double z) { return x * y + z; }
 
 // complex fma
 OVERLOAD T2 mad(T2 a, T2 b, T2 c) {
-  return U2(mad(RE(a), RE(b), mad(IM(a), -IM(b), RE(c))), mad(RE(a), IM(b), mad(IM(a), RE(b), IM(c))));
+  return U2(mad(a.x, b.x, mad(a.y, -b.y, c.x)), mad(a.x, b.y, mad(a.y, b.x, c.y)));
 }
 
 // complex square
-OVERLOAD T2 sq(T2 a) { return U2(mad(RE(a), RE(a), - IM(a) * IM(a)), 2 * RE(a) * IM(a)); }
+T2 sq(T2 a) { return U2(mad(a.x, a.x, - a.y * a.y), 2 * a.x * a.y); }
+
+// a^2 + c
+T2 sqa(T2 a, T2 c) { return U2(mad(a.x, a.x, mad(a.y, -a.y, c.x)), mad(2 * a.x, a.y, c.y)); }
 
 // complex mul
 OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad(RE(a), RE(b), -IM(a)*IM(b)), mad(RE(a), IM(b), IM(a)*RE(b))); }
@@ -2420,17 +2423,6 @@ R"cltag(
 // ALSO NOTE: the new code can be improved further (saves a complex squaring) if the t value is squared already,
 // plus the caller saves a mul_t8 instruction by dealing with squared t values!
 
-/*
-#define onePairMul(a, b, c, d, conjugate_t_squared) { \
-  X2conjb(a, b); \
-  X2conjb(c, d); \
-  T2 tmp = mad(a, c, mul(mul(b, d), conjugate_t_squared)); \
-  b = mad(b, c, mul(a, d)); \
-  a = tmp; \
-  X2conja(a, b); \
-}
-*/
-
 void onePairMul(T2* pa, T2* pb, T2* pc, T2* pd, T2 conjugate_t_squared) {
   T2 a = *pa, b = *pb, c = *pc, d = *pd;
 
@@ -2455,18 +2447,19 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
       u[i] = conjugate(2 * foo2(u[i], p[i]));
       v[i] = 4 * mul(conjugate(v[i]), conjugate(q[i]));
     } else {
-      onePairMul(&u[i], &v[i], &p[i], &q[i], swap_squared(base_squared));
+      onePairMul(&u[i], &v[i], &p[i], &q[i], -base_squared);
     }
 
     if (N == NH) {
-      onePairMul(&u[i+NH/2], &v[i+NH/2], &p[i+NH/2], &q[i+NH/2], swap_squared(-base_squared));
+      onePairMul(&u[i+NH/2], &v[i+NH/2], &p[i+NH/2], &q[i+NH/2], base_squared);
     }
 
-    T2 new_base_squared = mul(base_squared, U2(0, -1));
-    onePairMul(&u[i+NH/4], &v[i+NH/4], &p[i+NH/4], &q[i+NH/4], swap_squared(new_base_squared));
+    // T2 new_base_squared = mul(base_squared, U2(0, -1));
+    T2 new_base_squared = U2(IM(base_squared), -RE(base_squared));
+    onePairMul(&u[i+NH/4], &v[i+NH/4], &p[i+NH/4], &q[i+NH/4], -new_base_squared);
 
     if (N == NH) {
-      onePairMul(&u[i+3*NH/4], &v[i+3*NH/4], &p[i+3*NH/4], &q[i+3*NH/4], swap_squared(-new_base_squared));
+      onePairMul(&u[i+3*NH/4], &v[i+3*NH/4], &p[i+3*NH/4], &q[i+3*NH/4], new_base_squared);
     }
   }
 }
@@ -2575,11 +2568,12 @@ void onePairSq(T2* pa, T2* pb, T2 conjugate_t_squared) {
 
   X2conjb(a, b);
 
-  T2 b2 = sq(b);
-  b = 2 * mul(a, b);
-  a = mad(b2, conjugate_t_squared, sq(a));
+  T2 tmp = a;
+  a = sqa(a, mul(sq(b), conjugate_t_squared));
+  b = 2 * mul(tmp, b);
 
   X2conja(a, b);
+
   *pa = a;
   *pb = b;
 }
@@ -2592,18 +2586,19 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
       u[i] = 2 * foo(conjugate(u[i]));
       v[i] = 4 * sq(conjugate(v[i]));
     } else {
-      onePairSq(&u[i], &v[i], swap_squared(base_squared));
+      onePairSq(&u[i], &v[i], -base_squared);
     }
 
     if (N == NH) {
-      onePairSq(&u[i+NH/2], &v[i+NH/2], swap_squared(-base_squared));
+      onePairSq(&u[i+NH/2], &v[i+NH/2], base_squared);
     }
 
-    T2 new_base_squared = mul(base_squared, U2(0, -1));
-    onePairSq(&u[i+NH/4], &v[i+NH/4], swap_squared(new_base_squared));
+    // T2 new_base_squared = mul(base_squared, U2(0, -1));
+    T2 new_base_squared = U2(IM(base_squared), -RE(base_squared));
+    onePairSq(&u[i+NH/4], &v[i+NH/4], -new_base_squared);
 
     if (N == NH) {
-      onePairSq(&u[i+3*NH/4], &v[i+3*NH/4], swap_squared(-new_base_squared));
+      onePairSq(&u[i+3*NH/4], &v[i+3*NH/4], new_base_squared);
     }
   }
 }
@@ -2692,9 +2687,6 @@ void reverseLine(u32 WG, local T2 *lds, T2 *u) {
     for (i32 i = 0; i < NH; ++i) { ((T *) (u + i))[b] = ((local T*)lds)[i * WG + me]; }
   }
 }
-
-// From original code t = swap(base) and we need sq(conjugate(t)).  This macro computes sq(conjugate(t)) from base^2.
-#define swap_squared(a) (-a)
 
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 // which happens to be the cyclical convolution (a.x, a.y)x(b.x, b.y) * 2
