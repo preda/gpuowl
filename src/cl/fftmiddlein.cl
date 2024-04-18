@@ -1,4 +1,4 @@
-// Copyright (C) Mihai Preda
+// Copyright (C) Mihai Preda and George Woltman
 
 #include "base.cl"
 #include "math.cl"

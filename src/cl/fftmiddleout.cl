@@ -1,8 +1,9 @@
-// Copyright (C) Mihai Preda
+// Copyright (C) Mihai Preda and George Woltman
 
 #include "base.cl"
 #include "math.cl"
 #include "fft-middle.cl"
+#include "middle.cl"
 
 KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   T2 u[MIDDLE];
@@ -47,8 +48,8 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
   out += (gy / OUT_SPACING) * (MIDDLE * (OUT_WG * OUT_SPACING));
   out += (gy % OUT_SPACING) * SIZEY;
-  out += (me / SIZEY) * (OUT_SPACING * SIZEY);
-  out += (me % SIZEY);
+
+  out += (me / SIZEY) * (OUT_SPACING * SIZEY) + (me % SIZEY);
 
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
 }

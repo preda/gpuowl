@@ -1,4 +1,4 @@
-// Copyright (C) Mihai Preda and George Woltman.
+// Copyright (C) Mihai Preda and George Woltman
 
 #pragma once
 
@@ -117,30 +117,6 @@ NH         == SMALL_HEIGHT / G_H
 // OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=1 (old WorkingOut5): 105 + 281 = 386
 // OUT_WG=256, OUT_SIZEX=8, OUT_SPACING=2: 122 + 249 = 371
 // OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=4: 108 + 257 = 365  <- best
-
-#if !OUT_WG
-#define OUT_WG 256
-#endif
-
-#if !OUT_SIZEX
-#if AMDGPU
-#define OUT_SIZEX 32
-#else // AMDGPU
-#if G_W >= 64
-#define OUT_SIZEX 4
-#else
-#define OUT_SIZEX 32
-#endif
-#endif
-#endif
-
-#if !OUT_SPACING
-#if AMDGPU
-#define OUT_SPACING 4
-#else
-#define OUT_SPACING 1
-#endif
-#endif
 
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL

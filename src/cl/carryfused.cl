@@ -3,6 +3,7 @@
 #include "carryutil.cl"
 #include "weight.cl"
 #include "fftwidth.cl"
+#include "middle.cl"
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)

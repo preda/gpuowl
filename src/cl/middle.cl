@@ -4,18 +4,39 @@
 #define IN_WG 256
 #endif
 
+#if !OUT_WG
+#define OUT_WG 256
+#endif
+
 #if !IN_SIZEX
 #if AMDGPU
 #define IN_SIZEX 32
-
 #else // !AMDGPU
-
 #if G_W >= 64
 #define IN_SIZEX 4
 #else
 #define IN_SIZEX 32
 #endif
+#endif
+#endif
 
+#if !OUT_SIZEX
+#if AMDGPU
+#define OUT_SIZEX 32
+#else // AMDGPU
+#if G_W >= 64
+#define OUT_SIZEX 4
+#else
+#define OUT_SIZEX 32
+#endif
+#endif
+#endif
+
+#if !OUT_SPACING
+#if AMDGPU
+#define OUT_SPACING 4
+#else
+#define OUT_SPACING 1
 #endif
 #endif
 
@@ -38,4 +59,20 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
 
   in += me / SIZEY * MIDDLE * IN_WG + me % SIZEY;
   for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * IN_WG]; }
+}
+
+
+// Read a line for carryFused or FFTW
+void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
+  u32 me = get_local_id(0);
+  u32 WG = OUT_WG * OUT_SPACING;
+  u32 SIZEY = WG / OUT_SIZEX;
+
+  in += line % OUT_SIZEX * SIZEY
+        + line % SMALL_HEIGHT / OUT_SIZEX * WIDTH / SIZEY * MIDDLE * WG
+        + line / SMALL_HEIGHT * WG;
+
+  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
+
+  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / SIZEY * MIDDLE * WG]; }
 }

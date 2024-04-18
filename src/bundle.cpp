@@ -6,7 +6,7 @@
 static const std::vector<const char*> CL_FILES{
 // src/cl/base.cl
 R"cltag(
-// Copyright (C) Mihai Preda and George Woltman.
+// Copyright (C) Mihai Preda and George Woltman
 
 #pragma once
 
@@ -125,30 +125,6 @@ NH         == SMALL_HEIGHT / G_H
 // OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=1 (old WorkingOut5): 105 + 281 = 386
 // OUT_WG=256, OUT_SIZEX=8, OUT_SPACING=2: 122 + 249 = 371
 // OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=4: 108 + 257 = 365  <- best
-
-#if !OUT_WG
-#define OUT_WG 256
-#endif
-
-#if !OUT_SIZEX
-#if AMDGPU
-#define OUT_SIZEX 32
-#else // AMDGPU
-#if G_W >= 64
-#define OUT_SIZEX 4
-#else
-#define OUT_SIZEX 32
-#endif
-#endif
-#endif
-
-#if !OUT_SPACING
-#if AMDGPU
-#define OUT_SPACING 4
-#else
-#define OUT_SPACING 1
-#endif
-#endif
 
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
@@ -305,6 +281,7 @@ R"cltag(
 #include "carryutil.cl"
 #include "weight.cl"
 #include "fftwidth.cl"
+#include "middle.cl"
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
@@ -2031,30 +2008,9 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
 }
 )cltag",
 
-// src/cl/ffthout.cl
-R"cltag(
-// Copyright (C) Mihai Preda
-
-#include "base.cl"
-#include "math.cl"
-#include "fftheight.cl"
-
-// Do an FFT Height after a pointwise squaring/multiply (data is in sequential order)
-KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT / 2];
-  
-  T2 u[NH];
-  u32 g = get_group_id(0);
-
-  read(G_H, NH, u, io, g * SMALL_HEIGHT);
-  fft_HEIGHT(lds, u, smallTrig);
-  write(G_H, NH, u, io, g * SMALL_HEIGHT);
-}
-)cltag",
-
 // src/cl/fftmiddlein.cl
 R"cltag(
-// Copyright (C) Mihai Preda
+// Copyright (C) Mihai Preda and George Woltman
 
 #include "base.cl"
 #include "math.cl"
@@ -2097,11 +2053,12 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
 
 // src/cl/fftmiddleout.cl
 R"cltag(
-// Copyright (C) Mihai Preda
+// Copyright (C) Mihai Preda and George Woltman
 
 #include "base.cl"
 #include "math.cl"
 #include "fft-middle.cl"
+#include "middle.cl"
 
 KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   T2 u[MIDDLE];
@@ -2198,6 +2155,7 @@ R"cltag(
 #include "base.cl"
 #include "math.cl"
 #include "fftwidth.cl"
+#include "middle.cl"
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
@@ -2220,17 +2178,6 @@ R"cltag(
 #include "fftbase.cl"
 
 // See also: fftheight.cl
-
-// Read a line for carryFused or FFTW
-void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
-  u32 me = get_local_id(0);
-  u32 WG = OUT_WG * OUT_SPACING;
-  u32 SIZEY = WG / OUT_SIZEX;
-
-  in += line % OUT_SIZEX * SIZEY + line % SMALL_HEIGHT / OUT_SIZEX * WIDTH / SIZEY * MIDDLE * WG + line / SMALL_HEIGHT * WG;
-  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
-  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / SIZEY * MIDDLE * WG]; }
-}
 
 // 64x4
 void fft256w(local T2 *lds, T2 *u, Trig trig) {
@@ -2371,18 +2318,39 @@ R"cltag(
 #define IN_WG 256
 #endif
 
+#if !OUT_WG
+#define OUT_WG 256
+#endif
+
 #if !IN_SIZEX
 #if AMDGPU
 #define IN_SIZEX 32
-
 #else // !AMDGPU
-
 #if G_W >= 64
 #define IN_SIZEX 4
 #else
 #define IN_SIZEX 32
 #endif
+#endif
+#endif
 
+#if !OUT_SIZEX
+#if AMDGPU
+#define OUT_SIZEX 32
+#else // AMDGPU
+#if G_W >= 64
+#define OUT_SIZEX 4
+#else
+#define OUT_SIZEX 32
+#endif
+#endif
+#endif
+
+#if !OUT_SPACING
+#if AMDGPU
+#define OUT_SPACING 4
+#else
+#define OUT_SPACING 1
 #endif
 #endif
 
@@ -2405,6 +2373,22 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
 
   in += me / SIZEY * MIDDLE * IN_WG + me % SIZEY;
   for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * IN_WG]; }
+}
+
+
+// Read a line for carryFused or FFTW
+void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
+  u32 me = get_local_id(0);
+  u32 WG = OUT_WG * OUT_SPACING;
+  u32 SIZEY = WG / OUT_SIZEX;
+
+  in += line % OUT_SIZEX * SIZEY
+        + line % SMALL_HEIGHT / OUT_SIZEX * WIDTH / SIZEY * MIDDLE * WG
+        + line / SMALL_HEIGHT * WG;
+
+  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
+
+  for (i32 i = 0; i < NW; ++i) { u[i] = in[i * G_W / SIZEY * MIDDLE * WG]; }
 }
 )cltag",
 
@@ -3019,6 +3003,6 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
 )cltag",
 
 };
-static const std::vector<const char*> CL_FILE_NAMES{"base.cl","carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft-middle.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft3.cl","fft4.cl","fft5.cl","fft6.cl","fft7.cl","fft8.cl","fft9.cl","fftbase.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","math.cl","middle.cl","tailmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl","weight.cl",};
+static const std::vector<const char*> CL_FILE_NAMES{"base.cl","carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft-middle.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft3.cl","fft4.cl","fft5.cl","fft6.cl","fft7.cl","fft8.cl","fft9.cl","fftbase.cl","fftheight.cl","ffthin.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","math.cl","middle.cl","tailmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl","weight.cl",};
 const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }
 const std::vector<const char*>& getClFiles() { return CL_FILES; }

@@ -3,6 +3,7 @@
 #include "base.cl"
 #include "math.cl"
 #include "fftwidth.cl"
+#include "middle.cl"
 
 // Do an fft_WIDTH after a transposeH (which may not have fully transposed data, leading to non-sequential input)
 KERNEL(G_W) fftW(P(T2) out, CP(T2) in, Trig smallTrig) {
