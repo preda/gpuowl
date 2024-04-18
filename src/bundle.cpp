@@ -2046,8 +2046,6 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   T2 u[NH];
   u32 g = get_group_id(0);
 
-  // io += g * SMALL_HEIGHT;
-
   read(G_H, NH, u, io, g * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig);
   write(G_H, NH, u, io, g * SMALL_HEIGHT);

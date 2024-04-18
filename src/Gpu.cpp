@@ -245,7 +245,6 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   
   // SMALL_H / nH
   K(fftHin,  "ffthin.cl",  "fftHin",  hN / nH),
-  K(fftHout, "ffthout.cl", "fftHout", hN / nH),
 
   K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH / 2),
   K(tailMul,       "tailmul.cl", "tailMul",       hN / nH / 2),
@@ -313,7 +312,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
     KernelCompiler compiler{args, queue->context, commonArgs};
     Timer compileTimer;
     for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL,
-         &fftP, &fftW, &fftHin, &fftHout,
+         &fftP, &fftW, &fftHin,
          &fftMidIn, &fftMidOut, &kCarryA, &kCarryM, &kCarryLL, &carryB,
          &transpIn, &transpOut,
          &tailMulLow, &tailMul, &tailSquare,
@@ -330,8 +329,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   fftP.setFixedArgs(2, bufTrigW, bufWeights);
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
-  fftHout.setFixedArgs(1, bufTrigH);
-  
+
   fftMidIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
   fftMidOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
   
