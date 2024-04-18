@@ -1,3 +1,6 @@
+// Copyright (C) Mihai Preda and George Woltman
+
+#include "fft3.cl"
 
 #if !NEW_FFT9 && !OLD_FFT9
 #define NEW_FFT9 1

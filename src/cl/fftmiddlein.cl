@@ -2,6 +2,7 @@
 
 #include "base.cl"
 #include "math.cl"
+#include "fft-middle.cl"
 #include "middle.cl"
 
 KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
@@ -30,6 +31,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
   fft_MIDDLE(u);
 
   middleMul(u, starty + my, trig, TRIG_BHW);
+
   local T lds[IN_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 

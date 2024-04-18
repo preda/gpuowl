@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda
 
+#pragma once
+
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
   X2(u[1], u[3]);

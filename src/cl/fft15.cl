@@ -1,3 +1,7 @@
+// Copyright (C) Mihai Preda and George Woltman
+
+#include "fft3.cl"
+#include "fft5.cl"
 
 // 5 complex FFT where second though fifth inputs need to be multiplied by SIN1, and third input needs to multiplied by SIN2
 void fft5delayedSIN1234(T2 *u) {

@@ -142,22 +142,6 @@ NH         == SMALL_HEIGHT / G_H
 #endif
 #endif
 
-#if !IN_WG
-#define IN_WG 256
-#endif
-
-#if !IN_SIZEX
-#if AMDGPU
-#define IN_SIZEX 32
-#else // !AMDGPU
-#if G_W >= 64
-#define IN_SIZEX 4
-#else
-#define IN_SIZEX 32
-#endif
-#endif
-#endif
-
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
 #else

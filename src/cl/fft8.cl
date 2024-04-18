@@ -1,5 +1,9 @@
 // Copyright (C) Mihai Preda
 
+#pragma once
+
+#include "fft4.cl"
+
 void fft8Core(T2 *u) {
   X2(u[0], u[4]);
   X2(u[1], u[5]);   u[5] = mul_t8(u[5]);
