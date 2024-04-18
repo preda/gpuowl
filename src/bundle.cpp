@@ -2027,8 +2027,7 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   readTailFusedLine(in, u, g);
   fft_HEIGHT(lds, u, smallTrig);
 
-  out += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
-  write(G_H, NH, u, out, 0);
+  write(G_H, NH, u, out, SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH));
 }
 )cltag",
 
@@ -2047,11 +2046,11 @@ KERNEL(G_H) fftHout(P(T2) io, Trig smallTrig) {
   T2 u[NH];
   u32 g = get_group_id(0);
 
-  io += g * SMALL_HEIGHT;
+  // io += g * SMALL_HEIGHT;
 
-  read(G_H, NH, u, io, 0);
+  read(G_H, NH, u, io, g * SMALL_HEIGHT);
   fft_HEIGHT(lds, u, smallTrig);
-  write(G_H, NH, u, io, 0);
+  write(G_H, NH, u, io, g * SMALL_HEIGHT);
 }
 )cltag",
 
@@ -2094,14 +2093,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
   local T lds[IN_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
-  // out += BIG_HEIGHT * startx + starty + BIG_HEIGHT * my + mx;
-  // for (u32 i = 0; i < MIDDLE; ++i) { out[i * SMALL_HEIGHT] = u[i]; }
-  
-  out += gx * (BIG_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG) + me;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }  
-
-  // out += gx * (MIDDLE * SMALL_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG);
-  // out += me;
+  write(IN_WG, MIDDLE, u, out, gx * (BIG_HEIGHT * IN_SIZEX) + gy * (MIDDLE * IN_WG));
 }
 )cltag",
 
@@ -2397,6 +2389,7 @@ R"cltag(
 #endif
 
 // Read a line for tailFused or fftHin
+// This reads partially transposed datat as written by fftMiddleIn
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
   // We go to some length here to avoid dividing by MIDDLE in address calculations.
   // The transPos converted logical line number into physical memory line numbers
@@ -2406,14 +2399,14 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
   // and the multiple of 320 component as (line % WIDTH) / 32
 
   u32 me = get_local_id(0);
-  u32 WG = IN_WG;
-  u32 SIZEY = WG / IN_SIZEX;
+  u32 SIZEY = IN_WG / IN_SIZEX;
 
-  in += line / WIDTH * WG;
+  in += line / WIDTH * IN_WG;
   in += line % IN_SIZEX * SIZEY;
-  in += line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * WG;
-  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * WG]; }
+  in += line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * IN_WG;
+
+  in += me / SIZEY * MIDDLE * IN_WG + me % SIZEY;
+  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * IN_WG]; }
 }
 )cltag",
 

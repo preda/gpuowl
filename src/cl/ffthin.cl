@@ -14,6 +14,5 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   readTailFusedLine(in, u, g);
   fft_HEIGHT(lds, u, smallTrig);
 
-  out += SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH);
-  write(G_H, NH, u, out, 0);
+  write(G_H, NH, u, out, SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH));
 }
