@@ -20,6 +20,7 @@
 #endif
 
 // Read a line for tailFused or fftHin
+// This reads partially transposed datat as written by fftMiddleIn
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
   // We go to some length here to avoid dividing by MIDDLE in address calculations.
   // The transPos converted logical line number into physical memory line numbers
@@ -29,12 +30,12 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
   // and the multiple of 320 component as (line % WIDTH) / 32
 
   u32 me = get_local_id(0);
-  u32 WG = IN_WG;
-  u32 SIZEY = WG / IN_SIZEX;
+  u32 SIZEY = IN_WG / IN_SIZEX;
 
-  in += line / WIDTH * WG;
+  in += line / WIDTH * IN_WG;
   in += line % IN_SIZEX * SIZEY;
-  in += line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * WG;
-  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * WG]; }
+  in += line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * IN_WG;
+
+  in += me / SIZEY * MIDDLE * IN_WG + me % SIZEY;
+  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * IN_WG]; }
 }
