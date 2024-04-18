@@ -150,22 +150,6 @@ NH         == SMALL_HEIGHT / G_H
 #endif
 #endif
 
-#if !IN_WG
-#define IN_WG 256
-#endif
-
-#if !IN_SIZEX
-#if AMDGPU
-#define IN_SIZEX 32
-#else // !AMDGPU
-#if G_W >= 64
-#define IN_SIZEX 4
-#else
-#define IN_SIZEX 32
-#endif
-#endif
-#endif
-
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
 #else
@@ -697,6 +681,258 @@ kernel void testKernel(global double* in, global float* out) {
 #endif
 )cltag",
 
+// src/cl/fft-middle.cl
+R"cltag(
+// Copyright (C) Mihai Preda
+
+#include "trig.cl"
+
+void fft2(T2* u) { X2(u[0], u[1]); }
+
+#if MIDDLE == 3
+#include "fft3.cl"
+#elif MIDDLE == 4
+#include "fft4.cl"
+#elif MIDDLE == 5
+#include "fft5.cl"
+#elif MIDDLE == 6
+#include "fft6.cl"
+#elif MIDDLE == 7
+#include "fft7.cl"
+#elif MIDDLE == 8
+#include "fft8.cl"
+#elif MIDDLE == 9
+#include "fft9.cl"
+#elif MIDDLE == 10
+#include "fft10.cl"
+#elif MIDDLE == 11
+#include "fft11.cl"
+#elif MIDDLE == 12
+#include "fft12.cl"
+#elif MIDDLE == 13
+#include "fft13.cl"
+#elif MIDDLE == 14
+#include "fft14.cl"
+#elif MIDDLE == 15
+#include "fft15.cl"
+#endif
+
+void fft_MIDDLE(T2 *u) {
+#if MIDDLE == 1
+  // Do nothing
+#elif MIDDLE == 2
+  fft2(u);
+#elif MIDDLE == 3
+  fft3(u);
+#elif MIDDLE == 4
+  fft4(u);
+#elif MIDDLE == 5
+  fft5(u);
+#elif MIDDLE == 6
+  fft6(u);
+#elif MIDDLE == 7
+  fft7(u);
+#elif MIDDLE == 8
+  fft8(u);
+#elif MIDDLE == 9
+  fft9(u);
+#elif MIDDLE == 10
+  fft10(u);
+#elif MIDDLE == 11
+  fft11(u);
+#elif MIDDLE == 12
+  fft12(u);
+#elif MIDDLE == 13
+  fft13(u);
+#elif MIDDLE == 14
+  fft14(u);
+#elif MIDDLE == 15
+  fft15(u);
+#else
+#error UNRECOGNIZED MIDDLE
+#endif
+}
+
+// Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
+// Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
+
+#define WADD(i, w) u[i] = mul(u[i], w)
+#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
+
+void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
+  assert(s < SMALL_HEIGHT);
+  if (MIDDLE == 1) { return; }
+  T2 w = slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
+
+#if MM_CHAIN == 3
+// This is our slowest version - used when we are extremely worried about round off error.
+// Maximum multiply chain length is 1.
+  WADD(1, w);
+  if ((MIDDLE - 2) % 3) {
+    T2 base = slowTrig_BH(s * 2, SMALL_HEIGHT * 2, TRIG_BH);
+    WADD(2, base);
+    if ((MIDDLE - 2) % 3 == 2) {
+      WADD(3, base);
+      WADD(3, w);
+    }
+  }
+  for (i32 i = (MIDDLE - 2) % 3 + 3; i < MIDDLE; i += 3) {
+    T2 base = slowTrig_BH(s * i, SMALL_HEIGHT * i, TRIG_BH);
+    WADD(i - 1, base);
+    WADD(i, base);
+    WADD(i + 1, base);
+    WSUB(i - 1, w);
+    WADD(i + 1, w);
+  }
+
+#elif MM_CHAIN == 1 || MM_CHAIN == 2
+
+// This is our second and third fastest versions - used when we are somewhat worried about round off error.
+// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
+  WADD(1, w);
+  WADD(2, sq(w));
+  i32 group_start, group_size;
+  for (group_start = 3; group_start < MIDDLE; group_start += group_size) {
+#if MM_CHAIN == 2 && MIDDLE > 4
+    group_size = (group_start == 3 ? (MIDDLE - 3) / 2 : MIDDLE - group_start);
+#else
+    group_size = MIDDLE - 3;
+#endif
+    i32 midpoint = group_start + group_size / 2;
+    T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
+    T2 base2 = base;
+    WADD(midpoint, base);
+    for (i32 i = 1; i <= group_size / 2; ++i) {
+      base = mul_by_conjugate(base, w);
+      WADD(midpoint - i, base);
+      if (i == group_size / 2 && (group_size & 1) == 0) break;
+      base2 = mul(base2, w);
+      WADD(midpoint + i, base2);
+    }
+  }
+
+#elif MM_CHAIN == 4
+
+  for (int i = 1; i < MIDDLE; ++i) {
+    WADD(i, trig[s + (i - 1) * SMALL_HEIGHT]);
+  }
+
+#else
+  WADD(1, w);
+  T2 base = sq(w);
+  for (i32 i = 2; i < MIDDLE; ++i) {
+    WADD(i, base);
+    base = mul(base, w);
+  }
+#endif
+}
+
+void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
+  assert(x < WIDTH);
+  assert(y < SMALL_HEIGHT);
+  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+
+#if MM2_CHAIN == 3
+// This is our slowest version - used when we are extremely worried about round off error.
+// Maximum multiply chain length is 1.
+  if (MIDDLE % 3) {
+    T2 base = slowTrig_N(x * y, ND / MIDDLE, TRIG_BHW) * factor;
+    WADD(0, base);
+    if (MIDDLE % 3 == 2) {
+      WADD(1, base);
+      WADD(1, w);
+    }
+  }
+  for (i32 i = MIDDLE % 3 + 1; i < MIDDLE; i += 3) {
+    T2 base = slowTrig_N(x * SMALL_HEIGHT * i + x * y, ND / MIDDLE * (i + 1), TRIG_BHW) * factor;
+    WADD(i - 1, base);
+    WADD(i, base);
+    WADD(i + 1, base);
+    WSUB(i - 1, w);
+    WADD(i + 1, w);
+  }
+
+#elif MM2_CHAIN == 1 || MM2_CHAIN == 2
+
+// This is our second and third fastest versions - used when we are somewhat worried about round off error.
+// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
+  i32 group_size = 0;
+  for (i32 group_start = 0; group_start < MIDDLE; group_start += group_size) {
+#if MM2_CHAIN == 2
+    group_size = (group_start == 0 ? MIDDLE / 2 : MIDDLE - group_start);
+#else
+    group_size = MIDDLE;
+#endif
+    i32 midpoint = group_start + group_size / 2;
+    T2 base = slowTrig_N(x * SMALL_HEIGHT * midpoint + x * y, ND / MIDDLE * (midpoint + 1), TRIG_BHW) * factor;
+    T2 base2 = base;
+    WADD(midpoint, base);
+    for (i32 i = 1; i <= group_size / 2; ++i) {
+      base = mul_by_conjugate(base, w);
+      WADD(midpoint - i, base);
+      if (i == group_size / 2 && (group_size & 1) == 0) break;
+      base2 = mul(base2, w);
+      WADD(midpoint + i, base2);
+    }
+  }
+
+#else
+
+// This is our fastest version - used when we are not worried about round off error.
+// Maximum multiply chain length equals MIDDLE.
+  T2 base = slowTrig_N(x * y, ND/MIDDLE, TRIG_BHW) * factor;
+  for (i32 i = 0; i < MIDDLE; ++i) {
+    WADD(i, base);
+    base = mul(base, w);
+  }
+
+#endif
+
+}
+
+#undef WADD
+#undef WSUB
+
+// Do a partial transpose during fftMiddleIn/Out
+// The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
+// than reading/writing T2 values.  This routine lets us try both versions.
+
+void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
+  u32 me = get_local_id(0);
+  if (MIDDLE <= 8) {
+    local T *p = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].x; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].y; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * i]; }
+  } else {
+    local int *p1 = ((local int*) lds) + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+    local int *p2 = (local int*) lds;
+    int4 *pu = (int4 *)u;
+
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].x; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].x = p2[me + workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].y; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].y = p2[me + workgroupSize * i]; }
+    bar();
+
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].z; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].z = p2[me + workgroupSize * i]; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].w; }
+    bar();
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].w = p2[me + workgroupSize * i]; }
+  }
+}
+)cltag",
+
 // src/cl/fft10.cl
 R"cltag(
 // See prime95's gwnum/zr10.mac file for more detailed explanation of the formulas below
@@ -958,6 +1194,7 @@ void fft12(T2 *u) {
 
 // src/cl/fft13.cl
 R"cltag(
+// Copyright (C) Mihai Preda and George Woltman
 
 // To calculate a 13-complex FFT in a brute force way (using a shorthand notation):
 // The sin/cos values (w = 13th root of unity) are:
@@ -1117,6 +1354,7 @@ void fft13(T2 *u) {
 
 // src/cl/fft14.cl
 R"cltag(
+// Copyright (C) Mihai Preda and George Woltman
 
 void fft14(T2 *u) {
   const double SIN1 = 0.781831482468029809;		// sin(tau/7)
@@ -1193,6 +1431,10 @@ void fft14(T2 *u) {
 
 // src/cl/fft15.cl
 R"cltag(
+// Copyright (C) Mihai Preda and George Woltman
+
+#include "fft3.cl"
+#include "fft5.cl"
 
 // 5 complex FFT where second though fifth inputs need to be multiplied by SIN1, and third input needs to multiplied by SIN2
 void fft5delayedSIN1234(T2 *u) {
@@ -1296,6 +1538,8 @@ void fft3(T2 *u) {
 R"cltag(
 // Copyright (C) Mihai Preda
 
+#pragma once
+
 void fft4Core(T2 *u) {
   X2(u[0], u[2]);
   X2(u[1], u[3]);
@@ -1317,6 +1561,7 @@ void fft4(T2 *u) {
 
 // src/cl/fft5.cl
 R"cltag(
+// Copyright (C) Mihai Preda and George Woltman
 
 #if !NEWEST_FFT5 && !NEW_FFT5 && !OLD_FFT5
 #define NEW_FFT5 1
@@ -1525,6 +1770,10 @@ void fft7(T2 *u) {
 R"cltag(
 // Copyright (C) Mihai Preda
 
+#pragma once
+
+#include "fft4.cl"
+
 void fft8Core(T2 *u) {
   X2(u[0], u[4]);
   X2(u[1], u[5]);   u[5] = mul_t8(u[5]);
@@ -1544,6 +1793,9 @@ void fft8(T2 *u) {
 
 // src/cl/fft9.cl
 R"cltag(
+// Copyright (C) Mihai Preda and George Woltman
+
+#include "fft3.cl"
 
 #if !NEW_FFT9 && !OLD_FFT9
 #define NEW_FFT9 1
@@ -1704,28 +1956,9 @@ R"cltag(
 
 #include "base.cl"
 #include "fftbase.cl"
+#include "middle.cl"
 
 u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * middle; }
-
-// Read a line for tailFused or fftHin
-void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
-  // We go to some length here to avoid dividing by MIDDLE in address calculations.
-  // The transPos converted logical line number into physical memory line numbers
-  // using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
-  // We can compute the 0..9 component of address calculations as line / WIDTH,
-  // and the 0,10,20,30,..310 component as (line % WIDTH) % 32 = (line % 32),
-  // and the multiple of 320 component as (line % WIDTH) / 32
-
-  u32 me = get_local_id(0);
-  u32 WG = IN_WG;
-  u32 SIZEY = WG / IN_SIZEX;
-
-  in += line / WIDTH * WG;
-  in += line % IN_SIZEX * SIZEY;
-  in += line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * WG;
-  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * WG]; }
-}
 
 void fft256h(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 4; s += 2) {
@@ -1828,6 +2061,7 @@ R"cltag(
 
 #include "base.cl"
 #include "math.cl"
+#include "fft-middle.cl"
 #include "middle.cl"
 
 KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
@@ -1856,6 +2090,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
   fft_MIDDLE(u);
 
   middleMul(u, starty + my, trig, TRIG_BHW);
+
   local T lds[IN_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
   middleShuffle(lds, u, IN_WG, IN_SIZEX);
 
@@ -1876,7 +2111,7 @@ R"cltag(
 
 #include "base.cl"
 #include "math.cl"
-#include "middle.cl"
+#include "fft-middle.cl"
 
 KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   T2 u[MIDDLE];
@@ -2142,254 +2377,43 @@ T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a)
 R"cltag(
 // Copyright (C) Mihai Preda
 
-#include "trig.cl"
-
-void fft2(T2* u) { X2(u[0], u[1]); }
-
-#if MIDDLE == 3
-#include "fft3.cl"
-#elif MIDDLE == 4
-#include "fft4.cl"
-#elif MIDDLE == 5
-#include "fft5.cl"
-#elif MIDDLE == 6
-#include "fft6.cl"
-#elif MIDDLE == 7
-#include "fft7.cl"
-#elif MIDDLE == 8
-#include "fft4.cl"
-#include "fft8.cl"
-#elif MIDDLE == 9
-#include "fft3.cl"
-#include "fft9.cl"
-#elif MIDDLE == 10
-#include "fft10.cl"
-#elif MIDDLE == 11
-#include "fft11.cl"
-#elif MIDDLE == 12
-#include "fft12.cl"
-#elif MIDDLE == 13
-#include "fft13.cl"
-#elif MIDDLE == 14
-#include "fft14.cl"
-#elif MIDDLE == 15
-#include "fft3.cl"
-#include "fft15.cl"
+#if !IN_WG
+#define IN_WG 256
 #endif
 
-void fft_MIDDLE(T2 *u) {
-#if MIDDLE == 1
-  // Do nothing
-#elif MIDDLE == 2
-  fft2(u);
-#elif MIDDLE == 3
-  fft3(u);
-#elif MIDDLE == 4
-  fft4(u);
-#elif MIDDLE == 5
-  fft5(u);
-#elif MIDDLE == 6
-  fft6(u);
-#elif MIDDLE == 7
-  fft7(u);
-#elif MIDDLE == 8
-  fft8(u);
-#elif MIDDLE == 9
-  fft9(u);
-#elif MIDDLE == 10
-  fft10(u);
-#elif MIDDLE == 11
-  fft11(u);
-#elif MIDDLE == 12
-  fft12(u);
-#elif MIDDLE == 13
-  fft13(u);
-#elif MIDDLE == 14
-  fft14(u);
-#elif MIDDLE == 15
-  fft15(u);
+#if !IN_SIZEX
+#if AMDGPU
+#define IN_SIZEX 32
+
+#else // !AMDGPU
+
+#if G_W >= 64
+#define IN_SIZEX 4
 #else
-#error UNRECOGNIZED MIDDLE
-#endif
-}
-
-// Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
-// Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
-
-#define WADD(i, w) u[i] = mul(u[i], w)
-#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
-
-void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
-  assert(s < SMALL_HEIGHT);
-  if (MIDDLE == 1) { return; }
-  T2 w = slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
-
-#if MM_CHAIN == 3
-// This is our slowest version - used when we are extremely worried about round off error.
-// Maximum multiply chain length is 1.
-  WADD(1, w);
-  if ((MIDDLE - 2) % 3) {
-    T2 base = slowTrig_BH(s * 2, SMALL_HEIGHT * 2, TRIG_BH);
-    WADD(2, base);
-    if ((MIDDLE - 2) % 3 == 2) {
-      WADD(3, base);
-      WADD(3, w);
-    }
-  }
-  for (i32 i = (MIDDLE - 2) % 3 + 3; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_BH(s * i, SMALL_HEIGHT * i, TRIG_BH);
-    WADD(i - 1, base);
-    WADD(i, base);
-    WADD(i + 1, base);
-    WSUB(i - 1, w);
-    WADD(i + 1, w);
-  }
-
-#elif MM_CHAIN == 1 || MM_CHAIN == 2
-
-// This is our second and third fastest versions - used when we are somewhat worried about round off error.
-// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
-  WADD(1, w);
-  WADD(2, sq(w));
-  i32 group_start, group_size;
-  for (group_start = 3; group_start < MIDDLE; group_start += group_size) {
-#if MM_CHAIN == 2 && MIDDLE > 4
-    group_size = (group_start == 3 ? (MIDDLE - 3) / 2 : MIDDLE - group_start);
-#else
-    group_size = MIDDLE - 3;
-#endif
-    i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
-    T2 base2 = base;
-    WADD(midpoint, base);
-    for (i32 i = 1; i <= group_size / 2; ++i) {
-      base = mul_by_conjugate(base, w);
-      WADD(midpoint - i, base);
-      if (i == group_size / 2 && (group_size & 1) == 0) break;
-      base2 = mul(base2, w);
-      WADD(midpoint + i, base2);
-    }
-  }
-
-#elif MM_CHAIN == 4
-
-  for (int i = 1; i < MIDDLE; ++i) {
-    WADD(i, trig[s + (i - 1) * SMALL_HEIGHT]);
-  }
-
-#else
-  WADD(1, w);
-  T2 base = sq(w);
-  for (i32 i = 2; i < MIDDLE; ++i) {
-    WADD(i, base);
-    base = mul(base, w);
-  }
-#endif
-}
-
-void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
-  assert(x < WIDTH);
-  assert(y < SMALL_HEIGHT);
-  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
-
-#if MM2_CHAIN == 3
-// This is our slowest version - used when we are extremely worried about round off error.
-// Maximum multiply chain length is 1.
-  if (MIDDLE % 3) {
-    T2 base = slowTrig_N(x * y, ND / MIDDLE, TRIG_BHW) * factor;
-    WADD(0, base);
-    if (MIDDLE % 3 == 2) {
-      WADD(1, base);
-      WADD(1, w);
-    }
-  }
-  for (i32 i = MIDDLE % 3 + 1; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * i + x * y, ND / MIDDLE * (i + 1), TRIG_BHW) * factor;
-    WADD(i - 1, base);
-    WADD(i, base);
-    WADD(i + 1, base);
-    WSUB(i - 1, w);
-    WADD(i + 1, w);
-  }
-
-#elif MM2_CHAIN == 1 || MM2_CHAIN == 2
-
-// This is our second and third fastest versions - used when we are somewhat worried about round off error.
-// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
-  i32 group_size = 0;
-  for (i32 group_start = 0; group_start < MIDDLE; group_start += group_size) {
-#if MM2_CHAIN == 2
-    group_size = (group_start == 0 ? MIDDLE / 2 : MIDDLE - group_start);
-#else
-    group_size = MIDDLE;
-#endif
-    i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * midpoint + x * y, ND / MIDDLE * (midpoint + 1), TRIG_BHW) * factor;
-    T2 base2 = base;
-    WADD(midpoint, base);
-    for (i32 i = 1; i <= group_size / 2; ++i) {
-      base = mul_by_conjugate(base, w);
-      WADD(midpoint - i, base);
-      if (i == group_size / 2 && (group_size & 1) == 0) break;
-      base2 = mul(base2, w);
-      WADD(midpoint + i, base2);
-    }
-  }
-
-#else
-
-// This is our fastest version - used when we are not worried about round off error.
-// Maximum multiply chain length equals MIDDLE.
-  T2 base = slowTrig_N(x * y, ND/MIDDLE, TRIG_BHW) * factor;
-  for (i32 i = 0; i < MIDDLE; ++i) {
-    WADD(i, base);
-    base = mul(base, w);
-  }
-
+#define IN_SIZEX 32
 #endif
 
-}
+#endif
+#endif
 
-#undef WADD
-#undef WSUB
+// Read a line for tailFused or fftHin
+void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
+  // We go to some length here to avoid dividing by MIDDLE in address calculations.
+  // The transPos converted logical line number into physical memory line numbers
+  // using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
+  // We can compute the 0..9 component of address calculations as line / WIDTH,
+  // and the 0,10,20,30,..310 component as (line % WIDTH) % 32 = (line % 32),
+  // and the multiple of 320 component as (line % WIDTH) / 32
 
-// Do a partial transpose during fftMiddleIn/Out
-// The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
-// than reading/writing T2 values.  This routine lets us try both versions.
-
-void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
-  if (MIDDLE <= 8) {
-    local T *p = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
-    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].x; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * i]; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].y; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * i]; }
-  } else {
-    local int *p1 = ((local int*) lds) + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
-    local int *p2 = (local int*) lds;
-    int4 *pu = (int4 *)u;
+  u32 WG = IN_WG;
+  u32 SIZEY = WG / IN_SIZEX;
 
-    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].x; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].x = p2[me + workgroupSize * i]; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].y; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].y = p2[me + workgroupSize * i]; }
-    bar();
-
-    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].z; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].z = p2[me + workgroupSize * i]; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].w; }
-    bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].w = p2[me + workgroupSize * i]; }
-  }
+  in += line / WIDTH * WG;
+  in += line % IN_SIZEX * SIZEY;
+  in += line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * WG;
+  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
+  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * WG]; }
 }
 )cltag",
 
@@ -2402,9 +2426,6 @@ R"cltag(
 #include "trig.cl"
 #include "fftheight.cl"
 
-// This implementation compared to the original version that is no longer included in this file takes
-// better advantage of the AMD OMOD (output modifier) feature.
-//
 // Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
 // Now consider these lines from the original implementation (comments appear alongside):
 //      b = mul_by_conjugate(b, t);
@@ -2415,12 +2436,6 @@ R"cltag(
 //      b = mul(b, d);					(a-bt')(c-dt') = ac - bct' - adt' + bdt'^2
 //      X2(a, b);					2ac + 2bdt'^2,  2bct' + 2adt'
 //      b = mul(b, t);					                2bc + 2ad
-// Original code is 5 complex muls, 6 complex adds
-// New code is 5 complex muls, 1 complex square, 2 complex adds PLUS two complex-mul-by-2
-// NOTE:  We actually, return the original result divided by 2 so that our cost for the above is
-// reduced to 5 complex muls, 1 complex square, 2 complex adds
-// ALSO NOTE: the new code can be improved further (saves a complex squaring) if the t value is squared already,
-// plus the caller saves a mul_t8 instruction by dealing with squared t values!
 
 void onePairMul(T2* pa, T2* pb, T2* pc, T2* pd, T2 conjugate_t_squared) {
   T2 a = *pa, b = *pb, c = *pc, d = *pd;
@@ -3013,6 +3028,6 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
 )cltag",
 
 };
-static const std::vector<const char*> CL_FILE_NAMES{"base.cl","carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft3.cl","fft4.cl","fft5.cl","fft6.cl","fft7.cl","fft8.cl","fft9.cl","fftbase.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","math.cl","middle.cl","tailmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl","weight.cl",};
+static const std::vector<const char*> CL_FILE_NAMES{"base.cl","carry.cl","carryb.cl","carryfused.cl","carryinc.cl","carryutil.cl","etc.cl","fft-middle.cl","fft10.cl","fft11.cl","fft12.cl","fft13.cl","fft14.cl","fft15.cl","fft3.cl","fft4.cl","fft5.cl","fft6.cl","fft7.cl","fft8.cl","fft9.cl","fftbase.cl","fftheight.cl","ffthin.cl","ffthout.cl","fftmiddlein.cl","fftmiddleout.cl","fftp.cl","fftw.cl","fftwidth.cl","math.cl","middle.cl","tailmul.cl","tailsquare.cl","tailutil.cl","transpose.cl","trig.cl","weight.cl",};
 const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }
 const std::vector<const char*>& getClFiles() { return CL_FILES; }

@@ -1,3 +1,4 @@
+// Copyright (C) Mihai Preda and George Woltman
 
 // To calculate a 13-complex FFT in a brute force way (using a shorthand notation):
 // The sin/cos values (w = 13th root of unity) are:

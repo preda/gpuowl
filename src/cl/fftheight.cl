@@ -2,28 +2,9 @@
 
 #include "base.cl"
 #include "fftbase.cl"
+#include "middle.cl"
 
 u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * middle; }
-
-// Read a line for tailFused or fftHin
-void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
-  // We go to some length here to avoid dividing by MIDDLE in address calculations.
-  // The transPos converted logical line number into physical memory line numbers
-  // using this formula:  memline = line / WIDTH + line % WIDTH * MIDDLE.
-  // We can compute the 0..9 component of address calculations as line / WIDTH,
-  // and the 0,10,20,30,..310 component as (line % WIDTH) % 32 = (line % 32),
-  // and the multiple of 320 component as (line % WIDTH) / 32
-
-  u32 me = get_local_id(0);
-  u32 WG = IN_WG;
-  u32 SIZEY = WG / IN_SIZEX;
-
-  in += line / WIDTH * WG;
-  in += line % IN_SIZEX * SIZEY;
-  in += line % WIDTH / IN_SIZEX * (SMALL_HEIGHT / SIZEY) * MIDDLE * WG;
-  in += me / SIZEY * MIDDLE * WG + me % SIZEY;
-  for (i32 i = 0; i < NH; ++i) { u[i] = in[i * G_H / SIZEY * MIDDLE * WG]; }
-}
 
 void fft256h(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 0; s <= 4; s += 2) {

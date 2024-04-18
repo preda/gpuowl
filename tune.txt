@@ -1,0 +1,4 @@
+Name | Default on AMD | Default on Nvidia
+
+IN_SIZEX 32 4
+

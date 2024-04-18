@@ -1,3 +1,4 @@
+// Copyright (C) Mihai Preda and George Woltman
 
 #if !NEWEST_FFT5 && !NEW_FFT5 && !OLD_FFT5
 #define NEW_FFT5 1

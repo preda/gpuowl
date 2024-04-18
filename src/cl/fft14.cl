@@ -1,3 +1,4 @@
+// Copyright (C) Mihai Preda and George Woltman
 
 void fft14(T2 *u) {
   const double SIN1 = 0.781831482468029809;		// sin(tau/7)
