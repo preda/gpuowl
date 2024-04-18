@@ -1,4 +1,4 @@
-// Copyright Mihai Preda.
+// Copyright (C) Mihai Preda
 
 #pragma once
 
