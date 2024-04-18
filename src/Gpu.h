@@ -93,7 +93,6 @@ class Gpu {
   Kernel fftW;
 
   Kernel fftHin;
-  Kernel fftHout;
 
   Kernel tailSquare;
   Kernel tailMul;
