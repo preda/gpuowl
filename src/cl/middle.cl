@@ -34,7 +34,7 @@
 
 #if !OUT_SPACING
 #if AMDGPU
-#define OUT_SPACING 4
+#define OUT_SPACING 8
 #else
 #define OUT_SPACING 1
 #endif

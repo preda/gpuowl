@@ -200,7 +200,43 @@ string clArgs(const Args& args) {
   return s;
 }
 
+FFTConfig getFFTConfig(u32 E, string fftSpec) {
+  if (fftSpec.empty()) {
+    vector<FFTConfig> configs = FFTConfig::genConfigs();
+    for (FFTConfig c : configs) { if (c.maxExp() >= E) { return c; } }
+    log("No FFT for exponent %u\n", E);
+    throw "No FFT for exponent";
+  }
+  return FFTConfig::fromSpec(fftSpec);
+}
+
 } // namespace
+
+unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared) {
+  FFTConfig config = getFFTConfig(E, shared.args->fftSpec);
+  u32 WIDTH        = config.width;
+  u32 SMALL_HEIGHT = config.height;
+  u32 MIDDLE       = config.middle;
+  u32 N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
+
+  u32 nW = (WIDTH == 1024 || WIDTH == 256) ? 4 : 8;
+  u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
+
+  float bitsPerWord = E / float(N);
+  log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord);
+
+  if (bitsPerWord > 20) {
+    log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
+    throw "FFT size too small";
+  }
+
+  if (bitsPerWord < FFTConfig::MIN_BPW) {
+    log("FFT size too large for exponent (%.2f bits/word < %.2f bits/word).\n", bitsPerWord, FFTConfig::MIN_BPW);
+    throw "FFT size too large";
+  }
+
+  return make_unique<Gpu>(q, shared, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH);
+}
 
 Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH)
   : Gpu{q, shared, E, W, BIG_H, SMALL_H, nW, nH, genWeights(E, W, BIG_H, nW)}
@@ -355,16 +391,6 @@ vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
   return r;
 }
 
-static FFTConfig getFFTConfig(u32 E, string fftSpec) {
-  if (fftSpec.empty()) {
-    vector<FFTConfig> configs = FFTConfig::genConfigs();
-    for (FFTConfig c : configs) { if (c.maxExp() >= E) { return c; } }
-    log("No FFT for exponent %u\n", E);
-    throw "No FFT for exponent";
-  }
-  return FFTConfig::fromSpec(fftSpec);
-}
-
 vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   readResidue(bufSmallOut, buf, start);
   return bufSmallOut.read(128);
@@ -407,32 +433,6 @@ RoeStats Gpu::readROE() {
   } else {
     return {};
   }
-}
-
-unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared) {
-  FFTConfig config = getFFTConfig(E, shared.args->fftSpec);
-  u32 WIDTH        = config.width;
-  u32 SMALL_HEIGHT = config.height;
-  u32 MIDDLE       = config.middle;
-  u32 N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
-
-  u32 nW = (WIDTH == 1024 || WIDTH == 256) ? 4 : 8;
-  u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
-
-  float bitsPerWord = E / float(N);
-  log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord);
-
-  if (bitsPerWord > 20) {
-    log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
-    throw "FFT size too small";
-  }
-
-  if (bitsPerWord < FFTConfig::MIN_BPW) {
-    log("FFT size too large for exponent (%.2f bits/word < %.2f bits/word).\n", bitsPerWord, FFTConfig::MIN_BPW);
-    throw "FFT size too large";
-  }
-
-  return make_unique<Gpu>(q, shared, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH);
 }
 
 template<typename T>
@@ -918,10 +918,15 @@ u32 Gpu::getProofPower(u32 k) {
   return power;
 }
 
+u64 Gpu::timePRP(u32 nIters, u32 nWarmupIters) {
+  return 0; // todo
+}
+
 PRPResult Gpu::isPrimePRP(const Task& task) {
   const constexpr u32 LOG_STEP = 20'000; // log every 20k its
 
-  u32 E = task.exponent;
+  assert(E == task.exponent);
+
   u32 k = 0;
   u32 blockSize = 0;
   u32 nErrors = 0;
@@ -993,7 +998,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         ++nErrors;
         goto reload;
       }
-      (*background)([=] { ProofSet::save(E, power, k, compactBits(rawData, E)); });
+      (*background)([=, E=this->E] { ProofSet::save(E, power, k, compactBits(rawData, E)); });
       persistK = proofSet.next(k);
     }
 
@@ -1081,7 +1086,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 }
 
 LLResult Gpu::isPrimeLL(const Task& task) {
-  u32 E = task.exponent;
+  assert(E == task.exponent);
 
   Saver<LLState> saver{E, 0};
   reload:
@@ -1159,3 +1164,4 @@ LLResult Gpu::isPrimeLL(const Task& task) {
     if (doStop) { throw "stop requested"; }
   }
 }
+

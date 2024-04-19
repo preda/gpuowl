@@ -119,13 +119,6 @@ NH         == SMALL_HEIGHT / G_H
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
 
-// 5M timings for MiddleOut & carryFused, ROCm 2.10, RadeonVII, sclk4, mem 1200
-// OUT_WG=256, OUT_SIZEX=4, OUT_SPACING=1 (old WorkingOut4) : 154 + 252 = 406 (but may be best on nVidia)
-// OUT_WG=256, OUT_SIZEX=8, OUT_SPACING=1 (old WorkingOut3): 124 + 260 = 384
-// OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=1 (old WorkingOut5): 105 + 281 = 386
-// OUT_WG=256, OUT_SIZEX=8, OUT_SPACING=2: 122 + 249 = 371
-// OUT_WG=256, OUT_SIZEX=32, OUT_SPACING=4: 108 + 257 = 365  <- best
-
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
 #else
@@ -2103,8 +2096,8 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
   out += (gy / OUT_SPACING) * (MIDDLE * (OUT_WG * OUT_SPACING));
   out += (gy % OUT_SPACING) * SIZEY;
-  out += (me / SIZEY) * (OUT_SPACING * SIZEY);
-  out += (me % SIZEY);
+
+  out += (me / SIZEY) * (OUT_SPACING * SIZEY) + (me % SIZEY);
 
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
 }
@@ -2348,7 +2341,7 @@ R"cltag(
 
 #if !OUT_SPACING
 #if AMDGPU
-#define OUT_SPACING 4
+#define OUT_SPACING 8
 #else
 #define OUT_SPACING 1
 #endif
