@@ -114,12 +114,14 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   lock_guard lock{mut};
   auto& m = small;
   decay_t<decltype(m)>::key_type key{W, nW};
-  if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
-      // log("Reused smallTrig\n");
-      return p;
-    } }
-  auto p = make_shared<TrigBuf>(context, genSmallTrig(W, nW));
-  m[key] = p;
+
+  TrigPtr p{};
+  auto it = m.find(key);
+  if (it == m.end() || !(p = it->second.lock())) {
+    p = make_shared<TrigBuf>(context, genSmallTrig(W, nW));
+    m[key] = p;
+  }
+  lastSmall = p;
   return p;
 }
 
@@ -127,12 +129,14 @@ TrigPtr TrigBufCache::middleTrig(u32 SMALL_H, u32 nH) {
   lock_guard lock{mut};
   auto& m = middle;
   decay_t<decltype(m)>::key_type key{SMALL_H, nH};
-  if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
-      // log("Reused middleTrig\n");
-      return p;
-    } }
-  auto p = make_shared<TrigBuf>(context, genMiddleTrig(SMALL_H, nH));
-  m[key] = p;
+
+  TrigPtr p{};
+  auto it = m.find(key);
+  if (it == m.end() || !(p = it->second.lock())) {
+    p = make_shared<TrigBuf>(context, genMiddleTrig(SMALL_H, nH));
+    m[key] = p;
+  }
+  lastMiddle = p;
   return p;
 }
 
@@ -140,12 +144,14 @@ TrigPtr TrigBufCache::trigBHW(u32 W, u32 hN, u32 BIG_H) {
   lock_guard lock{mut};
   auto& m = bhw;
   decay_t<decltype(m)>::key_type key{W, hN, BIG_H};
-  if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
-      // log("Reused trigBHW\n");
-      return p;
-    } }
-  auto p = make_shared<TrigBuf>(context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H)));
-  m[key] = p;
+
+  TrigPtr p{};
+  auto it = m.find(key);
+  if (it == m.end() || !(p = it->second.lock())) {
+    p = make_shared<TrigBuf>(context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H)));
+    m[key] = p;
+  }
+  lastBHW = p;
   return p;
 }
 
@@ -153,12 +159,13 @@ TrigPtr TrigBufCache::trig2SH(u32 SMALL_H) {
   lock_guard lock{mut};
   auto& m = sh;
   decay_t<decltype(m)>::key_type key{SMALL_H};
-  if (auto it = m.find(key); it != m.end()) { if (auto p = it->second.lock(); p) {
-      // log("Reused trig2SH\n");
-      return p;
-    } }
-  auto p = make_shared<TrigBuf>(context, makeTrig<double>(2 * SMALL_H));
-  m[key] = p;
+
+  TrigPtr p{};
+  auto it = m.find(key);
+  if (it == m.end() || !(p = it->second.lock())) {
+    p = make_shared<TrigBuf>(context, makeTrig<double>(2 * SMALL_H));
+    m[key] = p;
+  }
+  last2SH = p;
   return p;
 }
-

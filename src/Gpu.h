@@ -197,15 +197,19 @@ class Gpu {
 
   vector<int> readChecked(Buffer<int>& buf);
 
-public:
-
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);
 
+public:
   static unique_ptr<Gpu> make(Queue* q, u32 E, GpuCommon shared);
 
   Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH);
   ~Gpu();
+
+  PRPResult isPrimePRP(const Task& task);
+  LLResult isPrimeLL(const Task& task);
+
+  u64 timePRP(u32 nIters, u32 nWarmupIters=100);
 
   Saver<PRPState>* getSaver() { return &saver; }
 
@@ -231,8 +235,6 @@ public:
   vector<u32> readCheck();
   vector<u32> readData();
 
-  PRPResult isPrimePRP(const Task& task);
-  LLResult isPrimeLL(const Task& task);
 
   u32 getFFTSize() { return N; }
 
