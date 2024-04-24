@@ -2307,14 +2307,17 @@ T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a)
 R"cltag(
 // Copyright (C) Mihai Preda
 
+// Normal values: 64, 256
 #if !IN_WG
 #define IN_WG 256
 #endif
 
+// Normal values: 64, 256
 #if !OUT_WG
 #define OUT_WG 256
 #endif
 
+// Normal values: 4, 8, 16, 32
 #if !IN_SIZEX
 #if AMDGPU
 #define IN_SIZEX 32
@@ -2327,6 +2330,7 @@ R"cltag(
 #endif
 #endif
 
+// Normal values: 4, 8, 16, 32
 #if !OUT_SIZEX
 #if AMDGPU
 #define OUT_SIZEX 32
@@ -2339,6 +2343,7 @@ R"cltag(
 #endif
 #endif
 
+// Normal values: 1, 2, 4, 8
 #if !OUT_SPACING
 #if AMDGPU
 #define OUT_SPACING 8

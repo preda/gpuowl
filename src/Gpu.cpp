@@ -212,7 +212,7 @@ FFTConfig getFFTConfig(u32 E, string fftSpec) {
 
 } // namespace
 
-unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared) {
+unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, bool logFftSize) {
   FFTConfig config = getFFTConfig(E, shared.args->fftSpec);
   u32 WIDTH        = config.width;
   u32 SMALL_HEIGHT = config.height;
@@ -223,7 +223,7 @@ unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared) {
   u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
 
   float bitsPerWord = E / float(N);
-  log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord);
+  if (logFftSize) { log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord); }
 
   if (bitsPerWord > 20) {
     log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
@@ -918,8 +918,56 @@ u32 Gpu::getProofPower(u32 k) {
   return power;
 }
 
-u64 Gpu::timePRP(u32 nIters, u32 nWarmupIters) {
-  return 0; // todo
+TimingResult Gpu::timePRP() {
+  u32 blockSize = 1000;
+  u32 iters = 10'000;
+  u32 warmup = 100;
+
+  assert(iters % blockSize == 0);
+
+  u32 k = 0;
+  PRPState state{E, 0, blockSize, 3, makeWords(E, 1), 0};
+  writeState(state.check, state.blockSize);
+  assert(dataResidue() == state.res64);
+
+  modMul(bufCheck, bufData);
+  square(bufData, bufData, true, false);
+  ++k;
+
+  while (k < warmup) {
+    square(bufData, bufData, false, false);
+    ++k;
+  }
+  queue->finish();
+  if (Signal::stopRequested()) { throw "stop requested"; }
+
+  Timer t;
+  bool leadIn = false;
+  while (true) {
+    while (k % blockSize < blockSize-1) {
+      square(bufData, bufData, leadIn, false);
+      ++k;
+      leadIn = false;
+    }
+    square(bufData, bufData, false, true);
+    leadIn = true;
+    ++k;
+
+    if (k >= iters) { break; }
+
+    modMul(bufCheck, bufData);
+    if (Signal::stopRequested()) { throw "stop requested"; }
+  }
+  queue->finish();
+  double secsPerIt = t.reset() / (iters - warmup);
+
+  if (Signal::stopRequested()) { throw "stop requested"; }
+
+  u64 res = dataResidue();
+  bool ok = doCheck(blockSize);
+  if (!ok) { return {-1, res}; }
+  // log("%s %.1f us/it  %016" PRIx64 "\n", ok ? "OK" : "EE", secsPerIt * 1e6, res);
+  return {secsPerIt, res};
 }
 
 PRPResult Gpu::isPrimePRP(const Task& task) {
@@ -1164,4 +1212,3 @@ LLResult Gpu::isPrimeLL(const Task& task) {
     if (doStop) { throw "stop requested"; }
   }
 }
-

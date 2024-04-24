@@ -204,6 +204,8 @@ void Args::parse(const string& line) {
     } else if (key == "-version") {
       // log("PRPLL %s\n", VERSION);
       throw "version";
+    } else if (key == "-tune") {
+      tune = s;
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-time") {

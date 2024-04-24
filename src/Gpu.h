@@ -64,6 +64,12 @@ public:
   float gumbelMiu{}, gumbelBeta{};
 };
 
+class TimingResult {
+public:
+  double secsPerIt;
+  u64 res64;
+};
+
 class Gpu {
   Queue* queue;
   Background* background;
@@ -159,7 +165,7 @@ class Gpu {
   vector<int> readOut(Buffer<int> &buf);
   void writeIn(Buffer<int>& buf, vector<i32>&& words);
 
-  void square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool doMul3, bool doLL = false);
+  void square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool doMul3 = false, bool doLL = false);
   void squareLL(Buffer<int>& io, bool leadIn, bool leadOut) { square(io, io, leadIn, leadOut, false, true); }
 
   void square(Buffer<int>& io);
@@ -201,15 +207,14 @@ class Gpu {
   static bool equals9(const Words& words);
 
 public:
-  static unique_ptr<Gpu> make(Queue* q, u32 E, GpuCommon shared);
+  static unique_ptr<Gpu> make(Queue* q, u32 E, GpuCommon shared, bool logFftSize = true);
 
   Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH);
   ~Gpu();
 
   PRPResult isPrimePRP(const Task& task);
   LLResult isPrimeLL(const Task& task);
-
-  u64 timePRP(u32 nIters, u32 nWarmupIters=100);
+  TimingResult timePRP();
 
   Saver<PRPState>* getSaver() { return &saver; }
 

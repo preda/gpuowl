@@ -33,7 +33,7 @@ class Queue : public QueueHolder {
 public:
   const Context* context;
 
-  Queue(const Args& args, const Context& context);
+  Queue(const Context& context, bool profile);
 
   static int registerThread();
   static int tid();
