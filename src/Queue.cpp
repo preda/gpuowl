@@ -15,9 +15,9 @@ void Events::synced() {
   assert(empty());
 }
 
-Queue::Queue(const Args& args, const Context& context) :
-  QueueHolder{makeQueue(context.deviceId(), context.get(), args.profile)},
-  hasEvents{args.profile},
+Queue::Queue(const Context& context, bool profile) :
+  QueueHolder{makeQueue(context.deviceId(), context.get(), profile)},
+  hasEvents{profile},
   context{&context}
 {}
 
