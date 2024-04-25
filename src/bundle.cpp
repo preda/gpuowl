@@ -2305,19 +2305,23 @@ T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a)
 
 // src/cl/middle.cl
 R"cltag(
-// Copyright (C) Mihai Preda
+// Copyright (C) Mihai Preda and George Woltman
 
-// Normal values: 64, 256
+/* Tunable paramaters:
+
+IN_WG, OUT_WG: default 256; may try 64, 128, 1024
+IN_SIZEX, OUT_SIZEX: default 32 (on AMD), may try 4, 8, 16
+OUT_SPACING: default 8, may try 1, 2, 4; 8 is known to produce errors in some configs.
+*/
+
 #if !IN_WG
 #define IN_WG 256
 #endif
 
-// Normal values: 64, 256
 #if !OUT_WG
 #define OUT_WG 256
 #endif
 
-// Normal values: 4, 8, 16, 32
 #if !IN_SIZEX
 #if AMDGPU
 #define IN_SIZEX 32
@@ -2330,7 +2334,6 @@ R"cltag(
 #endif
 #endif
 
-// Normal values: 4, 8, 16, 32
 #if !OUT_SIZEX
 #if AMDGPU
 #define OUT_SIZEX 32
@@ -2343,7 +2346,6 @@ R"cltag(
 #endif
 #endif
 
-// Normal values: 1, 2, 4, 8
 #if !OUT_SPACING
 #if AMDGPU
 #define OUT_SPACING 8
