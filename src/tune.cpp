@@ -113,7 +113,7 @@ void tune(Queue* q, GpuCommon shared) {
       if (k == "fft") {
         shared.args->fftSpec = v;
       } else {
-        assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX" || k == "OUT_SPACING");
+        // assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX" || k == "OUT_SPACING");
         shared.args->flags[k] = v;
       }
     }
