@@ -15,6 +15,7 @@ add_executable(gpuowl bundle.cpp Proof.cpp
   Event.cpp
   TrigBufCache.cpp
   CycleFile.cpp
+  tune.cpp
   )
 
 target_link_libraries(gpuowl OpenCL)

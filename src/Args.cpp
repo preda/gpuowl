@@ -143,6 +143,16 @@ named "config.txt" in the prpll run directory.
                      For carry, the range [0, 2^32] is mapped to [0.0, 1.0] float values; as such the max carry
                      that fits on 32bits (i.e. 31bits absolute value) is mapped to 0.5
 
+-tune <spec>       : measure time-per-iteration in various configurations to find out what's fastest
+                     Requires specifying an exponent with -prp <exponent>.
+                     Ignores other work and multi-worker settings; just does the timing, prints results and exits.
+                     If specifying FFT variants, put them first.
+                     Examples:
+                       -prp 118063003 -tune "OUT_SIZEX=32,8;OUT_WG=256,64"
+                       -prp 118063003 -tune "fft=1K:13:256,256:13:1K,512:13:512;IN_WG=64,256,1024"
+                     note: if present, "fft=" must come first in the tune spec.
+                     See src/cl/middle.cl for some tunable paramaters.
+
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
 -pci    <BDF>      : select the GPU with the given PCI BDF, e.g. "0c:00.0"
