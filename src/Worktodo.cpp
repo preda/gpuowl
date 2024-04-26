@@ -85,17 +85,20 @@ optional<Task> getWork(Args& args, i32 instance) {
   static mutex mut;
 
  again:
-  // Try to get a task from the local work file
-  if (optional<Task> task = bestTask(workName(instance))) {
-    return task;
-  }
+  // Try to get a task from the local work-<N> file.
+  // This only reads from the per-worker file, so we don't need to lock.
+  if (optional<Task> task = bestTask(workName(instance))) { return task; }
 
-  if (!args.masterDir.empty()) {
-    fs::path globalWorktodo = args.masterDir / "worktodo.txt";
-    lock_guard lock(mut);
-    if (optional<Task> task = bestTask(globalWorktodo)) {
+  // Try in order: the local worktodo.txt, and the global worktodo.txt if set up.
+  vector<fs::path> worktodoFiles{"worktodo.txt"};
+  if (!args.masterDir.empty()) { worktodoFiles.push_back(args.masterDir / "worktodo.txt"); }
+
+  lock_guard lock(mut);
+
+  for (fs::path& worktodo : worktodoFiles) {
+    if (optional<Task> task = bestTask(worktodo)) {
       File::append(workName(instance), task->line);
-      deleteLine(globalWorktodo, task->line);
+      deleteLine(worktodo, task->line);
       goto again;
     }
   }
