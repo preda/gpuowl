@@ -39,7 +39,7 @@ POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 
 LIBS = $(LIBPATH)
 
-all: prpll amd
+all: prpll
 
 prpll: $(BIN)/prpll
 
@@ -51,7 +51,6 @@ $(BIN)/prpll: ${OBJS}
 # Instead of linking with libOpenCL, link with libamdocl64
 $(BIN)/prpll-amd: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lamdocl64 -L/opt/rocm/lib ${STRIP}
-
 
 clean:
 	rm -rf build-debug build-release

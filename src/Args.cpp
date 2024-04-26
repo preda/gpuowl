@@ -86,9 +86,16 @@ For information about Mersenne primes search see https://www.mersenne.org/
 Run "prpll -h"; If this displays a list of OpenCL devices, it means that PRPLL is detecting the GPUs
 and should be able to run.
 
-To use PRPLL you need to create a file named "worktodo.txt" containing the exponent to be tested.
-The tool primenet.py (found at tools/primenet.py) can be used to automatically obtain tasks
-from the mersenne project.
+
+Worktodo:
+PRPLL keeps the active task in a per-worker file work-0.txt, work-1.txt etc in the local directory.
+These per-worker files are supplied from the local worktodo.txt or the global worktodo.txt file
+if -pool is used. In turn, the worktodo.txt files can be supplied with work through the primenet.py script,
+either the one located at gpuowl/tools/primenet.py or https://download.mersenne.ca/primenet.py
+
+It is also possible to manually add exponents by adding lines of the form "PRP=118063003" to worktodo.txt
+or work-<N>.txt
+
 
 The configuration options listed below can be passed on the command line or can be put in a file
 named "config.txt" in the prpll run directory.
