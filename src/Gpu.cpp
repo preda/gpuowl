@@ -1037,7 +1037,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
     if (doStop) { log("Stopping, please wait..\n"); }
 
     square(bufData, bufData, leadIn, leadOut, false);
-    leadIn = leadOut;    
+    leadIn = leadOut;
     
     if (k == persistK) {
       vector<int> rawData = readChecked(bufData);
@@ -1171,9 +1171,10 @@ LLResult Gpu::isPrimeLL(const Task& task) {
     bool leadOut = doLog || useLongCarry;
 
     squareLL(bufData, leadIn, leadOut);
+    leadIn = leadOut;
 
     if (!doLog) {
-      if (k % 100 == 99) { queue->finish(); } // Periodically flush the queue
+      if (k % args.flushStep == 0) { queue->finish(); } // Periodically flush the queue
       continue;
     }
 

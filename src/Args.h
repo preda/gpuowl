@@ -60,7 +60,7 @@ public:
   int carry = CARRY_AUTO;
   u32 workers = 1;
   u32 blockSize = 1000;
-  u32 flushStep = 100;
+  u32 flushStep = 200;
   string fftSpec;
 
   u32 prpExp = 0;
