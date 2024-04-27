@@ -64,7 +64,7 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
     wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1),
                       // For an LL test, add -2 as the very initial "carry in"
                       // We'd normally use logical &&, but the compiler whines with warning and bitwise fixes it
-                      (LL & (me==0) & (line==0)) ? -2 : 0, &roundMax, &carryMax);
+                      (LL & (i == 0) & (line==0) & (me == 0)) ? -2 : 0, &roundMax, &carryMax);
 #endif
   }
 

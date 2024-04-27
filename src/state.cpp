@@ -26,6 +26,8 @@ static u32 unbalance(int w, int nBits, int *carry) {
 }
 
 std::vector<u32> compactBits(const vector<int> &dataVect, u32 E) {
+  if (dataVect.empty()) { return {}; } // Indicating all zero
+
   std::vector<u32> out;
   out.reserve((E - 1) / 32 + 1);
 
