@@ -223,7 +223,8 @@ void Args::parse(const string& line) {
       // log("PRPLL %s\n", VERSION);
       throw "version";
     } else if (key == "-tune") {
-      tune = s;
+      if (!tune.empty() && !tune.ends_with(';')) { tune.push_back(';'); }
+      tune += s;
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-time") {
