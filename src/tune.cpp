@@ -138,20 +138,20 @@ void tune(Queue* q, GpuCommon shared) {
     auto gpu = Gpu::make(q, exponent, shared, false);
     auto [secsPerIt, res64] = gpu->timePRP();
     if (secsPerIt < 0) {
-      printf("Error %016" PRIx64 " %s\n", res64, toString(config).c_str());
+      log("Error %016" PRIx64 " %s\n", res64, toString(config).c_str());
     } else {
-      printf("%6.1f : %016" PRIx64 " %s\n", secsPerIt * 1e6, res64, toString(config).c_str());
+      log("%6.1f : %016" PRIx64 " %s\n", secsPerIt * 1e6, res64, toString(config).c_str());
     }
     results.push_back({secsPerIt < 0 ? 1.0 : secsPerIt, toString(config)});
   }
 
-  printf("\n");
+  log("\n");
   std::sort(results.begin(), results.end());
   for (auto& [secs, conf] : results) {
     if (secs >= 1.0) {
-      printf("Error : %s\n", conf.c_str());
+      log("Error : %s\n", conf.c_str());
     } else {
-      printf("%6.1f : %s\n", secs * 1e6, conf.c_str());
+      log("%6.1f : %s\n", secs * 1e6, conf.c_str());
     }
   }
 }
