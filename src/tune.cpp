@@ -136,7 +136,7 @@ void tune(Queue* q, GpuCommon shared) {
       throw "The exponent E=<N> must be set in tune=<values>";
     }
     auto gpu = Gpu::make(q, exponent, shared, false);
-    auto [secsPerIt, res64] = gpu->timePRP();
+    auto [secsPerIt, res64] = gpu->timePRP(shared.args->quickTune);
     if (secsPerIt < 0) {
       log("Error %016" PRIx64 " %s\n", res64, toString(config).c_str());
     } else {

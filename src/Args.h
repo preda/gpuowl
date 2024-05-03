@@ -37,6 +37,7 @@ public:
   string uid;
   string verifyPath;
   string tune;
+  bool quickTune = false;
   std::map<std::string, std::string> flags;
   
   int device = 0;

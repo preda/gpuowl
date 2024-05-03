@@ -159,6 +159,10 @@ named "config.txt" in the prpll run directory.
                        -prp 118063003 -tune "fft=1K:13:256,256:13:1K,512:13:512;IN_WG=64,256,1024"
                      note: if present, "fft=" must come first in the tune spec.
                      See src/cl/middle.cl for some tunable paramaters.
+                     The residues are displayed at iteration 10000.
+
+-qtune <spec>      : same as -tune <spec>, but faster (useful for slow GPUs).
+                     The residues are printed at iteration 1000.
 
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
@@ -222,9 +226,10 @@ void Args::parse(const string& line) {
     } else if (key == "-version") {
       // log("PRPLL %s\n", VERSION);
       throw "version";
-    } else if (key == "-tune") {
+    } else if (key == "-tune" || key == "-qtune") {
       if (!tune.empty() && !tune.ends_with(';')) { tune.push_back(';'); }
       tune += s;
+      quickTune = (key == "-qtune");
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-time") {

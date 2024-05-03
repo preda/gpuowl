@@ -918,10 +918,18 @@ u32 Gpu::getProofPower(u32 k) {
   return power;
 }
 
-TimingResult Gpu::timePRP() {
-  u32 blockSize = 1000;
-  u32 iters = 10'000;
-  u32 warmup = 100;
+TimingResult Gpu::timePRP(bool quick) {
+  u32 blockSize{}, iters{}, warmup{};
+
+  if (quick) {
+    blockSize = 500;
+    iters = 1000;
+    warmup = 20;
+  } else {
+    blockSize = 1000;
+    iters = 10'000;
+    warmup = 100;
+  }
 
   assert(iters % blockSize == 0);
 

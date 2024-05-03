@@ -214,7 +214,7 @@ public:
 
   PRPResult isPrimePRP(const Task& task);
   LLResult isPrimeLL(const Task& task);
-  TimingResult timePRP();
+  TimingResult timePRP(bool quick);
 
   Saver<PRPState>* getSaver() { return &saver; }
 
