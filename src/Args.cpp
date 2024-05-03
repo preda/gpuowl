@@ -170,12 +170,12 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
-    printf(" N  : PCI BDF |   UID            |   Driver           |    Device\n");
+    printf(" N  : PCI BDF |   UID            |   Driver                 |    Device\n");
   }
   for (unsigned i = 0; i < deviceIds.size(); ++i) {
     cl_device_id id = deviceIds[i];
     string bdf = getBdfFromDevice(id);
-    printf("%2u  : %7s | %16s | %s | %s | %s\n",
+    printf("%2u  : %7s | %16s | %-24s | %s | %s\n",
            i,
            bdf.c_str(),
            getUidFromBdf(bdf).c_str(),
@@ -195,7 +195,7 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
   for (auto c : configs) {
     if (c.fftSize() != activeSize) {
       if (!variants.empty()) {
-        printf("FFT %5s [%6.2fM - %7.2fM] %s\n",
+        printf("FFT %5s [%6.2fM - %7.2fM]  %s\n",
                numberK(activeSize).c_str(),
                activeSize * FFTConfig::MIN_BPW / 1'000'000, activeMaxExp / 1'000'000.0,
                variants.c_str());
