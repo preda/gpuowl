@@ -204,7 +204,8 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
     }
     activeSize = c.fftSize();
     activeMaxExp = c.maxExp();
-    variants += " "s + c.spec();
+    if (!variants.empty()) { variants.push_back(','); }
+    variants += c.spec();
   }
 }
 
