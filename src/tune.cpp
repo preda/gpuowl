@@ -2,6 +2,7 @@
 
 #include "tune.h"
 #include "Args.h"
+#include "FFTConfig.h"
 #include "Gpu.h"
 #include "GpuCommon.h"
 #include "log.h"
@@ -41,7 +42,20 @@ vector<TuneConfig> getTuneConfigs(const string& tune) {
     assert(keyVal.size() == 2);
     string key = keyVal.front();
     string val = keyVal.back();
-    params.push_back({key, split(val, ',')});
+
+    vector<string> options = split(val, ',');
+
+    if (key == "fft") {
+      vector<string> outOptions;
+      for (string& s : options) {
+        for(FFTConfig& c : FFTConfig::multiSpec(s)) {
+          outOptions.push_back(c.spec());
+        }
+      }
+      options = outOptions;
+    }
+
+    params.push_back({key, options});
   }
 
   vector<TuneConfig> configs;

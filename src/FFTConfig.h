@@ -59,6 +59,7 @@ struct FFTConfig {
 
   // FFTConfig(u32 w, u32 m, u32 h) : width(w), middle(m), height(h) {}
   static FFTConfig fromSpec(const string& spec);
+  static vector<FFTConfig> multiSpec(const string& spec);
   
   u32 width  = 0;
   u32 middle = 0;

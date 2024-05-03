@@ -86,9 +86,21 @@ u32 parseInt(const string& s) {
   return strtod(s.c_str(), nullptr) * multiple;
 }
 
+vector<FFTConfig> specsForSize(u32 fftSize) {
+  vector<FFTConfig> ret;
+  for (FFTConfig& c : FFTConfig::genConfigs()) {
+    if (c.fftSize() == fftSize) { ret.push_back(c); }
+  }
+  return ret;
 }
 
+} // namespace
+
 FFTConfig FFTConfig::fromSpec(const string& spec) {
+  return multiSpec(spec).front();
+}
+
+vector<FFTConfig> FFTConfig::multiSpec(const string& spec) {
   bool hasParts = spec.find(':') != string::npos;
   if (hasParts) {
     auto p1 = spec.find(':');
@@ -100,13 +112,15 @@ FFTConfig FFTConfig::fromSpec(const string& spec) {
     }
     u32 middle = parseInt(spec.substr(p1+1, p2 - (p1 + 1)));
     u32 height = parseInt(spec.substr(p2+1));
-    return {width, middle, height};
+    return {{width, middle, height}};
   } else {
     u32 fftSize = parseInt(spec);
-    vector<FFTConfig> configs = genConfigs();    
-    if (auto it = find_if(configs.begin(), configs.end(), [fftSize](const FFTConfig& c) { return c.fftSize() >= fftSize; }); it != configs.end()) { return *it; }
-    log("Could not find a FFT config for '%s'\n", spec.c_str());
-    throw "Invalid FFT spec";
+    auto specs = specsForSize(fftSize);
+    if (specs.empty()) {
+      log("Could not find a FFT config for '%s'\n", spec.c_str());
+      throw "Invalid FFT spec";
+    }
+    return specs;
   }
 }
 
