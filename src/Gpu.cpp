@@ -1099,7 +1099,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
       if (ok) {
         nSeqErrors = 0;
-        lastFailedRes64 = 0;
+        // lastFailedRes64 = 0;
         skipNextCheckUpdate = true;
 
         if (k < kEnd) {
