@@ -14,14 +14,14 @@ ifeq ($(DEBUG), 1)
 
 BIN=build-debug
 
-CXXFLAGS = -Wall -g -std=c++20
+CXXFLAGS = -Wall -g -std=c++20 -static-libstdc++ -static-libgcc
 STRIP=
 
 else
 
 BIN=build-release
 
-CXXFLAGS = -Wall -O2 -DNDEBUG -std=c++20
+CXXFLAGS = -Wall -O2 -DNDEBUG -std=c++20 -static-libstdc++ -static-libgcc
 STRIP=-s
 
 endif
@@ -37,8 +37,6 @@ DEPFLAGS = -MT $@ -MMD -MP -MF $(DEPDIR)/$*.Td
 COMPILE.cc = $(CXX) $(DEPFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
 POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 
-LIBS = $(LIBPATH)
-
 all: prpll
 
 prpll: $(BIN)/prpll
@@ -46,11 +44,11 @@ prpll: $(BIN)/prpll
 amd: $(BIN)/prpll-amd
 
 $(BIN)/prpll: ${OBJS}
-	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lOpenCL ${STRIP}
+	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBPATH) -lOpenCL ${STRIP}
 
 # Instead of linking with libOpenCL, link with libamdocl64
 $(BIN)/prpll-amd: ${OBJS}
-	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBS) -lamdocl64 -L/opt/rocm/lib ${STRIP}
+	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBPATH) -lamdocl64 -L/opt/rocm/lib ${STRIP}
 
 clean:
 	rm -rf build-debug build-release
