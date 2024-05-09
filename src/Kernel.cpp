@@ -19,11 +19,18 @@ Kernel::Kernel(string_view name, TimeInfo* timeInfo, Queue* queue,
 
 Kernel::~Kernel() = default;
 
-void Kernel::load(const KernelCompiler& compiler) {
+void Kernel::startLoad(const KernelCompiler& compiler) {
   assert(!kernel);
-  kernel = compiler.load(fileName, nameInFile, defines);
+  assert(!pendingKernel.valid());
+  pendingKernel = compiler.load(fileName, nameInFile, defines);
+  deviceId = compiler.deviceId;
+}
+
+void Kernel::finishLoad() {
+  pendingKernel.wait();
+  kernel = pendingKernel.get();
   assert(kernel);
-  groupSize = getWorkGroupSize(kernel.get(), compiler.deviceId, name.c_str());
+  groupSize = getWorkGroupSize(kernel.get(), deviceId, name.c_str());
   assert(groupSize);
   assert(workSize % groupSize == 0);
 }

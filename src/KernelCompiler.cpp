@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <cinttypes>
+#include <future>
 
 using namespace std;
 
@@ -88,7 +89,7 @@ static string to_hex(u64 d) {
   return buf;
 }
 
-KernelHolder KernelCompiler::load(const string& fileName, const string& kernelName, const string& args) const {
+KernelHolder KernelCompiler::loadAux(const string& fileName, const string& kernelName, const string& args) const {
   Timer timer;
   bool fromCache = true;
 
@@ -126,4 +127,16 @@ KernelHolder KernelCompiler::load(const string& fileName, const string& kernelNa
   }
 
   return ret;
+}
+
+std::future<KernelHolder> KernelCompiler::load(const string& fileName, const string& kernelName, const string& args) const {
+#if 0
+  // Do the compilation in parallel on a separate thread.
+  // Unfortunatelly no benefit on ROCm (the compiler serializes).
+  return async(std::launch::async, &KernelCompiler::loadAux, this, fileName, kernelName, args);
+#else
+  std::promise<KernelHolder> promise;
+  promise.set_value(loadAux(fileName, kernelName, args));
+  return promise.get_future();
+#endif
 }

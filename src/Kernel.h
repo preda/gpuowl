@@ -6,6 +6,7 @@
 #include "Buffer.h"
 #include "common.h"
 
+#include <future>
 #include <string>
 
 class KernelCompiler;
@@ -24,6 +25,8 @@ class Kernel {
   u32 groupSize = 0;
   
   KernelHolder kernel{};
+  std::future<KernelHolder> pendingKernel;
+  cl_device_id deviceId;
 
 public:
   Kernel(string_view name, TimeInfo* timeInfo, Queue* queue,
@@ -32,7 +35,8 @@ public:
 
   ~Kernel();
 
-  void load(const KernelCompiler& compiler);
+  void startLoad(const KernelCompiler& compiler);
+  void finishLoad();
   
   template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(name, pos, tail...); }
   

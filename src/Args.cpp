@@ -230,6 +230,9 @@ void Args::parse(const string& line) {
       if (!tune.empty() && !tune.ends_with(';')) { tune.push_back(';'); }
       tune += s;
       quickTune = (key == "-qtune");
+    } else if (key == "-roeTune") {
+      if (!roeTune.empty() && !roeTune.ends_with(';')) { roeTune.push_back(';'); }
+      roeTune += s;
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-time") {

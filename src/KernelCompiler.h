@@ -6,6 +6,7 @@
 
 #include <vector>
 #include <string>
+#include <future>
 
 class Args;
 class Context;
@@ -25,11 +26,12 @@ class KernelCompiler {
   u64 contextHash{};
   
   Program compile(const string& fileName, const string& args) const;
-  
+  KernelHolder loadAux(const string& fileName, const string& kernelName, const string& args) const;
+
 public:
   const cl_device_id deviceId;
 
   KernelCompiler(const Args& args, const Context* context, const string& clArgs);
   
-  KernelHolder load(const string& fileName, const string& kernelName, const string& args) const;
+  std::future<KernelHolder> load(const string& fileName, const string& kernelName, const string& args) const;
 };

@@ -347,14 +347,15 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   {
     KernelCompiler compiler{args, queue->context, commonArgs};
     Timer compileTimer;
-    for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL,
-         &fftP, &fftW, &fftHin,
-         &fftMidIn, &fftMidOut, &kCarryA, &kCarryM, &kCarryLL, &carryB,
-         &transpIn, &transpOut,
-         &tailMulLow, &tailMul, &tailSquare,
-         &readResidue, &kernIsEqual, &sum64}) {
-      k->load(compiler);
-    }
+    auto kernels = {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL,
+                    &fftP, &fftW, &fftHin,
+                    &fftMidIn, &fftMidOut, &kCarryA, &kCarryM, &kCarryLL, &carryB,
+                    &transpIn, &transpOut,
+                    &tailMulLow, &tailMul, &tailSquare,
+                    &readResidue, &kernIsEqual, &sum64};
+    for (Kernel* k : kernels) { k->startLoad(compiler); }
+    for (Kernel* k : kernels) { k->finishLoad(); }
+
     if (args.verbose) { log("OpenCL compilation: %.2fs\n", compileTimer.at()); }
   }
   
@@ -396,7 +397,7 @@ vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   return bufSmallOut.read(128);
 }
 
-RoeStats Gpu::readROE() {
+RoeInfo Gpu::readROE() {
   assert(roePos <= ROE_SIZE);
   if (roePos) {
     vector<float> roe = bufROE.read(roePos);
@@ -756,7 +757,7 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
   return formatETA(etaSecs);
 }
 
-string RoeStats::toString(u32 statsBits) const {
+string RoeInfo::toString(u32 statsBits) const {
   if (!N) { return {}; }
 
   char buf[256];
@@ -775,7 +776,7 @@ static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, 
 }
 
 static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, u32 nIters, u32 nErrors,
-                     RoeStats roe, u32 statsBits) {
+                     RoeInfo roe, u32 statsBits) {
   log("%s%s %s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, nIters).c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), roe.toString(statsBits).c_str());
 }
@@ -918,13 +919,65 @@ u32 Gpu::getProofPower(u32 k) {
   return power;
 }
 
+tuple<bool, u64, RoeInfo> Gpu::measureROE() {
+  u32 blockSize = 200;
+  u32 iters = 1000;
+  u32 warmup = 30;
+
+  assert(iters % blockSize == 0);
+
+  u32 k = 0;
+  PRPState state{E, 0, blockSize, 3, makeWords(E, 1), 0};
+  writeState(state.check, state.blockSize);
+  assert(dataResidue() == state.res64);
+
+  modMul(bufCheck, bufData);
+  square(bufData, bufData, true, false);
+  ++k;
+
+  while (k < warmup) {
+    square(bufData, bufData, false, false);
+    ++k;
+  }
+
+  RoeInfo roe = readROE(); // ignore the warm-up iterations
+
+  if (Signal::stopRequested()) { throw "stop requested"; }
+
+  bool leadIn = false;
+  while (true) {
+    while (k % blockSize < blockSize-1) {
+      square(bufData, bufData, leadIn, false);
+      ++k;
+      leadIn = false;
+    }
+    square(bufData, bufData, false, true);
+    leadIn = true;
+    ++k;
+
+    if (k >= iters) { break; }
+
+    modMul(bufCheck, bufData);
+    if (Signal::stopRequested()) { throw "stop requested"; }
+  }
+
+  [[maybe_unused]] u64 res = dataResidue();
+  if (Signal::stopRequested()) { throw "stop requested"; }
+
+  bool ok = doCheck(blockSize);
+  roe = readROE();
+
+  // log("%s %016" PRIx64 " %s\n", ok ? "OK" : "EE", res, roe.toString(statsBits).c_str());
+  return {ok, res, roe};
+}
+
 TimingResult Gpu::timePRP(bool quick) {
   u32 blockSize{}, iters{}, warmup{};
 
   if (quick) {
-    blockSize = 500;
+    blockSize = 200;
     iters = 1000;
-    warmup = 20;
+    warmup = 30;
   } else {
     blockSize = 1000;
     iters = 10'000;

@@ -5,6 +5,7 @@
 #include "FFTConfig.h"
 #include "Gpu.h"
 #include "GpuCommon.h"
+#include "Primes.h"
 #include "log.h"
 
 #include <string>
@@ -55,6 +56,26 @@ vector<TuneConfig> getTuneConfigs(const string& tune) {
       options = outOptions;
     }
 
+    if (key == "bpw") {
+      vector<string> outOptions;
+      for (string& s : options) {
+        if (s.find(':') != string::npos) {
+          vector<string> parts = split(s, ':');
+          assert(parts.size() == 3);
+          double begin = stod(parts.at(0));
+          double end = stod(parts.at(1));
+          double step = stod(parts.at(2));
+          assert(begin < end && step > 0);
+          for (double x = begin; x < end; x += step) {
+            outOptions.push_back(to_string(x));
+          }
+        } else {
+          outOptions.push_back(s);
+        }
+      }
+      options = outOptions;
+    }
+
     params.push_back({key, options});
   }
 
@@ -94,12 +115,14 @@ string toString(TuneConfig config) {
     config.erase(config.begin());
   }
 
+  if (!config.empty() && (config.front().first == "bpw")) { config.erase(config.begin()); }
+
   if (config.empty()) { return s; }
 
   s += s.empty() ? "-use " : " -use ";
 
   for (const auto& [k, v] : config) {
-    assert(k != "fft" && k != "FFT");
+    assert(k != "fft" && k != "FFT" && k != "bpw");
 
     if (s.back() != ' ') { s += ','; }
     s += k + '=' + v;
@@ -108,6 +131,44 @@ string toString(TuneConfig config) {
   return s;
 }
 
+}
+
+void roeTune(Queue* q, GpuCommon shared) {
+  auto configs = getTuneConfigs(shared.args->roeTune);
+  Primes primes;
+
+  if (!shared.args->flags.contains("STATS")) {
+    shared.args->flags["STATS"] = "15";
+  }
+
+  u32 exponent = shared.args->prpExp;
+
+  for (const auto& config : configs) {
+    for (auto& [k, v] : config) {
+      if (k == "fft") {
+        shared.args->fftSpec = v;        
+      } else if (k == "bpw") {
+        double bpw = stod(v);
+        exponent = primes.nearestPrime(FFTConfig::fromSpec(shared.args->fftSpec).fftSize() * bpw + 0.5);
+      } else {
+        shared.args->flags[k] = v;
+      }
+    }
+
+    string fftSpec = shared.args->fftSpec;
+
+    if (fftSpec.empty()) { throw "-roeTune without FFT spec"; }
+    if (!exponent) { throw "-roeTune without exponent"; }
+
+    u32 fftSize = FFTConfig::fromSpec(fftSpec).fftSize();
+
+    auto gpu = Gpu::make(q, exponent, shared, false);
+    auto [ok, res, roe] = gpu->measureROE();
+
+    log("%s %9d %016" PRIx64 " %.2f bpw %s %s\n",
+        ok ? "OK" : "EE", exponent, res, exponent / double(fftSize),
+        toString(config).c_str(), roe.toString(0).c_str());
+  }
 }
 
 void tune(Queue* q, GpuCommon shared) {

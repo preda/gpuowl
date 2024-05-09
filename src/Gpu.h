@@ -44,10 +44,10 @@ struct LLResult {
   u64 res64;
 };
 
-class RoeStats {
+class RoeInfo {
 public:
-  RoeStats() = default;
-  RoeStats(u32 n, float max, float mean, float sd) : N{n}, max{max}, mean{mean}, sd{sd} {
+  RoeInfo() = default;
+  RoeInfo(u32 n, float max, float mean, float sd) : N{n}, max{max}, mean{mean}, sd{sd} {
     // https://en.wikipedia.org/wiki/Gumbel_distribution
     gumbelBeta = sd * 0.7797f; // sqrt(6)/pi
     gumbelMiu = mean - gumbelBeta * 0.5772f; // Euler-Mascheroni
@@ -195,7 +195,7 @@ class Gpu {
   void modMul(Buffer<int>& ioA, Buffer<int>& inB, bool mul3 = false);
   
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
-  RoeStats readROE();
+  RoeInfo readROE();
   
   u32 updatePos(u32 bit) { return (statsBits & bit) ? roePos++ : roePos; }
 
@@ -215,6 +215,7 @@ public:
   PRPResult isPrimePRP(const Task& task);
   LLResult isPrimeLL(const Task& task);
   TimingResult timePRP(bool quick);
+  tuple<bool, u64, RoeInfo> measureROE();
 
   Saver<PRPState>* getSaver() { return &saver; }
 
