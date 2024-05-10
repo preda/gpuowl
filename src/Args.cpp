@@ -124,7 +124,7 @@ named "config.txt" in the prpll run directory.
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
--cache             : use binary kernel cache (for developers)
+-cache             : use binary kernel cache; useful with repeated use of -roeTune and -tune
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
   -use FAST_BARRIER: on AMD Radeon VII and older AMD GPUs, use a faster barrier(). Do not use
@@ -160,6 +160,16 @@ named "config.txt" in the prpll run directory.
                      note: if present, "fft=" must come first in the tune spec.
                      See src/cl/middle.cl for some tunable paramaters.
                      The residues are displayed at iteration 10000.
+
+-roeTune <spec>    : informs on the probability of a fatal roundoff error (ROE) over a combination of parameters.
+                     Examples:
+                       -roeTune "fft=6.5M;bpw=17:18:0.25" -cache
+                       -roeTune "fft=6.5M;bpw=17.75,18;MM_CHAIN=1,2,3,4;MM2_CHAIN=1,2,3" -cache
+                     The "bpw" ("Bits Per Word") special parameter accepts either a comma-separated list of values
+                     or a begin:end:step form as in the examples above.
+
+                     The "z" value indicates how unlikely a fatal ROE is; the higher the z, the better.
+                     Ideally one wants a z>=30, and no less than 26.
 
 -qtune <spec>      : same as -tune <spec>, but faster (useful for slow GPUs).
                      The residues are printed at iteration 1000.
@@ -230,9 +240,10 @@ void Args::parse(const string& line) {
       if (!tune.empty() && !tune.ends_with(';')) { tune.push_back(';'); }
       tune += s;
       quickTune = (key == "-qtune");
-    } else if (key == "-roeTune") {
+    } else if (key == "-roeTune" || key == "-qroeTune") {
       if (!roeTune.empty() && !roeTune.ends_with(';')) { roeTune.push_back(';'); }
       roeTune += s;
+      quickTune = (key == "-qroeTune");
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-time") {

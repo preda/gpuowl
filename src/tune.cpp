@@ -163,7 +163,7 @@ void roeTune(Queue* q, GpuCommon shared) {
     u32 fftSize = FFTConfig::fromSpec(fftSpec).fftSize();
 
     auto gpu = Gpu::make(q, exponent, shared, false);
-    auto [ok, res, roe] = gpu->measureROE();
+    auto [ok, res, roe] = gpu->measureROE(shared.args->quickTune);
 
     log("%s %9d %016" PRIx64 " %.2f bpw %s %s\n",
         ok ? "OK" : "EE", exponent, res, exponent / double(fftSize),

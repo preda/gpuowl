@@ -919,10 +919,18 @@ u32 Gpu::getProofPower(u32 k) {
   return power;
 }
 
-tuple<bool, u64, RoeInfo> Gpu::measureROE() {
-  u32 blockSize = 200;
-  u32 iters = 1000;
-  u32 warmup = 30;
+tuple<bool, u64, RoeInfo> Gpu::measureROE(bool quick) {
+  u32 blockSize{}, iters{}, warmup{};
+
+  if (quick) {
+    blockSize = 1000;
+    iters = 2000;
+    warmup = 50;
+  } else {
+    blockSize = 1000;
+    iters = 10'000;
+    warmup = 100;
+  }
 
   assert(iters % blockSize == 0);
 
