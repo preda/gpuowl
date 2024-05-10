@@ -12,6 +12,7 @@
 #include <vector>
 #include <cinttypes>
 #include <cassert>
+#include <algorithm>
 
 using namespace std;
 
