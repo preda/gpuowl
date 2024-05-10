@@ -47,10 +47,10 @@ struct LLResult {
 class RoeInfo {
 public:
   RoeInfo() = default;
-  RoeInfo(u32 n, float max, float mean, float sd) : N{n}, max{max}, mean{mean}, sd{sd} {
+  RoeInfo(u32 n, double max, double mean, double sd) : N{n}, max{max}, mean{mean}, sd{sd} {
     // https://en.wikipedia.org/wiki/Gumbel_distribution
-    gumbelBeta = sd * 0.7797f; // sqrt(6)/pi
-    gumbelMiu = mean - gumbelBeta * 0.5772f; // Euler-Mascheroni
+    gumbelBeta = sd * 0.779696801233676; // sqrt(6)/pi
+    gumbelMiu = mean - gumbelBeta * 0.577215664901533; // Euler-Mascheroni
   }
 
   float z(float x) const { return (x - gumbelMiu) / gumbelBeta; }
@@ -60,8 +60,8 @@ public:
   std::string toString(u32 statsBits) const;
 
   u32 N{};
-  float max{}, mean{}, sd{};
-  float gumbelMiu{}, gumbelBeta{};
+  double max{}, mean{}, sd{};
+  double gumbelMiu{}, gumbelBeta{};
 };
 
 class TimingResult {
@@ -151,6 +151,8 @@ class Gpu {
 
   // The next position to write in the ROE buffer.
   u32 roePos;
+  // The ROE positions originating from multiplications (as opposed to squarings).
+  vector<u32> mulRoePos;
 
   // Auxilliary big buffers
   Buffer<double> buf1;
@@ -195,7 +197,7 @@ class Gpu {
   void modMul(Buffer<int>& ioA, Buffer<int>& inB, bool mul3 = false);
   
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
-  RoeInfo readROE();
+  std::pair<RoeInfo, RoeInfo> readROE();
   
   u32 updatePos(u32 bit) { return (statsBits & bit) ? roePos++ : roePos; }
 
@@ -215,7 +217,7 @@ public:
   PRPResult isPrimePRP(const Task& task);
   LLResult isPrimeLL(const Task& task);
   TimingResult timePRP(bool quick);
-  tuple<bool, u64, RoeInfo> measureROE(bool quick);
+  tuple<bool, u64, RoeInfo, RoeInfo> measureROE(bool quick);
 
   Saver<PRPState>* getSaver() { return &saver; }
 

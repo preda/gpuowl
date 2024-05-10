@@ -171,8 +171,8 @@ named "config.txt" in the prpll run directory.
                      The "z" value indicates how unlikely a fatal ROE is; the higher the z, the better.
                      Ideally one wants a z>=30, and no less than 26.
 
--qtune <spec>      : same as -tune <spec>, but faster (useful for slow GPUs).
-                     The residues are printed at iteration 1000.
+-qtune <spec>      : faster variant of -tune (useful for slow GPUs).
+-qroeTune <spec>   : faster variant of -roeTune
 
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)

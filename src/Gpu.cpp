@@ -397,40 +397,58 @@ vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   return bufSmallOut.read(128);
 }
 
-RoeInfo Gpu::readROE() {
+namespace {
+
+template<typename T>
+pair<vector<T>, vector<T>> split(const vector<T>& v, const vector<u32>& select) {
+  vector<T> a;
+  vector<T> b;
+  auto selIt = select.begin();
+  u32 selNext = selIt == select.end() ? u32(-1) : *selIt;
+  for (u32 i = 0; i < v.size(); ++i) {
+    if (i == selNext) {
+      b.push_back(v[i]);
+      ++selIt;
+      selNext = selIt == select.end() ? u32(-1) : *selIt;
+    } else {
+      a.push_back(v[i]);
+    }
+  }
+  return {a, b};
+}
+
+RoeInfo roeStat(const vector<float>& roe) {
+  double sumRoe = 0;
+  double sum2Roe = 0;
+  double maxRoe = 0;
+
+  for (auto xf : roe) {
+    double x = xf;
+    assert(x >= 0);
+    maxRoe = max(x, maxRoe);
+    sumRoe  += x;
+    sum2Roe += x * x;
+  }
+  u32 n = roe.size();
+
+  double sdRoe = sqrt(n * sum2Roe - sumRoe * sumRoe) / n;
+  double meanRoe = sumRoe / n;
+
+  return {n, maxRoe, meanRoe, sdRoe};
+}
+
+} // namespace
+
+pair<RoeInfo, RoeInfo> Gpu::readROE() {
   assert(roePos <= ROE_SIZE);
   if (roePos) {
     vector<float> roe = bufROE.read(roePos);
     assert(roe.size() == roePos);
     bufROE.zero(roePos);
     roePos = 0;
-
-    double sumRoe = 0;
-    double sum2Roe = 0;
-    float maxRoe = 0;
-
-#if DUMP_ROE
-    File froe = File::openAppend("roe.txt");
-#endif
-
-    for (auto x : roe) {
-      assert(x >= 0);
-
-#if DUMP_ROE
-      froe.printf("%f\n", x);
-#endif
-
-      maxRoe = max(x, maxRoe);
-      sumRoe  += x;
-      sum2Roe += x * x;
-    }
-    u32 n = roe.size();
-    float invN = 1.0f / n;
-
-    float sdRoe = sqrtf(n * sum2Roe - sumRoe * sumRoe) * invN;
-    float meanRoe = float(sumRoe) * invN;
-
-    return {n, maxRoe, meanRoe, sdRoe};
+    auto [squareRoe, mulRoe] = split(roe, mulRoePos);
+    mulRoePos.clear();
+    return {roeStat(squareRoe), roeStat(mulRoe)};
   } else {
     return {};
   }
@@ -479,6 +497,10 @@ void Gpu::mul(Buffer<int>& ioA, Buffer<double>& inB, Buffer<double>& tmp1, Buffe
     fftP(tmp1, ioA);
     fftMidIn(tmp2, tmp1);
     tailMul(tmp1, inB, tmp2);
+
+    // Register the current ROE pos as multiplication (vs. a squaring)
+    if (mulRoePos.empty() || mulRoePos.back() != roePos) { mulRoePos.push_back(roePos); }
+
     fftMidOut(tmp2, tmp1);
     fftW(tmp1, tmp2);
     if (mul3) { carryM(ioA, tmp1); } else { carryA(ioA, tmp1); }
@@ -776,9 +798,11 @@ static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, 
 }
 
 static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, u32 nIters, u32 nErrors,
-                     RoeInfo roe, u32 statsBits) {
-  log("%s%s %s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, nIters).c_str(),
-      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(), roe.toString(statsBits).c_str());
+                     pair<RoeInfo, RoeInfo> roe, u32 statsBits) {
+  log("%s%s %s %s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, nIters).c_str(),
+      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(),
+      roe.first.toString(statsBits).c_str(),
+      roe.second.toString(statsBits).c_str());
 }
 
 bool Gpu::equals9(const Words& a) {
@@ -919,15 +943,15 @@ u32 Gpu::getProofPower(u32 k) {
   return power;
 }
 
-tuple<bool, u64, RoeInfo> Gpu::measureROE(bool quick) {
+tuple<bool, u64, RoeInfo, RoeInfo> Gpu::measureROE(bool quick) {
   u32 blockSize{}, iters{}, warmup{};
 
   if (quick) {
-    blockSize = 1000;
-    iters = 2000;
-    warmup = 50;
+    blockSize = 100;
+    iters = 1000;
+    warmup = 30;
   } else {
-    blockSize = 1000;
+    blockSize = 500;
     iters = 10'000;
     warmup = 100;
   }
@@ -948,7 +972,7 @@ tuple<bool, u64, RoeInfo> Gpu::measureROE(bool quick) {
     ++k;
   }
 
-  RoeInfo roe = readROE(); // ignore the warm-up iterations
+  readROE(); // ignore the warm-up iterations
 
   if (Signal::stopRequested()) { throw "stop requested"; }
 
@@ -973,10 +997,10 @@ tuple<bool, u64, RoeInfo> Gpu::measureROE(bool quick) {
   if (Signal::stopRequested()) { throw "stop requested"; }
 
   bool ok = doCheck(blockSize);
-  roe = readROE();
+  auto roes = readROE();
 
   // log("%s %016" PRIx64 " %s\n", ok ? "OK" : "EE", res, roe.toString(statsBits).c_str());
-  return {ok, res, roe};
+  return {ok, res, roes.first, roes.second};
 }
 
 TimingResult Gpu::timePRP(bool quick) {
@@ -1153,7 +1177,9 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
 
-      log("%9u %016" PRIx64 " %4.0f %s\n", k, res, secsPerIt * 1'000'000, roeInfo.toString(statsBits).c_str());
+      log("%9u %016" PRIx64 " %4.0f %s %s\n", k, res, secsPerIt * 1'000'000,
+          roeInfo.first.toString(statsBits).c_str(),
+          roeInfo.second.toString(statsBits).c_str());
     } else {
       bool ok = this->doCheck(blockSize);
       float secsCheck = iterationTimer.reset(k);
@@ -1268,14 +1294,8 @@ LLResult Gpu::isPrimeLL(const Task& task) {
     }
 
     float secsPerIt = iterationTimer.reset(k);
-
-    auto roeInfo = readROE();
-    if (roeInfo.N) {
-      // TODO
-      log("%9u %016" PRIx64 " %4.0f\n", k, res64, secsPerIt * 1'000'000);
-    } else {
-      log("%9u %016" PRIx64 " %4.0f\n", k, res64, secsPerIt * 1'000'000);
-    }
+    readROE(); // TODO
+    log("%9u %016" PRIx64 " %4.0f\n", k, res64, secsPerIt * 1'000'000);
 
     if (k >= kEnd) { return {isAllZero, res64}; }
 
