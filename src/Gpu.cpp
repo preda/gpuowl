@@ -964,11 +964,11 @@ tuple<bool, u64, RoeInfo, RoeInfo> Gpu::measureROE(bool quick) {
   assert(dataResidue() == state.res64);
 
   modMul(bufCheck, bufData);
-  square(bufData, bufData, true, false);
+  square(bufData, bufData, true, useLongCarry);
   ++k;
 
   while (k < warmup) {
-    square(bufData, bufData, false, false);
+    square(bufData, bufData, useLongCarry, useLongCarry);
     ++k;
   }
 
@@ -976,14 +976,14 @@ tuple<bool, u64, RoeInfo, RoeInfo> Gpu::measureROE(bool quick) {
 
   if (Signal::stopRequested()) { throw "stop requested"; }
 
-  bool leadIn = false;
+  bool leadIn = useLongCarry;
   while (true) {
     while (k % blockSize < blockSize-1) {
-      square(bufData, bufData, leadIn, false);
+      square(bufData, bufData, leadIn, useLongCarry);
       ++k;
-      leadIn = false;
+      leadIn = useLongCarry;
     }
-    square(bufData, bufData, false, true);
+    square(bufData, bufData, useLongCarry, true);
     leadIn = true;
     ++k;
 
@@ -1024,25 +1024,25 @@ TimingResult Gpu::timePRP(bool quick) {
   assert(dataResidue() == state.res64);
 
   modMul(bufCheck, bufData);
-  square(bufData, bufData, true, false);
+  square(bufData, bufData, true, useLongCarry);
   ++k;
 
   while (k < warmup) {
-    square(bufData, bufData, false, false);
+    square(bufData, bufData, useLongCarry, useLongCarry);
     ++k;
   }
   queue->finish();
   if (Signal::stopRequested()) { throw "stop requested"; }
 
   Timer t;
-  bool leadIn = false;
+  bool leadIn = useLongCarry;
   while (true) {
     while (k % blockSize < blockSize-1) {
-      square(bufData, bufData, leadIn, false);
+      square(bufData, bufData, leadIn, useLongCarry);
       ++k;
-      leadIn = false;
+      leadIn = useLongCarry;
     }
-    square(bufData, bufData, false, true);
+    square(bufData, bufData, useLongCarry, true);
     leadIn = true;
     ++k;
 
