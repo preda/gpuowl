@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
     if (!args.tune.empty()) {
       Queue q(context, args.profile);
       tune(&q, shared);
-    } if (!args.roeTune.empty()) {
+    } else if (!args.roeTune.empty()) {
       Queue q(context, args.profile);
       roeTune(&q, shared);
     } else {

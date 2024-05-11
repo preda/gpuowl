@@ -154,7 +154,7 @@ struct Define {
   operator string() const { return str; }
 };
 
-string clArgs(cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
+string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
   vector<Define> defines =
     {{"EXP", E},
      {"WIDTH", WIDTH},
@@ -170,9 +170,19 @@ string clArgs(cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MI
   // If we are near the maximum exponent for this FFT, then we may need to set some chain #defines
   // to reduce the round off errors.
   auto [mm_chain, mm2_chain, ultra_trig] = FFTConfig::getChainLengths(N, E, MIDDLE);
-  if (mm_chain) { defines.push_back({"MM_CHAIN", mm_chain}); }
-  if (mm2_chain) { defines.push_back({"MM2_CHAIN", mm2_chain}); }
-  if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }
+
+  if (mm_chain || mm2_chain || ultra_trig) {
+    bool skip = args.flags.contains("MM_CHAIN") || args.flags.contains("MM2_CHAIN") || args.flags.contains("ULTRA_TRIG")
+                || !args.roeTune.empty();
+    log("%s defaults: MM_CHAIN=%d MM2_CHAIN=%d ULTRA_TRIG=%d\n",
+        skip ? "skipping" : "applying", mm_chain, mm2_chain, ultra_trig);
+
+    if (!skip) {
+      if (mm_chain) { defines.push_back({"MM_CHAIN", mm_chain}); }
+      if (mm2_chain) { defines.push_back({"MM2_CHAIN", mm2_chain}); }
+      if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }
+    }
+  }
 
   defines.push_back({"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
   defines.push_back({"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
@@ -340,9 +350,9 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   useLongCarry = useLongCarry || (E / float(N) < 10.5f);
 
   if (useLongCarry) { log("Using long carry!\n"); }
-  if (args.verbose) { log("Stats: %x\n", statsBits); }
+  // if (args.verbose) { log("Stats: 0x%x\n", statsBits); }
 
-  string commonArgs = clArgs(queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
+  string commonArgs = clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
   {
     KernelCompiler compiler{args, queue->context, commonArgs};
