@@ -16,6 +16,7 @@ class TimeInfo;
 
 class Kernel {
   const string name;
+  KernelCompiler* compiler;
   const string fileName;
   const string nameInFile;
   const string defines;
@@ -32,18 +33,24 @@ class Kernel {
   std::vector<std::pair<u32, cl_mem>> pendingArgs;
 
 public:
-  Kernel(string_view name, TimeInfo* timeInfo, Queue* queue,
+  Kernel(string_view name, KernelCompiler* compiler,
+         TimeInfo* timeInfo, Queue* queue,
          string_view fileName, string_view nameInFile,
          size_t workSize, string_view defines = "");
 
   ~Kernel();
 
-  void startLoad(const KernelCompiler& compiler);
+  void startLoad(KernelCompiler* compiler);
   void finishLoad();
   
   template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(pos, tail...); }
   
   template<typename... Args> void operator()(const Args &...args) {
+    if (!kernel) {
+      startLoad(compiler);
+      finishLoad();
+    }
+    if (!kernel) { throw std::runtime_error("OpenCL kernel "s + name + " not found"); }
     setArgs(0, args...);
     run();
   }

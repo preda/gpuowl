@@ -273,8 +273,11 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   bufSize(N * sizeof(double)),
   WIDTH(W),
   useLongCarry{args.carry == Args::CARRY_LONG},
+
+  compiler{args, queue->context,
+           clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args)},
   
-#define K(name, ...) name(#name, profile.make(#name), queue, __VA_ARGS__)
+#define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 
   //  W / nW
   K(kCarryFused,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW),
@@ -351,9 +354,9 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
   if (useLongCarry) { log("Using long carry!\n"); }
   // if (args.verbose) { log("Stats: 0x%x\n", statsBits); }
-
-  string commonArgs = clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
+  // string commonArgs = clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
+  /*
   {
     KernelCompiler compiler{args, queue->context, commonArgs};
     Timer compileTimer;
@@ -368,6 +371,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
     if (args.verbose) { log("OpenCL compilation: %.2fs\n", compileTimer.at()); }
   }
+  */
   
   for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL}) {
     k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufWeights);

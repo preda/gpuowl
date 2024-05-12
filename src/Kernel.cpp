@@ -5,10 +5,11 @@
 
 #include <stdexcept>
 
-Kernel::Kernel(string_view name, TimeInfo* timeInfo, Queue* queue,
+Kernel::Kernel(string_view name, KernelCompiler* compiler, TimeInfo* timeInfo, Queue* queue,
        string_view fileName, string_view nameInFile,
        size_t workSize, string_view defines):
   name{name},
+  compiler{compiler},
   fileName{fileName},
   nameInFile{nameInFile},
   defines{defines},
@@ -19,11 +20,11 @@ Kernel::Kernel(string_view name, TimeInfo* timeInfo, Queue* queue,
 
 Kernel::~Kernel() = default;
 
-void Kernel::startLoad(const KernelCompiler& compiler) {
+void Kernel::startLoad(KernelCompiler* compiler) {
   assert(!kernel);
   assert(!pendingKernel.valid());
-  pendingKernel = compiler.load(fileName, nameInFile, defines);
-  deviceId = compiler.deviceId;
+  pendingKernel = compiler->load(fileName, nameInFile, defines);
+  deviceId = compiler->deviceId;
 }
 
 void Kernel::finishLoad() {
@@ -38,9 +39,6 @@ void Kernel::finishLoad() {
 }
 
 void Kernel::run() {
-  if (kernel) {
-    queue->run(kernel.get(), groupSize, workSize, timeInfo);
-  } else {
-    throw std::runtime_error("OpenCL kernel "s + name + " not found");
-  }
+  assert(kernel);
+  queue->run(kernel.get(), groupSize, workSize, timeInfo);
 }

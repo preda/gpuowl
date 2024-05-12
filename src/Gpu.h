@@ -6,6 +6,7 @@
 #include "Buffer.h"
 #include "Context.h"
 #include "Queue.h"
+#include "KernelCompiler.h"
 
 #include "Saver.h"
 #include "common.h"
@@ -86,6 +87,8 @@ class Gpu {
 
 
   Profile profile{};
+
+  KernelCompiler compiler;
   
   Kernel kCarryFused;
   Kernel kCarryFusedMul;
