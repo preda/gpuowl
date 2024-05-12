@@ -8,6 +8,8 @@
 
 #include <future>
 #include <string>
+#include <vector>
+#include <utility>
 
 class KernelCompiler;
 class TimeInfo;
@@ -27,6 +29,7 @@ class Kernel {
   KernelHolder kernel{};
   std::future<KernelHolder> pendingKernel;
   cl_device_id deviceId;
+  std::vector<std::pair<u32, cl_mem>> pendingArgs;
 
 public:
   Kernel(string_view name, TimeInfo* timeInfo, Queue* queue,
@@ -49,6 +52,15 @@ private:
   template<typename T> void setArgs(int pos, const shared_ptr<Buffer<T>>& buf) { setArgs(pos, buf->get()); }
   template<typename T> void setArgs(int pos, const Buffer<T>* buf) { setArgs(pos, buf->get()); }
   template<typename T> void setArgs(int pos, const Buffer<T>& buf) { setArgs(pos, buf.get()); }
+
+  void setArgs(int pos, cl_mem arg) {
+    if (kernel) {
+      ::setArg(kernel.get(), pos, arg, name);
+    } else {
+      pendingArgs.push_back({pos, arg});
+    }
+  }
+
   template<typename T> void setArgs(int pos, const T &arg) { ::setArg(kernel.get(), pos, arg, name); }
   
   template<typename T, typename... Args> void setArgs(int pos, const T &arg, const Args &...tail) {

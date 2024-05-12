@@ -33,6 +33,8 @@ void Kernel::finishLoad() {
   groupSize = getWorkGroupSize(kernel.get(), deviceId, name.c_str());
   assert(groupSize);
   assert(workSize % groupSize == 0);
+
+  for (auto [pos, arg] : pendingArgs) { setArgs(pos, arg); }
 }
 
 void Kernel::run() {
