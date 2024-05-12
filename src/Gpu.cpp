@@ -804,10 +804,9 @@ static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, 
 
 static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, u32 nIters, u32 nErrors,
                      pair<RoeInfo, RoeInfo> roe, u32 statsBits) {
-  log("%s%s %s %s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, nIters).c_str(),
+  log("%s%s %s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, nIters).c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(),
-      roe.first.toString(statsBits).c_str(),
-      roe.second.toString(statsBits).c_str());
+      roe.first.toString(statsBits).c_str());
 }
 
 bool Gpu::equals9(const Words& a) {
@@ -1113,12 +1112,17 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   assert(k % blockSize == 0);
   assert(checkStep % blockSize == 0);
 
-  u32 startK = k;
+  const u32 startK = k;
   IterationTimer iterationTimer{k};
+
+  // Initially measure ROE a bit. But skip the very first iterations as not representative.
+  enableROE = k > 30;
 
   while (true) {
     assert(k < kEndEnd);
     
+    if (k == 30) { enableROE = true; }
+
     if (skipNextCheckUpdate) {
       skipNextCheckUpdate = false;
     } else if (k % blockSize == 0) {
@@ -1165,6 +1169,11 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
     }
 
     assert(doCheck || doLog);
+
+    if (enableROE && k - startK > 10'000) {
+      enableROE = false; // We measured enough ROE
+    }
+
     u64 res = dataResidue();
     float secsPerIt = iterationTimer.reset(k);
 
@@ -1177,14 +1186,15 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
     }
 
     if (!doCheck) {
-      auto roeInfo = readROE();
       (*background)([=, this] {
         saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
 
-      log("%9u %016" PRIx64 " %4.0f %s %s\n", k, res, secsPerIt * 1'000'000,
-          roeInfo.first.toString(statsBits).c_str(),
-          roeInfo.second.toString(statsBits).c_str());
+      auto [roeSq, roeMul] = readROE();
+      log("%9u %016" PRIx64 " %4.0f %s\n", k, res, secsPerIt * 1'000'000,
+          roeSq.toString(0).c_str());
+      double z = roeSq.z();
+      if (z < 26) { log("ROE Z=%.1f is too small! (should be at least 26). Increase the FFT size to avoid errors!\n", z); }
     } else {
       bool ok = this->doCheck(blockSize);
       float secsCheck = iterationTimer.reset(k);
@@ -1200,7 +1210,10 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
           });
         }
 
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, kEndEnd, nErrors, readROE(), statsBits);
+        auto roePair = readROE();
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, kEndEnd, nErrors, roePair, statsBits);
+        double z = roePair.first.z();
+        if (z < 26) { log("ROE Z=%.1f is too small! (should be at least 26). Increase the FFT size to avoid errors!\n", z); }
           
         if (k >= kEndEnd) {
           fs::path proofFile = saveProof(args, proofSet);
