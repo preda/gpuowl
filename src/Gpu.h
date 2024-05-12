@@ -84,6 +84,7 @@ class Gpu {
   u32 hN, nW, nH, bufSize;
   u32 WIDTH;
   bool useLongCarry;
+  bool enableROE{};
 
 
   Profile profile{};
@@ -91,11 +92,15 @@ class Gpu {
   KernelCompiler compiler;
   
   Kernel kCarryFused;
+  Kernel kCarryFusedROE;
   Kernel kCarryFusedMul;
+  Kernel kCarryFusedMulROE;
   Kernel kCarryFusedLL;
 
   Kernel kCarryA;
+  Kernel kCarryAROE;
   Kernel kCarryM;
+  Kernel kCarryMROE;
   Kernel kCarryLL;
   Kernel carryB;
 
@@ -225,14 +230,27 @@ public:
 
   Saver<PRPState>* getSaver() { return &saver; }
 
-  void carryA(Buffer<int>& a, Buffer<double>& b)    { kCarryA(updatePos(1<<2), a, b); }
   void carryA(Buffer<double>& a, Buffer<double>& b) { carryA(reinterpret_cast<Buffer<int>&>(a), b); }
-  void carryLL(Buffer<int>& a, Buffer<double>& b)   { kCarryLL(updatePos(1<<2), a, b); }
-  void carryM(Buffer<int>& a, Buffer<double>& b)    { kCarryM(updatePos(1<<3), a, b); }
 
-  void carryFused(Buffer<double>& a, Buffer<double>& b)    { kCarryFused(updatePos(1<<0), a, b); }
+  void carryA(Buffer<int>& a, Buffer<double>& b) {
+    enableROE ? kCarryAROE(a, b, roePos++) : kCarryA(a, b, roePos);
+  }
+
+  void carryM(Buffer<int>& a, Buffer<double>& b) {
+    enableROE ? kCarryMROE(a, b, roePos++) : kCarryM(a, b, roePos);
+  }
+
+  void carryLL(Buffer<int>& a, Buffer<double>& b)   { kCarryLL(updatePos(1<<2), a, b); }
+
+  void carryFused(Buffer<double>& a, Buffer<double>& b) {
+    enableROE ? kCarryFusedROE(a, b, roePos++) : kCarryFused(a, b, roePos);
+  }
+
+  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) {
+    enableROE ? kCarryFusedMulROE(a, b, roePos++) : kCarryFusedMul(a, b, roePos);
+  }
+
   void carryFusedLL(Buffer<double>& a, Buffer<double>& b)  { kCarryFusedLL(updatePos(1<<0), a, b);}
-  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) { kCarryFusedMul(updatePos(1<<1), a, b);}
 
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   

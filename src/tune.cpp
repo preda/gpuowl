@@ -184,7 +184,7 @@ pair<u32, double> findMaxExponent(Queue* q, GpuCommon shared, double target = 27
 void roeSearch(Queue* q, GpuCommon shared) {
   auto configs = getTuneConfigs(shared.args->roeTune);
 
-  if (!shared.args->flags.contains("STATS")) { shared.args->flags["STATS"] = "15";}
+  // if (!shared.args->flags.contains("STATS")) { shared.args->flags["STATS"] = "15";}
 
   for (const auto& config : configs) {
     for (auto& [k, v] : config) {
@@ -206,9 +206,7 @@ void roeTune(Queue* q, GpuCommon shared) {
   auto configs = getTuneConfigs(shared.args->roeTune);
   Primes primes;
 
-  if (!shared.args->flags.contains("STATS")) {
-    shared.args->flags["STATS"] = "15";
-  }
+  // if (!shared.args->flags.contains("STATS")) { shared.args->flags["STATS"] = "15"; }
 
   u32 exponent = shared.args->prpExp;
 

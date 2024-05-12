@@ -6,7 +6,7 @@
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
-KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(uint) ROE,
+KERNEL(G_W) carry(P(Word2) out, CP(T2) in, u32 posROE, P(CarryABM) carryOut, CP(u32) bits, P(uint) bufROE,
                   BigTab THREAD_WEIGHTS) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -41,11 +41,11 @@ KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(
   }
   carryOut[G_W * g + me] = carry;
 
-#if STATS & (1 << (2 + MUL3))
-#if STATS & 16
-  updateStats(ROE, posROE, carryMax);
-#else
-  updateStats(ROE, posROE, roundMax);
+#if ROE
+  updateStats(bufROE, posROE, roundMax);
 #endif
+
+#if (STATS & (1 << (2 + MUL3))) && (STATS & 16)
+  updateStats(bufROE, posROE, carryMax);
 #endif
 }

@@ -186,7 +186,7 @@ R"cltag(
 // Carry propagation with optional MUL-3, over CARRY_LEN words.
 // Input arrives conjugated and inverse-weighted.
 
-KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(u32) bits, P(uint) ROE,
+KERNEL(G_W) carry(P(Word2) out, CP(T2) in, u32 posROE, P(CarryABM) carryOut, CP(u32) bits, P(uint) bufROE,
                   BigTab THREAD_WEIGHTS) {
   u32 g  = get_group_id(0);
   u32 me = get_local_id(0);
@@ -221,12 +221,12 @@ KERNEL(G_W) carry(u32 posROE, P(Word2) out, CP(T2) in, P(CarryABM) carryOut, CP(
   }
   carryOut[G_W * g + me] = carry;
 
-#if STATS & (1 << (2 + MUL3))
-#if STATS & 16
-  updateStats(ROE, posROE, carryMax);
-#else
-  updateStats(ROE, posROE, roundMax);
+#if ROE
+  updateStats(bufROE, posROE, roundMax);
 #endif
+
+#if (STATS & (1 << (2 + MUL3))) && (STATS & 16)
+  updateStats(bufROE, posROE, carryMax);
 #endif
 }
 )cltag",
@@ -278,8 +278,8 @@ R"cltag(
 
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
-KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                       CP(u32) bits, P(uint) ROE, BigTab THREAD_WEIGHTS) {
+KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
+                       CP(u32) bits, P(uint) bufROE, BigTab THREAD_WEIGHTS) {
   local T2 lds[WIDTH / 2];
   
   u32 gr = get_group_id(0);
@@ -339,12 +339,13 @@ KERNEL(G_W) carryFused(u32 posROE, P(T2) out, CP(T2) in, P(i64) carryShuttle, P(
 #endif
   }
 
-#if STATS & (1 << MUL3)
-#if STATS & 16
-  updateStats(ROE, posROE, carryMax);
-#else
-  updateStats(ROE, posROE, roundMax);
+#if ROE
+  updateStats(bufROE, posROE, roundMax);
 #endif
+
+// Legacy carry stats
+#if (STATS & (1 << MUL3)) && (STATS & 16)
+  updateStats(bufROE, posROE, carryMax);
 #endif
 
   // Write out our carries
@@ -441,12 +442,12 @@ R"cltag(
 #include "base.cl"
 #include "math.cl"
 
-#if STATS
-void updateStats(global uint *ROE, u32 posROE, float roundMax) {
+#if STATS || ROE
+void updateStats(global uint *bufROE, u32 posROE, float roundMax) {
   assert(roundMax >= 0);
   u32 groupRound = work_group_reduce_max(as_uint(roundMax));
 
-  if (get_local_id(0) == 0) { atomic_max(ROE + posROE, groupRound); }
+  if (get_local_id(0) == 0) { atomic_max(bufROE + posROE, groupRound); }
 }
 #endif
 

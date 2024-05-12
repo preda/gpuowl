@@ -3,12 +3,12 @@
 #include "base.cl"
 #include "math.cl"
 
-#if STATS
-void updateStats(global uint *ROE, u32 posROE, float roundMax) {
+#if STATS || ROE
+void updateStats(global uint *bufROE, u32 posROE, float roundMax) {
   assert(roundMax >= 0);
   u32 groupRound = work_group_reduce_max(as_uint(roundMax));
 
-  if (get_local_id(0) == 0) { atomic_max(ROE + posROE, groupRound); }
+  if (get_local_id(0) == 0) { atomic_max(bufROE + posROE, groupRound); }
 }
 #endif
 

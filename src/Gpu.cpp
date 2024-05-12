@@ -281,12 +281,20 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
   //  W / nW
   K(kCarryFused,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW),
-  K(kCarryFusedMul, "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DMUL3=1"),
-  K(kCarryFusedLL,  "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DLL=1"),
+  K(kCarryFusedROE, "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DROE=1"),
 
-  K(kCarryA,  "carry.cl", "carry", hN / CARRY_LEN),
-  K(kCarryM,  "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1"),
-  K(kCarryLL, "carry.cl", "carry", hN / CARRY_LEN, "-DLL=1"),
+  K(kCarryFusedMul,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DMUL3=1"),
+  K(kCarryFusedMulROE, "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DMUL3=1 -DROE=1"),
+
+  K(kCarryFusedLL,     "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DLL=1"),
+
+  K(kCarryA,    "carry.cl", "carry", hN / CARRY_LEN),
+  K(kCarryAROE, "carry.cl", "carry", hN / CARRY_LEN, "-DROE=1"),
+
+  K(kCarryM,    "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1"),
+  K(kCarryMROE, "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1 -DROE=1"),
+
+  K(kCarryLL,   "carry.cl", "carry", hN / CARRY_LEN, "-DLL=1"),
   K(carryB, "carryb.cl", "carryB",   hN / CARRY_LEN),
 
   K(fftP, "fftp.cl", "fftP", hN / nW),
@@ -353,27 +361,10 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   useLongCarry = useLongCarry || (E / float(N) < 10.5f);
 
   if (useLongCarry) { log("Using long carry!\n"); }
-  // if (args.verbose) { log("Stats: 0x%x\n", statsBits); }
-  // string commonArgs = clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args);
   
-  /*
-  {
-    KernelCompiler compiler{args, queue->context, commonArgs};
-    Timer compileTimer;
-    auto kernels = {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL,
-                    &fftP, &fftW, &fftHin,
-                    &fftMidIn, &fftMidOut, &kCarryA, &kCarryM, &kCarryLL, &carryB,
-                    &transpIn, &transpOut,
-                    &tailMulLow, &tailMul, &tailSquare,
-                    &readResidue, &kernIsEqual, &sum64};
-    for (Kernel* k : kernels) { k->startLoad(compiler); }
-    for (Kernel* k : kernels) { k->finishLoad(); }
+  if (!args.roeTune.empty()) { enableROE = true; }
 
-    if (args.verbose) { log("OpenCL compilation: %.2fs\n", compileTimer.at()); }
-  }
-  */
-  
-  for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL}) {
+  for (Kernel* k : {&kCarryFused, &kCarryFusedROE, &kCarryFusedMul, &kCarryFusedMulROE, &kCarryFusedLL}) {
     k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufWeights);
   }
 
@@ -384,7 +375,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   fftMidIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
   fftMidOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
   
-  for (Kernel* k : {&kCarryA, &kCarryM, &kCarryLL}) {
+  for (Kernel* k : {&kCarryA, &kCarryAROE, &kCarryM, &kCarryMROE, &kCarryLL}) {
     k->setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufWeights);
   }
 
