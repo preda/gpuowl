@@ -38,26 +38,22 @@ public:
   void startLoad(const KernelCompiler& compiler);
   void finishLoad();
   
-  template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(name, pos, tail...); }
+  template<typename... Args> void setFixedArgs(int pos, const Args &...tail) { setArgs(pos, tail...); }
   
   template<typename... Args> void operator()(const Args &...args) {
-    setArgs(name, 0, args...);
+    setArgs(0, args...);
     run();
   }
 
 private:
-  template<typename T> void setArgs(const string& name, int pos, const shared_ptr<Buffer<T>>& buf) {
-    setArgs(name, pos, buf->get());
-  }
-
-  template<typename T> void setArgs(const string& name, int pos, const Buffer<T>* buf) { setArgs(name, pos, buf->get()); }
-  template<typename T> void setArgs(const string& name, int pos, const Buffer<T>& buf) { setArgs(name, pos, buf.get()); }
-
-  template<typename T> void setArgs(const string& name, int pos, const T &arg) { ::setArg(kernel.get(), pos, arg, name); }
+  template<typename T> void setArgs(int pos, const shared_ptr<Buffer<T>>& buf) { setArgs(pos, buf->get()); }
+  template<typename T> void setArgs(int pos, const Buffer<T>* buf) { setArgs(pos, buf->get()); }
+  template<typename T> void setArgs(int pos, const Buffer<T>& buf) { setArgs(pos, buf.get()); }
+  template<typename T> void setArgs(int pos, const T &arg) { ::setArg(kernel.get(), pos, arg, name); }
   
-  template<typename T, typename... Args> void setArgs(const string& name, int pos, const T &arg, const Args &...tail) {
-    setArgs(name, pos, arg);
-    setArgs(name, pos + 1, tail...);
+  template<typename T, typename... Args> void setArgs(int pos, const T &arg, const Args &...tail) {
+    setArgs(pos, arg);
+    setArgs(pos + 1, tail...);
   }
   
   void run();

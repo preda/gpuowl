@@ -628,8 +628,8 @@ KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
 
 #if ISEQUAL
 // outEqual must be "true" on entry.
-KERNEL(256) isEqual(global i64 *in1, global i64 *in2, P(int) outEqual, u32 sizeBytes) {
-  for (i32 p = get_global_id(0); p < sizeBytes / sizeof(i64); p += get_global_size(0)) {
+KERNEL(256) isEqual(global i64 *in1, global i64 *in2, P(int) outEqual) {
+  for (i32 p = get_global_id(0); p < ND; p += get_global_size(0)) {
     if (in1[p] != in2[p]) {
       *outEqual = 0;
       return;

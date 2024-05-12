@@ -223,7 +223,7 @@ public:
   Saver<PRPState>* getSaver() { return &saver; }
 
   void carryA(Buffer<int>& a, Buffer<double>& b)    { kCarryA(updatePos(1<<2), a, b); }
-  void carryA(Buffer<double>& a, Buffer<double>& b) { kCarryA(updatePos(1<<2), a, b); }
+  void carryA(Buffer<double>& a, Buffer<double>& b) { carryA(reinterpret_cast<Buffer<int>&>(a), b); }
   void carryLL(Buffer<int>& a, Buffer<double>& b)   { kCarryLL(updatePos(1<<2), a, b); }
   void carryM(Buffer<int>& a, Buffer<double>& b)    { kCarryM(updatePos(1<<3), a, b); }
 

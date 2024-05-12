@@ -253,7 +253,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 {}
 
 Gpu::~Gpu() {
-  // Tasks on the background thread may capture this, so wait until those are complete before destruction
+  // Background tasks may have captured *this*, so wait until those are complete before destruction
   background->waitEmpty();
 }
 
@@ -388,7 +388,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   tailMulLow.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailSquare.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
-  kernIsEqual.setFixedArgs(2, bufTrue, u32(N * sizeof(int)));
+  kernIsEqual.setFixedArgs(2, bufTrue);
 
   bufReady.zero();
   bufROE.zero();
