@@ -53,9 +53,10 @@ public:
     gumbelMiu = mean - gumbelBeta * 0.577215664901533; // Euler-Mascheroni
   }
 
-  float z(float x) const { return (x - gumbelMiu) / gumbelBeta; }
-  float gumbelCDF(float x) const { return expf(-expf(-z(x))); }
-  float gumbelRightCDF(float x) const { return -expm1f(-expf(-z(x))); }
+  double z(double x = 0.5) const { return (x - gumbelMiu) / gumbelBeta; }
+
+  double gumbelCDF(double x) const { return exp(-exp(-z(x))); }
+  double gumbelRightCDF(double x) const { return -expm1(-exp(-z(x))); }
 
   std::string toString(u32 statsBits) const;
 

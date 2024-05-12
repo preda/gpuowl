@@ -7,3 +7,4 @@ class GpuCommon;
 
 void tune(Queue* q, GpuCommon shared);
 void roeTune(Queue* q, GpuCommon shared);
+void roeSearch(Queue* q, GpuCommon shared);

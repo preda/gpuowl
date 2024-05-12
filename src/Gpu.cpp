@@ -174,10 +174,10 @@ string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SM
   if (mm_chain || mm2_chain || ultra_trig) {
     bool skip = args.flags.contains("MM_CHAIN") || args.flags.contains("MM2_CHAIN") || args.flags.contains("ULTRA_TRIG")
                 || !args.roeTune.empty();
-    log("%s defaults: MM_CHAIN=%d MM2_CHAIN=%d ULTRA_TRIG=%d\n",
-        skip ? "skipping" : "applying", mm_chain, mm2_chain, ultra_trig);
-
-    if (!skip) {
+    if (skip) {
+      if (args.verbose) { log("skipping: MM_CHAIN=%d MM2_CHAIN=%d ULTRA_TRIG=%d\n", mm_chain, mm2_chain, ultra_trig); }
+    } else {
+      log("applying: MM_CHAIN=%d MM2_CHAIN=%d ULTRA_TRIG=%d\n", mm_chain, mm2_chain, ultra_trig);
       if (mm_chain) { defines.push_back({"MM_CHAIN", mm_chain}); }
       if (mm2_chain) { defines.push_back({"MM2_CHAIN", mm2_chain}); }
       if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }

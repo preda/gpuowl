@@ -132,6 +132,74 @@ string toString(TuneConfig config) {
   return s;
 }
 
+pair<u32, double> findMaxExponent(Queue* q, GpuCommon shared, double target = 27) {
+  Primes primes;
+  double bpw = 18.3; // Some starting point in the search
+  double step = 0.5;
+  bool prevIsGood = true;
+  bool isFirst = true;
+  double low = 0, high = 1000;
+
+  string spec = shared.args->fftSpec;
+  u32 fftSize = FFTConfig::fromSpec(spec).fftSize();
+  while (true) {
+    u32 exponent = primes.nearestPrime(fftSize * bpw + 0.5);
+    auto gpu = Gpu::make(q, exponent, shared, false);
+    auto [ok, res, roeSq, roeMul] = gpu->measureROE(shared.args->quickTune);
+    double z = roeSq.z();
+
+    log("%s %s %u bpw=%.2f z=%.1f\n", ok ? "OK" : "EE", spec.c_str(), exponent, exponent / double(fftSize), z);
+
+    bool good = (z >= target);
+
+    assert(ok || !good);
+
+    if (abs(z - target) < 0.5 || (good && step < 0.02)) {
+      return {exponent, z};
+    }
+
+    bool crossed = !isFirst && good != prevIsGood;
+    if (good) {
+      assert(bpw >= low);
+      low = bpw;
+    } else {
+      assert(bpw <= high);
+      high = bpw;
+    }
+
+    isFirst = false;
+    prevIsGood = good;
+
+    if (crossed) { step /= 2; }
+    double next = bpw + (good ? step : -step);
+    if (abs(next - low) < 0.001 || abs(high - next) < 0.001) { step /= 2; }
+    bpw += good ? step : -step;
+  }
+  assert(false);
+  return {0, 0};
+}
+
+}
+
+void roeSearch(Queue* q, GpuCommon shared) {
+  auto configs = getTuneConfigs(shared.args->roeTune);
+
+  if (!shared.args->flags.contains("STATS")) { shared.args->flags["STATS"] = "15";}
+
+  for (const auto& config : configs) {
+    for (auto& [k, v] : config) {
+      if (k == "fft") {
+        shared.args->fftSpec = v;
+      } else {
+        shared.args->flags[k] = v;
+      }
+    }
+
+    if (shared.args->fftSpec.empty()) { throw "-roeTune without FFT spec"; }
+    u32 fftSize = FFTConfig::fromSpec(shared.args->fftSpec).fftSize();;
+    auto [exponent, z] = findMaxExponent(q, shared);
+    log("%u : BPW=%.2f Z=%.1f %s\n", exponent, exponent/double(fftSize), z, toString(config).c_str());
+  }
 }
 
 void roeTune(Queue* q, GpuCommon shared) {

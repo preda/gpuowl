@@ -101,6 +101,7 @@ FFTConfig FFTConfig::fromSpec(const string& spec) {
 }
 
 vector<FFTConfig> FFTConfig::multiSpec(const string& spec) {
+  assert(!spec.empty());
   bool hasParts = spec.find(':') != string::npos;
   if (hasParts) {
     auto p1 = spec.find(':');
