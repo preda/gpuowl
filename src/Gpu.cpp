@@ -802,11 +802,9 @@ static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, 
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, u32 nIters, u32 nErrors,
-                     pair<RoeInfo, RoeInfo> roe, u32 statsBits) {
-  log("%s%s %s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, nIters).c_str(),
-      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str(),
-      roe.first.toString(statsBits).c_str());
+static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, u32 nIters, u32 nErrors) {
+  log("%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, nIters).c_str(),
+      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 }
 
 bool Gpu::equals9(const Words& a) {
@@ -1190,11 +1188,11 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
 
+      log("%9u %016" PRIx64 " %4.0f\n", k, res, secsPerIt * 1'000'000);
       auto [roeSq, roeMul] = readROE();
-      log("%9u %016" PRIx64 " %4.0f %s\n", k, res, secsPerIt * 1'000'000,
-          roeSq.toString(0).c_str());
       double z = roeSq.z();
-      if (z < 26) { log("ROE Z=%.1f is too small! (should be at least 26). Increase the FFT size to avoid errors!\n", z); }
+      log("%s%s\n", roeSq.toString(0).c_str(), z<26 ? " Danger! (z<26), increase FFT!" : "");
+      // if (z < 26) { log("ROE Z=%.1f is too small! (should be at least 26). Increase the FFT size to avoid errors!\n", z); }
     } else {
       bool ok = this->doCheck(blockSize);
       float secsCheck = iterationTimer.reset(k);
@@ -1210,10 +1208,10 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
           });
         }
 
-        auto roePair = readROE();
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, kEndEnd, nErrors, roePair, statsBits);
-        double z = roePair.first.z();
-        if (z < 26) { log("ROE Z=%.1f is too small! (should be at least 26). Increase the FFT size to avoid errors!\n", z); }
+        doBigLog(E, k, res, ok, secsPerIt, secsCheck, kEndEnd, nErrors);
+        auto [roeSq, roeMul] = readROE();
+        double z = roeSq.z();
+        log("%s%s\n", roeSq.toString(0).c_str(), z<26 ? " Danger! (z<26), increase FFT!" : "");
           
         if (k >= kEndEnd) {
           fs::path proofFile = saveProof(args, proofSet);
@@ -1221,7 +1219,8 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         }        
       } else {
         ++nErrors;
-        doBigLog(E, k, res, ok, secsPerIt, 0, kEndEnd, nErrors, readROE(), statsBits);
+        doBigLog(E, k, res, ok, secsPerIt, 0, kEndEnd, nErrors);
+        readROE();
         if (++nSeqErrors > 2) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
           throw "too many errors";
