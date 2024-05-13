@@ -77,6 +77,15 @@ void fft_MIDDLE(T2 *u) {
 void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
+
+#if MM_CHAIN == 4
+    for (int i = 1; i < MIDDLE; ++i) {
+      WADD(i, trig[s * (MIDDLE - 1) + (i - 1)]);
+      // WADD(i, trig[s + (i - 1) * SMALL_HEIGHT]);
+      // WADD(i, slowTrig_BH(s * i, SMALL_HEIGHT * i, TRIG_BH));
+    }
+#else
+
   T2 w = slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
 
 #if MM_CHAIN == 3
@@ -108,11 +117,13 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   WADD(2, sq(w));
   i32 group_start, group_size;
   for (group_start = 3; group_start < MIDDLE; group_start += group_size) {
+
 #if MM_CHAIN == 2 && MIDDLE > 4
     group_size = (group_start == 3 ? (MIDDLE - 3) / 2 : MIDDLE - group_start);
 #else
     group_size = MIDDLE - 3;
 #endif
+
     i32 midpoint = group_start + group_size / 2;
     T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
     T2 base2 = base;
@@ -126,19 +137,14 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
     }
   }
 
-#elif MM_CHAIN == 4
-
-  for (int i = 1; i < MIDDLE; ++i) {
-    WADD(i, trig[s + (i - 1) * SMALL_HEIGHT]);
-  }
-
-#else
+#else // MM_CHAIN=0
   WADD(1, w);
   T2 base = sq(w);
   for (i32 i = 2; i < MIDDLE; ++i) {
     WADD(i, base);
     base = mul(base, w);
   }
+#endif
 #endif
 }
 

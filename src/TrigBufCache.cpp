@@ -46,9 +46,18 @@ pair<T, T> root1(u32 N, u32 k) {
   }
 }
 
-double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
+[[maybe_unused]] double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   for (u32 line = 1; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
+      *p++ = root1<double>(W * H, line * col);
+    }
+  }
+  return p;
+}
+
+double2 *smallTrigBlockTransp(u32 W, u32 H, double2 *p) {
+  for (u32 col = 0; col < W; ++col) {
+    for (u32 line = 1; line < H; ++line) {
       *p++ = root1<double>(W * H, line * col);
     }
   }
@@ -82,7 +91,7 @@ vector<double2> genMiddleTrig(u32 smallH, u32 middle) {
   } else {
     u32 size = smallH * (middle - 1);
     tab.resize(size);
-    [[maybe_unused]] auto *p = smallTrigBlock(smallH, middle, tab.data());
+    [[maybe_unused]] auto *p = smallTrigBlockTransp(smallH, middle, tab.data());
     assert(p - tab.data() == size);
   }
   return tab;
