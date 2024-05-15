@@ -132,59 +132,68 @@ string toString(TuneConfig config) {
   return s;
 }
 
-pair<u32, double> findMaxExponent(Queue* q, GpuCommon shared, double target = 27) {
-  Primes primes;
-  double bpw = 18.3; // Some starting point in the search
-  double step = 0.5;
-  bool prevIsGood = true;
-  bool isFirst = true;
-  double low = 0, high = 1000;
+struct Point {
+  double bpw;
+  double z;
+};
 
+double interpolate(Point p1, Point p2, double target) {
+    // double lowBPW, double z1, double highBPW, double z2, double targetZ) {
+  /*
+  assert(lowBPW < highBPW);
+  assert(z1 >= targetZ && targetZ >= z2);
+  assert(z1 > z2 && z2 > 0);
+  */
+
+  assert(p1.z != p2.z);
+
+  double log1 = log(p1.z);
+  double log2 = log(p2.z);
+  double logt = log(target);
+
+  return (p1.bpw * (log2 - logt) + p2.bpw * (logt - log1)) / (log2 - log1);
+}
+
+
+} // namespace
+
+u32 Tune::exponentForBpw(double bpw) {
   string spec = shared.args->fftSpec;
+  assert(!spec.empty());
   u32 fftSize = FFTConfig::fromSpec(spec).fftSize();
-  while (true) {
-    u32 exponent = primes.nearestPrime(fftSize * bpw + 0.5);
-    auto gpu = Gpu::make(q, exponent, shared, false);
-    auto [ok, res, roeSq, roeMul] = gpu->measureROE(shared.args->quickTune);
-    double z = roeSq.z();
-
-    log("%s %s %u bpw=%.2f z=%.1f\n", ok ? "OK" : "EE", spec.c_str(), exponent, exponent / double(fftSize), z);
-
-    bool good = (z >= target);
-
-    assert(ok || !good);
-
-    if (abs(z - target) < 0.5 || (good && step < 0.02)) {
-      return {exponent, z};
-    }
-
-    bool crossed = !isFirst && good != prevIsGood;
-    if (good) {
-      assert(bpw >= low);
-      low = bpw;
-    } else {
-      assert(bpw <= high);
-      high = bpw;
-    }
-
-    isFirst = false;
-    prevIsGood = good;
-
-    if (crossed) { step /= 2; }
-    double next = bpw + (good ? step : -step);
-    if (abs(next - low) < 0.001 || abs(high - next) < 0.001) { step /= 2; }
-    bpw += good ? step : -step;
-  }
-  assert(false);
-  return {0, 0};
+  return primes.nearestPrime(fftSize * bpw + 0.5);
 }
 
+double Tune::zForBpw(double bpw) {
+  u32 exponent = exponentForBpw(bpw);
+  auto gpu = Gpu::make(q, exponent, shared, false);
+  auto [ok, res, roeSq, roeMul] = gpu->measureROE(shared.args->quickTune);
+  double z = roeSq.z();
+  // log("%s %s %u bpw=%.2f z=%.1f\n", ok ? "OK" : "EE", shared.args->fftSpec.c_str(), exponent, bpw, z);
+  return z;
 }
 
-void roeSearch(Queue* q, GpuCommon shared) {
+pair<double, double> Tune::maxBpw(double target) {
+  double bpw1 = 17.9;
+  double bpw2 = bpw1 + 0.4;
+  double z1 = zForBpw(bpw1);
+  double z2 = zForBpw(bpw2);
+
+  double a = (log2(z1) - log2(z2)) / (bpw2 - bpw1);
+  log("%f %f %f\n", z1, z2, a);
+
+  double bpw = bpw1 + (log2(z1) - log2(target)) / min(3.2, a);
+  // Equivalent: double bpw = bpw2 + (log2(z2) - log2(target)) / a;
+
+  return {bpw, zForBpw(bpw)};
+
+  // bpw = interpolate(p1, p2, target);
+  // return {bpw, zForBpw(bpw)};
+}
+
+
+void Tune::roeSearch() {
   auto configs = getTuneConfigs(shared.args->roeTune);
-
-  // if (!shared.args->flags.contains("STATS")) { shared.args->flags["STATS"] = "15";}
 
   for (const auto& config : configs) {
     for (auto& [k, v] : config) {
@@ -195,10 +204,9 @@ void roeSearch(Queue* q, GpuCommon shared) {
       }
     }
 
-    if (shared.args->fftSpec.empty()) { throw "-roeTune without FFT spec"; }
-    u32 fftSize = FFTConfig::fromSpec(shared.args->fftSpec).fftSize();;
-    auto [exponent, z] = findMaxExponent(q, shared);
-    log("%u : BPW=%.2f Z=%.1f %s\n", exponent, exponent/double(fftSize), z, toString(config).c_str());
+    auto [bpw, z] = maxBpw();
+    u32 exponent = exponentForBpw(bpw);
+    log("%u : BPW=%.3f Z=%.1f %s\n", exponent, bpw, z, toString(config).c_str());
   }
 }
 

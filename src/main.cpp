@@ -98,7 +98,8 @@ int main(int argc, char **argv) {
       tune(&q, shared);
     } else if (!args.roeTune.empty()) {
       Queue q(context, args.profile);
-      roeSearch(&q, shared);
+      Tune tune{&q, shared};
+      tune.roeSearch();
     } else {
       vector<Queue> queues;
       for (int i = 0; i < int(args.workers); ++i) { queues.emplace_back(context, args.profile); }
