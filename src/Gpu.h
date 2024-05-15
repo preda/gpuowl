@@ -132,6 +132,7 @@ class Gpu {
   
   TrigPtr bufTrigBHW;
   TrigPtr bufTrig2SH;
+  TrigPtr bufTrigSquare;
 
   // The weights and the "bigWord bits" depend on the exponent.
   Buffer<double> bufWeights;

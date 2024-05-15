@@ -115,6 +115,20 @@ vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN, vector<pair<T, T>> tab = {}) {
   return tab;
 }
 
+vector<double2> makeSquareTrig(u32 hN, u32 nH, u32 smallH) {
+  vector<double2> ret;
+
+  assert(hN % (smallH * 2) == 0);
+  u32 nGroups = hN / (smallH * 2);
+  for (u32 i = 0; i < nGroups; ++i) {
+    for (u32 me = 0; me < smallH / nH; ++me) {
+      ret.push_back(root1<double>(hN, i + me * (hN / smallH)));
+    }
+  }
+  assert(ret.size() == (hN / (2 * nH)));
+  return ret;
+}
+
 } // namespace
 
 TrigBufCache::~TrigBufCache() = default;
@@ -176,5 +190,20 @@ TrigPtr TrigBufCache::trig2SH(u32 SMALL_H) {
     m[key] = p;
   }
   last2SH = p;
+  return p;
+}
+
+TrigPtr TrigBufCache::trigSquare(u32 hN, u32 nH, u32 SMALL_H) {
+  lock_guard lock{mut};
+  auto& m = square;
+  decay_t<decltype(m)>::key_type key{hN, nH, SMALL_H};
+
+  TrigPtr p{};
+  auto it = m.find(key);
+  if (it == m.end() || !(p = it->second.lock())) {
+    p = make_shared<TrigBuf>(context, makeSquareTrig(hN, nH, SMALL_H));
+    m[key] = p;
+  }
+  lastSquare = p;
   return p;
 }

@@ -54,13 +54,13 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   }
 }
 
-KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab TRIG_BHW) {
+KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab tailTrig) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];
 
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
+  // u32 W = SMALL_HEIGHT;
+  u32 H = ND / SMALL_HEIGHT;
 
   u32 line1 = get_group_id(0);
   u32 line2 = line1 ? H - line1 : (H / 2);
@@ -72,6 +72,8 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, Bi
   fft_HEIGHT(lds, u, smallTrig);
   bar();
   fft_HEIGHT(lds, v, smallTrig);
+
+  tailTrig += line1 * G_H;
 
   u32 me = get_local_id(0);
   if (line1 == 0) {
@@ -86,7 +88,11 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, Bi
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / NH, TRIG_BHW), false);
+#if TRIG_COMPUTE >= 2
+    pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / NH, NULL), false);
+#else
+    pairSq(NH, u, v, tailTrig[me], false);
+#endif
     reverseLine(G_H, lds, v);
   }
 

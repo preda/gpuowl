@@ -61,7 +61,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
 }
 
 KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
-                         BigTab TRIG_2SH, BigTab TRIG_BHW) {
+                         BigTab TRIG_2SH, BigTab tailTrig) {
   // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
   // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
   // to poor occupancy.
@@ -117,7 +117,11 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, slowTrig_N(line1 + me * H, ND / NH, TRIG_BHW), false);
+#if TRIG_COMPUTE >= 2
+    pairMul(NH, u, v, p, q, slowTrig_N(line1 + me * H, ND / NH, NULL), false);
+#else
+    pairMul(NH, u, v, p, q, tailTrig[line1 * G_H + me], false);
+#endif
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }

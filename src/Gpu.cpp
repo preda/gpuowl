@@ -328,6 +328,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
   bufTrigBHW{shared.bufCache->trigBHW(W, hN, BIG_H)},
   bufTrig2SH{shared.bufCache->trig2SH(SMALL_H)},
+  bufTrigSquare(shared.bufCache->trigSquare(hN, nH, SMALL_H)),
 
   bufWeights{q->context, std::move(weights.weightsIF)},
   bufBits{q->context,    std::move(weights.bitsCF)},
@@ -381,8 +382,8 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
   tailMulLow.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
-  tailMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
-  tailSquare.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigBHW);
+  tailMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigSquare);
+  tailSquare.setFixedArgs(2, bufTrigH, bufTrig2SH, bufTrigSquare);
   kernIsEqual.setFixedArgs(2, bufTrue);
 
   bufReady.zero();
@@ -1192,8 +1193,10 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
       log("%9u %016" PRIx64 " %4.0f\n", k, res, secsPerIt * 1'000'000);
       auto [roeSq, roeMul] = readROE();
-      double z = roeSq.z();
-      log("%s%s\n", roeSq.toString(0).c_str(), z<26 ? " Danger! (z<26), increase FFT!" : "");
+      if (roeSq.N) {
+        double z = roeSq.z();
+        log("%s%s\n", roeSq.toString(0).c_str(), z<26 ? " Danger! (z<26), increase FFT!" : "");
+      }
       // if (z < 26) { log("ROE Z=%.1f is too small! (should be at least 26). Increase the FFT size to avoid errors!\n", z); }
     } else {
       bool ok = this->doCheck(blockSize);
@@ -1212,8 +1215,10 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
         doBigLog(E, k, res, ok, secsPerIt, secsCheck, kEndEnd, nErrors);
         auto [roeSq, roeMul] = readROE();
-        double z = roeSq.z();
-        log("%s%s\n", roeSq.toString(0).c_str(), z<26 ? " Danger! (z<26), increase FFT!" : "");
+        if (roeSq.N) {
+          double z = roeSq.z();
+          log("%s%s\n", roeSq.toString(0).c_str(), z<26 ? " Danger! (z<26), increase FFT!" : "");
+        }
           
         if (k >= kEndEnd) {
           fs::path proofFile = saveProof(args, proofSet);
