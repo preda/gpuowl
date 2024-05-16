@@ -23,7 +23,7 @@ KERNEL(G_W) carry(P(Word2) out, CP(T2) in, u32 posROE, P(CarryABM) carryOut, CP(
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
 
-  T base = optionalDouble(fancyMul(THREAD_WEIGHTS[G_W + gy].x, THREAD_WEIGHTS[me].x));
+  T base = optionalDouble(fancyMul(THREAD_WEIGHTS[G_W + gy * CARRY_LEN].x, THREAD_WEIGHTS[me].x));
   
     base = optionalDouble(fancyMul(base, iweightStep(gx)));
 

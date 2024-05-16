@@ -62,11 +62,11 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
 
   // the group order matches CarryA/M (not fftP/CarryFused).
   // vector<double> carryWeightsIF;
-  for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
-    auto iw = invWeight(N, E, H, gy * CARRY_LEN, 0, 0);
+  for (u32 gy = 0; gy < H; ++gy) {
+    auto iw = invWeight(N, E, H, gy, 0, 0);
     weightsIF.push_back(2 * boundUnderOne(iw));
     
-    auto w = weight(N, E, H, gy * CARRY_LEN, 0, 0);
+    auto w = weight(N, E, H, gy, 0, 0);
     weightsIF.push_back(2 * w);
   }
   

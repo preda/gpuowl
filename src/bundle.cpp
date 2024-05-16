@@ -203,7 +203,7 @@ KERNEL(G_W) carry(P(Word2) out, CP(T2) in, u32 posROE, P(CarryABM) carryOut, CP(
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
 
-  T base = optionalDouble(fancyMul(THREAD_WEIGHTS[G_W + gy].x, THREAD_WEIGHTS[me].x));
+  T base = optionalDouble(fancyMul(THREAD_WEIGHTS[G_W + gy * CARRY_LEN].x, THREAD_WEIGHTS[me].x));
   
     base = optionalDouble(fancyMul(base, iweightStep(gx)));
 
@@ -302,8 +302,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   Word2 wu[NW];
-  T2 weights = fancyMul(THREAD_WEIGHTS[G_W + line / CARRY_LEN], THREAD_WEIGHTS[me]);
-  weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(line % CARRY_LEN), fweightUnitStep(line % CARRY_LEN)));
+  T2 weights = fancyMul(THREAD_WEIGHTS[G_W + line], THREAD_WEIGHTS[me]);
 
 #if MUL3
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
@@ -2132,8 +2131,8 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS)
 
   u32 me = get_local_id(0);
 
-  T base = optionalHalve(fancyMul(THREAD_WEIGHTS[G_W + g / CARRY_LEN].y, THREAD_WEIGHTS[me].y));
-  base = optionalHalve(fancyMul(base, fweightUnitStep(g % CARRY_LEN)));
+  T base = optionalHalve(fancyMul(THREAD_WEIGHTS[G_W + g].y, THREAD_WEIGHTS[me].y));
+  // base = optionalHalve(fancyMul(base, fweightUnitStep(g % CARRY_LEN)));
 
   for (u32 i = 0; i < NW; ++i) {
     T w1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));

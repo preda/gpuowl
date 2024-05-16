@@ -31,8 +31,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   Word2 wu[NW];
-  T2 weights = fancyMul(THREAD_WEIGHTS[G_W + line / CARRY_LEN], THREAD_WEIGHTS[me]);
-  weights = fancyMul(U2(optionalDouble(weights.x), optionalHalve(weights.y)), U2(iweightUnitStep(line % CARRY_LEN), fweightUnitStep(line % CARRY_LEN)));
+  T2 weights = fancyMul(THREAD_WEIGHTS[G_W + line], THREAD_WEIGHTS[me]);
 
 #if MUL3
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
