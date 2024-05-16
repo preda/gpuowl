@@ -55,19 +55,21 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   vector<double> weightsIF;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
     auto iw = invWeight(N, E, H, 0, thread, 0);
-    weightsIF.push_back(iw - 1);
+    // weightsIF.push_back(iw - 1);
+    weightsIF.push_back(2 * boundUnderOne(iw));
     auto w = weight(N, E, H, 0, thread, 0);
-    weightsIF.push_back(w - 1);
+    // weightsIF.push_back(w - 1);
+    weightsIF.push_back(2 * w);
   }
 
   // the group order matches CarryA/M (not fftP/CarryFused).
   // vector<double> carryWeightsIF;
   for (u32 gy = 0; gy < H; ++gy) {
     auto iw = invWeight(N, E, H, gy, 0, 0);
-    weightsIF.push_back(2 * boundUnderOne(iw));
+    weightsIF.push_back(iw - 1);
     
     auto w = weight(N, E, H, gy, 0, 0);
-    weightsIF.push_back(2 * w);
+    weightsIF.push_back(w - 1);
   }
   
   vector<u32> bits;
@@ -80,7 +82,7 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
           for (u32 rep = 0; rep < 2; ++rep) {
             if (isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + rep)) { b.set(bitoffset + block * 2 + rep); }
           }        
-	}
+        }
       }
       bits.push_back(b.to_ulong());
     }
@@ -187,14 +189,6 @@ string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SM
   defines.push_back({"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
   defines.push_back({"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
 
-  vector<double> iWeights;
-  vector<double> fWeights;
-  for (u32 i = 0; i < CARRY_LEN; ++i) {
-    iWeights.push_back(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
-    fWeights.push_back(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 2*i) - 1);
-  }
-  defines.push_back({"IWEIGHTS", iWeights});
-  defines.push_back({"FWEIGHTS", fWeights});
   string s;
   for (const auto& d : defines) {
     s += " -D"s + string(d);

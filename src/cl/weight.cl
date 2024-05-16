@@ -33,16 +33,6 @@ T iweightStep(u32 i) {
   return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
 }
 
-T fweightUnitStep(u32 i) {
-  T FWEIGHTS_[] = FWEIGHTS;
-  return FWEIGHTS_[i];
-}
-
-T iweightUnitStep(u32 i) {
-  T IWEIGHTS_[] = IWEIGHTS;
-  return IWEIGHTS_[i];
-}
-
 u32 bfi(u32 u, u32 mask, u32 bits) {
 #if HAS_ASM
   u32 out;

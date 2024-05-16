@@ -203,13 +203,11 @@ KERNEL(G_W) carry(P(Word2) out, CP(T2) in, u32 posROE, P(CarryABM) carryOut, CP(
   u32 b = bits[(G_W * g + me) / GPW] >> (me % GPW * (2 * CARRY_LEN));
 #undef GPW
 
-  T base = optionalDouble(fancyMul(THREAD_WEIGHTS[G_W + gy * CARRY_LEN].x, THREAD_WEIGHTS[me].x));
-  
-    base = optionalDouble(fancyMul(base, iweightStep(gx)));
+  T base = optionalDouble(fancyMul(THREAD_WEIGHTS[me].x, iweightStep(gx)));
 
   for (i32 i = 0; i < CARRY_LEN; ++i) {
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
-    double w1 = i == 0 ? base : optionalDouble(fancyMul(base, iweightUnitStep(i)));
+    double w1 = optionalDouble(fancyMul(base, THREAD_WEIGHTS[G_W + gy * CARRY_LEN + i].x));
     double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
     T2 x = conjugate(in[p]) * U2(w1, w2);
         
@@ -302,7 +300,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 // Convert each u value into 2 words and a 32 or 64 bit carry
 
   Word2 wu[NW];
-  T2 weights = fancyMul(THREAD_WEIGHTS[G_W + line], THREAD_WEIGHTS[me]);
+  T2 weights = fancyMul(THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);
 
 #if MUL3
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
@@ -2131,8 +2129,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS)
 
   u32 me = get_local_id(0);
 
-  T base = optionalHalve(fancyMul(THREAD_WEIGHTS[G_W + g].y, THREAD_WEIGHTS[me].y));
-  // base = optionalHalve(fancyMul(base, fweightUnitStep(g % CARRY_LEN)));
+  T base = optionalHalve(fancyMul(THREAD_WEIGHTS[me].y, THREAD_WEIGHTS[G_W + g].y));
 
   for (u32 i = 0; i < NW; ++i) {
     T w1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
@@ -2969,16 +2966,6 @@ T iweightStep(u32 i) {
     -0.45474613366737116,
   };
   return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
-}
-
-T fweightUnitStep(u32 i) {
-  T FWEIGHTS_[] = FWEIGHTS;
-  return FWEIGHTS_[i];
-}
-
-T iweightUnitStep(u32 i) {
-  T IWEIGHTS_[] = IWEIGHTS;
-  return IWEIGHTS_[i];
 }
 
 u32 bfi(u32 u, u32 mask, u32 bits) {

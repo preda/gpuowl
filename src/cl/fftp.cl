@@ -18,8 +18,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS)
 
   u32 me = get_local_id(0);
 
-  T base = optionalHalve(fancyMul(THREAD_WEIGHTS[G_W + g].y, THREAD_WEIGHTS[me].y));
-  // base = optionalHalve(fancyMul(base, fweightUnitStep(g % CARRY_LEN)));
+  T base = optionalHalve(fancyMul(THREAD_WEIGHTS[me].y, THREAD_WEIGHTS[G_W + g].y));
 
   for (u32 i = 0; i < NW; ++i) {
     T w1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
