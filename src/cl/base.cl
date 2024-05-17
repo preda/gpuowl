@@ -157,12 +157,23 @@ void write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base) {
 }
 
 void bar() {
-  // barrier(CLK_LOCAL_MEM_FENCE) is correct, but it turns out that on some GPUs, in particular on RadeonVII,
-  // barrier(0) works as well and is faster. So allow selecting the faster path when it works with
-  // -use FAST_BARRIER
+  // barrier(CLK_LOCAL_MEM_FENCE) is correct, but it turns out that on some GPUs
+  // (in particular on Radeon VII and Radeon PRO VII) barrier(0) works as well and is faster.
+  // So allow selecting the faster path when it works with -use FAST_BARRIER
 #if FAST_BARRIER
   barrier(0);
 #else
   barrier(CLK_LOCAL_MEM_FENCE);
 #endif
 }
+
+// On "classic" AMD GCN GPUs such as Radeon VII, the wavefront size was always 64. On RDNA GPUs the wavefront can
+// be configured to be either 64 or 32. We use the FAST_BARRIER define as an indicator for GCN GPUs.
+// On Nvidia GPUs the wavefront size is 32.
+#if !WAVEFRONT
+#if FAST_BARRIER
+#define WAVEFRONT 64
+#else
+#define WAVEFRONT 32
+#endif
+#endif

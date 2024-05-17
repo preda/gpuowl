@@ -28,8 +28,6 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   
   fft_WIDTH(lds, u, smallTrig);
 
-// Convert each u value into 2 words and a 32 or 64 bit carry
-
   Word2 wu[NW];
   T2 weights = fancyMul(THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);
 
@@ -76,26 +74,28 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   updateStats(bufROE, posROE, carryMax);
 #endif
 
-  // Write out our carries
-  if (gr < H) {
-    for (i32 i = 0; i < NW; ++i) {
-      carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i];
-    }
+  // Write out our carries. Only groups 0 to H-1 need to write carries out.
+  // Group H is a duplicate of group 0 (producing the same results) so we don't care about group H writing out,
+  // but it's fine either way.
+  if (gr < H || true) {
+    for (i32 i = 0; i < NW; ++i) { carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i]; }
 
-    // Signal that this group is done writing its carries
-    work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
-    if (me == 0) {
-      atomic_store((atomic_uint *) &ready[gr], 1);
+    // Signal that this group is done writing its carries.
+    // Since we signal per-wavefront we can skip the barrier below
+    // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+    if (me % WAVEFRONT == 0) {
+      atomic_store((atomic_uint *) &ready[gr * (G_W / WAVEFRONT) + me / WAVEFRONT], 1);
     }
   }
 
   if (gr == 0) { return; }
 
   // Wait until the previous group is ready with their carries
-  if (me == 0) {
-    while(!atomic_load((atomic_uint *) &ready[gr - 1]));
+  if (me % WAVEFRONT == 0) {
+    while(!atomic_load((atomic_uint *) &ready[(gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT]));
   }
-  work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+  // Again we skip the barrier since signalling was per-wavefront
+  // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
 
   // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
   // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
@@ -104,6 +104,8 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
     }
   } else {
+    // For gr==H we need the barrier since the carry reading is shifted, thus the per-wavefront trick does not apply.
+    work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
     for (i32 i = 0; i < NW; ++i) {
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
     }
@@ -127,13 +129,11 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
     u[i] = U2(wu[i].x, wu[i].y) * U2(weight1, weight2);
   }
 
-// Clear carry ready flag for next iteration
-
-  bar();
-  if (me == 0) ready[gr - 1] = 0;
-
-// Now do the forward FFT and write results
+  // bar();
 
   fft_WIDTH(lds, u, smallTrig);
   write(G_W, NW, u, out, WIDTH * line);
+
+  // Clear carry ready flag for next iteration
+  if (me % 64 == 0) ready[(gr - 1) * (G_W / 64) + me / 64] = 0;
 }

@@ -335,8 +335,8 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
   BUF(bufCheck, N),
   BUF(bufBase, N),
-  BUF(bufCarry, N / 2),
-  BUF(bufReady, BIG_H),
+  BUF(bufCarry, N / 2 + WIDTH),
+  BUF(bufReady, BIG_H * 8 + 32),
 
   BUF(bufSmallOut, 256),
   BUF(bufSumOut,     1),
