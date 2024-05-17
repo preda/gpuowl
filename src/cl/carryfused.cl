@@ -77,7 +77,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   // Write out our carries. Only groups 0 to H-1 need to write carries out.
   // Group H is a duplicate of group 0 (producing the same results) so we don't care about group H writing out,
   // but it's fine either way.
-  if (gr < H || true) {
+  if (gr < H /* || true */) {
     for (i32 i = 0; i < NW; ++i) { carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i]; }
 
     // Signal that this group is done writing its carries.

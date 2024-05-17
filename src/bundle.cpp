@@ -151,9 +151,6 @@ typedef global const T2* Trig;
 typedef global const double2* BigTab;
 #endif
 
-// Propagate carry this many pairs of words.
-#define CARRY_LEN 8
-
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
@@ -357,7 +354,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   // Write out our carries. Only groups 0 to H-1 need to write carries out.
   // Group H is a duplicate of group 0 (producing the same results) so we don't care about group H writing out,
   // but it's fine either way.
-  if (gr < H || true) {
+  if (gr < H /* || true */) {
     for (i32 i = 0; i < NW; ++i) { carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i]; }
 
     // Signal that this group is done writing its carries.

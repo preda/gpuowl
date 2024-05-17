@@ -143,9 +143,6 @@ typedef global const T2* Trig;
 typedef global const double2* BigTab;
 #endif
 
-// Propagate carry this many pairs of words.
-#define CARRY_LEN 8
-
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
 void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {

@@ -162,6 +162,7 @@ string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SM
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
      {"MIDDLE", MIDDLE},
+     {"CARRY_LEN", CARRY_LEN},
     };
 
   if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
