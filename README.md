@@ -1,4 +1,4 @@
-[![Actions Status](https://github.com/preda/gpuowl/workflows/CI/badge.svg?branch=prpll)](https://github.com/preda/gpuowl/actions)
+[![Actions Status](https://github.com/preda/gpuowl/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/preda/gpuowl/actions/workflows/ci.yml)
 
 # PRPLL
 ## PRobable Prime and Lucas-Lehmer mersenne categorizer

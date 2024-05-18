@@ -21,7 +21,7 @@ else
 
 BIN=build-release
 
-CXXFLAGS = -Wall -O2 -DNDEBUG -std=c++20 -static-libstdc++ -static-libgcc
+CXXFLAGS = -Wall -O3 -flto -DNDEBUG -std=c++20 -static-libstdc++ -static-libgcc
 STRIP=-s
 
 endif
