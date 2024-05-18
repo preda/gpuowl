@@ -843,19 +843,18 @@ static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, 
 
 void Gpu::doBigLog(u32 k, u64 res, bool checkOK, float secsPerIt, u32 nIters, u32 nErrors) {
   auto [roeSq, roeMul] = readROE();
-  log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
-      roeSq.toString().c_str(),
-      (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
-
   double z = roeSq.z();
-  if (roeSq.N && z < 22) {
+  log("%sZ=%.1f%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
+      z, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
+
+  if (roeSq.N > 2 && z < 22) {
     log("Danger ROE! Z=%.1f is too small, increase precision or FFT size!\n", z);
   }
 
-  wantROE = 300; // a small nb of iterations for low overhead
+  wantROE = 400; // only a few iterations for low overhead
 
   RoeInfo carryStats = readCarryStats();
-  if (carryStats.N) {
+  if (carryStats.N > 2) {
     u32 m = ldexp(carryStats.max, 32);
     double z = carryStats.z();
     log("Carry: %x Z(%u)=%.1f\n", m, carryStats.N, z);
