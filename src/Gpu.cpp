@@ -252,7 +252,8 @@ Gpu::~Gpu() {
   background->waitEmpty();
 }
 
-#define ROE_SIZE 300000
+#define ROE_SIZE 100000
+#define CARRY_SIZE 100000
 
 Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, Weights&& weights) :
   queue(q),
@@ -343,8 +344,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   BUF(bufSumOut,     1),
   BUF(bufTrue,       1),
   BUF(bufROE, ROE_SIZE),
-
-  roePos{0},
+  BUF(bufStatsCarry, CARRY_SIZE),
 
   BUF(buf1, N),
   BUF(buf2, N),
@@ -358,11 +358,19 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
   if (useLongCarry) { log("Using long carry!\n"); }
   
-  if (!args.roeTune.empty()) { enableROE = true; }
-
   for (Kernel* k : {&kCarryFused, &kCarryFusedROE, &kCarryFusedMul, &kCarryFusedMulROE, &kCarryFusedLL}) {
-    k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufROE, bufWeights);
+    k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufWeights);
   }
+
+  for (Kernel* k : {&kCarryFusedROE, &kCarryFusedMulROE})           { k->setFixedArgs(8, bufROE); }
+  for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL}) { k->setFixedArgs(8, bufStatsCarry); }
+
+  for (Kernel* k : {&kCarryA, &kCarryAROE, &kCarryM, &kCarryMROE, &kCarryLL}) {
+    k->setFixedArgs(3, bufCarry, bufBitsC, bufWeights);
+  }
+
+  for (Kernel* k : {&kCarryAROE, &kCarryMROE})      { k->setFixedArgs(6, bufROE); }
+  for (Kernel* k : {&kCarryA, &kCarryM, &kCarryLL}) { k->setFixedArgs(6, bufStatsCarry); }
 
   fftP.setFixedArgs(2, bufTrigW, bufWeights);
   fftW.setFixedArgs(2, bufTrigW);
@@ -371,10 +379,6 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   fftMidIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
   fftMidOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
   
-  for (Kernel* k : {&kCarryA, &kCarryAROE, &kCarryM, &kCarryMROE, &kCarryLL}) {
-    k->setFixedArgs(3, bufCarry, bufBitsC, bufROE, bufWeights);
-  }
-
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
   tailMulLow.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigBHW);
   tailMul.setFixedArgs(3, bufTrigH, bufTrig2SH, bufTrigSquare);
@@ -383,8 +387,39 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
   bufReady.zero();
   bufROE.zero();
+  bufStatsCarry.zero();
   bufTrue.write({1});
   queue->finish();
+}
+
+u32 Gpu::updateCarryPos(u32 bit) {
+  return (statsBits & bit) && (carryPos < CARRY_SIZE) ? carryPos++ : carryPos;
+}
+
+void Gpu::carryFused(Buffer<double>& a, Buffer<double>& b) {
+  assert(roePos <= ROE_SIZE);
+  roePos < wantROE ? kCarryFusedROE(a, b, roePos++)
+                   : kCarryFused(a, b, updateCarryPos(1 << 0));
+}
+
+void Gpu::carryFusedMul(Buffer<double>& a, Buffer<double>& b) {
+  assert(roePos <= ROE_SIZE);
+  roePos < wantROE ? kCarryFusedMulROE(a, b, roePos++)
+                   : kCarryFusedMul(a, b, updateCarryPos(1 << 1));
+}
+
+void Gpu::carryA(Buffer<int>& a, Buffer<double>& b) {
+  assert(roePos <= ROE_SIZE);
+  roePos < wantROE ? kCarryAROE(a, b, roePos++)
+                   : kCarryA(a, b, updateCarryPos(1 << 2));
+}
+
+void Gpu::carryLL(Buffer<int>& a, Buffer<double>& b) { kCarryLL(a, b, updateCarryPos(1 << 2)); }
+
+void Gpu::carryM(Buffer<int>& a, Buffer<double>& b) {
+  assert(roePos <= ROE_SIZE);
+  roePos < wantROE ? kCarryMROE(a, b, roePos++)
+                   : kCarryM(a, b, updateCarryPos(1 << 3));
 }
 
 vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
@@ -455,6 +490,16 @@ pair<RoeInfo, RoeInfo> Gpu::readROE() {
   }
 }
 
+RoeInfo Gpu::readCarryStats() {
+  assert(carryPos <= CARRY_SIZE);
+  if (carryPos == 0) { return {}; }
+  vector<float> carry = bufStatsCarry.read(carryPos);
+  assert(carry.size() == carryPos);
+  bufStatsCarry.zero(carryPos);
+  carryPos = 0;
+  return roeStat(carry);
+}
+
 template<typename T>
 static bool isAllZero(vector<T> v) { return std::all_of(v.begin(), v.end(), [](T x) { return x == 0;}); }
 
@@ -500,7 +545,7 @@ void Gpu::mul(Buffer<int>& ioA, Buffer<double>& inB, Buffer<double>& tmp1, Buffe
     tailMul(tmp1, inB, tmp2);
 
     // Register the current ROE pos as multiplication (vs. a squaring)
-    if (mulRoePos.empty() || mulRoePos.back() != roePos) { mulRoePos.push_back(roePos); }
+    if (mulRoePos.empty() || mulRoePos.back() < roePos) { mulRoePos.push_back(roePos); }
 
     fftMidOut(tmp2, tmp1);
     fftW(tmp1, tmp2);
@@ -707,9 +752,6 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
   // LL does not do Mul3
   assert(!(doMul3 && doLL));
 
-  // useLongCarry always sets leadOut
-  assert(!(useLongCarry && !leadOut));
-
   if (leadIn) { fftP(buf2, in); }
   
   bottomHalf(buf1, buf2);
@@ -725,13 +767,15 @@ void Gpu::square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, b
     }
     carryB(out);
   } else {
-    if (!doLL && !doMul3) {
-      carryFused(buf2, buf1);
-    } else if (doLL) {
+    assert(!useLongCarry);
+    assert(!doMul3);
+
+    if (doLL) {
       carryFusedLL(buf2, buf1);
     } else {
-      carryFusedMul(buf2, buf1);
+      carryFused(buf2, buf1);
     }
+    // Unused: carryFusedMul(buf2, buf1);
   }
 }
 
@@ -780,27 +824,42 @@ static string getETA(u32 step, u32 total, float secsPerStep) {
   return formatETA(etaSecs);
 }
 
-string RoeInfo::toString(u32 statsBits) const {
+string RoeInfo::toString() const {
   if (!N) { return {}; }
 
   char buf[256];
-  snprintf(buf, sizeof(buf), "%s %.3f N=%u z=%.1f",
-           (statsBits & 0x10 ) ? "Carry" : "ROE", max, N, z(.5f));
+  snprintf(buf, sizeof(buf), "Z(%u)=%.1f", N, z(.5f));
   return buf;
 }
 
-static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, float secsCheck, u32 nIters) {
+static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, u32 nIters) {
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it + check %.2fs; ETA %s",
+  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it ETA %s; ",
            status.c_str(), k, k / float(nIters) * 100, hex(res).c_str(),
-           secsPerIt * 1'000'000, secsCheck, getETA(k, nIters, secsPerIt).c_str());
+           secsPerIt * 1'000'000, getETA(k, nIters, secsPerIt).c_str());
   return buf;
 }
 
-static void doBigLog(u32 E, u32 k, u64 res, bool checkOK, float secsPerIt, float secsCheck, u32 nIters, u32 nErrors) {
-  log("%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, secsCheck, nIters).c_str(),
+void Gpu::doBigLog(u32 k, u64 res, bool checkOK, float secsPerIt, u32 nIters, u32 nErrors) {
+  auto [roeSq, roeMul] = readROE();
+  log("%s%s%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
+      roeSq.toString().c_str(),
       (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
+
+  double z = roeSq.z();
+  if (roeSq.N && z < 22) {
+    log("Danger ROE! Z=%.1f is too small, increase precision or FFT size!\n", z);
+  }
+
+  wantROE = 300; // a small nb of iterations for low overhead
+
+  RoeInfo carryStats = readCarryStats();
+  if (carryStats.N) {
+    u32 m = ldexp(carryStats.max, 32);
+    double z = carryStats.z();
+    log("Carry: %x Z(%u)=%.1f\n", m, carryStats.N, z);
+  }
 }
 
 bool Gpu::equals9(const Words& a) {
@@ -942,13 +1001,11 @@ u32 Gpu::getProofPower(u32 k) {
 }
 
 tuple<bool, u64, RoeInfo, RoeInfo> Gpu::measureROE(bool quick) {
-  enableROE = true;
-
   u32 blockSize{}, iters{}, warmup{};
 
   if (quick) {
-    blockSize = 500;
-    iters = 2000;
+    blockSize = 200;
+    iters = 1000;
     warmup = 50;
   } else {
     blockSize = 500;
@@ -957,6 +1014,8 @@ tuple<bool, u64, RoeInfo, RoeInfo> Gpu::measureROE(bool quick) {
   }
 
   assert(iters % blockSize == 0);
+
+  wantROE = ROE_SIZE; // should be large enough to capture fully this measureROE()
 
   u32 k = 0;
   PRPState state{E, 0, blockSize, 3, makeWords(E, 1), 0};
@@ -999,6 +1058,7 @@ tuple<bool, u64, RoeInfo, RoeInfo> Gpu::measureROE(bool quick) {
   bool ok = doCheck(blockSize);
   auto roes = readROE();
 
+  wantROE = 0;
   // log("%s %016" PRIx64 " %s\n", ok ? "OK" : "EE", res, roe.toString(statsBits).c_str());
   return {ok, res, roes.first, roes.second};
 }
@@ -1111,13 +1171,12 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   const u32 startK = k;
   IterationTimer iterationTimer{k};
 
-  // Initially measure ROE a bit. But skip the very first iterations as not representative.
-  enableROE = k > 30;
+  wantROE = 0; // skip the initial iterations
 
   while (true) {
     assert(k < kEndEnd);
     
-    if (k == 30) { enableROE = true; }
+    if (!wantROE && k - startK > 30) { wantROE = 2'000; }
 
     if (skipNextCheckUpdate) {
       skipNextCheckUpdate = false;
@@ -1166,10 +1225,6 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
     assert(doCheck || doLog);
 
-    if (enableROE && k - startK > 10'000) {
-      enableROE = false; // We measured enough ROE
-    }
-
     u64 res = dataResidue();
     float secsPerIt = iterationTimer.reset(k);
 
@@ -1187,15 +1242,15 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
       });
 
       log("%9u %016" PRIx64 " %4.0f\n", k, res, secsPerIt * 1'000'000);
-      auto [roeSq, roeMul] = readROE();
-      if (roeSq.N) {
-        double z = roeSq.z();
-        log("%s%s\n", roeSq.toString(0).c_str(), z<26 ? " Danger! (z<26), increase FFT!" : "");
+      RoeInfo carryStats = readCarryStats();
+      if (carryStats.N) {
+        u32 m = ldexp(carryStats.max, 32);
+        double z = carryStats.z();
+        log("Carry: %x Z(%u)=%.1f\n", m, carryStats.N, z);
       }
-      // if (z < 26) { log("ROE Z=%.1f is too small! (should be at least 26). Increase the FFT size to avoid errors!\n", z); }
     } else {
       bool ok = this->doCheck(blockSize);
-      float secsCheck = iterationTimer.reset(k);
+      [[maybe_unused]] float secsCheck = iterationTimer.reset(k);
 
       if (ok) {
         nSeqErrors = 0;
@@ -1208,12 +1263,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
           });
         }
 
-        doBigLog(E, k, res, ok, secsPerIt, secsCheck, kEndEnd, nErrors);
-        auto [roeSq, roeMul] = readROE();
-        if (roeSq.N) {
-          double z = roeSq.z();
-          log("%s%s\n", roeSq.toString(0).c_str(), z<26 ? " Danger! (z<26), increase FFT!" : "");
-        }
+        doBigLog(k, res, ok, secsPerIt, kEndEnd, nErrors);
           
         if (k >= kEndEnd) {
           fs::path proofFile = saveProof(args, proofSet);
@@ -1221,8 +1271,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         }        
       } else {
         ++nErrors;
-        doBigLog(E, k, res, ok, secsPerIt, 0, kEndEnd, nErrors);
-        readROE();
+        doBigLog(k, res, ok, secsPerIt, kEndEnd, nErrors);
         if (++nSeqErrors > 2) {
           log("%d sequential errors, will stop.\n", nSeqErrors);
           throw "too many errors";
@@ -1249,6 +1298,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
 LLResult Gpu::isPrimeLL(const Task& task) {
   assert(E == task.exponent);
+  wantROE = 0;
 
   Saver<LLState> saver{E, 0};
   reload:
@@ -1313,7 +1363,6 @@ LLResult Gpu::isPrimeLL(const Task& task) {
     }
 
     float secsPerIt = iterationTimer.reset(k);
-    readROE(); // TODO
     log("%9u %016" PRIx64 " %4.0f\n", k, res64, secsPerIt * 1'000'000);
 
     if (k >= kEnd) { return {isAllZero, res64}; }

@@ -137,18 +137,12 @@ named "config.txt" in the prpll run directory.
                      0 uses precomputed tables (more VRAM access, less DP compute)
                      2 uses more DP compute and less VRAM table access
   -use DEBUG       : enable asserts in OpenCL kernels (slow)
-  -use STATS       : enable roundoff (ROE) or carry statistics logging.
-                     Allows selecting among the the kernels CarryFused, CarryFusedMul, CarryA, CarryMul using the bit masks:
+
+  -use STATS <val> : enable carry statistics collection & logging, for the kernel according to <val>:
                      1 = CarryFused
                      2 = CarryFusedMul
                      4 = CarryA
                      8 = CarryMul
-                    16 = analyze Carry instead of ROE
-                     (the bit mask 16 selects Carry statistics, otherwise ROE statistics)
-                     E.g. STATS=15 enables ROE stats for all the four kernels above.
-                          STATs=21 enables Carry stats for the CarryFused and CarryA.
-                     For carry, the range [0, 2^32] is mapped to [0.0, 1.0] float values; as such the max carry
-                     that fits on 32bits (i.e. 31bits absolute value) is mapped to 0.5
 
 -tune <spec>       : measure time-per-iteration in various configurations to find out what's fastest
                      Requires specifying an exponent with -prp <exponent>.

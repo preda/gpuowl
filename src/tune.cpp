@@ -137,7 +137,7 @@ struct Point {
   double z;
 };
 
-double interpolate(Point p1, Point p2, double target) {
+[[maybe_unused]] double interpolate(Point p1, Point p2, double target) {
     // double lowBPW, double z1, double highBPW, double z2, double targetZ) {
   /*
   assert(lowBPW < highBPW);
@@ -242,8 +242,8 @@ void roeTune(Queue* q, GpuCommon shared) {
 
     log("%s %9d %016" PRIx64 " %.2f bpw %s %s %s\n",
         ok ? "OK" : "EE", exponent, res, exponent / double(fftSize),
-        toString(config).c_str(), roeSq.toString(0).c_str(),
-        shared.args->verbose ? roeMul.toString(0).c_str() : "");
+        toString(config).c_str(), roeSq.toString().c_str(),
+        shared.args->verbose ? roeMul.toString().c_str() : "");
   }
 }
 

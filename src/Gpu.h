@@ -54,12 +54,12 @@ public:
     gumbelMiu = mean - gumbelBeta * 0.577215664901533; // Euler-Mascheroni
   }
 
-  double z(double x = 0.5) const { return (x - gumbelMiu) / gumbelBeta; }
+  double z(double x = 0.5) const { return N ? (x - gumbelMiu) / gumbelBeta : 0.0; }
 
   double gumbelCDF(double x) const { return exp(-exp(-z(x))); }
   double gumbelRightCDF(double x) const { return -expm1(-exp(-z(x))); }
 
-  std::string toString(u32 statsBits) const;
+  std::string toString() const;
 
   u32 N{};
   double max{}, mean{}, sd{};
@@ -84,8 +84,7 @@ class Gpu {
   u32 hN, nW, nH, bufSize;
   u32 WIDTH;
   bool useLongCarry;
-  bool enableROE{};
-
+  u32 wantROE{};
 
   Profile profile{};
 
@@ -156,11 +155,12 @@ class Gpu {
   Buffer<u64> bufSumOut;
   Buffer<int> bufTrue;
 
-  // The round-off error ("ROE"), one float element per iteration.
-  Buffer<float> bufROE;
+  Buffer<float> bufROE; // The round-off error ("ROE"), one float element per iteration.
+  Buffer<float> bufStatsCarry;
 
-  // The next position to write in the ROE buffer.
-  u32 roePos;
+  u32 roePos{};   // The next position to write in the ROE stats buffer.
+  u32 carryPos{}; // The next position to write in the Carry stats buffer.
+
   // The ROE positions originating from multiplications (as opposed to squarings).
   vector<u32> mulRoePos;
 
@@ -208,8 +208,9 @@ class Gpu {
   
   fs::path saveProof(const Args& args, const ProofSet& proofSet);
   std::pair<RoeInfo, RoeInfo> readROE();
+  RoeInfo readCarryStats();
   
-  u32 updatePos(u32 bit) { return (statsBits & bit) ? roePos++ : roePos; }
+  u32 updateCarryPos(u32 bit);
 
   bool loadPRP(Saver<PRPState>& saver, u64& lastFailedRes64, u32& outK, u32& outBlockSize, u32& nErrors);
 
@@ -233,25 +234,17 @@ public:
 
   void carryA(Buffer<double>& a, Buffer<double>& b) { carryA(reinterpret_cast<Buffer<int>&>(a), b); }
 
-  void carryA(Buffer<int>& a, Buffer<double>& b) {
-    enableROE ? kCarryAROE(a, b, roePos++) : kCarryA(a, b, roePos);
-  }
+  void carryA(Buffer<int>& a, Buffer<double>& b);
 
-  void carryM(Buffer<int>& a, Buffer<double>& b) {
-    enableROE ? kCarryMROE(a, b, roePos++) : kCarryM(a, b, roePos);
-  }
+  void carryM(Buffer<int>& a, Buffer<double>& b);
 
-  void carryLL(Buffer<int>& a, Buffer<double>& b)   { kCarryLL(updatePos(1<<2), a, b); }
+  void carryLL(Buffer<int>& a, Buffer<double>& b);
 
-  void carryFused(Buffer<double>& a, Buffer<double>& b) {
-    enableROE ? kCarryFusedROE(a, b, roePos++) : kCarryFused(a, b, roePos);
-  }
+  void carryFused(Buffer<double>& a, Buffer<double>& b);
 
-  void carryFusedMul(Buffer<double>& a, Buffer<double>& b) {
-    enableROE ? kCarryFusedMulROE(a, b, roePos++) : kCarryFusedMul(a, b, roePos);
-  }
+  void carryFusedMul(Buffer<double>& a, Buffer<double>& b);
 
-  void carryFusedLL(Buffer<double>& a, Buffer<double>& b)  { kCarryFusedLL(updatePos(1<<0), a, b);}
+  void carryFusedLL(Buffer<double>& a, Buffer<double>& b)  { kCarryFusedLL(updateCarryPos(1<<0), a, b);}
 
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   
@@ -283,4 +276,5 @@ public:
   vector<Buffer<i32>> makeBufVector(u32 size);
 private:
   u32 getProofPower(u32 k);
+  void doBigLog(u32 k, u64 res, bool checkOK, float secsPerIt, u32 nIters, u32 nErrors);
 };
