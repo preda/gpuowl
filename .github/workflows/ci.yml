@@ -13,8 +13,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-22.04]
-        cxx: [g++]
+        os: [ubuntu-22.04, ubuntu-24.04]
+        cxx: [g++, clang++]
       fail-fast: false
     env:
       CXX: ${{ matrix.cxx }}
@@ -22,8 +22,8 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install
       run: |
-        sudo apt-get -yqq update
-        sudo apt-get -yqq install cppcheck ocl-icd-opencl-dev pocl-opencl-icd
+        sudo apt-get update -y
+        sudo apt-get install -y cppcheck ocl-icd-opencl-dev pocl-opencl-icd
         $CXX --version
     - name: Script
       run: |
@@ -40,9 +40,11 @@ jobs:
       run: cppcheck --enable=all --force .
     - name: Clang-Tidy
       if: ${{ matrix.cxx == 'clang++' }}
-      run: clang-tidy -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,-cert-dcl37-c,-cert-dcl51-cpp,clang-analyzer-*,concurrency-*,misc-const-correctness,misc-redundant-expression,misc-unused-*,modernize-*,-modernize-use-trailing-return-type,-modernize-use-using,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-anyofallof' -header-filter='.*' src/*.cpp -- -Wall -O3 -std=gnu++17 || true
+      run: clang-tidy -checks='bugprone-*,-bugprone-reserved-identifier,cert-*,-cert-dcl37-c,-cert-dcl51-cpp,clang-analyzer-*,concurrency-*,misc-*,-misc-no-recursion,modernize-*,-modernize-use-trailing-return-type,performance-*,portability-*,readability-const-return-type,readability-container-*,readability-duplicate-include,readability-else-after-return,readability-make-member-function-cons,readability-non-const-parameter,readability-redundant-*,readability-simplify-*,readability-string-compare,readability-use-*' -header-filter='.*' src/*.cpp -- -Wall -O3 -std=gnu++20
+      continue-on-error: true
     - name: ShellCheck
-      run: shopt -s globstar; shellcheck -o avoid-nullary-conditions,check-extra-masked-returns,check-set-e-suppressed,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh || true
+      run: shopt -s globstar; shellcheck -o avoid-nullary-conditions,check-extra-masked-returns,check-set-e-suppressed,deprecate-which,quote-safe-variables,require-double-brackets -s bash **/*.sh
+      continue-on-error: true
 
   Windows:
     name: Windows
@@ -70,7 +72,6 @@ jobs:
       if: ${{ matrix.cxx == 'clang++' }}
       run: |
         pacman -S --noconfirm mingw-w64-x86_64-clang
-        (Get-Content Makefile) -replace ' -flto', '' | Set-Content Makefile
         & $env:CXX --version
     - name: Script
       run: | # Cannot use `make exe`, as the OpenCL ICD Loader does not support static linking

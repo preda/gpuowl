@@ -26,7 +26,7 @@ else
 
 BIN=build-release
 
-CXXFLAGS = -O2 -DNDEBUG $(COMMON_FLAGS)
+CXXFLAGS = -O3 -DNDEBUG $(COMMON_FLAGS)
 STRIP=-s
 
 endif
