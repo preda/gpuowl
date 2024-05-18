@@ -765,8 +765,30 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
     WADD(i + 1, w);
   }
 
-#elif MM_CHAIN == 1 || MM_CHAIN == 2
+#elif MM_CHAIN == 1 && MIDDLE >= 5
+  WADD(1, w);
 
+  u32 n = (MIDDLE - 1) / 3;
+  u32 m = MIDDLE - 2 * n - 3; // 2
+  u32 midpoint = 2 + m + n;
+
+  T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
+  T2 base2 = base;
+  WADD(midpoint, base);
+  for (i32 i = 1; i <= n; ++i) {
+    base = mul_by_conjugate(base, w);
+    WADD(midpoint - i, base);
+    base2 = mul(base2, w);
+    WADD(midpoint + i, base2);
+  }
+
+  base = w;
+  for (i32 i = 2; i < 2 + m; ++i) {
+    base = mul(base, w);
+    WADD(i, base);
+  }
+
+#elif MM_CHAIN == 2
 // This is our second and third fastest versions - used when we are somewhat worried about round off error.
 // Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
   WADD(1, w);
@@ -774,7 +796,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   i32 group_start, group_size;
   for (group_start = 3; group_start < MIDDLE; group_start += group_size) {
 
-#if MM_CHAIN == 2 && MIDDLE > 4
+#if MIDDLE > 4
     group_size = (group_start == 3 ? (MIDDLE - 3) / 2 : MIDDLE - group_start);
 #else
     group_size = MIDDLE - 3;
@@ -2615,8 +2637,6 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, Bi
   bar();
   fft_HEIGHT(lds, v, smallTrig);
 
-  tailTrig += line1 * G_H;
-
   u32 me = get_local_id(0);
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
@@ -2633,7 +2653,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, Bi
 #if TRIG_COMPUTE >= 2
     pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / NH, NULL), false);
 #else
-    pairSq(NH, u, v, tailTrig[me], false);
+    pairSq(NH, u, v, tailTrig[line1 * G_H + me], false);
 #endif
     reverseLine(G_H, lds, v);
   }

@@ -73,8 +73,6 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, Bi
   bar();
   fft_HEIGHT(lds, v, smallTrig);
 
-  tailTrig += line1 * G_H;
-
   u32 me = get_local_id(0);
   if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
@@ -91,7 +89,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, Bi
 #if TRIG_COMPUTE >= 2
     pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / NH, NULL), false);
 #else
-    pairSq(NH, u, v, tailTrig[me], false);
+    pairSq(NH, u, v, tailTrig[line1 * G_H + me], false);
 #endif
     reverseLine(G_H, lds, v);
   }
