@@ -835,8 +835,8 @@ string RoeInfo::toString() const {
 static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, u32 nIters) {
   char buf[256];
   
-  snprintf(buf, sizeof(buf), "%2s %9u %6.2f%% %s %4.0f us/it ETA %s; ",
-           status.c_str(), k, k / float(nIters) * 100, hex(res).c_str(),
+  snprintf(buf, sizeof(buf), "%2s %9u %016" PRIx64 " %4.0f ETA %s; ",
+           status.c_str(), k, res, /* k / float(nIters) * 100, */
            secsPerIt * 1'000'000, getETA(k, nIters, secsPerIt).c_str());
   return buf;
 }
@@ -1241,7 +1241,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
 
-      log("%9u %016" PRIx64 " %4.0f\n", k, res, secsPerIt * 1'000'000);
+      log("   %9u %016" PRIx64 " %4.0f\n", k, res, /*k / float(kEndEnd) * 100*,*/ secsPerIt * 1'000'000);
       RoeInfo carryStats = readCarryStats();
       if (carryStats.N) {
         u32 m = ldexp(carryStats.max, 32);
