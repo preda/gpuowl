@@ -35,14 +35,20 @@ double2 root1(u32 N, u32 k) {
     assert(k <= N/8);
     N /= 2;
 
-#if 0
-    auto angle = - M_PIl * k / N;
-    return {cosl(angle), sinl(angle)};
-#else
     double angle = - M_PIl * k / N;
     return {cos(angle), sin(angle)};
-#endif
   }
+}
+
+double2 root1Fancy(u32 N, u32 k) {
+  assert(!(N&7));
+  assert(k < N);
+  if (k <= N/8) {
+    double angle = - M_PIl * k / (N / 2);
+    return {double(cosl(angle) - 1), sin(angle)};
+  }
+  auto [c, s] = root1(N, k);
+  return {c-1, s};
 }
 
 [[maybe_unused]] double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
@@ -57,7 +63,7 @@ double2 root1(u32 N, u32 k) {
 double2 *smallTrigBlockTransp(u32 W, u32 H, double2 *p) {
   for (u32 col = 0; col < W; ++col) {
     for (u32 line = 1; line < H; ++line) {
-      *p++ = root1(W * H, line * col);
+      *p++ = root1Fancy(W * H, line * col);
     }
   }
   return p;

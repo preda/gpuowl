@@ -72,110 +72,52 @@ void fft_MIDDLE(T2 *u) {
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 
 #define WADD(i, w) u[i] = mul(u[i], w)
-#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w);
+#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w)
+
+#define WADDF(i, w) u[i] = fancyMulTrig(u[i], w)
+// mul(u[i], U2(w.x + 1, w.y))
+//
 
 void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
 
-#if MM_CHAIN == 4
-    for (int i = 1; i < MIDDLE; ++i) {
-      WADD(i, trig[s * (MIDDLE - 1) + (i - 1)]);
-      // WADD(i, trig[s + (i - 1) * SMALL_HEIGHT]);
-      // WADD(i, slowTrig_BH(s * i, SMALL_HEIGHT * i, TRIG_BH));
-    }
-#else
-
   T2 w = trig[s * (MIDDLE - 1)];
-      // slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
+  // slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
+  WADDF(1, w);
 
-#if MM_CHAIN == 3
-// This is our slowest version - used when we are extremely worried about round off error.
-// Maximum multiply chain length is 1.
-  WADD(1, w);
-  if ((MIDDLE - 2) % 3) {
-    T2 base = slowTrig_BH(s * 2, SMALL_HEIGHT * 2, TRIG_BH);
-    WADD(2, base);
-    if ((MIDDLE - 2) % 3 == 2) {
-      WADD(3, base);
-      WADD(3, w);
-    }
-  }
-  for (i32 i = (MIDDLE - 2) % 3 + 3; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_BH(s * i, SMALL_HEIGHT * i, TRIG_BH);
-    WADD(i - 1, base);
-    WADD(i, base);
-    WADD(i + 1, base);
-    WSUB(i - 1, w);
-    WADD(i + 1, w);
-  }
+#if MM_CHAIN == 1 && MIDDLE >= 5
 
-#elif MM_CHAIN == 1 && MIDDLE >= 5
-  WADD(1, w);
-
-#if 1
   u32 n = (MIDDLE - 1) / 3;
-  u32 m = MIDDLE - 2 * n - 3;
-  u32 midpoint = 2 + m + n;
-#else
-  u32 n = (MIDDLE - 4) / 3;
-  u32 m = MIDDLE - 2 * n - 3;
-  u32 midpoint = 2 + m + n;
-#endif
+  u32 m = MIDDLE - 2 * n - 1;
+  u32 midpoint = m + n;
 
-  T2 base = trig[s * (MIDDLE - 1) + (midpoint - 1)];
-      // slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
-  T2 base2 = base;
-  WADD(midpoint, base);
+  T2 base1 = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
+      // trig[s * (MIDDLE - 1) + (midpoint - 1)];
+      //
+  T2 base2 = base1;
+  WADD(midpoint, base1);
   for (i32 i = 1; i <= n; ++i) {
-    base = mul_by_conjugate(base, w);
-    WADD(midpoint - i, base);
-    base2 = mul(base2, w);
+    base1 = fancyMulTrig(base1, conjugate(w));
+    WADD(midpoint - i, base1);
+
+    base2 = fancyMulTrig(base2, w);
     WADD(midpoint + i, base2);
   }
 
-  base = w;
-  for (i32 i = 2; i < 2 + m; ++i) {
-    base = mul(base, w);
-    WADD(i, base);
-  }
-
-#elif MM_CHAIN == 2
-// This is our second and third fastest versions - used when we are somewhat worried about round off error.
-// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
-  WADD(1, w);
-  WADD(2, sq(w));
-  i32 group_start, group_size;
-  for (group_start = 3; group_start < MIDDLE; group_start += group_size) {
-
-#if MIDDLE > 4
-    group_size = (group_start == 3 ? (MIDDLE - 3) / 2 : MIDDLE - group_start);
 #else
-    group_size = MIDDLE - 3;
+  u32 m = MIDDLE;
 #endif
 
-    i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
-    T2 base2 = base;
-    WADD(midpoint, base);
-    for (i32 i = 1; i <= group_size / 2; ++i) {
-      base = mul_by_conjugate(base, w);
-      WADD(midpoint - i, base);
-      if (i == group_size / 2 && (group_size & 1) == 0) break;
-      base2 = mul(base2, w);
-      WADD(midpoint + i, base2);
-    }
-  }
+  if (m <= 2) { return; }
+  T2 base = fancySqUpdate(w);
+  WADDF(2, base);
+  base.x += 1;
 
-#else // MM_CHAIN=0
-  WADD(1, w);
-  T2 base = sq(w);
-  for (i32 i = 2; i < MIDDLE; ++i) {
+  for (i32 i = 3; i < m; ++i) {
+    base = fancyMulTrig(base, w);
     WADD(i, base);
-    base = mul(base, w);
   }
-#endif
-#endif
 }
 
 void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {

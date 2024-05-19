@@ -5,7 +5,7 @@
 T2 U2(T a, T b) { return (T2) (a, b); }
 
 OVERLOAD T fancyMul(T x, const T y) {
-  // x * (y + 1);
+  // x * (y + 1) == x * y + x
   return fma(x, y, x);
 }
 
@@ -29,6 +29,41 @@ T2 sqa(T2 a, T2 c) { return U2(mad(a.x, a.x, mad(a.y, -a.y, c.x)), mad(2 * a.x, 
 
 // complex mul
 OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad(RE(a), RE(b), -IM(a)*IM(b)), mad(RE(a), IM(b), IM(a)*RE(b))); }
+
+// Complex mul a * (b + 1)
+// Useful for mul with twiddles of small angles, where the real part is stored with the -1 trick for increased precision
+T2 fancyMulTrig(T2 a, T2 b) {
+  return U2(
+        fma(a.y, -b.y, fma(a.x, b.x, a.x)),
+        fma(a.x,  b.y, fma(a.y, b.x, a.y))
+        );
+}
+
+T2 fancyMulTrigConj(T2 a, T2 b) {
+  return U2(
+        fma(a.y, b.y, fma(a.x, b.x, a.x)),
+        fma(a.x, -b.y, fma(a.y, b.x, a.y))
+        );
+}
+
+// Returns complex a * (b + 1) + c
+T2 fancyMadTrig(T2 a, T2 b, T2 c) {
+  return U2(
+        fma(a.y, -b.y, fma(a.x, b.x, a.x + c.x)),
+        fma(a.x, b.y, fma(a.y, b.x, a.y + c.y))
+        );
+}
+
+// Returns complex (a + 1) * (b + 1) - 1 == a * (b + 1) + b
+T2 fancyMulUpdate(T2 a, T2 b) { return fancyMadTrig(a, b, b); }
+
+T2 fancySqUpdate(T2 a) {
+  return U2(
+        // fma(a.y, -a.y, fma(a.x, a.x, 2 * a.x)),
+        fma(a.x, a.x, fma(a.y, -a.y, 2 * a.x)),
+        2 * fma(a.x, a.y, a.y)
+        );
+}
 
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
 T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
