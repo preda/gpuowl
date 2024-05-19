@@ -86,7 +86,8 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
     }
 #else
 
-  T2 w = slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
+  T2 w = trig[s * (MIDDLE - 1)];
+      // slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
 
 #if MM_CHAIN == 3
 // This is our slowest version - used when we are extremely worried about round off error.
@@ -112,11 +113,18 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
 #elif MM_CHAIN == 1 && MIDDLE >= 5
   WADD(1, w);
 
+#if 1
   u32 n = (MIDDLE - 1) / 3;
-  u32 m = MIDDLE - 2 * n - 3; // 2
+  u32 m = MIDDLE - 2 * n - 3;
   u32 midpoint = 2 + m + n;
+#else
+  u32 n = (MIDDLE - 4) / 3;
+  u32 m = MIDDLE - 2 * n - 3;
+  u32 midpoint = 2 + m + n;
+#endif
 
-  T2 base = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
+  T2 base = trig[s * (MIDDLE - 1) + (midpoint - 1)];
+      // slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
   T2 base2 = base;
   WADD(midpoint, base);
   for (i32 i = 1; i <= n; ++i) {

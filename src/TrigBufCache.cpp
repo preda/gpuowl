@@ -19,17 +19,16 @@ static_assert(sizeof(long double) > sizeof(double), "long double offers extended
 namespace {
 
 // Returns the primitive root of unity of order N, to the power k.
-template<typename T>
-pair<T, T> root1(u32 N, u32 k) {
+double2 root1(u32 N, u32 k) {
   assert(k < N);
   if (k >= N/2) {
-    auto [c, s] = root1<T>(N, k - N/2);
+    auto [c, s] = root1(N, k - N/2);
     return {-c, -s};
   } else if (k > N/4) {
-    auto [c, s] = root1<T>(N, N/2 - k);
+    auto [c, s] = root1(N, N/2 - k);
     return {-c, s};
   } else if (k > N/8) {
-    auto [c, s] = root1<T>(N, N/4 - k);
+    auto [c, s] = root1(N, N/4 - k);
     return {-s, -c};
   } else {
     assert(!(N&7));
@@ -49,7 +48,7 @@ pair<T, T> root1(u32 N, u32 k) {
 [[maybe_unused]] double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
   for (u32 line = 1; line < H; ++line) {
     for (u32 col = 0; col < W; ++col) {
-      *p++ = root1<double>(W * H, line * col);
+      *p++ = root1(W * H, line * col);
     }
   }
   return p;
@@ -58,7 +57,7 @@ pair<T, T> root1(u32 N, u32 k) {
 double2 *smallTrigBlockTransp(u32 W, u32 H, double2 *p) {
   for (u32 col = 0; col < W; ++col) {
     for (u32 line = 1; line < H; ++line) {
-      *p++ = root1<double>(W * H, line * col);
+      *p++ = root1(W * H, line * col);
     }
   }
   return p;
@@ -70,7 +69,7 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
 #if 1
   for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
-      tab.push_back(root1<double>(size, col * line));
+      tab.push_back(root1(size, col * line));
     }
   }
   tab.resize(size);
@@ -101,7 +100,7 @@ template<typename T>
 vector<pair<T, T>> makeTrig(u32 n, vector<pair<T,T>> tab = {}) {
   assert(n % 8 == 0);
   tab.reserve(tab.size() + n/8 + 1);
-  for (u32 k = 0; k <= n/8; ++k) { tab.push_back(root1<T>(n, k)); }
+  for (u32 k = 0; k <= n/8; ++k) { tab.push_back(root1(n, k)); }
   return tab;
 }
 
@@ -109,7 +108,7 @@ template<typename T>
 vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN, vector<pair<T, T>> tab = {}) {
   tab.reserve(tab.size() + W/2 + 1);
   for (u32 k = 0; k <= W/2; ++k) {
-    auto[c, s] = root1<f128>(hN, k);
+    auto[c, s] = root1(hN, k);
     tab.push_back({c - 1, s});
   }
   return tab;
@@ -122,7 +121,7 @@ vector<double2> makeSquareTrig(u32 hN, u32 nH, u32 smallH) {
   u32 nGroups = hN / (smallH * 2);
   for (u32 i = 0; i < nGroups; ++i) {
     for (u32 me = 0; me < smallH / nH; ++me) {
-      ret.push_back(root1<double>(hN, i + me * (hN / smallH)));
+      ret.push_back(root1(hN, i + me * (hN / smallH)));
     }
   }
   assert(ret.size() == (hN / (2 * nH)));

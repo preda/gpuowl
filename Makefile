@@ -10,18 +10,22 @@
 # or export those into environment, or pass on the command line e.g.
 # make all DEBUG=1 CXX=g++-12
 
+COMMON_FLAGS = -Wall -std=c++20 -static-libstdc++ -static-libgcc
+# -fext-numeric-literals
+
+
 ifeq ($(DEBUG), 1)
 
 BIN=build-debug
 
-CXXFLAGS = -Wall -g -std=c++20 -static-libstdc++ -static-libgcc
+CXXFLAGS = -g $(COMMON_FLAGS)
 STRIP=
 
 else
 
 BIN=build-release
 
-CXXFLAGS = -Wall -O2 -DNDEBUG -std=c++20 -static-libstdc++ -static-libgcc
+CXXFLAGS = -O2 -DNDEBUG $(COMMON_FLAGS)
 STRIP=-s
 
 endif
@@ -44,7 +48,7 @@ prpll: $(BIN)/prpll
 amd: $(BIN)/prpll-amd
 
 $(BIN)/prpll: ${OBJS}
-	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBPATH) -lOpenCL ${STRIP}
+	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBPATH) -lOpenCL -lquadmath ${STRIP}
 
 # Instead of linking with libOpenCL, link with libamdocl64
 $(BIN)/prpll-amd: ${OBJS}
