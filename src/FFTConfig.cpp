@@ -74,7 +74,7 @@ tuple<u32,u32,bool> FFTConfig::getChainLengths(u32 fftSize, u32 exponent, u32 mi
 
   bool ultra_trig = (i == 7);
 
-  return {mm_chain, mm2_chain, ultra_trig};
+  return {mm_chain ? 1 : 0, mm2_chain, ultra_trig};
 }
 
 namespace {

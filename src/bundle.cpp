@@ -358,7 +358,9 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
     write_mem_fence(CLK_GLOBAL_MEM_FENCE);
 
-#if !FAST_BARRIER
+    // The sub_group_barrier() below are a bit slow on RadeonVII, thus are disabled, hopefully satisfactorilly
+    // replaced by the read/write_mem_fence(). Feel free to enable on Nvidia if the mem_fences aren't enough.
+#if 0 && !FAST_BARRIER
     sub_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
     // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
 #endif
@@ -377,7 +379,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
   read_mem_fence(CLK_GLOBAL_MEM_FENCE);
 
-#if !FAST_BARRIER
+#if 0 && !FAST_BARRIER
   sub_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
   // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
 #endif
