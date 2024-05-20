@@ -26,7 +26,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
   in += starty * WIDTH + startx;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
 
-  middleMul2(u, startx + mx, starty + my, 1, TRIG_BHW);
+  middleMul2(u, startx + mx, starty + my, 1, trig, TRIG_BHW);
 
   fft_MIDDLE(u);
 

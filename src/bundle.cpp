@@ -801,7 +801,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   }
 }
 
-void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
+void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
 
@@ -829,13 +829,15 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
     if (MIDDLE == 4) { WADD(3, w); WADD(3, w); }
 
   } else { // MIDDLE >= 5
-    T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+    // T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+    T2 w = trig[SMALL_HEIGHT + x];
 
 #if MM2_CHAIN == 0
     u32 sz = MIDDLE;
 #else
     u32 sz = (MIDDLE + 1) / 2;
 #endif
+
     for (u32 start = 0; start < MIDDLE; start += sz) {
       if (start + sz > MIDDLE) { --sz; }
       u32 n = (sz - 1) / 2;
@@ -846,14 +848,14 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
 
       T2 base2 = base1;
       for (u32 i = 1; i <= n; ++i) {
-        base1 = mul_by_conjugate(base1, w);
+        base1 = fancyMulTrig(base1, conjugate(w));
         WADD(mid - i, base1);
 
-        base2 = mul(base2, w);
+        base2 = fancyMulTrig(base2, w);
         WADD(mid + i, base2);
       }
       if (!(sz & 1)) {
-        base2 = mul(base2, w);
+        base2 = fancyMulTrig(base2, w);
         WADD(mid + n + 1, base2);
       }
     }
@@ -2031,7 +2033,7 @@ KERNEL(IN_WG) fftMiddleIn(P(T2) out, CP(T2) in, Trig trig, BigTab TRIG_BHW) {
   in += starty * WIDTH + startx;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH + my * WIDTH + mx]; }
 
-  middleMul2(u, startx + mx, starty + my, 1, TRIG_BHW);
+  middleMul2(u, startx + mx, starty + my, 1, trig, TRIG_BHW);
 
   fft_MIDDLE(u);
 
@@ -2088,7 +2090,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
   double factor = 1.0 / (4 * 4 * NWORDS);
 
-  middleMul2(u, starty + my, startx + mx, factor, TRIG_BHW);
+  middleMul2(u, starty + my, startx + mx, factor, trig, TRIG_BHW);
   local T lds[OUT_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
 
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);

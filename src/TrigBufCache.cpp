@@ -40,33 +40,14 @@ double2 root1(u32 N, u32 k) {
   }
 }
 
+// For small angles, return "fancy" cos - 1 for increased precision
 double2 root1Fancy(u32 N, u32 k) {
   assert(!(N&7));
   assert(k < N);
-  if (k <= N/8) {
-    double angle = - M_PIl * k / (N / 2);
-    return {double(cosl(angle) - 1), sin(angle)};
-  }
-  auto [c, s] = root1(N, k);
-  return {c-1, s};
-}
+  assert(k < N/4);
 
-[[maybe_unused]] double2 *smallTrigBlock(u32 W, u32 H, double2 *p) {
-  for (u32 line = 1; line < H; ++line) {
-    for (u32 col = 0; col < W; ++col) {
-      *p++ = root1(W * H, line * col);
-    }
-  }
-  return p;
-}
-
-[[maybe_unused]] double2 *smallTrigBlockTransp(u32 W, u32 H, double2 *p) {
-  for (u32 col = 0; col < W; ++col) {
-    for (u32 line = 1; line < 2; ++line) {
-      *p++ = root1Fancy(W * H, line * col);
-    }
-  }
-  return p;
+  double angle = - M_PIl * k / (N / 2);
+  return {double(cosl(angle) - 1), sin(angle)};
 }
 
 vector<double2> genSmallTrig(u32 size, u32 radix) {
@@ -89,15 +70,13 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
   return tab;
 }
 
-vector<double2> genMiddleTrig(u32 smallH, u32 middle) {
+vector<double2> genMiddleTrig(u32 smallH, u32 middle, u32 width) {
   vector<double2> tab;
   if (middle == 1) {
     tab.resize(1);
   } else {
-    u32 size = smallH * (middle - 1);
-    tab.resize(size);
-    [[maybe_unused]] auto *p = smallTrigBlockTransp(smallH, middle, tab.data());
-    assert(p - tab.data() <= size);
+    for (u32 k = 0; k < smallH; ++k) { tab.push_back(root1Fancy(smallH * middle, k)); }
+    for (u32 k = 0; k < width; ++k)  { tab.push_back(root1Fancy(middle * width, k)); }
   }
   return tab;
 }
@@ -153,15 +132,15 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   return p;
 }
 
-TrigPtr TrigBufCache::middleTrig(u32 SMALL_H, u32 nH) {
+TrigPtr TrigBufCache::middleTrig(u32 SMALL_H, u32 MIDDLE, u32 width) {
   lock_guard lock{mut};
   auto& m = middle;
-  decay_t<decltype(m)>::key_type key{SMALL_H, nH};
+  decay_t<decltype(m)>::key_type key{SMALL_H, MIDDLE, width};
 
   TrigPtr p{};
   auto it = m.find(key);
   if (it == m.end() || !(p = it->second.lock())) {
-    p = make_shared<TrigBuf>(context, genMiddleTrig(SMALL_H, nH));
+    p = make_shared<TrigBuf>(context, genMiddleTrig(SMALL_H, MIDDLE, width));
     m[key] = p;
   }
   lastMiddle = p;

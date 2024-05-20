@@ -320,7 +320,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
   bufTrigW{shared.bufCache->smallTrig(W, nW)},
   bufTrigH{shared.bufCache->smallTrig(SMALL_H, nH)},
-  bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H)},
+  bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H, W)},
 
   bufTrigBHW{shared.bufCache->trigBHW(W, hN, BIG_H)},
   bufTrig2SH{shared.bufCache->trig2SH(SMALL_H)},

@@ -122,7 +122,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   }
 }
 
-void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
+void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
 
@@ -150,13 +150,15 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
     if (MIDDLE == 4) { WADD(3, w); WADD(3, w); }
 
   } else { // MIDDLE >= 5
-    T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+    // T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+    T2 w = trig[SMALL_HEIGHT + x];
 
 #if MM2_CHAIN == 0
     u32 sz = MIDDLE;
 #else
     u32 sz = (MIDDLE + 1) / 2;
 #endif
+
     for (u32 start = 0; start < MIDDLE; start += sz) {
       if (start + sz > MIDDLE) { --sz; }
       u32 n = (sz - 1) / 2;
@@ -167,14 +169,14 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
 
       T2 base2 = base1;
       for (u32 i = 1; i <= n; ++i) {
-        base1 = mul_by_conjugate(base1, w);
+        base1 = fancyMulTrig(base1, conjugate(w));
         WADD(mid - i, base1);
 
-        base2 = mul(base2, w);
+        base2 = fancyMulTrig(base2, w);
         WADD(mid + i, base2);
       }
       if (!(sz & 1)) {
-        base2 = mul(base2, w);
+        base2 = fancyMulTrig(base2, w);
         WADD(mid + n + 1, base2);
       }
     }
