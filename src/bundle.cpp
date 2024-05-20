@@ -62,6 +62,10 @@ NH         == SMALL_HEIGHT / G_H
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
+#ifdef cl_khr_subgroups
+#pragma OPENCL EXTENSION cl_khr_subgroups : enable
+#endif
+
 // 64-bit atomics are not used ATM
 // #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 // #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
@@ -176,7 +180,7 @@ void bar() {
 // be configured to be either 64 or 32. We use the FAST_BARRIER define as an indicator for GCN GPUs.
 // On Nvidia GPUs the wavefront size is 32.
 #if !WAVEFRONT
-#if FAST_BARRIER
+#if FAST_BARRIER && AMDGPU
 #define WAVEFRONT 64
 #else
 #define WAVEFRONT 32
@@ -352,9 +356,13 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   if (gr < H /* || true */) {
     for (i32 i = 0; i < NW; ++i) { carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i]; }
 
-    // Signal that this group is done writing its carries.
-    // Since we signal per-wavefront we can skip the barrier below
+    write_mem_fence(CLK_GLOBAL_MEM_FENCE);
+
+#if !FAST_BARRIER
+    sub_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
     // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+#endif
+
     if (me % WAVEFRONT == 0) {
       atomic_store((atomic_uint *) &ready[gr * (G_W / WAVEFRONT) + me / WAVEFRONT], 1);
     }
@@ -366,8 +374,13 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   if (me % WAVEFRONT == 0) {
     while(!atomic_load((atomic_uint *) &ready[(gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT]));
   }
-  // Again we skip the barrier since signalling was per-wavefront
+
+  read_mem_fence(CLK_GLOBAL_MEM_FENCE);
+
+#if !FAST_BARRIER
+  sub_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
   // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+#endif
 
   // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
   // The new carry layout lets the compiler generate global_load_dwordx4 instructions.

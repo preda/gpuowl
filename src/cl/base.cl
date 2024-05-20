@@ -54,6 +54,10 @@ NH         == SMALL_HEIGHT / G_H
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #endif
 
+#ifdef cl_khr_subgroups
+#pragma OPENCL EXTENSION cl_khr_subgroups : enable
+#endif
+
 // 64-bit atomics are not used ATM
 // #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 // #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
@@ -168,7 +172,7 @@ void bar() {
 // be configured to be either 64 or 32. We use the FAST_BARRIER define as an indicator for GCN GPUs.
 // On Nvidia GPUs the wavefront size is 32.
 #if !WAVEFRONT
-#if FAST_BARRIER
+#if FAST_BARRIER && AMDGPU
 #define WAVEFRONT 64
 #else
 #define WAVEFRONT 32
