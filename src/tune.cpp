@@ -174,8 +174,8 @@ double Tune::zForBpw(double bpw) {
 }
 
 pair<double, double> Tune::maxBpw(double target) {
-  double bpw1 = 17.9;
-  double bpw2 = bpw1 + 0.4;
+  double bpw1 = 18.1;
+  double bpw2 = bpw1 + 0.35;
   double z1 = zForBpw(bpw1);
   double z2 = zForBpw(bpw2);
 

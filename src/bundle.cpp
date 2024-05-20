@@ -754,6 +754,7 @@ void fft_MIDDLE(T2 *u) {
 #define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w)
 
 #define WADDF(i, w) u[i] = fancyMulTrig(u[i], w)
+#define WSUBF(i, w) u[i] = fancyMulTrig(u[i], conjugate(w))
 // mul(u[i], U2(w.x + 1, w.y))
 //
 
@@ -833,12 +834,8 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) 
     T2 w = trig[SMALL_HEIGHT + x];
 
 #if MM2_CHAIN == 0
-    u32 sz = MIDDLE;
-#else
-    u32 sz = (MIDDLE + 1) / 2;
-#endif
-
-    for (u32 start = 0; start < MIDDLE; start += sz) {
+    u32 cnt = 1;
+    for (u32 start = 0, sz = (MIDDLE - start + cnt - 1) / cnt; cnt > 0; --cnt, start += sz) {
       if (start + sz > MIDDLE) { --sz; }
       u32 n = (sz - 1) / 2;
       u32 mid = start + n;
@@ -859,11 +856,26 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) 
         WADD(mid + n + 1, base2);
       }
     }
+#else
+    T2 base;
+    for (u32 i = 1; i < MIDDLE; i += 3) {
+      base = slowTrig_N(x * y + x * SMALL_HEIGHT * i, ND / MIDDLE * (i + 1), TRIG_BHW) * factor;
+      WADD(i-1, base);
+      WADD(i,   base);
+      if (i + 1 < MIDDLE) { WADD(i+1, base); }
+    }
+    if (MIDDLE % 3 == 1) { WADD(MIDDLE-1, base); }
+    for (u32 i = 0; i + 1 < MIDDLE; i += 3) { WSUBF(i, w); }
+    for (u32 i = 2; i < MIDDLE; i += 3) { WADDF(i, w); }
+    if (MIDDLE % 3 == 1) { WADDF(MIDDLE-1, w); WADDF(MIDDLE-1, w); }
+#endif
   }
 }
 
 #undef WADD
+#undef WADDF
 #undef WSUB
+#undef WSUBF
 
 // Do a partial transpose during fftMiddleIn/Out
 // The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
