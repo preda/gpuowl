@@ -125,64 +125,48 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
 void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
-  T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
 
-#if MM2_CHAIN == 3
-// This is our slowest version - used when we are extremely worried about round off error.
-// Maximum multiply chain length is 1.
-  if (MIDDLE % 3) {
-    T2 base = slowTrig_N(x * y, ND / MIDDLE, TRIG_BHW) * factor;
-    WADD(0, base);
-    if (MIDDLE % 3 == 2) {
-      WADD(1, base);
-      WADD(1, w);
-    }
-  }
-  for (i32 i = MIDDLE % 3 + 1; i < MIDDLE; i += 3) {
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * i + x * y, ND / MIDDLE * (i + 1), TRIG_BHW) * factor;
-    WADD(i - 1, base);
-    WADD(i, base);
-    WADD(i + 1, base);
-    WSUB(i - 1, w);
-    WADD(i + 1, w);
-  }
-
-#elif MM2_CHAIN == 1 || MM2_CHAIN == 2
-
-// This is our second and third fastest versions - used when we are somewhat worried about round off error.
-// Maximum multiply chain length is MIDDLE/2 or MIDDLE/4.
-  i32 group_size = 0;
-  for (i32 group_start = 0; group_start < MIDDLE; group_start += group_size) {
-#if MM2_CHAIN == 2
-    group_size = (group_start == 0 ? MIDDLE / 2 : MIDDLE - group_start);
-#else
-    group_size = MIDDLE;
+#if MM2_CHAIN > 1
+#error MM2_CHAIN must be 0 or 1
 #endif
-    i32 midpoint = group_start + group_size / 2;
-    T2 base = slowTrig_N(x * SMALL_HEIGHT * midpoint + x * y, ND / MIDDLE * (midpoint + 1), TRIG_BHW) * factor;
-    T2 base2 = base;
-    WADD(midpoint, base);
-    for (i32 i = 1; i <= group_size / 2; ++i) {
-      base = mul_by_conjugate(base, w);
-      WADD(midpoint - i, base);
-      if (i == group_size / 2 && (group_size & 1) == 0) break;
+
+  if (MIDDLE <= 2) { // MIDDLE in [1, 2]
+    T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+    T2 base = slowTrig_N(x * y, ND / MIDDLE, TRIG_BHW) * factor;
+    for (int i = 0; i < MIDDLE; ++i) {
+      WADD(i, base);
+      base = mul(base, w);
+    }
+
+  } else if (MIDDLE <= 4) { // MIDDLE in [3, 4]
+    T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+    T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT, ND / MIDDLE * 2, TRIG_BHW) * factor;
+    WADD(0, base);
+    WADD(1, base);
+    WADD(2, base);
+    if (MIDDLE == 4) { WADD(3, base); }
+    WSUB(0, w);
+    WADD(2, w);
+    if (MIDDLE == 4) { WADD(3, w); WADD(3, w); }
+
+  } else { // MIDDLE >= 5
+    T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+    u32 midpoint = (MIDDLE - 1) / 2;
+    T2 base1 = slowTrig_N(x * y + x * SMALL_HEIGHT * midpoint, ND / MIDDLE * (midpoint + 1), TRIG_BHW) * factor;
+    WADD(midpoint, base1);
+    T2 base2 = base1;
+    u32 n = (MIDDLE - 1) / 2;
+    for (u32 i = 1; i <= n; ++i) {
+      base1 = mul_by_conjugate(base1, w);
+      WADD(midpoint - i, base1);
       base2 = mul(base2, w);
       WADD(midpoint + i, base2);
     }
+    if (!(MIDDLE & 1)) {
+      base2 = mul(base2, w);
+      WADD(MIDDLE-1, base2);
+    }
   }
-
-#else
-
-// This is our fastest version - used when we are not worried about round off error.
-// Maximum multiply chain length equals MIDDLE.
-  T2 base = slowTrig_N(x * y, ND/MIDDLE, TRIG_BHW) * factor;
-  for (i32 i = 0; i < MIDDLE; ++i) {
-    WADD(i, base);
-    base = mul(base, w);
-  }
-
-#endif
-
 }
 
 #undef WADD
