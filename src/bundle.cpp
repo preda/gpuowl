@@ -85,6 +85,11 @@ NH         == SMALL_HEIGHT / G_H
 #endif
 #endif // AMDGPU
 
+// On Nvidia we need the old sync between groups in carryFused
+#if !defined(OLD_FENCE) && !AMDGPU
+#define OLD_FENCE 1
+#endif
+
 #if CARRY32 && CARRY64
 #error Conflict: both CARRY32 and CARRY64 requested
 #endif
@@ -353,33 +358,30 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   // Write out our carries. Only groups 0 to H-1 need to write carries out.
   // Group H is a duplicate of group 0 (producing the same results) so we don't care about group H writing out,
   // but it's fine either way.
-  if (gr < H /* || true */) {
-    for (i32 i = 0; i < NW; ++i) { carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i]; }
+  if (gr < H) { for (i32 i = 0; i < NW; ++i) { carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i]; } }
 
-#if AMDGPU
-    write_mem_fence(CLK_GLOBAL_MEM_FENCE);
-#else
-    sub_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
-    // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
-#endif
+#if OLD_FENCE
 
-    if (me % WAVEFRONT == 0) {
-      atomic_store((atomic_uint *) &ready[gr * (G_W / WAVEFRONT) + me / WAVEFRONT], 1);
-    }
+  if (gr < H) {
+    work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+    if (me == 0) { atomic_store((atomic_uint *) &ready[gr], 1); }
   }
-
   if (gr == 0) { return; }
+  if (me == 0) { while(!atomic_load((atomic_uint *) &ready[gr - 1])); }
+  work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
 
-  // Wait until the previous group is ready with their carries
+#else
+
+  if (gr < H) {
+    write_mem_fence(CLK_GLOBAL_MEM_FENCE);
+    if (me % WAVEFRONT == 0) { atomic_store((atomic_uint *) &ready[gr * (G_W / WAVEFRONT) + me / WAVEFRONT], 1); }
+  }
+  if (gr == 0) { return; }
   if (me % WAVEFRONT == 0) {
     while(!atomic_load((atomic_uint *) &ready[(gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT]));
   }
-
-#if AMDGPU
   read_mem_fence(CLK_GLOBAL_MEM_FENCE);
-#else
-  sub_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
-  // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+
 #endif
 
   // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
@@ -389,8 +391,12 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
     }
   } else {
+
+#if !OLD_FENCE
     // For gr==H we need the barrier since the carry reading is shifted, thus the per-wavefront trick does not apply.
     work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+#endif
+
     for (i32 i = 0; i < NW; ++i) {
       carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
     }
@@ -420,7 +426,11 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   write(G_W, NW, u, out, WIDTH * line);
 
   // Clear carry ready flag for next iteration
-  if (me % 64 == 0) ready[(gr - 1) * (G_W / 64) + me / 64] = 0;
+#if OLD_FENCE
+  if (me == 0) ready[gr - 1] = 0;
+#else
+  if (me % WAVEFRONT == 0) ready[(gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT] = 0;
+#endif
 }
 )cltag",
 

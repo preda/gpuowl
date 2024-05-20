@@ -77,6 +77,11 @@ NH         == SMALL_HEIGHT / G_H
 #endif
 #endif // AMDGPU
 
+// On Nvidia we need the old sync between groups in carryFused
+#if !defined(OLD_FENCE) && !AMDGPU
+#define OLD_FENCE 1
+#endif
+
 #if CARRY32 && CARRY64
 #error Conflict: both CARRY32 and CARRY64 requested
 #endif
