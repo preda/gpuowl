@@ -830,20 +830,32 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, BigTab TRIG_BHW) {
 
   } else { // MIDDLE >= 5
     T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
-    u32 midpoint = (MIDDLE - 1) / 2;
-    T2 base1 = slowTrig_N(x * y + x * SMALL_HEIGHT * midpoint, ND / MIDDLE * (midpoint + 1), TRIG_BHW) * factor;
-    WADD(midpoint, base1);
-    T2 base2 = base1;
-    u32 n = (MIDDLE - 1) / 2;
-    for (u32 i = 1; i <= n; ++i) {
-      base1 = mul_by_conjugate(base1, w);
-      WADD(midpoint - i, base1);
-      base2 = mul(base2, w);
-      WADD(midpoint + i, base2);
-    }
-    if (!(MIDDLE & 1)) {
-      base2 = mul(base2, w);
-      WADD(MIDDLE-1, base2);
+
+#if MM2_CHAIN == 0
+    u32 sz = MIDDLE;
+#else
+    u32 sz = (MIDDLE + 1) / 2;
+#endif
+    for (u32 start = 0; start < MIDDLE; start += sz) {
+      if (start + sz > MIDDLE) { --sz; }
+      u32 n = (sz - 1) / 2;
+      u32 mid = start + n;
+
+      T2 base1 = slowTrig_N(x * y + x * SMALL_HEIGHT * mid, ND / MIDDLE * (mid + 1), TRIG_BHW) * factor;
+      WADD(mid, base1);
+
+      T2 base2 = base1;
+      for (u32 i = 1; i <= n; ++i) {
+        base1 = mul_by_conjugate(base1, w);
+        WADD(mid - i, base1);
+
+        base2 = mul(base2, w);
+        WADD(mid + i, base2);
+      }
+      if (!(sz & 1)) {
+        base2 = mul(base2, w);
+        WADD(mid + n + 1, base2);
+      }
     }
   }
 }
