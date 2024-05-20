@@ -738,7 +738,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
 
-  T2 w = trig[s * (MIDDLE - 1)];
+  T2 w = trig[s];
   // slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
   WADDF(1, w);
 
@@ -761,8 +761,10 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
     WADD(midpoint + i, base2);
   }
 
-#else
+#elif MM_CHAIN == 0 || MIDDLE < 5
   u32 m = MIDDLE;
+#else
+#error MM_CHAIN must be 0 or 1
 #endif
 
   if (m <= 2) { return; }
