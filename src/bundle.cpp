@@ -755,17 +755,75 @@ void fft_MIDDLE(T2 *u) {
 
 #define WADDF(i, w) u[i] = fancyMulTrig(u[i], w)
 #define WSUBF(i, w) u[i] = fancyMulTrig(u[i], conjugate(w))
-// mul(u[i], U2(w.x + 1, w.y))
-//
+
+// Keep in sync with TrigBufCache.cpp, see comment there.
+#define SHARP_MIDDLE 5
 
 void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
 
   T2 w = trig[s];
-  // slowTrig_BH(s, SMALL_HEIGHT, TRIG_BH);
-  WADDF(1, w);
 
+  if (MIDDLE < SHARP_MIDDLE) {
+    WADD(1, w);
+    T2 base = sq(w);
+    for (u32 k = 2; k < MIDDLE; ++k) {
+      WADD(k, base);
+      base = mul(base, w);
+    }
+
+  } else { // MIDDLE >= 5
+
+#if MM_CHAIN == 0
+    WADDF(1, w);
+    T2 base;
+    if (MIDDLE >= 10) {
+      base = fancySqUpdate(w);
+      WADDF(2, base);
+      base.x += 1;
+    } else {
+      base = w;
+      base.x += 1;
+      base = fancyMulTrig(base, w);
+      WADD(2, base);
+    }
+
+    for (u32 k = 3; k < MIDDLE; ++k) {
+      base = fancyMulTrig(base, w);
+      WADD(k, base);
+    }
+
+#elif MM_CHAIN == 1
+    for (u32 k = 3 + (MIDDLE - 2) % 3; k < MIDDLE; k += 3) {
+      T2 base = slowTrig_BH(s * k, SMALL_HEIGHT * k, TRIG_BH);
+      WADD(k-1, base);
+      WADD(k,   base);
+      WADD(k+1, base);
+    }
+
+    for (u32 k = 3 + (MIDDLE - 2) % 3; k < MIDDLE; k += 3) {
+      WSUBF(k-1, w);
+      WADDF(k+1, w);
+    }
+
+    WADDF(1, w);
+
+    if ((MIDDLE - 2) % 3 > 0) {
+      WADDF(2, w);
+      WADDF(2, w);
+    }
+
+    if ((MIDDLE - 2) % 3 == 2) {
+      WADDF(3, w);
+      WADDF(3, fancySqUpdate(w));
+    }
+#else
+#error MM_CHAIN must be 0 or 1.
+#endif
+  }
+}
+    /*
 #if MM_CHAIN == 1 && MIDDLE >= 5
 
   u32 n = (MIDDLE - 1) / 3;
@@ -801,33 +859,28 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
     WADD(i, base);
   }
 }
+*/
 
 void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
 
-  if (MIDDLE <= 2) { // MIDDLE in [1, 2]
-    T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
-    T2 base = slowTrig_N(x * y, ND / MIDDLE, TRIG_BHW) * factor;
-    for (int i = 0; i < MIDDLE; ++i) {
-      WADD(i, base);
-      base = mul(base, w);
-    }
+  if (MIDDLE == 1) {
+    WADD(0, slowTrig_N(x * y, ND / MIDDLE, TRIG_BHW) * factor);
+    return;
+  }
 
-  } else if (MIDDLE <= 4) { // MIDDLE in [3, 4]
-    T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+  T2 w = trig[SMALL_HEIGHT + x];
+
+  if (MIDDLE < SHARP_MIDDLE) {
     T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT, ND / MIDDLE * 2, TRIG_BHW) * factor;
-    WADD(0, base);
-    WADD(1, base);
-    WADD(2, base);
-    if (MIDDLE == 4) { WADD(3, base); }
+    for (u32 k = 0; k < MIDDLE; ++k) { WADD(k, base); }
     WSUB(0, w);
-    WADD(2, w);
-    if (MIDDLE == 4) { WADD(3, w); WADD(3, w); }
+    if (MIDDLE > 2) { WADD(2, w); }
+    if (MIDDLE > 3) { WADD(3, w); WADD(3, w); }
 
   } else { // MIDDLE >= 5
     // T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
-    T2 w = trig[SMALL_HEIGHT + x];
 
 #if MM2_CHAIN == 0
 

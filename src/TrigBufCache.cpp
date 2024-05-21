@@ -70,13 +70,22 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
   return tab;
 }
 
+// starting from a MIDDLE of 5 we consider angles in [0, 2Pi/MIDDLE] as worth storing with the
+// cos-1 "fancy" trick.
+#define SHARP_MIDDLE 5
+
 vector<double2> genMiddleTrig(u32 smallH, u32 middle, u32 width) {
   vector<double2> tab;
   if (middle == 1) {
     tab.resize(1);
   } else {
-    for (u32 k = 0; k < smallH; ++k) { tab.push_back(root1Fancy(smallH * middle, k)); }
-    for (u32 k = 0; k < width; ++k)  { tab.push_back(root1Fancy(middle * width, k)); }
+    if (middle < SHARP_MIDDLE) {
+      for (u32 k = 0; k < smallH; ++k) { tab.push_back(root1(smallH * middle, k)); }
+      for (u32 k = 0; k < width; ++k)  { tab.push_back(root1(middle * width, k)); }
+    } else {
+      for (u32 k = 0; k < smallH; ++k) { tab.push_back(root1Fancy(smallH * middle, k)); }
+      for (u32 k = 0; k < width; ++k)  { tab.push_back(root1Fancy(middle * width, k)); }
+    }
   }
   return tab;
 }
