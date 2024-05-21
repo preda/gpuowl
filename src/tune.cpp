@@ -173,22 +173,47 @@ double Tune::zForBpw(double bpw) {
   return z;
 }
 
-pair<double, double> Tune::maxBpw(double target) {
-  double bpw1 = 18.2;
-  double bpw2 = bpw1 + 0.3;
+double slope(double z1, double z2, double bpw1, double bpw2) {
+  return exp2((log2(z1) - log2(z2)) / (bpw2 - bpw1) / 4);
+}
+
+void Tune::maxBpw(const string& config) {
+  double bpw1 = 18.1;
+  double bpw2 = bpw1 + 0.25;
+  double bpw3 = bpw2 + 0.25;
+
+  // log("BPW %.2f %.2f %.2f\n", bpw1, bpw2, bpw3);
+
   double z1 = zForBpw(bpw1);
+  fprintf(stderr, "%.2f ", z1);
+
   double z2 = zForBpw(bpw2);
+  fprintf(stderr, "%.2f ", z2);
 
-  double a = (log2(z1) - log2(z2)) / (bpw2 - bpw1);
-  log("%f %f %f\n", z1, z2, a);
+  double z3 = zForBpw(bpw3);
+  fprintf(stderr, "%.2f ", z3);
 
-  double bpw = bpw1 + (log2(z1) - log2(target)) / min(3.2, a);
-  // Equivalent: double bpw = bpw2 + (log2(z2) - log2(target)) / a;
+  double y1 = log2(z1);
+  double y2 = log2(z2);
+  double y3 = log2(z3);
 
-  return {bpw, zForBpw(bpw)};
+  double B = (y3 - y1) / 2;
+  double C = y2;
+  double A = (y1 + y3 - 2 * C) / 2;
 
-  // bpw = interpolate(p1, p2, target);
-  // return {bpw, zForBpw(bpw)};
+  double target = 27;
+  C -= log2(target);
+
+  double delta = B * B - 4 * A * C;
+  assert(delta >= 0);
+  double x = (-B - sqrt(delta)) / (2 * A);
+  double xx = bpw2 + x * 0.25;
+
+  fprintf(stderr, "\r");
+  log("%5.2f %5.2f %5.2f | %f %f %f | %f | %s\n",
+      z1, z2, z3,
+      // slope(z1, z2, bpw1, bpw2), slope(z2, z3, bpw2, bpw3), slope(z1, z3, bpw1, bpw3),
+      A, B, C, xx, config.c_str());
 }
 
 
@@ -204,9 +229,12 @@ void Tune::roeSearch() {
       }
     }
 
+    maxBpw(toString(config));
+    /*
     auto [bpw, z] = maxBpw();
     u32 exponent = exponentForBpw(bpw);
     log("%u : BPW=%.3f Z=%.1f %s\n", exponent, bpw, z, toString(config).c_str());
+    */
   }
 }
 

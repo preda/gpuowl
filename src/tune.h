@@ -18,7 +18,7 @@ public:
   u32 exponentForBpw(double bpw);
   double zForBpw(double bpw);
 
-  std::pair<double, double> maxBpw(double zTarget = 27);
+  void maxBpw(const std::string& config);
 
   void roeSearch();
 };
