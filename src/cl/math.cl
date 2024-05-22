@@ -36,8 +36,13 @@ OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad(RE(a), RE(b), -IM(a)*IM(b)), mad(RE(
 // Useful for mul with twiddles of small angles, where the real part is stored with the -1 trick for increased precision
 T2 fancyMulTrig(T2 a, T2 b) {
   return U2(
+      #if 0
+        fma(a.x, b.x, fma(a.y, -b.y, a.x)),
+        fma(a.y, b.x, fma(a.x, b.y, a.y))
+      #else
         fma(a.y, -b.y, fma(a.x, b.x, a.x)),
         fma(a.x,  b.y, fma(a.y, b.x, a.y))
+      #endif
         );
 }
 

@@ -113,12 +113,23 @@ vector<double2> makeSquareTrig(u32 hN, u32 nH, u32 smallH) {
 
   assert(hN % (smallH * 2) == 0);
   u32 nGroups = hN / (smallH * 2);
+
+  for (u32 me = 0; me < smallH / nH; ++me) {
+    ret.push_back(root1(hN, me * (hN / smallH)));
+  }
+
+  for (u32 g = 0; g < nGroups; ++g) {
+    ret.push_back(root1Fancy(hN, g == 0 ? nGroups : g));
+  }
+
+/*
   for (u32 i = 0; i < nGroups; ++i) {
     for (u32 me = 0; me < smallH / nH; ++me) {
       ret.push_back(root1(hN, i + me * (hN / smallH)));
     }
   }
   assert(ret.size() == (hN / (2 * nH)));
+  */
   return ret;
 }
 

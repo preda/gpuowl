@@ -215,7 +215,7 @@ void Tune::maxBpw(const string& config, u32 fftSize) {
   double xx = bpw2 + x * 0.25;
 
   fprintf(stderr, "\r");
-  log("%5.2f %5.2f %5.2f | %f %f %f | %f | %s\n",
+  log("%5.2f %5.2f %5.2f | %.2f %.2f %.2f | %.2f | %s\n",
       z1, z2, z3,
       // slope(z1, z2, bpw1, bpw2), slope(z2, z3, bpw2, bpw3), slope(z1, z3, bpw1, bpw3),
       A, B, C, xx, config.c_str());

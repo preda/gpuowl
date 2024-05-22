@@ -2355,8 +2355,13 @@ OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad(RE(a), RE(b), -IM(a)*IM(b)), mad(RE(
 // Useful for mul with twiddles of small angles, where the real part is stored with the -1 trick for increased precision
 T2 fancyMulTrig(T2 a, T2 b) {
   return U2(
+      #if 0
+        fma(a.x, b.x, fma(a.y, -b.y, a.x)),
+        fma(a.y, b.x, fma(a.x, b.y, a.y))
+      #else
         fma(a.y, -b.y, fma(a.x, b.x, a.x)),
         fma(a.x,  b.y, fma(a.y, b.x, a.y))
+      #endif
         );
 }
 
@@ -2708,7 +2713,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
     }
 
     // T2 new_base_squared = mul(base_squared, U2(0, -1));
-    T2 new_base_squared = U2(IM(base_squared), -RE(base_squared));
+    T2 new_base_squared = U2(base_squared.y, -base_squared.x);
     onePairSq(&u[i+NH/4], &v[i+NH/4], -new_base_squared);
 
     if (N == NH) {
@@ -2737,23 +2742,45 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, Bi
   fft_HEIGHT(lds, v, smallTrig);
 
   u32 me = get_local_id(0);
+
   if (line1 == 0) {
+#if 0 && !TAIL_TABLE
+    T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
+    T2 trig2 = slowTrig_N(H/2 + me * H, ND/NH, NULL); // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
+#else
+    T2 trigMe   = tailTrig[me];
+    T2 trigLine = tailTrig[G_H + line1];
+    T2 trig1 = trigMe;
+    T2 trig2 = fancyMulTrig(trigMe, trigLine);
+#endif
+
     // Line 0 is special: it pairs with itself, offseted by 1.
-    reverse(G_H, lds, u + NH/2, true);    
-    pairSq(NH/2, u,   u + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH), true);
+    reverse(G_H, lds, u + NH/2, true);
+    pairSq(NH/2, u,   u + NH/2, trig1, true);
+           // tailTrig[me], true);
+           // slowTrig_N(me * H, ND / NH, NULL), true);
+           // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH), true);
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
     reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH), false);
+    pairSq(NH/2, v,   v + NH/2, trig2, false);
+           // tailTrig[H/2 * G_H + me], false);
+           // slowTrig_N(H/2 + me * H, ND/NH, NULL), false);
+           // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH), false);
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-#if TRIG_COMPUTE >= 2
-    pairSq(NH, u, v, slowTrig_N(line1 + me * H, ND / NH, NULL), false);
+
+#if !TAIL_TABLE
+    T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
-    pairSq(NH, u, v, tailTrig[line1 * G_H + me], false);
+    T2 trigMe   = tailTrig[me];
+    T2 trigLine = tailTrig[G_H + line1];
+    T2 trig = fancyMulTrig(trigMe, trigLine);
+    // tailTrig[line1 * G_H + me]
 #endif
+    pairSq(NH, u, v, trig, false);
     reverseLine(G_H, lds, v);
   }
 
