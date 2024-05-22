@@ -54,7 +54,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   }
 }
 
-KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab tailTrig) {
+KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];

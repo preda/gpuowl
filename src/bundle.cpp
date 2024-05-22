@@ -2588,12 +2588,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   }
 }
 
-KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
-                         BigTab TRIG_2SH, BigTab tailTrig) {
-  // The arguments smallTrig1, smallTrig2 point to the same data; they are passed in as two buffers instead of one
-  // in order to work-around the ROCm optimizer which would otherwise "cache" the data once read into VGPRs, leading
-  // to poor occupancy.
-  
+KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailTrig) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];
@@ -2607,6 +2602,15 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
     
+#if MUL_LOW
+  readTailFusedLine(in, u, line1);
+  readTailFusedLine(in, v, line2);
+  read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
+  read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
+  fft_HEIGHT(lds, u, smallTrig);
+  bar();
+  fft_HEIGHT(lds, v, smallTrig);
+#else
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
   readTailFusedLine(a, p, line1);
@@ -2618,6 +2622,7 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
   fft_HEIGHT(lds, p, smallTrig);
   bar();
   fft_HEIGHT(lds, q, smallTrig);
+#endif
 
   u32 me = get_local_id(0);
   if (line1 == 0) {
@@ -2728,7 +2733,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   }
 }
 
-KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab TRIG_2SH, BigTab tailTrig) {
+KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
   local T2 lds[SMALL_HEIGHT / 2];
 
   T2 u[NH], v[NH];
@@ -3023,7 +3028,6 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, BigTab trigTable) {
   return r;
 }
 
-double2 slowTrig_2SH(u32 k, u32 kBound, BigTab TRIG_2SH) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
 double2 slowTrig_BH(u32 k, u32 kBound, BigTab TRIG_BH)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.

@@ -182,21 +182,6 @@ TrigPtr TrigBufCache::trigBHW(u32 W, u32 hN, u32 BIG_H) {
   return p;
 }
 
-TrigPtr TrigBufCache::trig2SH(u32 SMALL_H) {
-  lock_guard lock{mut};
-  auto& m = sh;
-  decay_t<decltype(m)>::key_type key{SMALL_H};
-
-  TrigPtr p{};
-  auto it = m.find(key);
-  if (it == m.end() || !(p = it->second.lock())) {
-    p = make_shared<TrigBuf>(context, makeTrig<double>(2 * SMALL_H));
-    m[key] = p;
-  }
-  last2SH = p;
-  return p;
-}
-
 TrigPtr TrigBufCache::trigSquare(u32 hN, u32 nH, u32 SMALL_H) {
   lock_guard lock{mut};
   auto& m = square;

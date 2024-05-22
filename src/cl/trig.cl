@@ -133,7 +133,6 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, BigTab trigTable) {
   return r;
 }
 
-double2 slowTrig_2SH(u32 k, u32 kBound, BigTab TRIG_2SH) { return tableTrig(k, 2 * SMALL_HEIGHT, kBound, TRIG_2SH); }
 double2 slowTrig_BH(u32 k, u32 kBound, BigTab TRIG_BH)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
