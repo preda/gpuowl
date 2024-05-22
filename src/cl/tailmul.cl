@@ -103,25 +103,41 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig,
 
   u32 me = get_local_id(0);
   if (line1 == 0) {
+
+#if 0 && !TAIL_TABLE
+    T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
+    T2 trig2 = slowTrig_N(H/2 + me * H, ND/NH, NULL); // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
+#else
+    T2 trigMe   = tailTrig[me];
+    T2 trigLine = tailTrig[G_H + line1];
+    T2 trig1 = trigMe;
+    T2 trig2 = fancyMulTrig(trigMe, trigLine);
+#endif
+
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH), true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, trig1, true);
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
 
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
-    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH), false);
+    pairMul(NH/2, v,  v + NH/2, q, q + NH/2, trig2, false);
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-#if TRIG_COMPUTE >= 2
-    pairMul(NH, u, v, p, q, slowTrig_N(line1 + me * H, ND / NH, NULL), false);
+
+#if !TAIL_TABLE
+    T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
-    pairMul(NH, u, v, p, q, tailTrig[line1 * G_H + me], false);
+    T2 trigMe   = tailTrig[me];
+    T2 trigLine = tailTrig[G_H + line1];
+    T2 trig = fancyMulTrig(trigMe, trigLine);
 #endif
+
+    pairMul(NH, u, v, p, q, trig, false);
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
   }
