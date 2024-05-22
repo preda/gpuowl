@@ -828,43 +828,6 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
 #endif
   }
 }
-    /*
-#if MM_CHAIN == 1 && MIDDLE >= 5
-
-  u32 n = (MIDDLE - 1) / 3;
-  u32 m = MIDDLE - 2 * n - 1;
-  u32 midpoint = m + n;
-
-  T2 base1 = slowTrig_BH(s * midpoint, SMALL_HEIGHT * midpoint, TRIG_BH);
-      // trig[s * (MIDDLE - 1) + (midpoint - 1)];
-      //
-  T2 base2 = base1;
-  WADD(midpoint, base1);
-  for (i32 i = 1; i <= n; ++i) {
-    base1 = fancyMulTrig(base1, conjugate(w));
-    WADD(midpoint - i, base1);
-
-    base2 = fancyMulTrig(base2, w);
-    WADD(midpoint + i, base2);
-  }
-
-#elif MM_CHAIN == 0 || MIDDLE < 5
-  u32 m = MIDDLE;
-#else
-#error MM_CHAIN must be 0 or 1
-#endif
-
-  if (m <= 2) { return; }
-  T2 base = fancySqUpdate(w);
-  WADDF(2, base);
-  base.x += 1;
-
-  for (i32 i = 3; i < m; ++i) {
-    base = fancyMulTrig(base, w);
-    WADD(i, base);
-  }
-}
-*/
 
 void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) {
   assert(x < WIDTH);
@@ -2653,6 +2616,11 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
     reverseLine(G_H, lds, q);
 
 #if !TAIL_TABLE
+
+#if TRIG_COMPUTE < 2
+#error TRIG_COMPUTE<2 requires TAIL_TABLE
+#endif
+
     T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
     T2 trigMe   = tailTrig[me];
@@ -2778,6 +2746,11 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
     reverseLine(G_H, lds, v);
 
 #if !TAIL_TABLE
+
+#if TRIG_COMPUTE < 2
+#error TRIG_COMPUTE<2 requires TAIL_TABLE
+#endif
+
     T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
     T2 trigMe   = tailTrig[me];

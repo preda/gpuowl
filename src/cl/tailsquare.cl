@@ -99,6 +99,11 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
     reverseLine(G_H, lds, v);
 
 #if !TAIL_TABLE
+
+#if TRIG_COMPUTE < 2
+#error TRIG_COMPUTE<2 requires TAIL_TABLE
+#endif
+
     T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
     T2 trigMe   = tailTrig[me];

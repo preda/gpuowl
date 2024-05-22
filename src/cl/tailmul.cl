@@ -125,6 +125,11 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
     reverseLine(G_H, lds, q);
 
 #if !TAIL_TABLE
+
+#if TRIG_COMPUTE < 2
+#error TRIG_COMPUTE<2 requires TAIL_TABLE
+#endif
+
     T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
     T2 trigMe   = tailTrig[me];

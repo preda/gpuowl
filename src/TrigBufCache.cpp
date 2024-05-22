@@ -102,8 +102,7 @@ template<typename T>
 vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN, vector<pair<T, T>> tab = {}) {
   tab.reserve(tab.size() + W/2 + 1);
   for (u32 k = 0; k <= W/2; ++k) {
-    auto[c, s] = root1(hN, k);
-    tab.push_back({c - 1, s});
+    tab.push_back(root1Fancy(hN, k));
   }
   return tab;
 }
