@@ -759,6 +759,11 @@ void fft_MIDDLE(T2 *u) {
 // Keep in sync with TrigBufCache.cpp, see comment there.
 #define SHARP_MIDDLE 5
 
+#if !defined(MM_CHAIN) && !defined(MM2_CHAIN) && TRIG_HI
+#define MM_CHAIN 1
+#define MM2_CHAIN 2
+#endif
+
 void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
@@ -1963,6 +1968,7 @@ R"cltag(
 
 #include "fft4.cl"
 #include "fft8.cl"
+// #include "math.cl"
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
@@ -1982,13 +1988,14 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-
-  for (u32 i = 1; i < n; ++i) {
-#if 1
-    u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]);
-#else
-    u[i] = mul(u[i], trig[WG/f * i + (me / f)]);
-#endif
+  u32 p = me & ~(f - 1);
+  if (n >= 8) {
+    u[1] = fancyMulTrig(u[1], trig[p]);
+  } else {
+    u[1] = mul(u[1], trig[p]);
+  }
+  for (u32 i = 2; i < n; ++i) {
+    u[i] = mul(u[i], trig[p + WG * (i - 1)]);
   }
 }
 
@@ -2312,6 +2319,8 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
 R"cltag(
 // Copyright (C) Mihai Preda
 
+#pragma once
+
 #include "base.cl"
 
 T2 U2(T a, T b) { return (T2) (a, b); }
@@ -2378,8 +2387,14 @@ T2 fancySqUpdate(T2 a) {
 }
 
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
-T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+
+T2 mul_t8(T2 a)  { // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
+  return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2;
+}
+
+T2 mul_3t8(T2 a) { // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+  return U2(a.y - a.x, -a.y -a.x) * M_SQRT1_2;
+}
 
 T2 swap(T2 a)      { return U2(IM(a), RE(a)); }
 T2 conjugate(T2 a) { return U2(RE(a), -IM(a)); }

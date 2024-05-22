@@ -80,6 +80,11 @@ void fft_MIDDLE(T2 *u) {
 // Keep in sync with TrigBufCache.cpp, see comment there.
 #define SHARP_MIDDLE 5
 
+#if !defined(MM_CHAIN) && !defined(MM2_CHAIN) && TRIG_HI
+#define MM_CHAIN 1
+#define MM2_CHAIN 2
+#endif
+
 void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }

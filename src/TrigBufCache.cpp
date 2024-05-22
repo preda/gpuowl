@@ -56,7 +56,7 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
 #if 1
   for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
-      tab.push_back(root1(size, col * line));
+      tab.push_back(radix / line >= 8 ? root1Fancy(size, col * line) : root1(size, col * line));
     }
   }
   tab.resize(size);

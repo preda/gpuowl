@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda
 
+#pragma once
+
 #include "base.cl"
 
 T2 U2(T a, T b) { return (T2) (a, b); }
@@ -66,8 +68,14 @@ T2 fancySqUpdate(T2 a) {
 }
 
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
-T2 mul_t8(T2 a)  { return U2(IM(a) + RE(a), IM(a) - RE(a)) *   M_SQRT1_2; }  // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-T2 mul_3t8(T2 a) { return U2(RE(a) - IM(a), RE(a) + IM(a)) * - M_SQRT1_2; }  // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+
+T2 mul_t8(T2 a)  { // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
+  return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2;
+}
+
+T2 mul_3t8(T2 a) { // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
+  return U2(a.y - a.x, -a.y -a.x) * M_SQRT1_2;
+}
 
 T2 swap(T2 a)      { return U2(IM(a), RE(a)); }
 T2 conjugate(T2 a) { return U2(RE(a), -IM(a)); }

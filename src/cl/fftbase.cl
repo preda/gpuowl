@@ -2,6 +2,7 @@
 
 #include "fft4.cl"
 #include "fft8.cl"
+// #include "math.cl"
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
@@ -21,13 +22,14 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-
-  for (u32 i = 1; i < n; ++i) {
-#if 1
-    u[i] = mul(u[i], trig[(me & ~(f-1)) + (i - 1) * WG]);
-#else
-    u[i] = mul(u[i], trig[WG/f * i + (me / f)]);
-#endif
+  u32 p = me & ~(f - 1);
+  if (n >= 8) {
+    u[1] = fancyMulTrig(u[1], trig[p]);
+  } else {
+    u[1] = mul(u[1], trig[p]);
+  }
+  for (u32 i = 2; i < n; ++i) {
+    u[i] = mul(u[i], trig[p + WG * (i - 1)]);
   }
 }
 

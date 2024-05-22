@@ -164,34 +164,39 @@ u32 Tune::exponentForBpw(double bpw) {
   return primes.nearestPrime(fftSize * bpw + 0.5);
 }
 
-double Tune::zForBpw(double bpw) {
+RoeInfo Tune::zForBpw(double bpw) {
   u32 exponent = exponentForBpw(bpw);
   auto gpu = Gpu::make(q, exponent, shared, false);
   auto [ok, res, roeSq, roeMul] = gpu->measureROE(shared.args->quickTune);
-  double z = roeSq.z();
+  return roeSq;
+  // double z = roeSq.z();
   // log("%s %s %u bpw=%.2f z=%.1f\n", ok ? "OK" : "EE", shared.args->fftSpec.c_str(), exponent, bpw, z);
-  return z;
+  // return z;
 }
 
 double slope(double z1, double z2, double bpw1, double bpw2) {
   return exp2((log2(z1) - log2(z2)) / (bpw2 - bpw1) / 4);
 }
 
-void Tune::maxBpw(const string& config) {
-  double bpw1 = 18.1;
+void Tune::maxBpw(const string& config, u32 fftSize) {
+  double bpw1 = 18.1 - log2(fftSize / double(13 * 512 * 1024)) * 0.28;
+
   double bpw2 = bpw1 + 0.25;
   double bpw3 = bpw2 + 0.25;
 
   // log("BPW %.2f %.2f %.2f\n", bpw1, bpw2, bpw3);
 
-  double z1 = zForBpw(bpw1);
-  fprintf(stderr, "%.2f ", z1);
+  RoeInfo roe = zForBpw(bpw1);
+  fprintf(stderr, "%s ", roe.toString().c_str());
+  double z1 = roe.z();
 
-  double z2 = zForBpw(bpw2);
-  fprintf(stderr, "%.2f ", z2);
+  roe = zForBpw(bpw2);
+  fprintf(stderr, "%s ", roe.toString().c_str());
+  double z2 = roe.z();
 
-  double z3 = zForBpw(bpw3);
-  fprintf(stderr, "%.2f ", z3);
+  roe = zForBpw(bpw3);
+  fprintf(stderr, "%s ", roe.toString().c_str());
+  double z3 =roe.z();
 
   double y1 = log2(z1);
   double y2 = log2(z2);
@@ -229,7 +234,8 @@ void Tune::roeSearch() {
       }
     }
 
-    maxBpw(toString(config));
+    u32 fftSize = FFTConfig::fromSpec(shared.args->fftSpec).fftSize();
+    maxBpw(toString(config), fftSize);
     /*
     auto [bpw, z] = maxBpw();
     u32 exponent = exponentForBpw(bpw);

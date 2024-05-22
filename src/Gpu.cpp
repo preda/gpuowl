@@ -828,7 +828,8 @@ string RoeInfo::toString() const {
   if (!N) { return {}; }
 
   char buf[256];
-  snprintf(buf, sizeof(buf), "Z(%u)=%.1f", N, z(.5f));
+  snprintf(buf, sizeof(buf), "Z(%u)=%.1f Max %f mean %f sd %f (%f, %f)",
+           N, z(.5f), max, mean, sd, gumbelMiu, gumbelBeta);
   return buf;
 }
 

@@ -7,6 +7,7 @@
 
 class Queue;
 class GpuCommon;
+class RoeInfo;
 
 class Tune {
 public:
@@ -16,9 +17,9 @@ public:
   Primes primes;
 
   u32 exponentForBpw(double bpw);
-  double zForBpw(double bpw);
+  RoeInfo zForBpw(double bpw);
 
-  void maxBpw(const std::string& config);
+  void maxBpw(const std::string& config, u32 fftSize);
 
   void roeSearch();
 };
