@@ -764,7 +764,7 @@ void fft_MIDDLE(T2 *u) {
 #define MM2_CHAIN 2
 #endif
 
-void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
+void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
 
@@ -772,11 +772,17 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
 
   if (MIDDLE < SHARP_MIDDLE) {
     WADD(1, w);
+#if MM_CHAIN == 0
     T2 base = sq(w);
     for (u32 k = 2; k < MIDDLE; ++k) {
       WADD(k, base);
       base = mul(base, w);
     }
+#elif MM_CHAIN == 1
+    for (u32 k = 2; k < MIDDLE; ++k) { WADD(k, slowTrig_N(WIDTH * k * s, WIDTH * k * SMALL_HEIGHT, TRIG_BHW)); }
+#else
+#error MM_CHAIN must be 0 or 1
+#endif
 
   } else { // MIDDLE >= 5
 
@@ -801,7 +807,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
 
 #elif MM_CHAIN == 1
     for (u32 k = 3 + (MIDDLE - 2) % 3; k < MIDDLE; k += 3) {
-      T2 base = slowTrig_BH(s * k, SMALL_HEIGHT * k, TRIG_BH);
+      T2 base = slowTrig_N(WIDTH * k * s, WIDTH * SMALL_HEIGHT * k, TRIG_BHW);
       WADD(k-1, base);
       WADD(k,   base);
       WADD(k+1, base);
@@ -2616,11 +2622,6 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
     reverseLine(G_H, lds, q);
 
 #if !TAIL_TABLE
-
-#if TRIG_COMPUTE < 2
-#error TRIG_COMPUTE<2 requires TAIL_TABLE
-#endif
-
     T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
     T2 trigMe   = tailTrig[me];
@@ -2746,11 +2747,6 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
     reverseLine(G_H, lds, v);
 
 #if !TAIL_TABLE
-
-#if TRIG_COMPUTE < 2
-#error TRIG_COMPUTE<2 requires TAIL_TABLE
-#endif
-
     T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
     T2 trigMe   = tailTrig[me];
@@ -2974,6 +2970,7 @@ double2 reducedCosSin(u32 k, u32 N) {
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
+/*
 double2 tableTrig(u32 k, u32 n, u32 kBound, BigTab trigTable) {
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
@@ -3000,8 +2997,7 @@ double2 tableTrig(u32 k, u32 n, u32 kBound, BigTab trigTable) {
   if (negate) { r = -r; }
   return r;
 }
-
-double2 slowTrig_BH(u32 k, u32 kBound, BigTab TRIG_BH)  { return tableTrig(k, BIG_HEIGHT, kBound, TRIG_BH); }
+*/
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
 // Inverse trigonometric direction is chosen as an FFT convention.
@@ -3025,29 +3021,22 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
 
   assert(k <= n / 8);
 
-#if TRIG_COMPUTE >= 2
-  double2 r = reducedCosSin(k, n);
-#else // TRIG_COMPUTE == 1 or TRIG_COMPUTE == 0
-  u32 a = (k + WIDTH/2) / WIDTH;
-  i32 b = k - a * WIDTH;
+  double2 r;
 
-  // double2 cs1 = TRIG_BH[a];
-  double2 cs1 = TRIG_BHW[a];
-  double c1 = cs1.x;
-  double s1 = cs1.y;
+  if ((TRIG_COMPUTE < 2) & (TRIG_BHW != NULL)) { // bitwise because annoying warning -Wconstant-logical-operand
+    u32 a = (k + WIDTH/2) / WIDTH;
+    i32 b = k - a * WIDTH;
 
-  // double2 cs2 = TRIG_W[abs(b)];
-  double2 cs2 = TRIG_BHW[BIG_HEIGHT/8 + 1 + abs(b)];
-  double c2 = cs2.x;
-  double s2 = (b < 0) ? -cs2.y : cs2.y;
-
-  // cos(a+b) = cos(a)cos(b) - sin(a)sin(b)
-  // sin(a+b) = cos(a)sin(b) + sin(a)cos(b)
-  // c2 is stored with "-1" trick to increase accuracy, so we use fma(x,y,x) for x*(y+1)
-  double c = fma(-s1, s2, fma(c1, c2, c1));
-  double s = fma(c1, s2, fma(s1, c2, s1));
-  double2 r = (double2)(c, s);
-#endif
+    double2 cs1 = TRIG_BHW[a];
+    if (b == 0) {
+      r = cs1;
+    } else {
+      double2 cs2 = TRIG_BHW[BIG_HEIGHT/8 + 1 + abs(b)];
+      r = fancyMulTrig(cs1, b < 0 ? conjugate(cs2) : cs2);
+    }
+  } else {
+    r = reducedCosSin(k, n);
+  }
 
   if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }

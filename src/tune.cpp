@@ -174,10 +174,6 @@ RoeInfo Tune::zForBpw(double bpw) {
   // return z;
 }
 
-double slope(double z1, double z2, double bpw1, double bpw2) {
-  return exp2((log2(z1) - log2(z2)) / (bpw2 - bpw1) / 4);
-}
-
 void Tune::maxBpw(const string& config, u32 fftSize) {
   double bpw1 = 18.1 - log2(fftSize / double(13 * 512 * 1024)) * 0.28;
 
@@ -187,15 +183,15 @@ void Tune::maxBpw(const string& config, u32 fftSize) {
   // log("BPW %.2f %.2f %.2f\n", bpw1, bpw2, bpw3);
 
   RoeInfo roe = zForBpw(bpw1);
-  fprintf(stderr, "%s ", roe.toString().c_str());
+  // fprintf(stderr, "%s ", roe.toString().c_str());
   double z1 = roe.z();
 
   roe = zForBpw(bpw2);
-  fprintf(stderr, "%s ", roe.toString().c_str());
+  // fprintf(stderr, "%s ", roe.toString().c_str());
   double z2 = roe.z();
 
   roe = zForBpw(bpw3);
-  fprintf(stderr, "%s ", roe.toString().c_str());
+  // fprintf(stderr, "%s ", roe.toString().c_str());
   double z3 =roe.z();
 
   double y1 = log2(z1);
@@ -214,10 +210,9 @@ void Tune::maxBpw(const string& config, u32 fftSize) {
   double x = (-B - sqrt(delta)) / (2 * A);
   double xx = bpw2 + x * 0.25;
 
-  fprintf(stderr, "\r");
+  // fprintf(stderr, "\r");
   log("%5.2f %5.2f %5.2f | %.2f %.2f %.2f | %.2f | %s\n",
       z1, z2, z3,
-      // slope(z1, z2, bpw1, bpw2), slope(z2, z3, bpw2, bpw3), slope(z1, z3, bpw1, bpw3),
       A, B, C, xx, config.c_str());
 }
 

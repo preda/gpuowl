@@ -85,7 +85,7 @@ void fft_MIDDLE(T2 *u) {
 #define MM2_CHAIN 2
 #endif
 
-void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
+void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
 
@@ -93,11 +93,17 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
 
   if (MIDDLE < SHARP_MIDDLE) {
     WADD(1, w);
+#if MM_CHAIN == 0
     T2 base = sq(w);
     for (u32 k = 2; k < MIDDLE; ++k) {
       WADD(k, base);
       base = mul(base, w);
     }
+#elif MM_CHAIN == 1
+    for (u32 k = 2; k < MIDDLE; ++k) { WADD(k, slowTrig_N(WIDTH * k * s, WIDTH * k * SMALL_HEIGHT, TRIG_BHW)); }
+#else
+#error MM_CHAIN must be 0 or 1
+#endif
 
   } else { // MIDDLE >= 5
 
@@ -122,7 +128,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BH) {
 
 #elif MM_CHAIN == 1
     for (u32 k = 3 + (MIDDLE - 2) % 3; k < MIDDLE; k += 3) {
-      T2 base = slowTrig_BH(s * k, SMALL_HEIGHT * k, TRIG_BH);
+      T2 base = slowTrig_N(WIDTH * k * s, WIDTH * SMALL_HEIGHT * k, TRIG_BHW);
       WADD(k-1, base);
       WADD(k,   base);
       WADD(k+1, base);

@@ -379,7 +379,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   fftMidOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
   
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
-  tailMulLow.setFixedArgs(3, bufTrigH, bufTrigBHW);
+  tailMulLow.setFixedArgs(3, bufTrigH, bufTrigSquare);
   tailMul.setFixedArgs(3, bufTrigH, bufTrigSquare);
   tailSquare.setFixedArgs(2, bufTrigH, bufTrigSquare);
   kernIsEqual.setFixedArgs(2, bufTrue);
