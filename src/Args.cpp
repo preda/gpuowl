@@ -130,19 +130,18 @@ named "config.txt" in the prpll run directory.
   -use FAST_BARRIER: on AMD Radeon VII and older AMD GPUs, use a faster barrier(). Do not use
                      this option on Nvidia GPUs or on RDNA AMD GPUs where it produces errors
                      (which are nevertheless detected).
-  -use NO_ASM      : do not use __asm() blocks (inline assembly)
-  -use CARRY32     : force 32-bit carry (-use STATS=21 offers carry range statistics)
-  -use CARRY64     : force 64-bit carry (a bit slower but no danger of carry overflow)
-  -use TRIG_COMPUTE=0|1|2 : select sin/cos tradeoffs (compute vs. precomputed)
-                     0 uses precomputed tables (more VRAM access, less DP compute)
-                     2 uses more DP compute and less VRAM table access
-  -use DEBUG       : enable asserts in OpenCL kernels (slow)
+  -use TRIG_HI     : increased precision but slower (use at the upper bound of the FFT)
+  -use TRIG_TAB    : use a precomputed sin/cos lookup table (more memory bandwidth vs. more compute)
+  -use TAIL_TAB    : use a lookup table in the tailSquare/tailMul kernels
 
-  -use STATS <val> : enable carry statistics collection & logging, for the kernel according to <val>:
+  -use NO_ASM      : do not use __asm() blocks (inline assembly)
+  -use STATS=<val> : enable carry statistics collection & logging, for the kernel according to <val>:
                      1 = CarryFused
                      2 = CarryFusedMul
                      4 = CarryA
                      8 = CarryMul
+
+  -use DEBUG       : enable asserts in OpenCL kernels (slow, developers)
 
 -tune <spec>       : measure time-per-iteration in various configurations to find out what's fastest
                      Requires specifying an exponent with -prp <exponent>.

@@ -48,7 +48,7 @@ prpll: $(BIN)/prpll
 amd: $(BIN)/prpll-amd
 
 $(BIN)/prpll: ${OBJS}
-	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBPATH) -lOpenCL -lquadmath ${STRIP}
+	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBPATH) -lOpenCL ${STRIP}
 
 # Instead of linking with libOpenCL, link with libamdocl64
 $(BIN)/prpll-amd: ${OBJS}

@@ -159,7 +159,7 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
 
   double2 r;
 
-  if ((TRIG_COMPUTE < 2) & (TRIG_BHW != NULL)) { // bitwise because annoying warning -Wconstant-logical-operand
+  if (TRIG_TAB & (TRIG_BHW != NULL)) { // bitwise because annoying warning -Wconstant-logical-operand
     u32 a = (k + WIDTH/2) / WIDTH;
     i32 b = k - a * WIDTH;
 

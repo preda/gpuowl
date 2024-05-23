@@ -47,9 +47,7 @@ NW         == WIDTH / G_W
 NH         == SMALL_HEIGHT / G_H
  */
 
-#if !defined(TRIG_COMPUTE)
-#define TRIG_COMPUTE 2
-#endif
+// TRIG_TAB defaults to 0
 
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
@@ -2596,7 +2594,7 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
   u32 me = get_local_id(0);
   if (line1 == 0) {
 
-#if 0 && !TAIL_TABLE
+#if 0 && !TAIL_TAB
     T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
     T2 trig2 = slowTrig_N(H/2 + me * H, ND/NH, NULL); // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
 #else
@@ -2621,7 +2619,7 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
 
-#if !TAIL_TABLE
+#if !TAIL_TAB
     T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
     T2 trigMe   = tailTrig[me];
@@ -2724,7 +2722,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
   u32 me = get_local_id(0);
 
   if (line1 == 0) {
-#if 0 && !TAIL_TABLE
+#if 0 && !TAIL_TAB
     T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
     T2 trig2 = slowTrig_N(H/2 + me * H, ND/NH, NULL); // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
 #else
@@ -2746,7 +2744,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
   } else {    
     reverseLine(G_H, lds, v);
 
-#if !TAIL_TABLE
+#if !TAIL_TAB
     T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
     T2 trigMe   = tailTrig[me];
@@ -3023,7 +3021,7 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
 
   double2 r;
 
-  if ((TRIG_COMPUTE < 2) & (TRIG_BHW != NULL)) { // bitwise because annoying warning -Wconstant-logical-operand
+  if (TRIG_TAB & (TRIG_BHW != NULL)) { // bitwise because annoying warning -Wconstant-logical-operand
     u32 a = (k + WIDTH/2) / WIDTH;
     i32 b = k - a * WIDTH;
 

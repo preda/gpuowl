@@ -39,9 +39,7 @@ NW         == WIDTH / G_W
 NH         == SMALL_HEIGHT / G_H
  */
 
-#if !defined(TRIG_COMPUTE)
-#define TRIG_COMPUTE 2
-#endif
+// TRIG_TAB defaults to 0
 
 #define STR(x) XSTR(x)
 #define XSTR(x) #x

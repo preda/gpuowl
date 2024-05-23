@@ -76,7 +76,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
   u32 me = get_local_id(0);
 
   if (line1 == 0) {
-#if 0 && !TAIL_TABLE
+#if 0 && !TAIL_TAB
     T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
     T2 trig2 = slowTrig_N(H/2 + me * H, ND/NH, NULL); // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
 #else
@@ -98,7 +98,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
   } else {    
     reverseLine(G_H, lds, v);
 
-#if !TAIL_TABLE
+#if !TAIL_TAB
     T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #else
     T2 trigMe   = tailTrig[me];
