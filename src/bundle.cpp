@@ -111,13 +111,13 @@ NH         == SMALL_HEIGHT / G_H
 #define ND (WIDTH * BIG_HEIGHT)
 #define NWORDS (ND * 2u)
 
-#if WIDTH == 1024 || WIDTH == 256
+#if WIDTH == 1024 || WIDTH == 256 || WIDTH == 4096
 #define NW 4
 #else
 #define NW 8
 #endif
 
-#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256
+#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256 || SMALL_HEIGHT == 4096
 #define NH 4
 #else
 #define NH 8
@@ -511,7 +511,7 @@ i64 doubleToLong(double x, float* maxROE) {
   // Unfortunatelly (i64) rint() is slow!
   // return rint(x);
 
-  ROUNDOFF_CHECK(x);
+  // ROUNDOFF_CHECK(x);
 
   double d = x + RNDVAL;
   float roundoff = fabs((float) (x - (d - RNDVAL)));
@@ -2010,12 +2010,22 @@ void fft1Kh(local T2 *lds, T2 *u, Trig trig) {
 }
 
 void fft4Kh(local T2 *lds, T2 *u, Trig trig) {
+#if 0
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
     shuflAndMul(512, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
+
+#else
+  for (u32 s = 0; s <= 8; s += 2) {
+    if (s) { bar(); }
+    fft4(u);
+    shuflAndMul(1024, lds, trig, u, 4, 1u << s);
+  }
+  fft4(u);
+#endif
 }
 
 void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
@@ -2256,8 +2266,9 @@ void fft1Kw(local T2 *lds, T2 *u, Trig trig) {
   fft4(u);
 }
 
-// 512x8
 void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
+#if 0
+// 512x8
   UNROLL_WIDTH_CONTROL
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
@@ -2265,6 +2276,15 @@ void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
     shuflAndMul(512, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
+#else
+  UNROLL_WIDTH_CONTROL
+  for (u32 s = 0; s <= 8; s += 2) {
+    if (s) { bar(); }
+    fft4(u);
+    shuflAndMul(1024, lds, trig, u, 4, 1u << s);
+  }
+  fft4(u);
+#endif
 }
 
 void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
@@ -2592,17 +2612,16 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
 #endif
 
   u32 me = get_local_id(0);
+
   if (line1 == 0) {
 
-#if 0 && !TAIL_TAB
-    T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
-    T2 trig2 = slowTrig_N(H/2 + me * H, ND/NH, NULL); // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
+#if TAIL_TAB
+    T2 trig1 = tailTrig[me];
 #else
-    T2 trigMe   = tailTrig[me];
-    T2 trigLine = tailTrig[G_H + line1];
-    T2 trig1 = trigMe;
-    T2 trig2 = fancyMulTrig(trigMe, trigLine);
+    T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
 #endif
+
+    T2 trig2 = fancyMulTrig(trig1, tailTrig[G_H]);
 
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
@@ -2619,12 +2638,10 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
 
-#if !TAIL_TAB
-    T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
+#if TAIL_TAB
+    T2 trig = fancyMulTrig(tailTrig[me], tailTrig[G_H + line1]);
 #else
-    T2 trigMe   = tailTrig[me];
-    T2 trigLine = tailTrig[G_H + line1];
-    T2 trig = fancyMulTrig(trigMe, trigLine);
+    T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #endif
 
     pairMul(NH, u, v, p, q, trig, false);
@@ -2968,34 +2985,9 @@ double2 reducedCosSin(u32 k, u32 N) {
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
-/*
-double2 tableTrig(u32 k, u32 n, u32 kBound, BigTab trigTable) {
-  assert(n % 8 == 0);
-  assert(k < kBound);       // kBound actually bounds k
-  assert(kBound <= 2 * n);  // angle <= 2 tau
-
-  if (kBound > n && k >= n) { k -= n; }
-  assert(k < n);
-
-  bool negate = kBound > n/2 && k >= n/2;
-  if (negate) { k -= n/2; }
-
-  bool negateCos = kBound > n / 4 && k >= n / 4;
-  if (negateCos) { k = n/2 - k; }
-
-  bool flip = kBound > n / 8 + 1 && k > n / 8;
-  if (flip) { k = n / 4 - k; }
-
-  assert(k <= n / 8);
-
-  double2 r = trigTable[k];
-
-  if (flip) { r = -swap(r); }
-  if (negateCos) { r.x = -r.x; }
-  if (negate) { r = -r; }
-  return r;
-}
-*/
+#if !defined(TRIG_TAB)
+#define TRIG_TAB 0
+#endif
 
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
 // Inverse trigonometric direction is chosen as an FFT convention.

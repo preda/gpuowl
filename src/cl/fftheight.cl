@@ -34,12 +34,22 @@ void fft1Kh(local T2 *lds, T2 *u, Trig trig) {
 }
 
 void fft4Kh(local T2 *lds, T2 *u, Trig trig) {
+#if 0
   for (u32 s = 0; s <= 6; s += 3) {
     if (s) { bar(); }
     fft8(u);
     shuflAndMul(512, lds, trig, u, 8, 1u << s);
   }
   fft8(u);
+
+#else
+  for (u32 s = 0; s <= 8; s += 2) {
+    if (s) { bar(); }
+    fft4(u);
+    shuflAndMul(1024, lds, trig, u, 4, 1u << s);
+  }
+  fft4(u);
+#endif
 }
 
 void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {

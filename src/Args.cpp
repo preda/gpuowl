@@ -155,14 +155,10 @@ named "config.txt" in the prpll run directory.
                      The residues are displayed at iteration 10000.
 
 -roeTune <spec>    : informs on the probability of a fatal roundoff error (ROE) over a combination of parameters.
-                     Examples:
-                       -roeTune "fft=6.5M;bpw=17:18:0.25" -cache
-                       -roeTune "fft=6.5M;bpw=17.75,18;MM_CHAIN=1,2,3,4;MM2_CHAIN=1,2,3" -cache
-                     The "bpw" ("Bits Per Word") special parameter accepts either a comma-separated list of values
-                     or a begin:end:step form as in the examples above.
-
-                     The "z" value indicates how unlikely a fatal ROE is; the higher the z, the better.
-                     Ideally one wants a z>=30, and no less than 26.
+                     Example:
+                       -roeTune "fft=6.5M;TRIG_HI=0,1"
+                     The "Z" value in the output indicates how unlikely a fatal ROE is; the higher the z, the better.
+                     Ideally one wants a z>=27, and no less than 24.
 
 -qtune <spec>      : faster variant of -tune (useful for slow GPUs).
 -qroeTune <spec>   : faster variant of -roeTune

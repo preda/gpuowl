@@ -103,13 +103,13 @@ NH         == SMALL_HEIGHT / G_H
 #define ND (WIDTH * BIG_HEIGHT)
 #define NWORDS (ND * 2u)
 
-#if WIDTH == 1024 || WIDTH == 256
+#if WIDTH == 1024 || WIDTH == 256 || WIDTH == 4096
 #define NW 4
 #else
 #define NW 8
 #endif
 
-#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256
+#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256 || SMALL_HEIGHT == 4096
 #define NH 4
 #else
 #define NH 8

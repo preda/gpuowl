@@ -51,7 +51,7 @@ i64 doubleToLong(double x, float* maxROE) {
   // Unfortunatelly (i64) rint() is slow!
   // return rint(x);
 
-  ROUNDOFF_CHECK(x);
+  // ROUNDOFF_CHECK(x);
 
   double d = x + RNDVAL;
   float roundoff = fabs((float) (x - (d - RNDVAL)));

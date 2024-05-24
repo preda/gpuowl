@@ -224,8 +224,8 @@ unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, bool logFftSize) {
   u32 MIDDLE       = config.middle;
   u32 N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
 
-  u32 nW = (WIDTH == 1024 || WIDTH == 256) ? 4 : 8;
-  u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256) ? 4 : 8;
+  u32 nW = (WIDTH == 1024 || WIDTH == 256 || WIDTH == 4096) ? 4 : 8;
+  u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256 || SMALL_HEIGHT==4096) ? 4 : 8;
 
   float bitsPerWord = E / float(N);
   if (logFftSize) { log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord); }
@@ -336,8 +336,9 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
 
   BUF(bufCheck, N),
   BUF(bufBase, N),
-  BUF(bufCarry, N / 2 + WIDTH),
-  BUF(bufReady, BIG_H * 8 + 32),
+  // Every double-word (i.e. N/2) produces one carry. In addition we may have one extra group thus WIDTH more carries.
+  BUF(bufCarry,  N / 2 + WIDTH),
+  BUF(bufReady, (N / 2 + WIDTH) / 32), // Every wavefront (32 or 64 lanes) needs to signal "carry is ready"
 
   BUF(bufSmallOut, 256),
   BUF(bufSumOut,     1),
@@ -567,6 +568,7 @@ void Gpu::modMul(Buffer<int>& ioA, Buffer<int>& inB, bool mul3) {
 void Gpu::writeState(const vector<u32>& check, u32 blockSize) {
   assert(blockSize > 0);
   writeIn(bufCheck, check);
+
   bufData << bufCheck;
   bufAux  << bufCheck;
   
@@ -1019,7 +1021,13 @@ tuple<bool, u64, RoeInfo, RoeInfo> Gpu::measureROE(bool quick) {
   u32 k = 0;
   PRPState state{E, 0, blockSize, 3, makeWords(E, 1), 0};
   writeState(state.check, state.blockSize);
-  assert(dataResidue() == state.res64);
+  {
+    u64 res = dataResidue();
+    if (res != state.res64) {
+      log("residue expected %016" PRIx64 " found %016" PRIx64 "\n", state.res64, res);
+    }
+    assert(res == state.res64);
+  }
 
   modMul(bufCheck, bufData);
   square(bufData, bufData, true, useLongCarry);

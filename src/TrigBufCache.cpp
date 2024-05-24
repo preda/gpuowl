@@ -53,6 +53,8 @@ double2 root1Fancy(u32 N, u32 k) {
 vector<double2> genSmallTrig(u32 size, u32 radix) {
   vector<double2> tab;
 
+  log("genSmallTrig(%u, %u)\n", size, radix);
+
 #if 1
   for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
@@ -121,14 +123,14 @@ vector<double2> makeSquareTrig(u32 hN, u32 nH, u32 smallH) {
     ret.push_back(root1Fancy(hN, g == 0 ? nGroups : g));
   }
 
-/*
+#if 0 // Old implem
   for (u32 i = 0; i < nGroups; ++i) {
     for (u32 me = 0; me < smallH / nH; ++me) {
       ret.push_back(root1(hN, i + me * (hN / smallH)));
     }
   }
   assert(ret.size() == (hN / (2 * nH)));
-  */
+#endif
   return ret;
 }
 

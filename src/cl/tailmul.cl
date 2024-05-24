@@ -97,17 +97,16 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
 #endif
 
   u32 me = get_local_id(0);
+
   if (line1 == 0) {
 
-#if 0 && !TAIL_TAB
-    T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
-    T2 trig2 = slowTrig_N(H/2 + me * H, ND/NH, NULL); // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
+#if TAIL_TAB
+    T2 trig1 = tailTrig[me];
 #else
-    T2 trigMe   = tailTrig[me];
-    T2 trigLine = tailTrig[G_H + line1];
-    T2 trig1 = trigMe;
-    T2 trig2 = fancyMulTrig(trigMe, trigLine);
+    T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
 #endif
+
+    T2 trig2 = fancyMulTrig(trig1, tailTrig[G_H]);
 
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
@@ -124,12 +123,10 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
 
-#if !TAIL_TAB
-    T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
+#if TAIL_TAB
+    T2 trig = fancyMulTrig(tailTrig[me], tailTrig[G_H + line1]);
 #else
-    T2 trigMe   = tailTrig[me];
-    T2 trigLine = tailTrig[G_H + line1];
-    T2 trig = fancyMulTrig(trigMe, trigLine);
+    T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 #endif
 
     pairMul(NH, u, v, p, q, trig, false);
