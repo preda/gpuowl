@@ -17,6 +17,7 @@ static_assert(sizeof(double2) == 16, "size double2");
 static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
 
 namespace {
+static const constexpr bool LOG_TRIG_ALLOC = false;
 
 // Returns the primitive root of unity of order N, to the power k.
 double2 root1(u32 N, u32 k) {
@@ -51,10 +52,9 @@ double2 root1Fancy(u32 N, u32 k) {
 }
 
 vector<double2> genSmallTrig(u32 size, u32 radix) {
+  if (LOG_TRIG_ALLOC) { log("genSmallTrig(%u, %u)\n", size, radix); }
+
   vector<double2> tab;
-
-  log("genSmallTrig(%u, %u)\n", size, radix);
-
 #if 1
   for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
@@ -77,6 +77,7 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
 #define SHARP_MIDDLE 5
 
 vector<double2> genMiddleTrig(u32 smallH, u32 middle, u32 width) {
+  if (LOG_TRIG_ALLOC) { log("genMiddleTrig(%u, %u, %u)\n", smallH, middle, width); }
   vector<double2> tab;
   if (middle == 1) {
     tab.resize(1);
@@ -110,6 +111,7 @@ vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN, vector<pair<T, T>> tab = {}) {
 }
 
 vector<double2> makeSquareTrig(u32 hN, u32 nH, u32 smallH) {
+  if (LOG_TRIG_ALLOC) { log("makeSquareTrig(%u, %u, %u)\n", hN, nH, smallH); }
   vector<double2> ret;
 
   assert(hN % (smallH * 2) == 0);
@@ -148,8 +150,8 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   if (it == m.end() || !(p = it->second.lock())) {
     p = make_shared<TrigBuf>(context, genSmallTrig(W, nW));
     m[key] = p;
+    smallCache.add(p);
   }
-  lastSmall = p;
   return p;
 }
 
@@ -163,8 +165,8 @@ TrigPtr TrigBufCache::middleTrig(u32 SMALL_H, u32 MIDDLE, u32 width) {
   if (it == m.end() || !(p = it->second.lock())) {
     p = make_shared<TrigBuf>(context, genMiddleTrig(SMALL_H, MIDDLE, width));
     m[key] = p;
+    middleCache.add(p);
   }
-  lastMiddle = p;
   return p;
 }
 
@@ -176,10 +178,11 @@ TrigPtr TrigBufCache::trigBHW(u32 W, u32 hN, u32 BIG_H) {
   TrigPtr p{};
   auto it = m.find(key);
   if (it == m.end() || !(p = it->second.lock())) {
+    if (LOG_TRIG_ALLOC) { log("trigBHW(%u, %u, %u)\n", W, hN, BIG_H); }
     p = make_shared<TrigBuf>(context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H)));
     m[key] = p;
+    bhwCache.add(p);
   }
-  lastBHW = p;
   return p;
 }
 
@@ -193,7 +196,7 @@ TrigPtr TrigBufCache::trigSquare(u32 hN, u32 nH, u32 SMALL_H) {
   if (it == m.end() || !(p = it->second.lock())) {
     p = make_shared<TrigBuf>(context, makeSquareTrig(hN, nH, SMALL_H));
     m[key] = p;
+    squareCache.add(p);
   }
-  lastSquare = p;
   return p;
 }

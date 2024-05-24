@@ -8,7 +8,20 @@ using double2 = pair<double, double>;
 using TrigBuf = Buffer<double2>;
 using TrigPtr = shared_ptr<TrigBuf>;
 
-class TrigBufCache {
+class StrongCache {
+  vector<TrigPtr> ptrs;
+  u32 pos{};
+
+public:
+  explicit StrongCache(u32 size) : ptrs(size) {}
+
+  void add(TrigPtr ptr) {
+    ptrs.at(pos) = ptr;
+    if (++pos >= ptrs.size()) { pos = 0; }
+  }
+};
+
+class TrigBufCache {  
   const Context* context;
   std::mutex mut;
 
@@ -19,10 +32,10 @@ class TrigBufCache {
 
   // The shared-pointers below keep the most recent set of buffers alive even without any Gpu instance
   // referencing them. This allows a single worker to delete & re-create the Gpu instance and still reuse the buffers.
-  TrigPtr lastSmall;
-  TrigPtr lastMiddle;
-  TrigPtr lastBHW;
-  TrigPtr lastSquare;
+  StrongCache smallCache{6};
+  StrongCache middleCache{6};
+  StrongCache bhwCache{4};
+  StrongCache squareCache{4};
 
 public:
   TrigBufCache(const Context* context) :
