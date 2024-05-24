@@ -37,25 +37,25 @@ void fft1Kw(local T2 *lds, T2 *u, Trig trig) {
   fft4(u);
 }
 
-void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
-#if 0
-// 512x8
-  UNROLL_WIDTH_CONTROL
-  for (u32 s = 0; s <= 6; s += 3) {
-    if (s) { bar(); }
-    fft8(u);
-    shuflAndMul(512, lds, trig, u, 8, 1u << s);
-  }
+void fft_NW(T2 *u) {
+#if NW == 4
+  fft4(u);
+#elif NW == 8
   fft8(u);
 #else
-  UNROLL_WIDTH_CONTROL
-  for (u32 s = 0; s <= 8; s += 2) {
-    if (s) { bar(); }
-    fft4(u);
-    shuflAndMul(1024, lds, trig, u, 4, 1u << s);
-  }
-  fft4(u);
+#error NW
 #endif
+}
+
+// 4K == 512x8 or 1024x4
+void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
+  UNROLL_WIDTH_CONTROL
+  for (u32 s = 1; s < WIDTH / NW; s *= NW) {
+    if (s > 1) { bar(); }
+    fft_NW(u);
+    shuflAndMul(WIDTH / NW, lds, trig, u, NW, s);
+  }
+  fft_NW(u);
 }
 
 void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {

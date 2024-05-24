@@ -288,6 +288,8 @@ void tune(Queue* q, GpuCommon shared) {
 
   u32 exponent = shared.args->prpExp;
 
+  double bestYet = 1000;
+
   for (const auto& config : configs) {
     // log("Timing %s\n", toString(config).c_str());
     for (auto& [k, v] : config) {
@@ -307,7 +309,9 @@ void tune(Queue* q, GpuCommon shared) {
     if (secsPerIt < 0) {
       log("Error %016" PRIx64 " %s\n", res64, toString(config).c_str());
     } else {
-      log("%6.1f : %016" PRIx64 " %s\n", secsPerIt * 1e6, res64, toString(config).c_str());
+      bool isBest = (secsPerIt <= bestYet);
+      if (isBest) { bestYet = secsPerIt; }
+      log("%c %6.1f : %016" PRIx64 " %s\n", isBest ? '*' : ' ', secsPerIt * 1e6, res64, toString(config).c_str());
     }
     results.push_back({secsPerIt < 0 ? 1.0 : secsPerIt, toString(config)});
   }
