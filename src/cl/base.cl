@@ -9,34 +9,25 @@ IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 
 
 UNROLL_WIDTH <nVidia default>
 NO_UNROLL_WIDTH <AMD default>
-
-OLD_FFT5
-NEW_FFT5 <default>
-NEWEST_FFT5
-
-NEW_FFT9 <default>
-OLD_FFT9
 */
-
-/* List of *derived* binary macros. These are normally not defined through -use flags, but derived.
-AMDGPU  : set on AMD GPUs
-HAS_ASM : set if we believe __asm() can be used
- */
 
 /* List of code-specific macros. These are set by the C++ host code or derived
 EXP        the exponent
 WIDTH
 SMALL_HEIGHT
 MIDDLE
+CARRY_LEN
+NW
+NH
+AMDGPU  : if this is an AMD GPU
+HAS_ASM : set if we believe __asm() can be used
 
 -- Derived from above:
 BIG_HEIGHT == SMALL_HEIGHT * MIDDLE
 ND         number of dwords == WIDTH * MIDDLE * SMALL_HEIGHT
 NWORDS     number of words  == ND * 2
-G_W        "group width" (e.g. 256)
-G_H        "group height"
-NW         == WIDTH / G_W
-NH         == SMALL_HEIGHT / G_H
+G_W        "group width"  == WIDTH / NW
+G_H        "group height" == SMALL_HEIGHT / NH
  */
 
 // TRIG_TAB defaults to 0
@@ -103,6 +94,11 @@ NH         == SMALL_HEIGHT / G_H
 #define ND (WIDTH * BIG_HEIGHT)
 #define NWORDS (ND * 2u)
 
+#if (NW != 4 && NW != 8) || (NH != 4 && NH != 8)
+#error NW and NH must be passed in, expected value 4 or 8.
+#endif
+
+/*
 #if WIDTH == 1024 || WIDTH == 256 || WIDTH == 4096
 #define NW 4
 #else
@@ -114,6 +110,7 @@ NH         == SMALL_HEIGHT / G_H
 #else
 #define NH 8
 #endif
+*/
 
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)

@@ -156,13 +156,15 @@ struct Define {
   operator string() const { return str; }
 };
 
-string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW) {
+string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW, u32 nH) {
   vector<Define> defines =
     {{"EXP", E},
      {"WIDTH", WIDTH},
      {"SMALL_HEIGHT", SMALL_HEIGHT},
      {"MIDDLE", MIDDLE},
      {"CARRY_LEN", CARRY_LEN},
+     {"NW", nW},
+     {"NH", nH}
     };
 
   if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
@@ -271,7 +273,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   useLongCarry{args.carry == Args::CARRY_LONG},
 
   compiler{args, queue->context,
-           clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW) + clArgs(args)},
+           clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW, nH) + clArgs(args)},
   
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 
