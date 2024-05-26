@@ -2,6 +2,7 @@
 
 #include "fft4.cl"
 #include "fft8.cl"
+#include "trig.cl"
 // #include "math.cl"
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
@@ -23,14 +24,57 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   u32 p = me & ~(f - 1);
+  T2 w = trig[p];
+
   if (n >= 8) {
-    u[1] = fancyMulTrig(u[1], trig[p]);
+    u[1] = fancyMulTrig(u[1], w);
   } else {
-    u[1] = mul(u[1], trig[p]);
+    u[1] = mul(u[1], w);
   }
-  for (u32 i = 2; i < n; ++i) {
-    u[i] = mul(u[i], trig[p + WG * (i - 1)]);
+
+#if DIRTY == 0
+  for (u32 i = 2; i < n; ++i) { u[i] = mul(u[i], trig[p + WG * (i - 1)]); }
+
+#elif DIRTY == 1
+  T2 base = trig[WG + p];
+
+  if (n >= 8) {
+    for (u32 i = 2; i < n; ++i) {
+      u[i] = mul(u[i], base);
+      base = fancyMulTrig(base, w);
+    }
+  } else {
+    for (u32 i = 2; i < n; ++i) {
+      u[i] = mul(u[i], base);
+      base = mul(base, w);
+    }
   }
+
+#elif DIRTY == 2
+  if (n >= 8) {
+    T a = 2 * fma(w.x, w.y, w.y); // 2*sin*cos
+    u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
+    a *= 2;
+    T2 base = U2(fma(a, -w.y, w.x + 1), fma(a, w.x, a - w.y));
+    for (u32 i = 3; i < n; ++i) {
+      u[i] = mul(u[i], base);
+      base = fancyMulTrig(base, w);
+    }
+  } else {
+    T a = 2 * w.x * w.y;
+    // u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
+    u[2] = mul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
+    // u[2] = mul(u[2], U2(fma(w.x, w.x, -w.y * w.y), a));
+    a *= 2;
+    T2 base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
+    for (u32 i = 3; i < n; ++i) {
+      u[i] = mul(u[i], base);
+      base = mul(base, w);
+    }
+  }
+#else
+#error DIRTY must be 0, 1 or 2
+#endif
 }
 
 void shuflAndMul(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {

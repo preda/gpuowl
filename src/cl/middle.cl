@@ -28,14 +28,19 @@ OUT_SPACING: default 8, may try 1, 2, 4; 8 is known to produce errors in some co
 #endif
 
 #if !OUT_SIZEX
+
 #if AMDGPU
-#define OUT_SIZEX 32
-#else // AMDGPU
+// We realized that these (OUT_WG, OUT_SIZEX) combinations work well: (256, 32) and (64, 8)
+// so default OUT_SIZEX relative to OUT_WG
+#define OUT_SIZEX (OUT_WG / 8)
+#else
+
 #if G_W >= 64
 #define OUT_SIZEX 4
 #else
 #define OUT_SIZEX 32
 #endif
+
 #endif
 #endif
 

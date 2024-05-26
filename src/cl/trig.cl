@@ -1,5 +1,7 @@
 // Copyright (C) George Woltman and Mihai Preda
 
+#pragma once
+
 #if ULTRA_TRIG
 
 // These are ultra accurate routines.  We modified Ernst's qfcheb program and selected a multiplier such that

@@ -130,6 +130,7 @@ named "config.txt" in the prpll run directory.
   -use FAST_BARRIER: on AMD Radeon VII and older AMD GPUs, use a faster barrier(). Do not use
                      this option on Nvidia GPUs or on RDNA AMD GPUs where it produces errors
                      (which are nevertheless detected).
+  -use DIRTY=0,1,2 : more dirty is faster but with less precision
   -use TRIG_HI     : increased precision but slower (use at the upper bound of the FFT)
   -use TRIG_TAB    : use a precomputed sin/cos lookup table (more memory bandwidth vs. more compute)
   -use TAIL_TAB    : use a lookup table in the tailSquare/tailMul kernels

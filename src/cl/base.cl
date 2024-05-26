@@ -98,20 +98,6 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #error NW and NH must be passed in, expected value 4 or 8.
 #endif
 
-/*
-#if WIDTH == 1024 || WIDTH == 256 || WIDTH == 4096
-#define NW 4
-#else
-#define NW 8
-#endif
-
-#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256 || SMALL_HEIGHT == 4096
-#define NH 4
-#else
-#define NH 8
-#endif
-*/
-
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
 

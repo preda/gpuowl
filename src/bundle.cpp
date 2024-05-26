@@ -106,20 +106,6 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #error NW and NH must be passed in, expected value 4 or 8.
 #endif
 
-/*
-#if WIDTH == 1024 || WIDTH == 256 || WIDTH == 4096
-#define NW 4
-#else
-#define NW 8
-#endif
-
-#if SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256 || SMALL_HEIGHT == 4096
-#define NH 4
-#else
-#define NH 8
-#endif
-*/
-
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
 
@@ -1932,6 +1918,7 @@ R"cltag(
 
 #include "fft4.cl"
 #include "fft8.cl"
+#include "trig.cl"
 // #include "math.cl"
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
@@ -1953,14 +1940,57 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   u32 p = me & ~(f - 1);
+  T2 w = trig[p];
+
   if (n >= 8) {
-    u[1] = fancyMulTrig(u[1], trig[p]);
+    u[1] = fancyMulTrig(u[1], w);
   } else {
-    u[1] = mul(u[1], trig[p]);
+    u[1] = mul(u[1], w);
   }
-  for (u32 i = 2; i < n; ++i) {
-    u[i] = mul(u[i], trig[p + WG * (i - 1)]);
+
+#if DIRTY == 0
+  for (u32 i = 2; i < n; ++i) { u[i] = mul(u[i], trig[p + WG * (i - 1)]); }
+
+#elif DIRTY == 1
+  T2 base = trig[WG + p];
+
+  if (n >= 8) {
+    for (u32 i = 2; i < n; ++i) {
+      u[i] = mul(u[i], base);
+      base = fancyMulTrig(base, w);
+    }
+  } else {
+    for (u32 i = 2; i < n; ++i) {
+      u[i] = mul(u[i], base);
+      base = mul(base, w);
+    }
   }
+
+#elif DIRTY == 2
+  if (n >= 8) {
+    T a = 2 * fma(w.x, w.y, w.y); // 2*sin*cos
+    u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
+    a *= 2;
+    T2 base = U2(fma(a, -w.y, w.x + 1), fma(a, w.x, a - w.y));
+    for (u32 i = 3; i < n; ++i) {
+      u[i] = mul(u[i], base);
+      base = fancyMulTrig(base, w);
+    }
+  } else {
+    T a = 2 * w.x * w.y;
+    // u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
+    u[2] = mul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
+    // u[2] = mul(u[2], U2(fma(w.x, w.x, -w.y * w.y), a));
+    a *= 2;
+    T2 base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
+    for (u32 i = 3; i < n; ++i) {
+      u[i] = mul(u[i], base);
+      base = mul(base, w);
+    }
+  }
+#else
+#error DIRTY must be 0, 1 or 2
+#endif
 }
 
 void shuflAndMul(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {
@@ -2370,11 +2400,14 @@ T2 fancyMadTrig(T2 a, T2 b, T2 c) {
 T2 fancyMulUpdate(T2 a, T2 b) { return fancyMadTrig(a, b, b); }
 
 T2 fancySqUpdate(T2 a) {
-  return U2(
+  return 2 * U2(-a.y * a.y, fma(a.x, a.y, a.y));
+  /*
+      U2(
         // fma(a.y, -a.y, fma(a.x, a.x, 2 * a.x)),
         fma(a.x, a.x, fma(a.y, -a.y, 2 * a.x)),
         2 * fma(a.x, a.y, a.y)
         );
+  */
 }
 
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
@@ -2453,14 +2486,19 @@ OUT_SPACING: default 8, may try 1, 2, 4; 8 is known to produce errors in some co
 #endif
 
 #if !OUT_SIZEX
+
 #if AMDGPU
-#define OUT_SIZEX 32
-#else // AMDGPU
+// We realized that these (OUT_WG, OUT_SIZEX) combinations work well: (256, 32) and (64, 8)
+// so default OUT_SIZEX relative to OUT_WG
+#define OUT_SIZEX (OUT_WG / 8)
+#else
+
 #if G_W >= 64
 #define OUT_SIZEX 4
 #else
 #define OUT_SIZEX 32
 #endif
+
 #endif
 #endif
 
@@ -2877,6 +2915,8 @@ KERNEL(64) transposeIn(P(Word2) out, CP(Word2) in) {
 // src/cl/trig.cl
 R"cltag(
 // Copyright (C) George Woltman and Mihai Preda
+
+#pragma once
 
 #if ULTRA_TRIG
 

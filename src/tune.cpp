@@ -191,7 +191,7 @@ void Tune::maxBpw(const string& config, u32 fftSize) {
   double z2 = roe.z();
 
   roe = zForBpw(bpw3);
-  // fprintf(stderr, "%s ", roe.toString().c_str());
+  // fprintf(stderr, "%s\n", roe.toString().c_str());
   double z3 =roe.z();
 
   double y1 = log2(z1);
@@ -206,7 +206,7 @@ void Tune::maxBpw(const string& config, u32 fftSize) {
   C -= log2(target);
 
   double delta = B * B - 4 * A * C;
-  assert(delta >= 0);
+  delta = max(delta, 0.0);
   double x = (-B - sqrt(delta)) / (2 * A);
   double xx = bpw2 + x * 0.25;
 

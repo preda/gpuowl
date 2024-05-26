@@ -65,11 +65,14 @@ T2 fancyMadTrig(T2 a, T2 b, T2 c) {
 T2 fancyMulUpdate(T2 a, T2 b) { return fancyMadTrig(a, b, b); }
 
 T2 fancySqUpdate(T2 a) {
-  return U2(
+  return 2 * U2(-a.y * a.y, fma(a.x, a.y, a.y));
+  /*
+      U2(
         // fma(a.y, -a.y, fma(a.x, a.x, 2 * a.x)),
         fma(a.x, a.x, fma(a.y, -a.y, 2 * a.x)),
         2 * fma(a.x, a.y, a.y)
         );
+  */
 }
 
 T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
