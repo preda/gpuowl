@@ -296,6 +296,17 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   Word2 wu[NW];
   T2 weights = fancyMul(THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);
 
+  /*
+#if MUL3
+  typedef CFMcarry Tcarry;
+#else
+  typedef CFcarry Tcarry;
+#endif
+
+  P(Tcarry) carryShuttlePtr = (P(Tcarry)) carryShuttle;
+  Tcarry carry[NW];
+*/
+
 #if MUL3
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
   CFMcarry carry[NW+1];
@@ -379,9 +390,12 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 #endif
 
     for (i32 i = 0; i < NW; ++i) {
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i /* ((me!=0) + NW - 1 + i) % NW*/];
     }
+
     if (me == 0) {
+      // Tcarry tmp = carry[NW - 1];
+
       carry[NW] = carry[NW-1];
       for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
       carry[0] = carry[NW];
@@ -1949,9 +1963,6 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   }
 
 #if DIRTY == 0
-  for (u32 i = 2; i < n; ++i) { u[i] = mul(u[i], trig[p + WG * (i - 1)]); }
-
-#elif DIRTY == 1
   T2 base = trig[WG + p];
 
   if (n >= 8) {
@@ -1966,7 +1977,7 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
     }
   }
 
-#elif DIRTY == 2
+#elif DIRTY == 1
   if (n >= 8) {
     T a = 2 * fma(w.x, w.y, w.y); // 2*sin*cos
     u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
@@ -1979,8 +1990,8 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   } else {
     T a = 2 * w.x * w.y;
     // u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
-    u[2] = mul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
     // u[2] = mul(u[2], U2(fma(w.x, w.x, -w.y * w.y), a));
+    u[2] = mul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
     a *= 2;
     T2 base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
     for (u32 i = 3; i < n; ++i) {
@@ -1989,7 +2000,7 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
     }
   }
 #else
-#error DIRTY must be 0, 1 or 2
+#error DIRTY must be 0 or 1
 #endif
 }
 
@@ -2260,41 +2271,6 @@ R"cltag(
 
 #include "fftbase.cl"
 
-// See also: fftheight.cl
-
-// 64x4
-void fft256w(local T2 *lds, T2 *u, Trig trig) {
-  UNROLL_WIDTH_CONTROL
-  for (u32 s = 0; s <= 4; s += 2) {
-    if (s) { bar(); }
-    fft4(u);
-    shuflAndMul(64, lds, trig, u, 4, 1u << s);
-  }
-  fft4(u);
-}
-
-// 64x8
-void fft512w(local T2 *lds, T2 *u, Trig trig) {
-  UNROLL_WIDTH_CONTROL
-  for (u32 s = 0; s <= 3; s += 3) {
-    if (s) { bar(); }
-    fft8(u);
-    shuflAndMul(64, lds, trig, u, 8, 1u << s);
-  }
-  fft8(u);
-}
-
-// 256x4
-void fft1Kw(local T2 *lds, T2 *u, Trig trig) {
-  UNROLL_WIDTH_CONTROL
-  for (i32 s = 0; s <= 6; s += 2) {
-    if (s) { bar(); }
-    fft4(u);
-    shuflAndMul(256, lds, trig, u, 4, 1u << s);
-  }
-  fft4(u);
-}
-
 void fft_NW(T2 *u) {
 #if NW == 4
   fft4(u);
@@ -2305,29 +2281,40 @@ void fft_NW(T2 *u) {
 #endif
 }
 
-// 4K == 512x8 or 1024x4
-void fft4Kw(local T2 *lds, T2 *u, Trig trig) {
+#if 0
+T2 swizzle(T2 src) {
+  int4 s = as_int4(src);
+  if (NW == 4) {
+    const int how = 0x1c;
+    s.x = __builtin_amdgcn_ds_swizzle(s.x, how);
+    s.y = __builtin_amdgcn_ds_swizzle(s.y, how);
+    s.z = __builtin_amdgcn_ds_swizzle(s.z, how);
+    s.w = __builtin_amdgcn_ds_swizzle(s.w, how);
+  } else {
+    const int how = 0x18;
+    s.x = __builtin_amdgcn_ds_swizzle(s.x, how);
+    s.y = __builtin_amdgcn_ds_swizzle(s.y, how);
+    s.z = __builtin_amdgcn_ds_swizzle(s.z, how);
+    s.w = __builtin_amdgcn_ds_swizzle(s.w, how);
+  }
+  return as_double2(s);
+}
+#endif
+
+void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
+
+#if WIDTH != 256 && WIDTH != 512 && WIDTH != 1024 && WIDTH != 4096
+#error WIDTH must be one of: 256, 512, 1024, 4096
+#endif
+
   UNROLL_WIDTH_CONTROL
   for (u32 s = 1; s < WIDTH / NW; s *= NW) {
     if (s > 1) { bar(); }
     fft_NW(u);
-    shuflAndMul(WIDTH / NW, lds, trig, u, NW, s);
+    tabMul(WIDTH / NW, trig, u, NW, s);
+    shufl( WIDTH / NW, lds,  u, NW, s);
   }
   fft_NW(u);
-}
-
-void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
-#if WIDTH == 256
-  fft256w(lds, u, trig);
-#elif WIDTH == 512
-  fft512w(lds, u, trig);
-#elif WIDTH == 1024
-  fft1Kw(lds, u, trig);
-#elif WIDTH == 4096
-  fft4Kw(lds, u, trig);
-#else
-#error unexpected WIDTH.
-#endif
 }
 )cltag",
 

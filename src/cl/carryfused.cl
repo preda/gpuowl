@@ -31,6 +31,17 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   Word2 wu[NW];
   T2 weights = fancyMul(THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);
 
+  /*
+#if MUL3
+  typedef CFMcarry Tcarry;
+#else
+  typedef CFcarry Tcarry;
+#endif
+
+  P(Tcarry) carryShuttlePtr = (P(Tcarry)) carryShuttle;
+  Tcarry carry[NW];
+*/
+
 #if MUL3
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
   CFMcarry carry[NW+1];
@@ -114,9 +125,12 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 #endif
 
     for (i32 i = 0; i < NW; ++i) {
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i];
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i /* ((me!=0) + NW - 1 + i) % NW*/];
     }
+
     if (me == 0) {
+      // Tcarry tmp = carry[NW - 1];
+
       carry[NW] = carry[NW-1];
       for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
       carry[0] = carry[NW];
