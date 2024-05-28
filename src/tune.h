@@ -17,7 +17,7 @@ public:
   Primes primes;
 
   u32 exponentForBpw(double bpw);
-  RoeInfo zForBpw(double bpw);
+  double zForBpw(double bpw, const string& config);
 
   void maxBpw(const std::string& config, u32 fftSize);
 

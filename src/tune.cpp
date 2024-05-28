@@ -164,59 +164,66 @@ u32 Tune::exponentForBpw(double bpw) {
   return primes.nearestPrime(fftSize * bpw + 0.5);
 }
 
-RoeInfo Tune::zForBpw(double bpw) {
+double Tune::zForBpw(double bpw, const string& config) {
   u32 exponent = exponentForBpw(bpw);
   auto gpu = Gpu::make(q, exponent, shared, false);
   auto [ok, res, roeSq, roeMul] = gpu->measureROE(shared.args->quickTune);
-  return roeSq;
-  // double z = roeSq.z();
-  // log("%s %s %u bpw=%.2f z=%.1f\n", ok ? "OK" : "EE", shared.args->fftSpec.c_str(), exponent, bpw, z);
-  // return z;
+  double z = roeSq.z();
+  if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, config.c_str()); }
+  return z;
 }
 
-void Tune::maxBpw(const string& config, u32 fftSize) {
-  double bpw1 = 18.1 - log2(fftSize / double(13 * 512 * 1024)) * 0.28;
-
-  double bpw2 = bpw1 + 0.25;
-  double bpw3 = bpw2 + 0.25;
-
-  // log("BPW %.2f %.2f %.2f\n", bpw1, bpw2, bpw3);
-
-  RoeInfo roe = zForBpw(bpw1);
-  // fprintf(stderr, "%s ", roe.toString().c_str());
-  double z1 = roe.z();
-
-  roe = zForBpw(bpw2);
-  // fprintf(stderr, "%s ", roe.toString().c_str());
-  double z2 = roe.z();
-
-  roe = zForBpw(bpw3);
-  // fprintf(stderr, "%s\n", roe.toString().c_str());
-  double z3 =roe.z();
-
+// Given the 3 points: (-1, z1), (0, z2), (1, z3),
+// interpolate (x, target) using a second-degree curve over the log of the z-values; return x.
+double interpolateZ(double z1, double z2, double z3, double target, bool verbose) {
   double y1 = log2(z1);
   double y2 = log2(z2);
   double y3 = log2(z3);
 
+  // Find the poly A*x^2 + B*X + C pasing through (-1, y1), (0, y2), (1, y3).
   double B = (y3 - y1) / 2;
   double C = y2;
   double A = (y1 + y3 - 2 * C) / 2;
 
-  double target = 27;
+  // Solve the second-degree eq. Ax^2 + Bx + C = log2(target)
+
   C -= log2(target);
 
-  double delta = B * B - 4 * A * C;
-  delta = max(delta, 0.0);
-  double x = (-B - sqrt(delta)) / (2 * A);
-  double xx = bpw2 + x * 0.25;
+  if (verbose) { log("%5.2f %5.2f %5.2f | %5.2f %5.2f %5.2f\n", z1, z2, z3, A, B, C); }
 
-  // fprintf(stderr, "\r");
-  log("%5.2f   | %5.2f %5.2f %5.2f | %5.2f %5.2f %5.2f |  %s\n",
-      xx,
-      z1, z2, z3,
-      A, B, C, config.c_str());
+  // We expect A < 0
+  if (A >= 0) {
+    return -C/B;
+  } else {
+    double delta = B * B - 4 * A * C;
+    delta = max(delta, 0.0);
+
+    // the larger of the two solutions, given A negative
+    return (-B - sqrt(delta)) / (2 * A);
+  }
+  assert(false); // unreachable
 }
 
+void Tune::maxBpw(const string& config, u32 fftSize) {
+  const double STEP = 0.25;
+  double bpw1 = 18.02 - log2(fftSize / double(13 * 512 * 1024)) * 0.28;
+
+  double bpw2 = bpw1 + STEP;
+  double bpw3 = bpw2 + STEP;
+
+  double z1 = zForBpw(bpw1, config);
+  double z2 = zForBpw(bpw2, config);
+  double z3 = zForBpw(bpw3, config);
+
+  // We assume z>=27 a safe-enough target
+  const double TARGET = 27;
+  double xraw = interpolateZ(z1, z2, z3, TARGET, shared.args->verbose);
+
+  // Scale xraw from [-1, 1] to [bpw2-STEP, bpw2+STEP]
+  double x = bpw2 + xraw * STEP;
+
+  log("%5.2f : %s\n", x, config.c_str());
+}
 
 void Tune::roeSearch() {
   auto configs = getTuneConfigs(shared.args->roeTune);
@@ -232,19 +239,12 @@ void Tune::roeSearch() {
 
     u32 fftSize = FFTConfig::fromSpec(shared.args->fftSpec).fftSize();
     maxBpw(toString(config), fftSize);
-    /*
-    auto [bpw, z] = maxBpw();
-    u32 exponent = exponentForBpw(bpw);
-    log("%u : BPW=%.3f Z=%.1f %s\n", exponent, bpw, z, toString(config).c_str());
-    */
   }
 }
 
 void roeTune(Queue* q, GpuCommon shared) {
   auto configs = getTuneConfigs(shared.args->roeTune);
   Primes primes;
-
-  // if (!shared.args->flags.contains("STATS")) { shared.args->flags["STATS"] = "15"; }
 
   u32 exponent = shared.args->prpExp;
 
