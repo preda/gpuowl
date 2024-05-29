@@ -132,29 +132,6 @@ string toString(TuneConfig config) {
   return s;
 }
 
-struct Point {
-  double bpw;
-  double z;
-};
-
-[[maybe_unused]] double interpolate(Point p1, Point p2, double target) {
-    // double lowBPW, double z1, double highBPW, double z2, double targetZ) {
-  /*
-  assert(lowBPW < highBPW);
-  assert(z1 >= targetZ && targetZ >= z2);
-  assert(z1 > z2 && z2 > 0);
-  */
-
-  assert(p1.z != p2.z);
-
-  double log1 = log(p1.z);
-  double log2 = log(p2.z);
-  double logt = log(target);
-
-  return (p1.bpw * (log2 - logt) + p2.bpw * (logt - log1)) / (log2 - log1);
-}
-
-
 } // namespace
 
 u32 Tune::exponentForBpw(double bpw) {
@@ -164,69 +141,95 @@ u32 Tune::exponentForBpw(double bpw) {
   return primes.nearestPrime(fftSize * bpw + 0.5);
 }
 
-double Tune::zForBpw(double bpw, const string& config) {
-  u32 exponent = exponentForBpw(bpw);
-  auto gpu = Gpu::make(q, exponent, shared, false);
+double Tune::zForBpw(double bpw, const string& config, Gpu* gpu) {
   auto [ok, res, roeSq, roeMul] = gpu->measureROE(shared.args->quickTune);
   double z = roeSq.z();
   if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, config.c_str()); }
   return z;
 }
 
-// Given the 3 points: (-1, z1), (0, z2), (1, z3),
-// interpolate (x, target) using a second-degree curve over the log of the z-values; return x.
-double interpolateZ(double z1, double z2, double z3, double target, bool verbose) {
+double Tune::zForBpw(double bpw, const string& config) {
+  u32 exponent = exponentForBpw(bpw);
+  auto gpu = Gpu::make(q, exponent, shared, false);
+  return zForBpw(bpw, config, gpu.get());
+}
+
+double solve(double A, double B, double C) {
+  double delta = B * B - 4 * A * C;
+  delta = max(delta, 0.0);
+
+  return (-B - sqrt(delta)) / (2 * A);
+}
+
+double interpolate4(double z1, double z2, double z3, double z4, double target, bool verbose) {
   double y1 = log2(z1);
   double y2 = log2(z2);
   double y3 = log2(z3);
+  double y4 = log2(z4);
 
-  // Find the poly A*x^2 + B*X + C pasing through (-1, y1), (0, y2), (1, y3).
-  double B = (y3 - y1) / 2;
-  double C = y2;
-  double A = (y1 + y3 - 2 * C) / 2;
+  // Below we do a quadratic least-squares fit to the 4 points
+  // (-1, z1), (0, z2), (1, z3), (2, z4)
+  // with A*x^2 + B*x + C
 
-  // Solve the second-degree eq. Ax^2 + Bx + C = log2(target)
+  double c1 = y1 + y2 + y3 + y4;
+  // double c2 = -y1      + y3 + 2*y4;
+  // double c3 =  y1      + y3 + 4*y4;
+
+  double A = (y1 - y2 - y3 + y4) / 4;            // (c3 - c2 - c1) / 4;
+  double B = (3 * (y4 - y1) + (y3 - y2)) / 10 - A; // (2c2 - c1 -10A) / 10;
+  double C = (c1 - 2*B - 6*A) / 4;
 
   C -= log2(target);
 
-  if (verbose) { log("%5.2f %5.2f %5.2f | %5.2f %5.2f %5.2f\n", z1, z2, z3, A, B, C); }
-
-  // We expect A < 0
-  if (A >= 0) {
-    return -C/B;
-  } else {
-    double delta = B * B - 4 * A * C;
-    delta = max(delta, 0.0);
-
-    // the larger of the two solutions, given A negative
-    return (-B - sqrt(delta)) / (2 * A);
+  if (verbose) {
+    log("%5.2f %5.2f %5.2f %5.2f | %5.3f %5.3f %5.3f\n", z1, z2, z3, z4, A, B, C);
   }
-  assert(false); // unreachable
+
+  return solve(A, B, C);
 }
 
-void Tune::maxBpw(const string& config, u32 fftSize) {
-  const double STEP = 0.25;
-  double bpw1 = 18.02 - log2(fftSize / double(13 * 512 * 1024)) * 0.28;
+TuneEntry Tune::maxBpw(const string& config, u32 fftSize) {
+  const double STEP = 0.2;
+  double bpw1 = 17.9 - log2(fftSize / double(13 * 512 * 1024)) * 0.28;
 
-  double bpw2 = bpw1 + STEP;
-  double bpw3 = bpw2 + STEP;
+  double bpw2 = bpw1 + 1 * STEP;
+  double bpw3 = bpw1 + 2 * STEP;
+  double bpw4 = bpw1 + 3 * STEP;
 
   double z1 = zForBpw(bpw1, config);
   double z2 = zForBpw(bpw2, config);
-  double z3 = zForBpw(bpw3, config);
+  double z4 = zForBpw(bpw4, config);
 
-  // We assume z>=27 a safe-enough target
-  const double TARGET = 27;
-  double xraw = interpolateZ(z1, z2, z3, TARGET, shared.args->verbose);
+  auto gpu = Gpu::make(q, exponentForBpw(bpw3), shared, false);
+  double z3 = zForBpw(bpw3, config, gpu.get());
+
+  auto [secsPerIt, res64] = gpu->timePRP(shared.args->quickTune);
+  gpu.reset();
+
+  // We deem this a safe-enough target
+  const double TARGET = 28;
+  double xraw = interpolate4(z1, z2, z3, z4, TARGET, shared.args->verbose);
 
   // Scale xraw from [-1, 1] to [bpw2-STEP, bpw2+STEP]
   double x = bpw2 + xraw * STEP;
+  u32 maxExp = exponentForBpw(x);
 
-  log("%5.2f : %s\n", x, config.c_str());
+  // log("+%.0f =%u %s # BPW=%5.2f\n", secsPerIt * 1e6, maxExp, config.c_str(), x);
+
+  return {secsPerIt, maxExp, config, fftSize};
+}
+
+string TuneEntry::toString() const {
+  char buf[256];
+  double bpw = double(maxExp) / fftSize;
+  snprintf(buf, sizeof(buf),
+           "= %4.0f %9u %5.2f %s", secsPerIt * 1e6, maxExp, bpw, config.c_str());
+  return buf;
 }
 
 void Tune::roeSearch() {
   auto configs = getTuneConfigs(shared.args->roeTune);
+  vector<TuneEntry> entries;
 
   for (const auto& config : configs) {
     for (auto& [k, v] : config) {
@@ -238,8 +241,23 @@ void Tune::roeSearch() {
     }
 
     u32 fftSize = FFTConfig::fromSpec(shared.args->fftSpec).fftSize();
-    maxBpw(toString(config), fftSize);
+    TuneEntry entry = maxBpw(toString(config), fftSize);
+    entries.push_back(entry);
+    log("%s\n", entry.toString().c_str());
   }
+
+  std::sort(entries.begin(), entries.end(),
+            [](const TuneEntry& a, const TuneEntry& b) { return a.secsPerIt < b.secsPerIt; });
+
+  string s;
+  u32 bestSoFar = 0;
+  for (const auto& e : entries) {
+    if (e.maxExp > bestSoFar) {
+      s += e.toString() + '\n';
+      bestSoFar = e.maxExp;
+    }
+  }
+  log("Tune result:\n------\n%s------\n", s.c_str());
 }
 
 void roeTune(Queue* q, GpuCommon shared) {

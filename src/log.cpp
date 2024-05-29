@@ -30,7 +30,7 @@ string shortTimeStr() { return timeStr("%Y%m%d %H:%M:%S"); }
 void log(const char *fmt, ...) {
   static std::mutex logMutex;
   
-  char buf[2 * 1024];
+  char buf[4 * 1024];
 
   va_list va;
   va_start(va, fmt);
