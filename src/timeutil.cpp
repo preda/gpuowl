@@ -14,6 +14,6 @@ std::string timeStr(const char *format) {
 std::string timeStr() {
   time_t t = time(NULL);
   char buf[64];
-  strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S UTC", gmtime(&t));   // equivalent to: "%F %T"
+  strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", gmtime(&t));   // equivalent to: "%F %T"
   return buf;
 }

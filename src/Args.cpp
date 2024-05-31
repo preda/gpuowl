@@ -32,8 +32,8 @@ string Args::mergeArgs(int argc, char **argv) {
   return ret;
 }
 
-vector<pair<string, string>> splitArgLine(const string& inputLine) {
-  vector<pair<string, string>> ret;
+vector<KeyVal> Args::splitArgLine(const string& inputLine) {
+  vector<KeyVal> ret;
 
   // The line must be ended with at least one space for the regex to function correctly.
   string line = inputLine + ' ';
@@ -46,7 +46,22 @@ vector<pair<string, string>> splitArgLine(const string& inputLine) {
     if (!prefix.empty()) { log("Args: unexpected '%s' before '%s'\n", prefix.c_str(), m.str(0).c_str()); }
     if (!suffix.empty()) { log("Args: unexpected '%s' in '%s'\n", suffix.c_str(), m.str(0).c_str()); }
     if (!prefix.empty() || !suffix.empty()) { throw "Argument syntax"; }
-    ret.push_back(pair(m.str(1), m.str(2)));
+    ret.push_back({m.str(1), m.str(2)});
+  }
+  return ret;
+}
+
+// Splits a string of the form "Foo=bar,C,D=1" into key=value pairs, with value defaulting to "1".
+vector<KeyVal> Args::splitUses(string ss) { // pass by value is intentional
+  vector<KeyVal> ret;
+  std::replace(ss.begin(), ss.end(), ',', ' ');
+  std::istringstream iss{ss};
+  vector<string> uses{std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
+  for (const string &s : uses) {
+    auto pos = s.find('=');
+    string key = (pos == string::npos) ? s : s.substr(0, pos);
+    string val = (pos == string::npos) ? "1"s : s.substr(pos+1);
+    ret.push_back({key, val});
   }
   return ret;
 }
@@ -155,14 +170,11 @@ named "config.txt" in the prpll run directory.
                      See src/cl/middle.cl for some tunable paramaters.
                      The residues are displayed at iteration 10000.
 
--roeTune <spec>    : informs on the probability of a fatal roundoff error (ROE) over a combination of parameters.
-                     Example:
-                       -roeTune "fft=6.5M;TRIG_HI=0,1"
-                     The "Z" value in the output indicates how unlikely a fatal ROE is; the higher the z, the better.
-                     Ideally one wants a z>=27, and no less than 24.
-
--qtune <spec>      : faster variant of -tune (useful for slow GPUs).
--qroeTune <spec>   : faster variant of -roeTune
+-ztune <ffts>      : finds the maximum exponent that can be handled by each FFT in the list <ffts>. Examples:
+                     -ztune "1K:13:256"
+                     -ztune "6.5M"
+                     -ztune "6M-7M"
+                     Appends the results to ztune.txt
 
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
@@ -226,14 +238,12 @@ void Args::parse(const string& line) {
     } else if (key == "-version") {
       // log("PRPLL %s\n", VERSION);
       throw "version";
-    } else if (key == "-tune" || key == "-qtune") {
-      if (!tune.empty() && !tune.ends_with(';')) { tune.push_back(';'); }
-      tune += s;
-      quickTune = (key == "-qtune");
-    } else if (key == "-roeTune" || key == "-qroeTune") {
-      if (!roeTune.empty() && !roeTune.ends_with(';')) { roeTune.push_back(';'); }
-      roeTune += s;
-      quickTune = (key == "-qroeTune");
+    } else if (key == "-tune") {
+      tune = s;
+      quickTune = true;
+    } else if (key == "-ztune") {
+      roeTune = s;
+      quickTune = true;
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-time") {
@@ -318,20 +328,7 @@ void Args::parse(const string& line) {
         throw "invalid block size";
       }
     } else if (key == "-use") {
-      string ss = s;
-      std::replace(ss.begin(), ss.end(), ',', ' ');
-      std::istringstream iss{ss};
-      vector<string> uses{std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
-      for (const string &s : uses) {
-        auto pos = s.find('=');
-        string key = (pos == string::npos) ? s : s.substr(0, pos);
-        string val = (pos == string::npos) ? "1"s : s.substr(pos+1);
-
-        if (key == "STATS" && pos == string::npos) {
-          // special-case the default value for STATS (=15) being a bit-field
-          val = "15";
-        }
-
+      for (const auto& [key, val] : splitUses(s)) {
         auto it = flags.find(key);
         if (it != flags.end() && it->second != val) {
           log("warning: -use %s=%s overrides %s=%s\n", key.c_str(), val.c_str(), it->first.c_str(), it->second.c_str());

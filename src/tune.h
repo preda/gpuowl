@@ -10,16 +10,11 @@ class GpuCommon;
 class RoeInfo;
 class Gpu;
 
-struct TuneEntry {
-  double secsPerIt;
-  u32 maxExp;
-  std::string config;
-  u32 fftSize;
-
-  std::string toString() const;
-};
-
 class Tune {
+private:
+  u32 fftSize();
+  pair<double, u32> maxBpw(const std::string& config);
+
 public:
   Queue *q;
   GpuCommon shared;
@@ -30,9 +25,8 @@ public:
   double zForBpw(double bpw, const string& config);
   double zForBpw(double bpw, const string& config, Gpu* gpu);
 
-  TuneEntry maxBpw(const std::string& config, u32 fftSize);
 
-  void roeSearch();
+  void ztune();
 };
 
 void tune(Queue* q, GpuCommon shared);

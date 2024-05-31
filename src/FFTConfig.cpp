@@ -3,14 +3,52 @@
 #include "FFTConfig.h"
 #include "common.h"
 #include "log.h"
+#include "File.h"
+#include "Args.h"
 
 #include <cmath>
 #include <cassert>
 #include <vector>
 #include <algorithm>
 #include <string>
+#include <cstdio>
 
 using namespace std;
+
+vector<FFT> FFTConfig::readTune() {
+  vector<FFT> ret;
+
+  File fi = File::openRead("tune.txt");
+  if (!fi) { return {}; }
+  for (string line : fi) {
+    if (line.empty() || line[0] == '#') { continue; }
+    u32 priority{};
+    u32 maxExp{};
+    float bpw{};
+    int pos = 0;
+    int nScan = sscanf(line.c_str(), "%u %u %f : %n", &priority, &maxExp, &bpw, &pos);
+    if (!pos || nScan < 3) {
+      log("Invalid tune line \"%s\" ignored\n", line.c_str());
+      continue;
+    }
+    string tail = line.substr(pos);
+    string fftSpec;
+    vector<KeyVal> uses;
+    for (const auto& [k, v] : Args::splitArgLine(tail)) {
+      if (k == "-fft") {
+        fftSpec = v;
+      } else if (k == "-uses") {
+        uses = Args::splitUses(v);
+      } else {
+        log("Unexpeted %s %s\n", k.c_str(), v.c_str());
+      }
+    }
+    assert(!fftSpec.empty());
+    ret.push_back({priority, maxExp, fftSpec, uses});
+  }
+  std::sort(ret.begin(), ret.end(), [](const FFT& a, const FFT& b) { return a.priority < b.priority; });
+  return ret;
+}
 
 // This routine predicts the maximum carry32 we might see.  This was based on 500,000 iterations
 // of 24518003 using a 1.25M FFT.  The maximum carry32 value observed was 0x32420000.
@@ -100,8 +138,26 @@ FFTConfig FFTConfig::fromSpec(const string& spec) {
   return multiSpec(spec).front();
 }
 
+// Accepts:
+// - a single config e.g. "1K:13:256"
+// - a size e.g. "6.5M"
+// - a range e.g. "6M-7M"
 vector<FFTConfig> FFTConfig::multiSpec(const string& spec) {
   assert(!spec.empty());
+  auto pDash = spec.find('-');
+  if (pDash != string::npos) {
+    string from = spec.substr(0, pDash);
+    string to = spec.substr(pDash + 1);
+    u32 sizeFrom = multiSpec(from).front().fftSize();
+    u32 sizeTo = multiSpec(to).front().fftSize();
+    auto all = genConfigs();
+    vector<FFTConfig> ret;
+    for (const auto& c : all) {
+      if (c.fftSize() >= sizeFrom && c.fftSize() <= sizeTo) { ret.push_back(c); }
+    }
+    return ret;
+  }
+
   bool hasParts = spec.find(':') != string::npos;
   if (hasParts) {
     auto p1 = spec.find(':');
@@ -130,9 +186,7 @@ vector<FFTConfig> FFTConfig::genConfigs() {
   for (u32 width : {256, 512, 1024, 4096}) {
     for (u32 height : {256, 512, 1024}) {
       for (u32 middle : {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) {
-        if (middle > 1 || width * height < 512 * 512) {
-          configs.push_back({width, middle, height});
-        }
+        configs.push_back({width, middle, height});
       }
     }
   }

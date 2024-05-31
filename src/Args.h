@@ -10,11 +10,15 @@
 
 namespace fs = std::filesystem;
 
+using KeyVal = std::pair<std::string, std::string>;
+
 class Args {
 private:
     int proofPow = -1;
 
 public:
+  static vector<KeyVal> splitArgLine(const std::string& inputLine);
+  static vector<KeyVal> splitUses(std::string ss);
   static std::string mergeArgs(int argc, char **argv);
 
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};

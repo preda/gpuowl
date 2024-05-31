@@ -99,7 +99,7 @@ int main(int argc, char **argv) {
     } else if (!args.roeTune.empty()) {
       Queue q(context, args.profile);
       Tune tune{&q, shared};
-      tune.roeSearch();
+      tune.ztune();
     } else {
       vector<Queue> queues;
       for (int i = 0; i < int(args.workers); ++i) { queues.emplace_back(context, args.profile); }
