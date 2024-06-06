@@ -32,7 +32,7 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
     u[1] = mul(u[1], w);
   }
 
-#if DIRTY == 0
+#if CLEAN == 1
   T2 base = trig[WG + p];
 
   if (n >= 8) {
@@ -47,7 +47,7 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
     }
   }
 
-#elif DIRTY == 1
+#elif CLEAN == 0
   if (n >= 8) {
     T a = 2 * fma(w.x, w.y, w.y); // 2*sin*cos
     u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
@@ -70,7 +70,7 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
     }
   }
 #else
-#error DIRTY must be 0 or 1
+#error CLEAN must be 0 or 1
 #endif
 }
 

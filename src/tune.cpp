@@ -9,11 +9,14 @@
 #include "log.h"
 #include "File.h"
 
+#include <numeric>
 #include <string>
 #include <vector>
 #include <cinttypes>
 #include <cassert>
 #include <algorithm>
+
+using std::accumulate;
 
 using namespace std;
 
@@ -91,18 +94,16 @@ vector<TuneConfig> getTuneConfigs(const string& tune) {
 
 vector<TuneConfig> getRoeConfigs(const string& fftSpec) {
   // vector<FFTConfig> fftConfigs = FFTConfig::multiSpec(fftSpec);
-  return getTuneConfigs("fft=" + fftSpec + ";DIRTY=1,0;TRIG_HI=0,1");
+  return getTuneConfigs("fft=" + fftSpec + ";CLEAN=0,1;TRIG_HI=0,1");
 }
 
 string toSimpleString(TuneConfig config) {
   assert(!config.empty() && config.front().first == "fft");
-  string s = config.front().second + ' ';
+  string s = config.front().second;
   config.erase(config.begin());
   for (const auto& [k, v] : config) {
     assert(k != "fft" && k != "FFT");
-
-    if (s.back() != ' ') { s += ','; }
-    s += k + '=' + v;
+    s += ","s + k + '=' + v;
   }
   return s;
 }
@@ -164,51 +165,106 @@ double solve(double A, double B, double C) {
   return (-B - sqrt(delta)) / (2 * A);
 }
 
-array<double, 3> interpolate4(const vector<double>& zv, double target) {
-  assert(zv.size() == 4);
-  vector<double> y;
-  for (double z : zv) { y.push_back(log2(z)); }
+// Quadratic least squares over 4 points at x-coords {-1, 0, 1, 2}
+array<double, 3> quadApprox(array<double, 4> z) {
+  array<double, 4> y;
+  for (int i = 0; i < 4; ++i) { y[i] = log2(z[i]); }
 
-  // Below we do a quadratic least-squares fit to the 4 points
-  // (-1, z1), (0, z2), (1, z3), (2, z4)
-  // with A*x^2 + B*x + C
+  // Fit A*x^2 + B*x + C to the 4 points (-1, y[0]), (0, y[1]), (1, y[2]), (2, y[3])
 
   double c1 = y[0] + y[1] + y[2] + y[3];  // y1 + y2 + y3 + y4;
   // double c2 = -y1      + y3 + 2*y4;
   // double c3 =  y1      + y3 + 4*y4;
 
-  double A = (y[0] - y[1] - y[2] + y[3]) / 4;            // (c3 - c2 - c1) / 4;
+  double A = (y[0] - y[1] - y[2] + y[3]) / 4;              // (c3 - c2 - c1) / 4;
   double B = (3 * (y[3] - y[0]) + (y[2] - y[1])) / 10 - A; // (2c2 - c1 -10A) / 10;
   double C = (c1 - 2 * B - 6 * A) / 4;
 
-  C -= log2(target);
-
-  double x = solve(A, B, C);
-
-  return {x, A, B};
-
-
+  return {A, B, C};
 }
 
-pair<double, u32> Tune::maxBpw(const string& config) {
-  const double STEP = 0.2;
-  double bpw1 = 17.9 - log2(fftSize() / double(13 * 512 * 1024)) * 0.28;
+array<double, 3> quadApprox(array<double, 5> z) {
+  decltype(z) y;
+  for (int i = 0; i < int(z.size()); ++i) { y[i] = log2(z[i]); }
 
-  vector<double> z;
-  for (int i = 0; i < 4; ++i) { z.push_back(zForBpw(bpw1 + i * STEP, config)); }
+  double c1 = y[0] + y[1] + y[2] + y[3] + y[4];
+  double c2 = 2 * (y[4] - y[0]) + (y[3] - y[1]);
+  double c3 = 4 * (y[4] + y[0]) + (y[3] + y[1]);
 
-  // We deem this a safe-enough target
+  double B = c2 / 10;
+  double A = (c3 - 2 * c1) / 14;
+  double C = c1 / 5 - 2 * A;
+
+  return {A, B, C};
+}
+
+array<double, 3> quadApprox(array<double, 7> z) {
+  decltype(z) y;
+  for (int i = 0; i < int(z.size()); ++i) { y[i] = log2(z[i]); }
+
+  double c1 = y[3] + (y[1] + y[5]) + (y[0] + y[6]) + (y[2] + y[4]);
+  double c2 = 3 * (y[6] - y[0]) + 2 * (y[5] - y[1]) + (y[4] - y[2]);
+  double c3 = 9 * (y[6] + y[0]) + 4 * (y[5] + y[1]) + (y[4] + y[2]);
+
+  double B = c2 / 28;
+  double A = (c3 - 4 * c1) / 84;
+  double C = (c1 - 28 * A) / 7;
+
+  return {A, B, C};
+}
+
+// Find x such that A*x^2 + B*x + C = log2(target)
+double solveForTarget(array<double, 3> coefs, double target) {
+  auto [A, B, C] = coefs;
+  return solve(A, B, C - log2(target));
+}
+
+array<double, 3> Tune::maxBpw(const string& config) {
+  const double STEP = 0.1;
+  double bpw1 = 17.8 - log2(fftSize() / double(13 * 512 * 1024)) * 0.28;
+
+  array<double, 7> z;
+  for (int i = 0; i < int(z.size()); ++i) { z[i] = zForBpw(bpw1 + i * STEP, config); }
+
+  auto ABC = quadApprox(z);
+
+  double AS = ABC[0] / (STEP * STEP);
+  double BS = ABC[1] / STEP;
+
+  double AA = AS;
+  double k = 18 - (bpw1 + 3 * STEP);
+  double BB = 2 * k * AS + BS;
+  double CC = AS * k * k + BS * k + ABC[2];
+  double bpw = solveForTarget({AA, BB, CC}, 28) + 18;
+
+  log("%.3f | %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f | %f %f %f | %s\n",
+      bpw, z[0], z[1], z[2], z[3], z[4], z[5], z[6],
+      AA, BB, CC, config.c_str());
+
+  return {AA, BB, CC};
+
+  /*
+  // We deem z==TARGET safe-enough. And z==TARGET-5 an agressive lower limit.
+  // dx becomes the BPW margin (the difference safe and agressive BPW)
   const double TARGET = 28;
-  auto [xraw, A, B] = interpolate4(z, TARGET);
+  double xraw = solveForTarget(ABC, TARGET);
+  // Scale xraw from [-2, 2] to [bpw2-STEP, bpw2+STEP]
+  double bpw = bpw1 + (xraw + 3) * STEP;
 
-  // Scale xraw from [-1, 1] to [bpw2-STEP, bpw2+STEP]
-  double bpw = bpw1 + (xraw + 1) * STEP;
-  u32 maxExp = exponentForBpw(bpw);
+  // double xrawLimit = solveForTarget(ABC, TARGET - 5);
+  // double dx = (xrawLimit - xraw) * STEP;
 
-  log("%.2f %9u | %5.2f %5.2f %5.2f %5.2f | %6.3f %6.3f | %s\n",
-      bpw, maxExp, z[0], z[1], z[2], z[3], A, B, config.c_str());
+  double x = bpw - 18;
+  double x2 = solveForTarget({AA, BB, CC}, TARGET) + 18;
 
-  return {bpw, maxExp};
+  log("%.3f %.3f %9u | %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f | %6.3f %6.3f %6.3f | %f %f %f %f | %s\n",
+      bpw, x2, exponentForBpw(bpw),
+      z[0], z[1], z[2], z[3], z[4], z[5], z[6],
+      ABC[0], ABC[1], ABC[2], AA, BB, CC, AA * x * x + BB * x + CC,
+      config.c_str());
+
+  return {bpw, 0};
+  */
 }
 
 void Tune::ztune() {
@@ -230,9 +286,11 @@ void Tune::ztune() {
       }
     }
 
-    auto [bpw, maxExp] = maxBpw(toString(config));
+    auto [A, B, C] = maxBpw(toString(config));
+    const double TARGET = 28;
+    double bpw = 18 + solveForTarget({A, B, C}, TARGET);
 
-    ztune.printf("%9u %s # %.2f\n", maxExp, toSimpleString(config).c_str(), bpw);
+    ztune.printf("{%f, %f, %f, \"%s\"}, // %.3f\n", A, B, C, toSimpleString(config).c_str(), bpw);
   }
 }
 

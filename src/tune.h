@@ -5,6 +5,8 @@
 #include "Primes.h"
 #include "GpuCommon.h"
 
+#include <array>
+
 class Queue;
 class GpuCommon;
 class RoeInfo;
@@ -13,7 +15,7 @@ class Gpu;
 class Tune {
 private:
   u32 fftSize();
-  pair<double, u32> maxBpw(const std::string& config);
+  std::array<double, 3> maxBpw(const std::string& config);
 
 public:
   Queue *q;

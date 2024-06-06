@@ -30,33 +30,36 @@ def getNeedRegion(need):
 
 def uploadChunk(session, baseUrl, pos, chunk):
     url = f'{baseUrl}&DataOffset={pos}&DataSize={len(chunk)}&DataMD5={md5(chunk)}'
-    response = session.post(url, files={'Data': (None, chunk)}, allow_redirects=False, timeout=900)
+    response = session.post(url, files={'Data': (None, chunk)}, allow_redirects=False, timeout=120)
     # headers={'Content-Type:': 'multipart/form-data'}
+    # print(f'Response: {response}')
     return response
-    print(response.json())
-    if response.status_code == 200:
-        return True
-
-    print(url)
-    print(response)
-    # print(response.json())
-    return False
 
 def upload(userId, exponent, data, verbose):
     fileSize = len(data)
     fileHash = md5(data)
-    url = f'http://mersenne.org/proof_upload/?UserID={userId}&Exponent={exponent}&FileSize={fileSize}&FileMD5={fileHash}'
+    url = f'https://mersenne.org/proof_upload/?UserID={userId}&Exponent={exponent}&FileSize={fileSize}&FileMD5={fileHash}'
     verbose and print(url)
 
     while True:
-        json = requests.get(url, timeout=20).json()
-        if 'error_status' in json or 'URLToUse' not in json or 'need' not in json:
-            print(json)
-            return json['error_status'] == 409 and json['error_description'] == 'Proof already uploaded'
-
-        origUrl = json['URLToUse']
-        verbose and print(origUrl)
-        baseUrl = 'http' + origUrl[5:] if origUrl.startswith('https:') else origUrl
+        result = requests.get(url, timeout=20)
+        # print(result, result.content, result.headers, result.is_redirect, result.links, result.text, result.url)
+        # print("not JSONDecodeError on Result:\n%s\nText:\n%s\n" % (result, result.text))
+        
+        try:
+            json = result.json()
+            if 'error_status' in json or 'URLToUse' not in json or 'need' not in json:
+              print(json)
+              return json['error_status'] == 409 and json['error_description'] == 'Proof already uploaded'
+              
+            origUrl = json['URLToUse']
+            verbose and print(origUrl)
+        except json.decoder.JSONDecodeError:
+            print("JSONDecodeError on Result:\n%s\nText:\n%s\n" % (result, result.text))
+            return False
+        
+        # baseUrl = 'http' + origUrl[5:] if origUrl.startswith('https:') else origUrl
+        baseUrl = 'https' + origUrl[4:] if origUrl.startswith('http:') else origUrl
         if baseUrl != origUrl:
             verbose and print(f'Re-written to: {baseUrl}')
 
