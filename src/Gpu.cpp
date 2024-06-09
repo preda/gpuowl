@@ -170,24 +170,7 @@ string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SM
   if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
 
   // Force carry64 when carry32 might exceed a very conservative 0x6C000000
-  if (FFTConfig::getMaxCarry32(N, E) > 0x6C00) { defines.push_back({"CARRY64", 1}); }
-
-  // If we are near the maximum exponent for this FFT, then we may need to set some chain #defines
-  // to reduce the round off errors.
-  auto [mm_chain, mm2_chain, ultra_trig] = FFTConfig::getChainLengths(N, E, MIDDLE);
-
-  if (mm_chain || mm2_chain || ultra_trig) {
-    bool skip = args.flags.contains("MM_CHAIN") || args.flags.contains("MM2_CHAIN") || args.flags.contains("ULTRA_TRIG")
-                || !args.roeTune.empty();
-    if (skip) {
-      if (args.verbose) { log("skipping: MM_CHAIN=%d MM2_CHAIN=%d ULTRA_TRIG=%d\n", mm_chain, mm2_chain, ultra_trig); }
-    } else {
-      log("applying: MM_CHAIN=%d MM2_CHAIN=%d ULTRA_TRIG=%d\n", mm_chain, mm2_chain, ultra_trig);
-      if (mm_chain) { defines.push_back({"MM_CHAIN", mm_chain}); }
-      if (mm2_chain) { defines.push_back({"MM2_CHAIN", mm2_chain}); }
-      if (ultra_trig) { defines.push_back({"ULTRA_TRIG", 1}); }
-    }
-  }
+  if (FFTShape::getMaxCarry32(N, E) > 0x6C00) { defines.push_back({"CARRY64", 1}); }
 
   defines.push_back({"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
   defines.push_back({"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
@@ -207,20 +190,20 @@ string clArgs(const Args& args) {
   return s;
 }
 
-FFTConfig getFFTConfig(u32 E, string fftSpec) {
+FFTShape getFFTConfig(u32 E, string fftSpec) {
   if (fftSpec.empty()) {
-    vector<FFTConfig> configs = FFTConfig::genConfigs();
-    for (FFTConfig c : configs) { if (c.maxExp() >= E) { return c; } }
+    vector<FFTShape> configs = FFTShape::genConfigs();
+    for (FFTShape c : configs) { if (c.maxExp() >= E) { return c; } }
     log("No FFT for exponent %u\n", E);
     throw "No FFT for exponent";
   }
-  return FFTConfig::fromSpec(fftSpec);
+  return FFTShape::fromSpec(fftSpec);
 }
 
 } // namespace
 
 unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, bool logFftSize) {
-  FFTConfig config = getFFTConfig(E, shared.args->fftSpec);
+  FFTShape config = getFFTConfig(E, shared.args->fftSpec);
   u32 WIDTH        = config.width;
   u32 SMALL_HEIGHT = config.height;
   u32 MIDDLE       = config.middle;
@@ -237,8 +220,8 @@ unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, bool logFftSize) {
     throw "FFT size too small";
   }
 
-  if (bitsPerWord < FFTConfig::MIN_BPW) {
-    log("FFT size too large for exponent (%.2f bits/word < %.2f bits/word).\n", bitsPerWord, FFTConfig::MIN_BPW);
+  if (bitsPerWord < FFTShape::MIN_BPW) {
+    log("FFT size too large for exponent (%.2f bits/word < %.2f bits/word).\n", bitsPerWord, FFTShape::MIN_BPW);
     throw "FFT size too large";
   }
 

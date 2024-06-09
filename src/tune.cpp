@@ -80,7 +80,7 @@ vector<TuneConfig> getTuneConfigs(const string& tune) {
     if (key == "fft") {
       vector<string> outOptions;
       for (string& s : options) {
-        for(FFTConfig& c : FFTConfig::multiSpec(s)) {
+        for(FFTShape& c : FFTShape::multiSpec(s)) {
           outOptions.push_back(c.spec());
         }
       }
@@ -138,7 +138,7 @@ string toString(TuneConfig config) {
 u32 Tune::fftSize() {
   string spec = shared.args->fftSpec;
   assert(!spec.empty());
-  return FFTConfig::fromSpec(spec).fftSize();
+  return FFTShape::fromSpec(spec).fftSize();
 }
 
 u32 Tune::exponentForBpw(double bpw) {

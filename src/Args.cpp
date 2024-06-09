@@ -203,8 +203,8 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
   }
   printf("\nFFT Configurations (specify with -fft <width>:<middle>:<height> from the set below):\n");
   
-  vector<FFTConfig> configs = FFTConfig::genConfigs();
-  configs.push_back(FFTConfig{}); // dummy guard for the loop below.
+  vector<FFTShape> configs = FFTShape::genConfigs();
+  configs.push_back(FFTShape{}); // dummy guard for the loop below.
   string variants;
   u32 activeSize = 0;
   u32 activeMaxExp = 0;
@@ -213,7 +213,7 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
       if (!variants.empty()) {
         printf("FFT %5s [%6.2fM - %7.2fM]  %s\n",
                numberK(activeSize).c_str(),
-               activeSize * FFTConfig::MIN_BPW / 1'000'000, activeMaxExp / 1'000'000.0,
+               activeSize * FFTShape::MIN_BPW / 1'000'000, activeMaxExp / 1'000'000.0,
                variants.c_str());
         variants.clear();
       }

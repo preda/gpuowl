@@ -21,7 +21,7 @@ struct FFT {
   std::vector<KeyVal> uses;
 };
 
-class FFTConfig {
+class FFTShape {
   vector<FFT> readTune();
 
 public:
@@ -44,13 +44,13 @@ public:
 			       fftSize * (18.3804 - 0.279 * log2(fftSize / (7.5 * 1024 * 1024))); }
   
   static u32 getMaxCarry32(u32 fftSize, u32 exponent);
-  static std::vector<FFTConfig> genConfigs();
+  static std::vector<FFTShape> genConfigs();
 
   static tuple<u32, u32, bool> getChainLengths(u32 fftSize, u32 exponent, u32 middle);
 
-  // FFTConfig(u32 w, u32 m, u32 h) : width(w), middle(m), height(h) {}
-  static FFTConfig fromSpec(const string& spec);
-  static vector<FFTConfig> multiSpec(const string& spec);
+  // FFTShape(u32 w, u32 m, u32 h) : width(w), middle(m), height(h) {}
+  static FFTShape fromSpec(const string& spec);
+  static vector<FFTShape> multiSpec(const string& spec);
   
   u32 width  = 0;
   u32 middle = 0;
