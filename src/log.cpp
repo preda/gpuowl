@@ -4,7 +4,7 @@
 #include "File.h"
 #include "timeutil.h"
 
-#include <cstdio>
+// #include <cstdio>
 #include <mutex>
 
 vector<File> logFiles;
@@ -17,11 +17,7 @@ string logContext() { return context; }
 void initLog() { logFiles.emplace_back(stdout, "stdout"); }
 
 void initLog(const char *logName) {
-  auto fo = File::openAppend(logName);
-#if defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
-    setlinebuf(fo.get());
-#endif
-  logFiles.push_back(std::move(fo));
+  logFiles.push_back(File::openAppend(logName));
 }
 
 string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
@@ -41,10 +37,7 @@ void log(const char *fmt, ...) {
 
   std::unique_lock lock(logMutex);
   for (auto &f : logFiles) {
-    fprintf(f.get(), "%s %s", prefix.c_str(), buf);
-#if !(defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE))
-    fflush(f.get());
-#endif
+    f.printf("%s %s", prefix.c_str(), buf);
   }
 }
 

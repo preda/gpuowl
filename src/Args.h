@@ -32,6 +32,8 @@ public:
   void readConfig(const fs::path& path);
   u32 getProofPow(u32 exponent) const;
   string tailDir() const;
+
+  bool hasFlag(const string& key) const;
   
   bool silent;
   string user;
@@ -41,7 +43,8 @@ public:
   string uid;
   string verifyPath;
   string tune;
-  string roeTune;
+  bool doZtune{};
+  string ztune;
   bool quickTune = false;
   std::map<std::string, std::string> flags;
   

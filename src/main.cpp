@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
     if (!args.tune.empty()) {
       Queue q(context, args.profile);
       tune(&q, shared);
-    } else if (!args.roeTune.empty()) {
+    } else if (args.doZtune) {
       Queue q(context, args.profile);
       Tune tune{&q, shared};
       tune.ztune();

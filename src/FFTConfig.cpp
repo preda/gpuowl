@@ -12,8 +12,19 @@
 #include <algorithm>
 #include <string>
 #include <cstdio>
+#include <array>
+#include <map>
 
 using namespace std;
+
+struct FftBpw {
+  string fft;
+  array<double, 4> bpw;
+};
+
+map<string, array<double, 4>> BPW {
+#include "fftbpw.h"
+};
 
 vector<FFT> FFTShape::readTune() {
   vector<FFT> ret;
@@ -150,6 +161,12 @@ vector<FFTShape> FFTShape::genConfigs() {
               return a.height < b.height;
             });
   return configs;
+}
+
+FFTShape::FFTShape(u32 w, u32 m, u32 h) :
+  width{w}, middle{m}, height{h} {
+  string s = spec();
+  bpw = BPW[s];
 }
 
 string numberK(u32 n) {

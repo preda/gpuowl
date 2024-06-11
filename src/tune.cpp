@@ -242,55 +242,36 @@ array<double, 3> Tune::maxBpw(const string& config) {
       AA, BB, CC, config.c_str());
 
   return {AA, BB, CC};
-
-  /*
-  // We deem z==TARGET safe-enough. And z==TARGET-5 an agressive lower limit.
-  // dx becomes the BPW margin (the difference safe and agressive BPW)
-  const double TARGET = 28;
-  double xraw = solveForTarget(ABC, TARGET);
-  // Scale xraw from [-2, 2] to [bpw2-STEP, bpw2+STEP]
-  double bpw = bpw1 + (xraw + 3) * STEP;
-
-  // double xrawLimit = solveForTarget(ABC, TARGET - 5);
-  // double dx = (xrawLimit - xraw) * STEP;
-
-  double x = bpw - 18;
-  double x2 = solveForTarget({AA, BB, CC}, TARGET) + 18;
-
-  log("%.3f %.3f %9u | %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f | %6.3f %6.3f %6.3f | %f %f %f %f | %s\n",
-      bpw, x2, exponentForBpw(bpw),
-      z[0], z[1], z[2], z[3], z[4], z[5], z[6],
-      ABC[0], ABC[1], ABC[2], AA, BB, CC, AA * x * x + BB * x + CC,
-      config.c_str());
-
-  return {bpw, 0};
-  */
 }
 
 void Tune::ztune() {
-  auto configs = getRoeConfigs(shared.args->roeTune);
   File ztune = File::openAppend("ztune.txt");
   ztune.printf("#\n# %s\n#\n", shortTimeStr().c_str());
-  string prevFftSpec{};
 
-  for (const auto& config : configs) {
-    for (auto& [k, v] : config) {
-      if (k == "fft") {
-        shared.args->fftSpec = v;
-        if (prevFftSpec != v) {
-          ztune.printf("# %s\n", v.c_str());
-          prevFftSpec = v;
-        }
-      } else {
-        shared.args->flags[k] = v;
+  Args *args = shared.args;
+  assert(!args->hasFlag("CLEAN") && !args->hasFlag("TRIG_HI"));
+
+  string ztuneStr = args->ztune;
+  auto configs = ztuneStr.empty() ? FFTShape::genConfigs() : FFTShape::multiSpec(ztuneStr);
+  for (FFTShape shape : configs) {
+    string spec = shape.spec();
+    args->fftSpec = spec;
+    ztune.printf("# %s\n", spec.c_str());
+
+    for (int clean : {0, 1}) {
+      args->flags["CLEAN"] = clean ? "1" : "0";
+
+      for (int trigHi : {0, 1}) {
+        args->flags["TRIG_HI"] = trigHi ? "1" : "0";
+        string config = spec + ",CLEAN=" + to_string(clean) + ",TRIG_HI=" + to_string(trigHi);
+
+        auto [A, B, C] = maxBpw(config);
+        const double TARGET = 28;
+        double bpw = 18 + solveForTarget({A, B, C}, TARGET);
+
+        ztune.printf("{%f, %f, %f, \"%s\"}, // %.3f\n", A, B, C, config.c_str(), bpw);
       }
     }
-
-    auto [A, B, C] = maxBpw(toString(config));
-    const double TARGET = 28;
-    double bpw = 18 + solveForTarget({A, B, C}, TARGET);
-
-    ztune.printf("{%f, %f, %f, \"%s\"}, // %.3f\n", A, B, C, toSimpleString(config).c_str(), bpw);
   }
 }
 

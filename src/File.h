@@ -18,6 +18,12 @@
 #include <io.h>
 #endif
 
+#if defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
+#define HAS_SETLINEBUF 1
+#else
+#define HAS_SETLINEBUF 0
+#endif
+
 namespace fs = std::filesystem;
 
 inline fs::path operator+(fs::path p, const std::string& tail) {
@@ -37,6 +43,13 @@ class File {
     if (!f && throwOnError) {
       log("Can't open '%s' (mode '%s')\n", name.c_str(), mode.c_str());
       throw(fs::filesystem_error("can't open file"s, path, {}));
+    }
+
+    if (mode == "ab") {
+      assert(f);
+#if HAS_SETLINEBUF
+      setlinebuf(f);
+#endif
     }
   }
 
@@ -128,6 +141,11 @@ public:
     va_start(va, fmt);
     int ret = vfprintf(f, fmt, va);
     va_end(va);
+
+#if !HAS_LINEBUF
+    fflush(f);
+#endif
+
     return ret;
   }
 

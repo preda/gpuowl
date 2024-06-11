@@ -84,6 +84,8 @@ u32 Args::getProofPow(u32 exponent) const {
 
 string Args::tailDir() const { return fs::path{dir}.filename().string(); }
 
+bool Args::hasFlag(const string& key) const { return flags.find(key) != flags.end(); }
+
 void Args::printHelp() {
   printf(R"(
 PRPLL is "PRobable Prime and Lucas-Lehmer Cathegorizer", AKA "Purrple-cat"
@@ -201,25 +203,29 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
            );
 
   }
-  printf("\nFFT Configurations (specify with -fft <width>:<middle>:<height> from the set below):\n");
+  printf("\nFFT Configurations (specify with -fft <width>:<middle>:<height> from the set below):\n"
+         " Size   MaxExp   BPW    FFT\n");
   
   vector<FFTShape> configs = FFTShape::genConfigs();
-  configs.push_back(FFTShape{}); // dummy guard for the loop below.
+  configs.push_back(configs.front()); // dummy guard for the loop below.
   string variants;
   u32 activeSize = 0;
-  u32 activeMaxExp = 0;
+  double maxBpw = 0;
   for (auto c : configs) {
     if (c.fftSize() != activeSize) {
       if (!variants.empty()) {
-        printf("FFT %5s [%6.2fM - %7.2fM]  %s\n",
+        printf("%5s  %7.2fM  %.2f  %s\n",
                numberK(activeSize).c_str(),
-               activeSize * FFTShape::MIN_BPW / 1'000'000, activeMaxExp / 1'000'000.0,
+               // activeSize * FFTShape::MIN_BPW / 1'000'000,
+               activeSize * maxBpw / 1'000'000.0,
+               maxBpw,
                variants.c_str());
         variants.clear();
       }
+      activeSize = c.fftSize();
+      maxBpw = 0;
     }
-    activeSize = c.fftSize();
-    activeMaxExp = c.maxExp();
+    maxBpw = max(maxBpw, c.maxBpw());
     if (!variants.empty()) { variants.push_back(','); }
     variants += c.spec();
   }
@@ -242,7 +248,8 @@ void Args::parse(const string& line) {
       tune = s;
       quickTune = true;
     } else if (key == "-ztune") {
-      roeTune = s;
+      doZtune = true;
+      ztune = s;
       quickTune = true;
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
