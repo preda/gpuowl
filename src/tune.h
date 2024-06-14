@@ -36,7 +36,7 @@ using TuneConfig = vector<KeyVal>;
 class Tune {
 private:
   u32 fftSize();
-  std::array<double, 3> maxBpw(const std::string& config);
+  std::array<double, 3> maxBpw(FFTConfig fft);
 
   std::pair<TuneConfig, double> findBestConfig(FFTConfig, const vector<TuneConfig>& configs);
 
@@ -47,9 +47,7 @@ public:
   Primes primes;
 
   u32 exponentForBpw(double bpw);
-  double zForBpw(double bpw, const string& config);
-  double zForBpw(double bpw, const string& config, Gpu* gpu);
-
+  double zForBpw(double bpw, FFTConfig fft);
 
   void ztune();
   void tune();

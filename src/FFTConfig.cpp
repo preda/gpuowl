@@ -79,7 +79,8 @@ u32 FFTShape::getMaxCarry32(u32 fftSize, u32 exponent) {
 namespace {
 
 u32 parseInt(const string& s) {
-  if (s.empty()) { return 1; }
+  // if (s.empty()) { return 1; }
+  assert(!s.empty());
   char c = s.back();
   u32 multiple = c == 'k' || c == 'K' ? 1024 : c == 'm' || c == 'M' ? 1024 * 1024 : 1;
   return strtod(s.c_str(), nullptr) * multiple;
@@ -170,17 +171,99 @@ FFTShape::FFTShape(u32 w, u32 m, u32 h) :
   bpw = BPW[s];
 }
 
-FFTConfig FFTConfig::bestFit(u32 E, const string& fftSpec) {
+FFTConfig::FFTConfig(const string& spec) :
+  shape{FFTShape::fromSpec(spec.substr(0, spec.rfind(':')))},
+  variant{parseInt(spec.substr(spec.rfind(':') + 1))}
+{
+  assert(variant < N_VARIANT);
+}
+
+vector<TuneEntry> readTuneFile() {
+  File tuneFile = File::openRead("tune.txt");
+  if (!tuneFile) { return {}; }
+  vector<TuneEntry> v;
+
+  double cost;
+  char fftSpecBuf[64];
+  char configBuf[128];
+  for (string line : tuneFile) {
+    *fftSpecBuf = 0;
+    *configBuf = 0;
+    int n = sscanf(line.c_str(), "%lf %63s %127s", &cost, fftSpecBuf, configBuf);
+    if (n < 3) {
+      log("Could not parse tune.txt line '%s'\n", line.c_str());
+      break;
+    }
+    v.push_back({cost, FFTConfig{fftSpecBuf}, configBuf});
+  }
+  std::sort(v.begin(), v.end(), [](const TuneEntry& a, const TuneEntry& b) { return a.cost < b.cost; });
+  return v;
+}
+
+bool FFTConfig::matches(const string& spec) const {
+  if (spec.empty()) { return true; }
+
+  // An interval of sizes
+  auto pDash = spec.find('-');
+  if (pDash != string::npos) {
+    u32 mySize = shape.fftSize();
+
+    string from = spec.substr(0, pDash);
+    string to = spec.substr(pDash + 1);
+    u32 sizeFrom = FFTShape::multiSpec(from).front().fftSize();
+    if (mySize < sizeFrom) { return false; }
+    u32 sizeTo = FFTShape::multiSpec(to).front().fftSize();
+    if (mySize > sizeTo) { return false; }
+    return true;
+  }
+
+  bool hasParts = spec.find(':') != string::npos;
+  if (hasParts) {
+    auto p1 = spec.find(':');
+    string widthStr = spec.substr(0, p1);
+    if (!widthStr.empty() && parseInt(widthStr) != shape.width) { return false; }
+    auto p2 = spec.find(':', p1+1);
+    if (p2 == string::npos) {
+      log("FFT spec must be of the form width:middle:height , found '%s'\n", spec.c_str());
+      throw "Invalid FFT spec";
+    }
+
+    string middleStr = spec.substr(p1+1, p2 - (p1 + 1));
+    if (!middleStr.empty() && parseInt(middleStr) != shape.middle) { return false; }
+
+    string heightStr = spec.substr(p2+1);
+    if (!heightStr.empty() && parseInt(heightStr) != shape.height) { return false; }
+
+    auto p3 = spec.find(':', p2 + 1);
+    if (p3 != string::npos && variant != parseInt(spec.substr(p3+1))) { return false; }
+    return true;
+  } else {
+    return shape.fftSize() == parseInt(spec);
+  }
+}
+
+pair<FFTConfig, string> FFTConfig::bestFit(u32 E, const string& fftSpec) {
+  // Choose from tune.txt the fastest FFT that's acceptable according to maxExp and fftSpec.
+  vector<TuneEntry> tunes = readTuneFile();
+  for (const TuneEntry& e : tunes) {
+    // The first acceptable is the best as they're sorted by cost
+    if (E <= e.fft.maxExp() && e.fft.matches(fftSpec)) { return {e.fft, e.config}; }
+  }
+
+  log("No acceptable entries were found in tune.txt. Consider tuning (-tune)\n");
+
   vector<FFTShape> candidates = FFTShape::multiSpec(fftSpec);
   for (const FFTShape& shape : candidates) {
     for (u32 v = 0; v < 4; ++v) {
       FFTConfig fft{shape, v};
-      if (fft.maxExp() >= E) { return fft; }
+      if (fft.maxExp() >= E) { return {fft, {}}; }
     }
   }
+
   log("No FFT found for %u given '%s'\n", E, fftSpec.c_str());
   throw "No FFT";
 }
+
 
 string numberK(u32 n) {
   u32 K = 1024;

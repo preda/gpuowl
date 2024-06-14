@@ -50,38 +50,26 @@ public:
 };
 
 struct FFTConfig {
+  bool matches(const string& spec) const;
+
 public:
   static const u32 N_VARIANT = 4;
 
-  /*
-  std::string variantSpec() const { return variantSpec(variant); }
-
-  enum Variant {
-    CLEAN0_TRIG0 = 0,
-    CLEAN0_TRIG1,
-    CLEAN1_TRIG0,
-    CLEAN1_TRIG1,
-  };
-
-  static std::string variantSpec(Variant variant) {
-    switch (variant) {
-      case CLEAN0_TRIG0: return "CLEAN=0,TRIG_HI=0";
-      case CLEAN0_TRIG1: return "CLEAN=0,TRIG_HI=1";
-      case CLEAN1_TRIG0: return "CLEAN=1,TRIG_HI=0";
-      case CLEAN1_TRIG1: return "CLEAN=1,TRIG_HI=1";
-    }
-  }
-  */
+  static std::pair<FFTConfig, std::string> bestFit(u32 E, const std::string& spec);
 
   FFTShape shape;
   u32 variant;
 
+  explicit FFTConfig(const string& spec);
+  FFTConfig(FFTShape shape, u32 variant) : shape{shape}, variant{variant} {}
+
   double maxBpw() const { return shape.bpw[variant]; }
   u32 maxExp()  const { return maxBpw() * shape.fftSize(); }
   std::string spec() const { return shape.spec() + ":" + to_string(variant); }
-
-  static FFTConfig bestFit(u32 E, const std::string& spec);
 };
 
-
-
+struct TuneEntry {
+  double cost;
+  FFTConfig fft;
+  string config;
+};

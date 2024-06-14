@@ -17,10 +17,11 @@ static_assert(sizeof(u8)  == 1, "size u8");
 static_assert(sizeof(u32) == 4, "size u32");
 static_assert(sizeof(u64) == 8, "size u64");
 
-
 using namespace std;
 namespace std::filesystem{};
 namespace fs = std::filesystem;
+
+std::vector<std::string> split(const string& s, char delim);
 
 string hex(u64 x);
 

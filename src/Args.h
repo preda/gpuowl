@@ -34,7 +34,8 @@ public:
   string tailDir() const;
 
   bool hasFlag(const string& key) const;
-  
+  void setConfig(const string& config);
+
   bool silent;
   string user;
   string dump;

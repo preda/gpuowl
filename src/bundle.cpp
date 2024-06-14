@@ -12,8 +12,8 @@ R"cltag(
 
 /* List of user-serviceable -use flags and their effects : see also help (-h)
 
-OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
-IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 but needs testing>
+OUT_WG,OUT_SIZEX <AMD default is 256,32> <nVidia default is 256,4 but needs testing>
+IN_WG,IN_SIZEX <AMD default is 256,32>  <nVidia default is 256,4 but needs testing>
 
 UNROLL_WIDTH <nVidia default>
 NO_UNROLL_WIDTH <AMD default>
@@ -2202,23 +2202,13 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
 
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
-  out += MIDDLE * OUT_WG * gy + MIDDLE * WIDTH * OUT_SIZEX * gx;
+  out += MIDDLE * WIDTH * OUT_SIZEX * gx + MIDDLE * OUT_WG * gy;
   out += me;
 
   for (i32 i = 0; i < MIDDLE; ++i) {
     out[OUT_WG * i] = u[i];
     // out[MIDDLE * OUT_WG * gy + MIDDLE * WIDTH * OUT_SIZEX * gx + OUT_WG * i + me] = u[i];
   }
-
-  /*
-  out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
-  out += (gy / OUT_SPACING) * (MIDDLE * (OUT_WG * OUT_SPACING));
-  out += (gy % OUT_SPACING) * SIZEY;
-
-  out += (me / SIZEY) * (OUT_SPACING * SIZEY) + (me % SIZEY);
-
-  for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
-  */
 }
 )cltag",
 
@@ -2466,7 +2456,6 @@ R"cltag(
 
 IN_WG, OUT_WG: default 256; may try 64, 128, 1024
 IN_SIZEX, OUT_SIZEX: default 32 (on AMD), may try 4, 8, 16
-OUT_SPACING: default 8, may try 1, 2, 4; 8 is known to produce errors in some configs.
 */
 
 #if !IN_WG
@@ -2503,14 +2492,6 @@ OUT_SPACING: default 8, may try 1, 2, 4; 8 is known to produce errors in some co
 #define OUT_SIZEX 32
 #endif
 
-#endif
-#endif
-
-#if !OUT_SPACING
-#if AMDGPU
-#define OUT_SPACING 8
-#else
-#define OUT_SPACING 1
 #endif
 #endif
 

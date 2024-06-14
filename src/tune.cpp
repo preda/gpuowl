@@ -8,6 +8,7 @@
 #include "Primes.h"
 #include "log.h"
 #include "File.h"
+#include "CycleFile.h"
 
 #include <numeric>
 #include <string>
@@ -18,8 +19,6 @@
 using std::accumulate;
 
 using namespace std;
-
-namespace {
 
 vector<string> split(const string& s, char delim) {
   vector<string> ret;
@@ -36,6 +35,8 @@ vector<string> split(const string& s, char delim) {
   }
   return ret;
 }
+
+namespace {
 
 vector<TuneConfig> permute(const vector<pair<string, vector<string>>>& params) {
   vector<TuneConfig> configs;
@@ -89,11 +90,7 @@ vector<TuneConfig> getTuneConfigs(const string& tune) {
   return permute(params);
 }
 
-vector<TuneConfig> getRoeConfigs(const string& fftSpec) {
-  // vector<FFTConfig> fftConfigs = FFTConfig::multiSpec(fftSpec);
-  return getTuneConfigs("fft=" + fftSpec + ";CLEAN=0,1;TRIG_HI=0,1");
-}
-
+/*
 string toSimpleString(TuneConfig config) {
   assert(!config.empty() && config.front().first == "fft");
   string s = config.front().second;
@@ -104,29 +101,12 @@ string toSimpleString(TuneConfig config) {
   }
   return s;
 }
+*/
 
 string toString(TuneConfig config) {
-  string s;
-
-  if (config.empty()) { return s; }
-
-  auto [k, v] = config.front();
-  if (k == "fft") {
-    s = "-fft " + v;
-    config.erase(config.begin());
-  }
-
-  if (config.empty()) { return s; }
-
-  s += s.empty() ? "-use " : " -use ";
-
-  for (const auto& [k, v] : config) {
-    assert(k != "fft" && k != "FFT" && k != "bpw");
-
-    if (s.back() != ' ') { s += ','; }
-    s += k + '=' + v;
-  }
-
+  string s{','};
+  for (const auto& [k, v] : config) { s += k + '=' + v + ','; }
+  s.pop_back();
   return s;
 }
 
@@ -142,17 +122,14 @@ u32 Tune::exponentForBpw(double bpw) {
   return primes.nearestPrime(fftSize() * bpw + 0.5);
 }
 
-double Tune::zForBpw(double bpw, const string& config, Gpu* gpu) {
-  auto [ok, res, roeSq, roeMul] = gpu->measureROE(true);
-  double z = roeSq.z();
-  if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, config.c_str()); }
-  return z;
-}
-
-double Tune::zForBpw(double bpw, const string& config) {
+double Tune::zForBpw(double bpw, FFTConfig fft) {
   u32 exponent = exponentForBpw(bpw);
-  auto gpu = Gpu::make(q, exponent, shared, FFTConfig::bestFit(exponent, shared.args->fftSpec), false);
-  return zForBpw(bpw, config, gpu.get());
+  // auto [fft, fftConfig] = FFTConfig::bestFit(exponent, shared.args->fftSpec);
+  // shared.args->setConfig(config);
+  auto [ok, res, roeSq, roeMul] = Gpu::make(q, exponent, shared, fft, false)->measureROE(true);
+  double z = roeSq.z();
+  if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, fft.spec().c_str()); }
+  return z;
 }
 
 double solve(double A, double B, double C) {
@@ -216,12 +193,12 @@ double solveForTarget(array<double, 3> coefs, double target) {
   return solve(A, B, C - log2(target));
 }
 
-array<double, 3> Tune::maxBpw(const string& config) {
+array<double, 3> Tune::maxBpw(FFTConfig fft) {
   const double STEP = 0.1;
   double bpw1 = 17.8 - log2(fftSize() / double(13 * 512 * 1024)) * 0.28;
 
   array<double, 7> z;
-  for (int i = 0; i < int(z.size()); ++i) { z[i] = zForBpw(bpw1 + i * STEP, config); }
+  for (int i = 0; i < int(z.size()); ++i) { z[i] = zForBpw(bpw1 + i * STEP, fft); }
 
   auto ABC = quadApprox(z);
 
@@ -236,7 +213,7 @@ array<double, 3> Tune::maxBpw(const string& config) {
 
   log("%.3f | %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f | %f %f %f | %s\n",
       bpw, z[0], z[1], z[2], z[3], z[4], z[5], z[6],
-      AA, BB, CC, config.c_str());
+      AA, BB, CC, fft.spec().c_str());
 
   return {AA, BB, CC};
 }
@@ -252,31 +229,19 @@ void Tune::ztune() {
   auto configs = ztuneStr.empty() ? FFTShape::genConfigs() : FFTShape::multiSpec(ztuneStr);
   for (FFTShape shape : configs) {
     string spec = shape.spec();
-    args->fftSpec = spec;
+    // args->fftSpec = spec;
     ztune.printf("# %s\n", spec.c_str());
 
-    for (int clean : {0, 1}) {
-      args->flags["CLEAN"] = clean ? "1" : "0";
+    for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
+      FFTConfig fft{shape, variant};
+      auto [A, B, C] = maxBpw(fft);
+      const double TARGET = 28;
+      double bpw = 18 + solveForTarget({A, B, C}, TARGET);
 
-      for (int trigHi : {0, 1}) {
-        args->flags["TRIG_HI"] = trigHi ? "1" : "0";
-        string config = spec + ",CLEAN=" + to_string(clean) + ",TRIG_HI=" + to_string(trigHi);
-
-        auto [A, B, C] = maxBpw(config);
-        const double TARGET = 28;
-        double bpw = 18 + solveForTarget({A, B, C}, TARGET);
-
-        ztune.printf("{%f, %f, %f, \"%s\"}, // %.3f\n", A, B, C, config.c_str(), bpw);
-      }
+      ztune.printf("{%f, %f, %f, \"%s\"}, // %.3f\n", A, B, C, fft.spec().c_str(), bpw);
     }
   }
 }
-
-struct TuneEntry {
-  double cost;
-  FFTConfig fft;
-  string config;
-};
 
 bool shouldSkip(FFTConfig fft, double bestCaseCost, const vector<TuneEntry>& results) {
   // We assume that variant==0 is the fastest, so the cost at variant>0 will be larger.
@@ -299,18 +264,18 @@ pair<TuneConfig, double> Tune::findBestConfig(FFTConfig fft, const vector<TuneCo
   double bestCost = 100; // arbitrary large value
 
   for (const auto& config : configs) {
-    // assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX" || k == "OUT_SPACING");
+    // assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX");
     for (auto& [k, v] : config) { shared.args->flags[k] = v; }
 
-    auto secsPerIt = Gpu::make(q, exponent, shared, fft, false)->timePRP();
+    auto cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
 
-    bool isBest = (secsPerIt < bestCost);
+    bool isBest = (cost < bestCost);
     if (isBest) {
-      bestCost = secsPerIt;
+      bestCost = cost;
       bestConfig = config;
     }
     log("%c %6.0f : %s %9u %s\n",
-        isBest ? '*' : ' ', secsPerIt * 1e6, fft.spec().c_str(), exponent, toString(config).c_str());
+        isBest ? '*' : ' ', cost * 1e6, fft.spec().c_str(), exponent, toString(config).c_str());
   }
   return {bestConfig, bestCost};
 }
@@ -337,6 +302,7 @@ void Tune::tune() {
       if (shouldSkip(fft, costZero, results)) { continue; }
       u32 exponent = primes.prevPrime(fft.maxExp());
       double cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
+      log("  %6.0f : %s %9u %s\n", cost * 1e6, fft.spec().c_str(), exponent, toString(config).c_str());
       results.push_back({cost, fft, sconfig});
     }
   }
@@ -345,8 +311,16 @@ void Tune::tune() {
   std::sort(results.begin(), results.end(),
             [](const TuneEntry& a, const TuneEntry& b) { return a.cost < b.cost; });
 
+  CycleFile tuneFile{"tune.txt"};
+
+  u32 prevMaxExp = 0;
   for (auto& [cost, fft, conf] : results) {
-    log("%6.0f %9u : %s %s\n", cost * 1e6, fft.maxExp(), fft.spec().c_str(), conf.c_str());
+    tuneFile->printf("%6.0f %s %s\n", cost * 1e6, fft.spec().c_str(), conf.c_str());
+    u32 maxExp = fft.maxExp();
+    if (maxExp > prevMaxExp) {
+      log("%6.0f %9u : %s %s\n", cost * 1e6, maxExp, fft.spec().c_str(), conf.c_str());
+      prevMaxExp = maxExp;
+    }
   }
 }
 

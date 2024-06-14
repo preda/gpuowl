@@ -143,19 +143,23 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
     exponent = proof.E;
   }
 
+  assert(exponent);
+
   LogContext pushContext(std::to_string(exponent));
   
+  auto [fft, config] = FFTConfig::bestFit(exponent, shared.args->fftSpec);
+  shared.args->setConfig(config);
+
   if (kind == VERIFY) {
-    auto gpu = Gpu::make(q, exponent, shared, FFTConfig::bestFit(exponent, shared.args->fftSpec));
+    auto gpu = Gpu::make(q, exponent, shared, fft);
     bool ok = proof.verify(gpu.get());
     log("proof '%s' %s\n", verifyPath.c_str(), ok ? "verified" : "failed");
     return;
   }
 
   assert(kind == PRP || kind == LL);
-  assert(exponent);
 
-  auto gpu = Gpu::make(q, exponent, shared, FFTConfig::bestFit(exponent, shared.args->fftSpec));
+  auto gpu = Gpu::make(q, exponent, shared, fft);
   auto fftSize = gpu->getFFTSize();
 
   if (kind == PRP) {
