@@ -79,6 +79,13 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #define OLD_FENCE 1
 #endif
 
+#if FFT_VARIANT > 3
+#error FFT_VARIANT must be between 0 and 3
+#endif
+
+#define TRIG_HI (FFT_VARIANT & 1)
+#define CLEAN (FFT_VARIANT >> 1)
+
 #if CARRY32 && CARRY64
 #error Conflict: both CARRY32 and CARRY64 requested
 #endif
@@ -2195,6 +2202,17 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
 
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
+#if OUT_SPACING == 1
+
+  for (i32 i = 0; i < MIDDLE; ++i) {
+    // out += MIDDLE * OUT_WG * gy + MIDDLE * WIDTH * OUT_SIZEX * gx;
+    // out[OUT_WG * i + me] = u[i];
+
+    out[MIDDLE * OUT_WG * gy + MIDDLE * WIDTH * OUT_SIZEX * gx + OUT_WG * i + me] = u[i];
+  }
+
+#else
+
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
   out += (gy / OUT_SPACING) * (MIDDLE * (OUT_WG * OUT_SPACING));
   out += (gy % OUT_SPACING) * SIZEY;
@@ -2202,6 +2220,8 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   out += (me / SIZEY) * (OUT_SPACING * SIZEY) + (me % SIZEY);
 
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
+
+#endif
 }
 )cltag",
 

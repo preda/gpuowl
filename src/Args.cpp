@@ -246,11 +246,9 @@ void Args::parse(const string& line) {
       throw "version";
     } else if (key == "-tune") {
       tune = s;
-      quickTune = true;
     } else if (key == "-ztune") {
       doZtune = true;
       ztune = s;
-      quickTune = true;
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-time") {

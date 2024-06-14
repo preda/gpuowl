@@ -104,7 +104,8 @@ FFTShape FFTShape::fromSpec(const string& spec) {
 // - a size e.g. "6.5M"
 // - a range e.g. "6M-7M"
 vector<FFTShape> FFTShape::multiSpec(const string& spec) {
-  assert(!spec.empty());
+  if (spec.empty()) { return genConfigs(); }
+
   auto pDash = spec.find('-');
   if (pDash != string::npos) {
     string from = spec.substr(0, pDash);
@@ -167,6 +168,18 @@ FFTShape::FFTShape(u32 w, u32 m, u32 h) :
   width{w}, middle{m}, height{h} {
   string s = spec();
   bpw = BPW[s];
+}
+
+FFTConfig FFTConfig::bestFit(u32 E, const string& fftSpec) {
+  vector<FFTShape> candidates = FFTShape::multiSpec(fftSpec);
+  for (const FFTShape& shape : candidates) {
+    for (u32 v = 0; v < 4; ++v) {
+      FFTConfig fft{shape, v};
+      if (fft.maxExp() >= E) { return fft; }
+    }
+  }
+  log("No FFT found for %u given '%s'\n", E, fftSpec.c_str());
+  throw "No FFT";
 }
 
 string numberK(u32 n) {

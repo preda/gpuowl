@@ -15,7 +15,7 @@ Primes::Primes() {
   }
 }
 
-bool Primes::isPrimeOdd(u32 n) {
+bool Primes::isPrimeOdd(u32 n) const {
   assert(n % 2); // must be odd to call here
 
   if (n < 3) { return false; }
@@ -30,11 +30,11 @@ bool Primes::isPrimeOdd(u32 n) {
   return false;
 }
 
-bool Primes::isPrime(u32 n) {
+bool Primes::isPrime(u32 n) const {
   return (n%2 && isPrimeOdd(n)) || (n == 2);
 }
 
-u32 Primes::prevPrime(u32 n) {
+u32 Primes::prevPrime(u32 n) const {
   --n;
   if (n % 2 == 0) { --n; }
 
@@ -43,7 +43,7 @@ u32 Primes::prevPrime(u32 n) {
   return 0;
 }
 
-u32 Primes::nextPrime(u32 n) {
+u32 Primes::nextPrime(u32 n) const {
   ++n;
   if (n % 2 == 0) { ++n; }
   for (; ; n += 2) { if (isPrimeOdd(n)) { return n; }}
@@ -51,7 +51,7 @@ u32 Primes::nextPrime(u32 n) {
   return 0;
 }
 
-u32 Primes::nearestPrime(u32 n) {
+u32 Primes::nearestPrime(u32 n) const {
   if (isPrime(n)) { return n; }
   u32 a = prevPrime(n);
   u32 b = nextPrime(n);

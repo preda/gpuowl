@@ -12,7 +12,6 @@
 #include <numeric>
 #include <string>
 #include <vector>
-#include <cinttypes>
 #include <cassert>
 #include <algorithm>
 
@@ -37,8 +36,6 @@ vector<string> split(const string& s, char delim) {
   }
   return ret;
 }
-
-using TuneConfig = vector<KeyVal>;
 
 vector<TuneConfig> permute(const vector<pair<string, vector<string>>>& params) {
   vector<TuneConfig> configs;
@@ -146,7 +143,7 @@ u32 Tune::exponentForBpw(double bpw) {
 }
 
 double Tune::zForBpw(double bpw, const string& config, Gpu* gpu) {
-  auto [ok, res, roeSq, roeMul] = gpu->measureROE(shared.args->quickTune);
+  auto [ok, res, roeSq, roeMul] = gpu->measureROE(true);
   double z = roeSq.z();
   if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, config.c_str()); }
   return z;
@@ -154,7 +151,7 @@ double Tune::zForBpw(double bpw, const string& config, Gpu* gpu) {
 
 double Tune::zForBpw(double bpw, const string& config) {
   u32 exponent = exponentForBpw(bpw);
-  auto gpu = Gpu::make(q, exponent, shared, false);
+  auto gpu = Gpu::make(q, exponent, shared, FFTConfig::bestFit(exponent, shared.args->fftSpec), false);
   return zForBpw(bpw, config, gpu.get());
 }
 
@@ -312,52 +309,90 @@ void roeTune(Queue* q, GpuCommon shared) {
 }
 #endif
 
-void tune(Queue* q, GpuCommon shared) {
-  auto configs = getTuneConfigs(shared.args->tune);
-  vector<pair<double, string>> results;
 
-  if (!shared.args->prpExp) {
-    log("-tune without any exponent being set. Use -prp <exponent> with -tune");
-    throw "Use -prp <exponent> with -tune";
+struct TuneEntry {
+  double cost;
+  FFTConfig fft;
+  string config;
+};
+
+bool shouldSkip(FFTConfig fft, double bestCaseCost, const vector<TuneEntry>& results) {
+  // We assume that variant==0 is the fastest, so the cost at variant>0 will be larger.
+  // If the current variant can't be worth it (relative to existing measurements), skip it.
+  for (const TuneEntry& e : results) {
+    if (e.cost <= bestCaseCost && e.fft.maxExp() >= fft.maxExp()) {
+      log("skipping %s because of %s\n", fft.spec().c_str(), e.fft.spec().c_str());
+      return true;
+    }
   }
+  return false;
+}
 
-  u32 exponent = shared.args->prpExp;
+pair<TuneConfig, double> Tune::findBestConfig(FFTConfig fft, const vector<TuneConfig>& configs) {
+  u32 exponent = primes.prevPrime(fft.maxExp());
 
-  double bestYet = 1000;
+  // Every new FFTShape starts with variant zero, at which point we search for the best config for that
+  // shape. The other variants of the same shape use the best config.
+  TuneConfig bestConfig;
+  double bestCost = 100; // arbitrary large value
 
   for (const auto& config : configs) {
-    // log("Timing %s\n", toString(config).c_str());
-    for (auto& [k, v] : config) {
-      if (k == "fft") {
-        shared.args->fftSpec = v;
-      } else {
-        // assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX" || k == "OUT_SPACING");
-        shared.args->flags[k] = v;
-      }
+    // assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX" || k == "OUT_SPACING");
+    for (auto& [k, v] : config) { shared.args->flags[k] = v; }
+
+    auto secsPerIt = Gpu::make(q, exponent, shared, fft, false)->timePRP();
+
+    bool isBest = (secsPerIt < bestCost);
+    if (isBest) {
+      bestCost = secsPerIt;
+      bestConfig = config;
     }
-    if (!exponent) {
-      log("No exponent in tune\n");
-      throw "The exponent E=<N> must be set in tune=<values>";
+    log("%c %6.0f : %s %9u %s\n",
+        isBest ? '*' : ' ', secsPerIt * 1e6, fft.spec().c_str(), exponent, toString(config).c_str());
+  }
+  return {bestConfig, bestCost};
+}
+
+void Tune::tune() {
+  Args *args = shared.args;
+  string fftSpec = args->fftSpec;
+
+  auto configs = getTuneConfigs(shared.args->tune);
+  if (configs.empty()) { configs.push_back({}); }
+
+  vector<TuneEntry> results;
+
+  for (const FFTShape& shape : FFTShape::multiSpec(args->fftSpec)) {
+    FFTConfig zero{shape, 0};
+    auto [config, costZero] = findBestConfig(zero, configs);
+    string sconfig = toString(config);
+    results.push_back({costZero, zero, sconfig});
+
+    for (auto& [k, v] : config) { shared.args->flags[k] = v; }
+
+    for (u32 variant = 1; variant < FFTConfig::N_VARIANT; ++variant) {
+      FFTConfig fft{shape, variant};
+      if (shouldSkip(fft, costZero, results)) { continue; }
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      double cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
+      results.push_back({cost, fft, sconfig});
     }
-    auto gpu = Gpu::make(q, exponent, shared, false);
-    auto [secsPerIt, res64] = gpu->timePRP(shared.args->quickTune);
-    if (secsPerIt < 0) {
-      log("Error %016" PRIx64 " %s\n", res64, toString(config).c_str());
-    } else {
-      bool isBest = (secsPerIt <= bestYet);
-      if (isBest) { bestYet = secsPerIt; }
-      log("%c %6.1f : %016" PRIx64 " %s\n", isBest ? '*' : ' ', secsPerIt * 1e6, res64, toString(config).c_str());
-    }
-    results.push_back({secsPerIt < 0 ? 1.0 : secsPerIt, toString(config)});
   }
 
   log("\n");
-  std::sort(results.begin(), results.end());
-  for (auto& [secs, conf] : results) {
-    if (secs >= 1.0) {
-      log("Error : %s\n", conf.c_str());
-    } else {
-      log("%6.1f : %s\n", secs * 1e6, conf.c_str());
-    }
+  std::sort(results.begin(), results.end(),
+            [](const TuneEntry& a, const TuneEntry& b) { return a.cost < b.cost; });
+
+  for (auto& [cost, fft, conf] : results) {
+    log("%6.0f %9u : %s %s\n", cost * 1e6, fft.maxExp(), fft.spec().c_str(), conf.c_str());
   }
+}
+
+SpeedConfig Speed::bestForExp(u32 exp) {
+  // Ordered ascending by *cost*, the best is the first that's acceptable for *exp*.
+  for (const SpeedConfig& c : configs) {
+    if (c.maxExp >= exp) { return c; }
+  }
+  log("No acceptable FFT config found for exponent %u\n", exp);
+  throw "No FFT";
 }

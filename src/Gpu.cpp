@@ -142,6 +142,7 @@ string toLiteral(const vector<T>& v) {
 
 string toLiteral(const string& s) { return s; }
 
+/*
 struct Define {
   const string str;
 
@@ -155,41 +156,52 @@ struct Define {
   
   operator string() const { return str; }
 };
+*/
 
-string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW, u32 nH) {
-  vector<Define> defines =
-    {{"EXP", E},
-     {"WIDTH", WIDTH},
-     {"SMALL_HEIGHT", SMALL_HEIGHT},
-     {"MIDDLE", MIDDLE},
-     {"CARRY_LEN", CARRY_LEN},
-     {"NW", nW},
-     {"NH", nH}
-    };
+template<typename T>
+string toDefine(const string& k, T v) { return " -D"s + k + '=' + toLiteral(v); }
 
-  if (isAmdGpu(id)) { defines.push_back({"AMDGPU", 1}); }
-
-  // Force carry64 when carry32 might exceed a very conservative 0x6C000000
-  if (FFTShape::getMaxCarry32(N, E) > 0x6C00) { defines.push_back({"CARRY64", 1}); }
-
-  defines.push_back({"WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
-  defines.push_back({"IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1)});
-
+template<typename T>
+string toDefine(const T& v) {
   string s;
-  for (const auto& d : defines) {
-    s += " -D"s + string(d);
-  }
+  for (const auto& [k, v] : v) { s += toDefine(k, v); }
   return s;
 }
 
-string clArgs(const Args& args) {
+string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW, u32 nH) {
+  string defines = toDefine(vector<pair<string, u32>>{
+                    {"EXP", E},
+                    {"WIDTH", WIDTH},
+                    {"SMALL_HEIGHT", SMALL_HEIGHT},
+                    {"MIDDLE", MIDDLE},
+                    {"CARRY_LEN", CARRY_LEN},
+                    {"NW", nW},
+                    {"NH", nH}
+                  });
+
+  if (isAmdGpu(id)) { defines += toDefine("AMDGPU", 1); }
+
+  // Force carry64 when carry32 might exceed a very conservative 0x6C000000
+  if (FFTShape::getMaxCarry32(N, E) > 0x6C00) { defines += toDefine("CARRY64", 1); }
+
+  defines += toDefine("WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1));
+  defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1));
+
+  return defines;
+}
+
+
+string clArgs(const Args& args) { return toDefine(args.flags); }
+/*
   string s;
   for (const auto& [key, val] : args.flags) {
     s += " -D" + key + '=' + toLiteral(val);
   }
   return s;
 }
+*/
 
+/*
 FFTShape getFFTConfig(u32 E, string fftSpec) {
   if (fftSpec.empty()) {
     vector<FFTShape> configs = FFTShape::genConfigs();
@@ -199,21 +211,30 @@ FFTShape getFFTConfig(u32 E, string fftSpec) {
   }
   return FFTShape::fromSpec(fftSpec);
 }
+*/
 
 } // namespace
 
-unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, bool logFftSize) {
-  FFTShape config = getFFTConfig(E, shared.args->fftSpec);
-  u32 WIDTH        = config.width;
-  u32 SMALL_HEIGHT = config.height;
-  u32 MIDDLE       = config.middle;
+unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, FFTConfig fftConfig, bool logFftSize) {
+  string spec = fftConfig.spec();
+  if (fftConfig.maxExp() < E) {
+    log("Exponent %u is too large for FFT %s\n", E, spec.c_str());
+    throw "FFT too small";
+  }
+  assert(E <= fftConfig.maxExp());
+
+  // FFTShape config = getFFTConfig(E, shared.args->fftSpec);
+  u32 WIDTH        = fftConfig.shape.width;
+  u32 SMALL_HEIGHT = fftConfig.shape.height;
+  u32 MIDDLE       = fftConfig.shape.middle;
+
   u32 N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
 
   u32 nW = (WIDTH == 1024 || WIDTH == 256 || WIDTH == 4096) ? 4 : 8;
   u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256 || SMALL_HEIGHT==4096) ? 4 : 8;
 
   float bitsPerWord = E / float(N);
-  if (logFftSize) { log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), config.spec().c_str(), bitsPerWord); }
+  if (logFftSize) { log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), spec.c_str(), bitsPerWord); }
 
   if (bitsPerWord > 20) {
     log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
@@ -225,11 +246,11 @@ unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, bool logFftSize) {
     throw "FFT size too large";
   }
 
-  return make_unique<Gpu>(q, shared, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH);
+  return make_unique<Gpu>(q, shared, fftConfig, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH);
 }
 
-Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH)
-  : Gpu{q, shared, E, W, BIG_H, SMALL_H, nW, nH, genWeights(E, W, BIG_H, nW)}
+Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH)
+  : Gpu{q, shared, fft, E, W, BIG_H, SMALL_H, nW, nH, genWeights(E, W, BIG_H, nW)}
 {}
 
 Gpu::~Gpu() {
@@ -240,7 +261,7 @@ Gpu::~Gpu() {
 #define ROE_SIZE 100000
 #define CARRY_SIZE 100000
 
-Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, Weights&& weights) :
+Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, Weights&& weights) :
   queue(q),
   background{shared.background},
   args{*shared.args},
@@ -256,7 +277,9 @@ Gpu::Gpu(Queue* q, GpuCommon shared, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 n
   useLongCarry{args.carry == Args::CARRY_LONG},
 
   compiler{args, queue->context,
-           clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW, nH) + clArgs(args)},
+           clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW, nH)
+           + clArgs(args)
+           + toDefine("FFT_VARIANT", u32(fft.variant))},
   
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 
@@ -1055,10 +1078,10 @@ tuple<bool, u64, RoeInfo, RoeInfo> Gpu::measureROE(bool quick) {
   return {ok, res, roes.first, roes.second};
 }
 
-TimingResult Gpu::timePRP(bool quick) {
+double Gpu::timePRP() {
   u32 blockSize{}, iters{}, warmup{};
 
-  if (quick) {
+  if (true) {
     blockSize = 200;
     iters = 1000;
     warmup = 30;
@@ -1110,9 +1133,11 @@ TimingResult Gpu::timePRP(bool quick) {
 
   u64 res = dataResidue();
   bool ok = doCheck(blockSize);
-  if (!ok) { return {-1, res}; }
-  // log("%s %.1f us/it  %016" PRIx64 "\n", ok ? "OK" : "EE", secsPerIt * 1e6, res);
-  return {secsPerIt, res};
+  if (!ok) {
+    log("Error %016" PRIx64 "\n", res);
+    secsPerIt = 0.1; // a large value to mark the error
+  }
+  return secsPerIt;
 }
 
 PRPResult Gpu::isPrimePRP(const Task& task) {

@@ -95,11 +95,10 @@ int main(int argc, char **argv) {
 
     if (!args.tune.empty()) {
       Queue q(context, args.profile);
-      tune(&q, shared);
+      Tune{&q, shared}.tune();
     } else if (args.doZtune) {
       Queue q(context, args.profile);
-      Tune tune{&q, shared};
-      tune.ztune();
+      Tune{&q, shared}.ztune();
     } else {
       vector<Queue> queues;
       for (int i = 0; i < int(args.workers); ++i) { queues.emplace_back(context, args.profile); }

@@ -45,7 +45,7 @@ public:
   string tune;
   bool doZtune{};
   string ztune;
-  bool quickTune = false;
+  // bool quickTune = false;
   std::map<std::string, std::string> flags;
   
   int device = 0;
