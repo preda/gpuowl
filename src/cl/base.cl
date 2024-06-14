@@ -4,8 +4,8 @@
 
 /* List of user-serviceable -use flags and their effects : see also help (-h)
 
-OUT_WG,OUT_SIZEX,OUT_SPACING <AMD default is 256,32,4> <nVidia default is 256,4,1 but needs testing>
-IN_WG,IN_SIZEX,IN_SPACING <AMD default is 256,32,1>  <nVidia default is 256,4,1 but needs testing>
+OUT_WG,OUT_SIZEX <AMD default is 256,32> <nVidia default is 256,4 but needs testing>
+IN_WG,IN_SIZEX <AMD default is 256,32>  <nVidia default is 256,4 but needs testing>
 
 UNROLL_WIDTH <nVidia default>
 NO_UNROLL_WIDTH <AMD default>

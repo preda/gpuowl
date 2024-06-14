@@ -2202,17 +2202,15 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
 
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
 
-#if OUT_SPACING == 1
+  out += MIDDLE * OUT_WG * gy + MIDDLE * WIDTH * OUT_SIZEX * gx;
+  out += me;
 
   for (i32 i = 0; i < MIDDLE; ++i) {
-    // out += MIDDLE * OUT_WG * gy + MIDDLE * WIDTH * OUT_SIZEX * gx;
-    // out[OUT_WG * i + me] = u[i];
-
-    out[MIDDLE * OUT_WG * gy + MIDDLE * WIDTH * OUT_SIZEX * gx + OUT_WG * i + me] = u[i];
+    out[OUT_WG * i] = u[i];
+    // out[MIDDLE * OUT_WG * gy + MIDDLE * WIDTH * OUT_SIZEX * gx + OUT_WG * i + me] = u[i];
   }
 
-#else
-
+  /*
   out += gx * (MIDDLE * WIDTH * OUT_SIZEX);
   out += (gy / OUT_SPACING) * (MIDDLE * (OUT_WG * OUT_SPACING));
   out += (gy % OUT_SPACING) * SIZEY;
@@ -2220,8 +2218,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   out += (me / SIZEY) * (OUT_SPACING * SIZEY) + (me % SIZEY);
 
   for (i32 i = 0; i < MIDDLE; ++i) { out[i * (OUT_WG * OUT_SPACING)] = u[i]; }
-
-#endif
+  */
 }
 )cltag",
 
@@ -2542,7 +2539,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 me = get_local_id(0);
-  u32 WG = OUT_WG * OUT_SPACING;
+  u32 WG = OUT_WG; // * OUT_SPACING;
   u32 SIZEY = WG / OUT_SIZEX;
 
   in += line % OUT_SIZEX * SIZEY

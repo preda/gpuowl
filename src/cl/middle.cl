@@ -4,7 +4,6 @@
 
 IN_WG, OUT_WG: default 256; may try 64, 128, 1024
 IN_SIZEX, OUT_SIZEX: default 32 (on AMD), may try 4, 8, 16
-OUT_SPACING: default 8, may try 1, 2, 4; 8 is known to produce errors in some configs.
 */
 
 #if !IN_WG
@@ -44,14 +43,6 @@ OUT_SPACING: default 8, may try 1, 2, 4; 8 is known to produce errors in some co
 #endif
 #endif
 
-#if !OUT_SPACING
-#if AMDGPU
-#define OUT_SPACING 8
-#else
-#define OUT_SPACING 1
-#endif
-#endif
-
 // Read a line for tailFused or fftHin
 // This reads partially transposed datat as written by fftMiddleIn
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
@@ -77,7 +68,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
 // Read a line for carryFused or FFTW
 void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 me = get_local_id(0);
-  u32 WG = OUT_WG * OUT_SPACING;
+  u32 WG = OUT_WG; // * OUT_SPACING;
   u32 SIZEY = WG / OUT_SIZEX;
 
   in += line % OUT_SIZEX * SIZEY

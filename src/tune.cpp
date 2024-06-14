@@ -272,44 +272,6 @@ void Tune::ztune() {
   }
 }
 
-#if 0
-void roeTune(Queue* q, GpuCommon shared) {
-  auto configs = getTuneConfigs(shared.args->roeTune);
-  Primes primes;
-
-  u32 exponent = shared.args->prpExp;
-
-  for (const auto& config : configs) {
-    for (auto& [k, v] : config) {
-      if (k == "fft") {
-        shared.args->fftSpec = v;        
-      } else if (k == "bpw") {
-        double bpw = stod(v);
-        exponent = primes.nearestPrime(FFTConfig::fromSpec(shared.args->fftSpec).fftSize() * bpw + 0.5);
-      } else {
-        shared.args->flags[k] = v;
-      }
-    }
-
-    string fftSpec = shared.args->fftSpec;
-
-    if (fftSpec.empty()) { throw "-roeTune without FFT spec"; }
-    if (!exponent) { throw "-roeTune without exponent"; }
-
-    u32 fftSize = FFTConfig::fromSpec(fftSpec).fftSize();
-
-    auto gpu = Gpu::make(q, exponent, shared, false);
-    auto [ok, res, roeSq, roeMul] = gpu->measureROE(shared.args->quickTune);
-
-    log("%s %9d %016" PRIx64 " %.2f bpw %s %s %s\n",
-        ok ? "OK" : "EE", exponent, res, exponent / double(fftSize),
-        toString(config).c_str(), roeSq.toString().c_str(),
-        shared.args->verbose ? roeMul.toString().c_str() : "");
-  }
-}
-#endif
-
-
 struct TuneEntry {
   double cost;
   FFTConfig fft;
