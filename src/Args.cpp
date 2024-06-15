@@ -86,8 +86,11 @@ string Args::tailDir() const { return fs::path{dir}.filename().string(); }
 
 bool Args::hasFlag(const string& key) const { return flags.find(key) != flags.end(); }
 
-void Args::setConfig(const string& config) {
-  for (const auto& [k, v] : splitUses(config)) { flags[k] = v; }
+void Args::setConfig(const string& config) { setConfig(splitUses(config)); }
+
+void Args::setConfig(const vector<KeyVal>& config) {
+  // verify K
+  for (const auto& [k, v] : config) { flags[k] = v; }
 }
 
 void Args::printHelp() {
@@ -122,6 +125,8 @@ The configuration options listed below can be passed on the command line or can 
 named "config.txt" in the prpll run directory.
 
 
+-h                 : print general help, list of FFTs, list of devices
+-info <fft>        : print detailed information about the given FFT; e.g. -h 1K:13:256
 -dir <folder>      : specify local work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
 -pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
                      Multiple PRPLL instances, each in its own directory, can share a pool of assignments and report
@@ -165,22 +170,11 @@ named "config.txt" in the prpll run directory.
 
   -use DEBUG       : enable asserts in OpenCL kernels (slow, developers)
 
--tune <spec>       : measure time-per-iteration in various configurations to find out what's fastest
-                     Requires specifying an exponent with -prp <exponent>.
+-tune <spec>       : measure speed in various configurations to find out what's fastest
                      Ignores other work and multi-worker settings; just does the timing, prints results and exits.
-                     If specifying FFT variants, put them first.
                      Examples:
-                       -prp 118063003 -tune "OUT_SIZEX=32,8;OUT_WG=256,64"
-                       -prp 118063003 -tune "fft=1K:13:256,256:13:1K,512:13:512;IN_WG=64,256,1024"
-                     note: if present, "fft=" must come first in the tune spec.
-                     See src/cl/middle.cl for some tunable paramaters.
-                     The residues are displayed at iteration 10000.
-
--ztune <ffts>      : finds the maximum exponent that can be handled by each FFT in the list <ffts>. Examples:
-                     -ztune "1K:13:256"
-                     -ztune "6.5M"
-                     -ztune "6M-7M"
-                     Appends the results to ztune.txt
+                       -tune "OUT_SIZEX=32,8;OUT_WG=64,128,256"
+                       -tune "IN_WG=64,128,256"
 
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
@@ -248,6 +242,19 @@ void Args::parse(const string& line) {
     } else if (key == "-version") {
       // log("PRPLL %s\n", VERSION);
       throw "version";
+    } else if (key == "-info") {
+      if (s.empty()) {
+        log("-info expects an FFT spec, e.g. -info 1K:13:256\n");
+        throw "-info <fft>";
+      }
+      log(" FFT         | BPW   | Max exp (M)\n");
+      for (const FFTShape& shape : FFTShape::multiSpec(s)) {
+        for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
+          FFTConfig fft{shape, variant};
+          log("%12s | %.2f | %5.1f\n", fft.spec().c_str(), fft.maxBpw(), fft.maxExp() / 1'000'000.0);
+        }
+      }
+      throw "info";
     } else if (key == "-tune") {
       tune = s;
     } else if (key == "-ztune") {

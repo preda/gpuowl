@@ -90,21 +90,8 @@ vector<TuneConfig> getTuneConfigs(const string& tune) {
   return permute(params);
 }
 
-/*
-string toSimpleString(TuneConfig config) {
-  assert(!config.empty() && config.front().first == "fft");
-  string s = config.front().second;
-  config.erase(config.begin());
-  for (const auto& [k, v] : config) {
-    assert(k != "fft" && k != "FFT");
-    s += ","s + k + '=' + v;
-  }
-  return s;
-}
-*/
-
 string toString(TuneConfig config) {
-  string s{','};
+  string s{};
   for (const auto& [k, v] : config) { s += k + '=' + v + ','; }
   s.pop_back();
   return s;
@@ -265,7 +252,8 @@ pair<TuneConfig, double> Tune::findBestConfig(FFTConfig fft, const vector<TuneCo
 
   for (const auto& config : configs) {
     // assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX");
-    for (auto& [k, v] : config) { shared.args->flags[k] = v; }
+    shared.args->setConfig(config);
+    // for (auto& [k, v] : config) { shared.args->flags[k] = v; }
 
     auto cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
 
@@ -302,7 +290,7 @@ void Tune::tune() {
       if (shouldSkip(fft, costZero, results)) { continue; }
       u32 exponent = primes.prevPrime(fft.maxExp());
       double cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
-      log("  %6.0f : %s %9u %s\n", cost * 1e6, fft.spec().c_str(), exponent, toString(config).c_str());
+      log("  %6.0f : %s %9u %s\n", cost * 1e6, fft.spec().c_str(), exponent, sconfig.c_str());
       results.push_back({cost, fft, sconfig});
     }
   }

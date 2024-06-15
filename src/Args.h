@@ -35,6 +35,7 @@ public:
 
   bool hasFlag(const string& key) const;
   void setConfig(const string& config);
+  void setConfig(const vector<KeyVal>& config);
 
   bool silent;
   string user;
