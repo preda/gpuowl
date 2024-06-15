@@ -72,8 +72,9 @@ vector<FFT> FFTShape::readTune() {
 //
 // Note: This routine returns the top 16 bits of the expected max carry32.
 
-u32 FFTShape::getMaxCarry32(u32 fftSize, u32 exponent) {
-  return (u32) (0x3242 * pow (2.0, 0.558 * log2(fftSize / (1.25 * 1024 * 1024)) + double(exponent) / double(fftSize) - 18.706));
+u32 FFTShape::getMaxCarry32(u32 exponent) const {
+  u32 N = fftSize();
+  return (u32) (0x3242 * pow(2.0, 0.558 * log2(N / (1.25 * 1024 * 1024)) + double(exponent) / double(N) - 18.706));
 }
 
 namespace {

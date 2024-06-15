@@ -161,30 +161,33 @@ string toDefine(const T& v) {
   return s;
 }
 
-string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SMALL_HEIGHT, u32 MIDDLE, u32 nW, u32 nH) {
+string clArgs(const Args& args, cl_device_id id, FFTConfig fft, u32 E) {
   string defines = toDefine(vector<pair<string, u32>>{
                     {"EXP", E},
-                    {"WIDTH", WIDTH},
-                    {"SMALL_HEIGHT", SMALL_HEIGHT},
-                    {"MIDDLE", MIDDLE},
+                    {"WIDTH", fft.shape.width},
+                    {"SMALL_HEIGHT", fft.shape.height},
+                    {"MIDDLE", fft.shape.middle},
                     {"CARRY_LEN", CARRY_LEN},
-                    {"NW", nW},
-                    {"NH", nH}
+                    {"NW", fft.shape.nW()},
+                    {"NH", fft.shape.nH()}
                   });
 
   if (isAmdGpu(id)) { defines += toDefine("AMDGPU", 1); }
 
   // Force carry64 when carry32 might exceed a very conservative 0x6C000000
-  if (FFTShape::getMaxCarry32(N, E) > 0x6C00) { defines += toDefine("CARRY64", 1); }
+  if (fft.shape.getMaxCarry32(E) > 0x6C00) {
+    log("Using CARRY64\n");
+    defines += toDefine("CARRY64", 1);
+  }
 
-  defines += toDefine("WEIGHT_STEP", double(weight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1));
-  defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, SMALL_HEIGHT * MIDDLE, 0, 0, 1) - 1));
+  u32 N = fft.shape.fftSize();
+  defines += toDefine("WEIGHT_STEP", double(weight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
+  defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
+  defines += toDefine(args.flags);
+  defines += toDefine("FFT_VARIANT", fft.variant);
 
   return defines;
 }
-
-
-string clArgs(const Args& args) { return toDefine(args.flags); }
 
 } // namespace
 
@@ -216,11 +219,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize) :
   nH(fft.shape.nH()),
   bufSize(N * sizeof(double)),
   useLongCarry{args.carry == Args::CARRY_LONG},
-
-  compiler{args, queue->context,
-           clArgs(args, queue->context->deviceId(), N, E, WIDTH, SMALL_H, BIG_H / SMALL_H, nW, nH)
-           + clArgs(args)
-           + toDefine("FFT_VARIANT", u32(fft.variant))},
+  compiler{args, queue->context, clArgs(args, queue->context->deviceId(), fft, E)},
   
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 

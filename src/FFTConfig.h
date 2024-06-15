@@ -29,7 +29,7 @@ class FFTShape {
 public:
   static constexpr const float MIN_BPW = 3;
   
-  static u32 getMaxCarry32(u32 fftSize, u32 exponent);
+  u32 getMaxCarry32(u32 exponent) const;
   static std::vector<FFTShape> genConfigs();
 
   static tuple<u32, u32, bool> getChainLengths(u32 fftSize, u32 exponent, u32 middle);
