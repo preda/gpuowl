@@ -68,10 +68,8 @@ vector<KeyVal> Args::splitUses(string ss) { // pass by value is intentional
 
 void Args::readConfig(const fs::path& path) {
   if (File file = File::openRead(path)) {
-    while (true) {
-      string line = rstripNewline(file.readLine());
-      if (line.empty()) { break; }
-      // log("config: %s\n", line.c_str());
+    for (string line : file) {
+      line = rstripNewline(line);
       parse(line);
     }
   }
@@ -230,7 +228,8 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
 }
 
 void Args::parse(const string& line) {
-  if (line.empty()) { return; }
+  if (line.empty() || line[0] == '#') { return; }
+
   if (!silent) { log("config: %s\n", line.c_str()); }
   auto args = splitArgLine(line);
 

@@ -45,6 +45,9 @@ public:
   FFTShape(u32 w, u32 m, u32 h);
 
   u32 fftSize() const { return width * height * middle * 2; }
+  u32 nW() const { return (width == 1024 || width == 256 || width == 4096) ? 4 : 8; }
+  u32 nH() const { return (height == 1024 || height == 256 || height == 4096) ? 4 : 8; }
+
   double maxBpw() const { return *max_element(bpw.begin(), bpw.end()); }
   std::string spec() const { return numberK(width) + ':' + numberK(middle) + ':' + numberK(height); }
 };

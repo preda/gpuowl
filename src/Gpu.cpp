@@ -21,13 +21,6 @@
 #include <array>
 #include <cinttypes>
 
-struct Weights {
-  vector<double> weightsIF;
-  // vector<double> carryWeightsIF;
-  vector<u32> bitsCF;
-  vector<u32> bitsC;
-};
-
 namespace {
 
 u32 kAt(u32 H, u32 line, u32 col) { return (line + col * H) * 2; }
@@ -192,66 +185,12 @@ string clArgs(const Args& args, cl_device_id id, u32 N, u32 E, u32 WIDTH, u32 SM
 
 
 string clArgs(const Args& args) { return toDefine(args.flags); }
-/*
-  string s;
-  for (const auto& [key, val] : args.flags) {
-    s += " -D" + key + '=' + toLiteral(val);
-  }
-  return s;
-}
-*/
-
-/*
-FFTShape getFFTConfig(u32 E, string fftSpec) {
-  if (fftSpec.empty()) {
-    vector<FFTShape> configs = FFTShape::genConfigs();
-    for (FFTShape c : configs) { if (c.maxExp() >= E) { return c; } }
-    log("No FFT for exponent %u\n", E);
-    throw "No FFT for exponent";
-  }
-  return FFTShape::fromSpec(fftSpec);
-}
-*/
 
 } // namespace
 
 unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, FFTConfig fftConfig, bool logFftSize) {
-  string spec = fftConfig.spec();
-  if (fftConfig.maxExp() < E) {
-    log("Exponent %u is too large for FFT %s\n", E, spec.c_str());
-    throw "FFT too small";
-  }
-  assert(E <= fftConfig.maxExp());
-
-  // FFTShape config = getFFTConfig(E, shared.args->fftSpec);
-  u32 WIDTH        = fftConfig.shape.width;
-  u32 SMALL_HEIGHT = fftConfig.shape.height;
-  u32 MIDDLE       = fftConfig.shape.middle;
-
-  u32 N = WIDTH * SMALL_HEIGHT * MIDDLE * 2;
-
-  u32 nW = (WIDTH == 1024 || WIDTH == 256 || WIDTH == 4096) ? 4 : 8;
-  u32 nH = (SMALL_HEIGHT == 1024 || SMALL_HEIGHT == 256 || SMALL_HEIGHT==4096) ? 4 : 8;
-
-  float bitsPerWord = E / float(N);
-  if (logFftSize) { log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), spec.c_str(), bitsPerWord); }
-
-  if (bitsPerWord > 20) {
-    log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
-    throw "FFT size too small";
-  }
-
-  if (bitsPerWord < FFTShape::MIN_BPW) {
-    log("FFT size too large for exponent (%.2f bits/word < %.2f bits/word).\n", bitsPerWord, FFTShape::MIN_BPW);
-    throw "FFT size too large";
-  }
-
-  return make_unique<Gpu>(q, shared, fftConfig, E, WIDTH, SMALL_HEIGHT * MIDDLE, SMALL_HEIGHT, nW, nH);
+  return make_unique<Gpu>(q, shared, fftConfig, E, logFftSize);
 }
-
-Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH)
-  : Gpu{q, shared, fft, E, W, BIG_H, SMALL_H, nW, nH, genWeights(E, W, BIG_H, nW)}
-{}
 
 Gpu::~Gpu() {
   // Background tasks may have captured *this*, so wait until those are complete before destruction
@@ -261,36 +200,38 @@ Gpu::~Gpu() {
 #define ROE_SIZE 100000
 #define CARRY_SIZE 100000
 
-Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, Weights&& weights) :
+Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize) :
   queue(q),
   background{shared.background},
   args{*shared.args},
   saver{E, args.blockSize},
 
   E(E),
-  N(W * BIG_H * 2),
+  N(fft.shape.fftSize()),
+  WIDTH(fft.shape.width),
+  SMALL_H(fft.shape.height),
+  BIG_H(SMALL_H * fft.shape.middle),
   hN(N / 2),
-  nW(nW),
-  nH(nH),
+  nW(fft.shape.nW()),
+  nH(fft.shape.nH()),
   bufSize(N * sizeof(double)),
-  WIDTH(W),
   useLongCarry{args.carry == Args::CARRY_LONG},
 
   compiler{args, queue->context,
-           clArgs(args, queue->context->deviceId(), N, E, W, SMALL_H, BIG_H / SMALL_H, nW, nH)
+           clArgs(args, queue->context->deviceId(), N, E, WIDTH, SMALL_H, BIG_H / SMALL_H, nW, nH)
            + clArgs(args)
            + toDefine("FFT_VARIANT", u32(fft.variant))},
   
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 
   //  W / nW
-  K(kCarryFused,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW),
-  K(kCarryFusedROE, "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DROE=1"),
+  K(kCarryFused,    "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW),
+  K(kCarryFusedROE, "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW, "-DROE=1"),
 
-  K(kCarryFusedMul,    "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DMUL3=1"),
-  K(kCarryFusedMulROE, "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DMUL3=1 -DROE=1"),
+  K(kCarryFusedMul,    "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW, "-DMUL3=1"),
+  K(kCarryFusedMulROE, "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW, "-DMUL3=1 -DROE=1"),
 
-  K(kCarryFusedLL,     "carryfused.cl", "carryFused", W * (BIG_H + 1) / nW, "-DLL=1"),
+  K(kCarryFusedLL,     "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW, "-DLL=1"),
 
   K(kCarryA,    "carry.cl", "carry", hN / CARRY_LEN),
   K(kCarryAROE, "carry.cl", "carry", hN / CARRY_LEN, "-DROE=1"),
@@ -326,12 +267,14 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, u32 W, u32 BIG_H, u32
   K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
 #undef K
 
-  bufTrigW{shared.bufCache->smallTrig(W, nW)},
+  bufTrigW{shared.bufCache->smallTrig(WIDTH, nW)},
   bufTrigH{shared.bufCache->smallTrig(SMALL_H, nH)},
-  bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H, W)},
+  bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H, WIDTH)},
 
-  bufTrigBHW{shared.bufCache->trigBHW(W, hN, BIG_H)},
+  bufTrigBHW{shared.bufCache->trigBHW(WIDTH, hN, BIG_H)},
   bufTrigSquare(shared.bufCache->trigSquare(hN, nH, SMALL_H)),
+
+  weights{genWeights(E, WIDTH, BIG_H, nW)},
 
   bufWeights{q->context, std::move(weights.weightsIF)},
   bufBits{q->context,    std::move(weights.bitsCF)},
@@ -361,8 +304,28 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, u32 W, u32 BIG_H, u32
 
   statsBits{u32(args.value("STATS", 0))},
   timeBufVect{profile.make("proofBufVect")}
-{
-  useLongCarry = useLongCarry || (E / float(N) < 10.5f);
+{    
+  // Sometimes we do want to run a FFT beyond a reasonable BPW (e.g. during -ztune), and these situations
+  // coincide with logFftSize == false
+  if (logFftSize && fft.maxExp() < E) {
+    log("Exponent %u is too large for FFT %s\n", E, fft.spec().c_str());
+    throw "FFT too small";
+  }
+
+  float bitsPerWord = E / float(N);
+  if (logFftSize) { log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), fft.spec().c_str(), bitsPerWord); }
+
+  if (bitsPerWord > 20) {
+    log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
+    throw "FFT size too small";
+  }
+
+  if (bitsPerWord < FFTShape::MIN_BPW) {
+    log("FFT size too large for exponent (%.2f bits/word < %.2f bits/word).\n", bitsPerWord, FFTShape::MIN_BPW);
+    throw "FFT size too large";
+  }
+
+  useLongCarry = useLongCarry || (bitsPerWord < 10.5f);
 
   if (useLongCarry) { log("Using long carry!\n"); }
   

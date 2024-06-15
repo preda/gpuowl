@@ -67,6 +67,13 @@ public:
   double gumbelMiu{}, gumbelBeta{};
 };
 
+struct Weights {
+  vector<double> weightsIF;
+  // vector<double> carryWeightsIF;
+  vector<u32> bitsCF;
+  vector<u32> bitsC;
+};
+
 class Gpu {
   Queue* queue;
   Background* background;
@@ -76,8 +83,11 @@ class Gpu {
   u32 E;
   u32 N;
 
-  u32 hN, nW, nH, bufSize;
   u32 WIDTH;
+  u32 SMALL_H;
+  u32 BIG_H;
+
+  u32 hN, nW, nH, bufSize;
   bool useLongCarry;
   u32 wantROE{};
 
@@ -126,6 +136,8 @@ class Gpu {
   
   TrigPtr bufTrigBHW;
   TrigPtr bufTrigSquare;
+
+  Weights weights;
 
   // The weights and the "bigWord bits" depend on the exponent.
   Buffer<double> bufWeights;
@@ -190,8 +202,6 @@ class Gpu {
 
   void writeState(const vector<u32>& check, u32 blockSize);
   
-  Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH, struct Weights&& weights);
-
   // does either carrryFused() or the expanded version depending on useLongCarry
   void doCarry(Buffer<double>& out, Buffer<double>& in);
 
@@ -214,9 +224,9 @@ class Gpu {
   static bool equals9(const Words& words);
 
 public:
+  Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize);
   static unique_ptr<Gpu> make(Queue* q, u32 E, GpuCommon shared, FFTConfig fft, bool logFftSize = true);
 
-  Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, u32 W, u32 BIG_H, u32 SMALL_H, u32 nW, u32 nH);
   ~Gpu();
 
   PRPResult isPrimePRP(const Task& task);
