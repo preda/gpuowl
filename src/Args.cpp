@@ -229,8 +229,19 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
 
 void Args::parse(const string& line) {
   if (line.empty() || line[0] == '#') { return; }
-
   if (!silent) { log("config: %s\n", line.c_str()); }
+
+  if (line[0] == ':') {
+    // conditional defines predicated on a FFT
+    char fftBuf[128];
+    char configBuf[256];
+    sscanf(line.c_str(), ": %127s %255s", fftBuf, configBuf);
+    string fft = fftBuf;
+    string config = configBuf;
+    perFftConfig[fft] = splitUses(config);
+    return;
+  }
+
   auto args = splitArgLine(line);
 
   for (const auto& [key, s] : args) {

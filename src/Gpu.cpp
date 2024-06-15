@@ -135,33 +135,17 @@ string toLiteral(const vector<T>& v) {
 
 string toLiteral(const string& s) { return s; }
 
-/*
-struct Define {
-  const string str;
-
-  template<typename T> Define(const string& label, T value) : str{label + '=' + toLiteral(value)} {
-    assert(label.find('=') == string::npos);
-  }
-
-  explicit Define(const string& labelAndVal) : str{labelAndVal} {
-    assert(labelAndVal.find('=') != string::npos);
-  }
-  
-  operator string() const { return str; }
-};
-*/
-
 template<typename T>
 string toDefine(const string& k, T v) { return " -D"s + k + '=' + toLiteral(v); }
 
 template<typename T>
-string toDefine(const T& v) {
+string toDefine(const T& vect) {
   string s;
-  for (const auto& [k, v] : v) { s += toDefine(k, v); }
+  for (const auto& [k, v] : vect) { s += toDefine(k, v); }
   return s;
 }
 
-string clArgs(const Args& args, cl_device_id id, FFTConfig fft, u32 E) {
+string clDefines(const Args& args, cl_device_id id, FFTConfig fft, u32 E) {
   string defines = toDefine(vector<pair<string, u32>>{
                     {"EXP", E},
                     {"WIDTH", fft.shape.width},
@@ -184,6 +168,8 @@ string clArgs(const Args& args, cl_device_id id, FFTConfig fft, u32 E) {
   defines += toDefine("WEIGHT_STEP", double(weight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
   defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
   defines += toDefine(args.flags);
+  auto it = args.perFftConfig.find(fft.shape.spec());
+  if (it != args.perFftConfig.end()) { defines += toDefine(it->second); }
   defines += toDefine("FFT_VARIANT", fft.variant);
 
   return defines;
@@ -219,7 +205,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize) :
   nH(fft.shape.nH()),
   bufSize(N * sizeof(double)),
   useLongCarry{args.carry == Args::CARRY_LONG},
-  compiler{args, queue->context, clArgs(args, queue->context->deviceId(), fft, E)},
+  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, E)},
   
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 

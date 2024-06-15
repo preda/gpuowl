@@ -49,6 +49,8 @@ public:
   string ztune;
   // bool quickTune = false;
   std::map<std::string, std::string> flags;
+
+  std::map<std::string, vector<KeyVal>> perFftConfig;
   
   int device = 0;
   
