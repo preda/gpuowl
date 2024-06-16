@@ -147,8 +147,7 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
 
   LogContext pushContext(std::to_string(exponent));
   
-  auto [fft, config] = FFTConfig::bestFit(exponent, shared.args->fftSpec);
-  shared.args->setConfig(config);
+  FFTConfig fft = FFTConfig::bestFit(exponent, shared.args->fftSpec);
 
   if (kind == VERIFY) {
     auto gpu = Gpu::make(q, exponent, shared, fft);

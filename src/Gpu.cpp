@@ -1085,7 +1085,7 @@ double Gpu::timePRP() {
     log("Error %016" PRIx64 "\n", res);
     secsPerIt = 0.1; // a large value to mark the error
   }
-  return secsPerIt;
+  return secsPerIt * 1e6;
 }
 
 PRPResult Gpu::isPrimePRP(const Task& task) {

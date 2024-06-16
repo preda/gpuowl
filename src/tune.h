@@ -38,8 +38,6 @@ private:
   u32 fftSize();
   std::array<double, 3> maxBpw(FFTConfig fft);
 
-  std::pair<TuneConfig, double> findBestConfig(FFTConfig, const vector<TuneConfig>& configs);
-
 public:
   Queue *q;
   GpuCommon shared;
@@ -51,6 +49,7 @@ public:
 
   void ztune();
   void tune();
+  void ctune();
 };
 
 void roeTune(Queue* q, GpuCommon shared);

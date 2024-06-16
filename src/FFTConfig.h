@@ -58,7 +58,7 @@ struct FFTConfig {
 public:
   static const u32 N_VARIANT = 4;
 
-  static std::pair<FFTConfig, std::string> bestFit(u32 E, const std::string& spec);
+  static FFTConfig bestFit(u32 E, const std::string& spec);
 
   FFTShape shape;
   u32 variant;
@@ -69,10 +69,4 @@ public:
   double maxBpw() const { return shape.bpw[variant]; }
   u32 maxExp()  const { return maxBpw() * shape.fftSize(); }
   std::string spec() const { return shape.spec() + ":" + to_string(variant); }
-};
-
-struct TuneEntry {
-  double cost;
-  FFTConfig fft;
-  string config;
 };

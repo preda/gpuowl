@@ -8,7 +8,7 @@
 #include "Primes.h"
 #include "log.h"
 #include "File.h"
-#include "CycleFile.h"
+#include "TuneEntry.h"
 
 #include <numeric>
 #include <string>
@@ -212,7 +212,7 @@ void Tune::ztune() {
   Args *args = shared.args;
   assert(!args->hasFlag("CLEAN") && !args->hasFlag("TRIG_HI"));
 
-  string ztuneStr = args->ztune;
+  string ztuneStr = args->fftSpec;
   auto configs = ztuneStr.empty() ? FFTShape::genConfigs() : FFTShape::multiSpec(ztuneStr);
   for (FFTShape shape : configs) {
     string spec = shape.spec();
@@ -230,86 +230,96 @@ void Tune::ztune() {
   }
 }
 
-bool shouldSkip(FFTConfig fft, double bestCaseCost, const vector<TuneEntry>& results) {
-  // We assume that variant==0 is the fastest, so the cost at variant>0 will be larger.
-  // If the current variant can't be worth it (relative to existing measurements), skip it.
-  for (const TuneEntry& e : results) {
-    if (e.cost <= bestCaseCost && e.fft.maxExp() >= fft.maxExp()) {
-      log("skipping %s because of %s\n", fft.spec().c_str(), e.fft.spec().c_str());
-      return true;
-    }
+namespace {
+
+struct Entry {
+  FFTShape shape;
+  TuneConfig config;
+  double cost;
+};
+
+string formatConfigResults(const vector<Entry>& results) {
+  string s;
+  for (const Entry& e : results) {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "! %s %s # %.0f\n",
+             e.shape.spec().c_str(), toString(e.config).c_str(), e.cost);
+    s += buf;
   }
-  return false;
+  return s;
 }
 
-pair<TuneConfig, double> Tune::findBestConfig(FFTConfig fft, const vector<TuneConfig>& configs) {
-  u32 exponent = primes.prevPrime(fft.maxExp());
+} // namespace
 
-  // Every new FFTShape starts with variant zero, at which point we search for the best config for that
-  // shape. The other variants of the same shape use the best config.
-  TuneConfig bestConfig;
-  double bestCost = 100; // arbitrary large value
+void Tune::ctune() {
+  Args *args = shared.args;
+  string fftSpec = args->fftSpec;
 
-  for (const auto& config : configs) {
-    // assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX");
-    shared.args->setConfig(config);
-    // for (auto& [k, v] : config) { shared.args->flags[k] = v; }
+  auto configs = getTuneConfigs(shared.args->ctune);
+  assert(!configs.empty());
+  // if (configs.empty()) { configs.push_back({}); }
 
-    auto cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
 
-    bool isBest = (cost < bestCost);
-    if (isBest) {
-      bestCost = cost;
-      bestConfig = config;
+  vector<Entry> results;
+  vector<Entry> secondResults;
+
+  for (const FFTShape& shape : FFTShape::multiSpec(args->fftSpec)) {
+    FFTConfig fft{shape, 0};
+    u32 exponent = primes.prevPrime(fft.maxExp());
+    log("tuning %10s with exponent %u\n", fft.shape.spec().c_str(), exponent);
+
+    Entry best{{0, 0, 0}, {}, 1e9};
+    Entry second{best};
+
+    for (const auto& config : configs) {
+      // assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX");
+      shared.args->setConfig(config);
+
+      auto cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
+
+      bool isBest = (cost < best.cost);
+      if (isBest) {
+        second = best;
+        best = {fft.shape, config, cost};
+      }
+      log("%c %6.0f : %s %s\n",
+          isBest ? '*' : ' ', cost, fft.shape.spec().c_str(), toString(config).c_str());
     }
-    log("%c %6.0f : %s %9u %s\n",
-        isBest ? '*' : ' ', cost * 1e6, fft.spec().c_str(), exponent, toString(config).c_str());
+    results.push_back(best);
+    secondResults.push_back(second);
   }
-  return {bestConfig, bestCost};
+
+  log("Second best configs (for information only):\n%s", formatConfigResults(secondResults).c_str());
+  log("Best configs (lines can be copied to config.txt):\n%s", formatConfigResults(results).c_str());
 }
 
 void Tune::tune() {
   Args *args = shared.args;
   string fftSpec = args->fftSpec;
 
-  auto configs = getTuneConfigs(shared.args->tune);
-  if (configs.empty()) { configs.push_back({}); }
-
-  vector<TuneEntry> results;
+  vector<TuneEntry> results = TuneEntry::readTuneFile();
 
   for (const FFTShape& shape : FFTShape::multiSpec(args->fftSpec)) {
-    FFTConfig zero{shape, 0};
-    auto [config, costZero] = findBestConfig(zero, configs);
-    string sconfig = toString(config);
-    results.push_back({costZero, zero, sconfig});
-
-    for (auto& [k, v] : config) { shared.args->flags[k] = v; }
-
-    for (u32 variant = 1; variant < FFTConfig::N_VARIANT; ++variant) {
+    double costZero{};
+    for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
       FFTConfig fft{shape, variant};
-      if (shouldSkip(fft, costZero, results)) { continue; }
-      u32 exponent = primes.prevPrime(fft.maxExp());
+
+      if (variant > 0 && !TuneEntry{costZero, fft}.willUpdate(results)) {
+        log("skipped %s\n", fft.spec().c_str());
+        continue;
+      }
+
+      u32 maxExp = fft.maxExp();
+      u32 exponent = primes.prevPrime(maxExp);
       double cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
-      log("  %6.0f : %s %9u %s\n", cost * 1e6, fft.spec().c_str(), exponent, sconfig.c_str());
-      results.push_back({cost, fft, sconfig});
+      if (variant == 0) { costZero = cost; }
+
+      bool isUseful = TuneEntry{cost, fft}.update(results);
+      log("%c %6.0f %12s %9u\n", isUseful ? '*' : ' ', cost, fft.spec().c_str(), exponent);
     }
   }
 
-  log("\n");
-  std::sort(results.begin(), results.end(),
-            [](const TuneEntry& a, const TuneEntry& b) { return a.cost < b.cost; });
-
-  CycleFile tuneFile{"tune.txt"};
-
-  u32 prevMaxExp = 0;
-  for (auto& [cost, fft, conf] : results) {
-    tuneFile->printf("%6.0f %s %s\n", cost * 1e6, fft.spec().c_str(), conf.c_str());
-    u32 maxExp = fft.maxExp();
-    if (maxExp > prevMaxExp) {
-      log("%6.0f %9u : %s %s\n", cost * 1e6, maxExp, fft.spec().c_str(), conf.c_str());
-      prevMaxExp = maxExp;
-    }
-  }
+  TuneEntry::writeTuneFile(results);
 }
 
 SpeedConfig Speed::bestForExp(u32 exp) {

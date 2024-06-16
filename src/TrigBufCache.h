@@ -4,6 +4,8 @@
 
 #include "Buffer.h"
 
+#include <mutex>
+
 using double2 = pair<double, double>;
 using TrigBuf = Buffer<double2>;
 using TrigPtr = shared_ptr<TrigBuf>;

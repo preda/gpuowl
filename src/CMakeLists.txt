@@ -19,6 +19,7 @@ add_executable(gpuowl
   TrigBufCache.cpp
   CycleFile.cpp
   tune.cpp
+  TuneEntry.cpp
   )
 
 target_link_libraries(gpuowl OpenCL)

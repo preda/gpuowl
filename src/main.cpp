@@ -93,12 +93,17 @@ int main(int argc, char **argv) {
     Background background;
     GpuCommon shared{&args, &bufCache, &background};
 
-    if (!args.tune.empty()) {
+    if (!args.ctune.empty() || args.doTune || args.doZtune) {
       Queue q(context, args.profile);
-      Tune{&q, shared}.tune();
-    } else if (args.doZtune) {
-      Queue q(context, args.profile);
-      Tune{&q, shared}.ztune();
+      Tune tune{&q, shared};
+
+      if (!args.ctune.empty()) {
+        tune.ctune();
+      } else if (args.doTune) {
+        tune.tune();
+      } else if (args.doZtune) {
+        tune.ztune();
+      }
     } else {
       vector<Queue> queues;
       for (int i = 0; i < int(args.workers); ++i) { queues.emplace_back(context, args.profile); }

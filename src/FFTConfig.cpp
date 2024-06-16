@@ -5,6 +5,7 @@
 #include "log.h"
 #include "File.h"
 #include "Args.h"
+#include "TuneEntry.h"
 
 #include <cmath>
 #include <cassert>
@@ -179,28 +180,6 @@ FFTConfig::FFTConfig(const string& spec) :
   assert(variant < N_VARIANT);
 }
 
-vector<TuneEntry> readTuneFile() {
-  File tuneFile = File::openRead("tune.txt");
-  if (!tuneFile) { return {}; }
-  vector<TuneEntry> v;
-
-  double cost;
-  char fftSpecBuf[64];
-  char configBuf[128];
-  for (string line : tuneFile) {
-    *fftSpecBuf = 0;
-    *configBuf = 0;
-    int n = sscanf(line.c_str(), "%lf %63s %127s", &cost, fftSpecBuf, configBuf);
-    if (n < 3) {
-      log("Could not parse tune.txt line '%s'\n", line.c_str());
-      break;
-    }
-    v.push_back({cost, FFTConfig{fftSpecBuf}, configBuf});
-  }
-  std::sort(v.begin(), v.end(), [](const TuneEntry& a, const TuneEntry& b) { return a.cost < b.cost; });
-  return v;
-}
-
 bool FFTConfig::matches(const string& spec) const {
   if (spec.empty()) { return true; }
 
@@ -243,21 +222,21 @@ bool FFTConfig::matches(const string& spec) const {
   }
 }
 
-pair<FFTConfig, string> FFTConfig::bestFit(u32 E, const string& fftSpec) {
+FFTConfig FFTConfig::bestFit(u32 E, const string& fftSpec) {
   // Choose from tune.txt the fastest FFT that's acceptable according to maxExp and fftSpec.
-  vector<TuneEntry> tunes = readTuneFile();
+  vector<TuneEntry> tunes = TuneEntry::readTuneFile();
   for (const TuneEntry& e : tunes) {
     // The first acceptable is the best as they're sorted by cost
-    if (E <= e.fft.maxExp() && e.fft.matches(fftSpec)) { return {e.fft, e.config}; }
+    if (E <= e.fft.maxExp() && e.fft.matches(fftSpec)) { return e.fft; }
   }
 
-  log("No acceptable entries were found in tune.txt. Consider tuning (-tune)\n");
+  log("No acceptable entries were found in tune.txt. Consider benchmarking FFTs with -tune\n");
 
   vector<FFTShape> candidates = FFTShape::multiSpec(fftSpec);
   for (const FFTShape& shape : candidates) {
     for (u32 v = 0; v < 4; ++v) {
       FFTConfig fft{shape, v};
-      if (fft.maxExp() >= E) { return {fft, {}}; }
+      if (fft.maxExp() >= E) { return fft; }
     }
   }
 

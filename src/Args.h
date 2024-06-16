@@ -44,12 +44,13 @@ public:
   
   string uid;
   string verifyPath;
-  string tune;
-  bool doZtune{};
-  string ztune;
-  // bool quickTune = false;
-  std::map<std::string, std::string> flags;
 
+  string ctune;
+
+  bool doTune{};
+  bool doZtune{};
+
+  std::map<std::string, std::string> flags;
   std::map<std::string, vector<KeyVal>> perFftConfig;
   
   int device = 0;

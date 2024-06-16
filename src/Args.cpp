@@ -168,11 +168,12 @@ named "config.txt" in the prpll run directory.
 
   -use DEBUG       : enable asserts in OpenCL kernels (slow, developers)
 
--tune <spec>       : measure speed in various configurations to find out what's fastest
-                     Ignores other work and multi-worker settings; just does the timing, prints results and exits.
-                     Examples:
-                       -tune "OUT_SIZEX=32,8;OUT_WG=64,128,256"
-                       -tune "IN_WG=64,128,256"
+-tune              : measures the speed of the FFTs specified in -fft <spec> to find the best FFT for each exponent.
+
+-ctune <configs>   : finds the best configuration for each FFT specified in -fft <spec>.
+                     Prints the results in a form that can be incorporated in config.txt
+                     -fft 6.5M  -tune "OUT_SIZEX=32,8;OUT_WG=64,128,256"
+                     -fft 6M-7M -tune "IN_WG=64,128,256"
 
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
@@ -231,11 +232,11 @@ void Args::parse(const string& line) {
   if (line.empty() || line[0] == '#') { return; }
   if (!silent) { log("config: %s\n", line.c_str()); }
 
-  if (line[0] == ':') {
+  if (line[0] == '!') {
     // conditional defines predicated on a FFT
-    char fftBuf[128];
+    char fftBuf[32];
     char configBuf[256];
-    sscanf(line.c_str(), ": %127s %255s", fftBuf, configBuf);
+    sscanf(line.c_str(), "! %31s %255s", fftBuf, configBuf);
     string fft = fftBuf;
     string config = configBuf;
     perFftConfig[fft] = splitUses(config);
@@ -266,10 +267,13 @@ void Args::parse(const string& line) {
       }
       throw "info";
     } else if (key == "-tune") {
-      tune = s;
+      assert(s.empty());
+      doTune = true;
+    } else if (key == "-ctune") {
+      assert(!s.empty());
+      ctune = s;
     } else if (key == "-ztune") {
       doZtune = true;
-      ztune = s;
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-time") {
