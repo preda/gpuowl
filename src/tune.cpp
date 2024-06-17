@@ -238,14 +238,16 @@ struct Entry {
   double cost;
 };
 
+string formatEntry(Entry e) {
+  char buf[256];
+  snprintf(buf, sizeof(buf), "! %s %s # %.0f\n",
+           e.shape.spec().c_str(), toString(e.config).c_str(), e.cost);
+  return buf;
+}
+
 string formatConfigResults(const vector<Entry>& results) {
   string s;
-  for (const Entry& e : results) {
-    char buf[256];
-    snprintf(buf, sizeof(buf), "! %s %s # %.0f\n",
-             e.shape.spec().c_str(), toString(e.config).c_str(), e.cost);
-    s += buf;
-  }
+  for (const Entry& e : results) { s += formatEntry(e); }
   return s;
 }
 
@@ -287,10 +289,12 @@ void Tune::ctune() {
     }
     results.push_back(best);
     secondResults.push_back(second);
+
+    log("%s", formatEntry(best).c_str());
   }
 
   log("Second best configs (for information only):\n%s", formatConfigResults(secondResults).c_str());
-  log("Best configs (lines can be copied to config.txt):\n%s", formatConfigResults(results).c_str());
+  log("\nBest configs (lines can be copied to config.txt):\n%s", formatConfigResults(results).c_str());
 }
 
 void Tune::tune() {
