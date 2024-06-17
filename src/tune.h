@@ -23,7 +23,7 @@ private:
   Primes primes;
 
   u32 fftSize();
-  std::array<double, 3> maxBpw(FFTConfig fft);
+  std::pair<double, double> maxBpw(FFTConfig fft);
   u32 exponentForBpw(double bpw);
   double zForBpw(double bpw, FFTConfig fft);
 

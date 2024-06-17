@@ -2,13 +2,12 @@
 
 #pragma once
 
-/* List of user-serviceable -use flags and their effects : see also help (-h)
+/* Tunable paramaters for -ctune :
 
-OUT_WG,OUT_SIZEX <AMD default is 256,32> <nVidia default is 256,4 but needs testing>
-IN_WG,IN_SIZEX <AMD default is 256,32>  <nVidia default is 256,4 but needs testing>
-
-UNROLL_WIDTH <nVidia default>
-NO_UNROLL_WIDTH <AMD default>
+IN_WG, OUT_WG: 64, 128, 256. Default: 256.
+IN_SIZEX, OUT_SIZEX: 4, 8, 16, 32. Default: 32 on AMD, 4 on Nvidia.
+UNROLL_W: 0, 1. Default: 0 on AMD, 1 on Nvidia.
+UNROLL_H: 0, 1. Default: 1.
 */
 
 /* List of code-specific macros. These are set by the C++ host code or derived
@@ -87,11 +86,16 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #define CARRY32 1
 #endif
 
-// The ROCm optimizer does a very, very poor job of keeping register usage to a minimum.  This negatively impacts occupancy
-// which can make a big performance difference.  To counteract this, we can prevent some loops from being unrolled.
-// For AMD GPUs we do not unroll fft_WIDTH loops. For nVidia GPUs, we unroll everything.
-#if !UNROLL_WIDTH && !NO_UNROLL_WIDTH && !AMDGPU
-#define UNROLL_WIDTH 1
+#if !defined(UNROLL_W)
+#if AMDGPU
+#define UNROLL_W 0
+#else
+#define UNROLL_W 1
+#endif
+#endif
+
+#if !defined(UNROLL_H)
+#define UNROLL_H 1
 #endif
 
 // Expected defines: EXP the exponent.
@@ -108,11 +112,13 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
 
+/*
 #if UNROLL_WIDTH
 #define UNROLL_WIDTH_CONTROL
 #else
 #define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
 #endif
+*/
 
 typedef int i32;
 typedef uint u32;

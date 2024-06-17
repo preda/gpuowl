@@ -1,11 +1,5 @@
 // Copyright (C) Mihai Preda and George Woltman
 
-/* Tunable paramaters:
-
-IN_WG, OUT_WG: default 256; may try 64, 128, 1024
-IN_SIZEX, OUT_SIZEX: default 32 (on AMD), may try 4, 8, 16
-*/
-
 #if !IN_WG
 #define IN_WG 256
 #endif

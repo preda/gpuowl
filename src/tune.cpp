@@ -97,34 +97,6 @@ string toString(TuneConfig config) {
   return s;
 }
 
-double solve(double A, double B, double C) {
-  double delta = B * B - 4 * A * C;
-  delta = max(delta, 0.0);
-
-  return (-B - sqrt(delta)) / (2 * A);
-}
-
-array<double, 3> quadApprox(array<double, 7> z) {
-  decltype(z) y;
-  for (int i = 0; i < int(z.size()); ++i) { y[i] = log2(z[i]); }
-
-  double c1 = y[3] + (y[1] + y[5]) + (y[0] + y[6]) + (y[2] + y[4]);
-  double c2 = 3 * (y[6] - y[0]) + 2 * (y[5] - y[1]) + (y[4] - y[2]);
-  double c3 = 9 * (y[6] + y[0]) + 4 * (y[5] + y[1]) + (y[4] + y[2]);
-
-  double B = c2 / 28;
-  double A = (c3 - 4 * c1) / 84;
-  double C = (c1 - 28 * A) / 7;
-
-  return {A, B, C};
-}
-
-// Find x such that A*x^2 + B*x + C = log2(target)
-double solveForTarget(array<double, 3> coefs, double target) {
-  auto [A, B, C] = coefs;
-  return solve(A, B, C - log2(target));
-}
-
 struct Entry {
   FFTShape shape;
   TuneConfig config;
@@ -146,29 +118,41 @@ string formatConfigResults(const vector<Entry>& results) {
 
 } // namespace
 
-array<double, 3> Tune::maxBpw(FFTConfig fft) {
-  const double STEP = 0.1;
-  double bpw1 = 17.8 - log2(fftSize() / double(13 * 512 * 1024)) * 0.28;
+pair<double, double> Tune::maxBpw(FFTConfig fft) {
+  const double STEP = 0.06;
 
-  array<double, 7> z;
-  for (int i = 0; i < int(z.size()); ++i) { z[i] = zForBpw(bpw1 + i * STEP, fft); }
+  double oldBpw = fft.maxBpw();
+  double bpw = oldBpw;
 
-  auto ABC = quadApprox(z);
+  const double TARGET = 28;
 
-  double AS = ABC[0] / (STEP * STEP);
-  double BS = ABC[1] / STEP;
+  double z[4]{};
 
-  double AA = AS;
-  double k = 18 - (bpw1 + 3 * STEP);
-  double BB = 2 * k * AS + BS;
-  double CC = AS * k * k + BS * k + ABC[2];
-  double bpw = solveForTarget({AA, BB, CC}, 28) + 18;
+  z[1] = zForBpw(bpw - STEP, fft);
+  if (z[1] < TARGET) {
+    log("step down from %f\n", bpw);
+    bpw -= 2*STEP;
+    z[2] = z[1];
+    z[1] = zForBpw(bpw - STEP, fft);
+  } else {
+    z[2] = zForBpw(bpw + STEP, fft);
+    if (z[2] > TARGET) {
+      log("step up from %f\n", bpw);
+      bpw += 2*STEP;
+      z[1] = z[2];
+      z[2] = zForBpw(bpw + STEP, fft);
+    }
+  }
+  z[0] = zForBpw(bpw - 2 * STEP, fft);
+  z[3] = zForBpw(bpw + 2 * STEP, fft);
 
-  log("%.3f | %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f | %f %f %f | %s\n",
-      bpw, z[0], z[1], z[2], z[3], z[4], z[5], z[6],
-      AA, BB, CC, fft.spec().c_str());
+  double A = (2 * (z[3] - z[0]) + (z[2] - z[1])) / (10 * STEP);
+  double B = (z[0] + z[1] + z[2] + z[3]) / 4;
+  double x = bpw + (TARGET - B) / A;
 
-  return {AA, BB, CC};
+  log("%s %.3f -> %.3f | %.2f %.2f %.2f %.2f | %.0f %.1f\n",
+      fft.spec().c_str(), bpw, x, z[0], z[1], z[2], z[3], -A, B);
+  return {x, -A};
 }
 
 u32 Tune::fftSize() {
@@ -183,37 +167,33 @@ u32 Tune::exponentForBpw(double bpw) {
 
 double Tune::zForBpw(double bpw, FFTConfig fft) {
   u32 exponent = exponentForBpw(bpw);
-  // auto [fft, fftConfig] = FFTConfig::bestFit(exponent, shared.args->fftSpec);
-  // shared.args->setConfig(config);
   auto [ok, res, roeSq, roeMul] = Gpu::make(q, exponent, shared, fft, false)->measureROE(true);
   double z = roeSq.z();
   if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, fft.spec().c_str()); }
   return z;
 }
 
-
 void Tune::ztune() {
   File ztune = File::openAppend("ztune.txt");
   ztune.printf("#\n# %s\n#\n", shortTimeStr().c_str());
 
   Args *args = shared.args;
-  assert(!args->hasFlag("CLEAN") && !args->hasFlag("TRIG_HI"));
 
   string ztuneStr = args->fftSpec;
   auto configs = ztuneStr.empty() ? FFTShape::genConfigs() : FFTShape::multiSpec(ztuneStr);
   for (FFTShape shape : configs) {
     string spec = shape.spec();
-    // args->fftSpec = spec;
-    ztune.printf("# %s\n", spec.c_str());
+    // ztune.printf("# %s\n", spec.c_str());
 
+    double bpw[4];
+    double A[4];
     for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
       FFTConfig fft{shape, variant};
-      auto [A, B, C] = maxBpw(fft);
-      const double TARGET = 28;
-      double bpw = 18 + solveForTarget({A, B, C}, TARGET);
-
-      ztune.printf("{%f, %f, %f, \"%s\"}, // %.3f\n", A, B, C, fft.spec().c_str(), bpw);
+      std::tie(bpw[variant], A[variant]) = maxBpw(fft);
     }
+    string s = "\""s + spec + "\"";
+    ztune.printf("{%12s, {%.3f, %.3f, %.3f, %.3f}, {%.0f, %.0f, %.0f, %.0f}},\n",
+                 s.c_str(), bpw[0], bpw[1], bpw[2], bpw[3], A[0], A[1], A[2], A[3]);
   }
 }
 

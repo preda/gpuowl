@@ -73,8 +73,3 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
 #error CLEAN must be 0 or 1
 #endif
 }
-
-void shuflAndMul(u32 WG, local T2 *lds, Trig trig, T2 *u, u32 n, u32 f) {
-  tabMul(WG, trig, u, n, f);
-  shufl(WG, lds, u, n, f);
-}
