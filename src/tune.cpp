@@ -97,66 +97,11 @@ string toString(TuneConfig config) {
   return s;
 }
 
-} // namespace
-
-u32 Tune::fftSize() {
-  string spec = shared.args->fftSpec;
-  assert(!spec.empty());
-  return FFTShape::fromSpec(spec).fftSize();
-}
-
-u32 Tune::exponentForBpw(double bpw) {
-  return primes.nearestPrime(fftSize() * bpw + 0.5);
-}
-
-double Tune::zForBpw(double bpw, FFTConfig fft) {
-  u32 exponent = exponentForBpw(bpw);
-  // auto [fft, fftConfig] = FFTConfig::bestFit(exponent, shared.args->fftSpec);
-  // shared.args->setConfig(config);
-  auto [ok, res, roeSq, roeMul] = Gpu::make(q, exponent, shared, fft, false)->measureROE(true);
-  double z = roeSq.z();
-  if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, fft.spec().c_str()); }
-  return z;
-}
-
 double solve(double A, double B, double C) {
   double delta = B * B - 4 * A * C;
   delta = max(delta, 0.0);
 
   return (-B - sqrt(delta)) / (2 * A);
-}
-
-// Quadratic least squares over 4 points at x-coords {-1, 0, 1, 2}
-array<double, 3> quadApprox(array<double, 4> z) {
-  array<double, 4> y;
-  for (int i = 0; i < 4; ++i) { y[i] = log2(z[i]); }
-
-  // Fit A*x^2 + B*x + C to the 4 points (-1, y[0]), (0, y[1]), (1, y[2]), (2, y[3])
-
-  double c1 = y[0] + y[1] + y[2] + y[3];  // y1 + y2 + y3 + y4;
-  // double c2 = -y1      + y3 + 2*y4;
-  // double c3 =  y1      + y3 + 4*y4;
-
-  double A = (y[0] - y[1] - y[2] + y[3]) / 4;              // (c3 - c2 - c1) / 4;
-  double B = (3 * (y[3] - y[0]) + (y[2] - y[1])) / 10 - A; // (2c2 - c1 -10A) / 10;
-  double C = (c1 - 2 * B - 6 * A) / 4;
-
-  return {A, B, C};
-}
-
-array<double, 3> quadApprox(array<double, 5> z) {
-  decltype(z) y;
-  for (int i = 0; i < int(z.size()); ++i) { y[i] = log2(z[i]); }
-
-  double c1 = y[0] + y[1] + y[2] + y[3] + y[4];
-  double c2 = 2 * (y[4] - y[0]) + (y[3] - y[1]);
-  double c3 = 4 * (y[4] + y[0]) + (y[3] + y[1]);
-
-  double B = c2 / 10;
-  double A = (c3 - 2 * c1) / 14;
-  double C = c1 / 5 - 2 * A;
-
-  return {A, B, C};
 }
 
 array<double, 3> quadApprox(array<double, 7> z) {
@@ -179,6 +124,27 @@ double solveForTarget(array<double, 3> coefs, double target) {
   auto [A, B, C] = coefs;
   return solve(A, B, C - log2(target));
 }
+
+struct Entry {
+  FFTShape shape;
+  TuneConfig config;
+  double cost;
+};
+
+string formatEntry(Entry e) {
+  char buf[256];
+  snprintf(buf, sizeof(buf), "! %s %s # %.0f\n",
+           e.shape.spec().c_str(), toString(e.config).c_str(), e.cost);
+  return buf;
+}
+
+string formatConfigResults(const vector<Entry>& results) {
+  string s;
+  for (const Entry& e : results) { s += formatEntry(e); }
+  return s;
+}
+
+} // namespace
 
 array<double, 3> Tune::maxBpw(FFTConfig fft) {
   const double STEP = 0.1;
@@ -205,6 +171,27 @@ array<double, 3> Tune::maxBpw(FFTConfig fft) {
   return {AA, BB, CC};
 }
 
+u32 Tune::fftSize() {
+  string spec = shared.args->fftSpec;
+  assert(!spec.empty());
+  return FFTShape::fromSpec(spec).fftSize();
+}
+
+u32 Tune::exponentForBpw(double bpw) {
+  return primes.nearestPrime(fftSize() * bpw + 0.5);
+}
+
+double Tune::zForBpw(double bpw, FFTConfig fft) {
+  u32 exponent = exponentForBpw(bpw);
+  // auto [fft, fftConfig] = FFTConfig::bestFit(exponent, shared.args->fftSpec);
+  // shared.args->setConfig(config);
+  auto [ok, res, roeSq, roeMul] = Gpu::make(q, exponent, shared, fft, false)->measureROE(true);
+  double z = roeSq.z();
+  if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, fft.spec().c_str()); }
+  return z;
+}
+
+
 void Tune::ztune() {
   File ztune = File::openAppend("ztune.txt");
   ztune.printf("#\n# %s\n#\n", shortTimeStr().c_str());
@@ -229,29 +216,6 @@ void Tune::ztune() {
     }
   }
 }
-
-namespace {
-
-struct Entry {
-  FFTShape shape;
-  TuneConfig config;
-  double cost;
-};
-
-string formatEntry(Entry e) {
-  char buf[256];
-  snprintf(buf, sizeof(buf), "! %s %s # %.0f\n",
-           e.shape.spec().c_str(), toString(e.config).c_str(), e.cost);
-  return buf;
-}
-
-string formatConfigResults(const vector<Entry>& results) {
-  string s;
-  for (const Entry& e : results) { s += formatEntry(e); }
-  return s;
-}
-
-} // namespace
 
 void Tune::ctune() {
   Args *args = shared.args;
@@ -324,13 +288,4 @@ void Tune::tune() {
   }
 
   TuneEntry::writeTuneFile(results);
-}
-
-SpeedConfig Speed::bestForExp(u32 exp) {
-  // Ordered ascending by *cost*, the best is the first that's acceptable for *exp*.
-  for (const SpeedConfig& c : configs) {
-    if (c.maxExp >= exp) { return c; }
-  }
-  log("No acceptable FFT config found for exponent %u\n", exp);
-  throw "No FFT";
 }

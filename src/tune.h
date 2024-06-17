@@ -14,43 +14,28 @@ class GpuCommon;
 class RoeInfo;
 class Gpu;
 
-struct SpeedConfig {
-  u32 maxExp;
-  double cost;
-
-  FFTConfig fft;
-
-  string config; // vector<KeyVal>
-};
-
-class Speed {
-  vector<SpeedConfig> configs; // ordered ascending on "cost"
-
-public:
-  SpeedConfig bestForExp(u32 exp);
-
-};
-
 using TuneConfig = vector<KeyVal>;
 
 class Tune {
 private:
-  u32 fftSize();
-  std::array<double, 3> maxBpw(FFTConfig fft);
-
-public:
   Queue *q;
   GpuCommon shared;
-
   Primes primes;
 
+  u32 fftSize();
+  std::array<double, 3> maxBpw(FFTConfig fft);
   u32 exponentForBpw(double bpw);
   double zForBpw(double bpw, FFTConfig fft);
 
-  void ztune();
-  void tune();
-  void ctune();
-};
+public:
+  Tune(Queue *q, GpuCommon shared) : q{q}, shared{shared} {}
 
-void roeTune(Queue* q, GpuCommon shared);
-void roeSearch(Queue* q, GpuCommon shared);
+  // Find the max-BPW for each FFT
+  void ztune();
+
+  // Find the best configuration for each FFT
+  void ctune();
+
+  // Considering the cost of each FFT and the max-BPW, work out the transition points between them
+  void tune();
+};
