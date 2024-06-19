@@ -112,14 +112,6 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #define G_W (WIDTH / NW)
 #define G_H (SMALL_HEIGHT / NH)
 
-/*
-#if UNROLL_WIDTH
-#define UNROLL_WIDTH_CONTROL
-#else
-#define UNROLL_WIDTH_CONTROL       __attribute__((opencl_unroll_hint(1)))
-#endif
-*/
-
 typedef int i32;
 typedef uint u32;
 typedef long i64;

@@ -27,41 +27,6 @@ map<string, array<double, 4>> BPW {
 #include "fftbpw.h"
 };
 
-vector<FFT> FFTShape::readTune() {
-  vector<FFT> ret;
-
-  File fi = File::openRead("tune.txt");
-  if (!fi) { return {}; }
-  for (string line : fi) {
-    if (line.empty() || line[0] == '#') { continue; }
-    u32 priority{};
-    u32 maxExp{};
-    float bpw{};
-    int pos = 0;
-    int nScan = sscanf(line.c_str(), "%u %u %f : %n", &priority, &maxExp, &bpw, &pos);
-    if (!pos || nScan < 3) {
-      log("Invalid tune line \"%s\" ignored\n", line.c_str());
-      continue;
-    }
-    string tail = line.substr(pos);
-    string fftSpec;
-    vector<KeyVal> uses;
-    for (const auto& [k, v] : Args::splitArgLine(tail)) {
-      if (k == "-fft") {
-        fftSpec = v;
-      } else if (k == "-uses") {
-        uses = Args::splitUses(v);
-      } else {
-        log("Unexpeted %s %s\n", k.c_str(), v.c_str());
-      }
-    }
-    assert(!fftSpec.empty());
-    ret.push_back({priority, maxExp, fftSpec, uses});
-  }
-  std::sort(ret.begin(), ret.end(), [](const FFT& a, const FFT& b) { return a.priority < b.priority; });
-  return ret;
-}
-
 // This routine predicts the maximum carry32 we might see.  This was based on 500,000 iterations
 // of 24518003 using a 1.25M FFT.  The maximum carry32 value observed was 0x32420000.
 // As FFT length grows, so does the expected max carry32.  As we store fewer bits-per-word in

@@ -16,16 +16,7 @@ string numberK(u32 n);
 
 using KeyVal = std::pair<std::string, std::string>;
 
-struct FFT {
-  u32 priority;
-  u32 maxExp;
-  std::string fft;
-  std::vector<KeyVal> uses;
-};
-
 class FFTShape {
-  vector<FFT> readTune();
-
 public:
   static constexpr const float MIN_BPW = 3;
   

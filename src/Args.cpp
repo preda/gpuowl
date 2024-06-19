@@ -175,10 +175,11 @@ named "config.txt" in the prpll run directory.
                      -fft 6.5M  -tune "OUT_SIZEX=32,8;OUT_WG=64,128,256"
                      -fft 6M-7M -tune "IN_WG=64,128,256"
 
-                     The tunable parameters are:
-                       IN_WG, OUT_WG: 64, 128, 256
-                       IN_SIZEX, OUT_SIZEX: 4, 8, 16, 32
-                       UNROLL_W, UNROLL_H: 0, 1
+                     The tunable parameters (with the default value emphasized) are:
+                       IN_WG, OUT_WG: 64, 128, *256*
+                       IN_SIZEX, OUT_SIZEX: 4, 8, 16, *32*
+                       UNROLL_W: *0*, 1
+                       UNROLL_H: 0, *1*
 
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
