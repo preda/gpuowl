@@ -3,8 +3,6 @@
 #include "FFTConfig.h"
 #include "common.h"
 #include "log.h"
-#include "File.h"
-#include "Args.h"
 #include "TuneEntry.h"
 
 #include <cmath>
@@ -55,7 +53,7 @@ u32 parseInt(const string& s) {
 
 vector<FFTShape> specsForSize(u32 fftSize) {
   vector<FFTShape> ret;
-  for (FFTShape& c : FFTShape::genConfigs()) {
+  for (FFTShape& c : FFTShape::allShapes()) {
     if (c.fftSize() == fftSize) { ret.push_back(c); }
   }
   return ret;
@@ -72,7 +70,7 @@ FFTShape FFTShape::fromSpec(const string& spec) {
 // - a size e.g. "6.5M"
 // - a range e.g. "6M-7M"
 vector<FFTShape> FFTShape::multiSpec(const string& spec) {
-  if (spec.empty()) { return genConfigs(); }
+  if (spec.empty()) { return allShapes(); }
 
   auto pDash = spec.find('-');
   if (pDash != string::npos) {
@@ -80,7 +78,7 @@ vector<FFTShape> FFTShape::multiSpec(const string& spec) {
     string to = spec.substr(pDash + 1);
     u32 sizeFrom = multiSpec(from).front().fftSize();
     u32 sizeTo = multiSpec(to).front().fftSize();
-    auto all = genConfigs();
+    auto all = allShapes();
     vector<FFTShape> ret;
     for (const auto& c : all) {
       if (c.fftSize() >= sizeFrom && c.fftSize() <= sizeTo) { ret.push_back(c); }
@@ -111,10 +109,10 @@ vector<FFTShape> FFTShape::multiSpec(const string& spec) {
   }
 }
 
-vector<FFTShape> FFTShape::genConfigs() {
+vector<FFTShape> FFTShape::allShapes() {
   vector<FFTShape> configs;
   for (u32 width : {256, 512, 1024, 4096}) {
-    for (u32 height : {256, 512, 1024}) {
+    for (u32 height : {256, 512, 1024/*, 4096*/}) {
       for (u32 middle : {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) {
         configs.push_back({width, middle, height});
       }
@@ -135,7 +133,19 @@ vector<FFTShape> FFTShape::genConfigs() {
 FFTShape::FFTShape(u32 w, u32 m, u32 h) :
   width{w}, middle{m}, height{h} {
   string s = spec();
-  bpw = BPW[s];
+  auto it = BPW.find(s);
+  if (it == BPW.end()) {
+    if (height > width) {
+      bpw = FFTShape{h, m, w}.bpw;
+    } else {
+      // Make up some defaults
+      log("BPW info for %s not found, using defaults\n", s.c_str());
+      double d = 0.275 * (log2(fftSize()) - log2(256 * 13 * 1024 * 2));
+      bpw = {18.1-d, 18.2-d, 18.2-d, 18.3-d};
+    }
+  } else {
+    bpw = it->second;
+  }
 }
 
 FFTConfig::FFTConfig(const string& spec) :

@@ -202,7 +202,7 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
   printf("\nFFT Configurations (specify with -fft <width>:<middle>:<height> from the set below):\n"
          " Size   MaxExp   BPW    FFT\n");
   
-  vector<FFTShape> configs = FFTShape::genConfigs();
+  vector<FFTShape> configs = FFTShape::allShapes();
   configs.push_back(configs.front()); // dummy guard for the loop below.
   string variants;
   u32 activeSize = 0;

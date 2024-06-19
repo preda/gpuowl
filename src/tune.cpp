@@ -180,7 +180,7 @@ void Tune::ztune() {
   Args *args = shared.args;
 
   string ztuneStr = args->fftSpec;
-  auto configs = ztuneStr.empty() ? FFTShape::genConfigs() : FFTShape::multiSpec(ztuneStr);
+  auto configs = ztuneStr.empty() ? FFTShape::allShapes() : FFTShape::multiSpec(ztuneStr);
   for (FFTShape shape : configs) {
     string spec = shape.spec();
     // ztune.printf("# %s\n", spec.c_str());
