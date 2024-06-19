@@ -82,17 +82,12 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #error FFT_VARIANT must be between 0 and 3
 #endif
 
+#if defined(TRIG_HI) || defined(CLEAN)
+#error Use FFT_VARIANT instead of TRIG_HI or CLEAN
+#endif
+
 #define TRIG_HI (FFT_VARIANT & 1)
 #define CLEAN (FFT_VARIANT >> 1)
-
-#if CARRY32 && CARRY64
-#error Conflict: both CARRY32 and CARRY64 requested
-#endif
-
-#if !CARRY32 && !CARRY64
-// Presumably the carry should behave the same on AMD and Nvidia.
-#define CARRY32 1
-#endif
 
 #if !defined(UNROLL_W)
 #if AMDGPU
@@ -280,7 +275,7 @@ R"cltag(
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
   local T2 lds[WIDTH / 2];
-  
+
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -300,17 +295,6 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
   Word2 wu[NW];
   T2 weights = fancyMul(THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);
-
-  /*
-#if MUL3
-  typedef CFMcarry Tcarry;
-#else
-  typedef CFcarry Tcarry;
-#endif
-
-  P(Tcarry) carryShuttlePtr = (P(Tcarry)) carryShuttle;
-  Tcarry carry[NW];
-*/
 
 #if MUL3
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
@@ -591,10 +575,10 @@ float OVERLOAD boundCarry(i64 c) { return ldexp(fabs((float) (i32) (c >> 8)), -2
 // is often not enough.
 typedef i64 CFMcarry;
 
-#if CARRY32
-typedef i32 CFcarry;
-#else
+#if CARRY64
 typedef i64 CFcarry;
+#else
+typedef i32 CFcarry;
 #endif
 
 Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, float* maxROE, float* carryMax) {
@@ -1942,10 +1926,9 @@ R"cltag(
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-  local T* lds = (local T*) lds2;
-
   u32 mask = f - 1;
   assert((mask & (mask + 1)) == 0);
+  local T* lds = (local T*) lds2;
 
   for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
   bar();

@@ -7,10 +7,9 @@
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-  local T* lds = (local T*) lds2;
-
   u32 mask = f - 1;
   assert((mask & (mask + 1)) == 0);
+  local T* lds = (local T*) lds2;
 
   for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
   bar();

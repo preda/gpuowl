@@ -10,7 +10,7 @@
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
                        CP(u32) bits, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
   local T2 lds[WIDTH / 2];
-  
+
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -30,17 +30,6 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
   Word2 wu[NW];
   T2 weights = fancyMul(THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);
-
-  /*
-#if MUL3
-  typedef CFMcarry Tcarry;
-#else
-  typedef CFcarry Tcarry;
-#endif
-
-  P(Tcarry) carryShuttlePtr = (P(Tcarry)) carryShuttle;
-  Tcarry carry[NW];
-*/
 
 #if MUL3
   P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;

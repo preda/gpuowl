@@ -74,17 +74,12 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #error FFT_VARIANT must be between 0 and 3
 #endif
 
+#if defined(TRIG_HI) || defined(CLEAN)
+#error Use FFT_VARIANT instead of TRIG_HI or CLEAN
+#endif
+
 #define TRIG_HI (FFT_VARIANT & 1)
 #define CLEAN (FFT_VARIANT >> 1)
-
-#if CARRY32 && CARRY64
-#error Conflict: both CARRY32 and CARRY64 requested
-#endif
-
-#if !CARRY32 && !CARRY64
-// Presumably the carry should behave the same on AMD and Nvidia.
-#define CARRY32 1
-#endif
 
 #if !defined(UNROLL_W)
 #if AMDGPU

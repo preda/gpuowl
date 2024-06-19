@@ -129,10 +129,10 @@ float OVERLOAD boundCarry(i64 c) { return ldexp(fabs((float) (i32) (c >> 8)), -2
 // is often not enough.
 typedef i64 CFMcarry;
 
-#if CARRY32
-typedef i32 CFcarry;
-#else
+#if CARRY64
 typedef i64 CFcarry;
+#else
+typedef i32 CFcarry;
 #endif
 
 Word2 OVERLOAD carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, float* maxROE, float* carryMax) {

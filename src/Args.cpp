@@ -84,13 +84,6 @@ string Args::tailDir() const { return fs::path{dir}.filename().string(); }
 
 bool Args::hasFlag(const string& key) const { return flags.find(key) != flags.end(); }
 
-void Args::setConfig(const string& config) { setConfig(splitUses(config)); }
-
-void Args::setConfig(const vector<KeyVal>& config) {
-  // verify K
-  for (const auto& [k, v] : config) { flags[k] = v; }
-}
-
 void Args::printHelp() {
   printf(R"(
 PRPLL is "PRobable Prime and Lucas-Lehmer Cathegorizer", AKA "Purrple-cat"
