@@ -145,8 +145,37 @@ string toDefine(const T& vect) {
   return s;
 }
 
-string clDefines(const Args& args, cl_device_id id, FFTConfig fft, u32 E) {
-  string defines = toDefine(vector<pair<string, u32>>{
+constexpr bool isInList(const string& s, initializer_list<string> list) {
+  for (const string& e : list) { if (e == s) { return true; }}
+  return false;
+}
+
+string clDefines(const Args& args, cl_device_id id, FFTConfig fft, u32 E, bool doLog) {
+  map<string, string> config{args.flags};
+  if (auto it = args.perFftConfig.find(fft.shape.spec()); it != args.perFftConfig.end()) {
+    config.insert(it->second.begin(), it->second.end());
+  }
+  config.insert(fft.config.begin(), fft.config.end());
+
+  for (const auto& [k, v] : config) {
+    bool isValid = isInList(k, {
+                              "FAST_BARRIER",
+                              "IN_SIZEX",
+                              "IN_WG",
+                              "OUT_SIZEX",
+                              "OUT_WG",
+                              "UNROLL_H",
+                              "UNROLL_W",
+                            });
+    if (!isValid) {
+      log("Unrecognized -use key '%s'\n", k.c_str());
+    }
+  }
+
+  string defines = toDefine(config);
+  if (doLog) { log("config: %s\n", defines.c_str()); }
+
+  defines += toDefine(initializer_list<pair<string, u32>>{
                     {"EXP", E},
                     {"WIDTH", fft.shape.width},
                     {"SMALL_HEIGHT", fft.shape.height},
@@ -165,12 +194,11 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, u32 E) {
   }
 
   u32 N = fft.shape.fftSize();
+
   defines += toDefine("WEIGHT_STEP", double(weight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
   defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
-  defines += toDefine(args.flags);
-  auto it = args.perFftConfig.find(fft.shape.spec());
-  if (it != args.perFftConfig.end()) { defines += toDefine(it->second); }
   defines += toDefine("FFT_VARIANT", fft.variant);
+
 
   return defines;
 }
@@ -205,7 +233,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize) :
   nH(fft.shape.nH()),
   bufSize(N * sizeof(double)),
   useLongCarry{args.carry == Args::CARRY_LONG},
-  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, E)},
+  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, E, logFftSize)},
   
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 

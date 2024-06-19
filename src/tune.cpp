@@ -218,8 +218,7 @@ void Tune::ctune() {
     Entry second{best};
 
     for (const auto& config : configs) {
-      // assert(k == "IN_WG" || k == "OUT_WG" || k == "IN_SIZEX" || k == "OUT_SIZEX");
-      shared.args->setConfig(config);
+      fft.config = config;
 
       auto cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
 
