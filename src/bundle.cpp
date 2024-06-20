@@ -98,7 +98,11 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #endif
 
 #if !defined(UNROLL_H)
+#if AMDGPU && (SMALL_HEIGHT >= 1024)
+#define UNROLL_H 0
+#else
 #define UNROLL_H 1
+#endif
 #endif
 
 // Expected defines: EXP the exponent.
@@ -2402,19 +2406,16 @@ R"cltag(
 #endif
 
 #if !OUT_SIZEX
-
 #if AMDGPU
 // We realized that these (OUT_WG, OUT_SIZEX) combinations work well: (256, 32) and (64, 8)
 // so default OUT_SIZEX relative to OUT_WG
 #define OUT_SIZEX (OUT_WG / 8)
 #else
-
 #if G_W >= 64
 #define OUT_SIZEX 4
 #else
 #define OUT_SIZEX 32
 #endif
-
 #endif
 #endif
 

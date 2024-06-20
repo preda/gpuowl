@@ -51,70 +51,59 @@ u32 parseInt(const string& s) {
   return strtod(s.c_str(), nullptr) * multiple;
 }
 
-vector<FFTShape> specsForSize(u32 fftSize) {
-  vector<FFTShape> ret;
-  for (FFTShape& c : FFTShape::allShapes()) {
-    if (c.fftSize() == fftSize) { ret.push_back(c); }
-  }
-  return ret;
-}
-
 } // namespace
 
 FFTShape FFTShape::fromSpec(const string& spec) {
+  assert(!spec.empty());
   return multiSpec(spec).front();
 }
 
 // Accepts:
-// - a single config e.g. "1K:13:256"
-// - a size e.g. "6.5M"
-// - a range e.g. "6M-7M"
-vector<FFTShape> FFTShape::multiSpec(const string& spec) {
-  if (spec.empty()) { return allShapes(); }
+// - a single config: 1K:13:256
+// - a size: 6.5M
+// - a range of sizes: 6.5M-7M
+// - a list: 6M-7M,1K:13:256
 
-  auto pDash = spec.find('-');
-  if (pDash != string::npos) {
-    string from = spec.substr(0, pDash);
-    string to = spec.substr(pDash + 1);
-    u32 sizeFrom = multiSpec(from).front().fftSize();
-    u32 sizeTo = multiSpec(to).front().fftSize();
-    auto all = allShapes();
-    vector<FFTShape> ret;
-    for (const auto& c : all) {
-      if (c.fftSize() >= sizeFrom && c.fftSize() <= sizeTo) { ret.push_back(c); }
-    }
-    return ret;
-  }
+vector<FFTShape> FFTShape::multiSpec(const string& iniSpec) {
+  if (iniSpec.empty()) { return allShapes(); }
 
-  bool hasParts = spec.find(':') != string::npos;
-  if (hasParts) {
-    auto p1 = spec.find(':');
-    u32 width = parseInt(spec.substr(0, p1));
-    auto p2 = spec.find(':', p1+1);
-    if (p2 == string::npos) {
-      log("FFT spec must be of the form width:middle:height , found '%s'\n", spec.c_str());
-      throw "Invalid FFT spec";
+  vector<FFTShape> ret;
+
+  for (const string &spec : split(iniSpec, ',')) {
+    auto parts = split(spec, ':');
+    assert(parts.size() <= 3);
+    if (parts.size() == 3) {
+      u32 width = parseInt(parts[0]);
+      u32 middle = parseInt(parts[1]);
+      u32 height = parseInt(parts[2]);
+      ret.push_back({width, middle, height});
+      continue;
     }
-    u32 middle = parseInt(spec.substr(p1+1, p2 - (p1 + 1)));
-    u32 height = parseInt(spec.substr(p2+1));
-    return {{width, middle, height}};
-  } else {
-    u32 fftSize = parseInt(spec);
-    auto specs = specsForSize(fftSize);
-    if (specs.empty()) {
+    assert(parts.size() == 1);
+
+    parts = split(spec, '-');
+    assert(parts.size() >= 1 && parts.size() <= 2);
+    u32 sizeFrom = parseInt(parts[0]);
+    u32 sizeTo = parts.size() == 2 ? parseInt(parts[1]) : sizeFrom;
+    auto shapes = allShapes(sizeFrom, sizeTo);
+    if (shapes.empty()) {
       log("Could not find a FFT config for '%s'\n", spec.c_str());
       throw "Invalid FFT spec";
     }
-    return specs;
+    ret.insert(ret.end(), shapes.begin(), shapes.end());
   }
+  return ret;
 }
 
-vector<FFTShape> FFTShape::allShapes() {
+vector<FFTShape> FFTShape::allShapes(u32 sizeFrom, u32 sizeTo) {
   vector<FFTShape> configs;
   for (u32 width : {256, 512, 1024, 4096}) {
     for (u32 height : {256, 512, 1024/*, 4096*/}) {
       for (u32 middle : {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) {
-        configs.push_back({width, middle, height});
+        u32 sz = width * height * middle * 2;
+        if (sizeFrom <= sz && sz <= sizeTo) {
+          configs.push_back({width, middle, height});
+        }
       }
     }
   }
@@ -132,6 +121,8 @@ vector<FFTShape> FFTShape::allShapes() {
 
 FFTShape::FFTShape(u32 w, u32 m, u32 h) :
   width{w}, middle{m}, height{h} {
+  if (!w || !m || !h) { return; }
+
   string s = spec();
   auto it = BPW.find(s);
   if (it == BPW.end()) {

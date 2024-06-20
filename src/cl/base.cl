@@ -90,7 +90,11 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #endif
 
 #if !defined(UNROLL_H)
+#if AMDGPU && (SMALL_HEIGHT >= 1024)
+#define UNROLL_H 0
+#else
 #define UNROLL_H 1
+#endif
 #endif
 
 // Expected defines: EXP the exponent.

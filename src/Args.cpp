@@ -126,7 +126,12 @@ named "config.txt" in the prpll run directory.
 -version           : print only the version and exit
 -user <name>       : specify the mersenne.org user name (for result reporting)
 -workers <N>       : specify the number of parallel PRP tests to run (default 1)
--fft <spec>        : specify FFT e.g.: 1152K, 5M, 5.5M, 256:10:1K
+-fft <spec>        : specify FFT or FFTs to use:
+                     - a specific configuration: 256:13:1K
+                     - a FFT size: 6.5M
+                     - a size range: 7M-8M
+                     - a list: 256:13:1K,8M
+                     See the list of FFTs at the end.
 -block <value>     : PRP block size, one of: 1000, 500, 200. Default 1000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt

@@ -112,7 +112,7 @@ string formatEntry(Entry e) {
 
 string formatConfigResults(const vector<Entry>& results) {
   string s;
-  for (const Entry& e : results) { s += formatEntry(e); }
+  for (const Entry& e : results) { if (e.shape.width) { s += formatEntry(e); } }
   return s;
 }
 
@@ -209,7 +209,15 @@ void Tune::ctune() {
   vector<Entry> results;
   vector<Entry> secondResults;
 
-  for (const FFTShape& shape : FFTShape::multiSpec(args->fftSpec)) {
+  auto shapes = FFTShape::multiSpec(args->fftSpec);
+  {
+    string str;
+    for (const auto& s : shapes) { str += s.spec() + ','; }
+    if (!str.empty()) { str.pop_back(); }
+    log("FFTs: %s\n", str.c_str());
+  }
+
+  for (const FFTShape& shape : shapes) {
     FFTConfig fft{shape, 0};
     u32 exponent = primes.prevPrime(fft.maxExp());
     log("tuning %10s with exponent %u\n", fft.shape.spec().c_str(), exponent);
