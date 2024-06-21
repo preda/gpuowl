@@ -147,12 +147,8 @@ u32 Tune::fftSize() {
   return FFTShape::fromSpec(spec).fftSize();
 }
 
-u32 Tune::exponentForBpw(double bpw) {
-  return primes.nearestPrime(fftSize() * bpw + 0.5);
-}
-
 double Tune::zForBpw(double bpw, FFTConfig fft) {
-  u32 exponent = exponentForBpw(bpw);
+  u32 exponent = primes.nearestPrime(fft.fftSize() * bpw + 0.5);
   auto [ok, res, roeSq, roeMul] = Gpu::make(q, exponent, shared, fft, false)->measureROE(true);
   double z = roeSq.z();
   if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, fft.spec().c_str()); }
@@ -161,7 +157,7 @@ double Tune::zForBpw(double bpw, FFTConfig fft) {
 
 void Tune::ztune() {
   File ztune = File::openAppend("ztune.txt");
-  ztune.printf("#\n# %s\n#\n", shortTimeStr().c_str());
+  ztune.printf("\n// %s\n\n", shortTimeStr().c_str());
 
   Args *args = shared.args;
 

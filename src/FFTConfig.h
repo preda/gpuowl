@@ -59,6 +59,7 @@ public:
   FFTConfig(FFTShape shape, u32 variant) : shape{shape}, variant{variant} {}
 
   double maxBpw() const { return shape.bpw[variant]; }
+  u32 fftSize() const { return shape.fftSize(); }
   u32 maxExp()  const { return maxBpw() * shape.fftSize(); }
   std::string spec() const { return shape.spec() + ":" + to_string(variant); }
 };

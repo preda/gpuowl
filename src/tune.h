@@ -24,7 +24,6 @@ private:
 
   u32 fftSize();
   std::pair<double, double> maxBpw(FFTConfig fft);
-  u32 exponentForBpw(double bpw);
   double zForBpw(double bpw, FFTConfig fft);
 
 public:
