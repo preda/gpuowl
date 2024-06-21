@@ -231,7 +231,6 @@ void Tune::ctune() {
 
         bool isBest = (cost < best.cost);
         if (isBest) {
-          // second = best;
           bestPos[i] = pos;
           best = {fft.shape, c, cost};
         }

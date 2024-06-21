@@ -23,22 +23,23 @@ void initLog(const char *logName) {
 string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
 string shortTimeStr() { return timeStr("%Y%m%d %H:%M:%S"); }
 
+static char logBuf[32 * 1024];
+
 void log(const char *fmt, ...) {
   static std::mutex logMutex;
-  
-  char buf[4 * 1024];
 
-  va_list va;
-  va_start(va, fmt);
-  vsnprintf(buf, sizeof(buf), fmt, va);
-  va_end(va);
-  
   string prefix = shortTimeStr() + ' ' + context;
 
   std::unique_lock lock(logMutex);
-  for (auto &f : logFiles) {
-    f.printf("%s %s", prefix.c_str(), buf);
-  }
+  int pos = 0;
+  snprintf(logBuf, sizeof(logBuf), "%s %n", prefix.c_str(), &pos);
+
+  va_list va;
+  va_start(va, fmt);
+  vsnprintf(logBuf + pos, sizeof(logBuf) - pos, fmt, va);
+  va_end(va);
+  string_view s{logBuf};
+  for (auto &f : logFiles) { f.write(s); }
 }
 
 LogContext::LogContext(const string& s) : part{s} {
