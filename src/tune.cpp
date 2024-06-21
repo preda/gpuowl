@@ -66,26 +66,12 @@ vector<TuneConfig> permute(const vector<pair<string, vector<string>>>& params) {
 
 vector<TuneConfig> getTuneConfigs(const string& tune) {
   vector<pair<string, vector<string>>> params;
-
   for (auto& part : split(tune, ';')) {
     auto keyVal = split(part, '=');
     assert(keyVal.size() == 2);
     string key = keyVal.front();
     string val = keyVal.back();
-
-    vector<string> options = split(val, ',');
-
-    if (key == "fft") {
-      vector<string> outOptions;
-      for (string& s : options) {
-        for(FFTShape& c : FFTShape::multiSpec(s)) {
-          outOptions.push_back(c.spec());
-        }
-      }
-      options = outOptions;
-    }
-
-    params.push_back({key, options});
+    params.push_back({key, split(val, ',')});
   }
   return permute(params);
 }
@@ -197,17 +183,21 @@ void Tune::ztune() {
   }
 }
 
+template<typename T>
+void add(vector<T>& a, const vector<T>& b) {
+  a.insert(a.end(), b.begin(), b.end());
+}
+
 void Tune::ctune() {
   Args *args = shared.args;
   string fftSpec = args->fftSpec;
 
-  auto configs = getTuneConfigs(shared.args->ctune);
-  assert(!configs.empty());
-  // if (configs.empty()) { configs.push_back({}); }
-
+  vector<vector<TuneConfig>> configsVect;
+  for (string s : shared.args->ctune) {
+    configsVect.push_back(getTuneConfigs(s));
+  }
 
   vector<Entry> results;
-  vector<Entry> secondResults;
 
   auto shapes = FFTShape::multiSpec(args->fftSpec);
   {
@@ -220,31 +210,38 @@ void Tune::ctune() {
   for (const FFTShape& shape : shapes) {
     FFTConfig fft{shape, 0};
     u32 exponent = primes.prevPrime(fft.maxExp());
-    log("tuning %10s with exponent %u\n", fft.shape.spec().c_str(), exponent);
+    // log("tuning %10s with exponent %u\n", fft.shape.spec().c_str(), exponent);
 
+    vector<int> bestPos(configsVect.size());
     Entry best{{0, 0, 0}, {}, 1e9};
-    Entry second{best};
 
-    for (const auto& config : configs) {
-      fft.config = config;
+    for (u32 i = 0; i < configsVect.size(); ++i) {
+      for (u32 pos = i ? 1 : 0; pos < configsVect[i].size(); ++pos) {
+        vector<KeyVal> c;
 
-      auto cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
+        for (u32 k = 0; k < i; ++k) {
+          add(c, configsVect[k][bestPos[k]]);
+        }
+        add(c, configsVect[i][pos]);
+        for (u32 k = i + 1; k < configsVect.size(); ++k) {
+          add(c, configsVect[k][bestPos[k]]);
+        }
+        fft.config = c;
+        auto cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
 
-      bool isBest = (cost < best.cost);
-      if (isBest) {
-        second = best;
-        best = {fft.shape, config, cost};
+        bool isBest = (cost < best.cost);
+        if (isBest) {
+          // second = best;
+          bestPos[i] = pos;
+          best = {fft.shape, c, cost};
+        }
+        log("%c %6.0f : %s %s\n",
+            isBest ? '*' : ' ', cost, fft.shape.spec().c_str(), toString(c).c_str());
       }
-      log("%c %6.0f : %s %s\n",
-          isBest ? '*' : ' ', cost, fft.shape.spec().c_str(), toString(config).c_str());
     }
     results.push_back(best);
-    secondResults.push_back(second);
-
     log("%s", formatEntry(best).c_str());
   }
-
-  log("Second best configs (for information only):\n%s", formatConfigResults(secondResults).c_str());
   log("\nBest configs (lines can be copied to config.txt):\n%s", formatConfigResults(results).c_str());
 }
 

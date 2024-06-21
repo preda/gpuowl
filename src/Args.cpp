@@ -275,7 +275,7 @@ void Args::parse(const string& line) {
       doTune = true;
     } else if (key == "-ctune") {
       assert(!s.empty());
-      ctune = s;
+      ctune.push_back(s);
     } else if (key == "-ztune") {
       doZtune = true;
     } else if (key == "-verbose" || key == "-v") {

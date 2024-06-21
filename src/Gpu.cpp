@@ -189,7 +189,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, u32 E, bool d
 
   // Force carry64 when carry32 might exceed a very conservative 0x6C000000
   if (fft.shape.getMaxCarry32(E) > 0x6C00) {
-    log("Using CARRY64\n");
+    if (doLog) { log("Using CARRY64\n"); }
     defines += toDefine("CARRY64", 1);
   }
 
@@ -198,7 +198,6 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, u32 E, bool d
   defines += toDefine("WEIGHT_STEP", double(weight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
   defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
   defines += toDefine("FFT_VARIANT", fft.variant);
-
 
   return defines;
 }

@@ -43,7 +43,7 @@ public:
   string uid;
   string verifyPath;
 
-  string ctune;
+  vector<string> ctune;
 
   bool doTune{};
   bool doZtune{};
