@@ -126,12 +126,14 @@ named "config.txt" in the prpll run directory.
 -version           : print only the version and exit
 -user <name>       : specify the mersenne.org user name (for result reporting)
 -workers <N>       : specify the number of parallel PRP tests to run (default 1)
+
 -fft <spec>        : specify FFT or FFTs to use:
                      - a specific configuration: 256:13:1K
                      - a FFT size: 6.5M
                      - a size range: 7M-8M
                      - a list: 256:13:1K,8M
                      See the list of FFTs at the end.
+
 -block <value>     : PRP block size, one of: 1000, 500, 200. Default 1000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
@@ -170,14 +172,18 @@ named "config.txt" in the prpll run directory.
 
 -ctune <configs>   : finds the best configuration for each FFT specified in -fft <spec>.
                      Prints the results in a form that can be incorporated in config.txt
-                     -fft 6.5M  -tune "OUT_SIZEX=32,8;OUT_WG=64,128,256"
-                     -fft 6M-7M -tune "IN_WG=64,128,256"
+                      -fft 6.5M  -ctune "OUT_SIZEX=32,8;OUT_WG=64,128,256"
+
+                     It is possible to specify -ctune multiple times on the same command in order to define multiple
+                     sets of parameters to be combined, e.g.:
+                        -ctune "IN_WG=256,128,64" -ctune "OUT_WG=256,64;OUT_SIZEX=32,16,8"
+                     which would try only 8 combinations among those two sets.
 
                      The tunable parameters (with the default value emphasized) are:
                        IN_WG, OUT_WG: 64, 128, *256*
                        IN_SIZEX, OUT_SIZEX: 4, 8, 16, *32*
                        UNROLL_W: *0*, 1
-                       UNROLL_H: 0, *1*
+                       UNROLL_H: 0, 1
 
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)

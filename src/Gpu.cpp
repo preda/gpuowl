@@ -220,8 +220,6 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize) :
   queue(q),
   background{shared.background},
   args{*shared.args},
-  saver{E, args.blockSize},
-
   E(E),
   N(fft.shape.fftSize()),
   WIDTH(fft.shape.width),
@@ -1127,7 +1125,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   u64 lastFailedRes64{};
   
  reload:
-  while(!loadPRP(saver, lastFailedRes64, k, blockSize, nErrors));
+  while(!loadPRP(*getSaver(), lastFailedRes64, k, blockSize, nErrors));
 
   assert(blockSize > 0 && LOG_STEP % blockSize == 0);
   
@@ -1230,7 +1228,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
     if (!doCheck) {
       (*background)([=, this] {
-        saver.unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
+        getSaver()->unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
 
       log("   %9u %016" PRIx64 " %4.0f\n", k, res, /*k / float(kEndEnd) * 100*,*/ secsPerIt * 1'000'000);
@@ -1251,7 +1249,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
         if (k < kEnd) {
           (*background)([=, this, rawCheck = std::move(rawCheck)] {
-            saver.save({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
+            getSaver()->save({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
           });
         }
 
@@ -1361,4 +1359,9 @@ LLResult Gpu::isPrimeLL(const Task& task) {
 
     if (doStop) { throw "stop requested"; }
   }
+}
+
+Saver<PRPState> *Gpu::getSaver() {
+  if (!saver) { saver = make_unique<Saver<PRPState>>(E, args.blockSize); }
+  return saver.get();
 }

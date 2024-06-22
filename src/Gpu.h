@@ -69,7 +69,6 @@ public:
 
 struct Weights {
   vector<double> weightsIF;
-  // vector<double> carryWeightsIF;
   vector<u32> bitsCF;
   vector<u32> bitsC;
 };
@@ -78,7 +77,10 @@ class Gpu {
   Queue* queue;
   Background* background;
   const Args& args;
-  Saver<PRPState> saver;
+
+  std::unique_ptr<Saver<PRPState>> saver;
+
+  // Saver<PRPState> saver;
 
   u32 E;
   u32 N;
@@ -234,7 +236,7 @@ public:
   double timePRP();
   tuple<bool, u64, RoeInfo, RoeInfo> measureROE(bool quick);
 
-  Saver<PRPState>* getSaver() { return &saver; }
+  Saver<PRPState> *getSaver();
 
   void carryA(Buffer<double>& a, Buffer<double>& b) { carryA(reinterpret_cast<Buffer<int>&>(a), b); }
 
