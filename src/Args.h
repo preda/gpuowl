@@ -23,7 +23,7 @@ public:
 
   enum {CARRY_AUTO = 0, CARRY_SHORT, CARRY_LONG};
 
-  Args(bool silent = false) : silent{silent} {}
+  explicit Args(bool silent = false) : silent{silent} {}
   
   void parse(const string& line);
   void setDefaults();
@@ -61,11 +61,12 @@ public:
 
   u32 proofVerify = 10;
 
-  fs::path resultsFile = "results.txt";
   fs::path masterDir;
   fs::path proofResultDir = "proof";
   fs::path proofToVerifyDir = "proof-tmp";
   fs::path cacheDir = "kernel-cache";
+  fs::path resultsFile = "results.txt";
+  // fs::path tuneFile = "tune.txt";
 
   bool keepProof = false;
 

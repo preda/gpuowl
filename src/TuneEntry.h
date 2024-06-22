@@ -6,6 +6,8 @@
 
 #include <vector>
 
+class Args;
+
 class TuneEntry {
 public:
   double cost;
@@ -14,6 +16,6 @@ public:
   bool update(std::vector<TuneEntry>&) const;
   bool willUpdate(const vector<TuneEntry>&) const;
 
-  static vector<TuneEntry> readTuneFile();
+  static vector<TuneEntry> readTuneFile(const Args& args);
   static void writeTuneFile(const vector<TuneEntry>&);
 };

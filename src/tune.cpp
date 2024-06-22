@@ -227,7 +227,7 @@ void Tune::tune() {
   Args *args = shared.args;
   string fftSpec = args->fftSpec;
 
-  vector<TuneEntry> results = TuneEntry::readTuneFile();
+  vector<TuneEntry> results = TuneEntry::readTuneFile(*args);
 
   for (const FFTShape& shape : FFTShape::multiSpec(args->fftSpec)) {
     double costZero{};

@@ -1,4 +1,5 @@
 #include "TuneEntry.h"
+#include "Args.h"
 #include "CycleFile.h"
 
 #include <cassert>
@@ -38,24 +39,34 @@ bool TuneEntry::willUpdate(const vector<TuneEntry>& results) const {
   return true;
 }
 
-vector<TuneEntry> TuneEntry::readTuneFile() {
+vector<TuneEntry> TuneEntry::readTuneFile(const Args& args) {
+  fs::path tuneFile = "tune.txt";
+  if (!fs::exists(tuneFile)) {
+    tuneFile = args.masterDir / "tune.txt";
+  }
+
+  // if (!fs::exists(tuneFile)) { log("Tune file %s not found\n", tuneFile.string().c_str()); }
+
+  vector<TuneEntry> results;
+  File fi = File::openRead(tuneFile);
+  if (!fi) { return {}; }
+
   [[maybe_unused]] u32 prevMaxExp{};
   [[maybe_unused]] double prevCost{};
 
-  vector<TuneEntry> results;
-  for (string line : File::openRead("tune.txt")) {
+  for (const string& line : fi) {
     char specBuf[32];
     double cost{};
     if (sscanf(line.c_str(), "%lf %31s", &cost, specBuf) < 2) {
       log("tune.txt line '%s' ignored\n", line.c_str());
     }
     FFTConfig fft{specBuf};
-    assert(cost > prevCost && fft.maxExp() > prevMaxExp);
+    assert(cost >= prevCost && fft.maxExp() > prevMaxExp);
     prevCost = cost;
     prevMaxExp = fft.maxExp();
     results.push_back({cost, fft});
   }
-  if (!results.empty()) { log("Read %u entries from tune.txt\n", u32(results.size())); }
+  if (args.verbose && !results.empty()) { log("Read %u entries from %s\n", u32(results.size()), tuneFile.string().c_str()); }
   return results;
 }
 

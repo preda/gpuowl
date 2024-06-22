@@ -149,7 +149,7 @@ FFTConfig::FFTConfig(const string& spec) :
   assert(variant < N_VARIANT);
 }
 
-FFTConfig FFTConfig::bestFit(u32 E, const string& spec) {
+FFTConfig FFTConfig::bestFit(const Args& args, u32 E, const string& spec) {
   // A FFT-spec was given, simply take the first FFT from the spec that can handle E
   if (!spec.empty()) {
     for (const FFTShape& shape : FFTShape::multiSpec(spec)) {
@@ -162,7 +162,7 @@ FFTConfig FFTConfig::bestFit(u32 E, const string& spec) {
   }
 
   // No FFT-spec given, so choose from tune.txt the fastest FFT that can handle E
-  vector<TuneEntry> tunes = TuneEntry::readTuneFile();
+  vector<TuneEntry> tunes = TuneEntry::readTuneFile(args);
   for (const TuneEntry& e : tunes) {
     // The first acceptable is the best as they're sorted by cost
     if (E <= e.fft.maxExp()) { return e.fft; }

@@ -240,7 +240,6 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
 
 void Args::parse(const string& line) {
   if (line.empty() || line[0] == '#') { return; }
-  // if (!silent) { log("config: %s\n", line.c_str()); }
 
   if (line[0] == '!') {
     // conditional defines predicated on a FFT
@@ -252,6 +251,8 @@ void Args::parse(const string& line) {
     perFftConfig[fft] = splitUses(config);
     return;
   }
+
+  if (!silent) { log("config: %s\n", line.c_str()); }
 
   auto args = splitArgLine(line);
 
@@ -392,7 +393,7 @@ void Args::setDefaults() {
   
   if (!masterDir.empty()) {
     assert(masterDir.is_absolute());
-    for (filesystem::path* p : {&proofResultDir, &proofToVerifyDir, &resultsFile, &cacheDir}) {
+    for (filesystem::path* p : {&proofResultDir, &proofToVerifyDir, &cacheDir, &resultsFile}) {
       if (p->is_relative()) { *p = masterDir / *p; }
     }
   }

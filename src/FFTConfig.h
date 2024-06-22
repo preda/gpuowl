@@ -10,6 +10,8 @@
 #include <array>
 #include <algorithm>
 
+class Args;
+
 // Format 'n' with a K or M suffix if multiple of 1024 or 1024*1024
 string numberK(u32 n);
 
@@ -46,7 +48,7 @@ public:
 struct FFTConfig {
 public:
   static const u32 N_VARIANT = 4;
-  static FFTConfig bestFit(u32 E, const std::string& spec);
+  static FFTConfig bestFit(const Args& args, u32 E, const std::string& spec);
 
   FFTShape shape;
   u32 variant;
