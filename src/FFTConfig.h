@@ -2,7 +2,6 @@
 
 #pragma once
 
-#include "Args.h"
 #include "common.h"
 
 #include <string>
@@ -51,7 +50,6 @@ public:
 
   FFTShape shape;
   u32 variant;
-  std::vector<KeyVal> config{};
 
   explicit FFTConfig(const string& spec);
   FFTConfig(FFTShape shape, u32 variant) : shape{shape}, variant{variant} {}

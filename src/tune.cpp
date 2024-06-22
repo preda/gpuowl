@@ -14,7 +14,6 @@
 #include <string>
 #include <vector>
 #include <cassert>
-#include <algorithm>
 
 using std::accumulate;
 
@@ -143,7 +142,7 @@ pair<double, double> Tune::maxBpw(FFTConfig fft) {
 
 double Tune::zForBpw(double bpw, FFTConfig fft) {
   u32 exponent = primes.nearestPrime(fft.size() * bpw + 0.5);
-  auto [ok, res, roeSq, roeMul] = Gpu::make(q, exponent, shared, fft, false)->measureROE(true);
+  auto [ok, res, roeSq, roeMul] = Gpu::make(q, exponent, shared, fft, {}, false)->measureROE(true);
   double z = roeSq.z();
   if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, fft.spec().c_str()); }
   return z;
@@ -152,22 +151,15 @@ double Tune::zForBpw(double bpw, FFTConfig fft) {
 void Tune::ztune() {
   File ztune = File::openAppend("ztune.txt");
   ztune.printf("\n// %s\n\n", shortTimeStr().c_str());
-
-  Args *args = shared.args;
-
-  string ztuneStr = args->fftSpec;
-  auto configs = ztuneStr.empty() ? FFTShape::allShapes() : FFTShape::multiSpec(ztuneStr);
+  auto configs = FFTShape::multiSpec(shared.args->fftSpec);
   for (FFTShape shape : configs) {
-    string spec = shape.spec();
-    // ztune.printf("# %s\n", spec.c_str());
-
     double bpw[4];
     double A[4];
     for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
       FFTConfig fft{shape, variant};
       std::tie(bpw[variant], A[variant]) = maxBpw(fft);
     }
-    string s = "\""s + spec + "\"";
+    string s = "\""s + shape.spec() + "\"";
     ztune.printf("{%12s, {%.3f, %.3f, %.3f, %.3f}, {%.0f, %.0f, %.0f, %.0f}},\n",
                  s.c_str(), bpw[0], bpw[1], bpw[2], bpw[3], A[0], A[1], A[2], A[3]);
   }
@@ -180,10 +172,9 @@ void add(vector<T>& a, const vector<T>& b) {
 
 void Tune::ctune() {
   Args *args = shared.args;
-  string fftSpec = args->fftSpec;
 
   vector<vector<TuneConfig>> configsVect;
-  for (string s : shared.args->ctune) {
+  for (const string& s : shared.args->ctune) {
     configsVect.push_back(getTuneConfigs(s));
   }
 
@@ -197,13 +188,12 @@ void Tune::ctune() {
     log("FFTs: %s\n", str.c_str());
   }
 
-  for (const FFTShape& shape : shapes) {
-    FFTConfig fft{shape, 0};
-    u32 exponent = primes.prevPrime(fft.maxExp());
+  for (FFTShape shape : shapes) {
+    u32 exponent = primes.prevPrime(FFTConfig{shape, 0}.maxExp());
     // log("tuning %10s with exponent %u\n", fft.shape.spec().c_str(), exponent);
 
     vector<int> bestPos(configsVect.size());
-    Entry best{{0, 0, 0}, {}, 1e9};
+    Entry best{{1, 1, 1}, {}, 1e9};
 
     for (u32 i = 0; i < configsVect.size(); ++i) {
       for (u32 pos = i ? 1 : 0; pos < configsVect[i].size(); ++pos) {
@@ -216,16 +206,15 @@ void Tune::ctune() {
         for (u32 k = i + 1; k < configsVect.size(); ++k) {
           add(c, configsVect[k][bestPos[k]]);
         }
-        fft.config = c;
-        auto cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
+        auto cost = Gpu::make(q, exponent, shared, FFTConfig{shape, 0}, c, false)->timePRP();
 
         bool isBest = (cost < best.cost);
         if (isBest) {
           bestPos[i] = pos;
-          best = {fft.shape, c, cost};
+          best = {shape, c, cost};
         }
         log("%c %6.0f : %s %s\n",
-            isBest ? '*' : ' ', cost, fft.shape.spec().c_str(), toString(c).c_str());
+            isBest ? '*' : ' ', cost, shape.spec().c_str(), toString(c).c_str());
       }
     }
     results.push_back(best);
@@ -252,7 +241,7 @@ void Tune::tune() {
 
       u32 maxExp = fft.maxExp();
       u32 exponent = primes.prevPrime(maxExp);
-      double cost = Gpu::make(q, exponent, shared, fft, false)->timePRP();
+      double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
       if (variant == 0) { costZero = cost; }
 
       bool isUseful = TuneEntry{cost, fft}.update(results);

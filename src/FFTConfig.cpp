@@ -122,7 +122,10 @@ FFTShape::FFTShape(const string& spec) {
 
 FFTShape::FFTShape(u32 w, u32 m, u32 h) :
   width{w}, middle{m}, height{h} {
-  if (!w || !m || !h) { return; }
+  assert(w && m && h);
+
+  // Un-initialized shape, don't set BPW
+  if (w == 1 && m == 1 && h == 1) { return; }
 
   string s = spec();
   if (auto it = BPW.find(s); it != BPW.end()) {

@@ -224,8 +224,9 @@ class Gpu {
   static bool equals9(const Words& words);
 
 public:
-  Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize);
-  static unique_ptr<Gpu> make(Queue* q, u32 E, GpuCommon shared, FFTConfig fft, bool logFftSize = true);
+  Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>& extraConf, bool logFftSize);
+  static unique_ptr<Gpu> make(Queue* q, u32 E, GpuCommon shared, FFTConfig fft,
+                              const vector<KeyVal>& extraConf = {}, bool logFftSize = true);
 
   ~Gpu();
 

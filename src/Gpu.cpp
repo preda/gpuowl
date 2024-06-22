@@ -150,12 +150,12 @@ constexpr bool isInList(const string& s, initializer_list<string> list) {
   return false;
 }
 
-string clDefines(const Args& args, cl_device_id id, FFTConfig fft, u32 E, bool doLog) {
+string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<KeyVal>& extraConf, u32 E, bool doLog) {
   map<string, string> config{args.flags};
   if (auto it = args.perFftConfig.find(fft.shape.spec()); it != args.perFftConfig.end()) {
     config.insert(it->second.begin(), it->second.end());
   }
-  config.insert(fft.config.begin(), fft.config.end());
+  config.insert(extraConf.begin(), extraConf.end());
 
   for (const auto& [k, v] : config) {
     bool isValid = isInList(k, {
@@ -204,8 +204,8 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, u32 E, bool d
 
 } // namespace
 
-unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, FFTConfig fftConfig, bool logFftSize) {
-  return make_unique<Gpu>(q, shared, fftConfig, E, logFftSize);
+unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, FFTConfig fftConfig, const vector<KeyVal>& extraConf, bool logFftSize) {
+  return make_unique<Gpu>(q, shared, fftConfig, E, extraConf, logFftSize);
 }
 
 Gpu::~Gpu() {
@@ -216,7 +216,7 @@ Gpu::~Gpu() {
 #define ROE_SIZE 100000
 #define CARRY_SIZE 100000
 
-Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize) :
+Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>& extraConf, bool logFftSize) :
   queue(q),
   background{shared.background},
   args{*shared.args},
@@ -230,7 +230,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize) :
   nH(fft.shape.nH()),
   bufSize(N * sizeof(double)),
   useLongCarry{args.carry == Args::CARRY_LONG},
-  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, E, logFftSize)},
+  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, extraConf, E, logFftSize)},
   
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 

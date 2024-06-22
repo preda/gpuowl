@@ -149,32 +149,27 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
   
   FFTConfig fft = FFTConfig::bestFit(exponent, shared.args->fftSpec);
 
+  auto gpu = Gpu::make(q, exponent, shared, fft);
+
   if (kind == VERIFY) {
-    auto gpu = Gpu::make(q, exponent, shared, fft);
     bool ok = proof.verify(gpu.get());
     log("proof '%s' %s\n", verifyPath.c_str(), ok ? "verified" : "failed");
-    return;
-  }
 
-  assert(kind == PRP || kind == LL);
+  } else if (kind == PRP) {
+      auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(*this);
+      writeResultPRP(*shared.args, isPrime, res64, fft.size(), nErrors, proofPath);
+      Worktodo::deleteTask(*this, instance);
+      if (!isPrime) { gpu->getSaver()->clear(); }
 
-  auto gpu = Gpu::make(q, exponent, shared, fft);
-  auto fftSize = gpu->getFFTSize();
-
-  if (kind == PRP) {
-    auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(*this);
-    writeResultPRP(*shared.args, isPrime, res64, fftSize, nErrors, proofPath);
-    Worktodo::deleteTask(*this, instance);
-    if (!isPrime) { gpu->getSaver()->clear(); }
   } else if (kind == LL){
-    auto [isPrime, res64] = gpu->isPrimeLL(*this);
-    // Do not clear LL savefiles regardless of primality
-    if (isPrime) {
-      log("%u is PRIME!\n", exponent);
-    } else {
-      log("%u is not prime: %016" PRIx64 "\n", exponent, res64);
-    }
+      auto [isPrime, res64] = gpu->isPrimeLL(*this);
+      // Do not clear LL savefiles regardless of primality
+      if (isPrime) {
+        log("%u is PRIME!\n", exponent);
+      } else {
+        log("%u is not prime: %016" PRIx64 "\n", exponent, res64);
+      }
   } else {
-    throw "Unexpected task kind";
+      throw "Unexpected task kind " + to_string(kind);
   }
 }
