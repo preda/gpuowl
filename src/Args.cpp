@@ -219,7 +219,7 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
   u32 activeSize = 0;
   double maxBpw = 0;
   for (auto c : configs) {
-    if (c.fftSize() != activeSize) {
+    if (c.size() != activeSize) {
       if (!variants.empty()) {
         printf("%5s  %7.2fM  %.2f  %s\n",
                numberK(activeSize).c_str(),
@@ -229,7 +229,7 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
                variants.c_str());
         variants.clear();
       }
-      activeSize = c.fftSize();
+      activeSize = c.size();
       maxBpw = 0;
     }
     maxBpw = max(maxBpw, c.maxBpw());

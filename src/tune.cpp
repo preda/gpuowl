@@ -141,14 +141,8 @@ pair<double, double> Tune::maxBpw(FFTConfig fft) {
   return {x, -A};
 }
 
-u32 Tune::fftSize() {
-  string spec = shared.args->fftSpec;
-  assert(!spec.empty());
-  return FFTShape::fromSpec(spec).fftSize();
-}
-
 double Tune::zForBpw(double bpw, FFTConfig fft) {
-  u32 exponent = primes.nearestPrime(fft.fftSize() * bpw + 0.5);
+  u32 exponent = primes.nearestPrime(fft.size() * bpw + 0.5);
   auto [ok, res, roeSq, roeMul] = Gpu::make(q, exponent, shared, fft, false)->measureROE(true);
   double z = roeSq.z();
   if (!ok) { log("Error at bpw %.2f (z %.2f) : %s\n", bpw, z, fft.spec().c_str()); }

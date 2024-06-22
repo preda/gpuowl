@@ -80,8 +80,6 @@ class Gpu {
 
   std::unique_ptr<Saver<PRPState>> saver;
 
-  // Saver<PRPState> saver;
-
   u32 E;
   u32 N;
 

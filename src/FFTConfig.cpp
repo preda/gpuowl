@@ -37,7 +37,7 @@ map<string, array<double, 4>> BPW {
 // Note: This routine returns the top 16 bits of the expected max carry32.
 
 u32 FFTShape::getMaxCarry32(u32 exponent) const {
-  u32 N = fftSize();
+  u32 N = size();
   return (u32) (0x3242 * pow(2.0, 0.558 * log2(N / (1.25 * 1024 * 1024)) + double(exponent) / double(N) - 18.706));
 }
 
@@ -53,17 +53,11 @@ u32 parseInt(const string& s) {
 
 } // namespace
 
-FFTShape FFTShape::fromSpec(const string& spec) {
-  assert(!spec.empty());
-  return multiSpec(spec).front();
-}
-
 // Accepts:
 // - a single config: 1K:13:256
 // - a size: 6.5M
 // - a range of sizes: 6.5M-7M
 // - a list: 6M-7M,1K:13:256
-
 vector<FFTShape> FFTShape::multiSpec(const string& iniSpec) {
   if (iniSpec.empty()) { return allShapes(); }
 
@@ -109,7 +103,7 @@ vector<FFTShape> FFTShape::allShapes(u32 sizeFrom, u32 sizeTo) {
   }
   std::sort(configs.begin(), configs.end(),
             [](const FFTShape &a, const FFTShape &b) {
-              if (a.fftSize() != b.fftSize()) { return (a.fftSize() < b.fftSize()); }
+              if (a.size() != b.size()) { return (a.size() < b.size()); }
               if (a.width != b.width) {
                 if (a.width == 1024 || b.width == 1024) { return a.width == 1024; }
                 return a.width < b.width;
@@ -119,94 +113,68 @@ vector<FFTShape> FFTShape::allShapes(u32 sizeFrom, u32 sizeTo) {
   return configs;
 }
 
+FFTShape::FFTShape(const string& spec) {
+  assert(!spec.empty());
+  vector<string> v = split(spec, ':');
+  assert(v.size() == 3);
+  *this = FFTShape{parseInt(v.at(0)), parseInt(v.at(1)), parseInt(v.at(2))};
+}
+
 FFTShape::FFTShape(u32 w, u32 m, u32 h) :
   width{w}, middle{m}, height{h} {
   if (!w || !m || !h) { return; }
 
   string s = spec();
-  auto it = BPW.find(s);
-  if (it == BPW.end()) {
+  if (auto it = BPW.find(s); it != BPW.end()) {
+    bpw = it->second;
+  } else {
     if (height > width) {
       bpw = FFTShape{h, m, w}.bpw;
     } else {
       // Make up some defaults
       log("BPW info for %s not found, using defaults\n", s.c_str());
-      double d = 0.275 * (log2(fftSize()) - log2(256 * 13 * 1024 * 2));
+      double d = 0.275 * (log2(size()) - log2(256 * 13 * 1024 * 2));
       bpw = {18.1-d, 18.2-d, 18.2-d, 18.3-d};
     }
-  } else {
-    bpw = it->second;
   }
 }
 
 FFTConfig::FFTConfig(const string& spec) :
-  shape{FFTShape::fromSpec(spec.substr(0, spec.rfind(':')))},
+  shape{spec.substr(0, spec.rfind(':'))},
   variant{parseInt(spec.substr(spec.rfind(':') + 1))}
 {
   assert(variant < N_VARIANT);
 }
 
-bool FFTConfig::matches(const string& spec) const {
-  if (spec.empty()) { return true; }
-
-  // An interval of sizes
-  auto pDash = spec.find('-');
-  if (pDash != string::npos) {
-    u32 mySize = shape.fftSize();
-
-    string from = spec.substr(0, pDash);
-    string to = spec.substr(pDash + 1);
-    u32 sizeFrom = FFTShape::multiSpec(from).front().fftSize();
-    if (mySize < sizeFrom) { return false; }
-    u32 sizeTo = FFTShape::multiSpec(to).front().fftSize();
-    if (mySize > sizeTo) { return false; }
-    return true;
-  }
-
-  bool hasParts = spec.find(':') != string::npos;
-  if (hasParts) {
-    auto p1 = spec.find(':');
-    string widthStr = spec.substr(0, p1);
-    if (!widthStr.empty() && parseInt(widthStr) != shape.width) { return false; }
-    auto p2 = spec.find(':', p1+1);
-    if (p2 == string::npos) {
-      log("FFT spec must be of the form width:middle:height , found '%s'\n", spec.c_str());
-      throw "Invalid FFT spec";
+FFTConfig FFTConfig::bestFit(u32 E, const string& spec) {
+  // A FFT-spec was given, simply take the first FFT from the spec that can handle E
+  if (!spec.empty()) {
+    for (const FFTShape& shape : FFTShape::multiSpec(spec)) {
+      for (u32 v = 0; v < 4; ++v) {
+        if (FFTConfig fft{shape, v}; fft.maxExp() >= E) { return fft; }
+      }
     }
-
-    string middleStr = spec.substr(p1+1, p2 - (p1 + 1));
-    if (!middleStr.empty() && parseInt(middleStr) != shape.middle) { return false; }
-
-    string heightStr = spec.substr(p2+1);
-    if (!heightStr.empty() && parseInt(heightStr) != shape.height) { return false; }
-
-    auto p3 = spec.find(':', p2 + 1);
-    if (p3 != string::npos && variant != parseInt(spec.substr(p3+1))) { return false; }
-    return true;
-  } else {
-    return shape.fftSize() == parseInt(spec);
+    log("%s can not handle %u\n", spec.c_str(), E);
+    throw "FFT size";
   }
-}
 
-FFTConfig FFTConfig::bestFit(u32 E, const string& fftSpec) {
-  // Choose from tune.txt the fastest FFT that's acceptable according to maxExp and fftSpec.
+  // No FFT-spec given, so choose from tune.txt the fastest FFT that can handle E
   vector<TuneEntry> tunes = TuneEntry::readTuneFile();
   for (const TuneEntry& e : tunes) {
     // The first acceptable is the best as they're sorted by cost
-    if (E <= e.fft.maxExp() && e.fft.matches(fftSpec)) { return e.fft; }
+    if (E <= e.fft.maxExp()) { return e.fft; }
   }
 
-  log("No acceptable entries were found in tune.txt. Consider benchmarking FFTs with -tune\n");
+  log("No FFTs found in tune.txt that can handle %u. Consider tuning with -tune\n", E);
 
-  vector<FFTShape> candidates = FFTShape::multiSpec(fftSpec);
-  for (const FFTShape& shape : candidates) {
+  // Take the first FFT that can handle E
+  for (const FFTShape& shape : FFTShape::allShapes()) {
     for (u32 v = 0; v < 4; ++v) {
-      FFTConfig fft{shape, v};
-      if (fft.maxExp() >= E) { return fft; }
+      if (FFTConfig fft{shape, v}; fft.maxExp() >= E) { return fft; }
     }
   }
 
-  log("No FFT found for %u given '%s'\n", E, fftSpec.c_str());
+  log("No FFT found for %u\n", E);
   throw "No FFT";
 }
 

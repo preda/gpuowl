@@ -21,11 +21,11 @@ public:
   static constexpr const float MIN_BPW = 3;
   
   u32 getMaxCarry32(u32 exponent) const;
+
   static std::vector<FFTShape> allShapes(u32 from=0, u32 to = -1);
 
   static tuple<u32, u32, bool> getChainLengths(u32 fftSize, u32 exponent, u32 middle);
 
-  static FFTShape fromSpec(const string& spec);
   static vector<FFTShape> multiSpec(const string& spec);
   
   u32 width  = 0;
@@ -34,8 +34,9 @@ public:
   array<double, 4> bpw;
 
   FFTShape(u32 w, u32 m, u32 h);
+  explicit FFTShape(const string& spec);
 
-  u32 fftSize() const { return width * height * middle * 2; }
+  u32 size() const { return width * height * middle * 2; }
   u32 nW() const { return (width == 1024 || width == 256 /*|| width == 4096*/) ? 4 : 8; }
   u32 nH() const { return (height == 1024 || height == 256 /*|| height == 4096*/) ? 4 : 8; }
 
@@ -44,11 +45,8 @@ public:
 };
 
 struct FFTConfig {
-  bool matches(const string& spec) const;
-
 public:
   static const u32 N_VARIANT = 4;
-
   static FFTConfig bestFit(u32 E, const std::string& spec);
 
   FFTShape shape;
@@ -59,7 +57,7 @@ public:
   FFTConfig(FFTShape shape, u32 variant) : shape{shape}, variant{variant} {}
 
   double maxBpw() const { return shape.bpw[variant]; }
-  u32 fftSize() const { return shape.fftSize(); }
-  u32 maxExp()  const { return maxBpw() * shape.fftSize(); }
+  u32 size() const { return shape.size(); }
+  u32 maxExp()  const { return maxBpw() * shape.size(); }
   std::string spec() const { return shape.spec() + ":" + to_string(variant); }
 };

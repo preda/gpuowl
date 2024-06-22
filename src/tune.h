@@ -22,7 +22,6 @@ private:
   GpuCommon shared;
   Primes primes;
 
-  u32 fftSize();
   std::pair<double, double> maxBpw(FFTConfig fft);
   double zForBpw(double bpw, FFTConfig fft);
 

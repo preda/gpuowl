@@ -193,7 +193,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, u32 E, bool d
     defines += toDefine("CARRY64", 1);
   }
 
-  u32 N = fft.shape.fftSize();
+  u32 N = fft.shape.size();
 
   defines += toDefine("WEIGHT_STEP", double(weight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
   defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
@@ -221,7 +221,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, bool logFftSize) :
   background{shared.background},
   args{*shared.args},
   E(E),
-  N(fft.shape.fftSize()),
+  N(fft.shape.size()),
   WIDTH(fft.shape.width),
   SMALL_H(fft.shape.height),
   BIG_H(SMALL_H * fft.shape.middle),
