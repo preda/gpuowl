@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
     Background background;
     GpuCommon shared{&args, &bufCache, &background};
 
-    if (!args.ctune.empty() || args.doTune || args.doZtune) {
+    if (!args.ctune.empty() || args.doTune || args.doZtune || args.carryTune) {
       Queue q(context, args.profile);
       Tune tune{&q, shared};
 
@@ -103,6 +103,8 @@ int main(int argc, char **argv) {
         tune.tune();
       } else if (args.doZtune) {
         tune.ztune();
+      } else if (args.carryTune) {
+        tune.carryTune();
       }
     } else {
       vector<Queue> queues;

@@ -47,6 +47,7 @@ public:
 
   bool doTune{};
   bool doZtune{};
+  bool carryTune{};
 
   std::map<std::string, std::string> flags;
   std::map<std::string, vector<KeyVal>> perFftConfig;

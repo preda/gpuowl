@@ -101,6 +101,12 @@ string formatConfigResults(const vector<Entry>& results) {
   return s;
 }
 
+pair<double, double> linearFit(double* z, double STEP) {
+  double A = (2 * (z[3] - z[0]) + (z[2] - z[1])) / (10 * STEP);
+  double B = (z[0] + z[1] + z[2] + z[3]) / 4;
+  return {A, B};
+}
+
 } // namespace
 
 pair<double, double> Tune::maxBpw(FFTConfig fft) {
@@ -131,8 +137,11 @@ pair<double, double> Tune::maxBpw(FFTConfig fft) {
   z[0] = zForBpw(bpw - 2 * STEP, fft);
   z[3] = zForBpw(bpw + 2 * STEP, fft);
 
-  double A = (2 * (z[3] - z[0]) + (z[2] - z[1])) / (10 * STEP);
-  double B = (z[0] + z[1] + z[2] + z[3]) / 4;
+  // double A = (2 * (z[3] - z[0]) + (z[2] - z[1])) / (10 * STEP);
+  // double B = (z[0] + z[1] + z[2] + z[3]) / 4;
+
+  auto [A, B] = linearFit(z, STEP);
+
   double x = bpw + (TARGET - B) / A;
 
   log("%s %.3f -> %.3f | %.2f %.2f %.2f %.2f | %.0f %.1f\n",
@@ -162,6 +171,51 @@ void Tune::ztune() {
     string s = "\""s + shape.spec() + "\"";
     ztune.printf("{%12s, {%.3f, %.3f, %.3f, %.3f}, {%.0f, %.0f, %.0f, %.0f}},\n",
                  s.c_str(), bpw[0], bpw[1], bpw[2], bpw[3], A[0], A[1], A[2], A[3]);
+  }
+}
+
+void Tune::carryTune() {
+  File fo = File::openAppend("carrytune.txt");
+  fo.printf("\n// %s\n\n", shortTimeStr().c_str());
+  shared.args->flags["STATS"] = "1";
+  u32 prevSize = 0;
+  for (FFTShape shape : FFTShape::multiSpec(shared.args->fftSpec)) {
+    FFTConfig fft{shape, 3};
+    if (prevSize == fft.size()) { continue; }
+    prevSize = fft.size();
+
+    vector<double> zv;
+    const double mid = fft.shape.carryLimitBPW();
+    for (double bpw : {mid - 0.05, mid + 0.05}) {
+      u32 exponent = primes.nearestPrime(fft.size() * bpw);
+      auto [ok, carry] = Gpu::make(q, exponent, shared, fft, {}, false)->measureCarry();
+      if (!ok) { log("Error %s at %f\n", fft.spec().c_str(), bpw); }
+      zv.push_back(carry.z());
+    }
+
+    double avg = (zv[0] + zv[1]) / 2;
+    log("%14s %.3f : %.3f (%.3f %.3f)\n", fft.spec().c_str(), mid, avg, zv[0], zv[1]);
+    fo.printf("%f %f\n", log2(fft.size()), avg);
+
+#if 0
+    const double STEP = 0.06;
+    // const double INI_BPW = fft.maxBpw() + STEP;
+    double mid = fft.maxBpw() - STEP;
+    string spec = fft.spec();
+
+    vector<double> zv;
+    for (double bpw : {mid - 2*STEP, mid - STEP, mid + STEP, mid + 2*STEP}) {
+      u32 exponent = primes.nearestPrime(fft.size() * bpw);
+      auto [ok, carry] = Gpu::make(q, exponent, shared, fft, {}, false)->measureCarry();
+      if (!ok) { log("Error %s at %f\n", spec.c_str(), bpw); }
+      double z = carry.z();
+      log("%14s %u %.3f : %u %.3f %f\n", spec.c_str(), exponent, bpw, carry.N, z, carry.max);
+      zv.push_back(z);
+    }
+    auto [A, B] = linearFit(zv.data(), STEP);
+    log("%12s %.3f : %f %f\n", spec.c_str(), mid, A, B);
+    fo.printf("%f %.3f %f %f\n", log2(fft.size()), mid, A, B);
+#endif
   }
 }
 

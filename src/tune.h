@@ -36,4 +36,6 @@ public:
 
   // Considering the cost of each FFT and the max-BPW, work out the transition points between them
   void tune();
+
+  void carryTune();
 };

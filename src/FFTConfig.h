@@ -21,8 +21,6 @@ class FFTShape {
 public:
   static constexpr const float MIN_BPW = 3;
   
-  u32 getMaxCarry32(u32 exponent) const;
-
   static std::vector<FFTShape> allShapes(u32 from=0, u32 to = -1);
 
   static tuple<u32, u32, bool> getChainLengths(u32 fftSize, u32 exponent, u32 middle);
@@ -43,6 +41,9 @@ public:
 
   double maxBpw() const { return *max_element(bpw.begin(), bpw.end()); }
   std::string spec() const { return numberK(width) + ':' + numberK(middle) + ':' + numberK(height); }
+
+  double carryLimitBPW() const;
+  bool needsLargeCarry(u32 E) const;
 };
 
 struct FFTConfig {
@@ -54,10 +55,12 @@ public:
   u32 variant;
 
   explicit FFTConfig(const string& spec);
-  FFTConfig(FFTShape shape, u32 variant) : shape{shape}, variant{variant} {}
+  FFTConfig(FFTShape shape, u32 variant);
 
   double maxBpw() const { return shape.bpw[variant]; }
   u32 size() const { return shape.size(); }
   u32 maxExp()  const { return maxBpw() * shape.size(); }
   std::string spec() const { return shape.spec() + ":" + to_string(variant); }
+
+  bool needsLargeCarry(u32 E) const { return shape.needsLargeCarry(E); }
 };

@@ -160,6 +160,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   for (const auto& [k, v] : config) {
     bool isValid = isInList(k, {
                               "FAST_BARRIER",
+                              "STATS",
                               "IN_SIZEX",
                               "IN_WG",
                               "OUT_SIZEX",
@@ -187,8 +188,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
 
   if (isAmdGpu(id)) { defines += toDefine("AMDGPU", 1); }
 
-  // Force carry64 when carry32 might exceed a very conservative 0x6C000000
-  if (fft.shape.getMaxCarry32(E) > 0x6C00) {
+  if (fft.needsLargeCarry(E)) {
     if (doLog) { log("Using CARRY64\n"); }
     defines += toDefine("CARRY64", 1);
   }
@@ -980,6 +980,66 @@ u32 Gpu::getProofPower(u32 k) {
     log("Proof of power %u requires about %.1fGB of disk space\n", power, ProofSet::diskUsageGB(E, power));
   }
   return power;
+}
+
+tuple<bool, RoeInfo> Gpu::measureCarry() {
+  u32 blockSize{}, iters{}, warmup{};
+
+  blockSize = 200;
+  iters = 2000;
+  warmup = 50;
+
+  assert(iters % blockSize == 0);
+
+  u32 k = 0;
+  PRPState state{E, 0, blockSize, 3, makeWords(E, 1), 0};
+  writeState(state.check, state.blockSize);
+  {
+    u64 res = dataResidue();
+    if (res != state.res64) {
+      log("residue expected %016" PRIx64 " found %016" PRIx64 "\n", state.res64, res);
+    }
+    assert(res == state.res64);
+  }
+
+  modMul(bufCheck, bufData);
+  square(bufData, bufData, true, useLongCarry);
+  ++k;
+
+  while (k < warmup) {
+    square(bufData, bufData, useLongCarry, useLongCarry);
+    ++k;
+  }
+
+  readCarryStats(); // ignore the warm-up iterations
+
+  if (Signal::stopRequested()) { throw "stop requested"; }
+
+  bool leadIn = useLongCarry;
+  while (true) {
+    while (k % blockSize < blockSize-1) {
+      square(bufData, bufData, leadIn, useLongCarry);
+      ++k;
+      leadIn = useLongCarry;
+    }
+    square(bufData, bufData, useLongCarry, true);
+    leadIn = true;
+    ++k;
+
+    if (k >= iters) { break; }
+
+    modMul(bufCheck, bufData);
+    if (Signal::stopRequested()) { throw "stop requested"; }
+  }
+
+  [[maybe_unused]] u64 res = dataResidue();
+  if (Signal::stopRequested()) { throw "stop requested"; }
+
+  bool ok = doCheck(blockSize);
+  auto stats = readCarryStats();
+
+  // log("%s %016" PRIx64 " %s\n", ok ? "OK" : "EE", res, roe.toString(statsBits).c_str());
+  return {ok, stats};
 }
 
 tuple<bool, u64, RoeInfo, RoeInfo> Gpu::measureROE(bool quick) {

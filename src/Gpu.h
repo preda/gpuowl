@@ -233,7 +233,9 @@ public:
   PRPResult isPrimePRP(const Task& task);
   LLResult isPrimeLL(const Task& task);
   double timePRP();
+
   tuple<bool, u64, RoeInfo, RoeInfo> measureROE(bool quick);
+  tuple<bool, RoeInfo> measureCarry();
 
   Saver<PRPState> *getSaver();
 

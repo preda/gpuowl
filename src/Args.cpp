@@ -285,6 +285,8 @@ void Args::parse(const string& line) {
       ctune.push_back(s);
     } else if (key == "-ztune") {
       doZtune = true;
+    } else if (key == "-carryTune") {
+      carryTune = true;
     } else if (key == "-verbose" || key == "-v") {
       verbose = true;
     } else if (key == "-time") {

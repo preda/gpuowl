@@ -25,22 +25,6 @@ map<string, array<double, 4>> BPW {
 #include "fftbpw.h"
 };
 
-// This routine predicts the maximum carry32 we might see.  This was based on 500,000 iterations
-// of 24518003 using a 1.25M FFT.  The maximum carry32 value observed was 0x32420000.
-// As FFT length grows, so does the expected max carry32.  As we store fewer bits-per-word in
-// an FFT size, the expected max carry32 decreases.  Our formula is:
-//		max carry32 = 0x32420000 * 2^(BPW - 18.706) * 2 ^ (2 * 0.279 * log2(FFTSize / 1.25M))
-//
-// Note that the mul-by-3 carryFusedMul kernel, triples the expected max carry32 value.
-// As of now, I have limited data on the carryFusedMulDelta kernel.
-//
-// Note: This routine returns the top 16 bits of the expected max carry32.
-
-u32 FFTShape::getMaxCarry32(u32 exponent) const {
-  u32 N = size();
-  return (u32) (0x3242 * pow(2.0, 0.558 * log2(N / (1.25 * 1024 * 1024)) + double(exponent) / double(N) - 18.706));
-}
-
 namespace {
 
 u32 parseInt(const string& s) {
@@ -120,6 +104,15 @@ FFTShape::FFTShape(const string& spec) {
   *this = FFTShape{parseInt(v.at(0)), parseInt(v.at(1)), parseInt(v.at(2))};
 }
 
+double FFTShape::carryLimitBPW() const {
+  // Empiric formula validated with -carryTune
+  return 18.3 + 0.5 * (log2(13 * 1024 * 512) - log2(size()));
+}
+
+bool FFTShape::needsLargeCarry(u32 E) const {
+  return E / double(size()) > carryLimitBPW();
+}
+
 FFTShape::FFTShape(u32 w, u32 m, u32 h) :
   width{w}, middle{m}, height{h} {
   assert(w && m && h);
@@ -146,6 +139,10 @@ FFTConfig::FFTConfig(const string& spec) :
   shape{spec.substr(0, spec.rfind(':'))},
   variant{parseInt(spec.substr(spec.rfind(':') + 1))}
 {
+  assert(variant < N_VARIANT);
+}
+
+FFTConfig::FFTConfig(FFTShape shape, u32 variant) : shape{shape}, variant{variant} {
   assert(variant < N_VARIANT);
 }
 
