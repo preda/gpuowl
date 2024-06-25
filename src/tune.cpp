@@ -166,8 +166,9 @@ void Tune::ztune() {
       std::tie(bpw[variant], A[variant]) = maxBpw(fft);
     }
     string s = "\""s + shape.spec() + "\"";
-    ztune.printf("{%12s, {%.3f, %.3f, %.3f, %.3f}, {%.0f, %.0f, %.0f, %.0f}},\n",
-                 s.c_str(), bpw[0], bpw[1], bpw[2], bpw[3], A[0], A[1], A[2], A[3]);
+    ztune.printf("{%12s, {%.3f, %.3f, %.3f, %.3f}},\n", s.c_str(), bpw[0], bpw[1], bpw[2], bpw[3]);
+    // ztune.printf("{%12s, {%.3f, %.3f, %.3f, %.3f}, {%.0f, %.0f, %.0f, %.0f}},\n",
+    //              s.c_str(), bpw[0], bpw[1], bpw[2], bpw[3], A[0], A[1], A[2], A[3]);
   }
 }
 

@@ -101,8 +101,12 @@ FFTShape::FFTShape(const string& spec) {
   assert(!spec.empty());
   vector<string> v = split(spec, ':');
   assert(v.size() == 3);
-  *this = FFTShape{parseInt(v.at(0)), parseInt(v.at(1)), parseInt(v.at(2))};
+  *this = FFTShape{v.at(0), v.at(1), v.at(2)};
 }
+
+FFTShape::FFTShape(const string& w, const string& m, const string& h) :
+  FFTShape{parseInt(w), parseInt(m), parseInt(h)}
+{}
 
 double FFTShape::carryLimitBPW() const {
   // The formula below was validated empirically with -carryTune
@@ -133,34 +137,66 @@ FFTShape::FFTShape(u32 w, u32 m, u32 h) :
       bpw = FFTShape{h, m, w}.bpw;
     } else {
       // Make up some defaults
-      log("BPW info for %s not found, using defaults\n", s.c_str());
       double d = 0.275 * (log2(size()) - log2(256 * 13 * 1024 * 2));
       bpw = {18.1-d, 18.2-d, 18.2-d, 18.3-d};
+      log("BPW info for %s not found, defaults={%.2f, %.2f, %.2f, %.2f}\n", s.c_str(), bpw[0], bpw[1], bpw[2], bpw[3]);
     }
   }
 }
 
-FFTConfig::FFTConfig(const string& spec) :
-  shape{spec.substr(0, spec.rfind(':'))},
-  variant{parseInt(spec.substr(spec.rfind(':') + 1))}
+FFTConfig::FFTConfig(const string& spec) {
+  auto v = split(spec, ':');
+  assert(v.size() == 3 || v.size() == 4 || v.size() == 5);
+
+  if (v.size() == 3) {
+    *this = {FFTShape{v[0], v[1], v[2]}, 3};
+  } else if (v.size() == 4) {
+    *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3])};
+  } else if (v.size() == 5) {
+    int c = parseInt(v[4]);
+    assert(c == 0 || c == 1);
+    *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3]), c == 0 ? CARRY_32 : CARRY_64};
+  } else {
+    throw "FFT spec";
+  }
+}
+
+FFTConfig::FFTConfig(FFTShape shape, u32 variant, CARRY_KIND carry) :
+  shape{shape},
+  variant{variant},
+  carry{carry}
 {
   assert(variant < N_VARIANT);
 }
 
-FFTConfig::FFTConfig(FFTShape shape, u32 variant) : shape{shape}, variant{variant} {
-  assert(variant < N_VARIANT);
+string FFTConfig::spec() const {
+  string s = shape.spec() + ":" + to_string(variant);
+  return carry == CARRY_AUTO ? s : (s + (carry == CARRY_32 ? ":0" : ":1"));
+}
+
+double FFTConfig::maxBpw() const {
+  double b = shape.bpw[variant];
+  return carry == CARRY_32 ? std::min(shape.carryLimitBPW(), b) : b;
 }
 
 FFTConfig FFTConfig::bestFit(const Args& args, u32 E, const string& spec) {
   // A FFT-spec was given, simply take the first FFT from the spec that can handle E
   if (!spec.empty()) {
+    FFTConfig fft{spec};
+    if (fft.maxExp() < E) {
+      log("%s can not handle %u\n", fft.spec().c_str(), E);
+      throw "FFT size";
+    }
+    return fft;
+    /*
     for (const FFTShape& shape : FFTShape::multiSpec(spec)) {
-      for (u32 v = 0; v < 4; ++v) {
+      for (u32 v = 0; v < N_VARIANT; ++v) {
         if (FFTConfig fft{shape, v}; fft.maxExp() >= E) { return fft; }
       }
     }
     log("%s can not handle %u\n", spec.c_str(), E);
     throw "FFT size";
+    */
   }
 
   // No FFT-spec given, so choose from tune.txt the fastest FFT that can handle E

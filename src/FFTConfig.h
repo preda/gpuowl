@@ -32,7 +32,8 @@ public:
   u32 height = 0;
   array<double, 4> bpw;
 
-  FFTShape(u32 w, u32 m, u32 h);
+  FFTShape(u32 w = 1, u32 m = 1, u32 h = 1);
+  FFTShape(const string& w, const string& m, const string& h);
   explicit FFTShape(const string& spec);
 
   u32 size() const { return width * height * middle * 2; }
@@ -51,16 +52,20 @@ public:
   static const u32 N_VARIANT = 4;
   static FFTConfig bestFit(const Args& args, u32 E, const std::string& spec);
 
-  FFTShape shape;
+  enum CARRY_KIND { CARRY_AUTO, CARRY_32, CARRY_64};
+
+  FFTShape shape{};
   u32 variant;
+  CARRY_KIND carry;
 
   explicit FFTConfig(const string& spec);
-  FFTConfig(FFTShape shape, u32 variant);
+  FFTConfig(FFTShape shape, u32 variant, CARRY_KIND carry = CARRY_AUTO);
 
-  double maxBpw() const { return shape.bpw[variant]; }
+  std::string spec() const;
   u32 size() const { return shape.size(); }
   u32 maxExp()  const { return maxBpw() * shape.size(); }
-  std::string spec() const { return shape.spec() + ":" + to_string(variant); }
 
-  bool needsLargeCarry(u32 E) const { return shape.needsLargeCarry(E); }
+  double maxBpw() const;
+
+  // bool needsLargeCarry(u32 E) const { return shape.needsLargeCarry(E); }
 };
