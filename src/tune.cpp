@@ -137,9 +137,6 @@ pair<double, double> Tune::maxBpw(FFTConfig fft) {
   z[0] = zForBpw(bpw - 2 * STEP, fft);
   z[3] = zForBpw(bpw + 2 * STEP, fft);
 
-  // double A = (2 * (z[3] - z[0]) + (z[2] - z[1])) / (10 * STEP);
-  // double B = (z[0] + z[1] + z[2] + z[3]) / 4;
-
   auto [A, B] = linearFit(z, STEP);
 
   double x = bpw + (TARGET - B) / A;
@@ -185,37 +182,19 @@ void Tune::carryTune() {
     prevSize = fft.size();
 
     vector<double> zv;
+    double m = 0;
     const double mid = fft.shape.carryLimitBPW();
     for (double bpw : {mid - 0.05, mid + 0.05}) {
       u32 exponent = primes.nearestPrime(fft.size() * bpw);
       auto [ok, carry] = Gpu::make(q, exponent, shared, fft, {}, false)->measureCarry();
+      m = carry.max;
       if (!ok) { log("Error %s at %f\n", fft.spec().c_str(), bpw); }
       zv.push_back(carry.z());
     }
 
     double avg = (zv[0] + zv[1]) / 2;
-    log("%14s %.3f : %.3f (%.3f %.3f)\n", fft.spec().c_str(), mid, avg, zv[0], zv[1]);
+    log("%14s %.3f : %.3f (%.3f %.3f) %f\n", fft.spec().c_str(), mid, avg, zv[0], zv[1], m);
     fo.printf("%f %f\n", log2(fft.size()), avg);
-
-#if 0
-    const double STEP = 0.06;
-    // const double INI_BPW = fft.maxBpw() + STEP;
-    double mid = fft.maxBpw() - STEP;
-    string spec = fft.spec();
-
-    vector<double> zv;
-    for (double bpw : {mid - 2*STEP, mid - STEP, mid + STEP, mid + 2*STEP}) {
-      u32 exponent = primes.nearestPrime(fft.size() * bpw);
-      auto [ok, carry] = Gpu::make(q, exponent, shared, fft, {}, false)->measureCarry();
-      if (!ok) { log("Error %s at %f\n", spec.c_str(), bpw); }
-      double z = carry.z();
-      log("%14s %u %.3f : %u %.3f %f\n", spec.c_str(), exponent, bpw, carry.N, z, carry.max);
-      zv.push_back(z);
-    }
-    auto [A, B] = linearFit(zv.data(), STEP);
-    log("%12s %.3f : %f %f\n", spec.c_str(), mid, A, B);
-    fo.printf("%f %.3f %f %f\n", log2(fft.size()), mid, A, B);
-#endif
   }
 }
 

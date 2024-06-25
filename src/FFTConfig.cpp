@@ -105,7 +105,12 @@ FFTShape::FFTShape(const string& spec) {
 }
 
 double FFTShape::carryLimitBPW() const {
-  // Empiric formula validated with -carryTune
+  // The formula below was validated empirically with -carryTune
+
+  // We observe that FFT 6.5M (1024:13:256) has safe carry32 up to 18.3 BPW
+  // while the 0.5*log2() models the impact of FFT size changes.
+  // We model carry with a Gumbel distrib similar to the one used for ROE, and measure carry with
+  // -use STATS=1. See -carryTune
   return 18.3 + 0.5 * (log2(13 * 1024 * 512) - log2(size()));
 }
 

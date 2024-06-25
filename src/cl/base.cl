@@ -118,7 +118,6 @@ typedef ulong u64;
 
 typedef i32 Word;
 typedef int2 Word2;
-typedef i64 CarryABM;
 
 typedef double T;
 typedef double2 T2;

@@ -32,8 +32,8 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   T2 weights = fancyMul(THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);
 
 #if MUL3
-  P(CFMcarry) carryShuttlePtr = (P(CFMcarry)) carryShuttle;
-  CFMcarry carry[NW+1];
+  P(i64) carryShuttlePtr = (P(i64)) carryShuttle;
+  i64 carry[NW+1];
 #else
   P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
   CFcarry carry[NW+1];
