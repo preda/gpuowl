@@ -108,7 +108,7 @@ FFTShape::FFTShape(const string& w, const string& m, const string& h) :
   FFTShape{parseInt(w), parseInt(m), parseInt(h)}
 {}
 
-double FFTShape::carryLimitBPW() const {
+double FFTShape::carry32BPW() const {
   // The formula below was validated empirically with -carryTune
 
   // We observe that FFT 6.5M (1024:13:256) has safe carry32 up to 18.3 BPW
@@ -119,7 +119,7 @@ double FFTShape::carryLimitBPW() const {
 }
 
 bool FFTShape::needsLargeCarry(u32 E) const {
-  return E / double(size()) > carryLimitBPW();
+  return E / double(size()) > carry32BPW();
 }
 
 FFTShape::FFTShape(u32 w, u32 m, u32 h) :
@@ -149,9 +149,9 @@ FFTConfig::FFTConfig(const string& spec) {
   assert(v.size() == 3 || v.size() == 4 || v.size() == 5);
 
   if (v.size() == 3) {
-    *this = {FFTShape{v[0], v[1], v[2]}, 3};
+    *this = {FFTShape{v[0], v[1], v[2]}, 3, CARRY_AUTO};
   } else if (v.size() == 4) {
-    *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3])};
+    *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3]), CARRY_AUTO};
   } else if (v.size() == 5) {
     int c = parseInt(v[4]);
     assert(c == 0 || c == 1);
@@ -161,7 +161,7 @@ FFTConfig::FFTConfig(const string& spec) {
   }
 }
 
-FFTConfig::FFTConfig(FFTShape shape, u32 variant, CARRY_KIND carry) :
+FFTConfig::FFTConfig(FFTShape shape, u32 variant, u32 carry) :
   shape{shape},
   variant{variant},
   carry{carry}
@@ -176,7 +176,7 @@ string FFTConfig::spec() const {
 
 double FFTConfig::maxBpw() const {
   double b = shape.bpw[variant];
-  return carry == CARRY_32 ? std::min(shape.carryLimitBPW(), b) : b;
+  return carry == CARRY_32 ? std::min(shape.carry32BPW(), b) : b;
 }
 
 FFTConfig FFTConfig::bestFit(const Args& args, u32 E, const string& spec) {
@@ -211,7 +211,7 @@ FFTConfig FFTConfig::bestFit(const Args& args, u32 E, const string& spec) {
   // Take the first FFT that can handle E
   for (const FFTShape& shape : FFTShape::allShapes()) {
     for (u32 v = 0; v < 4; ++v) {
-      if (FFTConfig fft{shape, v}; fft.maxExp() >= E) { return fft; }
+      if (FFTConfig fft{shape, v, CARRY_AUTO}; fft.maxExp() >= E) { return fft; }
     }
   }
 

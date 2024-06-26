@@ -43,7 +43,7 @@ public:
   double maxBpw() const { return *max_element(bpw.begin(), bpw.end()); }
   std::string spec() const { return numberK(width) + ':' + numberK(middle) + ':' + numberK(height); }
 
-  double carryLimitBPW() const;
+  double carry32BPW() const;
   bool needsLargeCarry(u32 E) const;
 };
 
@@ -56,10 +56,10 @@ public:
 
   FFTShape shape{};
   u32 variant;
-  CARRY_KIND carry;
+  u32 carry;
 
   explicit FFTConfig(const string& spec);
-  FFTConfig(FFTShape shape, u32 variant, CARRY_KIND carry = CARRY_AUTO);
+  FFTConfig(FFTShape shape, u32 variant, u32 carry /* = CARRY_AUTO*/);
 
   std::string spec() const;
   u32 size() const { return shape.size(); }

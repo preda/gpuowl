@@ -76,9 +76,9 @@ void TuneEntry::writeTuneFile(const vector<TuneEntry>& results) {
   CycleFile tune{"tune.txt"};
   for (const TuneEntry& r : results) {
     u32 maxExp = r.fft.maxExp();
-    assert(r.cost > prevCost && maxExp > prevMaxExp);
+    assert(r.cost >= prevCost && maxExp > prevMaxExp);
     prevCost = r.cost;
     prevMaxExp = maxExp;
-    tune->printf("%6.0f %12s # %u\n", r.cost, r.fft.spec().c_str(), maxExp);
+    tune->printf("%6.0f %14s # %u\n", r.cost, r.fft.spec().c_str(), maxExp);
   }
 }

@@ -162,7 +162,7 @@ void Tune::ztune() {
     double bpw[4];
     double A[4];
     for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
-      FFTConfig fft{shape, variant};
+      FFTConfig fft{shape, variant, FFTConfig::CARRY_AUTO};
       std::tie(bpw[variant], A[variant]) = maxBpw(fft);
     }
     string s = "\""s + shape.spec() + "\"";
@@ -178,13 +178,13 @@ void Tune::carryTune() {
   shared.args->flags["STATS"] = "1";
   u32 prevSize = 0;
   for (FFTShape shape : FFTShape::multiSpec(shared.args->fftSpec)) {
-    FFTConfig fft{shape, 3};
+    FFTConfig fft{shape, 3, FFTConfig::CARRY_AUTO};
     if (prevSize == fft.size()) { continue; }
     prevSize = fft.size();
 
     vector<double> zv;
     double m = 0;
-    const double mid = fft.shape.carryLimitBPW();
+    const double mid = fft.shape.carry32BPW();
     for (double bpw : {mid - 0.05, mid + 0.05}) {
       u32 exponent = primes.nearestPrime(fft.size() * bpw);
       auto [ok, carry] = Gpu::make(q, exponent, shared, fft, {}, false)->measureCarry();
@@ -223,7 +223,7 @@ void Tune::ctune() {
   }
 
   for (FFTShape shape : shapes) {
-    u32 exponent = primes.prevPrime(FFTConfig{shape, 0}.maxExp());
+    u32 exponent = primes.prevPrime(FFTConfig{shape, 0, FFTConfig::CARRY_AUTO}.maxExp());
     // log("tuning %10s with exponent %u\n", fft.shape.spec().c_str(), exponent);
 
     vector<int> bestPos(configsVect.size());
@@ -240,7 +240,7 @@ void Tune::ctune() {
         for (u32 k = i + 1; k < configsVect.size(); ++k) {
           add(c, configsVect[k][bestPos[k]]);
         }
-        auto cost = Gpu::make(q, exponent, shared, FFTConfig{shape, 0}, c, false)->timePRP();
+        auto cost = Gpu::make(q, exponent, shared, FFTConfig{shape, 0, FFTConfig::CARRY_AUTO}, c, false)->timePRP();
 
         bool isBest = (cost < best.cost);
         if (isBest) {
@@ -264,22 +264,29 @@ void Tune::tune() {
   vector<TuneEntry> results = TuneEntry::readTuneFile(*args);
 
   for (const FFTShape& shape : FFTShape::multiSpec(args->fftSpec)) {
-    double costZero{};
+    double minCost = -1;
+
+    // Time an exponent that's good for all variants and carry-config.
+    u32 exponent = primes.prevPrime(FFTConfig{shape, 0, FFTConfig::CARRY_32}.maxExp());
+
     for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
-      FFTConfig fft{shape, variant};
+      // We need to test both carry-32 and carry-64 only when the carry cutoff BPW is within the range.
+      bool testBoth = shape.carry32BPW() < FFTConfig{shape, variant, FFTConfig::CARRY_64}.maxBpw();
+      auto carries = testBoth ? vector{FFTConfig::CARRY_32, FFTConfig::CARRY_64} : vector{FFTConfig::CARRY_AUTO};
+      for (auto carry : carries) {
+        FFTConfig fft{shape, variant, carry};
 
-      if (variant > 0 && !TuneEntry{costZero, fft}.willUpdate(results)) {
-        log("skipped %s\n", fft.spec().c_str());
-        continue;
+        if (minCost > 0 && !TuneEntry{minCost, fft}.willUpdate(results)) {
+          log("skipped %s %9u\n", fft.spec().c_str(), fft.maxExp());
+          continue;
+        }
+
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        if (minCost <= 0) { minCost = cost; }
+
+        bool isUseful = TuneEntry{cost, fft}.update(results);
+        log("%c %6.0f %12s %9u\n", isUseful ? '*' : ' ', cost, fft.spec().c_str(), fft.maxExp());
       }
-
-      u32 maxExp = fft.maxExp();
-      u32 exponent = primes.prevPrime(maxExp);
-      double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
-      if (variant == 0) { costZero = cost; }
-
-      bool isUseful = TuneEntry{cost, fft}.update(results);
-      log("%c %6.0f %12s %9u\n", isUseful ? '*' : ' ', cost, fft.spec().c_str(), exponent);
     }
   }
 
