@@ -46,6 +46,18 @@ struct LLResult {
   u64 res64;
 };
 
+struct ZAvg {
+  double sum{};
+  double n{};
+
+  void update(double z, u32 inc) {
+    sum += z * inc;
+    n += inc;
+  }
+
+  double avg() { return sum / n; }
+};
+
 class RoeInfo {
 public:
   RoeInfo() = default;
@@ -177,6 +189,7 @@ class Gpu {
 
   unsigned statsBits;
   TimeInfo* timeBufVect;
+  ZAvg zAvg;
 
   vector<int> readSmall(Buffer<int>& buf, u32 start);
   

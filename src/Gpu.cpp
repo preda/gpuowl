@@ -827,8 +827,9 @@ static string makeLogStr(const string& status, u32 k, u64 res, float secsPerIt, 
 void Gpu::doBigLog(u32 k, u64 res, bool checkOK, float secsPerIt, u32 nIters, u32 nErrors) {
   auto [roeSq, roeMul] = readROE();
   double z = roeSq.z();
-  log("%sZ=%.1f%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
-      z, (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
+  zAvg.update(z, roeSq.N);
+  log("%sZ=%.0f (avg %.1f)%s\n", makeLogStr(checkOK ? "OK" : "EE", k, res, secsPerIt, nIters).c_str(),
+      z, zAvg.avg(), (nErrors ? " "s + to_string(nErrors) + " errors"s : ""s).c_str());
 
   if (roeSq.N > 2 && z < 22) {
     log("Danger ROE! Z=%.1f is too small, increase precision or FFT size!\n", z);

@@ -270,10 +270,13 @@ void Tune::tune() {
     u32 exponent = primes.prevPrime(FFTConfig{shape, 0, FFTConfig::CARRY_32}.maxExp());
 
     for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
+      vector carryToTest{FFTConfig::CARRY_32};
       // We need to test both carry-32 and carry-64 only when the carry cutoff BPW is within the range.
-      bool testBoth = shape.carry32BPW() < FFTConfig{shape, variant, FFTConfig::CARRY_64}.maxBpw();
-      auto carries = testBoth ? vector{FFTConfig::CARRY_32, FFTConfig::CARRY_64} : vector{FFTConfig::CARRY_AUTO};
-      for (auto carry : carries) {
+      if (shape.carry32BPW() < FFTConfig{shape, variant, FFTConfig::CARRY_64}.maxBpw()) {
+        carryToTest.push_back(FFTConfig::CARRY_64);
+      }
+
+      for (auto carry : carryToTest) {
         FFTConfig fft{shape, variant, carry};
 
         if (minCost > 0 && !TuneEntry{minCost, fft}.willUpdate(results)) {
