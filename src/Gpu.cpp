@@ -315,19 +315,16 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   statsBits{u32(args.value("STATS", 0))},
   timeBufVect{profile.make("proofBufVect")}
 {    
-  // Sometimes we do want to run a FFT beyond a reasonable BPW (e.g. during -ztune), and these situations
-  // coincide with logFftSize == false
-  if (logFftSize && fft.maxExp() < E) {
-    log("Exponent %u is too large for FFT %s\n", E, fft.spec().c_str());
-    throw "FFT too small";
-  }
 
   float bitsPerWord = E / float(N);
-  if (logFftSize) { log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), fft.spec().c_str(), bitsPerWord); }
+  if (logFftSize) {
+    log("FFT: %s %s (%.2f bpw)\n", numberK(N).c_str(), fft.spec().c_str(), bitsPerWord);
 
-  if (bitsPerWord > 20) {
-    log("FFT size too small for exponent (%.2f bits/word).\n", bitsPerWord);
-    throw "FFT size too small";
+    // Sometimes we do want to run a FFT beyond a reasonable BPW (e.g. during -ztune), and these situations
+    // coincide with logFftSize == false
+    if (fft.maxExp() < E) {
+      log("Warning: %s (max %u) may be too small for %u\n", fft.spec().c_str(), fft.maxExp(), E);
+    }
   }
 
   if (bitsPerWord < FFTShape::MIN_BPW) {

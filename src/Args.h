@@ -84,6 +84,11 @@ public:
 
   u32 iters = 0;
   u32 nSavefiles = 20;
+
+  // Extend the range of the FFTs beyond what's safe WRT ROE and CARRY32.
+  // The FFT will handle up to fft.maxExp() * fftOverdrive
+  // May also take values <1 to lower the max E handled.
+  double fftOverdrive = 1;
   
   void printHelp();
 };

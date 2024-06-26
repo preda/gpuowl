@@ -134,6 +134,12 @@ named "config.txt" in the prpll run directory.
                      - a list: 256:13:1K,8M
                      See the list of FFTs at the end.
 
+-od <value>        : Overdrive the FFT range (ROE, CARRY32 limits). This allows to use a lower FFT for a given
+                     exponent (thus faster), but increases the risk of errors. The presence of errors is detected,
+                     but the errors are nevertheless costly computationally and better avoided.
+                     A <value> of 1 extends the range by 0.1%% (and this would be acceptable); a value of 10
+                     extends the range by 1%% (and this would be quite too much WRT errors).
+
 -block <value>     : PRP block size, one of: 1000, 500, 200. Default 1000.
 -carry long|short  : force carry type. Short carry may be faster, but requires high bits/word.
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
@@ -277,6 +283,9 @@ void Args::parse(const string& line) {
         }
       }
       throw "info";
+    } else if (key == "-od") {
+      double od = stod(s);
+      fftOverdrive = 1 + od / 1000;
     } else if (key == "-tune") {
       assert(s.empty());
       doTune = true;

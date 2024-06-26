@@ -1,6 +1,7 @@
 // Copyright (C) Mihai Preda.
 
 #include "FFTConfig.h"
+#include "Args.h"
 #include "common.h"
 #include "log.h"
 #include "TuneEntry.h"
@@ -183,27 +184,17 @@ FFTConfig FFTConfig::bestFit(const Args& args, u32 E, const string& spec) {
   // A FFT-spec was given, simply take the first FFT from the spec that can handle E
   if (!spec.empty()) {
     FFTConfig fft{spec};
-    if (fft.maxExp() < E) {
-      log("%s can not handle %u\n", fft.spec().c_str(), E);
-      throw "FFT size";
+    if (fft.maxExp() * args.fftOverdrive < E) {
+      log("Warning: %s (max %u) may be too small for %u\n", fft.spec().c_str(), fft.maxExp(), E);
     }
     return fft;
-    /*
-    for (const FFTShape& shape : FFTShape::multiSpec(spec)) {
-      for (u32 v = 0; v < N_VARIANT; ++v) {
-        if (FFTConfig fft{shape, v}; fft.maxExp() >= E) { return fft; }
-      }
-    }
-    log("%s can not handle %u\n", spec.c_str(), E);
-    throw "FFT size";
-    */
   }
 
   // No FFT-spec given, so choose from tune.txt the fastest FFT that can handle E
   vector<TuneEntry> tunes = TuneEntry::readTuneFile(args);
   for (const TuneEntry& e : tunes) {
     // The first acceptable is the best as they're sorted by cost
-    if (E <= e.fft.maxExp()) { return e.fft; }
+    if (E <= e.fft.maxExp() * args.fftOverdrive) { return e.fft; }
   }
 
   log("No FFTs found in tune.txt that can handle %u. Consider tuning with -tune\n", E);
@@ -211,7 +202,7 @@ FFTConfig FFTConfig::bestFit(const Args& args, u32 E, const string& spec) {
   // Take the first FFT that can handle E
   for (const FFTShape& shape : FFTShape::allShapes()) {
     for (u32 v = 0; v < 4; ++v) {
-      if (FFTConfig fft{shape, v, CARRY_AUTO}; fft.maxExp() >= E) { return fft; }
+      if (FFTConfig fft{shape, v, CARRY_AUTO}; fft.maxExp() * args.fftOverdrive >= E) { return fft; }
     }
   }
 
