@@ -107,14 +107,17 @@ int main(int argc, char **argv) {
         tune.carryTune();
       }
     } else {
-      vector<Queue> queues;
-      for (int i = 0; i < int(args.workers); ++i) { queues.emplace_back(context, args.profile); }
-
-      vector<jthread> threads;
-      for (int i = 1; i < int(args.workers); ++i) {
-        threads.emplace_back(gpuWorker, shared, &queues[i], i);
+      {
+        vector<Queue> queues;
+        for (int i = 0; i < int(args.workers); ++i) { queues.emplace_back(context, args.profile); }
+        vector<jthread> threads;
+        for (int i = 1; i < int(args.workers); ++i) {
+          threads.emplace_back(gpuWorker, shared, &queues[i], i);
+        }
+        gpuWorker(shared, &queues[0], 0);
       }
-      gpuWorker(shared, &queues[0], 0);
+
+      log("No more work. Add work to worktodo.txt , see -h for details.\n");
     }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
