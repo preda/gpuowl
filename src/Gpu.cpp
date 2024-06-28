@@ -188,7 +188,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
 
   if (isAmdGpu(id)) { defines += toDefine("AMDGPU", 1); }
 
-  if ((fft.carry == FFTConfig::CARRY_AUTO && fft.shape.needsLargeCarry(E)) || (fft.carry == FFTConfig::CARRY_64)) {
+  if ((fft.carry == CARRY_AUTO && fft.shape.needsLargeCarry(E)) || (fft.carry == CARRY_64)) {
     if (doLog) { log("Using CARRY64\n"); }
     defines += toDefine("CARRY64", 1);
   }
@@ -475,7 +475,31 @@ RoeInfo Gpu::readCarryStats() {
   assert(carry.size() == carryPos);
   bufStatsCarry.zero(carryPos);
   carryPos = 0;
-  return roeStat(carry);
+
+  RoeInfo ret = roeStat(carry);
+
+#if 0
+  log("%s\n", ret.toString().c_str());
+
+  std::sort(carry.begin(), carry.end());
+  File fo = File::openAppend("carry.txt");
+  auto it = carry.begin();
+  u32 n = carry.size();
+  u32 c = 0;
+  for (int i=0; i < 500; ++i) {
+    double y = 0.23 + (0.48 - 0.23) / 500 * i;
+    while (it < carry.end() && *it < y) {
+      ++c;
+      ++it;
+    }
+    fo.printf("%f %f\n", y, c / double(n));
+  }
+
+  // for (auto x : carry) { fo.printf("%f\n", x); }
+  fo.printf("\n\n");
+#endif
+
+  return ret;
 }
 
 template<typename T>

@@ -47,25 +47,23 @@ public:
   bool needsLargeCarry(u32 E) const;
 };
 
+enum CARRY_KIND { CARRY_32=0, CARRY_64=1, CARRY_AUTO=2};
+
 struct FFTConfig {
 public:
   static const u32 N_VARIANT = 4;
   static FFTConfig bestFit(const Args& args, u32 E, const std::string& spec);
-
-  enum CARRY_KIND { CARRY_AUTO, CARRY_32, CARRY_64};
 
   FFTShape shape{};
   u32 variant;
   u32 carry;
 
   explicit FFTConfig(const string& spec);
-  FFTConfig(FFTShape shape, u32 variant, u32 carry /* = CARRY_AUTO*/);
+  FFTConfig(FFTShape shape, u32 variant, u32 carry);
 
   std::string spec() const;
   u32 size() const { return shape.size(); }
   u32 maxExp()  const { return maxBpw() * shape.size(); }
 
   double maxBpw() const;
-
-  // bool needsLargeCarry(u32 E) const { return shape.needsLargeCarry(E); }
 };

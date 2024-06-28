@@ -162,7 +162,7 @@ void Tune::ztune() {
     double bpw[4];
     double A[4];
     for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
-      FFTConfig fft{shape, variant, FFTConfig::CARRY_AUTO};
+      FFTConfig fft{shape, variant, CARRY_AUTO};
       std::tie(bpw[variant], A[variant]) = maxBpw(fft);
     }
     string s = "\""s + shape.spec() + "\"";
@@ -178,7 +178,7 @@ void Tune::carryTune() {
   shared.args->flags["STATS"] = "1";
   u32 prevSize = 0;
   for (FFTShape shape : FFTShape::multiSpec(shared.args->fftSpec)) {
-    FFTConfig fft{shape, 3, FFTConfig::CARRY_AUTO};
+    FFTConfig fft{shape, 3, CARRY_AUTO};
     if (prevSize == fft.size()) { continue; }
     prevSize = fft.size();
 
@@ -194,7 +194,9 @@ void Tune::carryTune() {
     }
 
     double avg = (zv[0] + zv[1]) / 2;
-    log("%14s %.3f : %.3f (%.3f %.3f) %f\n", fft.spec().c_str(), mid, avg, zv[0], zv[1], m);
+    u32 exponent = fft.shape.carry32BPW() * fft.size();
+    double pErr100 = -expm1(-exp(-avg) * exponent * 100);
+    log("%14s %.3f : %.3f (%.3f %.3f) %f %.0f%%\n", fft.spec().c_str(), mid, avg, zv[0], zv[1], m, pErr100 * 100);
     fo.printf("%f %f\n", log2(fft.size()), avg);
   }
 }
@@ -223,7 +225,7 @@ void Tune::ctune() {
   }
 
   for (FFTShape shape : shapes) {
-    u32 exponent = primes.prevPrime(FFTConfig{shape, 0, FFTConfig::CARRY_AUTO}.maxExp());
+    u32 exponent = primes.prevPrime(FFTConfig{shape, 0, CARRY_AUTO}.maxExp());
     // log("tuning %10s with exponent %u\n", fft.shape.spec().c_str(), exponent);
 
     vector<int> bestPos(configsVect.size());
@@ -240,7 +242,7 @@ void Tune::ctune() {
         for (u32 k = i + 1; k < configsVect.size(); ++k) {
           add(c, configsVect[k][bestPos[k]]);
         }
-        auto cost = Gpu::make(q, exponent, shared, FFTConfig{shape, 0, FFTConfig::CARRY_AUTO}, c, false)->timePRP();
+        auto cost = Gpu::make(q, exponent, shared, FFTConfig{shape, 0, CARRY_AUTO}, c, false)->timePRP();
 
         bool isBest = (cost < best.cost);
         if (isBest) {
@@ -267,20 +269,20 @@ void Tune::tune() {
     double minCost = -1;
 
     // Time an exponent that's good for all variants and carry-config.
-    u32 exponent = primes.prevPrime(FFTConfig{shape, 0, FFTConfig::CARRY_32}.maxExp());
+    u32 exponent = primes.prevPrime(FFTConfig{shape, 0, CARRY_32}.maxExp());
 
     for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
-      vector carryToTest{FFTConfig::CARRY_32};
-      // We need to test both carry-32 and carry-64 only when the carry cutoff BPW is within the range.
-      if (shape.carry32BPW() < FFTConfig{shape, variant, FFTConfig::CARRY_64}.maxBpw()) {
-        carryToTest.push_back(FFTConfig::CARRY_64);
+      vector carryToTest{CARRY_32};
+      // We need to test both carry-32 and carry-64 only when the carry transition is within the BPW range.
+      if (FFTConfig{shape, variant, CARRY_64}.maxBpw() > FFTConfig{shape, variant, CARRY_32}.maxBpw()) {
+        carryToTest.push_back(CARRY_64);
       }
 
       for (auto carry : carryToTest) {
         FFTConfig fft{shape, variant, carry};
 
         if (minCost > 0 && !TuneEntry{minCost, fft}.willUpdate(results)) {
-          log("skipped %s %9u\n", fft.spec().c_str(), fft.maxExp());
+          // log("skipped %s %9u\n", fft.spec().c_str(), fft.maxExp());
           continue;
         }
 
@@ -288,7 +290,7 @@ void Tune::tune() {
         if (minCost <= 0) { minCost = cost; }
 
         bool isUseful = TuneEntry{cost, fft}.update(results);
-        log("%c %6.0f %12s %9u\n", isUseful ? '*' : ' ', cost, fft.spec().c_str(), fft.maxExp());
+        log("%c %6.1f %12s %9u\n", isUseful ? '*' : ' ', cost, fft.spec().c_str(), fft.maxExp());
       }
     }
   }

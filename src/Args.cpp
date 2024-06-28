@@ -278,7 +278,7 @@ void Args::parse(const string& line) {
       log(" FFT         | BPW   | Max exp (M)\n");
       for (const FFTShape& shape : FFTShape::multiSpec(s)) {
         for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
-          FFTConfig fft{shape, variant, FFTConfig::CARRY_AUTO};
+          FFTConfig fft{shape, variant, CARRY_AUTO};
           log("%12s | %.2f | %5.1f\n", fft.spec().c_str(), fft.maxBpw(), fft.maxExp() / 1'000'000.0);
         }
       }
