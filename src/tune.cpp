@@ -225,7 +225,8 @@ void Tune::ctune() {
   }
 
   for (FFTShape shape : shapes) {
-    u32 exponent = primes.prevPrime(FFTConfig{shape, 0, CARRY_AUTO}.maxExp());
+    FFTConfig fft{shape, 0, CARRY_32};
+    u32 exponent = primes.prevPrime(fft.maxExp());
     // log("tuning %10s with exponent %u\n", fft.shape.spec().c_str(), exponent);
 
     vector<int> bestPos(configsVect.size());
@@ -242,7 +243,7 @@ void Tune::ctune() {
         for (u32 k = i + 1; k < configsVect.size(); ++k) {
           add(c, configsVect[k][bestPos[k]]);
         }
-        auto cost = Gpu::make(q, exponent, shared, FFTConfig{shape, 0, CARRY_AUTO}, c, false)->timePRP();
+        auto cost = Gpu::make(q, exponent, shared, fft, c, false)->timePRP();
 
         bool isBest = (cost < best.cost);
         if (isBest) {

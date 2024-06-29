@@ -151,11 +151,19 @@ constexpr bool isInList(const string& s, initializer_list<string> list) {
 }
 
 string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<KeyVal>& extraConf, u32 E, bool doLog) {
-  map<string, string> config{args.flags};
+  map<string, string> config;
+
+  // Highest priority is the requested "extra" conf
+  config.insert(extraConf.begin(), extraConf.end());
+
+  // Next, args config
+  config.insert(args.flags.begin(), args.flags.end());
+
+  // Lowest priority: the per-FFT config if any
   if (auto it = args.perFftConfig.find(fft.shape.spec()); it != args.perFftConfig.end()) {
+    // log("Found %s\n", fft.shape.spec().c_str());
     config.insert(it->second.begin(), it->second.end());
   }
-  config.insert(extraConf.begin(), extraConf.end());
 
   for (const auto& [k, v] : config) {
     bool isValid = isInList(k, {
