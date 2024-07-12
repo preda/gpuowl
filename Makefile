@@ -10,7 +10,8 @@
 # or export those into environment, or pass on the command line e.g.
 # make all DEBUG=1 CXX=g++-12
 
-COMMON_FLAGS = -Wall -std=c++20 -static-libstdc++ -static-libgcc
+COMMON_FLAGS = -Wall -std=c++20
+# -static-libstdc++ -static-libgcc
 # -fext-numeric-literals
 
 
@@ -32,7 +33,9 @@ endif
 
 SRCS1 = TuneEntry.cpp Primes.cpp tune.cpp CycleFile.cpp TrigBufCache.cpp Event.cpp Queue.cpp TimeInfo.cpp Profile.cpp bundle.cpp Saver.cpp SaveMan.cpp KernelCompiler.cpp Kernel.cpp gpuid.cpp File.cpp Proof.cpp log.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp FFTConfig.cpp AllocTrac.cpp sha3.cpp md5.cpp version.cpp
 
-SRCS=$(addprefix src/, $(SRCS1))
+SRCS2 = test.cpp
+
+# SRCS=$(addprefix src/, $(SRCS1))
 
 OBJS = $(SRCS1:%.cpp=$(BIN)/%.o)
 DEPDIR := $(BIN)/.d
@@ -46,6 +49,9 @@ all: prpll
 prpll: $(BIN)/prpll
 
 amd: $(BIN)/prpll-amd
+
+#$(BIN)/test: $(BIN)/test.o
+#	$(CXX) $(CXXFLAGS) -o $@ $< $(LIBPATH) ${STRIP}
 
 $(BIN)/prpll: ${OBJS}
 	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBPATH) -lOpenCL ${STRIP}
@@ -80,3 +86,4 @@ src/version.inc: FORCE
 FORCE:
 
 include $(wildcard $(patsubst %,$(DEPDIR)/%.d,$(basename $(SRCS1))))
+# include $(wildcard $(patsubst %,$(DEPDIR)/%.d,$(basename $(SRCS2))))

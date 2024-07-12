@@ -9,7 +9,6 @@
 
 #include <vector>
 #include <string>
-#include <regex>
 #include <cstring>
 #include <cassert>
 #include <cstdlib>
@@ -35,18 +34,30 @@ string Args::mergeArgs(int argc, char **argv) {
 vector<KeyVal> Args::splitArgLine(const string& inputLine) {
   vector<KeyVal> ret;
 
-  // The line must be ended with at least one space for the regex to function correctly.
-  string line = inputLine + ' ';
-  std::regex rx("\\s*(-+\\w+)\\s+([^-]\\S*)?\\s*([^-]*)");
-  for (std::sregex_iterator it(line.begin(), line.end(), rx); it != std::sregex_iterator(); ++it) {
-    smatch m = *it;
-    // printf("'%s' '%s' '%s'\n", m.str(1).c_str(), m.str(2).c_str(), m.str(3).c_str());
-    string prefix = m.prefix().str();
-    string suffix = m.str(3);
-    if (!prefix.empty()) { log("Args: unexpected '%s' before '%s'\n", prefix.c_str(), m.str(0).c_str()); }
-    if (!suffix.empty()) { log("Args: unexpected '%s' in '%s'\n", suffix.c_str(), m.str(0).c_str()); }
-    if (!prefix.empty() || !suffix.empty()) { throw "Argument syntax"; }
-    ret.push_back({m.str(1), m.str(2)});
+  string prev;
+  for (const string& s : split(inputLine, ' ')) {
+    if (s.empty()) { continue; }
+
+    if (prev.empty()) {
+      if (s[0] != '-') {
+        log("Args: expected '-' before '%s'\n", s.c_str());
+        throw "Argument syntax";
+      }
+
+      prev = s;
+    } else {
+      if (s[0] == '-') {
+        ret.push_back({prev, {}});
+        prev = s;
+      } else {
+        ret.push_back({prev, s});
+        prev.clear();
+      }
+    }
+  }
+  if (!prev.empty()) {
+    assert(prev[0] == '-');
+    ret.push_back({prev, {}});
   }
   return ret;
 }

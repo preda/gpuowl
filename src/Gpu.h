@@ -264,7 +264,7 @@ public:
 
   void carryFusedMul(Buffer<double>& a, Buffer<double>& b);
 
-  void carryFusedLL(Buffer<double>& a, Buffer<double>& b)  { kCarryFusedLL(updateCarryPos(1<<0), a, b);}
+  void carryFusedLL(Buffer<double>& a, Buffer<double>& b)  { kCarryFusedLL(a, b, updateCarryPos(1<<0));}
 
   void writeIn(Buffer<int>& buf, const vector<u32> &words);
   

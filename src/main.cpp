@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
         gpuWorker(shared, &queues[0], 0);
       }
 
-      log("No more work. Add work to worktodo.txt , see -h for details.\n");
+      // log("No more work. Add work to worktodo.txt , see -h for details.\n");
     }
   } catch (const char *mes) {
     log("Exiting because \"%s\"\n", mes);
