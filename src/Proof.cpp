@@ -180,16 +180,16 @@ bool ProofSet::canDo(u32 E, u32 power, u32 currentK) {
 }
 
 u32 ProofSet::bestPower(u32 E) {
-  // Best proof powers assuming no disk space concern
-  // Adapted from Prime95/MPrime source, see "best_power" in commonb.c
-  
-  // We increment power by 1 for each fourfold increase of the exponent
-  // and set exponent=106500000 as the transition point to power=10.
+  // Best proof powers assuming no disk space concern.
+  // We increment power by 1 for each fourfold increase of the exponent.
+  // The values below produce power=10 at wavefront, and power=11 at 100Mdigits:
+  // power=10 from 60M to 240M, power=11 from 240M up.
 
   assert(E > 0);
   // log2(x)/2 is log4(x)
-  int power = 10 + floor(log2(E / 106.5e6) / 2);
-  return (power >= 5) ? power : 0;
+  int power = 10 + floor(log2(E / 60e6) / 2);
+  assert(power >= 2);
+  return power;
 }
 
 double ProofSet::diskUsageGB(u32 E, u32 power) {
