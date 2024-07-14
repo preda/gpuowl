@@ -27,5 +27,5 @@ public:
   void execute(GpuCommon shared, Queue* q, u32 instance);
 
   void writeResultPRP(const Args&, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;
-  void writeResultLL();
+  void writeResultLL(const Args&, bool isPrime, u64 res64, u32 fftSize) const;
 };

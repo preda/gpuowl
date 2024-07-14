@@ -13,35 +13,55 @@
 #include <string>
 #include <optional>
 #include <mutex>
+#include <charconv>
 
 namespace {
 
-std::optional<Task> parse(const std::string& line) {
-  u32 exp = 0;
-  int pos = 0;
+bool isHex(const string& s) {
+  u32 dummy{};
+  const char *end = s.c_str() + s.size();
+  auto[ptr, ec] = std::from_chars(s.c_str(), end, dummy, 16);
+  return (ptr == end);
+}
 
-  string tail = line;
-  
-  char kindStr[32] = {0};
-  if(sscanf(tail.c_str(), "%11[a-zA-Z]=%n", kindStr, &pos) == 1) {
-    string kind = kindStr;
-    tail = tail.substr(pos);
+// Examples:
+// PRP=FEEE9DCD59A0855711265C1165C4C693,1,2,124647911,-1,77,0
+// DoubleCheck=E0F583710728343C61643028FBDBA0FB,70198703,75,1
+std::optional<Task> parse(const std::string& line) {
+  vector<string> topParts = split(line, '=');
+
+  bool isPRP = false;
+  bool isLL = false;
+
+  if (topParts.size() == 2) {
+    string kind = topParts.front();
     if (kind == "PRP" || kind == "PRPDC") {
-      if (tail.find('"') != string::npos) {
-        log("PRPLL does not support PRP-CF!\n");
-      } else {
-        char AIDStr[64] = {0};
-        u32 howFarFactored = 0;
-        if (sscanf(tail.c_str(), "%32[0-9a-fA-F],1,2,%u,-1,%u", AIDStr, &exp, &howFarFactored) == 3
-            || (AIDStr[0]=0, sscanf(tail.c_str(), "N/A,1,2,%u,-1,%u", &exp, &howFarFactored) == 2)
-            || (AIDStr[0]=0, sscanf(tail.c_str(), "1,2,%u,-1,%u", &exp, &howFarFactored) == 2)
-            || ((AIDStr[0]=0, sscanf(tail.c_str(), "%u", &exp)) == 1 && exp > 1000)) {
-          string AID = AIDStr;
-          if (AID == "N/A" || AID == "0") { AID = ""; }
-          return {{Task::PRP, exp, AID, line}};
-        }
-      }
+      isPRP = true;
+    } else if (kind == "Test" || kind == "DoubleCheck") {
+      isLL = true;
     }
+  }
+
+  if (isPRP || isLL) {
+    vector<string> parts = split(topParts.back(), ',');
+    if (!parts.empty() && (parts.front() == "N/A" || parts.front().empty())) {
+      parts.erase(parts.begin()); // skip empty AID
+    }
+
+    string AID;
+    if (!parts.empty() && parts.front().size() == 32 && isHex(parts.front())) {
+      AID = parts.front();
+      parts.erase(parts.begin());
+    }
+
+    string s = (parts.size() >= 4 && parts[0] == "1" && parts[1] == "2" && parts[3] == "-1") ? parts[2]
+      : (!parts.empty() ? parts[0] : "");
+
+    const char *end = s.c_str() + s.size();
+    u64 exp{};
+    auto [ptr, _] = from_chars(s.c_str(), end, exp, 10);
+    if (ptr != end) { exp = 0; }
+    if (exp > 1000) { return {{isPRP ? Task::PRP : Task::LL, u32(exp), AID, line}}; }
   }
   log("worktodo.txt line ignored: \"%s\"\n", rstripNewline(line).c_str());
   return std::nullopt;

@@ -136,6 +136,15 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
   writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
 }
 
+void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
+  vector<string> fields{json("res64", Hex{res64}),
+                        json("fft-length", fftSize),
+                        json("shift-count", 0),
+  };
+
+  writeResult(exponent, "LL", isPrime ? "P" : "C", AID, args, fields);
+}
+
 void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
   Proof proof{};
   if (kind == VERIFY) {
@@ -155,20 +164,25 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
     bool ok = proof.verify(gpu.get());
     log("proof '%s' %s\n", verifyPath.c_str(), ok ? "verified" : "failed");
 
-  } else if (kind == PRP) {
-      auto [isPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(*this);
+  } else if (kind == PRP || kind == LL) {
+    bool isPrime;
+    if (kind == PRP) {
+      auto [tmpIsPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(*this);
+      isPrime = tmpIsPrime;
       writeResultPRP(*shared.args, isPrime, res64, fft.size(), nErrors, proofPath);
-      Worktodo::deleteTask(*this, instance);
-      if (!isPrime) { gpu->getSaver()->clear(); }
+    } else { // LL
+      auto [tmpIsPrime, res64] = gpu->isPrimeLL(*this);
+      isPrime = tmpIsPrime;
+      writeResultLL(*shared.args, isPrime, res64, fft.size());
+    }
 
-  } else if (kind == LL){
-      auto [isPrime, res64] = gpu->isPrimeLL(*this);
-      // Do not clear LL savefiles regardless of primality
-      if (isPrime) {
-        log("%u is PRIME!\n", exponent);
-      } else {
-        log("%u is not prime: %016" PRIx64 "\n", exponent, res64);
-      }
+    Worktodo::deleteTask(*this, instance);
+
+    if (isPrime) {
+      log("%u is PRIME!\n", exponent);
+    } else {
+      if (!isPrime) { gpu->getSaver()->clear(); }
+    }
   } else {
       throw "Unexpected task kind " + to_string(kind);
   }
