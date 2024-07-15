@@ -140,6 +140,7 @@ void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize)
   vector<string> fields{json("res64", Hex{res64}),
                         json("fft-length", fftSize),
                         json("shift-count", 0),
+                        json("error-code", "00000000"), // I don't know the meaning of this
   };
 
   writeResult(exponent, "LL", isPrime ? "P" : "C", AID, args, fields);
