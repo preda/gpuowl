@@ -14,35 +14,8 @@
 
 #include <cmath>
 #include <cassert>
-#include <cinttypes>
 
 namespace {
-
-string json(const vector<string>& v) {
-  bool isFirst = true;
-  string s = "{";
-  for (const std::string& e : v) {
-    if (e.empty()) { continue; }
-    if (!isFirst) { s += ", "; } else { isFirst = false; }
-    s += e;
-  }
-  return {isFirst ? ""s : (s + '}')};
-}
-
-struct Hex {
-  explicit Hex(u64 value) : value{value} {}
-  u64 value;
-};
-
-string json(Hex x) { return '"' + hex(x.value) + '"'; }
-string json(const string& s) { return '"' + s + '"'; }
-string json(u32 x) { return json(to_string(x)); }
-
-template<typename T> string json(const string& key, const T& value) { return json(key) + ':' + json(value); }
-
-string maybe(const string& key, const string& value) { return value.empty() ? ""s : json(key, value); }
-
-template<typename T> void operator+=(vector<T>& a, const vector<T>& b) { a.insert(a.end(), b.begin(), b.end()); }
 
 constexpr int platform() {
   /*
@@ -81,6 +54,53 @@ constexpr int platform() {
 
 }
 
+struct OsInfo {
+  string os;
+  string release;
+  string arch;
+};
+
+#if __has_include(<sys/utsname.h>)
+
+#include <sys/utsname.h>
+
+OsInfo getOsInfo() {
+  utsname buf{};
+  uname(&buf);
+  return OsInfo{buf.sysname, buf.release, buf.machine};
+}
+
+#else
+
+OsInfo getOsInfo() {
+  int plat = platform();
+  string os = plat == LINUX_64 || plat == LINUX_32 ? "Linux" : plat == 4 ? "Windows" : plat == MACOS_64 ? "MacOS" : "";
+  return {os, "", ""};
+}
+
+#endif
+
+string json(const vector<string>& v) {
+  bool isFirst = true;
+  string s = "{";
+  for (const std::string& e : v) {
+    if (e.empty()) { continue; }
+    if (!isFirst) { s += ", "; } else { isFirst = false; }
+    s += e;
+  }
+  return {isFirst ? ""s : (s + '}')};
+}
+
+string json(const string& s) { return '"' + s + '"'; }
+string json(u32 x) { return to_string(x); }
+
+template<typename T> string json(const string& key, const T& value) { return json(key) + ':' + json(value); }
+
+string maybe(const string& key, const string& value) { return value.empty() ? ""s : json(key, value); }
+
+template<typename T> void operator+=(vector<T>& a, const vector<T>& b) { a.insert(a.end(), b.begin(), b.end()); }
+
+
 vector<string> commonFields(u32 E, const char *worktype, const string &status) {
   return {
     json("status", status),
@@ -91,10 +111,16 @@ vector<string> commonFields(u32 E, const char *worktype, const string &status) {
 
 vector<string> tailFields(const std::string &AID, const Args &args) {
   assert(*VERSION); // version string isn't empty
+  OsInfo os = getOsInfo();
   return {json("program", vector<string>{
                  json("name", "prpll"),
                  json("version", (VERSION[0] == 'v') ? VERSION + 1 : VERSION), // skip leading "v" from version
                  json("port", platform()),
+                 json("os", vector<string>{
+                   json("os", os.os),
+                   maybe("version", os.release),
+                   maybe("architecture", os.arch)
+                 })
                }),
           maybe("user", args.user),
           maybe("aid", AID),
@@ -116,7 +142,7 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
 }
 
 void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const {
-  vector<string> fields{json("res64", Hex{res64}),
+  vector<string> fields{json("res64", hex(res64)),
                         json("residue-type", 1),
                         json("errors", vector<string>{json("gerbicz", nErrors)}),
                         json("fft-length", fftSize)
@@ -137,7 +163,7 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize
 }
 
 void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
-  vector<string> fields{json("res64", Hex{res64}),
+  vector<string> fields{json("res64", hex(res64)),
                         json("fft-length", fftSize),
                         json("shift-count", 0),
                         json("error-code", "00000000"), // I don't know the meaning of this
