@@ -7,17 +7,20 @@
 // #include <cstdio>
 #include <mutex>
 
-vector<File> logFiles;
+// vector<File> logFiles;
 
 thread_local string context;
 thread_local vector<string> contextParts;
 
+thread_local File logFile;
+
+File stdoutFile{stdout, "stdout"};
+
 string logContext() { return context; }
 
-void initLog() { logFiles.emplace_back(stdout, "stdout"); }
-
 void initLog(const char *logName) {
-  logFiles.push_back(File::openAppend(logName));
+  assert(!logFile);
+  logFile = File::openAppend(logName);
 }
 
 string longTimeStr()  { return timeStr("%Y-%m-%d %H:%M:%S %Z"); }
@@ -39,7 +42,9 @@ void log(const char *fmt, ...) {
   vsnprintf(logBuf + pos, sizeof(logBuf) - pos, fmt, va);
   va_end(va);
   string_view s{logBuf};
-  for (auto &f : logFiles) { f.write(s); }
+
+  if (logFile) { logFile.write(s); }
+  stdoutFile.write(s);
 }
 
 LogContext::LogContext(const string& s) : part{s} {

@@ -35,23 +35,7 @@ class File {
   FILE* f = nullptr;
   const bool readOnly;
   
-  File(const fs::path &path, const string& mode, bool throwOnError)
-    : readOnly{mode == "rb"}, name{path.string()} {    
-    assert(readOnly || throwOnError);
-    
-    f = fopen(name.c_str(), mode.c_str());
-    if (!f && throwOnError) {
-      log("Can't open '%s' (mode '%s')\n", name.c_str(), mode.c_str());
-      throw(fs::filesystem_error("can't open file"s, path, {}));
-    }
-
-    if (mode == "ab") {
-      assert(f);
-#if HAS_SETLINEBUF
-      setlinebuf(f);
-#endif
-    }
-  }
+  File(const fs::path &path, const string& mode, bool throwOnError);
 
   bool readNoThrow(void* data, u32 nBytes) { return fread(data, nBytes, 1, get()); }
   
@@ -88,9 +72,10 @@ public:
   
   File(File&& other) : f{other.f}, readOnly{other.readOnly}, name{other.name} { other.f = nullptr; }
   
+  File& operator=(File&& other);
+
   File(const File& other) = delete;
   File& operator=(const File& other) = delete;
-  File& operator=(File&& other) = delete;
 
   ~File();
   
