@@ -17,25 +17,26 @@
 
 namespace {
 
-constexpr int platform() {
-  /*
-  0  => 'Windows16', // 16-bit
-  1  => 'Windows',   // 32-bit
-  2  => 'Linux',     // 32-bit
-  3  => 'Solaris',   // never happened
-  4  => 'Windows64',
-  5  => 'WindowsService',
-  6  => 'FreeBSD',
-  7  => 'OS/2',
-  8  => 'Linux64',
-  9  => 'Mac OS X',
-  10 => 'Mac OS X 64-bit',
-  11 => 'Haiku',
-  12 => 'FreeBSD64',
-  */
+/*
+0  => 'Windows16', // 16-bit
+1  => 'Windows',   // 32-bit
+2  => 'Linux',     // 32-bit
+3  => 'Solaris',   // never happened
+4  => 'Windows64',
+5  => 'WindowsService',
+6  => 'FreeBSD',
+7  => 'OS/2',
+8  => 'Linux64',
+9  => 'Mac OS X',
+10 => 'Mac OS X 64-bit',
+11 => 'Haiku',
+12 => 'FreeBSD64',
+*/
 
-  enum {WIN_16=0, WIN_32, LINUX_32, SOLARIS, WIN_64, WIN_SERV, FREEBSD_32, OS2, LINUX_64, MACOSX_32, MACOSX_64, HAIKU, FREEBSD_64, OS_COUNT};
-  assert(OS_COUNT == 13);
+enum {WIN_16=0, WIN_32, LINUX_32, SOLARIS, WIN_64, WIN_SERV, FREEBSD_32, OS2, LINUX_64, MACOSX_32, MACOSX_64, HAIKU, FREEBSD_64, OS_COUNT};
+static_assert(OS_COUNT == 13);
+
+constexpr int platform() {
 
   const constexpr bool IS_32BIT = (sizeof(void*) == 4);
 
@@ -60,6 +61,12 @@ struct OsInfo {
   string arch;
 };
 
+[[maybe_unused]] OsInfo getOsInfoMinimum() {
+  int plat = platform();
+  string os = plat == LINUX_64 || plat == LINUX_32 ? "Linux" : plat == 4 ? "Windows" : plat == MACOSX_64 ? "MacOS" : "";
+  return {os, "", ""};
+}
+
 #if __has_include(<sys/utsname.h>)
 
 #include <sys/utsname.h>
@@ -72,11 +79,7 @@ OsInfo getOsInfo() {
 
 #else
 
-OsInfo getOsInfo() {
-  int plat = platform();
-  string os = plat == LINUX_64 || plat == LINUX_32 ? "Linux" : plat == 4 ? "Windows" : plat == MACOS_64 ? "MacOS" : "";
-  return {os, "", ""};
-}
+OsInfo getOsInfo() { return getOsInfoMinimum(); }
 
 #endif
 
