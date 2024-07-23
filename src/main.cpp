@@ -25,7 +25,10 @@ namespace fs = std::filesystem;
 void gpuWorker(GpuCommon shared, Queue *q, i32 instance) {
   // LogContext context{(instance ? shared.args->tailDir() : ""s) + to_string(instance) + ' '};
   // log("Starting worker %d\n", instance);
-  if (instance > 0) { initLog(("gpuowl-"s + to_string(instance) + ".log").c_str()); }
+  if (instance > 0) {
+    initLog(("gpuowl-"s + to_string(instance) + ".log").c_str());
+    log("PRPLL %s\n", VERSION);
+  }
 
   try {
     while (auto task = Worktodo::getTask(*shared.args, instance)) { task->execute(shared, q, instance); }
@@ -52,9 +55,6 @@ int main(int argc, char **argv) {
   setenv("ROC_SIGNAL_POOL_SIZE", "32", 0);
 #endif
 
-  // unique_ptr<LogContext> cpuNameContext;
-
-  // initLog();
   log("PRPLL %s\n", VERSION);
   
   int exitCode = 0;
@@ -75,10 +75,8 @@ int main(int argc, char **argv) {
       args.readConfig("config.txt");
       args.parse(mainLine);
       poolDir = args.masterDir;
-      // cpuNameContext = make_unique<LogContext>(args.tailDir());
     }
-    
-    
+        
     initLog("gpuowl-0.log");
     log("PRPLL %s\n", VERSION);
     

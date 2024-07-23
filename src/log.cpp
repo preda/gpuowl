@@ -4,10 +4,7 @@
 #include "File.h"
 #include "timeutil.h"
 
-// #include <cstdio>
 #include <mutex>
-
-// vector<File> logFiles;
 
 thread_local string context;
 thread_local vector<string> contextParts;
