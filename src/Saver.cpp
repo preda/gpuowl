@@ -215,32 +215,28 @@ State Saver<State>::load() {
 
 template<typename State>
 void Saver<State>::trimFiles() {
-  static const constexpr u32 N = 4;
-
   vector<u32> v = savefiles(base, prefix, State::KIND);
 
-  while (v.size() > N) {
-    int leastIdx = -1;
-    double leastValue = 1e100;
-    u32 prevK = 0, prevPrevK = 0;
-    assert(!v.empty());
+  assert(nSavefiles > 0);
+  while (v.size() > nSavefiles) {
+    int bestIdx = -1;
+    double bestSpan = 1e100;
+    u32 prevK = 0;
+
     for (u32 i = 0; i < v.size() - 1; ++i) {
-      u32 k = v[i];
-      double value = ldexp(k - prevPrevK, -(int(v.size()) - i - 1));
-      if (value < leastValue) {
-        leastValue = value;
-        leastIdx = i;
+      double span = v[i + 1] - prevK;
+      prevK = v[i];
+      if (span < bestSpan) {
+        bestSpan = span;
+        bestIdx = i;
       }
-      prevPrevK = prevK;
-      prevK = k;
     }
-    assert(leastIdx >= 0);
-    u32 k = v[leastIdx];
-    assert(leastIdx < int(v.size()) - 1);
+    assert(bestIdx >= 0);
+    u32 k = v[bestIdx];
     // log("Deleting savefile %u\n", k);
     fs::path path = pathFor(base, prefix, State::KIND, k);
     fs::remove(path);
-    v.erase(v.begin() + leastIdx);
+    v.erase(v.begin() + bestIdx);
   }
 }
 
