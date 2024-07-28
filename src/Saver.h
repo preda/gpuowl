@@ -36,6 +36,7 @@ class Saver {
   fs::path base;
   fs::path trash;
   string prefix;
+  u32 nSavefiles;
 
   State initState();
   void moveToTrash(fs::path file);
@@ -43,7 +44,7 @@ class Saver {
   fs::path mostRecentSavefile();
 
 public:
-  Saver(u32 exponent, u32 blockSize);
+  Saver(u32 exponent, u32 blockSize, u32 nSavefiles);
   ~Saver();
 
   State load();

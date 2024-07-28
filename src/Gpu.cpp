@@ -1364,7 +1364,7 @@ LLResult Gpu::isPrimeLL(const Task& task) {
   assert(E == task.exponent);
   wantROE = 0;
 
-  Saver<LLState> saver{E, 0};
+  Saver<LLState> saver{E, 0, args.nSavefiles};
   reload:
 
   u32 startK = 0;
@@ -1436,6 +1436,6 @@ LLResult Gpu::isPrimeLL(const Task& task) {
 }
 
 Saver<PRPState> *Gpu::getSaver() {
-  if (!saver) { saver = make_unique<Saver<PRPState>>(E, args.blockSize); }
+  if (!saver) { saver = make_unique<Saver<PRPState>>(E, args.blockSize, args.nSavefiles); }
   return saver.get();
 }

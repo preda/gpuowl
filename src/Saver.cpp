@@ -147,10 +147,11 @@ template<> LLState Saver<LLState>::initState() {
 // ---- Saver ----
 
 template<typename State>
-Saver<State>::Saver(u32 exponent, u32 blockSize) :
+Saver<State>::Saver(u32 exponent, u32 blockSize, u32 nSavefiles) :
   exponent{exponent},
   blockSize{blockSize},
-  prefix{to_string(exponent) + '-'}
+  prefix{to_string(exponent) + '-'},
+  nSavefiles{nSavefiles}
 {
   assert(blockSize && blockSize % 100 == 0 && 10'000 % blockSize == 0);
 
@@ -221,15 +222,16 @@ void Saver<State>::trimFiles() {
   while (v.size() > N) {
     int leastIdx = -1;
     double leastValue = 1e100;
-    u32 prevK = 0;
+    u32 prevK = 0, prevPrevK = 0;
     assert(!v.empty());
     for (u32 i = 0; i < v.size() - 1; ++i) {
       u32 k = v[i];
-      double value = ldexp(k - prevK, -(int(v.size()) - i - 1));
+      double value = ldexp(k - prevPrevK, -(int(v.size()) - i - 1));
       if (value < leastValue) {
         leastValue = value;
         leastIdx = i;
       }
+      prevPrevK = prevK;
       prevK = k;
     }
     assert(leastIdx >= 0);
