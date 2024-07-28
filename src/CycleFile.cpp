@@ -3,7 +3,7 @@
 #include "CycleFile.h"
 #include <filesystem>
 
-CycleFile::CycleFile(const std::filesystem::__cxx11::path& name) :
+CycleFile::CycleFile(const fs::path& name) :
   name{name},
   f{File::openWrite(name + ".new")}
 {}

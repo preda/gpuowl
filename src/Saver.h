@@ -2,8 +2,10 @@
 
 #pragma once
 
-#include "SaveMan.h"
 #include "common.h"
+
+#include <filesystem>
+#include <optional>
 
 class File;
 class SaveMan;
@@ -29,9 +31,16 @@ struct LLState {
 
 template<typename State>
 class Saver {
-  SaveMan man;
   u32 exponent;
   u32 blockSize;
+  fs::path base;
+  fs::path trash;
+  string prefix;
+
+  State initState();
+  void moveToTrash(fs::path file);
+  void trimFiles();
+  fs::path mostRecentSavefile();
 
 public:
   Saver(u32 exponent, u32 blockSize);
@@ -39,10 +48,11 @@ public:
 
   State load();
   void save(const State& s);
+
+  void dropMostRecent();
+
   void clear();
 
   // For PRP, we can save a verified save (see save() above) or an unverified save.
-  void unverifiedSave(const PRPState& s) const;
-  PRPState unverifiedLoad();
-  void dropUnverified();
+  void saveUnverified(const PRPState& s) const;
 };

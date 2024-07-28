@@ -953,44 +953,29 @@ fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
   throw "bad proof generation";
 }
 
-bool Gpu::loadPRP(Saver<PRPState>& saver, u64& lastFailedRes64, u32& outK, u32& outBlockSize, u32& nErrors) {
-  PRPState loaded = saver.load();
-  PRPState quickLoad = saver.unverifiedLoad();
-  u64 res{};
-
-  if (quickLoad.k > loaded.k) {
-    writeState(quickLoad.check, quickLoad.blockSize);
-    res = dataResidue();
-    if (res != quickLoad.res64) {
-      log("EE %9u quick load: %016" PRIx64 " vs. %016" PRIx64 "\n", quickLoad.k, res, quickLoad.res64);
-      saver.dropUnverified();
-      return false;
-    }
-
-    outK = quickLoad.k;
-    outBlockSize = quickLoad.blockSize;
-    if (nErrors == 0) { nErrors = quickLoad.nErrors; }
-    assert(nErrors >= quickLoad.nErrors);
-  } else {
+std::tuple<u32, u32, u32> Gpu::loadPRP(Saver<PRPState>& saver) {
+  // We do at most 4 attempts: the most recent savefile twice, plus two more.
+  for (int nTries = 0; nTries < 4; ++nTries) {
+    PRPState loaded = saver.load();
     writeState(loaded.check, loaded.blockSize);
-    res = dataResidue();
-    if (res != loaded.res64) {
-      log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", loaded.k, res, loaded.res64);
-      if (res == lastFailedRes64) {
-        throw "error on load";
-      }
-      lastFailedRes64 = res;
-      return false;
+    u64 res = dataResidue();
+
+    if (res == loaded.res64) {
+      log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res);
+      return {loaded.k, loaded.blockSize, loaded.nErrors};
     }
 
-    outK = loaded.k;
-    outBlockSize = loaded.blockSize;
-    if (nErrors == 0) { nErrors = loaded.nErrors; }
-    assert(nErrors >= loaded.nErrors);
+    log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", loaded.k, res, loaded.res64);
+
+    // Attempt to load the first savefile twice (to verify res64 reproducibility)
+    if (!nTries) { continue; }
+
+    if (!loaded.k) { break; }  // We failed on PRP start
+
+    saver.dropMostRecent();    // Try an earlier savefile
   }
 
-  log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", outK, outBlockSize, res);
-  return true;
+  throw "Error on load";
 }
 
 u32 Gpu::getProofPower(u32 k) {
@@ -1208,14 +1193,12 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
   assert(E == task.exponent);
 
-  u32 k = 0;
-  u32 blockSize = 0;
   u32 nErrors = 0;
   int nSeqErrors = 0;
-  u64 lastFailedRes64{};
   
  reload:
-  while(!loadPRP(*getSaver(), lastFailedRes64, k, blockSize, nErrors));
+  auto [k, blockSize, nLoadErrors] = loadPRP(*getSaver());
+  nErrors = std::max(nErrors, nLoadErrors);
 
   assert(blockSize > 0 && LOG_STEP % blockSize == 0);
   
@@ -1252,6 +1235,8 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   IterationTimer iterationTimer{k};
 
   wantROE = 0; // skip the initial iterations
+
+  u64 lastFailedRes64 = 0;
 
   while (true) {
     assert(k < kEndEnd);
@@ -1318,7 +1303,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
     if (!doCheck) {
       (*background)([=, this] {
-        getSaver()->unverifiedSave({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
+        getSaver()->saveUnverified({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
       });
 
       log("   %9u %016" PRIx64 " %4.0f\n", k, res, /*k / float(kEndEnd) * 100*,*/ secsPerIt * 1'000'000);

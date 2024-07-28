@@ -10,7 +10,6 @@ add_executable(gpuowl
   bundle.cpp
   KernelCompiler.cpp
   Kernel.cpp
-  SaveMan.cpp
   Saver.cpp
   Queue.cpp
   TimeInfo.cpp

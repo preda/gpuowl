@@ -9,11 +9,11 @@
    When done writing, it renames "name" to "name.bak" and "name.new" to "name".
 */
 class CycleFile {
-  const std::filesystem::path name;
+  const fs::path name;
   optional<File> f;
 
 public:
-  explicit CycleFile(const std::filesystem::path& name);
+  explicit CycleFile(const fs::path& name);
   ~CycleFile();
 
   File* operator->();

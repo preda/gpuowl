@@ -229,7 +229,7 @@ class Gpu {
   
   u32 updateCarryPos(u32 bit);
 
-  bool loadPRP(Saver<PRPState>& saver, u64& lastFailedRes64, u32& outK, u32& outBlockSize, u32& nErrors);
+  std::tuple<u32, u32, u32> loadPRP(Saver<PRPState>& saver);
 
   vector<int> readChecked(Buffer<int>& buf);
 
