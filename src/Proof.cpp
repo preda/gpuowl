@@ -252,19 +252,6 @@ void ProofSet::save(u32 E, u32 power, u32 k, const Words& words) {
 Words ProofSet::load(u32 E, u32 power, u32 k) {
   assert(k && k <= E);
   assert(isInPoints(E, power, k));
-
-#if 1
-  // Attempt to read the old format (with CRC at the end)
-  // will be dropped once the old format is gone
-  {
-  File f = File::openReadThrow(proofPath(E) / to_string(k));
-  vector<u32> words = f.read<u32>(E / 32 + 2);
-  u32 checksum = words.back();
-  words.pop_back();
-  if (checksum == crc32(words)) { return words; }
-  }
-#endif
-
   return File::openReadThrow(proofPath(E) / to_string(k)).readChecked<u32>(E/32 + 1);
 }
 

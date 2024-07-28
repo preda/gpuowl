@@ -235,13 +235,7 @@ void Saver<State>::trimFiles() {
     assert(leastIdx >= 0);
     u32 k = v[leastIdx];
     assert(leastIdx < int(v.size()) - 1);
-    /*
-    if (leastIdx == int(v.size()) - 1) {
-      log("Would delete the most recent savefile %u\n", k);
-      break;
-    } else {
-    */
-    log("Deleting savefile %u\n", k);
+    // log("Deleting savefile %u\n", k);
     fs::path path = pathFor(base, prefix, State::KIND, k);
     fs::remove(path);
     v.erase(v.begin() + leastIdx);
@@ -253,7 +247,7 @@ void Saver<State>::save(const State& state) {
   fs::path path = pathFor(base, to_string(exponent) + '-', State::KIND, state.k);
   ::save(*CycleFile{path}, state);
   trimFiles();
-  log("rm '%s'\n", pathUnverified(base, prefix).string().c_str());
+  // log("rm '%s'\n", pathUnverified(base, prefix).string().c_str());
   fs::remove(pathUnverified(base, prefix));
 }
 

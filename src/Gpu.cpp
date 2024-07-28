@@ -1195,6 +1195,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
   u32 nErrors = 0;
   int nSeqErrors = 0;
+  u64 lastFailedRes64 = 0;
   
  reload:
   auto [k, blockSize, nLoadErrors] = loadPRP(*getSaver());
@@ -1235,8 +1236,6 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   IterationTimer iterationTimer{k};
 
   wantROE = 0; // skip the initial iterations
-
-  u64 lastFailedRes64 = 0;
 
   while (true) {
     assert(k < kEndEnd);
