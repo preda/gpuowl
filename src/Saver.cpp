@@ -133,6 +133,19 @@ void save(const File& fo, const LLState& state) {
   fo.write(state.data);
 }
 
+double roundNumberScore(u32 x) {
+  if (x == 0) { return 1; }
+
+  double score = 0;
+  while (x % 10 == 0) {
+    x /= 10;
+    ++score;
+  }
+  if (x % 5 == 0) { score += .7; }
+  if (x % 2 == 0) { score += .3; }
+  return score;
+}
+
 } // namespace
 
 template<> PRPState Saver<PRPState>::initState() {
@@ -220,12 +233,14 @@ void Saver<State>::trimFiles() {
   assert(nSavefiles > 0);
   while (v.size() > nSavefiles) {
     int bestIdx = -1;
-    double bestSpan = 1e100;
+    double bestSpan = 1e20;
     u32 prevK = 0;
 
     for (u32 i = 0; i < v.size() - 1; ++i) {
-      double span = v[i + 1] - prevK;
-      prevK = v[i];
+      u32 k = v[i];
+      double niceBias = std::min(1.0, roundNumberScore(k) - 4);
+      double span = (v[i + 1] - prevK) * niceBias;
+      prevK = k;
       if (span < bestSpan) {
         bestSpan = span;
         bestIdx = i;
@@ -243,7 +258,7 @@ void Saver<State>::trimFiles() {
 template<typename State>
 void Saver<State>::save(const State& state) {
   fs::path path = pathFor(base, to_string(exponent) + '-', State::KIND, state.k);
-  ::save(*CycleFile{path}, state);
+  ::save(*CycleFile{path, false}, state);
   trimFiles();
   // log("rm '%s'\n", pathUnverified(base, prefix).string().c_str());
   fs::remove(pathUnverified(base, prefix));
@@ -251,7 +266,7 @@ void Saver<State>::save(const State& state) {
 
 template<>
 void Saver<PRPState>::saveUnverified(const PRPState& state) const {
-  ::save(*CycleFile{pathUnverified(base, prefix)}, state);
+  ::save(*CycleFile{pathUnverified(base, prefix), false}, state);
 }
 
 template<typename State>

@@ -27,6 +27,8 @@ bool isHex(const string& s) {
 // PRP=FEEE9DCD59A0855711265C1165C4C693,1,2,124647911,-1,77,0
 // DoubleCheck=E0F583710728343C61643028FBDBA0FB,70198703,75,1
 std::optional<Task> parse(const std::string& line) {
+  if (line.empty() || line[0] == '#') { return {}; }
+
   vector<string> topParts = split(line, '=');
 
   bool isPRP = false;
@@ -63,7 +65,7 @@ std::optional<Task> parse(const std::string& line) {
     if (exp > 1000) { return {{isPRP ? Task::PRP : Task::LL, u32(exp), AID, line}}; }
   }
   log("worktodo.txt line ignored: \"%s\"\n", rstripNewline(line).c_str());
-  return std::nullopt;
+  return {};
 }
 
 bool deleteLine(const fs::path& fileName, const std::string& targetLine) {

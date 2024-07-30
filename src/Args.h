@@ -83,7 +83,7 @@ public:
   size_t maxAlloc = 0;
 
   u32 iters = 0;
-  u32 nSavefiles = 5;
+  u32 nSavefiles = 4;
 
   // Extend the range of the FFTs beyond what's safe WRT ROE and CARRY32.
   // The FFT will handle up to fft.maxExp() * fftOverdrive

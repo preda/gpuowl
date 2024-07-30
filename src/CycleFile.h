@@ -11,9 +11,10 @@
 class CycleFile {
   const fs::path name;
   optional<File> f;
+  bool keepOld;
 
 public:
-  explicit CycleFile(const fs::path& name);
+  explicit CycleFile(const fs::path& name, bool keepOld = true);
   ~CycleFile();
 
   File* operator->();
