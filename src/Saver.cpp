@@ -16,8 +16,16 @@ namespace {
 // E, k, block-size, res64, nErrors, CRC
 static constexpr const char *PRP_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u\n";
 
+// Anticipated next version of the header.
+// Has general number form N=k*b^E+c, and labels for values.
+static constexpr const char *PRP_v13 = "OWL PRP 13 N=1*2^%u-1 k=%u block=%u res64=%016" SCNx64 " err=%u CRC=%u\n";
+
 // E, k, CRC
 static constexpr const char *LL_v1 = "OWL LL 1 E=%u k=%u CRC=%u\n";
+
+// Anticipated next version.
+// Push version number to sync it with PRP.
+static constexpr const char *LL_v13 = "OWL LL 13 N=1*2^%u-1 k=%u CRC=%u\n";
 
 bool startsWith(const string& s, const string& prefix) {
   return s.rfind(prefix, 0) == 0;
