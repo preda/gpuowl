@@ -45,8 +45,9 @@ u64 fileSize(const fs::path& path) {
 }
 
 bool deleteLine(const fs::path& path, const string& targetLine, u64 initialSize) {
-  fs::path tmp = path + ("-"s + toString(this_thread::get_id()));
+  if (!initialSize) { initialSize = fileSize(path); }
 
+  fs::path tmp = path + ("-"s + toString(this_thread::get_id()));
   File fi = File::openRead(path);
   File fo = File::openWrite(tmp);
 

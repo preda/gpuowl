@@ -80,8 +80,10 @@ static std::optional<Task> bestTask(const fs::path& fileName) {
 string workName(i32 instance) { return "worktodo-" + to_string(instance) + ".txt"; }
 
 optional<Task> getWork(Args& args, i32 instance) {
+  fs::path localWork = workName(instance);
+
   // Try to get a task from the local worktodo-<N> file.
-  if (optional<Task> task = bestTask(workName(instance))) { return task; }
+  if (optional<Task> task = bestTask(localWork)) { return task; }
 
   if (args.masterDir.empty()) { return {}; }
 
@@ -113,15 +115,16 @@ optional<Task> getWork(Args& args, i32 instance) {
     if (!task) { return {}; }
 
     string workLine = task->line;
-    File::append(workName(instance), workLine);
+    File::append(localWork, workLine);
 
     if (deleteLine(worktodo, workLine, initialSize)) {
       return task;
     }
 
-    // Undo add to local worktodo
-    [[maybe_unused]] bool found = deleteLine(workName(instance), workLine);
+    // Undo add to local worktodo. Attempt twice.
+    bool found = deleteLine(localWork, workLine) || deleteLine(localWork, workLine);
     assert(found);
+    if (!found) { return {}; }
   }
 
   log("Could not extract a task from '%s'\n", worktodo.string().c_str());
