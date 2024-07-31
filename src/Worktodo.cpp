@@ -2,16 +2,15 @@
 
 #include "Worktodo.h"
 
-#include "CycleFile.h"
 #include "Task.h"
 #include "File.h"
 #include "common.h"
 #include "Args.h"
+#include "fs.h"
 
 #include <cassert>
 #include <string>
 #include <optional>
-#include <mutex>
 #include <charconv>
 
 namespace {
@@ -68,28 +67,6 @@ std::optional<Task> parse(const std::string& line) {
   return {};
 }
 
-bool deleteLine(const fs::path& fileName, const std::string& targetLine) {
-  assert(!targetLine.empty());
-  bool lineDeleted = false;
-
-  CycleFile fo{fileName};
-  for (const string& line : File::openReadThrow(fileName)) {
-    // log("line '%s'\n", line.c_str());
-    if (!lineDeleted && line == targetLine) {
-      lineDeleted = true;
-    } else {
-      fo->write(line);
-    }
-  }
-
-  if (!lineDeleted) {
-    log("'%s': did not find the line '%s' to delete\n", fileName.string().c_str(), targetLine.c_str());
-    fo.reset();
-  }
-
-  return lineDeleted;
-}
-
 // Among the valid tasks from fileName, return the "best" which means with the smallest exponent
 static std::optional<Task> bestTask(const fs::path& fileName) {
   optional<Task> best;
@@ -100,34 +77,60 @@ static std::optional<Task> bestTask(const fs::path& fileName) {
   return best;
 }
 
-static string workName(i32 instance) { return "work-" + to_string(instance) + ".txt"; }
+string workName(i32 instance) { return "worktodo-" + to_string(instance) + ".txt"; }
 
 optional<Task> getWork(Args& args, i32 instance) {
-  static mutex mut;
-
- again:
-  // Try to get a task from the local work-<N> file.
-  // This only reads from the per-worker file, so we don't need to lock.
+  // Try to get a task from the local worktodo-<N> file.
   if (optional<Task> task = bestTask(workName(instance))) { return task; }
 
-  // Try in order: the local worktodo.txt, and the global worktodo.txt if set up.
-  vector<fs::path> worktodoFiles{"worktodo.txt"};
-  if (!args.masterDir.empty()) { worktodoFiles.push_back(args.masterDir / "worktodo.txt"); }
+  if (args.masterDir.empty()) { return {}; }
 
-  lock_guard lock(mut);
+  fs::path worktodo = args.masterDir / "worktodo.txt";
 
-  for (fs::path& worktodo : worktodoFiles) {
-    if (optional<Task> task = bestTask(worktodo)) {
-      File::append(workName(instance), task->line);
-      deleteLine(worktodo, task->line);
-      goto again;
+  /*
+    We need to aquire a task from the global worktodo.txt, and "atomically"
+    add the task to the local worktodo-N.txt and remove it from worktodo.txt
+
+    Below we call the global worktodo.txt "global worktodo", and worktodo-N.txt "local worktodo".
+
+    We want to avoid filesystem-based locking, so we approximate it this way:
+    1. read the file-size of the global worktodo
+    2. read one task from the global worktodo
+    3. append the task to the local worktodo
+    4. write the new content of the global worktodo without the task to a temporary file
+    5. compare the size of the global worktodo with its initial size (as an heuristic to detect modifications to it)
+    6a. if the size is not changed, rename the temporary file to global worktodo and done
+    6b. if the size is changed (i.e. global worktodo was modified in the meantime):
+       7. remove the task from the local worktodo (undo the local task add)
+       8. start again (from step 1)
+  */
+
+  for (int retry = 0; retry < 2; ++retry) {
+    u64 initialSize = fileSize(worktodo);
+    if (!initialSize) { return {}; }
+
+    optional<Task> task = bestTask(worktodo);
+    if (!task) { return {}; }
+
+    string workLine = task->line;
+    File::append(workName(instance), workLine);
+
+    if (deleteLine(worktodo, workLine, initialSize)) {
+      return task;
     }
+
+    // Undo add to local worktodo
+    [[maybe_unused]] bool found = deleteLine(workName(instance), workLine);
+    assert(found);
   }
 
-  return std::nullopt;
+  log("Could not extract a task from '%s'\n", worktodo.string().c_str());
+  // must be tough luck to be preempted twice while mutating the global worktodo
+  assert(false);
+  return {};
 }
 
-}
+} // namespace
 
 std::optional<Task> Worktodo::getTask(Args &args, i32 instance) {
   if (instance == 0) {

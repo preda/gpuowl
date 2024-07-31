@@ -12,7 +12,6 @@
 #include <iomanip>
 #include <filesystem>
 
-
 string hex(u64 x) {
   ostringstream out{};
   out << setbase(16) << setfill('0') << setw(16) << x;

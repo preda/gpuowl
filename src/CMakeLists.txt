@@ -19,6 +19,7 @@ add_executable(gpuowl
   CycleFile.cpp
   tune.cpp
   TuneEntry.cpp
+  fs.cpp
   )
 
 target_link_libraries(gpuowl OpenCL)
