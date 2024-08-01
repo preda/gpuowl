@@ -82,7 +82,9 @@ def fetch(what):
     print(datetime.now(), " New assignment: ", line)
     return line
 
-workTypes = dict(PRP=150, PM1=4, LL_DC=101, PRP_DC=151, PRP_WORLD_RECORD=152, PRP_100M=153, PRP_P1=154)
+# LL_DC was 101; here we use 106 instead in order to get only LL_DC with shift != 0 which are the ones
+# that can be double-checked with a zero shift.
+workTypes = dict(PRP=150, PM1=4, LL_DC=106, PRP_DC=151, PRP_WORLD_RECORD=152, PRP_100M=153, PRP_P1=154)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-u', dest='username', default='', help="Primenet user name")

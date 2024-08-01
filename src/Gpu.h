@@ -230,7 +230,7 @@ class Gpu {
   
   u32 updateCarryPos(u32 bit);
 
-  std::tuple<u32, u32, u32> loadPRP(Saver<PRPState>& saver);
+  PRPState loadPRP(Saver<PRPState>& saver);
 
   vector<int> readChecked(Buffer<int>& buf);
 

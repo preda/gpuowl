@@ -19,6 +19,7 @@ struct PRPState {
   u64 res64;
   vector<u32> check;
   u32 nErrors;
+  double elapsed;
 };
 
 struct LLState {
@@ -27,6 +28,7 @@ struct LLState {
   u32 exponent;
   u32 k;
   vector<u32> data;
+  double elapsed{};
 };
 
 template<typename State>

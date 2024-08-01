@@ -18,14 +18,17 @@ static constexpr const char *PRP_v12 = "OWL PRP 12 %u %u %u %016" SCNx64 " %u %u
 
 // Anticipated next version of the header.
 // Has general number form N=k*b^E+c, and labels for values.
-static constexpr const char *PRP_v13 = "OWL PRP 13 N=1*2^%u-1 k=%u block=%u res64=%016" SCNx64 " err=%u CRC=%u\n";
+static constexpr const char *PRP_v13 = "OWL PRP 13 N=1*2^%u-1 k=%u block=%u res64=%016" SCNx64 " err=%u time=%lf\n";
+// static constexpr const char *PRP_v13_PRI = "OWL PRP 13 N=1*2^%u-1 k=%u block=%u res64=%016" PRIx64 " err=%u time=%.0lf\n";
 
 // E, k, CRC
 static constexpr const char *LL_v1 = "OWL LL 1 E=%u k=%u CRC=%u\n";
 
 // Anticipated next version.
 // Push version number to sync it with PRP.
-static constexpr const char *LL_v13 = "OWL LL 13 N=1*2^%u-1 k=%u CRC=%u\n";
+static constexpr const char *LL_v13 = "OWL LL 13 N=1*2^%u-1 k=%u time=%lf\n";
+
+struct BadHeaderError { string name; };
 
 bool startsWith(const string& s, const string& prefix) {
   return s.rfind(prefix, 0) == 0;
@@ -83,62 +86,59 @@ fs::path findLast(fs::path dir, const string& prefix, const string& kind) {
   return path;
 }
 
-optional<PRPState> readState(const PRPState& dummy, File fi, u32 exponent) {
-  u32 fileE{}, fileK{}, fileBlockSize{}, nErrors{}, crc{};
+PRPState readState(const PRPState& dummy, File fi) {
+  u32 exponent{}, k{}, blockSize{}, nErrors{};
   u64 res64{};
-  vector<u32> check;
+  double elapsed{};
 
   string header = fi.readLine();
-  if (sscanf(header.c_str(), PRP_v12, &fileE, &fileK, &fileBlockSize, &res64, &nErrors, &crc) != 6) {
-    log("Loading PRP from '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
-    return {};
+
+  if (sscanf(header.c_str(), PRP_v13, &exponent, &k, &blockSize, &res64, &nErrors, &elapsed) == 6) {
+    return {exponent, k, blockSize, res64, fi.readChecked<u32>(nWords(exponent)), nErrors, elapsed};
   }
 
-  assert(exponent == fileE);
-  try {
-    check = fi.readWithCRC<u32>(nWords(exponent), crc);
-  } catch (const char* e) {
-    log("Bad CRC in '%s'\n", fi.name.c_str());
-    return {};
+  u32 crc{};
+  if (sscanf(header.c_str(), PRP_v12, &exponent, &k, &blockSize, &res64, &nErrors, &crc) == 6) {
+    return {exponent, k, blockSize, res64, fi.readWithCRC<u32>(nWords(exponent), crc), nErrors, 0};
   }
 
-  return {{exponent, fileK, fileBlockSize, res64, check, nErrors}};
+  log("Loading PRP from '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
+  throw BadHeaderError{fi.name};
 }
 
-optional<LLState> readState(const LLState& dummy, File fi, u32 exponent) {
-  u32 fileE{}, fileK{}, crc{};
-  vector<u32> data;
+LLState readState(const LLState& dummy, File fi) {
+  u32 exponent{}, k{};
+  double elapsed{};
 
   string header = fi.readLine();
-  if (sscanf(header.c_str(), LL_v1, &fileE, &fileK, &crc) != 3) {
-    log("Loading LL from '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
-    return {};
+
+  if (sscanf(header.c_str(), LL_v13, &exponent, &k, &elapsed) == 3) {
+    return {exponent, k, fi.readChecked<u32>(nWords(exponent)), elapsed};
   }
 
-  assert(exponent == fileE);
-  try {
-    data = fi.readWithCRC<u32>(nWords(exponent), crc);
-  } catch (const char*) {
-    log("Bad CRC in '%s'\n", fi.name.c_str());
-    return {};
+  u32 crc{};
+  if (sscanf(header.c_str(), LL_v1, &exponent, &k, &crc) == 3) {
+    return {exponent, k, fi.readWithCRC<u32>(nWords(exponent), crc), 0};
   }
-  return {{exponent, fileK, data}};
+
+  log("Loading LL from '%s': bad header '%s'\n", fi.name.c_str(), header.c_str());
+  throw BadHeaderError{fi.name};
 }
 
-void save(const File& fo, const PRPState& state) {
+void writeState(const File& fo, const PRPState& state) {
   assert(state.check.size() == nWords(state.exponent));
-  if (fo.printf(PRP_v12, state.exponent, state.k, state.blockSize, state.res64, state.nErrors, crc32(state.check)) <= 0) {
-      throw(ios_base::failure("can't write header"));
+  if (fo.printf(PRP_v13, state.exponent, state.k, state.blockSize, state.res64, state.nErrors, state.elapsed) <= 0) {
+    throw WriteError{fo.name};
   }
-  fo.write(state.check);
+  fo.writeChecked(state.check);
 }
 
-void save(const File& fo, const LLState& state) {
+void writeState(const File& fo, const LLState& state) {
   assert(state.data.size() == nWords(state.exponent));
-  if (fo.printf(LL_v1, state.exponent, state.k, crc32(state.data)) <= 0) {
-      throw(ios_base::failure("can't write header"));
+  if (fo.printf(LL_v13, state.exponent, state.k, state.elapsed) <= 0) {
+    throw WriteError{fo.name};
   }
-  fo.write(state.data);
+  fo.writeChecked(state.data);
 }
 
 double roundNumberScore(u32 x) {
@@ -157,11 +157,11 @@ double roundNumberScore(u32 x) {
 } // namespace
 
 template<> PRPState Saver<PRPState>::initState() {
-  return {exponent, 0, blockSize, 3, makeWords(exponent, 1), 0};
+  return {exponent, 0, blockSize, 3, makeWords(exponent, 1), 0, 0};
 }
 
 template<> LLState Saver<LLState>::initState() {
-  return {exponent, 0, makeWords(exponent, 4)};
+  return {exponent, 0, makeWords(exponent, 4), 0};
 }
 
 
@@ -174,7 +174,7 @@ Saver<State>::Saver(u32 exponent, u32 blockSize, u32 nSavefiles) :
   prefix{to_string(exponent) + '-'},
   nSavefiles{nSavefiles}
 {
-  assert(blockSize && blockSize % 100 == 0 && 10'000 % blockSize == 0);
+  assert(blockSize && (blockSize % 100 == 0) && (10'000 % blockSize == 0));
 
   base = std::is_same_v<State, PRPState> ?
         fs::current_path() / to_string(exponent)
@@ -222,16 +222,24 @@ State Saver<State>::load() {
       return initState();
     }
 
-    File fi = File::openRead(path);
-    optional<State> maybeState;
+    if (File fi{File::openRead(path)}; fi) {
+      try {
+        State state = readState(State{}, std::move(fi));
+        assert(state.exponent == exponent);
+        if (state.exponent == exponent) {
+          return state;
+        }
+      } catch (const CRCError& e) {
+      } catch (const BadHeaderError& e) {
+      } catch (const ReadError& e) {
+      }
+    }
 
-    if (fi && (maybeState = readState(State{}, std::move(fi), exponent))) { return *maybeState; }
-
-    // if for any reason opening the savefile failed, move it out of the way and retry
+    // if for any reason reading the savefile failed, move it out of the way and retry
     log("Bad savefile '%s'\n", path.string().c_str());
     moveToTrash(path);
   }
-  throw "bad savefiles";
+  throw "bad savefile retry";
 }
 
 template<typename State>
@@ -266,7 +274,7 @@ void Saver<State>::trimFiles() {
 template<typename State>
 void Saver<State>::save(const State& state) {
   fs::path path = pathFor(base, to_string(exponent) + '-', State::KIND, state.k);
-  ::save(*CycleFile{path, false}, state);
+  ::writeState(*CycleFile{path, false}, state);
   trimFiles();
   // log("rm '%s'\n", pathUnverified(base, prefix).string().c_str());
   fs::remove(pathUnverified(base, prefix));
@@ -274,7 +282,7 @@ void Saver<State>::save(const State& state) {
 
 template<>
 void Saver<PRPState>::saveUnverified(const PRPState& state) const {
-  ::save(*CycleFile{pathUnverified(base, prefix), false}, state);
+  ::writeState(*CycleFile{pathUnverified(base, prefix), false}, state);
 }
 
 template<typename State>

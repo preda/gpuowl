@@ -955,24 +955,25 @@ fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
   throw "bad proof generation";
 }
 
-std::tuple<u32, u32, u32> Gpu::loadPRP(Saver<PRPState>& saver) {
+PRPState Gpu::loadPRP(Saver<PRPState>& saver) {
   // We do at most 4 attempts: the most recent savefile twice, plus two more.
   for (int nTries = 0; nTries < 4; ++nTries) {
-    PRPState loaded = saver.load();
-    writeState(loaded.check, loaded.blockSize);
+    PRPState state = saver.load();
+    writeState(state.check, state.blockSize);
     u64 res = dataResidue();
 
-    if (res == loaded.res64) {
-      log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", loaded.k, loaded.blockSize, res);
-      return {loaded.k, loaded.blockSize, loaded.nErrors};
+    if (res == state.res64) {
+      log("OK %9u on-load: blockSize %d, %016" PRIx64 "\n", state.k, state.blockSize, res);
+      return state;
+      // return {loaded.k, loaded.blockSize, loaded.nErrors};
     }
 
-    log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", loaded.k, res, loaded.res64);
+    log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", state.k, res, state.res64);
 
     // Attempt to load the first savefile twice (to verify res64 reproducibility)
     if (!nTries) { continue; }
 
-    if (!loaded.k) { break; }  // We failed on PRP start
+    if (!state.k) { break; }  // We failed on PRP start
 
     saver.dropMostRecent();    // Try an earlier savefile
   }
@@ -1192,16 +1193,27 @@ double Gpu::timePRP() {
 
 PRPResult Gpu::isPrimePRP(const Task& task) {
   const constexpr u32 LOG_STEP = 20'000; // log every 20k its
-
   assert(E == task.exponent);
+
+  // This timer is used to measure total elapsed time to be written to the savefile.
+  Timer elapsedTimer;
 
   u32 nErrors = 0;
   int nSeqErrors = 0;
   u64 lastFailedRes64 = 0;
   
  reload:
-  auto [k, blockSize, nLoadErrors] = loadPRP(*getSaver());
-  nErrors = std::max(nErrors, nLoadErrors);
+  elapsedTimer.reset();
+  u32 blockSize{}, k{};
+  double elapsedBefore = 0;
+
+  {
+    PRPState state = loadPRP(*getSaver());
+    nErrors = std::max(nErrors, state.nErrors);
+    blockSize = state.blockSize;
+    k = state.k;
+    elapsedBefore = state.elapsed;
+  }
 
   assert(blockSize > 0 && LOG_STEP % blockSize == 0);
   
@@ -1308,7 +1320,8 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
     if (!doCheck) {
       (*background)([=, this] {
-        getSaver()->saveUnverified({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
+        getSaver()->saveUnverified({E, k, blockSize, res, compactBits(rawCheck, E), nErrors,
+                                    elapsedBefore + elapsedTimer.at()});
       });
 
       log("   %9u %016" PRIx64 " %4.0f\n", k, res, /*k / float(kEndEnd) * 100*,*/ secsPerIt * 1'000'000);
@@ -1329,7 +1342,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
         if (k < kEnd) {
           (*background)([=, this, rawCheck = std::move(rawCheck)] {
-            getSaver()->save({E, k, blockSize, res, compactBits(rawCheck, E), nErrors});
+            getSaver()->save({E, k, blockSize, res, compactBits(rawCheck, E), nErrors, elapsedBefore + elapsedTimer.at()});
           });
         }
 
@@ -1370,13 +1383,19 @@ LLResult Gpu::isPrimeLL(const Task& task) {
   assert(E == task.exponent);
   wantROE = 0;
 
-  Saver<LLState> saver{E, 0, args.nSavefiles};
+  Timer elapsedTimer;
+
+  Saver<LLState> saver{E, 1000, args.nSavefiles};
+
   reload:
+  elapsedTimer.reset();
 
   u32 startK = 0;
+  double elapsedBefore = 0;
   {
     LLState state = saver.load();
 
+    elapsedBefore = state.elapsed;
     startK = state.k;
     u64 expectedRes = (u64(state.data[1]) << 32) | state.data[0];
     writeIn(bufData, std::move(state.data));
@@ -1429,7 +1448,7 @@ LLResult Gpu::isPrimeLL(const Task& task) {
     } else {
       assert(data.size() >= 2);
       res64 = (u64(data[1]) << 32) | data[0];
-      saver.save({E, k, std::move(data)});
+      saver.save({E, k, std::move(data), elapsedBefore + elapsedTimer.at()});
     }
 
     float secsPerIt = iterationTimer.reset(k);

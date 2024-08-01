@@ -26,16 +26,28 @@
 
 namespace fs = std::filesystem;
 
+struct CRCError {
+  std::string name;
+};
+
+struct ReadError {
+  std::string name;
+};
+
+struct WriteError {
+  std::string name;
+};
+
 class File {
   FILE* f = nullptr;
   const bool readOnly;
   
   File(const fs::path &path, const string& mode, bool throwOnError);
 
-  bool readNoThrow(void* data, u32 nBytes) { return fread(data, nBytes, 1, get()); }
+  bool readNoThrow(void* data, u32 nBytes) const { return fread(data, nBytes, 1, get()); }
   
-  void read(void* data, u32 nBytes) {
-    if (!readNoThrow(data, nBytes)) { throw(std::ios_base::failure(name + ": can't read")); }
+  void read(void* data, u32 nBytes) const {
+    if (!readNoThrow(data, nBytes)) { throw ReadError{name}; }
   }
 
   void datasync() {
@@ -104,14 +116,13 @@ public:
   void write(const T& x) const { write(&x, sizeof(T)); }
 
   void write(const void* data, u32 nBytes) const {
-    if (!fwrite(data, nBytes, 1, get())) { throw(std::ios_base::failure((name + ": can't write data").c_str())); }
+    if (!fwrite(data, nBytes, 1, get())) { throw WriteError{name}; }
   }
   
   void seek(long offset, int whence = SEEK_SET) {
     int ret = fseek(get(), offset, whence);
-    if (ret) {
-      throw(std::ios_base::failure(("fseek: "s + to_string(ret)).c_str()));
-    }
+    if (ret) { throw ReadError{name}; }
+      // throw(std::ios_base::failure(("fseek: "s + to_string(ret)).c_str()));
   }
 
   void flush() { fflush(get()); }
@@ -173,7 +184,7 @@ public:
     string line = buf;
     if (line.empty() || line.back() != '\n') {
       log("%s : line \"%s\" does not end with a newline\n", name.c_str(), line.c_str());
-      throw "lines must end with newline";
+      throw ReadError{name};
     }
     return line;
   }
@@ -185,7 +196,7 @@ public:
   }
 
   template<typename T>
-  std::vector<T> read(u32 nWords) {
+  std::vector<T> read(u32 nWords) const {
     vector<T> ret;
     ret.resize(nWords);
     read(ret.data(), nWords * sizeof(T));
@@ -193,23 +204,23 @@ public:
   }
 
   template<typename T>
-  std::vector<T> readChecked(u32 nWords) {
+  std::vector<T> readChecked(u32 nWords) const {
     u32 expectedCRC = read<u32>(1)[0];
     return readWithCRC<T>(nWords, expectedCRC);
   }
 
   template<typename T>
-  void writeChecked(const vector<T>& data) {
+  void writeChecked(const vector<T>& data) const {
     write(u32(crc32(data)));
     write(data);
   }
 
   template<typename T>
-  std::vector<T> readWithCRC(u32 nWords, u32 crc) {
+  std::vector<T> readWithCRC(u32 nWords, u32 crc) const {
     auto data = read<T>(nWords);
     if (crc != crc32(data)) {
       log("File '%s' : CRC: expected %u, actual %u\n", name.c_str(), crc, crc32(data));
-      throw "CRC";
+      throw CRCError{name};
     }    
     return data;
   }
