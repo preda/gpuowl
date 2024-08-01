@@ -210,7 +210,94 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   return defines;
 }
 
+template<typename T>
+pair<vector<T>, vector<T>> split(const vector<T>& v, const vector<u32>& select) {
+  vector<T> a;
+  vector<T> b;
+  auto selIt = select.begin();
+  u32 selNext = selIt == select.end() ? u32(-1) : *selIt;
+  for (u32 i = 0; i < v.size(); ++i) {
+    if (i == selNext) {
+      b.push_back(v[i]);
+      ++selIt;
+      selNext = selIt == select.end() ? u32(-1) : *selIt;
+    } else {
+      a.push_back(v[i]);
+    }
+  }
+  return {a, b};
+}
+
+RoeInfo roeStat(const vector<float>& roe) {
+  double sumRoe = 0;
+  double sum2Roe = 0;
+  double maxRoe = 0;
+
+  for (auto xf : roe) {
+    double x = xf;
+    assert(x >= 0);
+    maxRoe = max(x, maxRoe);
+    sumRoe  += x;
+    sum2Roe += x * x;
+  }
+  u32 n = roe.size();
+
+  double sdRoe = sqrt(n * sum2Roe - sumRoe * sumRoe) / n;
+  double meanRoe = sumRoe / n;
+
+  return {n, maxRoe, meanRoe, sdRoe};
+}
+
+class IterationTimer {
+  Timer timer;
+  u32 kStart;
+
+public:
+  explicit IterationTimer(u32 kStart) : kStart(kStart) { }
+
+  float reset(u32 k) {
+    float secs = timer.reset();
+
+    u32 its = max(1u, k - kStart);
+    kStart = k;
+    return secs / its;
+  }
+};
+
+u32 baseCheckStep(u32 blockSize) {
+  switch (blockSize) {
+    case 200:  return 40'000;
+    case 400:  return 160'000;
+    case 500:  return 200'000;
+    case 1000: return 1'000'000;
+    default:
+      assert(false);
+      return 0;
+  }
+}
+
+u32 checkStepForErrors(u32 blockSize, u32 nErrors) {
+  u32 step = baseCheckStep(blockSize);
+  return nErrors ? step / 2 : step;
+}
+
+string toHex(u32 x) {
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%08x", x);
+  return buf;
+}
+
+string toHex(const vector<u32>& v) {
+  string s;
+  for (auto it = v.rbegin(), end = v.rend(); it != end; ++it) {
+    s += toHex(*it);
+  }
+  return s;
+}
+
 } // namespace
+
+// --------
 
 unique_ptr<Gpu> Gpu::make(Queue* q, u32 E, GpuCommon shared, FFTConfig fftConfig, const vector<KeyVal>& extraConf, bool logFftSize) {
   return make_unique<Gpu>(q, shared, fftConfig, E, extraConf, logFftSize);
@@ -419,48 +506,6 @@ vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
   return bufSmallOut.read(128);
 }
 
-namespace {
-
-template<typename T>
-pair<vector<T>, vector<T>> split(const vector<T>& v, const vector<u32>& select) {
-  vector<T> a;
-  vector<T> b;
-  auto selIt = select.begin();
-  u32 selNext = selIt == select.end() ? u32(-1) : *selIt;
-  for (u32 i = 0; i < v.size(); ++i) {
-    if (i == selNext) {
-      b.push_back(v[i]);
-      ++selIt;
-      selNext = selIt == select.end() ? u32(-1) : *selIt;
-    } else {
-      a.push_back(v[i]);
-    }
-  }
-  return {a, b};
-}
-
-RoeInfo roeStat(const vector<float>& roe) {
-  double sumRoe = 0;
-  double sum2Roe = 0;
-  double maxRoe = 0;
-
-  for (auto xf : roe) {
-    double x = xf;
-    assert(x >= 0);
-    maxRoe = max(x, maxRoe);
-    sumRoe  += x;
-    sum2Roe += x * x;
-  }
-  u32 n = roe.size();
-
-  double sdRoe = sqrt(n * sum2Roe - sumRoe * sumRoe) / n;
-  double meanRoe = sumRoe / n;
-
-  return {n, maxRoe, meanRoe, sdRoe};
-}
-
-} // namespace
-
 pair<RoeInfo, RoeInfo> Gpu::readROE() {
   assert(roePos <= ROE_SIZE);
   if (roePos) {
@@ -648,26 +693,6 @@ void Gpu::writeIn(Buffer<int>& buf, const vector<u32>& words) { writeIn(buf, exp
 void Gpu::writeIn(Buffer<int>& buf, vector<i32>&& words) {
   bufAux.write(std::move(words));
   transpIn(buf, bufAux);
-}
-
-namespace {
-
-class IterationTimer {
-  Timer timer;
-  u32 kStart;
-
-public:
-  explicit IterationTimer(u32 kStart) : kStart(kStart) { }
-  
-  float reset(u32 k) {
-    float secs = timer.reset();
-
-    u32 its = max(1u, k - kStart);
-    kStart = k;
-    return secs / its;
-  }
-};
-
 }
 
 Words Gpu::expExp2(const Words& A, u32 n) {
@@ -908,29 +933,6 @@ void Gpu::doDiv9(u32 E, Words& words) {
   doDiv3(E, words);
   doDiv3(E, words);
 }
-
-namespace {
-
-u32 baseCheckStep(u32 blockSize) {
-  switch (blockSize) {
-    case 200:  return 40'000;
-    case 400:  return 160'000;
-    case 500:  return 200'000;
-    case 1000: return 1'000'000;
-    default:
-      assert(false);
-      return 0;
-  }
-}
-
-u32 checkStepForErrors(u32 blockSize, u32 nErrors) {
-  u32 step = baseCheckStep(blockSize);
-  return nErrors ? step / 2 : step;
-}
-
-}
-
-// ----
 
 fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
   for (int retry = 0; retry < 2; ++retry) {
@@ -1213,6 +1215,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   bool isPrime = false;
 
   u64 finalRes64 = 0;
+  vector<u32> res2048;
 
   // We extract the res64 at kEnd.
   // For M=2^E-1, residue "type-3" == 3^(M+1), and residue "type-1" == type-3 / 9,
@@ -1276,6 +1279,9 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
       isPrime = equals9(words);
       doDiv9(E, words);
       finalRes64 = residue(words);
+      res2048.clear();
+      assert(words.size() >= 64);
+      res2048.insert(res2048.end(), words.begin(), std::next(words.begin(), 64));
       log("%s %8d / %d, %s\n", isPrime ? "PP" : "CC", kEnd, E, hex(finalRes64).c_str());
     }
 
@@ -1331,7 +1337,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
           
         if (k >= kEndEnd) {
           fs::path proofFile = saveProof(args, proofSet);
-          return {isPrime, finalRes64, nErrors, proofFile.string()};
+          return {isPrime, finalRes64, nErrors, proofFile.string(), toHex(res2048)};
         }        
       } else {
         ++nErrors;

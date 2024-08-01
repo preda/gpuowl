@@ -39,6 +39,7 @@ struct PRPResult {
   u64 res64 = 0;
   u32 nErrors = 0;
   fs::path proofPath{};
+  std::string res2048;
 };
 
 struct LLResult {

@@ -144,8 +144,9 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
 
 }
 
-void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 nErrors, const fs::path& proofPath) const {
+void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, const string& res2048, u32 fftSize, u32 nErrors, const fs::path& proofPath) const {
   vector<string> fields{json("res64", hex(res64)),
+                        json("res2048", res2048),
                         json("residue-type", 1),
                         json("errors", vector<string>{json("gerbicz", nErrors)}),
                         json("fft-length", fftSize)
@@ -197,9 +198,9 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
   } else if (kind == PRP || kind == LL) {
     bool isPrime;
     if (kind == PRP) {
-      auto [tmpIsPrime, res64, nErrors, proofPath] = gpu->isPrimePRP(*this);
+      auto [tmpIsPrime, res64, nErrors, proofPath, res2048] = gpu->isPrimePRP(*this);
       isPrime = tmpIsPrime;
-      writeResultPRP(*shared.args, isPrime, res64, fft.size(), nErrors, proofPath);
+      writeResultPRP(*shared.args, isPrime, res64, res2048, fft.size(), nErrors, proofPath);
     } else { // LL
       auto [tmpIsPrime, res64] = gpu->isPrimeLL(*this);
       isPrime = tmpIsPrime;
