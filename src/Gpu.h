@@ -295,6 +295,9 @@ public:
   // return A^(2^n)
   Words expExp2(const Words& A, u32 n);
   vector<Buffer<i32>> makeBufVector(u32 size);
+
+  void clear(bool isPRP);
+
 private:
   u32 getProofPower(u32 k);
   void doBigLog(u32 k, u64 res, bool checkOK, float secsPerIt, u32 nIters, u32 nErrors);

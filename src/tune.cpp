@@ -209,8 +209,11 @@ void add(vector<T>& a, const vector<T>& b) {
 void Tune::ctune() {
   Args *args = shared.args;
 
+  vector<string> ctune = args->ctune;
+  if (ctune.empty()) { ctune.push_back("IN_WG=256,128,64;IN_SIZEX=32,16,8;OUT_WG=256,128,64;OUT_SIZEX=32,16,8"); }
+
   vector<vector<TuneConfig>> configsVect;
-  for (const string& s : shared.args->ctune) {
+  for (const string& s : ctune) {
     configsVect.push_back(getTuneConfigs(s));
   }
 

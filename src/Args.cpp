@@ -301,8 +301,8 @@ void Args::parse(const string& line) {
       assert(s.empty());
       doTune = true;
     } else if (key == "-ctune") {
-      assert(!s.empty());
-      ctune.push_back(s);
+      doCtune = true;
+      if (!s.empty()) { ctune.push_back(s); }
     } else if (key == "-ztune") {
       doZtune = true;
     } else if (key == "-carryTune") {

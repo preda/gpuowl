@@ -95,11 +95,11 @@ int main(int argc, char **argv) {
     Background background;
     GpuCommon shared{&args, &bufCache, &background};
 
-    if (!args.ctune.empty() || args.doTune || args.doZtune || args.carryTune) {
+    if (args.doCtune || args.doTune || args.doZtune || args.carryTune) {
       Queue q(context, args.profile);
       Tune tune{&q, shared};
 
-      if (!args.ctune.empty()) {
+      if (args.doCtune) {
         tune.ctune();
       } else if (args.doTune) {
         tune.tune();

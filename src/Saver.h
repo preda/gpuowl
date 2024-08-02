@@ -36,7 +36,6 @@ class Saver {
   u32 exponent;
   u32 blockSize;
   fs::path base;
-  fs::path trash;
   string prefix;
   u32 nSavefiles;
 
@@ -54,7 +53,7 @@ public:
 
   void dropMostRecent();
 
-  void clear();
+  static void clear(u32 exponent);
 
   // For PRP, we can save a verified save (see save() above) or an unverified save.
   void saveUnverified(const PRPState& s) const;

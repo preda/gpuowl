@@ -30,10 +30,13 @@ void fancyRename(const fs::path& src, const fs::path& dst, bool keepOld) {
   } catch (const fs::filesystem_error& e) {
     // So if rename() throws, we attempt to remove the destination explicitly
     std::error_code dummy;
-    fs::remove(dst + ".bak", dummy);
-    fs::rename(dst, dst + ".bak", dummy);
+    if (keepOld) {
+      fs::remove(dst + ".bak", dummy);
+      fs::rename(dst, dst + ".bak", dummy);
+    } else {
+      fs::remove(dst + ".bak", dummy);
+    }
     fs::rename(src, dst); // If this rename does not succeed, let it throw
-    if (!keepOld) { fs::remove(dst + ".bak", dummy); }
   }
 }
 

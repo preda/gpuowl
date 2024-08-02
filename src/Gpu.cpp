@@ -1460,6 +1460,14 @@ LLResult Gpu::isPrimeLL(const Task& task) {
   }
 }
 
+void Gpu::clear(bool isPRP) {
+  if (isPRP) {
+    Saver<PRPState>::clear(E);
+  } else {
+    Saver<LLState>::clear(E);
+  }
+}
+
 Saver<PRPState> *Gpu::getSaver() {
   if (!saver) { saver = make_unique<Saver<PRPState>>(E, args.blockSize, args.nSavefiles); }
   return saver.get();

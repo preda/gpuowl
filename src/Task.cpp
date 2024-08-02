@@ -212,9 +212,9 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
     if (isPrime) {
       log("%u is PRIME!\n", exponent);
     } else {
-      if (!isPrime) { gpu->getSaver()->clear(); }
+      gpu->clear(kind == PRP);
     }
   } else {
-      throw "Unexpected task kind " + to_string(kind);
+    throw "Unexpected task kind " + to_string(kind);
   }
 }

@@ -45,6 +45,7 @@ public:
 
   vector<string> ctune;
 
+  bool doCtune{};
   bool doTune{};
   bool doZtune{};
   bool carryTune{};

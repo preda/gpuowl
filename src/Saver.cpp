@@ -3,6 +3,7 @@
 #include "Saver.h"
 #include "CycleFile.h"
 #include "File.h"
+#include "fs.h"
 
 #include <charconv>
 #include <cmath>
@@ -181,25 +182,24 @@ Saver<State>::Saver(u32 exponent, u32 blockSize, u32 nSavefiles) :
       : fs::current_path() / (string(State::KIND) + '-' + to_string(exponent));
 
   if (!fs::exists(base)) { fs::create_directories(base); }
-
-  trash = base / "bad";
-  if (!fs::exists(trash)) { fs::create_directories(trash); }
 }
 
 template<typename State>
 Saver<State>::~Saver() = default;
 
 template<typename State>
+void Saver<State>::clear(u32 exponent) {
+  error_code dummy;
+  fs::path base = std::is_same_v<State, PRPState> ?
+        fs::current_path() / to_string(exponent)
+      : fs::current_path() / (string(State::KIND) + '-' + to_string(exponent));
+  fs::remove_all(base, dummy);
+}
+
+template<typename State>
 void Saver<State>::moveToTrash(fs::path src) {
   log("Removing bad savefile '%s'\n", src.string().c_str());
-  fs::path dest = trash / src.filename();
-  fs::remove(dest);
-  try {
-    fs::rename(src, dest);
-  } catch (const fs::filesystem_error& e) {
-    log("Can't rename '%s' to '%s'\n", src.string().c_str(), dest.string().c_str());
-    fs::remove(src);
-  }
+  fancyRename(src, src + ".bad"s);
 }
 
 template<typename State>
@@ -292,11 +292,6 @@ void Saver<State>::dropMostRecent() {
   if (!path.empty()) { moveToTrash(path); }
 }
 
-template<typename State>
-void Saver<State>::clear() {
-  error_code dummy;
-  fs::remove_all(base, dummy);
-}
 
 template class Saver<PRPState>;
 template class Saver<LLState>;
