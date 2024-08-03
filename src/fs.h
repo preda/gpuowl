@@ -11,6 +11,6 @@ inline fs::path operator+(fs::path p, const std::string& tail) {
 
 u64 fileSize(const fs::path& path);
 
-void fancyRename(const fs::path& src, const fs::path& dst, bool keepOld = false);
+void fancyRename(const fs::path& src, const fs::path& dst);
 
 bool deleteLine(const fs::path& path, const string& targetLine, u64 initialSize = 0);

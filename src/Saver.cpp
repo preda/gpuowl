@@ -274,7 +274,7 @@ void Saver<State>::trimFiles() {
 template<typename State>
 void Saver<State>::save(const State& state) {
   fs::path path = pathFor(base, to_string(exponent) + '-', State::KIND, state.k);
-  ::writeState(*CycleFile{path, false}, state);
+  ::writeState(*CycleFile{path}, state);
   trimFiles();
   // log("rm '%s'\n", pathUnverified(base, prefix).string().c_str());
   fs::remove(pathUnverified(base, prefix));
@@ -282,7 +282,7 @@ void Saver<State>::save(const State& state) {
 
 template<>
 void Saver<PRPState>::saveUnverified(const PRPState& state) const {
-  ::writeState(*CycleFile{pathUnverified(base, prefix), false}, state);
+  ::writeState(*CycleFile{pathUnverified(base, prefix)}, state);
 }
 
 template<typename State>
