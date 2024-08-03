@@ -13,6 +13,7 @@
 #include "Saver.h"
 #include "timeutil.h"
 #include "TrigBufCache.h"
+#include "fs.h"
 
 #include <algorithm>
 #include <bitset>
@@ -945,9 +946,7 @@ fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
     bool ok = !doVerify || Proof::load(tmpFile).verify(this);
     if (doVerify) { log("Proof '%s' verification %s\n", tmpFile.string().c_str(), ok ? "OK" : "FAILED"); }
     if (ok) {
-      error_code noThrow;
-      fs::remove(proofFile, noThrow);
-      fs::rename(tmpFile, proofFile);
+      fancyRename(tmpFile, proofFile);
       log("Proof '%s' generated\n", proofFile.string().c_str());
       return proofFile;
     }

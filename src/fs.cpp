@@ -21,6 +21,35 @@ bool sizeMatches(const fs::path& path, u64 initialSize) {
 } // namespace
 
 void fancyRename(const fs::path& src, const fs::path& dst, bool keepOld) {
+  // The normal behavior of rename() is to unlink a pre-existing destination name and to rename successfully
+  // See https://en.cppreference.com/w/cpp/filesystem/rename
+  // But this behavior is not obeyed by some Windows implementations (mingw/msys?)
+  // In that case, we attempt to explicitly remove the destination beforehand
+
+  try {
+    if (keepOld) { fs::rename(dst, dst + ".bak"); }
+
+    fs::rename(src, dst);
+
+    return;
+  } catch (const fs::filesystem_error& e) {
+  }
+
+  std::error_code dummy;
+
+  if (keepOld) {
+    fs::remove(dst + ".bak", dummy);
+    fs::rename(dst, dst + ".bak", dummy);
+  } else {
+    fs::remove(dst, dummy);
+  }
+
+  // Retry the rename following destination removal above.
+  // If this rename does not succeed, let it out-throw.
+  fs::rename(src, dst);
+}
+
+/*
   try {
     // The normal behavior of rename() is to unlink a pre-existing destination name and to rename successfully
     // See https://en.cppreference.com/w/cpp/filesystem/rename
@@ -28,17 +57,17 @@ void fancyRename(const fs::path& src, const fs::path& dst, bool keepOld) {
     if (keepOld) { fs::rename(dst, dst + ".bak"); }
     fs::rename(src, dst);
   } catch (const fs::filesystem_error& e) {
-    // So if rename() throws, we attempt to remove the destination explicitly
     std::error_code dummy;
     if (keepOld) {
       fs::remove(dst + ".bak", dummy);
       fs::rename(dst, dst + ".bak", dummy);
     } else {
-      fs::remove(dst + ".bak", dummy);
+      // So if rename() threw, we attempt to remove the destination explicitly
+      fs::remove(dst, dummy);
     }
     fs::rename(src, dst); // If this rename does not succeed, let it throw
   }
-}
+*/
 
 u64 fileSize(const fs::path& path) {
   error_code dummy;
