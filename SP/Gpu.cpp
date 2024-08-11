@@ -123,7 +123,7 @@ pair<T, T> root1(u32 N, u32 k) {
     assert(!(N&7));
     assert(k <= N/8);
     N /= 2;
-    long double angle = - M_PIl * k / N;
+    ldouble angle = - M_PIl * k / N;
     return {cosl(angle), sinl(angle)};    
   }
 }
@@ -132,14 +132,14 @@ vector<float2> makeDeltaTable(u32 ND, const vector<float2>& hwTrig) {
   assert(hwTrig.size() == ND);
   vector<float2> ret(ND);
   for (u32 k = 0; k < ND; ++k) {
-    auto [c, s] = root1<long double>(ND, k);
+    auto [c, s] = root1<ldouble>(ND, k);
     auto [cf, sf] = hwTrig[k];
     ret[k] = {c - cf, s - sf};
   }
   return ret;
 }
 
-float2 toFF(long double x) {
+float2 toFF(ldouble x) {
   float a = x;
   return {a, x - a};
 }
@@ -147,7 +147,7 @@ float2 toFF(long double x) {
 vector<float4> makeTrigTable(u32 ND) {
   vector<float4> ret;
   for (u32 k = 0; k < ND; ++k) {
-    auto [c, s] = root1<long double>(ND, k);
+    auto [c, s] = root1<ldouble>(ND, k);
     ret.push_back({toFF(c), toFF(s)});
   }
   return ret;
@@ -168,10 +168,10 @@ vector<float2> init(u32 n, u32 bits) {
   return ret;
 }
 
-template<typename T> T to(long double x) { return x; }
+template<typename T> T to(ldouble x) { return x; }
 
 template<>
-float2 to(long double x) { return {x, x - float(x)}; }
+float2 to(ldouble x) { return {x, x - float(x)}; }
 
 template<typename T>
 struct Weights {
@@ -183,7 +183,7 @@ struct Weights {
     aTab.reserve(N);
     iTab.reserve(N);
     for (u32 k = 0; k < N; ++k) {
-      auto w = exp2l(extra(N, E, k) / (long double) N);
+      auto w = exp2l(extra(N, E, k) / (ldouble) N);
       aTab.push_back(to<T>(w));
       iTab.push_back(to<T>(1 / w));
     }
@@ -313,7 +313,7 @@ Gpu::Gpu() :
   for (u32 k = 0; k < 2*ND; ++k) { v[k] = mul(v[k], weights.inverse[k]); }
 
   double maxErr = 0;
-  long double sumErr = 0;
+  ldouble sumErr = 0;
   for (u32 i = 0; i < ND*2; ++i) {
     double x = (double(v[i].first) + v[i].second) / (ND * 4);
 

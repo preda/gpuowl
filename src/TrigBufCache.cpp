@@ -14,7 +14,7 @@
 #endif
 
 static_assert(sizeof(double2) == 16, "size double2");
-static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
+static_assert(sizeof(ldouble) > sizeof(double), "long double offers extended precision");
 
 namespace {
 static const constexpr bool LOG_TRIG_ALLOC = false;

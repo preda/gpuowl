@@ -11,7 +11,14 @@ using i32 = int32_t;
 using u32 = uint32_t;
 using i64 = int64_t;
 using u64 = uint64_t;
+
+#ifdef __APPLE__
+using f128 = _Float128;
+using ldouble = f128;
+#else
 using f128 = __float128;
+using ldouble = long double;
+#endif
 
 static_assert(sizeof(u8)  == 1, "size u8");
 static_assert(sizeof(u32) == 4, "size u32");

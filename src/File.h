@@ -18,6 +18,10 @@
 #include <io.h>
 #endif
 
+#if defined(__APPLE__)
+#include <fcntl.h>
+#endif
+
 #if defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
 #define HAS_SETLINEBUF 1
 #else
@@ -54,6 +58,8 @@ class File {
     fflush(f);
 #if defined(_WIN32) || defined(__WIN32__)
     _commit(fileno(f));
+#elif defined(__APPLE__)
+    fcntl(fileno(f), F_FULLFSYNC, 0);
 #else
     fdatasync(fileno(f));
 #endif

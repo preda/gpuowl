@@ -10,9 +10,23 @@
 # or export those into environment, or pass on the command line e.g.
 # make all DEBUG=1 CXX=g++-12
 
+HOST_OS = $(shell uname -s)
+
+ifeq ($(HOST_OS), Darwin)
+CXX = g++-14 # from homebrew, needed for 128-bit floats
+else
+CXX = g++
+endif
+
 COMMON_FLAGS = -Wall -std=c++20
 # -static-libstdc++ -static-libgcc
 # -fext-numeric-literals
+
+ifeq ($(HOST_OS), Darwin)
+OPENCL_LIBS = -framework OpenCL
+else
+OPENCL_LIBS = -lOpenCL
+endif
 
 
 ifeq ($(DEBUG), 1)
@@ -54,7 +68,7 @@ amd: $(BIN)/prpll-amd
 #	$(CXX) $(CXXFLAGS) -o $@ $< $(LIBPATH) ${STRIP}
 
 $(BIN)/prpll: ${OBJS}
-	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBPATH) -lOpenCL ${STRIP}
+	$(CXX) $(CXXFLAGS) -o $@ ${OBJS} $(LIBPATH) $(OPENCL_LIBS) ${STRIP}
 
 # Instead of linking with libOpenCL, link with libamdocl64
 $(BIN)/prpll-amd: ${OBJS}
