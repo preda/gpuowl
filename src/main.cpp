@@ -27,7 +27,7 @@ void gpuWorker(GpuCommon shared, Queue *q, i32 instance) {
   // log("Starting worker %d\n", instance);
   if (instance > 0) {
     initLog(("gpuowl-"s + to_string(instance) + ".log").c_str());
-    log("PRPLL %s\n", VERSION);
+    log("PRPLL %s, instance %d\n", VERSION, instance);
   }
 
   try {
@@ -55,8 +55,6 @@ int main(int argc, char **argv) {
   setenv("ROC_SIGNAL_POOL_SIZE", "32", 0);
 #endif
 
-  log("PRPLL %s\n", VERSION);
-  
   int exitCode = 0;
 
   try {
@@ -78,7 +76,7 @@ int main(int argc, char **argv) {
     }
         
     initLog("gpuowl-0.log");
-    log("PRPLL %s\n", VERSION);
+    log("PRPLL %s starting\n", VERSION);
     
     Args args;
 
