@@ -97,7 +97,10 @@ vector<cl_device_id> getAllDeviceIDs() {
     // log("platform %d\n", i);
     unsigned n = 0;
     auto kind = false ? CL_DEVICE_TYPE_GPU : CL_DEVICE_TYPE_ALL;
-    CHECK1(clGetDeviceIDs(platforms[i], kind, 64, devices, &n));
+    err = clGetDeviceIDs(platforms[i], kind, 64, devices, &n);
+    if (err != CL_SUCCESS) {
+      continue;
+    }
     for (unsigned k = 0; k < n; ++k) { ret.push_back(devices[k]); }
   }
   return ret;
