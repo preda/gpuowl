@@ -148,7 +148,6 @@ class Gpu {
   TrigPtr bufTrigM;
   
   TrigPtr bufTrigBHW;
-  TrigPtr bufTrigSquare;
 
   Weights weights;
 

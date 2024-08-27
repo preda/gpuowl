@@ -2499,7 +2499,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   }
 }
 
-KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailTrig) {
+KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT];
 
   T2 u[NH], v[NH];
@@ -2548,7 +2548,7 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
     pairMul(NH/2, u,  u + NH/2, p, p + NH/2, trig, true);
     reverse(G_H, lds, u + NH/2, true);
 
-    T2 trig2 = fancyMulTrig(trig, tailTrig[G_H]);
+    T2 trig2 = fancyMulTrig(trig, TAILT);
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
     pairMul(NH/2, v,  v + NH/2, q, q + NH/2, trig2, false);
@@ -2623,7 +2623,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   }
 }
 
-KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
+KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT];
 
   T2 u[NH], v[NH];
@@ -2637,7 +2637,9 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
 
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
+
   fft_HEIGHT(lds, u, smallTrig);
+
   bar();
   fft_HEIGHT(lds, v, smallTrig);
 
@@ -2656,7 +2658,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
-    T2 trig2 = fancyMulTrig(trig, tailTrig[G_H]);
+    T2 trig2 = fancyMulTrig(trig, TAILT);
     reverse(G_H, lds, v + NH/2, false);
     pairSq(NH/2, v,   v + NH/2, trig2, false);
     reverse(G_H, lds, v + NH/2, false);

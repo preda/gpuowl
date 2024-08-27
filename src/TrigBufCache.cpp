@@ -16,6 +16,16 @@
 static_assert(sizeof(double2) == 16, "size double2");
 static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
 
+// For small angles, return "fancy" cos - 1 for increased precision
+double2 root1Fancy(u32 N, u32 k) {
+  assert(!(N&7));
+  assert(k < N);
+  assert(k < N/4);
+
+  double angle = - M_PIl * k / (N / 2);
+  return {double(cosl(angle) - 1), sin(angle)};
+}
+
 namespace {
 static const constexpr bool LOG_TRIG_ALLOC = false;
 
@@ -41,15 +51,6 @@ double2 root1(u32 N, u32 k) {
   }
 }
 
-// For small angles, return "fancy" cos - 1 for increased precision
-double2 root1Fancy(u32 N, u32 k) {
-  assert(!(N&7));
-  assert(k < N);
-  assert(k < N/4);
-
-  double angle = - M_PIl * k / (N / 2);
-  return {double(cosl(angle) - 1), sin(angle)};
-}
 
 vector<double2> genSmallTrig(u32 size, u32 radix) {
   if (LOG_TRIG_ALLOC) { log("genSmallTrig(%u, %u)\n", size, radix); }
@@ -110,32 +111,6 @@ vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN, vector<pair<T, T>> tab = {}) {
   return tab;
 }
 
-vector<double2> makeSquareTrig(u32 hN, u32 nH, u32 smallH) {
-  if (LOG_TRIG_ALLOC) { log("makeSquareTrig(%u, %u, %u)\n", hN, nH, smallH); }
-  vector<double2> ret;
-
-  assert(hN % (smallH * 2) == 0);
-  u32 nGroups = hN / (smallH * 2);
-
-  for (u32 me = 0; me < smallH / nH; ++me) {
-    ret.push_back(root1(hN, me * (hN / smallH)));
-  }
-
-  for (u32 g = 0; g < nGroups; ++g) {
-    ret.push_back(root1Fancy(hN, g == 0 ? nGroups : g));
-  }
-
-#if 0 // Old implem
-  for (u32 i = 0; i < nGroups; ++i) {
-    for (u32 me = 0; me < smallH / nH; ++me) {
-      ret.push_back(root1(hN, i + me * (hN / smallH)));
-    }
-  }
-  assert(ret.size() == (hN / (2 * nH)));
-#endif
-  return ret;
-}
-
 } // namespace
 
 TrigBufCache::~TrigBufCache() = default;
@@ -182,21 +157,6 @@ TrigPtr TrigBufCache::trigBHW(u32 W, u32 hN, u32 BIG_H) {
     p = make_shared<TrigBuf>(context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H)));
     m[key] = p;
     bhwCache.add(p);
-  }
-  return p;
-}
-
-TrigPtr TrigBufCache::trigSquare(u32 hN, u32 nH, u32 SMALL_H) {
-  lock_guard lock{mut};
-  auto& m = square;
-  decay_t<decltype(m)>::key_type key{hN, nH, SMALL_H};
-
-  TrigPtr p{};
-  auto it = m.find(key);
-  if (it == m.end() || !(p = it->second.lock())) {
-    p = make_shared<TrigBuf>(context, makeSquareTrig(hN, nH, SMALL_H));
-    m[key] = p;
-    squareCache.add(p);
   }
   return p;
 }

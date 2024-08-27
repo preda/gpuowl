@@ -136,6 +136,8 @@ string toLiteral(const vector<T>& v) {
 
 string toLiteral(const string& s) { return s; }
 
+string toLiteral(double2 cs) { return "U2("s + toLiteral(cs.first) + ',' + toLiteral(cs.second) + ')'; }
+
 template<typename T>
 string toDefine(const string& k, T v) { return " -D"s + k + '=' + toLiteral(v); }
 
@@ -176,6 +178,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "OUT_WG",
                               "UNROLL_H",
                               "UNROLL_W",
+                              "NO_ASM",
                             });
     if (!isValid) {
       log("Unrecognized -use key '%s'\n", k.c_str());
@@ -207,6 +210,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   defines += toDefine("WEIGHT_STEP", double(weight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
   defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
   defines += toDefine("FFT_VARIANT", fft.variant);
+  defines += toDefine("TAILT", root1Fancy(fft.shape.height * 2, 1));
 
   return defines;
 }
@@ -378,7 +382,6 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H, WIDTH)},
 
   bufTrigBHW{shared.bufCache->trigBHW(WIDTH, hN, BIG_H)},
-  bufTrigSquare(shared.bufCache->trigSquare(hN, nH, SMALL_H)),
 
   weights{genWeights(E, WIDTH, BIG_H, nW)},
 
@@ -454,9 +457,9 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   fftMidOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
   
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
-  tailMulLow.setFixedArgs(3, bufTrigH, bufTrigSquare);
-  tailMul.setFixedArgs(3, bufTrigH, bufTrigSquare);
-  tailSquare.setFixedArgs(2, bufTrigH, bufTrigSquare);
+  tailMulLow.setFixedArgs(3, bufTrigH);
+  tailMul.setFixedArgs(3, bufTrigH);
+  tailSquare.setFixedArgs(2, bufTrigH);
   kernIsEqual.setFixedArgs(2, bufTrue);
 
   bufReady.zero();
