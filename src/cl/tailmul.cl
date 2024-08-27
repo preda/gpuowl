@@ -98,7 +98,12 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
   u32 me = get_local_id(0);
   T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 
-  if (line1 == 0) {
+  if (line1) {
+    reverseLine(G_H, lds, v);
+    reverseLine(G_H, lds, q);
+    pairMul(NH, u, v, p, q, trig, false);
+    reverseLine(G_H, lds, v);
+  } else {
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
     pairMul(NH/2, u,  u + NH/2, p, p + NH/2, trig, true);
@@ -109,11 +114,6 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
     reverse(G_H, lds, q + NH/2, false);
     pairMul(NH/2, v,  v + NH/2, q, q + NH/2, trig2, false);
     reverse(G_H, lds, v + NH/2, false);
-  } else {    
-    reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
-    pairMul(NH, u, v, p, q, trig, false);
-    reverseLine(G_H, lds, v);
   }
 
   bar();

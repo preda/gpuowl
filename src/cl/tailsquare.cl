@@ -76,7 +76,11 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
 
   T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 
-  if (line1 == 0) {
+  if (line1) {
+    reverseLine(G_H, lds, v);
+    pairSq(NH, u, v, trig, false);
+    reverseLine(G_H, lds, v);
+  } else {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);
     pairSq(NH/2, u,   u + NH/2, trig, true);
@@ -87,10 +91,6 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
     reverse(G_H, lds, v + NH/2, false);
     pairSq(NH/2, v,   v + NH/2, trig2, false);
     reverse(G_H, lds, v + NH/2, false);
-  } else {    
-    reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, trig, false);
-    reverseLine(G_H, lds, v);
   }
 
   bar();
