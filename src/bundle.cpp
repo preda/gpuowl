@@ -2551,13 +2551,11 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
     reverse(G_H, lds, p + NH/2, true);
     pairMul(NH/2, u,  u + NH/2, p, p + NH/2, trig1, true);
     reverse(G_H, lds, u + NH/2, true);
-    reverse(G_H, lds, p + NH/2, true);
 
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
     pairMul(NH/2, v,  v + NH/2, q, q + NH/2, trig2, false);
     reverse(G_H, lds, v + NH/2, false);
-    reverse(G_H, lds, q + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
@@ -2570,7 +2568,6 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
 
     pairMul(NH, u, v, p, q, trig, false);
     reverseLine(G_H, lds, v);
-    reverseLine(G_H, lds, q);
   }
 
   bar();
