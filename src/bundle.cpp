@@ -2535,22 +2535,15 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
 #endif
 
   u32 me = get_local_id(0);
+  T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 
   if (line1 == 0) {
-
-#if TAIL_TAB
-    T2 trig1 = tailTrig[me];
-#else
-    T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
-#endif
-
-    T2 trig2 = fancyMulTrig(trig1, tailTrig[G_H]);
-
     reverse(G_H, lds, u + NH/2, true);
     reverse(G_H, lds, p + NH/2, true);
-    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, trig1, true);
+    pairMul(NH/2, u,  u + NH/2, p, p + NH/2, trig, true);
     reverse(G_H, lds, u + NH/2, true);
 
+    T2 trig2 = fancyMulTrig(trig, tailTrig[G_H]);
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
     pairMul(NH/2, v,  v + NH/2, q, q + NH/2, trig2, false);
@@ -2558,13 +2551,6 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailT
   } else {    
     reverseLine(G_H, lds, v);
     reverseLine(G_H, lds, q);
-
-#if TAIL_TAB
-    T2 trig = fancyMulTrig(tailTrig[me], tailTrig[G_H + line1]);
-#else
-    T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
-#endif
-
     pairMul(NH, u, v, p, q, trig, false);
     reverseLine(G_H, lds, v);
   }
@@ -2657,37 +2643,21 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig, BigTab tailTrig) {
 
   u32 me = get_local_id(0);
 
-  if (line1 == 0) {
-#if 0 && !TAIL_TAB
-    T2 trig1 = slowTrig_N(me * H, ND / NH, NULL);     // slowTrig_2SH(2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
-    T2 trig2 = slowTrig_N(H/2 + me * H, ND/NH, NULL); // slowTrig_2SH(1 + 2 * me, SMALL_HEIGHT / 2, TRIG_2SH)
-#else
-    T2 trigMe   = tailTrig[me];
-    T2 trigLine = tailTrig[G_H + line1];
-    T2 trig1 = trigMe;
-    T2 trig2 = fancyMulTrig(trigMe, trigLine);
-#endif
+  T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
 
+  if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);
-    pairSq(NH/2, u,   u + NH/2, trig1, true);
+    pairSq(NH/2, u,   u + NH/2, trig, true);
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
+    T2 trig2 = fancyMulTrig(trig, tailTrig[G_H]);
     reverse(G_H, lds, v + NH/2, false);
     pairSq(NH/2, v,   v + NH/2, trig2, false);
     reverse(G_H, lds, v + NH/2, false);
   } else {    
     reverseLine(G_H, lds, v);
-
-#if !TAIL_TAB
-    T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
-#else
-    T2 trigMe   = tailTrig[me];
-    T2 trigLine = tailTrig[G_H + line1];
-    T2 trig = fancyMulTrig(trigMe, trigLine);
-    // tailTrig[line1 * G_H + me]
-#endif
     pairSq(NH, u, v, trig, false);
     reverseLine(G_H, lds, v);
   }
