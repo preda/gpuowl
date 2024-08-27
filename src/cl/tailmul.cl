@@ -61,13 +61,12 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
 }
 
 KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig, BigTab tailTrig) {
-  local T2 lds[SMALL_HEIGHT / 2];
+  local T2 lds[SMALL_HEIGHT];
 
   T2 u[NH], v[NH];
   T2 p[NH], q[NH];
 
-  u32 W = SMALL_HEIGHT;
-  u32 H = ND / W;
+  u32 H = ND / SMALL_HEIGHT;
 
   u32 line1 = get_group_id(0);
   u32 line2 = line1 ? H - line1 : (H / 2);
