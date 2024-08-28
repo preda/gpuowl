@@ -18,11 +18,6 @@ bool sizeMatches(const fs::path& path, u64 initialSize) {
   return !initialSize || (initialSize == fs::file_size(path, dummy));
 }
 
-void removeFile(const fs::path& path) noexcept {
-  std::error_code dummy;
-  fs::remove(path, dummy);
-}
-
 } // namespace
 
 void fancyRename(const fs::path& src, const fs::path& dst) {
@@ -31,13 +26,12 @@ void fancyRename(const fs::path& src, const fs::path& dst) {
   // But this behavior is not obeyed by some Windows implementations (mingw/msys?)
   // In that case, we attempt to explicitly remove the destination beforehand
 
-  try {
-    fs::rename(src, dst);
-  } catch (const fs::filesystem_error& e) {
-    removeFile(dst);
-
-    // Retry the rename following destination removal above.
-    // If this rename does not succeed, let it out-throw.
+  std::error_code error{};
+  fs::rename(src, dst, error);
+  if (error) {
+    log("rename %s -> %s error %s, trying remove\n",
+        src.string().c_str(), dst.string().c_str(), error.message().c_str());
+    fs::remove(dst);
     fs::rename(src, dst);
   }
 }
