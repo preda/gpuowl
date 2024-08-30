@@ -2256,11 +2256,11 @@ OVERLOAD T2 fancyMul(T2 x, const T2 y) {
 }
 
 // fma(x, y, z); }
-OVERLOAD double mad(double x, double y, double z) { return x * y + z; }
+// OVERLOAD double mad(double x, double y, double z) { return x * y + z; }
 
 // complex fma
-OVERLOAD T2 mad(T2 a, T2 b, T2 c) {
-  return U2(mad(a.x, b.x, mad(a.y, -b.y, c.x)), mad(a.x, b.y, mad(a.y, b.x, c.y)));
+T2 cfma(T2 a, T2 b, T2 c) {
+  return U2(fma(a.x, b.x, fma(a.y, -b.y, c.x)), fma(a.x, b.y, fma(a.y, b.x, c.y)));
 }
 
 // complex square
@@ -2463,8 +2463,8 @@ void onePairMul(T2* pa, T2* pb, T2* pc, T2* pd, T2 conjugate_t_squared) {
 
   T2 tmp = a;
 
-  a = mad(a, c, mul(mul(b, d), conjugate_t_squared));
-  b = mad(b, c, mul(tmp, d));
+  a = cfma(a, c, mul(mul(b, d), conjugate_t_squared));
+  b = cfma(b, c, mul(tmp, d));
 
   X2conja(a, b);
 

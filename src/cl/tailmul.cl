@@ -24,8 +24,8 @@ void onePairMul(T2* pa, T2* pb, T2* pc, T2* pd, T2 conjugate_t_squared) {
 
   T2 tmp = a;
 
-  a = mad(a, c, mul(mul(b, d), conjugate_t_squared));
-  b = mad(b, c, mul(tmp, d));
+  a = cfma(a, c, mul(mul(b, d), conjugate_t_squared));
+  b = cfma(b, c, mul(tmp, d));
 
   X2conja(a, b);
 
