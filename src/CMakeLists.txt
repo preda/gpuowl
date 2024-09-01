@@ -7,7 +7,6 @@ add_executable(gpuowl
   File.cpp
   gpuid.cpp
   version.cpp
-  bundle.cpp
   KernelCompiler.cpp
   Kernel.cpp
   Saver.cpp
