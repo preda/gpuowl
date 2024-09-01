@@ -145,7 +145,7 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
       r = cs1;
     } else {
       double2 cs2 = TRIG_BHW[BIG_HEIGHT/8 + 1 + abs(b)];
-      r = fancyMulTrig(cs1, b < 0 ? conjugate(cs2) : cs2);
+      r = cmulFancy(cs1, b < 0 ? conjugate(cs2) : cs2);
     }
   } else {
     r = reducedCosSin(k, n);

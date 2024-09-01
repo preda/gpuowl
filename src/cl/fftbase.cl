@@ -26,9 +26,9 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   T2 w = trig[p];
 
   if (n >= 8) {
-    u[1] = fancyMulTrig(u[1], w);
+    u[1] = cmulFancy(u[1], w);
   } else {
-    u[1] = mul(u[1], w);
+    u[1] = cmul(u[1], w);
   }
 
 #if CLEAN == 1
@@ -36,36 +36,36 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
 
   if (n >= 8) {
     for (u32 i = 2; i < n; ++i) {
-      u[i] = mul(u[i], base);
-      base = fancyMulTrig(base, w);
+      u[i] = cmul(u[i], base);
+      base = cmulFancy(base, w);
     }
   } else {
     for (u32 i = 2; i < n; ++i) {
-      u[i] = mul(u[i], base);
-      base = mul(base, w);
+      u[i] = cmul(u[i], base);
+      base = cmul(base, w);
     }
   }
 
 #elif CLEAN == 0
   if (n >= 8) {
     T a = 2 * fma(w.x, w.y, w.y); // 2*sin*cos
-    u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
+    u[2] = cmulFancy(u[2], U2(-2 * w.y * w.y, a));
     a *= 2;
     T2 base = U2(fma(a, -w.y, w.x + 1), fma(a, w.x, a - w.y));
     for (u32 i = 3; i < n; ++i) {
-      u[i] = mul(u[i], base);
-      base = fancyMulTrig(base, w);
+      u[i] = cmul(u[i], base);
+      base = cmulFancy(base, w);
     }
   } else {
     T a = 2 * w.x * w.y;
     // u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
     // u[2] = mul(u[2], U2(fma(w.x, w.x, -w.y * w.y), a));
-    u[2] = mul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
+    u[2] = cmul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
     a *= 2;
     T2 base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
     for (u32 i = 3; i < n; ++i) {
-      u[i] = mul(u[i], base);
-      base = mul(base, w);
+      u[i] = cmul(u[i], base);
+      base = cmul(base, w);
     }
   }
 #else

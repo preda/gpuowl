@@ -20,8 +20,8 @@ void onePairSq(T2* pa, T2* pb, T2 conjugate_t_squared) {
   X2conjb(a, b);
 
   T2 tmp = a;
-  a = sqa(a, mul(sq(b), conjugate_t_squared));
-  b = 2 * mul(tmp, b);
+  a = csqa(a, cmul(csq(b), conjugate_t_squared));
+  b = 2 * cmul(tmp, b);
 
   X2conja(a, b);
 
@@ -35,7 +35,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
       u[i] = 2 * foo(conjugate(u[i]));
-      v[i] = 4 * sq(conjugate(v[i]));
+      v[i] = 4 * csq(conjugate(v[i]));
     } else {
       onePairSq(&u[i], &v[i], -base_squared);
     }
@@ -88,7 +88,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
-    T2 trig2 = fancyMulTrig(trig, TAILT);
+    T2 trig2 = cmulFancy(trig, TAILT);
     reverse(G_H, lds, v + NH/2, false);
     pairSq(NH/2, v,   v + NH/2, trig2, false);
     reverse(G_H, lds, v + NH/2, false);

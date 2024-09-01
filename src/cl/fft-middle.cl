@@ -71,11 +71,11 @@ void fft_MIDDLE(T2 *u) {
 // Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 
-#define WADD(i, w) u[i] = mul(u[i], w)
-#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w)
+#define WADD(i, w) u[i] = cmul(u[i], w)
+#define WSUB(i, w) u[i] = cmul_by_conjugate(u[i], w)
 
-#define WADDF(i, w) u[i] = fancyMulTrig(u[i], w)
-#define WSUBF(i, w) u[i] = fancyMulTrig(u[i], conjugate(w))
+#define WADDF(i, w) u[i] = cmulFancy(u[i], w)
+#define WSUBF(i, w) u[i] = cmulFancy(u[i], conjugate(w))
 
 // Keep in sync with TrigBufCache.cpp, see comment there.
 #define SHARP_MIDDLE 5
@@ -94,10 +94,10 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
   if (MIDDLE < SHARP_MIDDLE) {
     WADD(1, w);
 #if MM_CHAIN == 0
-    T2 base = sq(w);
+    T2 base = csq(w);
     for (u32 k = 2; k < MIDDLE; ++k) {
       WADD(k, base);
-      base = mul(base, w);
+      base = cmul(base, w);
     }
 #elif MM_CHAIN == 1
     for (u32 k = 2; k < MIDDLE; ++k) { WADD(k, slowTrig_N(WIDTH * k * s, WIDTH * k * SMALL_HEIGHT, TRIG_BHW)); }
@@ -117,12 +117,12 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
     } else {
       base = w;
       base.x += 1;
-      base = fancyMulTrig(base, w);
+      base = cmulFancy(base, w);
       WADD(2, base);
     }
 
     for (u32 k = 3; k < MIDDLE; ++k) {
-      base = fancyMulTrig(base, w);
+      base = cmulFancy(base, w);
       WADD(k, base);
     }
 
@@ -184,7 +184,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) 
     WADD(1, base);
 
     for (u32 k = 2; k < MIDDLE; ++k) {
-      base = fancyMulTrig(base, w);
+      base = cmulFancy(base, w);
       WADD(k, base);
     }
     WSUBF(0, w);
@@ -201,14 +201,14 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) 
 
       T2 base2 = base1;
       for (u32 i = 1; i <= n; ++i) {
-        base1 = fancyMulTrig(base1, conjugate(w));
+        base1 = cmulFancy(base1, conjugate(w));
         WADD(mid - i, base1);
 
-        base2 = fancyMulTrig(base2, w);
+        base2 = cmulFancy(base2, w);
         WADD(mid + i, base2);
       }
       if (!(sz & 1)) {
-        base2 = fancyMulTrig(base2, w);
+        base2 = cmulFancy(base2, w);
         WADD(mid + n + 1, base2);
       }
     }

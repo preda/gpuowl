@@ -716,11 +716,11 @@ void fft_MIDDLE(T2 *u) {
 // Apply the twiddles needed after fft_MIDDLE and before fft_HEIGHT in forward FFT.
 // Also used after fft_HEIGHT and before fft_MIDDLE in inverse FFT.
 
-#define WADD(i, w) u[i] = mul(u[i], w)
-#define WSUB(i, w) u[i] = mul_by_conjugate(u[i], w)
+#define WADD(i, w) u[i] = cmul(u[i], w)
+#define WSUB(i, w) u[i] = cmul_by_conjugate(u[i], w)
 
-#define WADDF(i, w) u[i] = fancyMulTrig(u[i], w)
-#define WSUBF(i, w) u[i] = fancyMulTrig(u[i], conjugate(w))
+#define WADDF(i, w) u[i] = cmulFancy(u[i], w)
+#define WSUBF(i, w) u[i] = cmulFancy(u[i], conjugate(w))
 
 // Keep in sync with TrigBufCache.cpp, see comment there.
 #define SHARP_MIDDLE 5
@@ -739,10 +739,10 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
   if (MIDDLE < SHARP_MIDDLE) {
     WADD(1, w);
 #if MM_CHAIN == 0
-    T2 base = sq(w);
+    T2 base = csq(w);
     for (u32 k = 2; k < MIDDLE; ++k) {
       WADD(k, base);
-      base = mul(base, w);
+      base = cmul(base, w);
     }
 #elif MM_CHAIN == 1
     for (u32 k = 2; k < MIDDLE; ++k) { WADD(k, slowTrig_N(WIDTH * k * s, WIDTH * k * SMALL_HEIGHT, TRIG_BHW)); }
@@ -762,12 +762,12 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
     } else {
       base = w;
       base.x += 1;
-      base = fancyMulTrig(base, w);
+      base = cmulFancy(base, w);
       WADD(2, base);
     }
 
     for (u32 k = 3; k < MIDDLE; ++k) {
-      base = fancyMulTrig(base, w);
+      base = cmulFancy(base, w);
       WADD(k, base);
     }
 
@@ -829,7 +829,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) 
     WADD(1, base);
 
     for (u32 k = 2; k < MIDDLE; ++k) {
-      base = fancyMulTrig(base, w);
+      base = cmulFancy(base, w);
       WADD(k, base);
     }
     WSUBF(0, w);
@@ -846,14 +846,14 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) 
 
       T2 base2 = base1;
       for (u32 i = 1; i <= n; ++i) {
-        base1 = fancyMulTrig(base1, conjugate(w));
+        base1 = cmulFancy(base1, conjugate(w));
         WADD(mid - i, base1);
 
-        base2 = fancyMulTrig(base2, w);
+        base2 = cmulFancy(base2, w);
         WADD(mid + i, base2);
       }
       if (!(sz & 1)) {
-        base2 = fancyMulTrig(base2, w);
+        base2 = cmulFancy(base2, w);
         WADD(mid + n + 1, base2);
       }
     }
@@ -1927,9 +1927,9 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   T2 w = trig[p];
 
   if (n >= 8) {
-    u[1] = fancyMulTrig(u[1], w);
+    u[1] = cmulFancy(u[1], w);
   } else {
-    u[1] = mul(u[1], w);
+    u[1] = cmul(u[1], w);
   }
 
 #if CLEAN == 1
@@ -1937,36 +1937,36 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
 
   if (n >= 8) {
     for (u32 i = 2; i < n; ++i) {
-      u[i] = mul(u[i], base);
-      base = fancyMulTrig(base, w);
+      u[i] = cmul(u[i], base);
+      base = cmulFancy(base, w);
     }
   } else {
     for (u32 i = 2; i < n; ++i) {
-      u[i] = mul(u[i], base);
-      base = mul(base, w);
+      u[i] = cmul(u[i], base);
+      base = cmul(base, w);
     }
   }
 
 #elif CLEAN == 0
   if (n >= 8) {
     T a = 2 * fma(w.x, w.y, w.y); // 2*sin*cos
-    u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
+    u[2] = cmulFancy(u[2], U2(-2 * w.y * w.y, a));
     a *= 2;
     T2 base = U2(fma(a, -w.y, w.x + 1), fma(a, w.x, a - w.y));
     for (u32 i = 3; i < n; ++i) {
-      u[i] = mul(u[i], base);
-      base = fancyMulTrig(base, w);
+      u[i] = cmul(u[i], base);
+      base = cmulFancy(base, w);
     }
   } else {
     T a = 2 * w.x * w.y;
     // u[2] = fancyMulTrig(u[2], U2(-2 * w.y * w.y, a));
     // u[2] = mul(u[2], U2(fma(w.x, w.x, -w.y * w.y), a));
-    u[2] = mul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
+    u[2] = cmul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
     a *= 2;
     T2 base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
     for (u32 i = 3; i < n; ++i) {
-      u[i] = mul(u[i], base);
-      base = mul(base, w);
+      u[i] = cmul(u[i], base);
+      base = cmul(base, w);
     }
   }
 #else
@@ -2246,35 +2246,41 @@ R"cltag(
 
 T2 U2(T a, T b) { return (T2) (a, b); }
 
-OVERLOAD T fancyMul(T x, const T y) {
-  // x * (y + 1) == x * y + x
-  return fma(x, y, x);
+// a * (b + 1) == a * b + a
+OVERLOAD T  fancyMul(T a, T b)   { return fma(a, b, a); }
+OVERLOAD T2 fancyMul(T2 a, T2 b) { return U2(fancyMul(a.x, b.x), fancyMul(a.y, b.y)); }
+
+T2 cmul(T2 a, T2 b) {
+#if 1
+  return U2(fma(a.x, b.x, -a.y * b.y), fma(a.x, b.y, a.y * b.x));
+#else
+  return U2(fma(a.y, -b.y, a.x * b.x), fma(a.x, b.y, a.y * b.x));
+#endif
 }
 
-OVERLOAD T2 fancyMul(T2 x, const T2 y) {
-  return U2(fancyMul(RE(x), RE(y)), fancyMul(IM(x), IM(y)));
-}
+T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
-// fma(x, y, z); }
-// OVERLOAD double mad(double x, double y, double z) { return x * y + z; }
+// a * conjugate(b)
+T2 cmul_by_conjugate(T2 a, T2 b) { return cmul(a, conjugate(b)); }
 
-// complex fma
 T2 cfma(T2 a, T2 b, T2 c) {
+#if 1
   return U2(fma(a.x, b.x, fma(a.y, -b.y, c.x)), fma(a.x, b.y, fma(a.y, b.x, c.y)));
+#else
+  return U2(fma(a.y, -b.y, fma(a.x, b.x, c.x)), fma(a.x, b.y, fma(a.y, b.x, c.y)));
+#endif
 }
 
-// complex square
-T2 sq(T2 a) { return U2(mad(a.x, a.x, - a.y * a.y), 2 * a.x * a.y); }
+T2 csq(T2 a) { return U2(fma(a.x, a.x, - a.y * a.y), 2 * a.x * a.y); }
 
 // a^2 + c
-T2 sqa(T2 a, T2 c) { return U2(mad(a.x, a.x, mad(a.y, -a.y, c.x)), mad(2 * a.x, a.y, c.y)); }
+T2 csqa(T2 a, T2 c) { return U2(fma(a.x, a.x, fma(a.y, -a.y, c.x)), fma(2 * a.x, a.y, c.y)); }
 
-// complex mul
-OVERLOAD T2 mul(T2 a, T2 b) { return U2(mad(RE(a), RE(b), -IM(a)*IM(b)), mad(RE(a), IM(b), IM(a)*RE(b))); }
 
-// Complex mul a * (b + 1)
+// Complex a * (b + 1)
 // Useful for mul with twiddles of small angles, where the real part is stored with the -1 trick for increased precision
-T2 fancyMulTrig(T2 a, T2 b) {
+T2 cmulFancy(T2 a, T2 b) { return cfma(a, b, a); }
+  /*
   return U2(
       #if 0
         fma(a.x, b.x, fma(a.y, -b.y, a.x)),
@@ -2284,25 +2290,19 @@ T2 fancyMulTrig(T2 a, T2 b) {
         fma(a.x,  b.y, fma(a.y, b.x, a.y))
       #endif
         );
-}
-
-T2 fancyMulTrigConj(T2 a, T2 b) {
-  return U2(
-        fma(a.y, b.y, fma(a.x, b.x, a.x)),
-        fma(a.x, -b.y, fma(a.y, b.x, a.y))
-        );
-}
+  */
 
 // Returns complex a * (b + 1) + c
-T2 fancyMadTrig(T2 a, T2 b, T2 c) {
+T2 cmadFancy(T2 a, T2 b, T2 c) { return cfma(a, b, a + c); }
+  /*
   return U2(
         fma(a.y, -b.y, fma(a.x, b.x, a.x + c.x)),
         fma(a.x, b.y, fma(a.y, b.x, a.y + c.y))
         );
-}
+        */
 
 // Returns complex (a + 1) * (b + 1) - 1 == a * (b + 1) + b
-T2 fancyMulUpdate(T2 a, T2 b) { return fancyMadTrig(a, b, b); }
+T2 cmulFancyUpdate(T2 a, T2 b) { return cfma(a, b, a + b); }
 
 T2 fancySqUpdate(T2 a) {
   return 2 * U2(-a.y * a.y, fma(a.x, a.y, a.y));
@@ -2326,7 +2326,6 @@ T2 mul_3t8(T2 a) { // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
 }
 
 T2 swap(T2 a)      { return U2(IM(a), RE(a)); }
-T2 conjugate(T2 a) { return U2(RE(a), -IM(a)); }
 
 T2 addsub(T2 a) { return U2(RE(a) + IM(a), RE(a) - IM(a)); }
 
@@ -2353,10 +2352,6 @@ T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad(RE(a), c_over_s, -IM
 
 // a = c + sin * d; b = c - sin * d;
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; T2 t = c + d; b = c - d; a = t; }
-
-// a * conjugate(b)
-// saves one negation
-T2 mul_by_conjugate(T2 a, T2 b) { return U2(RE(a) * RE(b) + IM(a) * IM(b), IM(a) * RE(b) - RE(a) * IM(b)); }
 )cltag",
 
 // src/cl/middle.cl
@@ -2463,8 +2458,8 @@ void onePairMul(T2* pa, T2* pb, T2* pc, T2* pd, T2 conjugate_t_squared) {
 
   T2 tmp = a;
 
-  a = cfma(a, c, mul(mul(b, d), conjugate_t_squared));
-  b = cfma(b, c, mul(tmp, d));
+  a = cfma(a, c, cmul(cmul(b, d), conjugate_t_squared));
+  b = cfma(b, c, cmul(tmp, d));
 
   X2conja(a, b);
 
@@ -2480,7 +2475,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
       u[i] = conjugate(2 * foo2(u[i], p[i]));
-      v[i] = 4 * mul(conjugate(v[i]), conjugate(q[i]));
+      v[i] = 4 * cmul(conjugate(v[i]), conjugate(q[i]));
     } else {
       onePairMul(&u[i], &v[i], &p[i], &q[i], -base_squared);
     }
@@ -2547,7 +2542,7 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
     pairMul(NH/2, u,  u + NH/2, p, p + NH/2, trig, true);
     reverse(G_H, lds, u + NH/2, true);
 
-    T2 trig2 = fancyMulTrig(trig, TAILT);
+    T2 trig2 = cmulFancy(trig, TAILT);
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
     pairMul(NH/2, v,  v + NH/2, q, q + NH/2, trig2, false);
@@ -2587,8 +2582,8 @@ void onePairSq(T2* pa, T2* pb, T2 conjugate_t_squared) {
   X2conjb(a, b);
 
   T2 tmp = a;
-  a = sqa(a, mul(sq(b), conjugate_t_squared));
-  b = 2 * mul(tmp, b);
+  a = csqa(a, cmul(csq(b), conjugate_t_squared));
+  b = 2 * cmul(tmp, b);
 
   X2conja(a, b);
 
@@ -2602,7 +2597,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
       u[i] = 2 * foo(conjugate(u[i]));
-      v[i] = 4 * sq(conjugate(v[i]));
+      v[i] = 4 * csq(conjugate(v[i]));
     } else {
       onePairSq(&u[i], &v[i], -base_squared);
     }
@@ -2655,7 +2650,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
     reverse(G_H, lds, u + NH/2, true);
 
     // Line H/2 also pairs with itself (but without offset).
-    T2 trig2 = fancyMulTrig(trig, TAILT);
+    T2 trig2 = cmulFancy(trig, TAILT);
     reverse(G_H, lds, v + NH/2, false);
     pairSq(NH/2, v,   v + NH/2, trig2, false);
     reverse(G_H, lds, v + NH/2, false);
@@ -2913,7 +2908,7 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
       r = cs1;
     } else {
       double2 cs2 = TRIG_BHW[BIG_HEIGHT/8 + 1 + abs(b)];
-      r = fancyMulTrig(cs1, b < 0 ? conjugate(cs2) : cs2);
+      r = cmulFancy(cs1, b < 0 ? conjugate(cs2) : cs2);
     }
   } else {
     r = reducedCosSin(k, n);

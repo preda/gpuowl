@@ -24,8 +24,8 @@ void onePairMul(T2* pa, T2* pb, T2* pc, T2* pd, T2 conjugate_t_squared) {
 
   T2 tmp = a;
 
-  a = cfma(a, c, mul(mul(b, d), conjugate_t_squared));
-  b = cfma(b, c, mul(tmp, d));
+  a = cfma(a, c, cmul(cmul(b, d), conjugate_t_squared));
+  b = cfma(b, c, cmul(tmp, d));
 
   X2conja(a, b);
 
@@ -41,7 +41,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
     if (special && i == 0 && me == 0) {
       u[i] = conjugate(2 * foo2(u[i], p[i]));
-      v[i] = 4 * mul(conjugate(v[i]), conjugate(q[i]));
+      v[i] = 4 * cmul(conjugate(v[i]), conjugate(q[i]));
     } else {
       onePairMul(&u[i], &v[i], &p[i], &q[i], -base_squared);
     }
@@ -108,7 +108,7 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
     pairMul(NH/2, u,  u + NH/2, p, p + NH/2, trig, true);
     reverse(G_H, lds, u + NH/2, true);
 
-    T2 trig2 = fancyMulTrig(trig, TAILT);
+    T2 trig2 = cmulFancy(trig, TAILT);
     reverse(G_H, lds, v + NH/2, false);
     reverse(G_H, lds, q + NH/2, false);
     pairMul(NH/2, v,  v + NH/2, q, q + NH/2, trig2, false);
