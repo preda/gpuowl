@@ -115,13 +115,12 @@ and should be able to run.
 
 
 Worktodo:
-PRPLL keeps the active task in a per-worker file work-0.txt, work-1.txt etc in the local directory.
-These per-worker files are supplied from the local worktodo.txt or the global worktodo.txt file
-if -pool is used. In turn, the worktodo.txt files can be supplied with work through the primenet.py script,
+PRPLL keeps the active tasks in per-worker files worktodo-0.txt, worktodo-1.txt etc in the local directory.
+These per-worker files are supplied from the global worktodo.txt file if -pool is used.
+In turn the global worktodo.txt can be supplied through the primenet.py script,
 either the one located at gpuowl/tools/primenet.py or https://download.mersenne.ca/primenet.py
 
-It is also possible to manually add exponents by adding lines of the form "PRP=118063003" to worktodo.txt
-or work-<N>.txt
+It is also possible to manually add exponents by adding lines of the form "PRP=118063003" to worktodo-<N>.txt
 
 
 The configuration options listed below can be passed on the command line or can be put in a file
