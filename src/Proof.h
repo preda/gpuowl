@@ -29,9 +29,12 @@ ProofInfo getInfo(const fs::path& proofFile);
 
 class Proof {  
 public:
-  u32 E;
-  Words B;
-  vector<Words> middles;
+  const u32 E;
+  const Words B;
+  const vector<Words> middles;
+
+  // Hashes is only used during the optional self-verification
+  const vector<u64> hashes;
 
   /*Example header:
     PRP PROOF\n

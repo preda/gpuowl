@@ -177,11 +177,7 @@ void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize)
 }
 
 void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
-  Proof proof{};
-  if (kind == VERIFY) {
-    proof = Proof::load(verifyPath);
-    exponent = proof.E;
-  }
+  if (kind == VERIFY) { exponent = proof::getInfo(verifyPath).exp; }
 
   assert(exponent);
 
@@ -192,6 +188,8 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
   auto gpu = Gpu::make(q, exponent, shared, fft);
 
   if (kind == VERIFY) {
+    Proof proof{Proof::load(verifyPath)};
+    assert(proof.E == exponent);
     bool ok = proof.verify(gpu.get());
     log("proof '%s' %s\n", verifyPath.c_str(), ok ? "verified" : "failed");
 

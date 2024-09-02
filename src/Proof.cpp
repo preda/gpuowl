@@ -82,10 +82,8 @@ Proof Proof::load(const fs::path& path) {
 }
 
 bool Proof::verify(Gpu *gpu) const {
-  log("B         %016" PRIx64 "\n", res64(B));
-  for (u32 i = 0; i < middles.size(); ++i) {
-    log("Middle[%u] %016" PRIx64 "\n", i, res64(middles[i]));
-  }
+  // log("B         %016" PRIx64 "\n", res64(B));
+  // for (u32 i = 0; i < middles.size(); ++i) { log("Middle[%u] %016" PRIx64 "\n", i, res64(middles[i])); }
   
   u32 power = middles.size();
   assert(power > 0);
@@ -101,13 +99,18 @@ bool Proof::verify(Gpu *gpu) const {
   for (u32 i = 0; i < power; ++i, span = (span + 1) / 2) {
     const Words& M = middles[i];
     hash = proof::hashWords(E, hash, M);
-    u64 h = hash[0];    
+    u64 h = hash[0];
     
+    if (hashes.size() > i && h != hashes.at(i)) {
+      log("proof [%u] : hash expected %016" PRIx64 " != %016" PRIx64 "\n", i, hashes[i], h);
+      return false;
+    }
+
     bool doSquareB = span % 2;
     B = gpu->expMul(M, h, B, doSquareB);
     A = gpu->expMul(A, h, M, false);
 
-    log("%u : A %016" PRIx64 ", B %016" PRIx64 ", h %016" PRIx64 "\n", i, res64(A), res64(B), h);
+    if (gpu->args.verbose) { log("proof [%u] : A %016" PRIx64 ", B %016" PRIx64 ", h %016" PRIx64 "\n", i, res64(A), res64(B), h); }
   }
     
   log("proof verification: doing %d iterations\n", span);
@@ -287,7 +290,7 @@ Proof ProofSet::computeProof(Gpu *gpu) const {
     hash = proof::hashWords(E, hash, middles.back());
     hashes.push_back(hash[0]);
 
-    log("proof level %u : M %016" PRIx64 ", h %016" PRIx64 "\n", p, res64(middles.back()), hashes.back()); 
+    log("proof [%u] : M %016" PRIx64 ", h %016" PRIx64 "\n", p, res64(middles.back()), hashes.back());
   }
-  return Proof{E, std::move(B), std::move(middles)};
+  return Proof{E, std::move(B), std::move(middles), std::move(hashes)};
 }

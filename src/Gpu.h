@@ -89,8 +89,11 @@ struct Weights {
 class Gpu {
   Queue* queue;
   Background* background;
+
+public:
   const Args& args;
 
+private:
   std::unique_ptr<Saver<PRPState>> saver;
 
   u32 E;

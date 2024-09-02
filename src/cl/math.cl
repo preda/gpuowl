@@ -39,17 +39,6 @@ T2 csqa(T2 a, T2 c) { return U2(fma(a.x, a.x, fma(a.y, -a.y, c.x)), fma(2 * a.x,
 // Complex a * (b + 1)
 // Useful for mul with twiddles of small angles, where the real part is stored with the -1 trick for increased precision
 T2 cmulFancy(T2 a, T2 b) { return cfma(a, b, a); }
-  /*
-  return U2(
-      #if 0
-        fma(a.x, b.x, fma(a.y, -b.y, a.x)),
-        fma(a.y, b.x, fma(a.x, b.y, a.y))
-      #else
-        fma(a.y, -b.y, fma(a.x, b.x, a.x)),
-        fma(a.x,  b.y, fma(a.y, b.x, a.y))
-      #endif
-        );
-  */
 
 // Returns complex (a + 1) * (b + 1) - 1
 T2 cmulFancyUpdate(T2 a, T2 b) { return cfma(a, b, a + b); }
@@ -90,7 +79,8 @@ T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
-T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
+T2 fmaT2(T a, T2 b, T2 c) { return fma(U2(a, a), b, c); }
+// { return a * b + c; }
 
 // Partial complex multiplies:  the mul by sin is delayed so that it can be later propagated to an FMA instruction
 // complex mul by cos-i*sin given cos/sin, sin

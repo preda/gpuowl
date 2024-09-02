@@ -61,7 +61,7 @@ public:
   bool useCache = false;
   bool profile = false;
 
-  u32 proofVerify = 10;
+  u32 proofVerify = 9;
 
   fs::path masterDir;
   fs::path proofResultDir = "proof";
