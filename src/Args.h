@@ -14,7 +14,7 @@ using KeyVal = std::pair<std::string, std::string>;
 
 class Args {
 private:
-    int proofPow = -1;
+  int proofPow = -1;
 
 public:
   static vector<KeyVal> splitArgLine(const std::string& inputLine);

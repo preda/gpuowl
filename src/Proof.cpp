@@ -131,8 +131,11 @@ ProofSet::ProofSet(u32 E, u32 power)
   : E{E}, power{power} {
   
   assert(E & 1); // E is supposed to be prime
-  assert(power > 0);
-    
+  if (power <= 0 || power > 12) {
+    log("Invalid proof power: %u\n", power);
+    throw "Invalid proof power";
+  }
+
   fs::create_directories(proofPath(E));
 
   vector<u32> spans;
@@ -153,7 +156,6 @@ ProofSet::ProofSet(u32 E, u32 power)
 
   assert(points.size() == (1u << power));
   assert(points.back() == E);
-  assert(*prev(points.end(), 2) < E);
 
   points.push_back(u32(-1)); // guard element
   cacheIt = points.begin();
@@ -208,8 +210,7 @@ u32 ProofSet::effectivePower(u32 E, u32 power, u32 currentK) {
     // log("validating proof residues for power %u\n", p);
     if (canDo(E, p, currentK)) { return p; }
   }
-  assert(false);
-  return 0; // unreachable
+  return 0;
 }
     
 bool ProofSet::fileExists(u32 k) const {

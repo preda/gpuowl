@@ -991,12 +991,8 @@ u32 Gpu::getProofPower(u32 k) {
   }
 
   if (!power) {
-    log("Proof generation disabled\n");
+    log("Proof generation disabled!\n");
   } else {
-    if (power > ProofSet::bestPower(E)) {
-      log("Warning: proof power %u is excessively large; use at most power %u\n", power, ProofSet::bestPower(E));
-    }
-
     log("Proof of power %u requires about %.1fGB of disk space\n", power, ProofSet::diskUsageGB(E, power));
   }
   return power;

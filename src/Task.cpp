@@ -155,12 +155,14 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, const strin
   // "proof":{"version":1, "power":6, "hashsize":64, "md5":"0123456789ABCDEF"}, 
   if (!proofPath.empty()) {
     ProofInfo info = proof::getInfo(proofPath);
-    fields.push_back(json("proof", vector<string>{
-            json("version", 1),
-            json("power", info.power),
-            json("hashsize", 64),
-            json("md5", info.md5)
-            }));
+    if (info.power > 0) {
+      fields.push_back(json("proof", vector<string>{
+                              json("version", 1),
+                              json("power", info.power),
+                              json("hashsize", 64),
+                              json("md5", info.md5)
+                            }));
+    }
   }
   
   writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);

@@ -87,8 +87,9 @@ void Args::readConfig(const fs::path& path) {
 }
 
 u32 Args::getProofPow(u32 exponent) const {
-  assert(proofPow >= -1);
-  return (proofPow == -1) ? ProofSet::bestPower(exponent) : proofPow;
+  if (proofPow == -1) { return ProofSet::bestPower(exponent); }
+  assert(proofPow >= 1);
+  return proofPow;
 }
 
 string Args::tailDir() const { return fs::path{dir}.filename().string(); }
@@ -333,7 +334,7 @@ void Args::parse(const string& line) {
         throw "-proof <power>";
       }
       proofPow = power;
-      assert(proofPow > 0);
+      assert(proofPow >= 1);
     } else if (key == "-keep") {
       if (s != "proof") {
         log("-keep requires 'proof'\n");
