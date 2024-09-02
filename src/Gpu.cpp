@@ -940,14 +940,14 @@ void Gpu::doDiv9(u32 E, Words& words) {
 
 fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
   for (int retry = 0; retry < 2; ++retry) {
-    Proof proof = proofSet.computeProof(this);
+    auto [proof, hashes] = proofSet.computeProof(this);
     fs::path tmpFile = proof.file(args.proofToVerifyDir);
     proof.save(tmpFile);
             
-    fs::path proofFile = proof.file(args.proofResultDir);            
-    bool doVerify = proofSet.power >= args.proofVerify;
-    bool ok = !doVerify || Proof::load(tmpFile).verify(this);
-    if (doVerify) { log("Proof '%s' verification %s\n", tmpFile.string().c_str(), ok ? "OK" : "FAILED"); }
+    fs::path proofFile = proof.file(args.proofResultDir);
+
+    bool ok = Proof::load(tmpFile).verify(this, hashes);
+    log("Proof '%s' verification %s\n", tmpFile.string().c_str(), ok ? "OK" : "FAILED");
     if (ok) {
       fancyRename(tmpFile, proofFile);
       log("Proof '%s' generated\n", proofFile.string().c_str());

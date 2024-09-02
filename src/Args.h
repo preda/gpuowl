@@ -61,8 +61,6 @@ public:
   bool useCache = false;
   bool profile = false;
 
-  u32 proofVerify = 9;
-
   fs::path masterDir;
   fs::path proofResultDir = "proof";
   fs::path proofToVerifyDir = "proof-tmp";

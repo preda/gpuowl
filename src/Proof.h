@@ -33,9 +33,6 @@ public:
   const Words B;
   const vector<Words> middles;
 
-  // Hashes is only used during the optional self-verification
-  const vector<u64> hashes;
-
   /*Example header:
     PRP PROOF\n
     VERSION=2\n
@@ -51,7 +48,7 @@ public:
 
   fs::path file(const fs::path& proofDir) const;
   
-  bool verify(Gpu *gpu) const;
+  bool verify(Gpu *gpu, const vector<u64>& hashes = {}) const;
 };
 
 class ProofSet {
@@ -89,5 +86,5 @@ public:
   Words load(u32 k) const { return load(E, power, k); }
 
 
-  Proof computeProof(Gpu *gpu) const;
+  std::pair<Proof, vector<u64>> computeProof(Gpu *gpu) const;
 };

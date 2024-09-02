@@ -160,7 +160,6 @@ named "config.txt" in the prpll run directory.
                      A lower power reduces disk space requirements but increases the verification cost.
                      A higher power increases disk usage a lot.
                      e.g. proof power 10 for a 120M exponent uses about %.0fGB of disk space.
--autoverify <power> : Self-verify proofs generated with at least this power. Default %u.
 -results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -save <N>          : specify the number of savefiles to keep (default %u).
@@ -208,7 +207,7 @@ named "config.txt" in the prpll run directory.
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", ProofSet::diskUsageGB(120000000, 10), proofVerify, resultsFile.string().c_str(), nSavefiles);
+)", ProofSet::diskUsageGB(120000000, 10), resultsFile.string().c_str(), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
@@ -335,12 +334,6 @@ void Args::parse(const string& line) {
       }
       proofPow = power;
       assert(proofPow > 0);
-    } else if (key == "-autoverify") {
-      if (s.empty()) {
-        log("-autoverify expects <power>\n");
-        throw "-autoverify <power>";
-      }
-      proofVerify = stoi(s);
     } else if (key == "-keep") {
       if (s != "proof") {
         log("-keep requires 'proof'\n");

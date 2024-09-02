@@ -81,7 +81,7 @@ Proof Proof::load(const fs::path& path) {
   return {E, B, middles};
 }
 
-bool Proof::verify(Gpu *gpu) const {
+bool Proof::verify(Gpu *gpu, const vector<u64>& hashes) const {
   // log("B         %016" PRIx64 "\n", res64(B));
   // for (u32 i = 0; i < middles.size(); ++i) { log("Middle[%u] %016" PRIx64 "\n", i, res64(middles[i])); }
   
@@ -258,7 +258,7 @@ Words ProofSet::load(u32 E, u32 power, u32 k) {
   return File::openReadThrow(proofPath(E) / to_string(k)).readChecked<u32>(E/32 + 1);
 }
 
-Proof ProofSet::computeProof(Gpu *gpu) const {
+std::pair<Proof, vector<u64>> ProofSet::computeProof(Gpu *gpu) const {
   Words B = load(E);
   Words A = makeWords(E, 3);
 
@@ -292,5 +292,5 @@ Proof ProofSet::computeProof(Gpu *gpu) const {
 
     log("proof [%u] : M %016" PRIx64 ", h %016" PRIx64 "\n", p, res64(middles.back()), hashes.back());
   }
-  return Proof{E, std::move(B), std::move(middles), std::move(hashes)};
+  return {Proof{E, std::move(B), std::move(middles)}, hashes};
 }
