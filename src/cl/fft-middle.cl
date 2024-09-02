@@ -111,7 +111,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
     WADDF(1, w);
     T2 base;
     if (MIDDLE >= 10) {
-      base = fancySqUpdate(w);
+      base = csqFancyUpdate(w);
       WADDF(2, base);
       base.x += 1;
     } else {
@@ -148,7 +148,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
 
     if ((MIDDLE - 2) % 3 == 2) {
       WADDF(3, w);
-      WADDF(3, fancySqUpdate(w));
+      WADDF(3, csqFancyUpdate(w));
     }
 #else
 #error MM_CHAIN must be 0 or 1.

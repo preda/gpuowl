@@ -20,7 +20,6 @@ T2 cmul(T2 a, T2 b) {
 
 T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
-// a * conjugate(b)
 T2 cmul_by_conjugate(T2 a, T2 b) { return cmul(a, conjugate(b)); }
 
 T2 cfma(T2 a, T2 b, T2 c) {
@@ -52,30 +51,20 @@ T2 cmulFancy(T2 a, T2 b) { return cfma(a, b, a); }
         );
   */
 
-// Returns complex a * (b + 1) + c
-T2 cmadFancy(T2 a, T2 b, T2 c) { return cfma(a, b, a + c); }
-  /*
-  return U2(
-        fma(a.y, -b.y, fma(a.x, b.x, a.x + c.x)),
-        fma(a.x, b.y, fma(a.y, b.x, a.y + c.y))
-        );
-        */
-
-// Returns complex (a + 1) * (b + 1) - 1 == a * (b + 1) + b
+// Returns complex (a + 1) * (b + 1) - 1
 T2 cmulFancyUpdate(T2 a, T2 b) { return cfma(a, b, a + b); }
 
-T2 fancySqUpdate(T2 a) {
+// (a + 1)^2 - 1
+T2 csqFancyUpdate(T2 a) {
+  // Below we use (x + 1)^2 + y^2 == 1
+#if 0
   return 2 * U2(-a.y * a.y, fma(a.x, a.y, a.y));
-  /*
-      U2(
-        // fma(a.y, -a.y, fma(a.x, a.x, 2 * a.x)),
-        fma(a.x, a.x, fma(a.y, -a.y, 2 * a.x)),
-        2 * fma(a.x, a.y, a.y)
-        );
-  */
+#else
+  return 2 * U2(fma(a.x, a.x, 2 * a.x), fma(a.x, a.y, a.y));
+#endif
 }
 
-T2 mul_t4(T2 a)  { return U2(IM(a), -RE(a)); } // mul(a, U2( 0, -1)); }
+T2 mul_t4(T2 a)  { return U2(a.y, -a.x); } // mul(a, U2( 0, -1)); }
 
 T2 mul_t8(T2 a)  { // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
   return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2;
@@ -85,9 +74,8 @@ T2 mul_3t8(T2 a) { // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
   return U2(a.y - a.x, -a.y -a.x) * M_SQRT1_2;
 }
 
-T2 swap(T2 a)      { return U2(IM(a), RE(a)); }
-
-T2 addsub(T2 a) { return U2(RE(a) + IM(a), RE(a) - IM(a)); }
+T2 swap(T2 a)   { return U2(a.y, a.x); }
+T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
 
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
@@ -106,9 +94,9 @@ T2 fmaT2(T a, T2 b, T2 c) { return a * b + c; }
 
 // Partial complex multiplies:  the mul by sin is delayed so that it can be later propagated to an FMA instruction
 // complex mul by cos-i*sin given cos/sin, sin
-T2 partial_cmul(T2 a, T c_over_s) { return U2(mad(RE(a), c_over_s, IM(a)), mad(IM(a), c_over_s, -RE(a))); }
+T2 partial_cmul(T2 a, T c_over_s) { return U2(fma(a.x, c_over_s, a.y), fma(a.y, c_over_s, -a.x)); }
 // complex mul by cos+i*sin given cos/sin, sin
-T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(mad(RE(a), c_over_s, -IM(a)), mad(IM(a), c_over_s, RE(a))); }
+T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(fma(a.x, c_over_s, -a.y), fma(a.y, c_over_s, a.x)); }
 
 // a = c + sin * d; b = c - sin * d;
 #define fma_addsub(a, b, sin, c, d) { d = sin * d; T2 t = c + d; b = c - d; a = t; }
