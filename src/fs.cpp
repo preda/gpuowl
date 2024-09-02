@@ -18,6 +18,20 @@ bool sizeMatches(const fs::path& path, u64 initialSize) {
   return !initialSize || (initialSize == fs::file_size(path, dummy));
 }
 
+bool copyWithout(const string& skipLine, const fs::path& src, const fs::path& dst) {
+  File fi = File::openRead(src);
+  File fo = File::openWrite(dst);
+  bool found = false;
+  for (const string& line : fi) {
+    if (!found && line == skipLine) {
+      found = true;
+    } else {
+      fo.write(line);
+    }
+  }
+  return found;
+}
+
 } // namespace
 
 void fancyRename(const fs::path& src, const fs::path& dst) {
@@ -47,19 +61,8 @@ bool deleteLine(const fs::path& path, const string& targetLine, u64 initialSize)
   if (!initialSize) { initialSize = fileSize(path); }
 
   fs::path tmp = path + ("-"s + toString(this_thread::get_id()));
-  File fi = File::openRead(path);
-  File fo = File::openWrite(tmp);
 
-  bool found = false;
-  for (const string& line : fi) {
-    if (!found && line == targetLine) {
-      found = true;
-    } else {
-      fo.write(line);
-    }
-  }
-
-  if (!found || !sizeMatches(path, initialSize)) { return false; }
+  if (!copyWithout(targetLine, path, tmp) || !sizeMatches(path, initialSize)) { return false; }
 
   fancyRename(tmp, path);
   return true;
