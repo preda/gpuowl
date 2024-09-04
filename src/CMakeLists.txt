@@ -1,5 +1,5 @@
 
-add_executable(gpuowl
+add_executable(prpll
   Primes.cpp
   bundle.cpp
   Proof.cpp
@@ -19,6 +19,27 @@ add_executable(gpuowl
   tune.cpp
   TuneEntry.cpp
   fs.cpp
+  version.inc
   )
 
-target_link_libraries(gpuowl OpenCL)
+target_link_libraries(prpll OpenCL)
+
+target_include_directories(prpll PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
+add_custom_command(
+  OUTPUT version.inc
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  COMMAND git describe --tags --long --dirty --always --match ${CMAKE_SOURCE_DIR} | sed 's/.*/"&"/' > ${CMAKE_CURRENT_BINARY_DIR}/version.inc
+  DEPENDS ${CMAKE_SOURCE_DIR}
+  )
+
+file(
+  GLOB CL_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cl/*.cl
+  )
+
+add_custom_command(
+  OUTPUT bundle.cpp
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  COMMAND ${CMAKE_SOURCE_DIR}/genbundle.sh ${CL_SOURCES} > ${CMAKE_CURRENT_BINARY_DIR}/bundle.cpp
+  DEPENDS ${CL_SOURCES}
+  )
