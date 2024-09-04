@@ -31,8 +31,6 @@ void onePairMul(T2* pa, T2* pb, T2* pc, T2* pd, T2 conjugate_t_squared) {
 
   *pa = a;
   *pb = b;
-  *pc = c;
-  *pd = d;
 }
 
 void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {

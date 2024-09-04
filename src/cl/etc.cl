@@ -3,10 +3,12 @@
 #include "base.cl"
 
 #if READRESIDUE
-// Read 64 Word2 starting at position 'startDword'.
-KERNEL(64) readResidue(P(Word2) out, CP(Word2) in, u32 startDword) {
+
+// Because the data "in" is stored transposed, and we want to read
+// a number of logically successive values, we have a very bad read access pattern
+KERNEL(32) readResidue(P(Word2) out, CP(Word2) in) {
   u32 me = get_local_id(0);
-  u32 k = (startDword + me) % ND;
+  u32 k = (ND - 16 + me) % ND;
   u32 y = k % BIG_HEIGHT;
   u32 x = k / BIG_HEIGHT;
   out[me] = in[WIDTH * y + x];

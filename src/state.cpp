@@ -8,8 +8,6 @@
 #include <cassert>
 #include <cmath>
 
-static u32 bitlen(u32 N, u32 E, u32 k) { return E / N + isBigWord(N, E, k); }
-
 static int lowBits(int u, int bits) { return (u << (32 - bits)) >> (32 - bits); }
 
 static u32 unbalance(int w, int nBits, int *carry) {
@@ -115,23 +113,3 @@ vector<int> expandBits(const vector<u32> &compactBits, u32 N, u32 E) {
   data[0] += bucket.bits; // carry wrap-around.
   return out;
 }
-
-u64 residueFromRaw(u32 N, u32 E, const vector<int> &words) {
-  assert(words.size() == 128);
-  int carry = 0;
-  for (int i = 0; i < 64; ++i) { carry = (words[i] + carry < 0) ? -1 : 0; }
-  
-  u64 res = 0;
-  int k = 0, hasBits = 0;
-  for (auto p = words.begin() + 64, end = words.end(); p < end && hasBits < 64; ++p, ++k) {
-    u32 len = bitlen(N, E, k);
-    int w = *p + carry;
-    carry = (w < 0) ? -1 : 0;
-    if (w < 0) { w += (1 << len); }
-    assert(w >= 0 && w < (1 << len));
-    res |= u64(w) << hasBits;
-    hasBits += len;
-  }
-  return res;
-}
-

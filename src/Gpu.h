@@ -194,8 +194,6 @@ private:
   TimeInfo* timeBufVect;
   ZAvg zAvg;
 
-  vector<int> readSmall(Buffer<int>& buf, u32 start);
-  
   vector<int> readOut(Buffer<int> &buf);
   void writeIn(Buffer<int>& buf, vector<i32>&& words);
 
@@ -235,6 +233,8 @@ private:
   PRPState loadPRP(Saver<PRPState>& saver);
 
   vector<int> readChecked(Buffer<int>& buf);
+
+  void measureDMA();
 
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);

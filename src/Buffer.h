@@ -60,12 +60,19 @@ public:
 
   cl_mem get() const { return ptr.get(); }
 
+  void read(T* out, size_t readSize) const {
+    assert(readSize && readSize <= size);
+    queue->readSync(get(), readSize * sizeof(T), out, tInfo);
+  }
+
+  // sync read without memory alloc
+  void read(vector<T>& v) const { read(v.data(), v.size()); }
+
   // sync read
   vector<T> read(size_t sizeOrFull = 0) const {
     auto readSize = sizeOrFull ? sizeOrFull : size;
-    assert(readSize <= size);
     vector<T> ret(readSize);
-    queue->readSync(get(), readSize * sizeof(T), ret.data(), tInfo);
+    read(ret);
     return ret;
   }
 
@@ -76,7 +83,7 @@ public:
     queue->readAsync(get(), readSize * sizeof(T), out.data(), tInfo);
   }
 
-  void write(vector<i32>&& vect) { queue->write(get(), std::move(vect), tInfo); }
+  void write(const vector<T>& vect) { queue->write(get(), vect, tInfo); }
 
   void zero(size_t len = 0) {
     fill(0, len);

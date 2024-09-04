@@ -370,7 +370,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   K(transpIn,  "transpose.cl", "transposeIn",  hN / 64),
   K(transpOut, "transpose.cl", "transposeOut", hN / 64),
   
-  K(readResidue, "etc.cl", "readResidue", 64, "-DREADRESIDUE=1"),
+  K(readResidue, "etc.cl", "readResidue", 32, "-DREADRESIDUE=1"),
 
   // 256
   K(kernIsEqual, "etc.cl", "isEqual", 256 * 256, "-DISEQUAL=1"),
@@ -467,6 +467,27 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   bufStatsCarry.zero();
   bufTrue.write({1});
   queue->finish();
+  // measureDMA();
+}
+
+void Gpu::measureDMA() {
+  u32 SIZE = 8 * 1024 * 1024;
+  vector<double> data(SIZE, 1);
+  Buffer<double> buf{profile.make("DMA"), queue, SIZE};
+
+  Timer t;
+  for (int i = 0; i < 4; ++i) {
+    buf.write(data);
+    log("buffer Write : %f MB/ms\n", double(SIZE / 1024 / 1024) * sizeof(double) / (1000 * t.reset()));
+  }
+
+  for (int i = 0; i < 4; ++i) {
+    buf.readAsync(data);
+    queue->finish();
+    log("buffer READ : %f MB/ms\n", double(SIZE / 1024 / 1024) * sizeof(double) / (1000 * t.reset()));
+  }
+
+  queue->finish();
 }
 
 u32 Gpu::updateCarryPos(u32 bit) {
@@ -503,11 +524,6 @@ vector<Buffer<i32>> Gpu::makeBufVector(u32 size) {
   vector<Buffer<i32>> r;
   for (u32 i = 0; i < size; ++i) { r.emplace_back(timeBufVect, queue, N); }
   return r;
-}
-
-vector<int> Gpu::readSmall(Buffer<int>& buf, u32 start) {
-  readResidue(bufSmallOut, buf, start);
-  return bufSmallOut.read(128);
 }
 
 pair<RoeInfo, RoeInfo> Gpu::readROE() {
@@ -840,9 +856,25 @@ bool Gpu::isEqual(Buffer<int>& in1, Buffer<int>& in2) {
 }
   
 u64 Gpu::bufResidue(Buffer<int> &buf) {
-  u32 earlyStart = N/2 - 32;
-  vector<int> readBuf = readSmall(buf, earlyStart);
-  return residueFromRaw(N, E, readBuf);
+  readResidue(bufSmallOut, buf);
+  int words[64];
+  bufSmallOut.read(words, 64);
+
+  int carry = 0;
+  for (int i = 0; i < 32; ++i) { carry = (words[i] + carry < 0) ? -1 : 0; }
+
+  u64 res = 0;
+  int hasBits = 0;
+  for (int k = 0; k < 32 && hasBits < 64; ++k) {
+    u32 len = bitlen(N, E, k);
+    int w = words[32 + k] + carry;
+    carry = (w < 0) ? -1 : 0;
+    if (w < 0) { w += (1 << len); }
+    assert(w >= 0 && w < (1 << len));
+    res |= u64(w) << hasBits;
+    hasBits += len;
+  }
+  return res;
 }
 
 static string formatETA(u32 secs) {
