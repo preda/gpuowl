@@ -234,7 +234,7 @@ private:
 
   vector<int> readChecked(Buffer<int>& buf);
 
-  void measureDMA();
+  // void measureTransferSpeed();
 
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);

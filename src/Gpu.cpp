@@ -467,28 +467,29 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   bufStatsCarry.zero();
   bufTrue.write({1});
   queue->finish();
-  // measureDMA();
 }
 
-void Gpu::measureDMA() {
-  u32 SIZE = 8 * 1024 * 1024;
-  vector<double> data(SIZE, 1);
+#if 0
+void Gpu::measureTransferSpeed() {
+  u32 SIZE_MB = 16;
+  vector<double> data(SIZE_MB * 1024 * 1024, 1);
   Buffer<double> buf{profile.make("DMA"), queue, SIZE};
 
   Timer t;
   for (int i = 0; i < 4; ++i) {
     buf.write(data);
-    log("buffer Write : %f MB/ms\n", double(SIZE / 1024 / 1024) * sizeof(double) / (1000 * t.reset()));
+    log("buffer Write : %f GB/s\n", double(SIZE / 1024 / 1024) * sizeof(double) / (1024 * t.reset()));
   }
 
   for (int i = 0; i < 4; ++i) {
-    buf.readAsync(data);
-    queue->finish();
-    log("buffer READ : %f MB/ms\n", double(SIZE / 1024 / 1024) * sizeof(double) / (1000 * t.reset()));
+    buf.read(data);
+    // queue->finish();
+    log("buffer READ : %f GB/s\n", double(SIZE / 1024 / 1024) * sizeof(double) / (1024 * t.reset()));
   }
 
   queue->finish();
 }
+#endif
 
 u32 Gpu::updateCarryPos(u32 bit) {
   return (statsBits & bit) && (carryPos < CARRY_SIZE) ? carryPos++ : carryPos;
@@ -850,7 +851,8 @@ u32 Gpu::squareLoop(Buffer<int>& out, Buffer<int>& in, u32 from, u32 to, bool do
 
 bool Gpu::isEqual(Buffer<int>& in1, Buffer<int>& in2) {
   kernIsEqual(in1, in2);
-  bool isEq = bufTrue.read(1)[0];
+  int isEq = 0;
+  bufTrue.read(&isEq, 1);
   if (!isEq) { bufTrue.write({1}); }
   return isEq;
 }
