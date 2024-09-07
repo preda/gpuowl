@@ -26,14 +26,20 @@ namespace {
 
 u32 kAt(u32 H, u32 line, u32 col) { return (line + col * H) * 2; }
 
-auto weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
-  auto iN = 1 / (f128) N;
-  return exp2l(iN * extra(N, E, kAt(H, line, col) + rep));
+double weight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  return exp2l((long double)(extra(N, E, kAt(H, line, col) + rep)) / N);
 }
 
-auto invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
-  auto iN = 1 / (f128) N;
-  return exp2l(- iN * extra(N, E, kAt(H, line, col) + rep));
+double invWeight(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  return exp2l(-(long double)(extra(N, E, kAt(H, line, col) + rep)) / N);
+}
+
+double weightM1(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  return exp2l((long double)(extra(N, E, kAt(H, line, col) + rep)) / N) - 1;
+}
+
+double invWeightM1(u32 N, u32 E, u32 H, u32 line, u32 col, u32 rep) {
+  return exp2l(- (long double)(extra(N, E, kAt(H, line, col) + rep)) / N) - 1;
 }
 
 double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
@@ -49,21 +55,15 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   vector<double> weightsIF;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
     auto iw = invWeight(N, E, H, 0, thread, 0);
-    // weightsIF.push_back(iw - 1);
     weightsIF.push_back(2 * boundUnderOne(iw));
     auto w = weight(N, E, H, 0, thread, 0);
-    // weightsIF.push_back(w - 1);
     weightsIF.push_back(2 * w);
   }
 
   // the group order matches CarryA/M (not fftP/CarryFused).
-  // vector<double> carryWeightsIF;
   for (u32 gy = 0; gy < H; ++gy) {
-    auto iw = invWeight(N, E, H, gy, 0, 0);
-    weightsIF.push_back(iw - 1);
-    
-    auto w = weight(N, E, H, gy, 0, 0);
-    weightsIF.push_back(w - 1);
+    weightsIF.push_back(invWeightM1(N, E, H, gy, 0, 0));
+    weightsIF.push_back(weightM1(N, E, H, gy, 0, 0));
   }
   
   vector<u32> bits;
