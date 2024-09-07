@@ -75,7 +75,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   fft_HEIGHT(lds, v, smallTrig);
 
   u32 me = get_local_id(0);
-  T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
+  T2 trig = slowTrig_N(line1 + me * H, ND / NH);
 
   if (line1) {
     reverseLine(G_H, lds, v);

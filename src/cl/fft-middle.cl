@@ -85,7 +85,7 @@ void fft_MIDDLE(T2 *u) {
 #define MM2_CHAIN 2
 #endif
 
-void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
+void middleMul(T2 *u, u32 s, Trig trig) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
 
@@ -100,7 +100,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
       base = cmul(base, w);
     }
 #elif MM_CHAIN == 1
-    for (u32 k = 2; k < MIDDLE; ++k) { WADD(k, slowTrig_N(WIDTH * k * s, WIDTH * k * SMALL_HEIGHT, TRIG_BHW)); }
+    for (u32 k = 2; k < MIDDLE; ++k) { WADD(k, slowTrig_N(WIDTH * k * s, WIDTH * k * SMALL_HEIGHT)); }
 #else
 #error MM_CHAIN must be 0 or 1
 #endif
@@ -128,7 +128,7 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
 
 #elif MM_CHAIN == 1
     for (u32 k = 3 + (MIDDLE - 2) % 3; k < MIDDLE; k += 3) {
-      T2 base = slowTrig_N(WIDTH * k * s, WIDTH * SMALL_HEIGHT * k, TRIG_BHW);
+      T2 base = slowTrig_N(WIDTH * k * s, WIDTH * SMALL_HEIGHT * k);
       WADD(k-1, base);
       WADD(k,   base);
       WADD(k+1, base);
@@ -156,30 +156,30 @@ void middleMul(T2 *u, u32 s, Trig trig, BigTab TRIG_BHW) {
   }
 }
 
-void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) {
+void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig) {
   assert(x < WIDTH);
   assert(y < SMALL_HEIGHT);
 
   if (MIDDLE == 1) {
-    WADD(0, slowTrig_N(x * y, ND / MIDDLE, TRIG_BHW) * factor);
+    WADD(0, slowTrig_N(x * y, ND / MIDDLE) * factor);
     return;
   }
 
   T2 w = trig[SMALL_HEIGHT + x];
 
   if (MIDDLE < SHARP_MIDDLE) {
-    T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT, ND / MIDDLE * 2, TRIG_BHW) * factor;
+    T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT, ND / MIDDLE * 2) * factor;
     for (u32 k = 0; k < MIDDLE; ++k) { WADD(k, base); }
     WSUB(0, w);
     if (MIDDLE > 2) { WADD(2, w); }
     if (MIDDLE > 3) { WADD(3, w); WADD(3, w); }
 
   } else { // MIDDLE >= 5
-    // T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE, TRIG_BHW);
+    // T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
 
 #if MM2_CHAIN == 0
 
-    T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT, ND / MIDDLE * 2, TRIG_BHW) * factor;
+    T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT, ND / MIDDLE * 2) * factor;
     WADD(0, base);
     WADD(1, base);
 
@@ -196,7 +196,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) 
       u32 n = (sz - 1) / 2;
       u32 mid = start + n;
 
-      T2 base1 = slowTrig_N(x * y + x * SMALL_HEIGHT * mid, ND / MIDDLE * (mid + 1), TRIG_BHW) * factor;
+      T2 base1 = slowTrig_N(x * y + x * SMALL_HEIGHT * mid, ND / MIDDLE * (mid + 1)) * factor;
       WADD(mid, base1);
 
       T2 base2 = base1;
@@ -216,7 +216,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig, BigTab TRIG_BHW) 
 #elif MM2_CHAIN == 2
     T2 base;
     for (u32 i = 1; i < MIDDLE; i += 3) {
-      base = slowTrig_N(x * y + x * SMALL_HEIGHT * i, ND / MIDDLE * (i + 1), TRIG_BHW) * factor;
+      base = slowTrig_N(x * y + x * SMALL_HEIGHT * i, ND / MIDDLE * (i + 1)) * factor;
       WADD(i-1, base);
       WADD(i,   base);
       if (i + 1 < MIDDLE) { WADD(i+1, base); }

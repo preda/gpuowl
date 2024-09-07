@@ -5,7 +5,7 @@
 #include "fft-middle.cl"
 #include "middle.cl"
 
-KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
+KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   T2 u[MIDDLE];
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
@@ -30,7 +30,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
 
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
 
-  middleMul(u, startx + mx, trig, TRIG_BHW);
+  middleMul(u, startx + mx, trig);
 
   fft_MIDDLE(u);
 
@@ -40,7 +40,7 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig, BigTab TRIG_BHW) {
   // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
   double factor = 1.0 / (4 * 4 * NWORDS);
 
-  middleMul2(u, starty + my, startx + mx, factor, trig, TRIG_BHW);
+  middleMul2(u, starty + my, startx + mx, factor, trig);
   local T lds[OUT_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
 
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);

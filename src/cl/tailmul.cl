@@ -93,7 +93,7 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
 #endif
 
   u32 me = get_local_id(0);
-  T2 trig = slowTrig_N(line1 + me * H, ND / NH, NULL);
+  T2 trig = slowTrig_N(line1 + me * H, ND / NH);
 
   if (line1) {
     reverseLine(G_H, lds, v);

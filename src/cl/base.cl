@@ -29,8 +29,6 @@ G_W        "group width"  == WIDTH / NW
 G_H        "group height" == SMALL_HEIGHT / NH
  */
 
-// TRIG_TAB defaults to 0
-
 #define STR(x) XSTR(x)
 #define XSTR(x) #x
 

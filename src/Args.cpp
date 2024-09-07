@@ -172,7 +172,6 @@ named "config.txt" in the prpll run directory.
                      (which are nevertheless detected).
   -use DIRTY       : dirty is faster but with less precision
   -use TRIG_HI     : increased precision but slower (use at the upper bound of the FFT)
-  -use TRIG_TAB    : use a precomputed sin/cos lookup table (more memory bandwidth vs. more compute)
   -use TAIL_TAB    : use a lookup table in the tailSquare/tailMul kernels
 
   -use NO_ASM      : do not use __asm() blocks (inline assembly)

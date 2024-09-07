@@ -108,13 +108,9 @@ double2 reducedCosSin(u32 k, u32 N) {
   return U2(kcospi(k, N/2), -ksinpi(k, N/2));
 }
 
-#if !defined(TRIG_TAB)
-#define TRIG_TAB 0
-#endif
-
 // Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
 // Inverse trigonometric direction is chosen as an FFT convention.
-double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
+double2 slowTrig_N(u32 k, u32 kBound)   {
   u32 n = ND;
   assert(n % 8 == 0);
   assert(k < kBound);       // kBound actually bounds k
@@ -134,22 +130,7 @@ double2 slowTrig_N(u32 k, u32 kBound, BigTab TRIG_BHW)   {
 
   assert(k <= n / 8);
 
-  double2 r;
-
-  if (TRIG_TAB & (TRIG_BHW != NULL)) { // bitwise because annoying warning -Wconstant-logical-operand
-    u32 a = (k + WIDTH/2) / WIDTH;
-    i32 b = k - a * WIDTH;
-
-    double2 cs1 = TRIG_BHW[a];
-    if (b == 0) {
-      r = cs1;
-    } else {
-      double2 cs2 = TRIG_BHW[BIG_HEIGHT/8 + 1 + abs(b)];
-      r = cmulFancy(cs1, b < 0 ? conjugate(cs2) : cs2);
-    }
-  } else {
-    r = reducedCosSin(k, n);
-  }
+  double2 r = reducedCosSin(k, n);
 
   if (flip) { r = -swap(r); }
   if (negateCos) { r.x = -r.x; }

@@ -381,8 +381,6 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   bufTrigH{shared.bufCache->smallTrig(SMALL_H, nH)},
   bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H, WIDTH)},
 
-  bufTrigBHW{shared.bufCache->trigBHW(WIDTH, hN, BIG_H)},
-
   weights{genWeights(E, WIDTH, BIG_H, nW)},
 
   bufWeights{q->context, std::move(weights.weightsIF)},
@@ -453,8 +451,8 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   fftW.setFixedArgs(2, bufTrigW);
   fftHin.setFixedArgs(2, bufTrigH);
 
-  fftMidIn.setFixedArgs( 2, bufTrigM, bufTrigBHW);
-  fftMidOut.setFixedArgs(2, bufTrigM, bufTrigBHW);
+  fftMidIn.setFixedArgs( 2, bufTrigM);
+  fftMidOut.setFixedArgs(2, bufTrigM);
   
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
   tailMulLow.setFixedArgs(3, bufTrigH);

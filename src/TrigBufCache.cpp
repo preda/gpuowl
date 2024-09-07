@@ -94,23 +94,6 @@ vector<double2> genMiddleTrig(u32 smallH, u32 middle, u32 width) {
   return tab;
 }
 
-template<typename T>
-vector<pair<T, T>> makeTrig(u32 n, vector<pair<T,T>> tab = {}) {
-  assert(n % 8 == 0);
-  tab.reserve(tab.size() + n/8 + 1);
-  for (u32 k = 0; k <= n/8; ++k) { tab.push_back(root1(n, k)); }
-  return tab;
-}
-
-template<typename T>
-vector<pair<T, T>> makeTinyTrig(u32 W, u32 hN, vector<pair<T, T>> tab = {}) {
-  tab.reserve(tab.size() + W/2 + 1);
-  for (u32 k = 0; k <= W/2; ++k) {
-    tab.push_back(root1Fancy(hN, k));
-  }
-  return tab;
-}
-
 } // namespace
 
 TrigBufCache::~TrigBufCache() = default;
@@ -141,22 +124,6 @@ TrigPtr TrigBufCache::middleTrig(u32 SMALL_H, u32 MIDDLE, u32 width) {
     p = make_shared<TrigBuf>(context, genMiddleTrig(SMALL_H, MIDDLE, width));
     m[key] = p;
     middleCache.add(p);
-  }
-  return p;
-}
-
-TrigPtr TrigBufCache::trigBHW(u32 W, u32 hN, u32 BIG_H) {
-  lock_guard lock{mut};
-  auto& m = bhw;
-  decay_t<decltype(m)>::key_type key{W, hN, BIG_H};
-
-  TrigPtr p{};
-  auto it = m.find(key);
-  if (it == m.end() || !(p = it->second.lock())) {
-    if (LOG_TRIG_ALLOC) { log("trigBHW(%u, %u, %u)\n", W, hN, BIG_H); }
-    p = make_shared<TrigBuf>(context, makeTinyTrig(W, hN, makeTrig<double>(BIG_H)));
-    m[key] = p;
-    bhwCache.add(p);
   }
   return p;
 }

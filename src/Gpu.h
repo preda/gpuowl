@@ -150,8 +150,6 @@ private:
   TrigPtr bufTrigH;
   TrigPtr bufTrigM;
   
-  TrigPtr bufTrigBHW;
-
   Weights weights;
 
   // The weights and the "bigWord bits" depend on the exponent.
