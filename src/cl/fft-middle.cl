@@ -161,7 +161,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig) {
   assert(y < SMALL_HEIGHT);
 
   if (MIDDLE == 1) {
-    WADD(0, slowTrig_N(x * y, ND / MIDDLE) * factor);
+    WADD(0, slowTrig_N(x * y, ND) * factor);
     return;
   }
 
