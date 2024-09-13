@@ -23,14 +23,14 @@ jobs:
     - name: Install
       run: |
         sudo apt-get update -y
-        sudo apt-get install -y cppcheck ocl-icd-opencl-dev pocl-opencl-icd
+        sudo apt-get install -y cppcheck ocl-icd-opencl-dev pocl-opencl-icd cmake
         $CXX --version
     - name: Script
       run: |
-        make prpll -O -j "$(nproc)"
-        cd build-release
-        rm -f -- *.o
-        ./prpll -h
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build -j "$(nproc)"
+        cd build/src
+        ./prpll -iters 10000 -ll 82589933
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -93,13 +93,13 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install
       run: |
-        brew install gcc@14
+        brew install gcc@14 cmake
     - name: Script
       run: |
-        make prpll -j "$(sysctl -n hw.ncpu)"
-        cd build-release
-        rm -f -- *.o
-        ./prpll -h
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build -j "$(sysctl -n hw.ncpu)"
+        cd build/src
+        ./prpll -iters 10000 -ll 82589933
     - uses: actions/upload-artifact@v4
       if: always()
       with:
