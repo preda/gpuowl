@@ -292,7 +292,11 @@ cl_queue makeQueue(cl_device_id d, cl_context c, bool isProfile) {
   props[1] = isProfile ? CL_QUEUE_PROFILING_ENABLE : 0;
   // CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE not supported on ROCm 6.1 or earlier
 
+#ifdef __APPLE__
+  cl_queue q = clCreateCommandQueueWithPropertiesAPPLE(c, d, props, &err);
+#else
   cl_queue q = clCreateCommandQueueWithProperties(c, d, props, &err);
+#endif
   CHECK2(err, "clCreateCommandQueue");
   return q;
 }
