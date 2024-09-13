@@ -2,7 +2,10 @@
 
 #include "base.cl"
 
-void transposeWords(u32 W, u32 H, local Word2 *lds, const Word2 *in, Word2 *out) {
+// Prototypes
+void transposeWords(u32 W, u32 H, local Word2 *lds, global const Word2 *restrict in, global Word2 *restrict out);
+
+void transposeWords(u32 W, u32 H, local Word2 *lds, global const Word2 *restrict in, global Word2 *restrict out) {
   u32 GPW = W / 64, GPH = H / 64;
 
   u32 g = get_group_id(0);

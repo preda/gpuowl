@@ -22,7 +22,20 @@ add_executable(prpll
   version.inc
   )
 
-target_link_libraries(prpll OpenCL)
+if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+  # Real GCC (not clang), needed for 128-bit floats and std::filesystem::path
+  set(CMAKE_CXX_COMPILER g++-14)
+endif()
+
+find_package(OpenCL)
+
+if (${OpenCL_FOUND})
+  # Use OpenCL library found by cmake
+  target_link_libraries(prpll OpenCL::OpenCL)
+else()
+  # Pass -lOpenCL to the linker and hope for the best
+  target_link_libraries(prpll OpenCL)
+endif()
 
 target_include_directories(prpll PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 

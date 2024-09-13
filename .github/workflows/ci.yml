@@ -84,3 +84,24 @@ jobs:
       with:
         name: win_${{ matrix.cxx }}_prpll
         path: ${{ github.workspace }}
+
+  macOS:
+    name: macOS
+
+    runs-on: macos-13
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install
+      run: |
+        brew install gcc@14
+    - name: Script
+      run: |
+        make prpll -j "$(sysctl -n hw.ncpu)"
+        cd build-release
+        rm -f -- *.o
+        ./prpll -h
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: macos_prpll
+        path: ${{ github.workspace }}
