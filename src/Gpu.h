@@ -141,6 +141,7 @@ private:
   Kernel readResidue;
   Kernel kernIsEqual;
   Kernel sum64;
+  Kernel testTrig;
 
   // Kernel testKernel;
 
@@ -236,6 +237,7 @@ private:
 
   static void doDiv9(u32 E, Words& words);
   static bool equals9(const Words& words);
+  void selftestTrig();
 
 public:
   Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>& extraConf, bool logFftSize);

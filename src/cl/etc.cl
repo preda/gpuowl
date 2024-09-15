@@ -49,10 +49,12 @@ KERNEL(256) isEqual(global i64 *in1, global i64 *in2, P(int) outEqual) {
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
 kernel void testKernel(global double* in, global float* out) {
   uint me = get_local_id(0);
+  double RNDVAL = 1 + 1e-100;
 
   double x = in[me];
   double d = x + RNDVAL;
-  out[me] = fabs((float) (x + (RNDVAL - d)));
+  long double a = x + RNDVAL;
+  out[me] = fabs((float) (x + (RNDVAL - d))) * sin((double) a);
 }
 
 #endif

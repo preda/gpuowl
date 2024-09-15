@@ -4,8 +4,6 @@
 
 #include "base.cl"
 
-T2 U2(T a, T b) { return (T2) (a, b); }
-
 // a * (b + 1) == a * b + a
 OVERLOAD T  fancyMul(T a, T b)   { return fma(a, b, a); }
 OVERLOAD T2 fancyMul(T2 a, T2 b) { return U2(fancyMul(a.x, b.x), fancyMul(a.y, b.y)); }

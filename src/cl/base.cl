@@ -149,6 +149,8 @@ void write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base) {
   for (u32 i = 0; i < N; ++i) { out[base + i * WG + (u32) get_local_id(0)] = u[i]; }
 }
 
+T2 U2(T a, T b) { return (T2) (a, b); }
+
 void bar() {
   // barrier(CLK_LOCAL_MEM_FENCE) is correct, but it turns out that on some GPUs
   // (in particular on Radeon VII and Radeon PRO VII) barrier(0) works as well and is faster.
