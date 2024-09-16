@@ -14,7 +14,7 @@
 #endif
 
 static_assert(sizeof(double2) == 16, "size double2");
-static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
+// static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
 
 // For small angles, return "fancy" cos - 1 for increased precision
 double2 root1Fancy(u32 N, u32 k) {

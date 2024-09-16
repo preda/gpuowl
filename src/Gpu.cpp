@@ -23,6 +23,17 @@
 #include <array>
 #include <cinttypes>
 
+#define _USE_MATH_DEFINES
+#include <cmath>
+
+#ifndef M_PIl
+#define M_PIl 3.141592653589793238462643383279502884L
+#endif
+
+#ifndef M_PI
+#define M_PI 3.141592653589793238462643383279502884
+#endif
+
 namespace {
 
 u32 kAt(u32 H, u32 line, u32 col) { return (line + col * H) * 2; }

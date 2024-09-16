@@ -34,27 +34,20 @@ std::array<double, 7> COS_TAB[] = {
 };
 
 template<size_t N>
-array<double, N> scaleOdd(const array<double, N>& v, double f) {
+array<double, N> scaleAux(const array<double, N>& v, double step, double f) {
   array<double, N> ret;
-  const double f2 = f * f;
   for (u32 i = 0; i < N; ++i) {
     ret[i] = v[i] * f;
-    f *= f2;
+    f *= step;
   }
   return ret;
 }
 
 template<size_t N>
-array<double, N> scaleEven(const array<double, N>& v, double f) {
-  array<double, N> ret;
-  const double f2 = f * f;
-  f = f2;
-  for (u32 i = 0; i < N; ++i) {
-    ret[i] = v[i] * f;
-    f *= f2;
-  }
-  return ret;
-}
+array<double, N> scaleOdd(const array<double, N>& v, double f) { return scaleAux(v, f * f, f); }
+
+template<size_t N>
+array<double, N> scaleEven(const array<double, N>& v, double f) { return scaleAux(v, f * f, f * f); }
 
 } // namespace
 
