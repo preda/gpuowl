@@ -1,5 +1,6 @@
 
 add_executable(prpll
+  Trig.cpp
   Primes.cpp
   bundle.cpp
   Proof.cpp

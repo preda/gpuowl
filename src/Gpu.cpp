@@ -3,6 +3,7 @@
 #include "Gpu.h"
 #include "Proof.h"
 #include "TimeInfo.h"
+#include "Trig.h"
 #include "state.h"
 #include "Args.h"
 #include "Signal.h"
@@ -134,6 +135,16 @@ string toLiteral(const vector<T>& v) {
   return s;
 }
 
+template<typename T, size_t N>
+string toLiteral(const std::array<T, N>& v) {
+  string s = "{";
+  for (T x : v) {
+    s += toLiteral(x) + ",";
+  }
+  s += "}";
+  return s;
+}
+
 string toLiteral(const string& s) { return s; }
 
 string toLiteral(double2 cs) { return "U2("s + toLiteral(cs.first) + ',' + toLiteral(cs.second) + ')'; }
@@ -211,6 +222,11 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
   defines += toDefine("FFT_VARIANT", fft.variant);
   defines += toDefine("TAILT", root1Fancy(fft.shape.height * 2, 1));
+
+  TrigCoefs coefs = trigCoefs(fft.shape.size() / 4);
+  defines += toDefine("TRIG_SCALE", coefs.scale);
+  defines += toDefine("TRIG_SIN",   coefs.sinCoefs);
+  defines += toDefine("TRIG_COS",   coefs.cosCoefs);
 
   return defines;
 }
@@ -964,10 +980,10 @@ void Gpu::selftestTrig() {
   }
 
   log("TRIG sin() #%d : +%d (%.1f%%) -%d (%.1f%%); half: +%d (%.1f%%) -%d (%.1f%%)\n",
-      n, sup, 100.0 * sup / n, sdown, 100.0 * sdown / n, suph, 100.0 * suph / n, sdownh, 100.0 * sdownh / n);
+      n, sup, 100.0 * sup / n, sdown, 100.0 * sdown / n, suph, 200.0 * suph / n, sdownh, 200.0 * sdownh / n);
 
   log("TRIG cos() #%d : +%d (%.1f%%) -%d (%.1f%%); half: +%d (%.1f%%) -%d (%.1f%%)\n",
-      n, cup, 100.0 * cup / n, cdown, 100.0 * cdown / n, cuph, 100.0 * cuph / n, cdownh, 100.0 * cdownh / n);
+      n, cup, 100.0 * cup / n, cdown, 100.0 * cdown / n, cuph, 200.0 * cuph / n, cdownh, 200.0 * cdownh / n);
 }
 
 static u32 mod3(const std::vector<u32> &words) {
