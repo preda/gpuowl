@@ -225,11 +225,18 @@ Program loadSource(cl_context context, const string &source) {
 
 string getBuildLog(cl_program program, cl_device_id deviceId) {
   size_t logSize;
-  clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
-  if (logSize > 1) {
-    logSize = std::min(logSize, size_t(5000));
+  const size_t maxLogSize = 64 * 1024;
+  int err = clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logSize);
+  CHECK2(err, "clGetProgramBuildInfo");
+  if (logSize > 0) {
+    // Avoid printing excessively large compile logs
+    if (logSize > maxLogSize) {
+      log("getBuildLog: log size is %lu bytes, not showing\n", logSize);
+      return {};
+    }
     std::unique_ptr<char[]> buf(new char[logSize + 1]);
-    clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
+    err = clGetProgramBuildInfo(program, deviceId, CL_PROGRAM_BUILD_LOG, logSize, buf.get(), &logSize);
+    CHECK2(err, "clGetProgramBuildInfo");
     buf.get()[logSize] = 0;
     return buf.get();
   }
