@@ -30,7 +30,7 @@ jobs:
         make prpll -O -j "$(nproc)"
         cd build-release
         rm -f -- *.o
-        ./prpll -h
+        ./prpll -iters 10000 -prp 82589933
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -78,7 +78,7 @@ jobs:
         make prpll -O -j $env:NUMBER_OF_PROCESSORS
         cd build-release
         rm *.o
-        .\prpll.exe -h
+        .\prpll.exe -iters 10000 -prp 82589933
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -99,7 +99,7 @@ jobs:
         make prpll -j "$(sysctl -n hw.ncpu)"
         cd build-release
         rm -f -- *.o
-        ./prpll -h
+        ./prpll -iters 10000 -prp 82589933
     - uses: actions/upload-artifact@v4
       if: always()
       with:
