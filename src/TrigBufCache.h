@@ -48,3 +48,5 @@ public:
 
 // For small angles, return "fancy" cos - 1 for increased precision
 double2 root1Fancy(u32 N, u32 k);
+
+double2 root1(u32 N, u32 k);

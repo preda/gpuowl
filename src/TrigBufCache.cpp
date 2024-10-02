@@ -10,11 +10,10 @@
 #endif
 
 #ifndef M_PI
-#define M_PI 3.141592653589793238462643383279502884
+#define M_PI 3.1415926535897931
 #endif
 
 static_assert(sizeof(double2) == 16, "size double2");
-// static_assert(sizeof(long double) > sizeof(double), "long double offers extended precision");
 
 // For small angles, return "fancy" cos - 1 for increased precision
 double2 root1Fancy(u32 N, u32 k) {
@@ -22,12 +21,10 @@ double2 root1Fancy(u32 N, u32 k) {
   assert(k < N);
   assert(k < N/4);
 
-  double angle = - M_PIl * k / (N / 2);
-  return {double(cosl(angle) - 1), sin(angle)};
+  long double angle = - M_PIl * k / (N / 2);
+  // double angle = - M_PI * k / (N / 2);
+  return {double(cosl(angle) - 1), sinl(angle)};
 }
-
-namespace {
-static const constexpr bool LOG_TRIG_ALLOC = false;
 
 // Returns the primitive root of unity of order N, to the power k.
 double2 root1(u32 N, u32 k) {
@@ -44,13 +41,19 @@ double2 root1(u32 N, u32 k) {
   } else {
     assert(!(N&7));
     assert(k <= N/8);
-    N /= 2;
 
-    double angle = - M_PIl * k / N;
+#if 1
+    long double angle = - M_PIl * k / (N / 2);
+    return {cosl(angle), sinl(angle)};
+#else
+    double angle = - M_PI * k / (N / 2);
     return {cos(angle), sin(angle)};
+#endif
   }
 }
 
+namespace {
+static const constexpr bool LOG_TRIG_ALLOC = false;
 
 vector<double2> genSmallTrig(u32 size, u32 radix) {
   if (LOG_TRIG_ALLOC) { log("genSmallTrig(%u, %u)\n", size, radix); }

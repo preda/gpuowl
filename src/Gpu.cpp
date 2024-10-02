@@ -493,7 +493,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   bufStatsCarry.zero();
   bufTrue.write({1});
 
-  selftestTrig();
+  if (args.verbose) { selftestTrig(); }
 
   queue->finish();
 }
@@ -979,22 +979,25 @@ void Gpu::selftestTrig() {
   int sup = 0, suph = 0, sdown = 0, sdownh = 0;
   int cup = 0, cuph = 0, cdown = 0, cdownh = 0;
   for (u32 k = 0; k < n; ++k) {
-    double c =  trig[2*k];
-    double s = -trig[2*k + 1];
-    long double angle = M_PIl / (hN/2) * k;
-    double refSin = sinl(angle);
+    double c = trig[2*k];
+    double s = trig[2*k + 1];
+
+#if 0
+    auto [refCos, refSin] = root1(hN, k);
+#else
+    long double angle = M_PIl * k / (hN/2);
+    double refSin = -sinl(angle);
     double refCos = cosl(angle);
+#endif
+
     if (s > refSin) { ++sup;   if (k < n/2) { ++suph; }}
     if (s < refSin) { ++sdown; if (k < n/2) { ++sdownh; }}
     if (c > refCos) { ++cup;   if (k < n/2) { ++cuph; }}
     if (c < refCos) { ++cdown; if (k < n/2) { ++cdownh; }}
   }
 
-  log("TRIG sin() #%d : +%d (%.1f%%) -%d (%.1f%%); half: +%d (%.1f%%) -%d (%.1f%%)\n",
-      n, sup, 100.0 * sup / n, sdown, 100.0 * sdown / n, suph, 200.0 * suph / n, sdownh, 200.0 * sdownh / n);
-
-  log("TRIG cos() #%d : +%d (%.1f%%) -%d (%.1f%%); half: +%d (%.1f%%) -%d (%.1f%%)\n",
-      n, cup, 100.0 * cup / n, cdown, 100.0 * cdown / n, cuph, 200.0 * cuph / n, cdownh, 200.0 * cdownh / n);
+  log("TRIG sin() #%d : err %d balance %d\n", n, sup + sdown, sup - sdown);
+  log("TRIG cos() #%d : err %d balance %d\n", n, cup + cdown, cup - cdown);
 }
 
 static u32 mod3(const std::vector<u32> &words) {
