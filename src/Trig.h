@@ -6,9 +6,10 @@
 #include <array>
 
 struct TrigCoefs {
-  int scale;
-  std::array<double, 7> sinCoefs;
-  std::array<double, 7> cosCoefs;
+  u32 scaleSin;
+  u32 scaleCos;
+  std::array<double, 8> sinCoefs;
+  std::array<double, 8> cosCoefs;
 };
 
 TrigCoefs trigCoefs(u32 N);

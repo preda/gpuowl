@@ -7,55 +7,32 @@
 // N represents a full circle, so N/2 is pi radians and N/8 is pi/4 radians.
 double2 reducedCosSin(int k, u32 N) {
   assert(k >= -N/8 && k <= N/8);
+
   const double S[] = TRIG_SIN;
-  const double C[] = TRIG_COS;
+  double x = k * -TRIG_SMUL;
+  double z = x * x;
 
-  const double x = k * -TRIG_SCALE;
-  const double z = x * x;
-
-#if 1
-
-  double r2 = C[6];
-  double r1 = S[6];
-  r2 = fma(r2, z, C[5]);
-  r1 = fma(r1, z, S[5]);
-
-  r2 = fma(r2, z, C[4]);
-  r1 = fma(r1, z, S[4]);
-
-  r2 = fma(r2, z, C[3]);
-  r1 = fma(r1, z, S[3]);
-
-  r2 = fma(r2, z, C[2]);
-  r1 = fma(r1, z, S[2]);
-
-  r2 = fma(r2, z, C[1]);
-  r1 = fma(r1, z, S[1]);
-
-  r2 = fma(r2, z, C[0]);
-  double s = fma(x, S[0], r1 * x * z);
-  double c = fma(r2, z, 1);
-
-#else
-
-  double r = S[6];
+  double r = S[7];
+  r = fma(r, z, S[6]);
   r = fma(r, z, S[5]);
   r = fma(r, z, S[4]);
   r = fma(r, z, S[3]);
   r = fma(r, z, S[2]);
-  r = fma(r, z, S[1]);
-  double s = fma(x, S[0], r * x * z);
+  r = fma(r, z, S[0]);
+  double s = fma(x, S[1], r * x);
 
-  r = C[6];
+  const double C[] = TRIG_COS;
+  x = k * TRIG_CMUL;
+  z = x * x;
+
+  r = C[7];
+  r = fma(r, z, C[6]);
   r = fma(r, z, C[5]);
   r = fma(r, z, C[4]);
   r = fma(r, z, C[3]);
   r = fma(r, z, C[2]);
   r = fma(r, z, C[1]);
-  r = fma(r, z, C[0]);
-  double c = fma(r, z, 1);
-
-#endif
+  double c = fma(r, z, 1); // C[0] == 1
 
   return U2(c, s);
 }

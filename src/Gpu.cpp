@@ -235,9 +235,10 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   defines += toDefine("TAILT", root1Fancy(fft.shape.height * 2, 1));
 
   TrigCoefs coefs = trigCoefs(fft.shape.size() / 4);
-  defines += toDefine("TRIG_SCALE", coefs.scale);
-  defines += toDefine("TRIG_SIN",   coefs.sinCoefs);
-  defines += toDefine("TRIG_COS",   coefs.cosCoefs);
+  defines += toDefine("TRIG_SMUL", int(coefs.scaleSin));
+  defines += toDefine("TRIG_CMUL", int(coefs.scaleCos));
+  defines += toDefine("TRIG_SIN",  coefs.sinCoefs);
+  defines += toDefine("TRIG_COS",  coefs.cosCoefs);
 
   return defines;
 }
@@ -996,8 +997,10 @@ void Gpu::selftestTrig() {
     if (c < refCos) { ++cdown; if (k < n/2) { ++cdownh; }}
   }
 
-  log("TRIG sin() #%d : err %d balance %d\n", n, sup + sdown, sup - sdown);
-  log("TRIG cos() #%d : err %d balance %d\n", n, cup + cdown, cup - cdown);
+  log("TRIG sin(): imperfect %d / %d (%.2f%%), balance %d\n",
+      sup + sdown, n, (sup + sdown) * 100.0 / n, sup - sdown);
+  log("TRIG cos(): imperfect %d / %d (%.2f%%), balance %d\n",
+      cup + cdown, n, (cup + cdown) * 100.0 / n, cup - cdown);
 }
 
 static u32 mod3(const std::vector<u32> &words) {
