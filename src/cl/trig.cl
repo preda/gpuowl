@@ -33,8 +33,9 @@ double2 reducedCosSin(int k, u32 N) {
   r1 = fma(r1, z, S[1]);
   r2 = fma(r2, z, C[1]);
 
-  double s = fma(x, S[0], r1 * x);
+  r1 = r1 * x;
   double c = fma(r2, z, C[0]); // C[0] == 1
+  double s = fma(x, S[0], r1);
 
 #else
 

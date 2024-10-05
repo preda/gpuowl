@@ -1051,8 +1051,11 @@ fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
 }
 
 PRPState Gpu::loadPRP(Saver<PRPState>& saver) {
-  // We do at most 4 attempts: the most recent savefile twice, plus two more.
-  for (int nTries = 0; nTries < 4; ++nTries) {
+  for (int nTries = 0; nTries < 2; ++nTries) {
+    if (nTries) {
+      saver.dropMostRecent();    // Try an earlier savefile
+    }
+
     PRPState state = saver.load();
     writeState(state.check, state.blockSize);
     u64 res = dataResidue();
@@ -1065,12 +1068,7 @@ PRPState Gpu::loadPRP(Saver<PRPState>& saver) {
 
     log("EE %9u on-load: %016" PRIx64 " vs. %016" PRIx64 "\n", state.k, res, state.res64);
 
-    // Attempt to load the first savefile twice (to verify res64 reproducibility)
-    if (!nTries) { continue; }
-
     if (!state.k) { break; }  // We failed on PRP start
-
-    saver.dropMostRecent();    // Try an earlier savefile
   }
 
   throw "Error on load";
