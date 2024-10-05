@@ -235,8 +235,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   defines += toDefine("TAILT", root1Fancy(fft.shape.height * 2, 1));
 
   TrigCoefs coefs = trigCoefs(fft.shape.size() / 4);
-  defines += toDefine("TRIG_SMUL", int(coefs.scaleSin));
-  defines += toDefine("TRIG_CMUL", int(coefs.scaleCos));
+  defines += toDefine("TRIG_SCALE", int(coefs.scale));
   defines += toDefine("TRIG_SIN",  coefs.sinCoefs);
   defines += toDefine("TRIG_COS",  coefs.cosCoefs);
 
@@ -977,8 +976,8 @@ void Gpu::selftestTrig() {
   const u32 n = hN / 8;
   testTrig(buf1);
   vector<double> trig = buf1.read(n * 2);
-  int sup = 0, suph = 0, sdown = 0, sdownh = 0;
-  int cup = 0, cuph = 0, cdown = 0, cdownh = 0;
+  int sup = 0, sdown = 0;
+  int cup = 0, cdown = 0;
   for (u32 k = 0; k < n; ++k) {
     double c = trig[2*k];
     double s = trig[2*k + 1];
@@ -991,10 +990,10 @@ void Gpu::selftestTrig() {
     double refCos = cosl(angle);
 #endif
 
-    if (s > refSin) { ++sup;   if (k < n/2) { ++suph; }}
-    if (s < refSin) { ++sdown; if (k < n/2) { ++sdownh; }}
-    if (c > refCos) { ++cup;   if (k < n/2) { ++cuph; }}
-    if (c < refCos) { ++cdown; if (k < n/2) { ++cdownh; }}
+    if (s > refSin) { ++sup; }
+    if (s < refSin) { ++sdown; }
+    if (c > refCos) { ++cup; }
+    if (c < refCos) { ++cdown; }
   }
 
   log("TRIG sin(): imperfect %d / %d (%.2f%%), balance %d\n",

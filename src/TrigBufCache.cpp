@@ -42,7 +42,7 @@ double2 root1(u32 N, u32 k) {
     assert(!(N&7));
     assert(k <= N/8);
 
-#if 1
+#if 0
     long double angle = - M_PIl * k / (N / 2);
     return {cosl(angle), sinl(angle)};
 #else

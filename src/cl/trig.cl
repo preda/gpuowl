@@ -9,7 +9,7 @@ double2 reducedCosSin(int k, u32 N) {
   assert(k >= -N/8 && k <= N/8);
 
   const double S[] = TRIG_SIN;
-  double x = k * -TRIG_SMUL;
+  double x = k * -TRIG_SCALE;
   double z = x * x;
 
   double r = S[7];
@@ -22,8 +22,6 @@ double2 reducedCosSin(int k, u32 N) {
   double s = fma(x, S[1], r * x);
 
   const double C[] = TRIG_COS;
-  x = k * TRIG_CMUL;
-  z = x * x;
 
   r = C[7];
   r = fma(r, z, C[6]);
