@@ -47,14 +47,12 @@ KERNEL(256) isEqual(global i64 *in1, global i64 *in2, P(int) outEqual) {
 
 #if TEST_KERNEL
 // Generate a small unused kernel so developers can look at how well individual macros assemble and optimize
-kernel void testKernel(global double* in, global float* out) {
-  uint me = get_local_id(0);
-  double RNDVAL = 1 + 1e-100;
+kernel void testKernel(global int* in, global double* out) {
+  const double TAB[8] = {M_PI/13, M_PI/17, M_PI, M_SQRT2, M_SQRT1_2, M_PI/7, M_PI*7, M_PI/15};
 
-  double x = in[me];
-  double d = x + RNDVAL;
-  long double a = x + RNDVAL;
-  out[me] = fabs((float) (x + (RNDVAL - d))) * sin((double) a);
+  int me = get_local_id(0);
+  int p = me * in[me] % 8; // % 15;
+  out[me] = TAB[p];
 }
 
 #endif

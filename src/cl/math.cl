@@ -22,7 +22,7 @@ T2 cmul_by_conjugate(T2 a, T2 b) { return cmul(a, conjugate(b)); }
 
 T2 cfma(T2 a, T2 b, T2 c) {
 #if 1
-  return U2(fma(a.x, b.x, fma(a.y, -b.y, c.x)), fma(a.x, b.y, fma(a.y, b.x, c.y)));
+  return U2(fma(a.x, b.x, fma(a.y, -b.y, c.x)), fma(a.y, b.x, fma(a.x, b.y, c.y)));
 #else
   return U2(fma(a.y, -b.y, fma(a.x, b.x, c.x)), fma(a.x, b.y, fma(a.y, b.x, c.y)));
 #endif

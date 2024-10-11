@@ -23,8 +23,9 @@ primenet = build_opener(HTTPCookieProcessor(cookiejar.CookieJar()))
 def login(user, password):
     login = {"user_login": user, "user_password": password}
     data = urlencode(login).encode('utf-8')
-    r = primenet.open(baseUrl + "default.php", data).read().decode("utf-8")
+    r = primenet.open(baseUrl, data).read().decode("utf-8")
     if not user + "<br>logged in" in r:
+        print(r)
         print("Login failed");
         raise(PermissionError("Login failed"))
 

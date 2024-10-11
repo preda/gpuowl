@@ -33,6 +33,25 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   u32 p = me & ~(f - 1);
+
+#if 0
+  if (WG == 256 && n == 4) {
+    for (int i = 1; i < n; ++i) {
+      u[i] = cmul(u[i], trig_1024(p * i, WG * i));
+    }
+    return;
+  }
+#endif
+
+#if 0
+  T2 w = slowTrig_N(ND / n / WG * p, ND / n);
+  T2 base = w;
+  for (int i = 1; i < n; ++i) {
+    u[i] = cmul(u[i], w);
+    w = cmul(w, base);
+  }
+#endif
+
   T2 w = trig[p];
 
   if (n >= 8) {
@@ -73,10 +92,7 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
     u[2] = cmul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
     a *= 2;
     T2 base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
-    for (u32 i = 3; i < n; ++i) {
-      u[i] = cmul(u[i], base);
-      base = cmul(base, w);
-    }
+    u[3] = cmul(u[3], base);
   }
 #else
 #error CLEAN must be 0 or 1
