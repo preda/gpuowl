@@ -142,6 +142,8 @@ private:
   Kernel kernIsEqual;
   Kernel sum64;
   Kernel testTrig;
+  Kernel testFFT4;
+  Kernel testFFT15;
 
   // Kernel testKernel;
 

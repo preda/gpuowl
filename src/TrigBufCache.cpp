@@ -21,8 +21,7 @@ double2 root1Fancy(u32 N, u32 k) {
   assert(k < N);
   assert(k < N/4);
 
-  long double angle = - M_PIl * k / (N / 2);
-  // double angle = - M_PI * k / (N / 2);
+  long double angle = M_PIl * k / (N / 2);
   return {double(cosl(angle) - 1), sinl(angle)};
 }
 
@@ -37,16 +36,15 @@ double2 root1(u32 N, u32 k) {
     return {-c, s};
   } else if (k > N/8) {
     auto [c, s] = root1(N, N/4 - k);
-    return {-s, -c};
+    return {s, c};
   } else {
-    assert(!(N&7));
     assert(k <= N/8);
 
 #if 0
-    long double angle = - M_PIl * k / (N / 2);
+    long double angle = M_PIl * k / (N / 2);
     return {cosl(angle), sinl(angle)};
 #else
-    double angle = - M_PI * k / (N / 2);
+    double angle = M_PI * k / (N / 2);
     return {cos(angle), sin(angle)};
 #endif
   }

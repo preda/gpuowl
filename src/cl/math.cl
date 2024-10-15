@@ -51,29 +51,30 @@ T2 csqFancyUpdate(T2 a) {
 #endif
 }
 
-T2 mul_t4(T2 a)  { return U2(a.y, -a.x); } // mul(a, U2( 0, -1)); }
+T2 mul_t4(T2 a)  { return U2(-a.y, a.x); } // mul(a, U2( 0, 1)); }
 
-T2 mul_t8(T2 a)  { // mul(a, U2( 1, -1)) * (T)(M_SQRT1_2); }
-  return U2(a.y + a.x, a.y - a.x) * M_SQRT1_2;
+T2 mul_t8(T2 a)  { // mul(a, U2( 1, 1)) * (T)(M_SQRT1_2); }
+  return U2(a.x - a.y, a.x + a.y) * M_SQRT1_2;
 }
 
-T2 mul_3t8(T2 a) { // mul(a, U2(-1, -1)) * (T)(M_SQRT1_2); }
-  return U2(a.y - a.x, -a.y -a.x) * M_SQRT1_2;
+T2 mul_3t8(T2 a) { // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2); }
+  return U2(a.y + a.x, a.y - a.x) * -M_SQRT1_2;
 }
 
 T2 swap(T2 a)   { return U2(a.y, a.x); }
 T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
 
-// Same as X2(a, b), b = mul_t4(b)
-#define X2_mul_t4(a, b) { T2 t = a; a = t + b; t.x = RE(b) - t.x; RE(b) = t.y - IM(b); IM(b) = t.x; }
-
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
 
+// Same as X2(a, b), b = mul_t4(b)
+#define X2_mul_t4(a, b) { X2(a, b); b = mul_t4(b); }
+// { T2 t = a; a = a + b; t.x = t.x - b.x; b.x = b.y - t.y; b.y = t.x; }
+
 // Same as X2(a, conjugate(b))
-#define X2conjb(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = IM(a) - IM(b); RE(b) = t.x - RE(b); IM(b) = t.y + IM(b); }
+#define X2conjb(a, b) { T2 t = a; a.x = a.x + b.x; a.y = a.y - b.y; b.x = t.x - b.x; b.y = t.y + b.y; }
 
 // Same as X2(a, b), a = conjugate(a)
-#define X2conja(a, b) { T2 t = a; RE(a) = RE(a) + RE(b); IM(a) = -IM(a) - IM(b); b = t - b; }
+#define X2conja(a, b) { T2 t = a; a.x = a.x + b.x; a.y = -a.y - b.y; b = t - b; }
 
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 

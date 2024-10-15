@@ -1,13 +1,63 @@
 // Copyright (C) Mihai Preda and George Woltman
 
 #if !NEWEST_FFT5 && !NEW_FFT5 && !OLD_FFT5
-#define NEW_FFT5 1
+#define OLD_FFT5 1
 #endif
 
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 
 // Using rocm 2.9, testKernel shows this macro generates 38 f64 (8 FMA) ops, 26 vgprs.
 #if OLD_FFT5
+
+#if 1
+
+void fft5by(T2 *u, u32 base, u32 step, u32 m) {
+  const double
+      S1 = -0.048943483704846427, // sin(tau/5) - 1
+      S2 = 1.5388417685876268,    // sin(t/5) + sin(2t/5); S2 - 1 == 0.53884176858762667
+      S3 = 0.36327126400268045,   // sin(t/5) - sin(2t/5)
+      C1 = 0.11803398874989485;   // cos(t/5) - cos(2t/5) - 1
+      // C2 = 0.55901699437494745;   // (C1 + 1) / 2
+
+#define A(k) u[(base + k * step) % m]
+
+  X2(A(2), A(3));
+  X2(A(1), A(4));
+  X2(A(1), A(2));
+
+  T2 tmp = A(0);
+  A(0) = A(0) + A(1);
+  A(1) = -A(1) / 4 + tmp;
+
+  tmp = A(4) - A(3);
+
+#if 1
+  A(2) = (C1 + 1) / 2 * A(2);
+#else
+  A(2) = fmaT2(C1, A(2), A(2)) / 2;
+#endif
+
+  tmp = fmaT2(S1, tmp, tmp);
+
+  tmp  = mul_t4(tmp);
+  A(3) = mul_t4(A(3));
+  A(4) = mul_t4(A(4));
+
+  X2(A(1), A(2));
+
+  A(3) = fmaT2( S2, A(3), tmp);
+  A(4) = fmaT2(-S3, A(4), tmp);
+
+  SWAP(A(3), A(4));
+  X2(A(1), A(4));
+  X2(A(2), A(3));
+#undef A
+}
+
+void fft5(T2 *u) { return fft5by(u, 0, 1, 5); }
+
+#else
+
 void fft5(T2 *u) {
   const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
   const double SIN2 = 0x1.89f188bdcd7afp+0; // sin(tau/5) + sin(2*tau/5), 1.53884176858762677931
@@ -20,21 +70,22 @@ void fft5(T2 *u) {
 
   T2 tmp = u[0];
   u[0] += u[1];
-  u[1] = u[1] * (-0.25) + tmp;
+  u[1] = - u[1] / 4 + tmp;
 
   u[2] *= COS1;
 
-  tmp = (u[4] - u[3]) * SIN1;
-  tmp  = U2(tmp.y, -tmp.x);
+  tmp = mul_t4((u[4] - u[3]) * SIN1);
 
-  u[3] = U2(u[3].y, -u[3].x) * SIN2 + tmp;
-  u[4] = U2(-u[4].y, u[4].x) * SIN3 + tmp;
+  u[3] = mul_t4(u[3]) * SIN2 + tmp;
+  u[4] = mul_t4(u[4]) * - SIN3 + tmp;
   SWAP(u[3], u[4]);
 
   X2(u[1], u[2]);
   X2(u[1], u[4]);
   X2(u[2], u[3]);
 }
+
+#endif
 
 // Using rocm 2.9, testKernel shows this macro generates an ideal 44 f64 ops (12 FMA) or 32 f64 ops (20 FMA), 30 vgprs.
 #elif NEW_FFT5

@@ -48,8 +48,7 @@ void pairMul(u32 N, T2 *u, T2 *v, T2 *p, T2 *q, T2 base_squared, bool special) {
       onePairMul(&u[i+NH/2], &v[i+NH/2], &p[i+NH/2], &q[i+NH/2], base_squared);
     }
 
-    // T2 new_base_squared = mul(base_squared, U2(0, -1));
-    T2 new_base_squared = U2(IM(base_squared), -RE(base_squared));
+    T2 new_base_squared = mul_t4(base_squared);
     onePairMul(&u[i+NH/4], &v[i+NH/4], &p[i+NH/4], &q[i+NH/4], -new_base_squared);
 
     if (N == NH) {

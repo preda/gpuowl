@@ -44,8 +44,7 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
       onePairSq(&u[i+NH/2], &v[i+NH/2], base_squared);
     }
 
-    // T2 new_base_squared = mul(base_squared, U2(0, -1));
-    T2 new_base_squared = U2(base_squared.y, -base_squared.x);
+    T2 new_base_squared = mul_t4(base_squared);
     onePairSq(&u[i+NH/4], &v[i+NH/4], -new_base_squared);
 
     if (N == NH) {

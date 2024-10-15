@@ -403,6 +403,8 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   K(kernIsEqual, "etc.cl", "isEqual", 256 * 256, "-DISEQUAL=1"),
   K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
   K(testTrig,    "selftest.cl", "testTrig", 256 * 256),
+  K(testFFT4, "selftest.cl", "testFFT4", 256),
+  K(testFFT15, "selftest.cl", "testFFT15", 256),
 #undef K
 
   bufTrigW{shared.bufCache->smallTrig(WIDTH, nW)},
@@ -493,7 +495,9 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   bufStatsCarry.zero();
   bufTrue.write({1});
 
-  if (args.verbose) { selftestTrig(); }
+  if (args.verbose) {
+    selftestTrig();
+  }
 
   queue->finish();
 }
@@ -982,11 +986,11 @@ void Gpu::selftestTrig() {
     double c = trig[2*k];
     double s = trig[2*k + 1];
 
-#if 0
+#if 1
     auto [refCos, refSin] = root1(hN, k);
 #else
     long double angle = M_PIl * k / (hN/2);
-    double refSin = -sinl(angle);
+    double refSin = sinl(angle);
     double refCos = cosl(angle);
 #endif
 
@@ -1000,6 +1004,18 @@ void Gpu::selftestTrig() {
       sup + sdown, n, (sup + sdown) * 100.0 / n, sup - sdown);
   log("TRIG cos(): imperfect %d / %d (%.2f%%), balance %d\n",
       cup + cdown, n, (cup + cdown) * 100.0 / n, cup - cdown);
+
+  testFFT4(buf1);
+  vector<double> fft4 = buf1.read(4 * 2);
+  for (int i = 0; i < 4; ++i) {
+    log("FFT4[%d] = %f, %f\n", i, fft4[2*i], fft4[2*i + 1]);
+  }
+
+  testFFT15(buf1);
+  vector<double> fft15 = buf1.read(15 * 2);
+  for (int i = 0; i < 15; ++i) {
+    log("FFT15[%d] = %f, %f\n", i, fft15[2*i], fft15[2*i + 1]);
+  }
 }
 
 static u32 mod3(const std::vector<u32> &words) {
