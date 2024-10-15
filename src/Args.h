@@ -10,6 +10,8 @@
 
 namespace fs = std::filesystem;
 
+using KeyVal = std::pair<std::string, std::string>;
+
 class Args {
 public:
   static std::string mergeArgs(int argc, char **argv);
@@ -34,6 +36,7 @@ public:
   string binaryFile;
   string verifyPath;
   std::map<std::string, std::string> flags;
+  std::map<std::string, vector<KeyVal>> perFftConfig;
   
   int device = 0;
   

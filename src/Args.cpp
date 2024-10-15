@@ -50,6 +50,27 @@ vector<pair<string, string>> splitArgLine(const string& inputLine) {
   return ret;
 }
 
+// Splits a string of the form "Foo=bar,C,D=1" into key=value pairs, with value defaulting to "1".
+vector<KeyVal> splitUses(string ss) { // pass by value is intentional
+  vector<KeyVal> ret;
+  std::replace(ss.begin(), ss.end(), ',', ' ');
+  std::istringstream iss{ss};
+  vector<string> uses{std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
+  for (const string &s : uses) {
+    auto pos = s.find('=');
+    string key = (pos == string::npos) ? s : s.substr(0, pos);
+    string val = (pos == string::npos) ? "1"s : s.substr(pos+1);
+
+    if (key == "STATS" && pos == string::npos) {
+      // special-case the default value for STATS (=15) being a bit-field
+      val = "15";
+    }
+
+    ret.push_back({key, val});
+  }
+  return ret;
+}
+
 void Args::readConfig(const fs::path& path) {
   if (File file = File::openRead(path)) {
     while (true) {
@@ -192,7 +213,19 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
 }
 
 void Args::parse(const string& line) {
-  if (line.empty()) { return; }
+  if (line.empty() || line[0] == '#') { return; }
+
+  if (line[0] == '!') {
+    // conditional defines predicated on a FFT
+    char fftBuf[32];
+    char configBuf[256];
+    sscanf(line.c_str(), "! %31s %255s", fftBuf, configBuf);
+    string fft = fftBuf;
+    string config = configBuf;
+    perFftConfig[fft] = splitUses(config);
+    return;
+  }
+
   if (!silent) { log("config: %s\n", line.c_str()); }
   auto args = splitArgLine(line);
   for (const auto& [key, s] : args) {
@@ -282,21 +315,9 @@ void Args::parse(const string& line) {
         log("BlockSize %u must divide 10'000\n", blockSize);
         throw "invalid block size";
       }
-    } else if (key == "-use") {
-      string ss = s;
-      std::replace(ss.begin(), ss.end(), ',', ' ');
-      std::istringstream iss{ss};
-      vector<string> uses{std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};
-      for (const string &s : uses) {
-        auto pos = s.find('=');
-        string key = (pos == string::npos) ? s : s.substr(0, pos);
-        string val = (pos == string::npos) ? "1"s : s.substr(pos+1);
-
-        if (key == "STATS" && pos == string::npos) {
-          // special-case the default value for STATS (=15) being a bit-field
-          val = "15";
-        }
-
+    } else if (key == "-use")
+    {
+      for (const auto& [key, val] : splitUses(s)) {
         auto it = flags.find(key);
         if (it != flags.end() && it->second != val) {
           log("warning: -use %s=%s overrides %s=%s\n", key.c_str(), val.c_str(), it->first.c_str(), it->second.c_str());
