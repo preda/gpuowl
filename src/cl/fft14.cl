@@ -1,22 +1,33 @@
 // Copyright (C) Mihai Preda and George Woltman
 
+#include "fft7.cl"
+
+#if 1
+
+void fft14(T2 *u) {
+  fft7by(u, 0, 2, 14);
+  fft7by(u, 7, 2, 14);
+  for (int i = 0; i <= 12; i += 2) { X2(u[i], u[(i + 7) % 14]); }
+  // Fix order: 0 11 8 5 2 13 10 7 4 1 12 9 6 3
+
+#define CYCLE(a, b, c) { T2 t = u[a]; u[a] = u[b]; u[b] = u[c]; u[c] = t; }
+  CYCLE(1, 9, 11);
+  CYCLE(2, 4, 8);
+  CYCLE(3, 13, 5);
+  CYCLE(6, 12, 10);
+#undef CYCLE
+}
+
+#else
+
 void fft14(T2 *u) {
   const double
-      COS1 = 0.62348980185873348,
-      COS2 = -0.22252093395631439,
-      COS3 = -0.90096886790241915,
-      SIN1 = 0.7818314824680298,
-      SIN2_SIN1 = 1.246979603717467,
-      SIN3_SIN1 = 0.55495813208737121;
-
-  /*
-  const double SIN1 = 0.781831482468029809;		// sin(tau/7)
-  const double SIN2_SIN1 = 1.2469796037174670611;	// sin(2*tau/7) / sin(tau/7) = .975/.782
-  const double SIN3_SIN1 = 0.5549581320873711914;	// sin(3*tau/7) / sin(tau/7) = .434/.782
-  const double COS1 = 0.6234898018587335305;		// cos(tau/7)
-  const double COS2 = -0.2225209339563144043;		// cos(2*tau/7)
-  const double COS3 = -0.9009688679024191262;		// cos(3*tau/7)
-  */
+      COS1 = 0.62348980185873348,  // cos(tau/7)
+      COS2 = -0.22252093395631439, // cos(2*tau/7)
+      COS3 = -0.90096886790241915, // cos(3*tau/7)
+      SIN1 = 0.7818314824680298, // sin(tau/7)
+      SIN2_SIN1 = 1.246979603717467, // sin(2*tau/7) / sin(tau/7)
+      SIN3_SIN1 = 0.55495813208737121; // sin(3*tau/7) / sin(tau/7)
 
   X2(u[0], u[7]);					// (r1+ i1+),  (r1-  i1-)
   X2_mul_t4(u[1], u[8]);				// (r2+ i2+),  (i2- -r2-)
@@ -81,3 +92,4 @@ void fft14(T2 *u) {
   fma_addsub(u[5], u[9], SIN1, tmp610a, tmp610b);
   fma_addsub(u[6], u[8], SIN1, tmp79a, tmp79b);
 }
+#endif

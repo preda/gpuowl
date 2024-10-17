@@ -1,7 +1,10 @@
+// Copyright (C) Mihai Preda
+
 #include "base.cl"
 #include "trig.cl"
 #include "fft4.cl"
 #include "fft15.cl"
+#include "fft14.cl"
 #include "fft7.cl"
 
 KERNEL(256) testFFT4(global double2* out) {
@@ -41,5 +44,14 @@ KERNEL(256) testFFT15(global double2* io) {
     for (int i = 0; i < 15; ++i) { u[i] = io[i]; }
     fft15(u);
     for (int i = 0; i < 15; ++i) { io[i] = u[i]; }
+  }
+}
+
+KERNEL(256) testFFT14(global double2* io) {
+  double2 u[14];
+  if (get_global_id(0) == 0) {
+    for (int i = 0; i < 14; ++i) { u[i] = io[i]; }
+    fft14(u);
+    for (int i = 0; i < 14; ++i) { io[i] = u[i]; }
   }
 }

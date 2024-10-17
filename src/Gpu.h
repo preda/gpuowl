@@ -145,6 +145,7 @@ private:
   Kernel testFFT4;
   Kernel testFFT15;
   Kernel testFFT7;
+  Kernel testFFT14;
 
   // Kernel testKernel;
 

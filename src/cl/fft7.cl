@@ -1,7 +1,9 @@
+#pragma once
+
 #include "base.cl"
 
-void fft7(T2 *u) {
 #if 1
+void fft7by(T2 *u, u32 base, u32 step, u32 M) {
   // Adapted from Nussbaumer, "Fast Fourier Transforms and Convolution Algorithms", 5.5.5 7-Point DFT
   const double
       C1=-0.16666666666666666, // (c1 + c2 + c3)/3
@@ -13,43 +15,52 @@ void fft7(T2 *u) {
       S3=-0.53396936033772513, // (s1 - 2*s2 - s3)/3
       S4=0.87484229096165655;  // (s1 + s2 + 2*s3)/3
 
-  X2(u[1], u[6]);
-  X2(u[2], u[5]);
-  X2(u[3], u[4]);
+#define A(i) u[(base + i * step) % M]
 
-  T2 t13 = u[2] - u[1];
-  T2 t9  = u[2] - u[3];
+  X2(A(1), A(6));
+  X2(A(2), A(5));
+  X2(A(3), A(4));
 
-  X2(u[1], u[3]);
+  T2 t13 = A(2) - A(1);
+  T2 t9  = A(2) - A(3);
 
-  T2 m2 = -C2 * u[3];
+  X2(A(1), A(3));
+
+  T2 m2 = -C2 * A(3);
   T2 s0 = fmaT2(C3, t9, m2);
-  T2 t4  = u[1] + u[2];
-  u[2] = fmaT2(-C4, t13, m2);
+  T2 t4  = A(1) + A(2);
+  A(2) = fmaT2(-C4, t13, m2);
 
-  T2 s4 = fmaT2(C1, t4, u[0]);
-  u[0] = u[0] + t4;
-  u[1] = s4 - s0;
-  u[3] = s4 + s0 - u[2];
-  u[2] = s4      + u[2];
+  T2 s4 = fmaT2(C1, t4, A(0));
+  A(0) = A(0) + t4;
+  A(1) = s4 - s0;
+  A(3) = s4 + s0 - A(2);
+  A(2) = s4      + A(2);
 
-  T2 m6 = -S2 * (u[4] + u[6]);
-  T2 t2 = fmaT2(S3, u[5] + u[4], m6);
-  T2 s3 = fmaT2(S4, u[6] - u[5], m6);
+  T2 m6 = -S2 * (A(4) + A(6));
+  T2 t2 = fmaT2(S3, A(5) + A(4), m6);
+  T2 s3 = fmaT2(S4, A(6) - A(5), m6);
 
-  T2 t1  = S1 * (u[5] - u[4] + u[6]);
-  u[5] = mul_t4(t1 + s3);
-  u[6] = mul_t4(t1 - t2);
+  T2 t1  = S1 * (A(5) - A(4) + A(6));
+  A(5) = mul_t4(t1 + s3);
+  A(6) = mul_t4(t1 - t2);
 
   t1 = mul_t4(t1 + t2 - s3);
 
-  X2(u[1], u[6]);
-  X2(u[2], u[5]);
+  X2(A(1), A(6));
+  X2(A(2), A(5));
 
-  u[4] = u[3] + t1;
-  u[3] = u[3] - t1;
+  A(4) = A(3) + t1;
+  A(3) = A(3) - t1;
+
+#undef A
+}
+
+void fft7(T2 *u) { return fft7by(u, 0, 1, 7); }
 
 #else
+
+void fft7(T2 *u, u32 base, u32 step, u32 M) {
   // See prime95's gwnum/zr7.mac file for more detailed explanation of the formulas below
   // R1= r1     +(r2+r7)     +(r3+r6)     +(r4+r5)
   // R2= r1 +.623(r2+r7) -.223(r3+r6) -.901(r4+r5)  +(.782(i2-i7) +.975(i3-i6) +.434(i4-i5))
@@ -105,5 +116,5 @@ void fft7(T2 *u) {
   fma_addsub(u[1], u[6], SIN1, tmp27a, tmp27b);
   fma_addsub(u[2], u[5], SIN1, tmp36a, tmp36b);
   fma_addsub(u[3], u[4], SIN1, tmp45a, tmp45b);
-#endif
 }
+#endif
