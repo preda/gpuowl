@@ -1,3 +1,5 @@
+// Copyright (C) Mihai Preda & George Woltman
+
 #pragma once
 
 #include "base.cl"

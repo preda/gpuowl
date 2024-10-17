@@ -5,7 +5,7 @@
 #include "fft4.cl"
 #include "fft15.cl"
 #include "fft14.cl"
-#include "fft7.cl"
+#include "fft6.cl"
 
 KERNEL(256) testFFT4(global double2* out) {
   if (get_global_id(0) == 0) {
@@ -29,12 +29,12 @@ KERNEL(256) testTrig(global double2* out) {
   }
 }
 
-KERNEL(256) testFFT7(global double2* io) {
+KERNEL(256) testFFT(global double2* io) {
   double2 u[7];
   if (get_global_id(0) == 0) {
-    for (int i = 0; i < 7; ++i) { u[i] = io[i]; }
-    fft7(u);
-    for (int i = 0; i < 7; ++i) { io[i] = u[i]; }
+    for (int i = 0; i < 6; ++i) { u[i] = io[i]; }
+    fft6(u);
+    for (int i = 0; i < 6; ++i) { io[i] = u[i]; }
   }
 }
 

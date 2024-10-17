@@ -404,8 +404,8 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
   K(testTrig,    "selftest.cl", "testTrig", 256 * 256),
   K(testFFT4, "selftest.cl", "testFFT4", 256),
+  K(testFFT, "selftest.cl", "testFFT", 256),
   K(testFFT15, "selftest.cl", "testFFT15", 256),
-  K(testFFT7, "selftest.cl", "testFFT7", 256),
   K(testFFT14, "selftest.cl", "testFFT14", 256),
 #undef K
 
@@ -1037,12 +1037,12 @@ void Gpu::selftestTrig() {
   */
 
   vector<double> data;
-  for (int i = 0; i < 2*14; ++i) { data.push_back(i); }
+  for (int i = 0; i < 2*6; ++i) { data.push_back(i + 1); }
   buf1.write(data);
-  testFFT14(buf1);
-  data = buf1.read(14 * 2);
-  for (int i = 0; i < 14; ++i) {
-    log("FFT14[%d] = %f, %f\n", i, data[2*i], data[2*i + 1]);
+  testFFT(buf1);
+  data = buf1.read(6 * 2);
+  for (int i = 0; i < 6; ++i) {
+    log("FFT[%d] = %f, %f\n", i, data[2*i], data[2*i + 1]);
   }
 }
 

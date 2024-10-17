@@ -143,8 +143,8 @@ private:
   Kernel sum64;
   Kernel testTrig;
   Kernel testFFT4;
+  Kernel testFFT;
   Kernel testFFT15;
-  Kernel testFFT7;
   Kernel testFFT14;
 
   // Kernel testKernel;
