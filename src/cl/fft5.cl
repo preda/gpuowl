@@ -5,11 +5,7 @@
 #endif
 
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
-
-// Using rocm 2.9, testKernel shows this macro generates 38 f64 (8 FMA) ops, 26 vgprs.
 #if OLD_FFT5
-
-#if 1
 
 void fft5by(T2 *u, u32 base, u32 step, u32 m) {
   const double
@@ -27,7 +23,9 @@ void fft5by(T2 *u, u32 base, u32 step, u32 m) {
 
   T2 tmp = A(0);
   A(0) = A(0) + A(1);
-  A(1) = -A(1) / 4 + tmp;
+
+  // A(1) = -A(1) / 4 + tmp;
+  A(1) = fmaT2(-0.25, A(1), tmp);
 
   tmp = A(4) - A(3);
 
@@ -55,37 +53,6 @@ void fft5by(T2 *u, u32 base, u32 step, u32 m) {
 }
 
 void fft5(T2 *u) { return fft5by(u, 0, 1, 5); }
-
-#else
-
-void fft5(T2 *u) {
-  const double SIN1 = 0x1.e6f0e134454ffp-1; // sin(tau/5), 0.95105651629515353118
-  const double SIN2 = 0x1.89f188bdcd7afp+0; // sin(tau/5) + sin(2*tau/5), 1.53884176858762677931
-  const double SIN3 = 0x1.73fd61d9df543p-2; // sin(tau/5) - sin(2*tau/5), 0.36327126400268044959
-  const double COS1 = 0x1.1e3779b97f4a8p-1; // (cos(tau/5) - cos(2*tau/5))/2, 0.55901699437494745126
-
-  X2(u[2], u[3]);
-  X2(u[1], u[4]);
-  X2(u[1], u[2]);
-
-  T2 tmp = u[0];
-  u[0] += u[1];
-  u[1] = - u[1] / 4 + tmp;
-
-  u[2] *= COS1;
-
-  tmp = mul_t4((u[4] - u[3]) * SIN1);
-
-  u[3] = mul_t4(u[3]) * SIN2 + tmp;
-  u[4] = mul_t4(u[4]) * - SIN3 + tmp;
-  SWAP(u[3], u[4]);
-
-  X2(u[1], u[2]);
-  X2(u[1], u[4]);
-  X2(u[2], u[3]);
-}
-
-#endif
 
 // Using rocm 2.9, testKernel shows this macro generates an ideal 44 f64 ops (12 FMA) or 32 f64 ops (20 FMA), 30 vgprs.
 #elif NEW_FFT5

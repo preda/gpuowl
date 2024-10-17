@@ -405,6 +405,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   K(testTrig,    "selftest.cl", "testTrig", 256 * 256),
   K(testFFT4, "selftest.cl", "testFFT4", 256),
   K(testFFT15, "selftest.cl", "testFFT15", 256),
+  K(testFFT7, "selftest.cl", "testFFT7", 256),
 #undef K
 
   bufTrigW{shared.bufCache->smallTrig(WIDTH, nW)},
@@ -1011,10 +1012,22 @@ void Gpu::selftestTrig() {
     log("FFT4[%d] = %f, %f\n", i, fft4[2*i], fft4[2*i + 1]);
   }
 
+  vector<double> data{1, 2, -3, -4, 1, 0, 0, 1, -1, 2, 0, -1, 0, -2, 5, 1, 5, 2, -2, -1, 0, 1, 0, 2, 0, 3, 1, -1, 1, -2};
+  buf1.write(data);
+
   testFFT15(buf1);
   vector<double> fft15 = buf1.read(15 * 2);
   for (int i = 0; i < 15; ++i) {
     log("FFT15[%d] = %f, %f\n", i, fft15[2*i], fft15[2*i + 1]);
+  }
+
+  data.clear();
+  for (int i = 0; i < 2*7; ++i) { data.push_back(i); }
+  buf1.write(data);
+  testFFT7(buf1);
+  data = buf1.read(7 * 2);
+  for (int i = 0; i < 7; ++i) {
+    log("FFT7[%d] = %f, %f\n", i, data[2*i], data[2*i + 1]);
   }
 }
 

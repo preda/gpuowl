@@ -8,8 +8,8 @@ void fft3by(T2 *u, u32 base, u32 step, u32 m) {
   X2(A(1), A(2));
   A(2) = mul_t4(A(2));
 
-  // T2 tmp23 = fmaT2(COS1, A(1), A(0));
-  T2 tmp23 = A(0) - A(1) / 2;
+  // T2 tmp23 = A(0) - A(1) / 2;
+  T2 tmp23 = fmaT2(-0.5, A(1), A(0));
 
   A(0) = A(0) + A(1);
   A(1) = fmaT2( SIN1, A(2), tmp23);
