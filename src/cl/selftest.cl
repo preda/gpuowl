@@ -6,6 +6,7 @@
 #include "fft15.cl"
 #include "fft14.cl"
 #include "fft6.cl"
+#include "fft9.cl"
 
 KERNEL(256) testFFT4(global double2* out) {
   if (get_global_id(0) == 0) {
@@ -30,11 +31,11 @@ KERNEL(256) testTrig(global double2* out) {
 }
 
 KERNEL(256) testFFT(global double2* io) {
-  double2 u[7];
+  double2 u[9];
   if (get_global_id(0) == 0) {
-    for (int i = 0; i < 6; ++i) { u[i] = io[i]; }
-    fft6(u);
-    for (int i = 0; i < 6; ++i) { io[i] = u[i]; }
+    for (int i = 0; i < 9; ++i) { u[i] = io[i]; }
+    fft9(u);
+    for (int i = 0; i < 9; ++i) { io[i] = u[i]; }
   }
 }
 

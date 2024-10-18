@@ -461,7 +461,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
     throw "FFT size too large";
   }
 
-  useLongCarry = useLongCarry || (bitsPerWord < 10.5f);
+  useLongCarry = useLongCarry || (bitsPerWord < 12.0);
 
   if (useLongCarry) { log("Using long carry!\n"); }
   
