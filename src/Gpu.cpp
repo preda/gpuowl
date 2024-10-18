@@ -1037,13 +1037,11 @@ void Gpu::selftestTrig() {
   */
 
   vector<double> data;
-  for (int i = 0; i < 2*6; ++i) { data.push_back(i + 1); }
+  for (int i = 0; i < 2 * 10; ++i) { data.push_back(i + 1); }
   buf1.write(data);
   testFFT(buf1);
-  data = buf1.read(6 * 2);
-  for (int i = 0; i < 6; ++i) {
-    log("FFT[%d] = %f, %f\n", i, data[2*i], data[2*i + 1]);
-  }
+  data = buf1.read(2 * 10);
+  for (int i = 0; i < 10; ++i) { log("FFT[%d] = %f, %f\n", i, data.at(2*i), data.at(2*i + 1)); }
 }
 
 static u32 mod3(const std::vector<u32> &words) {

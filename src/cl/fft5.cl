@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda and George Woltman
 
+#pragma once
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 // 12 FMA + 24 ADD (or 10 FMA + 28 ADD)
 void fft5by(T2 *u, u32 base, u32 step, u32 m) {
@@ -7,8 +9,8 @@ void fft5by(T2 *u, u32 base, u32 step, u32 m) {
       S1 = -0.048943483704846427, // sin(tau/5) - 1
       S2 = 1.5388417685876268,    // sin(t/5) + sin(2t/5); S2 - 1 == 0.53884176858762667
       S3 = 0.36327126400268045,   // sin(t/5) - sin(2t/5)
-      C1 = 0.11803398874989485,   // cos(t/5) - cos(2t/5) - 1
-      C2 = 0.55901699437494745;   // (C1 + 1) / 2
+      // C1 = 0.11803398874989485,// cos(t/5) - cos(2t/5) - 1
+      C2 = 0.55901699437494745;   // (cos(t/5) - cos(2t/5)) / 2
 
 #define A(k) u[(base + k * step) % m]
 
