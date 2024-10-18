@@ -31,11 +31,12 @@ KERNEL(256) testTrig(global double2* out) {
 }
 
 KERNEL(256) testFFT(global double2* io) {
-  double2 u[9];
+#define SIZE 5
+  double2 u[SIZE];
   if (get_global_id(0) == 0) {
-    for (int i = 0; i < 9; ++i) { u[i] = io[i]; }
-    fft9(u);
-    for (int i = 0; i < 9; ++i) { io[i] = u[i]; }
+    for (int i = 0; i < SIZE; ++i) { u[i] = io[i]; }
+    fft5(u);
+    for (int i = 0; i < SIZE; ++i) { io[i] = u[i]; }
   }
 }
 

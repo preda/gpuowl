@@ -1,19 +1,14 @@
 // Copyright (C) Mihai Preda and George Woltman
 
-#if !NEWEST_FFT5 && !NEW_FFT5 && !OLD_FFT5
-#define OLD_FFT5 1
-#endif
-
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
-#if OLD_FFT5
-
+// 12 FMA + 24 ADD (or 10 FMA + 28 ADD)
 void fft5by(T2 *u, u32 base, u32 step, u32 m) {
   const double
       S1 = -0.048943483704846427, // sin(tau/5) - 1
       S2 = 1.5388417685876268,    // sin(t/5) + sin(2t/5); S2 - 1 == 0.53884176858762667
       S3 = 0.36327126400268045,   // sin(t/5) - sin(2t/5)
-      C1 = 0.11803398874989485;   // cos(t/5) - cos(2t/5) - 1
-      // C2 = 0.55901699437494745;   // (C1 + 1) / 2
+      C1 = 0.11803398874989485,   // cos(t/5) - cos(2t/5) - 1
+      C2 = 0.55901699437494745;   // (C1 + 1) / 2
 
 #define A(k) u[(base + k * step) % m]
 
@@ -21,117 +16,30 @@ void fft5by(T2 *u, u32 base, u32 step, u32 m) {
   X2(A(1), A(4));
   X2(A(1), A(2));
 
-  T2 tmp = A(0);
-  A(0) = A(0) + A(1);
-
-  // A(1) = -A(1) / 4 + tmp;
-  A(1) = fmaT2(-0.25, A(1), tmp);
-
-  tmp = A(4) - A(3);
-
-#if 1
-  A(2) = (C1 + 1) / 2 * A(2);
-#else
-  A(2) = fmaT2(C1, A(2), A(2)) / 2;
-#endif
-
-  tmp = fmaT2(S1, tmp, tmp);
-
-  tmp  = mul_t4(tmp);
   A(3) = mul_t4(A(3));
   A(4) = mul_t4(A(4));
-
-  X2(A(1), A(2));
-
-  A(3) = fmaT2( S2, A(3), tmp);
-  A(4) = fmaT2(-S3, A(4), tmp);
-
+  T2 t = A(4) - A(3);
+  t = fmaT2(S1, t, t);
+  A(3) = fmaT2( S2, A(3), t);
+  A(4) = fmaT2(-S3, A(4), t);
   SWAP(A(3), A(4));
+
+  t = A(0);
+  A(0) = A(0) + A(1);
+  A(1) = fmaT2(-0.25, A(1), t);
+
+#if 0
+  A(2) = C2 * A(2);
+  X2(A(1), A(2));
+#else
+  t = A(1);
+  A(1) = fmaT2( C2, A(2), t);
+  A(2) = fmaT2(-C2, A(2), t);
+#endif
+
   X2(A(1), A(4));
   X2(A(2), A(3));
 #undef A
 }
 
 void fft5(T2 *u) { return fft5by(u, 0, 1, 5); }
-
-// Using rocm 2.9, testKernel shows this macro generates an ideal 44 f64 ops (12 FMA) or 32 f64 ops (20 FMA), 30 vgprs.
-#elif NEW_FFT5
-
-// Above uses fewer FMAs.  Above may be faster if FMA latency cannot be masked.
-// Nussbaumer's ideas can be used to reduce FMAs -- see NEWEST_FFT5 implementation below.
-// See prime95's gwnum/zr5.mac file for more detailed explanation of the formulas below
-// R1= r1     +(r2+r5)     +(r3+r4)
-// R2= r1 +.309(r2+r5) -.809(r3+r4)    +.951(i2-i5) +.588(i3-i4)
-// R5= r1 +.309(r2+r5) -.809(r3+r4)    -.951(i2-i5) -.588(i3-i4)
-// R3= r1 -.809(r2+r5) +.309(r3+r4)    +.588(i2-i5) -.951(i3-i4)
-// R4= r1 -.809(r2+r5) +.309(r3+r4)    -.588(i2-i5) +.951(i3-i4)
-// I1= i1     +(i2+i5)     +(i3+i4)
-// I2= i1 +.309(i2+i5) -.809(i3+i4)    -.951(r2-r5) -.588(r3-r4)
-// I5= i1 +.309(i2+i5) -.809(i3+i4)    +.951(r2-r5) +.588(r3-r4)
-// I3= i1 -.809(i2+i5) +.309(i3+i4)    -.588(r2-r5) +.951(r3-r4)
-// I4= i1 -.809(i2+i5) +.309(i3+i4)    +.588(r2-r5) -.951(r3-r4)
-
-void fft5(T2 *u) {
-  const double SIN1 = 0x1.e6f0e134454ffp-1;		// sin(tau/5), 0.95105651629515353118
-  const double SIN2_SIN1 = 0.618033988749894848;	// sin(2*tau/5) / sin(tau/5) = .588/.951, 0.618033988749894848
-  const double COS1 = 0.309016994374947424;		// cos(tau/5), 0.309016994374947424
-  const double COS2 = 0.809016994374947424;		// -cos(2*tau/5), 0.809016994374947424
-
-  X2_mul_t4(u[1], u[4]);				// (r2+ i2+),  (i2- -r2-)
-  X2_mul_t4(u[2], u[3]);				// (r3+ i3+),  (i3- -r3-)
-
-  T2 tmp25a = fmaT2(COS1, u[1], u[0]);
-  T2 tmp34a = fmaT2(-COS2, u[1], u[0]);
-  u[0] = u[0] + u[1];
-
-  T2 tmp25b = fmaT2(SIN2_SIN1, u[3], u[4]);		// (i2- +.588/.951*i3-, -r2- -.588/.951*r3-)
-  T2 tmp34b = fmaT2(SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2- -i3-, -.588/.951*r2- +r3-)
-
-  tmp25a = fmaT2(-COS2, u[2], tmp25a);
-  tmp34a = fmaT2(COS1, u[2], tmp34a);
-  u[0] = u[0] + u[2];
-
-  fma_addsub(u[1], u[4], SIN1, tmp25a, tmp25b);
-  fma_addsub(u[2], u[3], SIN1, tmp34a, tmp34b);
-}
-
-// Using rocm 2.9, testKernel shows this macro generates an ideal 44 f64 ops (12 FMA) or 32 f64 ops (20 FMA), 30 vgprs.
-#elif NEWEST_FFT5
-
-// Nussbaumer's ideas used to introduce more PREFER_NOFMA opportunities in the code below.
-// Modified prime95's formulas:
-// R1= r1 + ((r2+r5)+(r3+r4))
-// R2= r1 - ((r2+r5)+(r3+r4))/4 +.559((r2+r5)-(r3+r4))    +.951(i2-i5) +.588(i3-i4)
-// R5= r1 - ((r2+r5)+(r3+r4))/4 +.559((r2+r5)-(r3+r4))    -.951(i2-i5) -.588(i3-i4)
-// R3= r1 - ((r2+r5)+(r3+r4))/4 -.559((r2+r5)-(r3+r4))    +.588(i2-i5) -.951(i3-i4)
-// R4= r1 - ((r2+r5)+(r3+r4))/4 -.559((r2+r5)-(r3+r4))    -.588(i2-i5) +.951(i3-i4)
-// I1= i1 + ((i2+i5)+(i3+i4))
-// I2= i1 - ((i2+i5)+(i3+i4))/4 +.559((i2+i5)-(i3+i4))    -.951(r2-r5) -.588(r3-r4)
-// I5= i1 - ((i2+i5)+(i3+i4))/4 +.559((i2+i5)-(i3+i4))    +.951(r2-r5) +.588(r3-r4)
-// I3= i1 - ((i2+i5)+(i3+i4))/4 -.559((i2+i5)-(i3+i4))    -.588(r2-r5) +.951(r3-r4)
-// I4= i1 - ((i2+i5)+(i3+i4))/4 -.559((i2+i5)-(i3+i4))    +.588(r2-r5) -.951(r3-r4)
-
-void fft5(T2 *u) {
-  const double SIN1 = 0x1.e6f0e134454ffp-1;		// sin(tau/5), 0.95105651629515353118
-  const double SIN2_SIN1 = 0.618033988749894848;	// sin(2*tau/5) / sin(tau/5) = .588/.951, 0.618033988749894848
-  const double COS12 = 0x1.1e3779b97f4a8p-1;		// (cos(tau/5) - cos(2*tau/5))/2, 0.55901699437494745126
-
-  X2_mul_t4(u[1], u[4]);				// (r2+ i2+),  (i2- -r2-)
-  X2_mul_t4(u[2], u[3]);				// (r3+ i3+),  (i3- -r3-)
-  X2(u[1], u[2]);					// (r2++ i2++), (r2+- i2+-)
-
-  T2 tmp2345a = fmaT2(-0.25, u[1], u[0]);
-  u[0] = u[0] + u[1];
-
-  T2 tmp25b = fmaT2(SIN2_SIN1, u[3], u[4]);		// (i2- +.588/.951*i3-, -r2- -.588/.951*r3-)
-  T2 tmp34b = fmaT2(SIN2_SIN1, u[4], -u[3]);		// (.588/.951*i2- -i3-, -.588/.951*r2- +r3-)
-
-  T2 tmp25a, tmp34a;
-  fma_addsub(tmp25a, tmp34a, COS12, tmp2345a, u[2]);
-
-  fma_addsub(u[1], u[4], SIN1, tmp25a, tmp25b);
-  fma_addsub(u[2], u[3], SIN1, tmp34a, tmp34b);
-}
-#else
-#error None of OLD_FFT5, NEW_FFT5, NEWEST_FFT5 defined
-#endif

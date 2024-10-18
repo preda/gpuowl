@@ -27,15 +27,3 @@ void fft3by(T2 *u, u32 base, u32 step, u32 M) {
 }
 
 void fft3(T2 *u) { fft3by(u, 0, 1, 3); }
-
-#if 0
-  T2 t1 = A(1) + A(2);
-  T2 m0 = A(0) + t1;
-  T2 m1 = - t1 / 2;
-  T2 m2 = mul_t4(SIN1 * (A(2) - A(1)));
-  T2 s1 = m0 + m1;
-
-  A(0) = m0;
-  A(1) = s1 + m2;
-  A(2) = s1 - m2;
-#endif
