@@ -8,6 +8,7 @@
 #include "fft6.cl"
 #include "fft9.cl"
 #include "fft10.cl"
+#include "fft11.cl"
 
 KERNEL(256) testFFT4(global double2* out) {
   if (get_global_id(0) == 0) {
@@ -32,11 +33,11 @@ KERNEL(256) testTrig(global double2* out) {
 }
 
 KERNEL(256) testFFT(global double2* io) {
-#define SIZE 10
+#define SIZE 11
   double2 u[SIZE];
   if (get_global_id(0) == 0) {
     for (int i = 0; i < SIZE; ++i) { u[i] = io[i]; }
-    fft10(u);
+    fft11(u);
     for (int i = 0; i < SIZE; ++i) { io[i] = u[i]; }
   }
 }

@@ -978,6 +978,16 @@ bool Gpu::equals9(const Words& a) {
   return true;
 }
 
+int ulps(double a, double b) {
+  if (a == 0 && b == 0) { return 0; }
+
+  u64 aa = as<u64>(a);
+  u64 bb = as<u64>(b);
+  bool sameSign = (aa >> 63) == (bb >> 63);
+  int delta = sameSign ? bb - aa : bb + aa;
+  return delta;
+}
+
 void Gpu::selftestTrig() {
   const u32 n = hN / 8;
   testTrig(buf1);
@@ -1037,11 +1047,24 @@ void Gpu::selftestTrig() {
   */
 
   vector<double> data;
-  for (int i = 0; i < 2 * 10; ++i) { data.push_back(i + 1); }
+  for (int i = 0; i < 2 * 11; ++i) { data.push_back(22 - i); }
+  vector<double> ref = data;
   buf1.write(data);
   testFFT(buf1);
-  data = buf1.read(2 * 10);
-  for (int i = 0; i < 10; ++i) { log("FFT[%d] = %f, %f\n", i, data.at(2*i), data.at(2*i + 1)); }
+
+  data = buf1.read(2 * 11);
+  for (int i = 0; i < 11; ++i) { log("FFT[%d] = %f, %f\n", i, data.at(2*i), data.at(2*i + 1)); }
+
+  for (int i = 1; i < 2 * 11; i += 2) { data[i] = - data[i]; }
+  buf1.write(data);
+
+  testFFT(buf1);
+
+  data = buf1.read(2 * 11);
+  for (int i = 1; i < 2 * 11; i += 2) { data[i] = -data[i]; }
+
+  for (int i = 0; i < 11; ++i) { log("FFT[%d] = %f, %f (%d %d)\n", i, data.at(2*i) / 11, data.at(2*i + 1) / 11,
+        ulps(ref.at(2*i), data.at(2*i)/11), ulps(ref.at(2*i + 1), data.at(2*i+1)/11)); }
 }
 
 static u32 mod3(const std::vector<u32> &words) {
