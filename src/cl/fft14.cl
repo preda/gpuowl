@@ -7,7 +7,7 @@
 void fft14(T2 *u) {
   fft7by(u, 0, 2, 14);
   fft7by(u, 7, 2, 14);
-  for (int i = 0; i <= 12; i += 2) { X2(u[i], u[(i + 7) % 14]); }
+  for (int i = 0; i < 14; i += 2) { X2(u[i], u[(i + 7) % 14]); }
 
   // Fix order: 0 11 8 5 2 13 10 7 4 1 12 9 6 3
 
