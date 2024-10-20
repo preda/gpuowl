@@ -1,6 +1,7 @@
-Table of small FFTs
+## Table of small FFTs
 
-The "cost" is estimated as 2xFMA + ADD.
+The "cost" is estimated as 2xFMAs + 1xADDs.
+Excess vGPRs is #vGPRs - 4*N.
 
 | N  | FMAs | ADDs | Excess vGPRs | Cost | Cost/N^2 |
 |----|------|------|-------|------|----|
