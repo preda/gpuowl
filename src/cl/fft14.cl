@@ -1,9 +1,10 @@
 // Copyright (C) Mihai Preda and George Woltman
 
-#include "fft7.cl"
-
 #if 1
 
+#include "fft7.cl"
+
+// 20 FMA + 152 ADD
 void fft14(T2 *u) {
   fft7by(u, 0, 2, 14);
   fft7by(u, 7, 2, 14);
@@ -21,6 +22,7 @@ void fft14(T2 *u) {
 
 #else
 
+// 84 FMA + 64 ADD
 void fft14(T2 *u) {
   const double
       COS1 = 0.62348980185873348,  // cos(tau/7)

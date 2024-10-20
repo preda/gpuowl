@@ -2,6 +2,7 @@
 
 #include "fft3.cl"
 
+// 12 FMA + 24 ADD
 void fft6(T2 *u) {
 #if 1
   X2(u[0], u[3]);

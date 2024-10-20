@@ -10,6 +10,7 @@ void fft4Core(T2 *u) {
   X2(u[2], u[3]);
 }
 
+// 16 ADD
 void fft4by(T2 *u, u32 base, u32 step, u32 M) {
 
 #define A(k) u[(base + step * k) % M]

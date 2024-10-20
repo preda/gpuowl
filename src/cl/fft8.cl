@@ -13,6 +13,7 @@ void fft8Core(T2 *u) {
   fft4Core(u + 4);
 }
 
+// 4 MUL + 52 ADD
 void fft8(T2 *u) {
   fft8Core(u);
   // revbin [0, 4, 2, 6, 1, 5, 3, 7] undo

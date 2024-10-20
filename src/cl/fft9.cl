@@ -1,7 +1,7 @@
 // Copyright (C) Mihai Preda and George Woltman
 
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.7 "9-Point DFT".
-// 12 FMA, 8 MUL, 72 ADD
+// 12 FMA + 8 MUL, 72 ADD
 void fft9(T2 *u) {
   double
       C0 = 0x1.8836fa2cf5039p-1, //   0.766044443118978013 (2*c(u) - c(2*u) - c(4*u))/3

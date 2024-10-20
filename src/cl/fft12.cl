@@ -4,6 +4,7 @@
 #include "fft3.cl"
 #include "fft4.cl"
 
+// 24 FMA + 72 ADD
 void fft12(T2 *u) {
   fft3by(u, 0, 4, 12);
   fft3by(u, 3, 4, 12);
@@ -22,6 +23,7 @@ void fft12(T2 *u) {
 
 #else
 
+// 24 FMA + 72 ADD
 // See prime95's gwnum/zr12.mac file for more detailed explanation of the formulas below
 void fft12(T2 *u) {
   const double SIN1 = 0x1.bb67ae8584caap-1;	// sin(tau/3), 0.86602540378443859659;

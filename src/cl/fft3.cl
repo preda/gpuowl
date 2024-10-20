@@ -2,6 +2,7 @@
 
 #pragma once
 
+// 6 FMA + 6 ADD
 void fft3by(T2 *u, u32 base, u32 step, u32 M) {
 #define A(k) u[(base + k * step) % M]
   double SIN1 = 0.8660254037844386; // sin(tau/3) == sqrt(3)/2

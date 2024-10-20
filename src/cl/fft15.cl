@@ -3,7 +3,7 @@
 #include "fft3.cl"
 #include "fft5.cl"
 
-// FFT 15 using PFA ("Prime Factor Algorithm")
+// FFT 15 using PFA ("Prime Factor Algorithm"): 66 FMA + 102 ADD
 void fft15(T2 *u) {
   fft3by(u,  0, 5, 15);
   fft3by(u,  3, 5, 15);
