@@ -9,15 +9,14 @@
 #include "fft9.cl"
 #include "fft10.cl"
 #include "fft11.cl"
+#include "fft12.cl"
 
-KERNEL(256) testFFT4(global double2* out) {
+KERNEL(256) testFFT4(global double2* io) {
+  T2 u[4];
   if (get_global_id(0) == 0) {
-    T2 x[4] = {U2(1, 2), U2(-3, 4), U2(5, 6), U2(7, -8)};
-    fft4(x);
-    out[0] = x[0];
-    out[1] = x[1];
-    out[2] = x[2];
-    out[3] = x[3];
+    for (int i = 0; i < 4; ++i) { u[i] = io[i]; }
+    fft4(u);
+    for (int i = 0; i < 4; ++i) { io[i] = u[i]; }
   }
 }
 
@@ -33,11 +32,11 @@ KERNEL(256) testTrig(global double2* out) {
 }
 
 KERNEL(256) testFFT(global double2* io) {
-#define SIZE 11
+#define SIZE 12
   double2 u[SIZE];
   if (get_global_id(0) == 0) {
     for (int i = 0; i < SIZE; ++i) { u[i] = io[i]; }
-    fft11(u);
+    fft12(u);
     for (int i = 0; i < SIZE; ++i) { io[i] = u[i]; }
   }
 }
