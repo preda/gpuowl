@@ -51,22 +51,20 @@ T2 csqFancyUpdate(T2 a) {
 #endif
 }
 
-T2 mul_t4(T2 a)  { return U2(-a.y, a.x); } // mul(a, U2( 0, 1)); }
+T2 mul_t4(T2 a)  { return U2(-a.y, a.x); } // i.e. a * i
 
 T2 mul_t8(T2 a)  { // mul(a, U2( 1, 1)) * (T)(M_SQRT1_2); }
   return U2(a.x - a.y, a.x + a.y) * M_SQRT1_2;
 }
 
 T2 mul_3t8(T2 a) { // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2); }
-  return U2(a.y + a.x, a.y - a.x) * -M_SQRT1_2;
+  return U2(-(a.x + a.y), a.x - a.y) * M_SQRT1_2;
 }
 
 T2 swap(T2 a)   { return U2(a.y, a.x); }
 T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
 
 #define X2(a, b) { T2 t = a; a = t + b; b = t - b; }
-
-// #define t4_X2(a, b) { T t = a.x; a.x = a.x - b.y; b.x = t + b.y; t = a.y; a.y = a.y + b.x; b.y = t - b.x; }
 
 // Same as X2(a, b), b = mul_t4(b)
 #define X2_mul_t4(a, b) { X2(a, b); b = mul_t4(b); }
@@ -81,12 +79,6 @@ T2 addsub(T2 a) { return U2(a.x + a.y, a.x - a.y); }
 #define SWAP(a, b) { T2 t = a; a = b; b = t; }
 
 T2 fmaT2(T a, T2 b, T2 c) { return fma(U2(a, a), b, c); }
-
-// Partial complex multiplies:  the mul by sin is delayed so that it can be later propagated to an FMA instruction
-// complex mul by cos-i*sin given cos/sin, sin
-// T2 partial_cmul(T2 a, T c_over_s) { return U2(fma(a.x, c_over_s, a.y), fma(a.y, c_over_s, -a.x)); }
-// complex mul by cos+i*sin given cos/sin, sin
-// T2 partial_cmul_conjugate(T2 a, T c_over_s) { return U2(fma(a.x, c_over_s, -a.y), fma(a.y, c_over_s, a.x)); }
 
 // a = c + sin * d; b = c - sin * d;
 #define fma_addsub(a, b, sin, c, d) { T2 t = c + sin * d; b = c - sin * d; a = t; }
