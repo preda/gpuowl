@@ -15,6 +15,7 @@
 #include "fft13.cl"
 #include "fft14.cl"
 #include "fft15.cl"
+#include "fft16.cl"
 
 KERNEL(256) testFFT3(global double2* io) {
   T2 u[4];
@@ -118,11 +119,11 @@ KERNEL(256) testTrig(global double2* out) {
 }
 
 KERNEL(256) testFFT(global double2* io) {
-#define SIZE 12
+#define SIZE 16
   double2 u[SIZE];
   if (get_global_id(0) == 0) {
     for (int i = 0; i < SIZE; ++i) { u[i] = io[i]; }
-    fft12(u);
+    fft16(u);
     for (int i = 0; i < SIZE; ++i) { io[i] = u[i]; }
   }
 }

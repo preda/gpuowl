@@ -21,4 +21,4 @@ Excess vGPRs is #vGPRs - 4*N.
 | 13 | 156  |  36  |     25       |  348 |     2.1  |[FFT-13](src/cl/fft13.cl)|
 | 14 |  20  | 152  |     13       |  192 |     1    |[FFT-14](src/cl/fft14.cl)|
 | 15 |  66  | 102  |     15       |  234 |     1    |[FFT-15](src/cl/fft15.cl)|
-
+| 16 |  28  | 124  |     13       |  180 |     0.7  |[FFT-16](src/cl/fft16.cl)|

@@ -201,9 +201,11 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "UNROLL_H",
                               "UNROLL_W",
                               "NO_ASM",
+                              "DEBUG",
+                              "CARRY64"
                             });
     if (!isValid) {
-      log("Unrecognized -use key '%s'\n", k.c_str());
+      log("Warning: unrecognized -use key '%s'\n", k.c_str());
     }
   }
 
@@ -998,7 +1000,7 @@ void Gpu::selftestTrig() {
     double c = trig[2*k];
     double s = trig[2*k + 1];
 
-#if 1
+#if 0
     auto [refCos, refSin] = root1(hN, k);
 #else
     long double angle = M_PIl * k / (hN/2);
@@ -1047,24 +1049,24 @@ void Gpu::selftestTrig() {
   */
 
   vector<double> data;
-  for (int i = 0; i < 2 * 12; ++i) { data.push_back(2*12 - i); }
+  for (int i = 0; i < 2 * 16; ++i) { data.push_back(2*16 - i); }
   vector<double> ref = data;
   buf1.write(data);
   testFFT(buf1);
 
-  data = buf1.read(2 * 12);
-  for (int i = 0; i < 12; ++i) { log("FFT[%d] = %f, %f\n", i, data.at(2*i), data.at(2*i + 1)); }
+  data = buf1.read(2 * 16);
+  for (int i = 0; i < 16; ++i) { log("FFT[%d] = %f, %f\n", i, data.at(2*i), data.at(2*i + 1)); }
 
-  for (int i = 1; i < 2 * 12; i += 2) { data[i] = - data[i]; }
+  for (int i = 1; i < 2 * 16; i += 2) { data[i] = - data[i]; }
   buf1.write(data);
 
   testFFT(buf1);
 
-  data = buf1.read(2 * 12);
-  for (int i = 1; i < 2 * 12; i += 2) { data[i] = -data[i]; }
+  data = buf1.read(2 * 16);
+  for (int i = 1; i < 2 * 16; i += 2) { data[i] = -data[i]; }
 
-  for (int i = 0; i < 12; ++i) { log("FFT[%d] = %f, %f (%d %d)\n", i, data.at(2*i) / 12, data.at(2*i + 1) / 12,
-        ulps(ref.at(2*i), data.at(2*i)/12), ulps(ref.at(2*i + 1), data.at(2*i+1)/12)); }
+  for (int i = 0; i < 16; ++i) { log("FFT[%d] = %f, %f (%d %d)\n", i, data.at(2*i) / 16, data.at(2*i + 1) / 16,
+        ulps(ref.at(2*i), data.at(2*i)/16), ulps(ref.at(2*i + 1), data.at(2*i+1)/16)); }
 }
 
 static u32 mod3(const std::vector<u32> &words) {

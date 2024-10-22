@@ -68,6 +68,8 @@ def upload(userId, exponent, data, verbose):
         verbose and print(pos, end)
 
         with requests.session() as session:
+            timeStart = time.time()
+            bytesSent = 0
             while pos < end:
                 size = min(end - pos, 5*1024*1024)
                 time1 = time.time()
@@ -76,10 +78,12 @@ def upload(userId, exponent, data, verbose):
                     print(response)                
                     return False
                 pos += size
+                bytesSent += size
                 time2 = time.time()
                 print(f'\r{int(pos/fileSize*100+0.5)}%\t{int(size/(time2 - time1)/1024+0.5)} KB/s    ', end='', flush=True)
                 if 'FileUploaded' in response.json():
-                    print('')
+                    secs = time2 - timeStart
+                    print(f'Uploaded {bytesSent*1e-6:.0f} MB in {secs:.0f}s, {bytesSent * 8 / (secs * 1024 *1024):.1f} Mbit/s');
                     verbose and print('Upload complete')
                     assert(pos >= end)
                     return True

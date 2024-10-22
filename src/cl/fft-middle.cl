@@ -30,6 +30,8 @@ void fft2(T2* u) { X2(u[0], u[1]); }
 #include "fft14.cl"
 #elif MIDDLE == 15
 #include "fft15.cl"
+#elif MIDDLE == 16
+#include "fft16.cl"
 #endif
 
 void fft_MIDDLE(T2 *u) {
@@ -63,6 +65,8 @@ void fft_MIDDLE(T2 *u) {
   fft14(u);
 #elif MIDDLE == 15
   fft15(u);
+#elif MIDDLE == 16
+  fft16(u);
 #else
 #error UNRECOGNIZED MIDDLE
 #endif
@@ -237,9 +241,6 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig) {
 #undef WSUBF
 
 // Do a partial transpose during fftMiddleIn/Out
-// The AMD OpenCL optimization guide indicates that reading/writing T values will be more efficient
-// than reading/writing T2 values.  This routine lets us try both versions.
-
 void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
   if (MIDDLE <= 8) {
