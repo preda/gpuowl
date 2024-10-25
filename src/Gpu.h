@@ -201,6 +201,7 @@ private:
   void writeIn(Buffer<int>& buf, vector<i32>&& words);
 
   void square(Buffer<int>& out, Buffer<int>& in, bool leadIn, bool leadOut, bool doMul3 = false, bool doLL = false);
+  void squareCERT(Buffer<int>& io, bool leadIn, bool leadOut) { square(io, io, leadIn, leadOut, false, false); }
   void squareLL(Buffer<int>& io, bool leadIn, bool leadOut) { square(io, io, leadIn, leadOut, false, true); }
 
   void square(Buffer<int>& io);
@@ -252,6 +253,8 @@ public:
 
   PRPResult isPrimePRP(const Task& task);
   LLResult isPrimeLL(const Task& task);
+  array<u64, 4> isCERT(const Task& task);
+
   double timePRP();
 
   tuple<bool, u64, RoeInfo, RoeInfo> measureROE(bool quick);

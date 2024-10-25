@@ -25,6 +25,7 @@ bool isHex(const string& s) {
 // Examples:
 // PRP=FEEE9DCD59A0855711265C1165C4C693,1,2,124647911,-1,77,0
 // DoubleCheck=E0F583710728343C61643028FBDBA0FB,70198703,75,1
+// Cert=B2EE67DC0A514753E488794C9DD6F6BD,1,2,82997591,-1,162105
 std::optional<Task> parse(const std::string& line) {
   if (line.empty() || line[0] == '#') { return {}; }
 
@@ -32,6 +33,7 @@ std::optional<Task> parse(const std::string& line) {
 
   bool isPRP = false;
   bool isLL = false;
+  bool isCERT = false;
 
   if (topParts.size() == 2) {
     string kind = topParts.front();
@@ -39,6 +41,8 @@ std::optional<Task> parse(const std::string& line) {
       isPRP = true;
     } else if (kind == "Test" || kind == "DoubleCheck") {
       isLL = true;
+    } else if (kind == "Cert") {
+      isCERT = true;
     }
   }
 
@@ -61,7 +65,28 @@ std::optional<Task> parse(const std::string& line) {
     u64 exp{};
     auto [ptr, _] = from_chars(s.c_str(), end, exp, 10);
     if (ptr != end) { exp = 0; }
-    if (exp > 1000) { return {{isPRP ? Task::PRP : Task::LL, u32(exp), AID, line}}; }
+    if (exp > 1000) { return {{isPRP ? Task::PRP : Task::LL, u32(exp), AID, line, 0}}; }
+  }
+  if (isCERT) {
+    vector<string> parts = split(topParts.back(), ',');
+    if (!parts.empty() && parts.front().size() == 32 && isHex(parts.front())) {
+      string AID;
+      AID = parts.front();
+      parts.erase(parts.begin());
+
+      if (parts.size() == 5 && parts[0] == "1" && parts[1] == "2" && parts[3] == "-1") {
+	string s = parts[2];
+	const char *end = s.c_str() + s.size();
+	u64 exp{0};
+	from_chars(s.c_str(), end, exp, 10);
+	s = parts[4];
+	end = s.c_str() + s.size();
+	u64 squarings{0};
+	from_chars(s.c_str(), end, squarings, 10);
+//printf ("Exec cert %d %d \n", (int) exp, (int) squarings);
+	if (exp > 1000 && squarings > 100) { return {{Task::CERT, u32(exp), AID, line, u32(squarings) }}; }
+      }
+    }
   }
   log("worktodo.txt line ignored: \"%s\"\n", rstripNewline(line).c_str());
   return {};

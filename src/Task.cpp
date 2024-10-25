@@ -178,6 +178,22 @@ void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize)
   writeResult(exponent, "LL", isPrime ? "P" : "C", AID, args, fields);
 }
 
+void Task::writeResultCERT(const Args &args, array <u64, 4> hash, u32 squarings, u32 fftSize) const {
+  string hexhash = hex(hash[3]) + hex(hash[2]) + hex(hash[1]) + hex(hash[0]);
+  vector<string> fields{json("worktype", "Cert"),
+			json("exponent", exponent),
+			json("sha3-hash", hexhash.c_str()),
+			json("squarings", squarings),
+                        json("fft-length", fftSize),
+                        json("shift-count", 0),
+                        json("error-code", "00000000"), // I don't know the meaning of this
+  };
+  fields += tailFields(AID, args);
+  string s = json(std::move(fields));
+  log("%s\n", s.c_str());
+  File::append(args.resultsFile, s + '\n');
+}
+
 void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
   if (kind == VERIFY) { exponent = proof::getInfo(verifyPath).exp; }
 
@@ -214,6 +230,10 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
     } else {
       gpu->clear(kind == PRP);
     }
+  } else if (kind == CERT) {
+    auto sha256 = gpu->isCERT(*this);
+    writeResultCERT(*shared.args, sha256, squarings, fft.size());
+    Worktodo::deleteTask(*this, instance);
   } else {
     throw "Unexpected task kind " + to_string(kind);
   }

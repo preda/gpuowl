@@ -1,4 +1,4 @@
-// Copyright Mihai Preda and George Woltman.
+// Copyright (C) Mihai Preda and George Woltman.
 
 #include "Gpu.h"
 #include "Proof.h"
@@ -15,6 +15,7 @@
 #include "timeutil.h"
 #include "TrigBufCache.h"
 #include "fs.h"
+#include "Sha3Hash.h"
 
 #include <algorithm>
 #include <bitset>
@@ -1615,6 +1616,71 @@ LLResult Gpu::isPrimeLL(const Task& task) {
     if (doStop) { throw "stop requested"; }
   }
 }
+
+array<u64, 4> Gpu::isCERT(const Task& task) {
+  assert(E == task.exponent);
+  wantROE = 0;
+
+  // Get CERT start value
+  char fname[32];
+  sprintf(fname, "M%u.cert", E);
+  File fi = File::openReadThrow(fname);
+
+//We need to gracefully handle the CERT file missing.  There is a window in primenet.py between worktodo.txt entry and starting value download.
+
+  u32 nBytes = (E - 1) / 8 + 1;
+  Words B = fi.readBytesLE(nBytes);
+
+  writeIn(bufData, std::move(B));
+
+  Timer elapsedTimer;
+
+  elapsedTimer.reset();
+
+  u32 startK = 0;
+
+  IterationTimer iterationTimer{startK};
+
+  u32 k = 0;
+  u32 kEnd = task.squarings;
+  bool leadIn = true;
+
+  while (true) {
+    ++k;
+    bool doStop = (k >= kEnd);
+
+    if (Signal::stopRequested()) {
+      doStop = true;
+      log("Stopping, please wait..\n");
+    }
+
+    bool doLog = (k % 100'000 == 0) || doStop;
+    bool leadOut = doLog || useLongCarry;
+
+    squareCERT(bufData, leadIn, leadOut);
+    leadIn = leadOut;
+
+    if (!doLog) {
+      if (k % args.flushStep == 0) { queue->finish(); } // Periodically flush the queue
+      continue;
+    }
+
+    Words data = readData();
+    assert(data.size() >= 2);
+    u64 res64 = (u64(data[1]) << 32) | data[0];
+
+    float secsPerIt = iterationTimer.reset(k);
+    log("%9u %016" PRIx64 " %4.0f\n", k, res64, secsPerIt * 1'000'000);
+
+    if (k >= kEnd) {
+      fs::remove (fname);
+      return std::move(SHA3{}.update(data.data(), (E-1)/8+1)).finish();
+    }
+
+    if (doStop) { throw "stop requested"; }
+  }
+}
+
 
 void Gpu::clear(bool isPRP) {
   if (isPRP) {
