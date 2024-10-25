@@ -77,8 +77,9 @@ vector<FFTShape> FFTShape::multiSpec(const string& iniSpec) {
 vector<FFTShape> FFTShape::allShapes(u32 sizeFrom, u32 sizeTo) {
   vector<FFTShape> configs;
   for (u32 width : {256, 512, 1024, 4096}) {
-    for (u32 height : {256, 512, 1024/*, 4096*/}) {
-      for (u32 middle : {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) {
+    for (u32 height : {256, 512, 1024}) {
+      if (width == 256 && height == 1024) { continue; } // Skip because we prefer width >= height
+      for (u32 middle : {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}) {
         u32 sz = width * height * middle * 2;
         if (sizeFrom <= sz && sz <= sizeTo) {
           configs.push_back({width, middle, height});
@@ -147,9 +148,11 @@ FFTShape::FFTShape(u32 w, u32 m, u32 h) :
 
 FFTConfig::FFTConfig(const string& spec) {
   auto v = split(spec, ':');
-  assert(v.size() == 3 || v.size() == 4 || v.size() == 5);
+  // assert(v.size() == 1 || v.size() == 3 || v.size() == 4 || v.size() == 5);
 
-  if (v.size() == 3) {
+  if (v.size() == 1) {
+    *this = {FFTShape::multiSpec(spec).front(), 3, CARRY_AUTO};
+  } if (v.size() == 3) {
     *this = {FFTShape{v[0], v[1], v[2]}, 3, CARRY_AUTO};
   } else if (v.size() == 4) {
     *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3]), CARRY_AUTO};
