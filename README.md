@@ -54,3 +54,8 @@ prime is extremely small for large Mersenne candidates.
 
 The PRP test is very similar computationally to LL: PRP iterates f(x) = x^2 modulo M(p) starting from 3. If after p iterations the result is 9 modulo M(p), then M(p) is probably prime, otherwise M(p) is certainly not prime. The cost
 of PRP is exactly the same as LL.
+
+
+## Looking for GpuOwl?
+
+PRPLL is the new in-development version of GpuOwl. Until its development is completed, new users are advised to use the original version of GpuOwl, which can be found [on the `gpuowl` branch](https://github.com/preda/gpuowl/tree/gpuowl) of this repository.
