@@ -92,12 +92,16 @@ std::optional<Task> parse(const std::string& line) {
   return {};
 }
 
-// Among the valid tasks from fileName, return the "best" which means with the smallest exponent
+// Among the valid tasks from fileName, return the "best" which means the smallest CERT, or otherwise the exponent PRP/LL
 static std::optional<Task> bestTask(const fs::path& fileName) {
   optional<Task> best;
   for (const string& line : File::openRead(fileName)) {
     optional<Task> task = parse(line);
-    if (task && (!best || task->exponent < best->exponent)) { best = task; }
+    if (task && (!best
+                 || (best->kind != Task::CERT && task->kind == Task::CERT)
+                 || ((best->kind != Task::CERT || task->kind == Task::CERT) && task->exponent < best->exponent))) {
+      best = task;
+    }
   }
   return best;
 }
