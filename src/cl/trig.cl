@@ -36,8 +36,7 @@ double2 reducedCosSin(int k) {
   return U2(c, s);
 }
 
-// Returns e^(-i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
-// Inverse trigonometric direction is chosen as an FFT convention.
+// Returns e^(i * tau * k / n), (tau == 2*pi represents a full circle). So k/n is the ratio of a full circle.
 double2 slowTrig_N(u32 k, u32 kBound)   {
   u32 n = ND;
   assert(n % 8 == 0);

@@ -70,5 +70,7 @@ TrigCoefs trigCoefs(u32 n) {
   assert(pos <= 7);
   auto [mul, idx] = COS_TAB[pos];
 
-  return {mul, scaleSin(SIN[idx], 1.0/(twos / 4)), scaleCos(COS[idx], 1.0/(twos / 4))};
+  double scale = 1.0 / (twos / 4);
+
+  return {mul, scaleSin(SIN[idx], scale), scaleCos(COS[idx], scale)};
 }
