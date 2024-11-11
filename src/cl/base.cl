@@ -126,13 +126,17 @@ typedef double2 T2;
 #define P(x) global x * restrict
 #define CP(x) const P(x)
 
+// For reasons unknown, loading trig values into nVidia's constant cache has terrible performance
 #if AMDGPU
 typedef constant const T2* Trig;
-typedef constant const double2* BigTab;
 #else
 typedef global const T2* Trig;
-typedef global const double2* BigTab;
 #endif
+// However, caching weights in nVidia's constant cache improves performance.
+// Even better is to not pollute the constant cache with weights that are used only once.
+// This requires two typedefs depending on how we want to use the BigTab pointer.
+typedef constant const double2* ConstBigTab;
+typedef global const double2* BigTab;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
@@ -146,7 +150,8 @@ void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
 }
 
 void write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base) {
-  for (u32 i = 0; i < N; ++i) { out[base + i * WG + (u32) get_local_id(0)] = u[i]; }
+  out += base + (u32) get_local_id(0);
+  for (u32 i = 0; i < N; ++i) { out[i * WG] = u[i]; }
 }
 
 // Parameters we may want to let user tune.  WIDTH other than 512 and 1K is untested.  SMALL_HEIGHT other than 256 and 512 is untested.

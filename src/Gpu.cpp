@@ -505,11 +505,11 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   if (useLongCarry) { log("Using long carry!\n"); }
   
   for (Kernel* k : {&kCarryFused, &kCarryFusedROE, &kCarryFusedMul, &kCarryFusedMulROE, &kCarryFusedLL}) {
-    k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufWeights);
+    k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufWeights, bufWeights);
   }
 
-  for (Kernel* k : {&kCarryFusedROE, &kCarryFusedMulROE})           { k->setFixedArgs(8, bufROE); }
-  for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL}) { k->setFixedArgs(8, bufStatsCarry); }
+  for (Kernel* k : {&kCarryFusedROE, &kCarryFusedMulROE})           { k->setFixedArgs(9, bufROE); }
+  for (Kernel* k : {&kCarryFused, &kCarryFusedMul, &kCarryFusedLL}) { k->setFixedArgs(9, bufStatsCarry); }
 
   for (Kernel* k : {&kCarryA, &kCarryAROE, &kCarryM, &kCarryMROE, &kCarryLL}) {
     k->setFixedArgs(3, bufCarry, bufBitsC, bufWeights);

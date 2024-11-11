@@ -8,7 +8,7 @@
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-		       CP(u32) bits, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
+		       CP(u32) bits, ConstBigTab CONST_THREAD_WEIGHTS, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
   local T2 lds[WIDTH / 2];
 
   u32 gr = get_group_id(0);
@@ -31,7 +31,11 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   fft_WIDTH(lds, u, smallTrig);
 
   Word2 wu[NW];
-  T2 weights = fancyMul(THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);
+#if AMDGPU
+  T2 weights = fancyMul(CONST_THREAD_WEIGHTS[me], CONST_THREAD_WEIGHTS[G_W + line]);
+#else
+  T2 weights = fancyMul(CONST_THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);            // On nVidia, don't pollute the constant cache with line weights
+#endif
 
 #if MUL3
   P(i64) carryShuttlePtr = (P(i64)) carryShuttle;
