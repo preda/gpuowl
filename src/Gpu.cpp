@@ -95,6 +95,32 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
     }
   }
   assert(bits.size() == N / 32);
+
+#ifdef FOO
+  {  printf ("E N EmodN H N/nW%u %u %u %u %u\n", E, N, E%N, H, N/nW);
+  u32 bpw_hi = (u32) (((u64) (E % N) << 32) / N);
+  u32 bpw_lo = (u32) (((((u64) (E % N) << 32) % N) << 32) / N);
+  u64 bpw = ((u64) bpw_hi << 32) + bpw_lo;
+  u32 bigstep = (u32) ((bpw * (N / nW)) >> 32);
+printf ("bpw hi, lo, sterp: %X %X %X \n", bpw_hi, bpw_lo, bigstep);
+  for (u32 line = 0; line < H; ++line) {
+    for (u32 thread = 0; thread < groupWidth; ++thread) {
+      u32 frac_bits = (u32) (((thread * H + line) * 2 * bpw) >> 32);
+      u32 tmp = frac_bits + bpw_hi;
+      printf ("tmp %X\n", tmp);
+      for (u32 block = 0; block < nW; ++block) {
+	bool biglit0 = tmp <= bpw_hi; tmp += bpw_hi;
+	bool biglit1 = tmp <= bpw_hi; tmp += bigstep - bpw_hi;
+
+	printf ("line, thread, block, tmp, biglit0,1,big0,1:  %X %X %X %X %d %d %d %d\n",
+		  line, thread, block, tmp, biglit0,biglit1,isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + 0), isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + 1));
+//        assert (biglit0 == isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + 0));
+//        assert (biglit1 == isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + 1));
+      }
+    }
+  }
+  }
+#endif
   
   vector<u32> bitsC;
   
@@ -241,6 +267,16 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   defines += toDefine("TRIG_SCALE", int(coefs.scale));
   defines += toDefine("TRIG_SIN",  coefs.sinCoefs);
   defines += toDefine("TRIG_COS",  coefs.cosCoefs);
+
+#ifndef NO_BIGLIT_FLAGS
+  u32 bpw_hi = (u32) (((u64) (E % N) << 32) / N);
+  u32 bpw_lo = (u32) (((((u64) (E % N) << 32) % N) << 32) / N);
+  defines += toDefine("FRAC_BPW_HI", bpw_hi);
+  defines += toDefine("FRAC_BPW_LO", bpw_lo);
+  u64 bpw = ((u64) bpw_hi << 32) + bpw_lo;
+  u32 bigstep = (u32) ((bpw * (N / fft.shape.nW())) >> 32);
+  defines += toDefine("FRAC_BITS_BIGSTEP", bigstep);
+#endif
 
   return defines;
 }

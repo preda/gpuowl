@@ -8,7 +8,7 @@
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                       CP(u32) bits, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
+		       CP(u32) bits, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
   local T2 lds[WIDTH / 2];
 
   u32 gr = get_group_id(0);
@@ -21,11 +21,13 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   
   readCarryFusedLine(in, u, line);
 
-  // Split 32 bits into NW groups of 2 bits.
+  // Split 32 bits into NW groups of 2 bits.  See later for different way to do this.
+#ifndef FRAC_BPW_HI
 #define GPW (16 / NW)
   u32 b = bits[(G_W * line + me) / GPW] >> (me % GPW * (2 * NW));
 #undef GPW
-  
+#endif
+
   fft_WIDTH(lds, u, smallTrig);
 
   Word2 wu[NW];
@@ -53,12 +55,26 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
     u[i] = conjugate(u[i]) * U2(invWeight1, invWeight2);
   }
 
+  // On Titan V it is faster to derive the big vs. little flags from the fractional number of bits in each FFT word rather read the flags from memory.
+  // On Radeon VII this code is abut he same speed.  Not sure which is better on other GPUs.
+#ifdef FRAC_BPW_HI
+  u32 frac_bits = (u32) (((me * H + line) * 2 * ((((u64) FRAC_BPW_HI) << 32) + FRAC_BPW_LO)) >> 32);
+  u32 tmp = frac_bits + FRAC_BPW_HI;
+#endif
+
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
-#if MUL3
-    wu[i] = carryPairMul(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1), 0, &roundMax, &carryMax);    
+#ifdef FRAC_BPW_HI
+    bool biglit0 = tmp <= FRAC_BPW_HI; tmp += FRAC_BPW_HI;
+    bool biglit1 = tmp <= FRAC_BPW_HI; tmp += FRAC_BITS_BIGSTEP - FRAC_BPW_HI;
 #else
-    wu[i] = carryPair(u[i], &carry[i], test(b, 2 * i), test(b, 2 * i + 1),
+    bool biglit0 = test(b, 2 * i);
+    bool biglit1 = test(b, 2 * i + 1);
+#endif
+#if MUL3
+    wu[i] = carryPairMul(u[i], &carry[i], biglit0, biglit1, 0, &roundMax, &carryMax);
+#else
+    wu[i] = carryPair(u[i], &carry[i], biglit0, biglit1,
                       // For an LL test, add -2 as the very initial "carry in"
                       // We'd normally use logical &&, but the compiler whines with warning and bitwise fixes it
                       (LL & (i == 0) & (line==0) & (me == 0)) ? -2 : 0, &roundMax, &carryMax);
@@ -127,8 +143,16 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   }
 
   // Apply each 32 or 64 bit carry to the 2 words
+#ifdef FRAC_BPW_HI
+  tmp = frac_bits + FRAC_BPW_HI;
+#endif
   for (i32 i = 0; i < NW; ++i) {
-    wu[i] = carryFinal(wu[i], carry[i], test(b, 2 * i));
+#ifdef FRAC_BPW_HI
+    bool biglit0 = tmp <= FRAC_BPW_HI; tmp += FRAC_BITS_BIGSTEP;
+#else
+    bool biglit0 = test(b, 2 * i);
+#endif
+    wu[i] = carryFinal(wu[i], carry[i], biglit0);
   }
   
   T base = optionalHalve(weights.y);
