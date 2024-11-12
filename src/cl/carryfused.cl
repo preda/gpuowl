@@ -32,7 +32,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
   Word2 wu[NW];
 #if AMDGPU
-  T2 weights = fancyMul(CONST_THREAD_WEIGHTS[me], CONST_THREAD_WEIGHTS[G_W + line]);
+  T2 weights = fancyMul(THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);
 #else
   T2 weights = fancyMul(CONST_THREAD_WEIGHTS[me], THREAD_WEIGHTS[G_W + line]);            // On nVidia, don't pollute the constant cache with line weights
 #endif

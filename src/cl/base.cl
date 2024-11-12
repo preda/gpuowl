@@ -135,8 +135,13 @@ typedef global const T2* Trig;
 // However, caching weights in nVidia's constant cache improves performance.
 // Even better is to not pollute the constant cache with weights that are used only once.
 // This requires two typedefs depending on how we want to use the BigTab pointer.
+// For AMD we can declare BigTab as constant or global - it doesn't really matter.
 typedef constant const double2* ConstBigTab;
+#if AMDGPU
+typedef constant const double2* BigTab;
+#else
 typedef global const double2* BigTab;
+#endif
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
