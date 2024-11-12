@@ -17,10 +17,21 @@ void shuflBigLDS(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
 
 void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-  u32 mask = f - 1;
-  assert((mask & (mask + 1)) == 0);
   local T* lds = (local T*) lds2;
 
+
+#if 0
+  // This also works for *f* that is not a power of two.
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me / f) * f * n + me % f] = u[i].x; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me / f) * f * n + me % f] = u[i].y; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+#else
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
   for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
   bar();
   for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
@@ -28,19 +39,16 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
   bar();
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+#endif
 }
 
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
-  u32 p = me & ~(f - 1);
 
-#if 0
-  if (WG == 256 && n == 4) {
-    for (int i = 1; i < n; ++i) {
-      u[i] = cmul(u[i], trig_1024(p * i, WG * i));
-    }
-    return;
-  }
+#if 1
+  u32 p = me / f * f;
+#else
+  u32 p = me & ~(f - 1);
 #endif
 
 #if 0
@@ -92,7 +100,10 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
     u[2] = cmul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
     a *= 2;
     T2 base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
-    u[3] = cmul(u[3], base);
+    for (u32 i = 3; i < n; ++i) {
+      u[i] = cmul(u[i], base);
+      base = cmul(base, w);
+    }
   }
 #else
 #error CLEAN must be 0 or 1

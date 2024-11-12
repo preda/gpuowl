@@ -93,7 +93,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
   assert(s < SMALL_HEIGHT);
   if (MIDDLE == 1) { return; }
 
-  T2 w = trig[s];
+  T2 w = trig[s]; // s / BIG_HEIGHT
 
   if (MIDDLE < SHARP_MIDDLE) {
     WADD(1, w);
@@ -169,7 +169,7 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig) {
     return;
   }
 
-  T2 w = trig[SMALL_HEIGHT + x];
+  T2 w = trig[SMALL_HEIGHT + x]; // x / (MIDDLE * WIDTH)
 
   if (MIDDLE < SHARP_MIDDLE) {
     T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT, ND / MIDDLE * 2) * factor;
