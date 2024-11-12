@@ -59,17 +59,25 @@ double boundUnderOne(double x) { return std::min(x, nexttoward(1, 0)); }
 
 #define CARRY_LEN 8
 
-Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
+Weights genWeights(u32 E, u32 W, u32 H, u32 nW, bool AmdGpu) {
   u32 N = 2u * W * H;
   
   u32 groupWidth = W / nW;
 
   // Inverse + Forward
+  vector<double> weightsConstIF;
   vector<double> weightsIF;
   for (u32 thread = 0; thread < groupWidth; ++thread) {
     auto iw = invWeight(N, E, H, 0, thread, 0);
-    weightsIF.push_back(2 * boundUnderOne(iw));
     auto w = weight(N, E, H, 0, thread, 0);
+    // nVidia GPUs have a constant cache that only works on buffer sizes less than 64KB.  Create a smaller buffer
+    // that is a copy of the first part of weightsIF.  There are several kernels that need the combined weightsIF
+    // buffer, so there is an unfortunate duplication of these weights.
+    if (!AmdGpu) {
+      weightsConstIF.push_back(2 * boundUnderOne(iw));
+      weightsConstIF.push_back(2 * w);
+    }
+    weightsIF.push_back(2 * boundUnderOne(iw));
     weightsIF.push_back(2 * w);
   }
 
@@ -96,32 +104,6 @@ Weights genWeights(u32 E, u32 W, u32 H, u32 nW) {
   }
   assert(bits.size() == N / 32);
 
-#ifdef FOO
-  {  printf ("E N EmodN H N/nW%u %u %u %u %u\n", E, N, E%N, H, N/nW);
-  u32 bpw_hi = (u32) (((u64) (E % N) << 32) / N);
-  u32 bpw_lo = (u32) (((((u64) (E % N) << 32) % N) << 32) / N);
-  u64 bpw = ((u64) bpw_hi << 32) + bpw_lo;
-  u32 bigstep = (u32) ((bpw * (N / nW)) >> 32);
-printf ("bpw hi, lo, sterp: %X %X %X \n", bpw_hi, bpw_lo, bigstep);
-  for (u32 line = 0; line < H; ++line) {
-    for (u32 thread = 0; thread < groupWidth; ++thread) {
-      u32 frac_bits = (u32) (((thread * H + line) * 2 * bpw) >> 32);
-      u32 tmp = frac_bits + bpw_hi;
-      printf ("tmp %X\n", tmp);
-      for (u32 block = 0; block < nW; ++block) {
-	bool biglit0 = tmp <= bpw_hi; tmp += bpw_hi;
-	bool biglit1 = tmp <= bpw_hi; tmp += bigstep - bpw_hi;
-
-	printf ("line, thread, block, tmp, biglit0,1,big0,1:  %X %X %X %X %d %d %d %d\n",
-		  line, thread, block, tmp, biglit0,biglit1,isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + 0), isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + 1));
-//        assert (biglit0 == isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + 0));
-//        assert (biglit1 == isBigWord(N, E, kAt(H, line, block * groupWidth + thread) + 1));
-      }
-    }
-  }
-  }
-#endif
-  
   vector<u32> bitsC;
   
   for (u32 gy = 0; gy < H / CARRY_LEN; ++gy) {
@@ -141,7 +123,7 @@ printf ("bpw hi, lo, sterp: %X %X %X \n", bpw_hi, bpw_lo, bigstep);
   }
   assert(bitsC.size() == N / 32);
 
-  return Weights{weightsIF, bits, bitsC};
+  return Weights{weightsConstIF, weightsIF, bits, bitsC};
 }
 
 string toLiteral(u32 value) { return to_string(value) + 'u'; }
@@ -452,11 +434,12 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   bufTrigH{shared.bufCache->smallTrig(SMALL_H, nH)},
   bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H, WIDTH)},
 
-  weights{genWeights(E, WIDTH, BIG_H, nW)},
+  weights{genWeights(E, WIDTH, BIG_H, nW, isAmdGpu(q->context->deviceId()))},
 
-  bufWeights{q->context, std::move(weights.weightsIF)},
-  bufBits{q->context,    std::move(weights.bitsCF)},
-  bufBitsC{q->context,   std::move(weights.bitsC)},
+  bufConstWeights{q->context, std::move(weights.weightsConstIF)},
+  bufWeights{q->context,      std::move(weights.weightsIF)},
+  bufBits{q->context,         std::move(weights.bitsCF)},
+  bufBitsC{q->context,        std::move(weights.bitsC)},
 
 #define BUF(name, ...) name{profile.make(#name), queue, __VA_ARGS__}
 
@@ -505,7 +488,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   if (useLongCarry) { log("Using long carry!\n"); }
   
   for (Kernel* k : {&kCarryFused, &kCarryFusedROE, &kCarryFusedMul, &kCarryFusedMulROE, &kCarryFusedLL}) {
-    k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufWeights, bufWeights);
+    k->setFixedArgs(3, bufCarry, bufReady, bufTrigW, bufBits, bufConstWeights, bufWeights);
   }
 
   for (Kernel* k : {&kCarryFusedROE, &kCarryFusedMulROE})           { k->setFixedArgs(9, bufROE); }

@@ -81,6 +81,7 @@ public:
 };
 
 struct Weights {
+  vector<double> weightsConstIF;
   vector<double> weightsIF;
   vector<u32> bitsCF;
   vector<u32> bitsC;
@@ -158,6 +159,7 @@ private:
   Weights weights;
 
   // The weights and the "bigWord bits" depend on the exponent.
+  Buffer<double> bufConstWeights;
   Buffer<double> bufWeights;
 
   Buffer<u32> bufBits;  // bigWord bits aligned for CarryFused/fftP
