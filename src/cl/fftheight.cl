@@ -4,6 +4,10 @@
 #include "fftbase.cl"
 #include "middle.cl"
 
+#if SMALL_HEIGHT != 256 && SMALL_HEIGHT != 512 && SMALL_HEIGHT != 1024 && SMALL_HEIGHT != 4096
+#error SMALL_HEIGHT must be one of: 256, 512, 1024, 4096
+#endif
+
 u32 transPos(u32 k, u32 middle, u32 width) { return k / width + k % width * middle; }
 
 void fft_NH(T2 *u) {
@@ -16,12 +20,31 @@ void fft_NH(T2 *u) {
 #endif
 }
 
-#define UNROLL_HEIGHT_CONTROL __attribute__((opencl_unroll_hint(1)))
+#if BCAST && (HEIGHT <= 1024)
 
 void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
-#if SMALL_HEIGHT != 256 && SMALL_HEIGHT != 512 && SMALL_HEIGHT != 1024 && SMALL_HEIGHT != 4096
-#error SMALL_HEIGHT must be one of: 256, 512, 1024, 4096
+  u32 me = get_local_id(0);
+  T2 w = slowTrig_N(ND / SMALL_HEIGHT * me, ND / NH);
+
+  /*
+#if !UNROLL_H
+  __attribute__((opencl_unroll_hint(1)))
 #endif
+*/
+
+  for (u32 s = 1; s < SMALL_HEIGHT / NH; s *= NH) {
+    if (s > 1) { bar(); }
+    fft_NH(u);
+    w = bcast(w, s);
+    chainMul(u, NH, w);
+    shufl(SMALL_HEIGHT / NH, lds,  u, NH, s);
+  }
+  fft_NH(u);
+}
+
+#else
+
+void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
 
 #if !UNROLL_H
   __attribute__((opencl_unroll_hint(1)))
@@ -35,3 +58,5 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
   }
   fft_NH(u);
 }
+
+#endif

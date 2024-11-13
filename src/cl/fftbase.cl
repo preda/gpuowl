@@ -5,6 +5,33 @@
 #include "trig.cl"
 // #include "math.cl"
 
+#if BCAST
+
+int bcast4(int x)  { return __builtin_amdgcn_mov_dpp(x, 0, 0xf, 0xf, false); }
+int bcast8(int x)  { return __builtin_amdgcn_ds_swizzle(x, 0x0018); }
+int bcast16(int x) { return __builtin_amdgcn_ds_swizzle(x, 0x0010); }
+int bcast64(int x) { return __builtin_amdgcn_readfirstlane(x); }
+
+int bcastAux(int x, u32 span) {
+  return span == 4 ? bcast4(x) : span == 8 ? bcast8(x) : span == 16 ? bcast16(x) : span == 64 ? bcast64(x) : x;
+}
+
+T2 bcast(T2 src, u32 span) {
+  int4 s = as_int4(src);
+  for (int i = 0; i < 4; ++i) { s[i] = bcastAux(s[i], span); }
+  return as_double2(s);
+}
+
+void chainMul(T2 *u, u32 n, T2 w) {
+  T2 base = w;
+  for (int i = 1; i < n; ++i) {
+    u[i] = cmul(u[i], w);
+    w = cmul(w, base);
+  }
+}
+
+#endif
+
 void shuflBigLDS(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   u32 mask = f - 1;
