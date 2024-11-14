@@ -73,25 +73,31 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
   readTailFusedLine(in, u, line1);
   readTailFusedLine(in, v, line2);
 
+  u32 me = get_local_id(0);
+#if NH == 8
+  T2 w = fancyTrig_N(ND / SMALL_HEIGHT * me);
+#else
+  T2 w = slowTrig_N(ND / SMALL_HEIGHT * me, ND / NH);
+#endif
+
 #if MUL_LOW
   read(G_H, NH, p, a, memline1 * SMALL_HEIGHT);
   read(G_H, NH, q, a, memline2 * SMALL_HEIGHT);
-  fft_HEIGHT(lds, u, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig, w);
   bar();
-  fft_HEIGHT(lds, v, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig, w);
 #else
   readTailFusedLine(a, p, line1);
   readTailFusedLine(a, q, line2);
-  fft_HEIGHT(lds, u, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig, w);
   bar();
-  fft_HEIGHT(lds, v, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig, w);
   bar();
-  fft_HEIGHT(lds, p, smallTrig);
+  fft_HEIGHT(lds, p, smallTrig, w);
   bar();
-  fft_HEIGHT(lds, q, smallTrig);
+  fft_HEIGHT(lds, q, smallTrig, w);
 #endif
 
-  u32 me = get_local_id(0);
   T2 trig = slowTrig_N(line1 + me * H, ND / NH);
 
   if (line1) {
@@ -113,9 +119,9 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
   }
 
   bar();
-  fft_HEIGHT(lds, v, smallTrig);
+  fft_HEIGHT(lds, v, smallTrig, w);
   bar();
-  fft_HEIGHT(lds, u, smallTrig);
+  fft_HEIGHT(lds, u, smallTrig, w);
   write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
   write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
 }

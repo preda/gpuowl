@@ -28,11 +28,15 @@ T2 cfma(T2 a, T2 b, T2 c) {
 #endif
 }
 
+// Square any complex number
 T2 csq(T2 a) { return U2(fma(a.x, a.x, - a.y * a.y), 2 * a.x * a.y); }
+
+// Square a (cos,sin) complex number
+T2 csqTrig(T2 a) { return U2(fma(-2 * a.y, a.y, 1), 2 * a.x * a.y); }
+// T2 csqTrig(T2 a) { return csq(a); }
 
 // a^2 + c
 T2 csqa(T2 a, T2 c) { return U2(fma(a.x, a.x, fma(a.y, -a.y, c.x)), fma(2 * a.x, a.y, c.y)); }
-
 
 // Complex a * (b + 1)
 // Useful for mul with twiddles of small angles, where the real part is stored with the -1 trick for increased precision

@@ -22,7 +22,11 @@ void fft_NW(T2 *u) {
 
 void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
   u32 me = get_local_id(0);
-  T2 w = slowTrig_N(ND / WIDTH * me, ND / NW); // trig[me];
+#if NW == 8
+  T2 w = fancyTrig_N(ND / WIDTH * me);
+#else
+  T2 w = slowTrig_N(ND / WIDTH * me, ND / NW);
+#endif
 
   /*
 #if !UNROLL_W
@@ -33,7 +37,13 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
     if (s > 1) { bar(); }
     fft_NW(u);
     w = bcast(w, s);
-    chainMul(u, NW, w);
+
+#if NW == 8
+    chainMul8(u, w);
+#else
+    chainMul4(u, w);
+#endif
+
     shufl( WIDTH / NW, lds,  u, NW, s);
   }
   fft_NW(u);

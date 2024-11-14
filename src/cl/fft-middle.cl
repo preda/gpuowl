@@ -98,7 +98,7 @@ void middleMul(T2 *u, u32 s, Trig trig) {
   if (MIDDLE < SHARP_MIDDLE) {
     WADD(1, w);
 #if MM_CHAIN == 0
-    T2 base = csq(w);
+    T2 base = csqTrig(w);
     for (u32 k = 2; k < MIDDLE; ++k) {
       WADD(k, base);
       base = cmul(base, w);

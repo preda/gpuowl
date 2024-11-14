@@ -22,9 +22,9 @@ void fft_NH(T2 *u) {
 
 #if BCAST && (HEIGHT <= 1024)
 
-void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
-  u32 me = get_local_id(0);
-  T2 w = slowTrig_N(ND / SMALL_HEIGHT * me, ND / NH);
+void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig, T2 w) {
+  // u32 me = get_local_id(0);
+  // T2 w = slowTrig_N(ND / SMALL_HEIGHT * me, ND / NH);
 
   /*
 #if !UNROLL_H
@@ -36,7 +36,13 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
     if (s > 1) { bar(); }
     fft_NH(u);
     w = bcast(w, s);
-    chainMul(u, NH, w);
+
+#if NH == 8
+    chainMul8(u, w);
+#else
+    chainMul4(u, w);
+#endif
+
     shufl(SMALL_HEIGHT / NH, lds,  u, NH, s);
   }
   fft_NH(u);
@@ -44,7 +50,7 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
 
 #else
 
-void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig) {
+void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig, T2 w) {
 
 #if !UNROLL_H
   __attribute__((opencl_unroll_hint(1)))

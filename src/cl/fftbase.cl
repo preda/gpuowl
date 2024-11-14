@@ -22,11 +22,35 @@ T2 bcast(T2 src, u32 span) {
   return as_double2(s);
 }
 
-void chainMul(T2 *u, u32 n, T2 w) {
-  T2 base = w;
-  for (int i = 1; i < n; ++i) {
-    u[i] = cmul(u[i], w);
-    w = cmul(w, base);
+void chainMul4(T2 *u, T2 w) {
+  u[1] = cmul(u[1], w);
+
+  T2 base = csqTrig(w);
+  u[2] = cmul(u[2], base);
+
+  double a = 2 * base.y;
+  base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
+  u[3] = cmul(u[3], base);
+}
+
+void chainMul8(T2 *u, T2 w) {
+  u[1] = cmulFancy(u[1], w);
+
+#if 1
+  T2 base = 2 * U2(- w.y * w.y, fma(w.x, w.y, w.y));
+  u[2] = cmulFancy(u[2], base);
+#else
+  T2 base = U2(fma(-2 * w.y, w.y, 1), 2 * fma(w.x, w.y, w.y));
+  u[2] = cmul(u[2], base);
+#endif
+
+  double a = 2 * base.y;
+  // base = U2(fma(a, -w.y, w.x + 1), fma(a, w.x, a - w.y));
+  base = U2(fma(a, -w.y, w.x + 1), fma(a, w.x, a - w.y));
+
+  for (int i = 3; i < 8; ++i) {
+    u[i] = cmul(u[i], base);
+    base = cmulFancy(base, w);
   }
 }
 
