@@ -122,6 +122,6 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
   fft_HEIGHT(lds, v, smallTrig, w);
   bar();
   fft_HEIGHT(lds, u, smallTrig, w);
-  write(G_H, NH, v, out, memline2 * SMALL_HEIGHT);
-  write(G_H, NH, u, out, memline1 * SMALL_HEIGHT);
+  writeRotatedHeight(G_H, NH, v, out, memline2);
+  writeRotatedHeight(G_H, NH, u, out, memline1);
 }

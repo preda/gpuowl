@@ -244,34 +244,43 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig) {
 void middleShuffle(local T *lds, T2 *u, u32 workgroupSize, u32 blockSize) {
   u32 me = get_local_id(0);
   if (MIDDLE <= 8) {
-    local T *p = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
-    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].x; }
+    local T *p1 = lds + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+    local T *p2 = lds + me;
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = u[i].x; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { u[i].x = lds[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { u[i].x = p2[workgroupSize * i]; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { p[i * workgroupSize] = u[i].y; }
+    for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = u[i].y; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { u[i].y = lds[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { u[i].y = p2[workgroupSize * i]; }
   } else {
     local int *p1 = ((local int*) lds) + (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
-    local int *p2 = (local int*) lds;
+    local int *p2 = (local int*) lds + me;
     int4 *pu = (int4 *)u;
 
     for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].x; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].x = p2[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].x = p2[workgroupSize * i]; }
     bar();
     for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].y; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].y = p2[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].y = p2[workgroupSize * i]; }
     bar();
 
     for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].z; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].z = p2[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].z = p2[workgroupSize * i]; }
     bar();
     for (int i = 0; i < MIDDLE; ++i) { p1[i * workgroupSize] = pu[i].w; }
     bar();
-    for (int i = 0; i < MIDDLE; ++i) { pu[i].w = p2[me + workgroupSize * i]; }
+    for (int i = 0; i < MIDDLE; ++i) { pu[i].w = p2[workgroupSize * i]; }
   }
+}
+
+
+// Do a partial transpose during fftMiddleIn/Out and write the results to global memory
+void middleShuffleWrite(global T2 *out, T2 *u, u32 workgroupSize, u32 blockSize) {
+  u32 me = get_local_id(0);
+  out += (me % blockSize) * (workgroupSize / blockSize) + me / blockSize;
+  for (int i = 0; i < MIDDLE; ++i) { out[i * workgroupSize] = u[i]; }
 }

@@ -166,7 +166,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   bar();
 
   fft_WIDTH(lds, u, smallTrig);
-  write(G_W, NW, u, out, WIDTH * line);
+  writeRotatedWidth(G_W, NW, u, out, line);
 
   // Clear carry ready flag for next iteration
 #if OLD_FENCE

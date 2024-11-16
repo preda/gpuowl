@@ -149,6 +149,109 @@ void write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base) {
   for (u32 i = 0; i < N; ++i) { out[base + i * WG + (u32) get_local_id(0)] = u[i]; }
 }
 
+// Parameters we may want to let user tune.  WIDTH other than 512 and 1K is untested.  SMALL_HEIGHT other than 256 and 512 is untested.
+#define ROTATION 1                              // Turns on rotating width and small_height rows
+#define WIDTH_ROTATE_CHUNK_SIZE 32              // Rotate blocks of 32 T2 values = 512 bytes
+#define HEIGHT_ROTATE_CHUNK_SIZE 16             // Rotate blocks of 16 T2 values = 256 bytes
+#define VARIABLE_WIDTH_ROTATE 0                 // Each width u[i] gets a different rotation amount
+#define MIDDLE_SHUFFLE_WRITE 1                  // Radeon VII likes MiddleShuffleWrite, Titan V apparently not
+
+// nVidia Titan V hates rotating and LDS-less middle writes
+#if !AMDGPU
+#undef ROTATION
+#define ROTATION 0
+#undef MIDDLE_SHUFFLE_WRITE
+#define MIDDLE_SHUFFLE_WRITE 0
+#endif
+
+// Rotate width elements on output from fft_WIDTH and as input to fftMiddleIn.
+// Not all lines are rotated the same amount so that fftMiddleIn reads a more varied distribution of addresses.
+// This can be faster on AMD GPUs, not certain about nVidia GPUs.
+u32 rotate_width_amount(u32 y) {
+#if !VARIABLE_WIDTH_ROTATE
+  u32 num_sections = WIDTH / WIDTH_ROTATE_CHUNK_SIZE;
+  u32 num_rotates = y % num_sections;           // if y increments by SMALL_HEIGHT, final rotate amount won't change after applying "mod WIDTH"
+#else
+  // Create a formula where each u[i] gets a different rotation amount
+  u32 num_sections = WIDTH / WIDTH_ROTATE_CHUNK_SIZE;
+  u32 num_rotates = y % num_sections * MIDDLE;  // each increment of y adds MIDDLE
+  num_rotates += y / SMALL_HEIGHT;              // each increment of i in u[i] will add 1
+  num_rotates &= 255;                           // keep num_rotates small (probably not necessary)
+#endif
+  return num_rotates * WIDTH_ROTATE_CHUNK_SIZE;
+}
+u32 rotate_width_x(u32 x, u32 rot_amt) {        // rotate x coordinate using a cached rotate_amount
+  return (x + rot_amt) % WIDTH;
+}
+u32 rotate_width(u32 y, u32 x) {                // rotate x coordinate (no cached rotate amount)
+  return rotate_width_x(x, rotate_width_amount(y));
+}
+void readRotatedWidth(T2 *u, CP(T2) in, u32 y, u32 x) {
+#if !ROTATION                                   // No rotation, might be better on nVidia cards
+  in += y * WIDTH + x;
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH]; }
+#elif !VARIABLE_WIDTH_ROTATE                    // True if adding SMALL_HEIGHT to y results in same rotation amount
+  in += y * WIDTH + rotate_width(y, x);
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH]; }
+#else                                           // Adding SMALL_HEIGHT to y results in different rotation
+  in += y * WIDTH;
+  u32 rot_amt = rotate_width_amount(y);
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[rotate_width_x(x, rot_amt)]; in += SMALL_HEIGHT * WIDTH; rot_amt += SMALL_HEIGHT * WIDTH_ROTATE_CHUNK_SIZE; }
+#endif
+}
+void writeRotatedWidth(u32 WG, u32 N, T2 *u, P(T2) out, u32 line) {
+#if !ROTATION                                   // No rotation, might be better on nVidia cards
+  out += line * WIDTH + (u32) get_local_id(0);
+  for (u32 i = 0; i < N; ++i) { out[i * WG] = u[i]; }
+#else
+  u32 me = (u32) get_local_id(0);
+  u32 rot_amt = rotate_width_amount(line);
+  out += line * WIDTH;
+  for (u32 i = 0; i < N; ++i) { out[rotate_width_x (i * WG + me, rot_amt)] = u[i]; }
+#endif
+}
+
+// Rotate height elements on output from fft_HEIGHT and as input to fftMiddleOut.
+// Not all lines are rotated the same amount so that fftMiddleOut reads a more varied distribution of addresses.
+// This can be faster on AMD GPUs, not certain about nVidia GPUs.
+u32 rotate_height_amount (u32 y) {
+  u32 num_sections = SMALL_HEIGHT / HEIGHT_ROTATE_CHUNK_SIZE;
+  return (y % num_sections) * (HEIGHT_ROTATE_CHUNK_SIZE);
+}
+u32 rotate_height_x(u32 x, u32 rot_amt) {       // rotate x coordinate using a cached rotate_amount
+  return (x + rot_amt) % SMALL_HEIGHT;
+}
+u32 rotate_height(u32 y, u32 x) {               // rotate x coordinate (no cached rotate amount)
+  return rotate_height_x(x, rotate_height_amount(y));
+}
+void readRotatedHeight(T2 *u, CP(T2) in, u32 y, u32 x) {
+#if !ROTATION                                   // No rotation, might be better on nVidia cards
+  in += y * MIDDLE * SMALL_HEIGHT + x;
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT]; }
+#elif 0                                         // Set if adding 1 to y results in same rotation
+  y *= MIDDLE;
+  in += y * SMALL_HEIGHT + rotate_height(y, x);
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT]; }
+#else                                           // Adding SMALL_HEIGHT to line results in different rotation
+  y *= MIDDLE;
+  in += y * SMALL_HEIGHT;
+  u32 rot_amt = rotate_height_amount(y);
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[rotate_height_x(x, rot_amt)]; in += SMALL_HEIGHT; rot_amt += HEIGHT_ROTATE_CHUNK_SIZE; }
+#endif
+}
+void writeRotatedHeight(u32 WG, u32 N, T2 *u, P(T2) out, u32 line) {
+#if !ROTATION                                   // No rotation, might be better on nVidia cards
+  out += line * SMALL_HEIGHT + (u32) get_local_id(0);
+  for (u32 i = 0; i < N; ++i) { out[i * WG] = u[i]; }
+#else
+  u32 me = (u32) get_local_id(0);
+  u32 rot_amt = rotate_height_amount(line);
+  out += line * SMALL_HEIGHT;
+  for (u32 i = 0; i < N; ++i) { out[rotate_height_x (i * WG + me, rot_amt)] = u[i]; }
+#endif
+}
+
+
 T2 U2(T a, T b) { return (T2) (a, b); }
 
 void bar() {

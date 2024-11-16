@@ -14,7 +14,6 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS)
 
   u32 step = WIDTH * g;
   in  += step;
-  out += step;
 
   u32 me = get_local_id(0);
 
@@ -28,6 +27,6 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS)
   }
 
   fft_WIDTH(lds, u, smallTrig);
-  
-  write(G_W, NW, u, out, 0);
+ 
+  writeRotatedWidth(G_W, NW, u, out, g);
 }

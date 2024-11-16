@@ -26,9 +26,11 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
 
   u32 startx = gx * OUT_SIZEX;  // Each input column increases FFT element by one
   u32 starty = gy * SIZEY;  // Each input row increases FFT element by BIG_HEIGHT
-  in += starty * BIG_HEIGHT + startx;
 
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT + my * BIG_HEIGHT + mx]; }
+  u32 x = startx + mx;
+  u32 y = starty + my;
+
+  readRotatedHeight(u, in, y, x);
 
   middleMul(u, startx + mx, trig);
 
@@ -41,15 +43,15 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   double factor = 1.0 / (4 * 4 * NWORDS);
 
   middleMul2(u, starty + my, startx + mx, factor, trig);
+
+#if !MIDDLE_SHUFFLE_WRITE
   local T lds[OUT_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
-
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
-
+  out += MIDDLE * WIDTH * OUT_SIZEX * gx + MIDDLE * OUT_WG * gy + me;
+  for (i32 i = 0; i < MIDDLE; ++i) { out[OUT_WG * i] = u[i]; }
+#else
   out += MIDDLE * WIDTH * OUT_SIZEX * gx + MIDDLE * OUT_WG * gy;
-  out += me;
+  middleShuffleWrite(out, u, OUT_WG, OUT_SIZEX);
+#endif
 
-  for (i32 i = 0; i < MIDDLE; ++i) {
-    out[OUT_WG * i] = u[i];
-    // out[MIDDLE * OUT_WG * gy + MIDDLE * WIDTH * OUT_SIZEX * gx + OUT_WG * i + me] = u[i];
-  }
 }
