@@ -22,7 +22,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   readCarryFusedLine(in, u, line);
 
   // Split 32 bits into NW groups of 2 bits.  See later for different way to do this.
-#ifndef FRAC_BPW_HI
+#if !BIGLIT
 #define GPW (16 / NW)
   u32 b = bits[(G_W * line + me) / GPW] >> (me % GPW * (2 * NW));
 #undef GPW
@@ -56,15 +56,15 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   }
 
   // On Titan V it is faster to derive the big vs. little flags from the fractional number of bits in each FFT word rather read the flags from memory.
-  // On Radeon VII this code is abut he same speed.  Not sure which is better on other GPUs.
-#ifdef FRAC_BPW_HI
+  // On Radeon VII this code is about he same speed.  Not sure which is better on other GPUs.
+#if BIGLIT
   u32 frac_bits = (u32) (((me * H + line) * 2 * ((((u64) FRAC_BPW_HI) << 32) + FRAC_BPW_LO)) >> 32);
   u32 tmp = frac_bits + FRAC_BPW_HI;
 #endif
 
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
-#ifdef FRAC_BPW_HI
+#if BIGLIT
     bool biglit0 = tmp <= FRAC_BPW_HI; tmp += FRAC_BPW_HI;
     bool biglit1 = tmp <= FRAC_BPW_HI; tmp += FRAC_BITS_BIGSTEP - FRAC_BPW_HI;
 #else
@@ -143,11 +143,11 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   }
 
   // Apply each 32 or 64 bit carry to the 2 words
-#ifdef FRAC_BPW_HI
+#if BIGLIT
   tmp = frac_bits + FRAC_BPW_HI;
 #endif
   for (i32 i = 0; i < NW; ++i) {
-#ifdef FRAC_BPW_HI
+#if BIGLIT
     bool biglit0 = tmp <= FRAC_BPW_HI; tmp += FRAC_BITS_BIGSTEP;
 #else
     bool biglit0 = test(b, 2 * i);

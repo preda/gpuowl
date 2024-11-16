@@ -229,7 +229,9 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "UNROLL_W",
                               "NO_ASM",
                               "DEBUG",
-                              "CARRY64"
+                              "CARRY64",
+                              "BCAST",
+                              "BIGLIT"
                             });
     if (!isValid) {
       log("Warning: unrecognized -use key '%s'\n", k.c_str());
@@ -268,15 +270,13 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   defines += toDefine("TRIG_SIN",  coefs.sinCoefs);
   defines += toDefine("TRIG_COS",  coefs.cosCoefs);
 
-#ifndef NO_BIGLIT_FLAGS
-  u32 bpw_hi = (u32) (((u64) (E % N) << 32) / N);
-  u32 bpw_lo = (u32) (((((u64) (E % N) << 32) % N) << 32) / N);
+  u32 bpw_hi = (u64(E % N) << 32) / N;
+  u32 bpw_lo = (((u64(E % N) << 32) % N) << 32) / N;
   defines += toDefine("FRAC_BPW_HI", bpw_hi);
   defines += toDefine("FRAC_BPW_LO", bpw_lo);
-  u64 bpw = ((u64) bpw_hi << 32) + bpw_lo;
-  u32 bigstep = (u32) ((bpw * (N / fft.shape.nW())) >> 32);
+  u64 bpw = (u64(bpw_hi) << 32) + bpw_lo;
+  u32 bigstep = (bpw * (N / fft.shape.nW())) >> 32;
   defines += toDefine("FRAC_BITS_BIGSTEP", bigstep);
-#endif
 
   return defines;
 }
