@@ -28,11 +28,6 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
   T2 w = slowTrig_N(ND / WIDTH * me, ND / NW);
 #endif
 
-  /*
-#if !UNROLL_W
-  __attribute__((opencl_unroll_hint(1)))
-#endif
-*/
   for (u32 s = 1; s < WIDTH / NW; s *= NW) {
     if (s > 1) { bar(); }
     fft_NW(u);

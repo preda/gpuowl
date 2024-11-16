@@ -12,7 +12,15 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 g = get_group_id(0);
 
   readTailFusedLine(in, u, g);
-  fft_HEIGHT(lds, u, smallTrig);
+
+  u32 me = get_local_id(0);
+#if NH == 8
+  T2 w = fancyTrig_N(ND / SMALL_HEIGHT * me);
+#else
+  T2 w = slowTrig_N(ND / SMALL_HEIGHT * me, ND / NH);
+#endif
+
+  fft_HEIGHT(lds, u, smallTrig, w);
 
   write(G_H, NH, u, out, SMALL_HEIGHT * transPos(g, MIDDLE, WIDTH));
 }
