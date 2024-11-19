@@ -96,7 +96,7 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
 
-#if 1
+#if 0
   u32 p = me / f * f;
 #else
   u32 p = me & ~(f - 1);

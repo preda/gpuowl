@@ -1085,6 +1085,7 @@ void Gpu::selftestTrig() {
   }
   */
 
+  /*
   vector<double> data;
   for (int i = 0; i < 2 * 16; ++i) { data.push_back(2*16 - i); }
   vector<double> ref = data;
@@ -1104,6 +1105,7 @@ void Gpu::selftestTrig() {
 
   for (int i = 0; i < 16; ++i) { log("FFT[%d] = %f, %f (%d %d)\n", i, data.at(2*i) / 16, data.at(2*i + 1) / 16,
         ulps(ref.at(2*i), data.at(2*i)/16), ulps(ref.at(2*i + 1), data.at(2*i+1)/16)); }
+  */
 }
 
 static u32 mod3(const std::vector<u32> &words) {
