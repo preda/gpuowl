@@ -458,9 +458,9 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   BUF(bufROE, ROE_SIZE),
   BUF(bufStatsCarry, CARRY_SIZE),
 
-  BUF(buf1, N),
-  BUF(buf2, N),
-  BUF(buf3, N),
+  BUF(buf1, N + N/4),		// Let's us play with padding instead of rotating.  Need to calculate actual cost of padding
+  BUF(buf2, N + N/4),
+  BUF(buf3, N + N/4),
 #undef BUF
 
   statsBits{u32(args.value("STATS", 0))},

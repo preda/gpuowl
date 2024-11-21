@@ -30,9 +30,9 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   u32 x = startx + mx;
   u32 y = starty + my;
 
-  readRotatedHeight(u, in, y, x);
+  readMiddleOutLine(u, in, y, x);
 
-  middleMul(u, startx + mx, trig);
+  middleMul(u, x, trig);
 
   fft_MIDDLE(u);
 
@@ -42,16 +42,17 @@ KERNEL(OUT_WG) fftMiddleOut(P(T2) out, P(T2) in, Trig trig) {
   // number.  This may be due to roundoff errors introduced by applying inexact TWO_TO_N_8TH weights.
   double factor = 1.0 / (4 * 4 * NWORDS);
 
-  middleMul2(u, starty + my, startx + mx, factor, trig);
+  middleMul2(u, y, x, factor, trig);
 
-#if !MIDDLE_SHUFFLE_WRITE
+#if MIDDLE_OUT_LDS_TRANSPOSE
+  // Transpose the x and y values
   local T lds[OUT_WG / 2 * (MIDDLE <= 8 ? 2 * MIDDLE : MIDDLE)];
   middleShuffle(lds, u, OUT_WG, OUT_SIZEX);
-  out += MIDDLE * WIDTH * OUT_SIZEX * gx + MIDDLE * OUT_WG * gy + me;
-  for (i32 i = 0; i < MIDDLE; ++i) { out[OUT_WG * i] = u[i]; }
+  out += me;  // Threads write sequentially to memory since x and y values are already transposed
 #else
-  out += MIDDLE * WIDTH * OUT_SIZEX * gx + MIDDLE * OUT_WG * gy;
-  middleShuffleWrite(out, u, OUT_WG, OUT_SIZEX);
+  // Adjust out pointer to effect a transpose of x and y values
+  out += mx * SIZEY + my;
 #endif
 
+  writeMiddleOutLine(out, u, gy, gx);
 }

@@ -4,6 +4,7 @@
 #include "math.cl"
 #include "weight.cl"
 #include "fftwidth.cl"
+#include "middle.cl"
 
 // fftPremul: weight words with IBDWT weights followed by FFT-width.
 KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS) {
@@ -28,5 +29,5 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS)
 
   fft_WIDTH(lds, u, smallTrig);
  
-  writeRotatedWidth(G_W, NW, u, out, g);
+  writeCarryFusedLine(u, out, g);
 }
