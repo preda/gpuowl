@@ -103,6 +103,6 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   fft_HEIGHT(lds, v, smallTrig, w);
   bar();
   fft_HEIGHT(lds, u, smallTrig, w);
-  writeRotatedHeight(G_H, NH, v, out, memline2);
-  writeRotatedHeight(G_H, NH, u, out, memline1);
+  writeTailFusedLine(v, out, memline2);
+  writeTailFusedLine(u, out, memline1);
 }
