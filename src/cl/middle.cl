@@ -36,18 +36,18 @@
 
 // Parameters we may want to let user tune.  WIDTH other than 512 and 1K is untested.  SMALL_HEIGHT other than 256 and 512 is untested.
 #if AMDGPU
-#define PADDING 1					// Prefer padding to avoid bad strides
-#define MIDDLE_IN_LDS_TRANSPOSE (IN_WG >= 128)		// Radeon VII likes LDS transpose for larger workgroups
-#define MIDDLE_OUT_LDS_TRANSPOSE (OUT_WG >= 128)	// Radeon VII likes LDS transpose for larger workgroups
-#define PAD_SIZE 16					// Radeon VII likes 16 T2 values = 256 bytes 
+#define PADDING 1                                       // Prefer padding to avoid bad strides
+#define MIDDLE_IN_LDS_TRANSPOSE (IN_WG >= 128)          // Radeon VII likes LDS transpose for larger workgroups
+#define MIDDLE_OUT_LDS_TRANSPOSE (OUT_WG >= 128)        // Radeon VII likes LDS transpose for larger workgroups
+#define PAD_SIZE 16                                     // Radeon VII likes 16 T2 values = 256 bytes 
 #endif
 
 // nVidia Titan V see no padding benefit, likes LDS transposes
 #if !AMDGPU
-#define PADDING 0					// Don't prefer padding to avoid bad strides
-#define MIDDLE_IN_LDS_TRANSPOSE 1			// nVidia likes LDS transpose
-#define MIDDLE_OUT_LDS_TRANSPOSE 1			// nVidia likes LDS transpose
-#define PAD_SIZE 8					// nVidia documentation indicates 8 T2 values = 128 bytes should be best
+#define PADDING 0                                       // Don't prefer padding to avoid bad strides
+#define MIDDLE_IN_LDS_TRANSPOSE 1                       // nVidia likes LDS transpose
+#define MIDDLE_OUT_LDS_TRANSPOSE 1                      // nVidia likes LDS transpose
+#define PAD_SIZE 8                                      // nVidia documentation indicates 8 T2 values = 128 bytes should be best
 #endif
 
 //****************************************************************************************
@@ -59,16 +59,16 @@
 // This can be faster on AMD GPUs, not certain about nVidia GPUs.
 
 // writeCarryFusedLine writes:
-//      x         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)		(also known as 0...WG-1 and 0...NW-1)
+//      x         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)          (also known as 0...WG-1 and 0...NW-1)
 //      line      ranges 0...BIG_HEIGHT-1 (multiples of one)
 // fftMiddleIn reads:
 //      x         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)
-//	u[i]	  i ranges 0...MIDDLE-1 (multiples of SMALL_HEIGHT)
+//      u[i]      i ranges 0...MIDDLE-1 (multiples of SMALL_HEIGHT)
 //      y         ranges 0...SMALL_HEIGHT-1 (multiples of one)
 
 void writeCarryFusedLine(T2 *u, P(T2) out, u32 line) {
 #if PADDING
-  out += line * WIDTH + line / SMALL_HEIGHT * PAD_SIZE + (u32) get_local_id(0);	// One padding every SMALL_HEIGHT lines
+  out += line * WIDTH + line / SMALL_HEIGHT * PAD_SIZE + (u32) get_local_id(0); // One padding every SMALL_HEIGHT lines
   for (u32 i = 0; i < NW; ++i) { out[i * G_W] = u[i]; }
 #else
   out += line * WIDTH + (u32) get_local_id(0);
@@ -92,37 +92,37 @@ void readMiddleInLine(T2 *u, CP(T2) in, u32 y, u32 x) {
 
 // fftMiddleIn processes:
 //      x         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)
-//	u[i]	  i ranges 0...MIDDLE-1 (multiples of SMALL_HEIGHT)
+//      u[i]      i ranges 0...MIDDLE-1 (multiples of SMALL_HEIGHT)
 //      y         ranges 0...SMALL_HEIGHT-1 (multiples of one)
 // tailFused reads:
-//      x         ranges 0...SMALL_HEIGHT-1 (multiples of one)		(also known as 0...G_H-1 and 0...NH-1)
+//      x         ranges 0...SMALL_HEIGHT-1 (multiples of one)          (also known as 0...G_H-1 and 0...NH-1)
 //      y         ranges 0...MIDDLE*WIDTH-1 (multiples of SMALL_HEIGHT)
 
 void writeMiddleInLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
 {
   //u32 SIZEY = IN_WG / IN_SIZEX;
-  //u32 num_x_chunks = WIDTH / IN_SIZEX;		// Number of x chunks
-  //u32 num_y_chunks = SMALL_HEIGHT / SIZEY;		// Number of y chunks
+  //u32 num_x_chunks = WIDTH / IN_SIZEX;                // Number of x chunks
+  //u32 num_y_chunks = SMALL_HEIGHT / SIZEY;            // Number of y chunks
 
 #if PADDING
 
   u32 SIZEY = IN_WG / IN_SIZEX;
 
-  out += chunk_y * (MIDDLE * IN_WG + PAD_SIZE) +	// Write y chunks after middle chunks and a pad 
-         chunk_x * (SMALL_HEIGHT * MIDDLE * IN_SIZEX +	// num_y_chunks * (MIDDLE * IN_WG + PAD_SIZE)
-		    SMALL_HEIGHT / SIZEY * PAD_SIZE);	//              = SMALL_HEIGHT / SIZEY * (MIDDLE * IN_WG + PAD_SIZE)
-							//              = SMALL_HEIGHT / (IN_WG / IN_SIZEX) * (MIDDLE * IN_WG + PAD_SIZE)
-							//		= SMALL_HEIGHT * MIDDLE * IN_SIZEX + SMALL_HEIGHT / SIZEY * PAD_SIZE
+  out += chunk_y * (MIDDLE * IN_WG + PAD_SIZE) +        // Write y chunks after middle chunks and a pad 
+         chunk_x * (SMALL_HEIGHT * MIDDLE * IN_SIZEX +  // num_y_chunks * (MIDDLE * IN_WG + PAD_SIZE)
+                    SMALL_HEIGHT / SIZEY * PAD_SIZE);   //              = SMALL_HEIGHT / SIZEY * (MIDDLE * IN_WG + PAD_SIZE)
+                                                        //              = SMALL_HEIGHT / (IN_WG / IN_SIZEX) * (MIDDLE * IN_WG + PAD_SIZE)
+                                                        //              = SMALL_HEIGHT * MIDDLE * IN_SIZEX + SMALL_HEIGHT / SIZEY * PAD_SIZE
   // Write each u[i] sequentially
   for (int i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
 
 #else
 
   // Output data such that readCarryFused lines are packed tightly together.  No rotations or padding.
-  out += chunk_y * MIDDLE * IN_WG +			// Write y chunks after middles
-         chunk_x * MIDDLE * SMALL_HEIGHT * IN_SIZEX;	// num_y_chunks * IN_WG = SMALL_HEIGHT / SIZEY * MIDDLE * IN_WG
-							//                       = MIDDLE * SMALL_HEIGHT / (IN_WG / IN_SIZEX) * IN_WG
-							//                       = MIDDLE * SMALL_HEIGHT * IN_SIZEX
+  out += chunk_y * MIDDLE * IN_WG +                     // Write y chunks after middles
+         chunk_x * MIDDLE * SMALL_HEIGHT * IN_SIZEX;    // num_y_chunks * IN_WG = SMALL_HEIGHT / SIZEY * MIDDLE * IN_WG
+                                                        //                       = MIDDLE * SMALL_HEIGHT / (IN_WG / IN_SIZEX) * IN_WG
+                                                        //                       = MIDDLE * SMALL_HEIGHT * IN_SIZEX
   // Write each u[i] sequentially
   for (int i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
 
@@ -138,43 +138,43 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
 #if PADDING
 
   // Adjust in pointer based on the x value used in writeMiddleInLine
-  u32 fftMiddleIn_x = line % WIDTH;				// The fftMiddleIn x value
-  u32 chunk_x = fftMiddleIn_x / IN_SIZEX;			// The fftMiddleIn chunk_x value
-  in += chunk_x * (SMALL_HEIGHT * MIDDLE * IN_SIZEX + SMALL_HEIGHT / SIZEY * PAD_SIZE);	// Adjust in pointer the same way writeMiddleInLine did
-  u32 x_within_in_wg = fftMiddleIn_x % IN_SIZEX;		// There were IN_SIZEX x values within IN_WG
-  in += x_within_in_wg * SIZEY;					// Adjust in pointer the same way writeMiddleInLine wrote x values within IN_WG
+  u32 fftMiddleIn_x = line % WIDTH;                             // The fftMiddleIn x value
+  u32 chunk_x = fftMiddleIn_x / IN_SIZEX;                       // The fftMiddleIn chunk_x value
+  in += chunk_x * (SMALL_HEIGHT * MIDDLE * IN_SIZEX + SMALL_HEIGHT / SIZEY * PAD_SIZE); // Adjust in pointer the same way writeMiddleInLine did
+  u32 x_within_in_wg = fftMiddleIn_x % IN_SIZEX;                // There were IN_SIZEX x values within IN_WG
+  in += x_within_in_wg * SIZEY;                                 // Adjust in pointer the same way writeMiddleInLine wrote x values within IN_WG
 
   // Adjust in pointer based on the i value used in writeMiddleInLine
-  u32 fftMiddleIn_i = line / WIDTH;				// The i in fftMiddleIn's u[i]
-  in += fftMiddleIn_i * IN_WG;					// Adjust in pointer the same way writeMiddleInLine did
+  u32 fftMiddleIn_i = line / WIDTH;                             // The i in fftMiddleIn's u[i]
+  in += fftMiddleIn_i * IN_WG;                                  // Adjust in pointer the same way writeMiddleInLine did
 
   // Adjust in pointer based on the y value used in writeMiddleInLine
-  in += me % SIZEY;						// Adjust in pointer to read SIZEY consecutive values
+  in += me % SIZEY;                                             // Adjust in pointer to read SIZEY consecutive values
   for (i32 i = 0; i < NH; ++i) {
-    u32 fftMiddleIn_y = i * G_H + me;				// The fftMiddleIn y value
-    u32 chunk_y = fftMiddleIn_y / SIZEY;			// The fftMiddleIn chunk_y value
-    u[i] = in[chunk_y * (MIDDLE * IN_WG + PAD_SIZE)];		// Adjust in pointer the same way writeMiddleInLine did
+    u32 fftMiddleIn_y = i * G_H + me;                           // The fftMiddleIn y value
+    u32 chunk_y = fftMiddleIn_y / SIZEY;                        // The fftMiddleIn chunk_y value
+    u[i] = in[chunk_y * (MIDDLE * IN_WG + PAD_SIZE)];           // Adjust in pointer the same way writeMiddleInLine did
   }
 
-#else								// Read data that was not rotated or padded
+#else                                                           // Read data that was not rotated or padded
 
   // Adjust in pointer based on the x value used in writeMiddleInLine
-  u32 fftMiddleIn_x = line % WIDTH;				// The fftMiddleIn x value
-  u32 chunk_x = fftMiddleIn_x / IN_SIZEX;			// The fftMiddleIn chunk_x value
-  in += chunk_x * (SMALL_HEIGHT * MIDDLE * IN_SIZEX);		// Adjust in pointer the same way writeMiddleInLine did
-  u32 x_within_in_wg = fftMiddleIn_x % IN_SIZEX;		// There were IN_SIZEX x values within IN_WG
-  in += x_within_in_wg * SIZEY;					// Adjust in pointer the same way writeMiddleInLine wrote x values within IN_WG
+  u32 fftMiddleIn_x = line % WIDTH;                             // The fftMiddleIn x value
+  u32 chunk_x = fftMiddleIn_x / IN_SIZEX;                       // The fftMiddleIn chunk_x value
+  in += chunk_x * (SMALL_HEIGHT * MIDDLE * IN_SIZEX);           // Adjust in pointer the same way writeMiddleInLine did
+  u32 x_within_in_wg = fftMiddleIn_x % IN_SIZEX;                // There were IN_SIZEX x values within IN_WG
+  in += x_within_in_wg * SIZEY;                                 // Adjust in pointer the same way writeMiddleInLine wrote x values within IN_WG
 
   // Adjust in pointer based on the i value used in writeMiddleInLine
-  u32 fftMiddleIn_i = line / WIDTH;				// The i in fftMiddleIn's u[i]
-  in += fftMiddleIn_i * IN_WG;					// Adjust in pointer the same way writeMiddleInLine did
+  u32 fftMiddleIn_i = line / WIDTH;                             // The i in fftMiddleIn's u[i]
+  in += fftMiddleIn_i * IN_WG;                                  // Adjust in pointer the same way writeMiddleInLine did
 
   // Adjust in pointer based on the y value used in writeMiddleInLine
-  in += me % SIZEY;						// Adjust in pointer to read SIZEY consecutive values
+  in += me % SIZEY;                                             // Adjust in pointer to read SIZEY consecutive values
   for (i32 i = 0; i < NH; ++i) {
-    u32 fftMiddleIn_y = i * G_H + me;				// The fftMiddleIn y value
-    u32 chunk_y = fftMiddleIn_y / SIZEY;			// The fftMiddleIn chunk_y value
-    u[i] = in[chunk_y * (MIDDLE * IN_WG)];			// Adjust in pointer the same way writeMiddleInLine did
+    u32 fftMiddleIn_y = i * G_H + me;                           // The fftMiddleIn y value
+    u32 chunk_y = fftMiddleIn_y / SIZEY;                        // The fftMiddleIn chunk_y value
+    u[i] = in[chunk_y * (MIDDLE * IN_WG)];                      // Adjust in pointer the same way writeMiddleInLine did
   }
 
 #endif
@@ -189,18 +189,18 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
 // This can be faster on AMD GPUs, not certain about nVidia GPUs.
 
 // tailFused writes:
-//      x         ranges 0...SMALL_HEIGHT-1 (multiples on one)		(also known as 0...G_H-1 and 0...NH-1)
+//      x         ranges 0...SMALL_HEIGHT-1 (multiples on one)          (also known as 0...G_H-1 and 0...NH-1)
 //      y         ranges 0...MIDDLE*WIDTH-1 (multiples of SMALL_HEIGHT)
 // fftMiddleOut reads:
-//      x         ranges 0...SMALL_HEIGHT-1 (multiples of one)		(processed in batches of OUT_SIZEX)
+//      x         ranges 0...SMALL_HEIGHT-1 (multiples of one)          (processed in batches of OUT_SIZEX)
 //      i in u[i] ranges 0...MIDDLE-1 (multiples of SMALL_HEIGHT)
-//      y         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)		(processed in batches of OUT_WG/OUT_SIZEX)
+//      y         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)          (processed in batches of OUT_WG/OUT_SIZEX)
 
 void writeTailFusedLine(T2 *u, P(T2) out, u32 line) {
 #if PADDING
-  out += line * (SMALL_HEIGHT + PAD_SIZE) + (u32) get_local_id(0);	// Pad every output line
+  out += line * (SMALL_HEIGHT + PAD_SIZE) + (u32) get_local_id(0);      // Pad every output line
   for (u32 i = 0; i < NH; ++i) { out[i * G_H] = u[i]; }
-#else					                                // No padding, might be better on nVidia cards
+#else                                                                   // No padding, might be better on nVidia cards
   out += line * SMALL_HEIGHT + (u32) get_local_id(0);
   for (u32 i = 0; i < NH; ++i) { out[i * G_H] = u[i]; }
 #endif
@@ -210,7 +210,7 @@ void readMiddleOutLine(T2 *u, CP(T2) in, u32 y, u32 x) {
 #if PADDING
   in += y * MIDDLE * (SMALL_HEIGHT + PAD_SIZE) + x;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * (SMALL_HEIGHT + PAD_SIZE)]; }
-#else									// No rotation, might be better on nVidia cards
+#else                                                                   // No rotation, might be better on nVidia cards
   in += y * MIDDLE * SMALL_HEIGHT + x;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT]; }
 #endif
@@ -227,11 +227,11 @@ void readMiddleOutLine(T2 *u, CP(T2) in, u32 y, u32 x) {
 //
 // This gets complicated very fast, so I've documented my thought processes here.
 // fftMiddleOut reads:
-//      x         ranges 0...SMALL_HEIGHT-1 (multiples of one)		(processed in batches of OUT_SIZEX)
+//      x         ranges 0...SMALL_HEIGHT-1 (multiples of one)          (processed in batches of OUT_SIZEX)
 //      i in u[i] ranges 0...MIDDLE-1 (multiples of SMALL_HEIGHT)
-//      y         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)		(processed in batches of OUT_WG/OUT_SIZEX)
+//      y         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)          (processed in batches of OUT_WG/OUT_SIZEX)
 // readCarryFusedLine reads:
-//      x         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)		(also known as 0...WG-1 and 0...NW-1)
+//      x         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)          (also known as 0...WG-1 and 0...NW-1)
 //      line      ranges 0...BIG_HEIGHT-1 (multiples of one)
 //
 // Of note above, all the (y,x) values where x is unchanged are read by a single readCarryFusedLine call.
@@ -272,11 +272,11 @@ void writeMiddleOutLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
 
-  out += chunk_y * (MIDDLE * OUT_WG + PAD_SIZE) +	// Write y chunks after middle chunks and a pad 
-         chunk_x * (WIDTH * MIDDLE * OUT_SIZEX +	// num_y_chunks * (MIDDLE * OUT_WG + PAD_SIZE)
-		    WIDTH / SIZEY * PAD_SIZE);		//              = WIDTH / SIZEY * (MIDDLE * OUT_WG + PAD_SIZE)
-							//              = WIDTH / (OUT_WG / OUT_SIZEX) * (MIDDLE * OUT_WG + PAD_SIZE)
-							//		= WIDTH * MIDDLE * OUT_SIZEX + WIDTH / SIZEY * PAD_SIZE
+  out += chunk_y * (MIDDLE * OUT_WG + PAD_SIZE) +       // Write y chunks after middle chunks and a pad 
+         chunk_x * (WIDTH * MIDDLE * OUT_SIZEX +        // num_y_chunks * (MIDDLE * OUT_WG + PAD_SIZE)
+                    WIDTH / SIZEY * PAD_SIZE);          //              = WIDTH / SIZEY * (MIDDLE * OUT_WG + PAD_SIZE)
+                                                        //              = WIDTH / (OUT_WG / OUT_SIZEX) * (MIDDLE * OUT_WG + PAD_SIZE)
+                                                        //              = WIDTH * MIDDLE * OUT_SIZEX + WIDTH / SIZEY * PAD_SIZE
   // Write each u[i] sequentially
   for (int i = 0; i < MIDDLE; ++i) { out[i * OUT_WG] = u[i]; }
 
@@ -301,43 +301,43 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
 #if PADDING
 
   // Adjust in pointer based on the x value used in writeMiddleOutLine
-  u32 fftMiddleOut_x = line % SMALL_HEIGHT;			// The fftMiddleOut x value
-  u32 chunk_x = fftMiddleOut_x / OUT_SIZEX;			// The fftMiddleOut chunk_x value
-  in += chunk_x * (WIDTH * MIDDLE * OUT_SIZEX + WIDTH / SIZEY * PAD_SIZE);	// Adjust in pointer the same way writeMiddleOutLine did
-  u32 x_within_out_wg = fftMiddleOut_x % OUT_SIZEX;		// There were OUT_SIZEX x values within OUT_WG
-  in += x_within_out_wg * SIZEY;				// Adjust in pointer the same way writeMiddleOutLine wrote x values within OUT_WG
+  u32 fftMiddleOut_x = line % SMALL_HEIGHT;                     // The fftMiddleOut x value
+  u32 chunk_x = fftMiddleOut_x / OUT_SIZEX;                     // The fftMiddleOut chunk_x value
+  in += chunk_x * (WIDTH * MIDDLE * OUT_SIZEX + WIDTH / SIZEY * PAD_SIZE);      // Adjust in pointer the same way writeMiddleOutLine did
+  u32 x_within_out_wg = fftMiddleOut_x % OUT_SIZEX;             // There were OUT_SIZEX x values within OUT_WG
+  in += x_within_out_wg * SIZEY;                                // Adjust in pointer the same way writeMiddleOutLine wrote x values within OUT_WG
 
   // Adjust in pointer based on the i value used in writeMiddleOutLine
-  u32 fftMiddleOut_i = line / SMALL_HEIGHT;			// The i in fftMiddleOut's u[i]
-  in += fftMiddleOut_i * OUT_WG;				// Adjust in pointer the same way writeMiddleOutLine did
+  u32 fftMiddleOut_i = line / SMALL_HEIGHT;                     // The i in fftMiddleOut's u[i]
+  in += fftMiddleOut_i * OUT_WG;                                // Adjust in pointer the same way writeMiddleOutLine did
 
   // Adjust in pointer based on the y value used in writeMiddleOutLine
-  in += me % SIZEY;						// Adjust in pointer to read SIZEY consecutive values
+  in += me % SIZEY;                                             // Adjust in pointer to read SIZEY consecutive values
   for (i32 i = 0; i < NW; ++i) {
-    u32 fftMiddleOut_y = i * G_W + me;				// The fftMiddleOut y value
-    u32 chunk_y = fftMiddleOut_y / SIZEY;			// The fftMiddleOut chunk_y value
-    u[i] = in[chunk_y * (MIDDLE * OUT_WG + PAD_SIZE)];		// Adjust in pointer the same way writeMiddleOutLine did
+    u32 fftMiddleOut_y = i * G_W + me;                          // The fftMiddleOut y value
+    u32 chunk_y = fftMiddleOut_y / SIZEY;                       // The fftMiddleOut chunk_y value
+    u[i] = in[chunk_y * (MIDDLE * OUT_WG + PAD_SIZE)];          // Adjust in pointer the same way writeMiddleOutLine did
   }
 
-#else								// Read data that was not rotated or padded
+#else                                                           // Read data that was not rotated or padded
 
   // Adjust in pointer based on the x value used in writeMiddleOutLine
-  u32 fftMiddleOut_x = line % SMALL_HEIGHT;			// The fftMiddleOut x value
-  u32 chunk_x = fftMiddleOut_x / OUT_SIZEX;			// The fftMiddleOut chunk_x value
-  in += chunk_x * MIDDLE * WIDTH * OUT_SIZEX;			// Adjust in pointer the same way writeMiddleOutLine did
-  u32 x_within_out_wg = fftMiddleOut_x % OUT_SIZEX;		// There were OUT_SIZEX x values within OUT_WG
-  in += x_within_out_wg * SIZEY;				// Adjust in pointer the same way writeMiddleOutLine wrote x values with OUT_WG
+  u32 fftMiddleOut_x = line % SMALL_HEIGHT;                     // The fftMiddleOut x value
+  u32 chunk_x = fftMiddleOut_x / OUT_SIZEX;                     // The fftMiddleOut chunk_x value
+  in += chunk_x * MIDDLE * WIDTH * OUT_SIZEX;                   // Adjust in pointer the same way writeMiddleOutLine did
+  u32 x_within_out_wg = fftMiddleOut_x % OUT_SIZEX;             // There were OUT_SIZEX x values within OUT_WG
+  in += x_within_out_wg * SIZEY;                                // Adjust in pointer the same way writeMiddleOutLine wrote x values with OUT_WG
 
   // Adjust in pointer based on the i value used in writeMiddleOutLine
-  u32 fftMiddleOut_i = line / SMALL_HEIGHT;			// The i in fftMiddleOut's u[i]
-  in += fftMiddleOut_i * OUT_WG;				// Adjust in pointer the same way writeMiddleOutLine did
+  u32 fftMiddleOut_i = line / SMALL_HEIGHT;                     // The i in fftMiddleOut's u[i]
+  in += fftMiddleOut_i * OUT_WG;                                // Adjust in pointer the same way writeMiddleOutLine did
 
   // Adjust in pointer based on the y value used in writeMiddleOutLine
-  in += me % SIZEY;						// Adjust in pointer to read SIZEY consecutive values
+  in += me % SIZEY;                                             // Adjust in pointer to read SIZEY consecutive values
   for (i32 i = 0; i < NW; ++i) {
-    u32 fftMiddleOut_y = i * G_W + me;				// The fftMiddleOut y value
-    u32 chunk_y = fftMiddleOut_y / SIZEY;			// The fftMiddleOut chunk_y value
-    u[i] = in[chunk_y * MIDDLE * OUT_WG];			// Adjust in pointer the same way writeMiddleOutLine did
+    u32 fftMiddleOut_y = i * G_W + me;                          // The fftMiddleOut y value
+    u32 chunk_y = fftMiddleOut_y / SIZEY;                       // The fftMiddleOut chunk_y value
+    u[i] = in[chunk_y * MIDDLE * OUT_WG];                       // Adjust in pointer the same way writeMiddleOutLine did
   }
 
 #endif
