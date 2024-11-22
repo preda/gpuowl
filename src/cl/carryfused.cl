@@ -62,7 +62,10 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   // On Titan V it is faster to derive the big vs. little flags from the fractional number of bits in each FFT word rather read the flags from memory.
   // On Radeon VII this code is about he same speed.  Not sure which is better on other GPUs.
 #if BIGLIT
-  u32 frac_bits = (u32) (((me * H + line) * 2 * ((((u64) FRAC_BPW_HI) << 32) + FRAC_BPW_LO)) >> 32);
+  // Calculate the most significant 32-bits of FRAC_BPW * the index of the FFT word
+  u32 fft_word_index = (me * H + line) * 2;
+  u32 frac_bits = fft_word_index * FRAC_BPW_HI + (u32) ((fft_word_index * (u64) FRAC_BPW_LO) >> 32);
+  // Perform addition to test first biglit flag
   u32 tmp = frac_bits + FRAC_BPW_HI;
 #endif
 
