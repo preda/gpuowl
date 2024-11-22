@@ -252,11 +252,13 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   defines += toDefine("TRIG_SIN",  coefs.sinCoefs);
   defines += toDefine("TRIG_COS",  coefs.cosCoefs);
 
+  // Calculate fractional bits-per-word = (E % N) / N * 2^64
   u32 bpw_hi = (u64(E % N) << 32) / N;
   u32 bpw_lo = (((u64(E % N) << 32) % N) << 32) / N;
-  defines += toDefine("FRAC_BPW_HI", bpw_hi);
-  defines += toDefine("FRAC_BPW_LO", bpw_lo);
   u64 bpw = (u64(bpw_hi) << 32) + bpw_lo;
+  bpw--; // bpw must not be an exact value -- it must be less than exact value to get last biglit value right
+  defines += toDefine("FRAC_BPW_HI", (u32) (bpw >> 32));
+  defines += toDefine("FRAC_BPW_LO", (u32) bpw);
   u32 bigstep = (bpw * (N / fft.shape.nW())) >> 32;
   defines += toDefine("FRAC_BITS_BIGSTEP", bigstep);
 
