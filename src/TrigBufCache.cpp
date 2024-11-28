@@ -22,7 +22,7 @@ double2 root1Fancy(u32 N, u32 k) {
   assert(k < N/4);
 
   long double angle = M_PIl * k / (N / 2);
-  return {double(cosl(angle) - 1), sinl(angle)};
+  return {double(cosl(angle) - 1), double(sinl(angle))};
 }
 
 // Returns the primitive root of unity of order N, to the power k.
@@ -40,13 +40,15 @@ double2 root1(u32 N, u32 k) {
   } else {
     assert(k <= N/8);
 
-#if 0
     long double angle = M_PIl * k / (N / 2);
-    return {cosl(angle), sinl(angle)};
-#else
-    double angle = M_PI * k / (N / 2);
-    return {cos(angle), sin(angle)};
+
+#if 0
+    double c = cosl(angle);
+    double s = sinl(angle);
+    if (c * c + s * s == 1.0) { return {c, s}; }
 #endif
+
+    return {cos(double(angle)), sin(double(angle))};
   }
 }
 
