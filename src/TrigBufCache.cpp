@@ -25,6 +25,28 @@ double2 root1Fancy(u32 N, u32 k) {
   return {double(cosl(angle) - 1), double(sinl(angle))};
 }
 
+static double trigError(double c, double s) { return abs((c * c + s * s) - 1.0); }
+
+// Round trig long double to double as to satisfy c^2 + s^2 == 1 as best as possible
+static double2 roundTrig(long double lc, long double ls) {
+  double c1 = lc;
+  double c2 = nexttoward(c1, lc);
+  double s1 = ls;
+  double s2 = nexttoward(s1, ls);
+
+  double c = c1;
+  double s = s1;
+  for (double tryC : {c1, c2}) {
+    for (double tryS : {s1, s2}) {
+      if (trigError(tryC, tryS) < trigError(c, s)) {
+        c = tryC;
+        s = tryS;
+      }
+    }
+  }
+  return {c, s};
+}
+
 // Returns the primitive root of unity of order N, to the power k.
 double2 root1(u32 N, u32 k) {
   assert(k < N);
@@ -42,13 +64,11 @@ double2 root1(u32 N, u32 k) {
 
     long double angle = M_PIl * k / (N / 2);
 
-#if 0
-    double c = cosl(angle);
-    double s = sinl(angle);
-    if (c * c + s * s == 1.0) { return {c, s}; }
-#endif
-
+#if 1
+    return roundTrig(cosl(angle), sinl(angle));
+#else
     return {cos(double(angle)), sin(double(angle))};
+#endif
   }
 }
 
