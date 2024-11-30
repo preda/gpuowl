@@ -165,6 +165,7 @@ named "config.txt" in the prpll run directory.
 -save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
 -cache             : use binary kernel cache; useful with repeated use of -roeTune and -tune
+-roe               : measure the Round-Off Error (Z) for more iterations (slow)
 
 -use <define>      : comma separated list of defines for configuring gpuowl.cl, such as:
   -use FAST_BARRIER: on AMD Radeon VII and older AMD GPUs, use a faster barrier(). Do not use
@@ -295,6 +296,9 @@ void Args::parse(const string& line) {
     } else if (key == "-od") {
       double od = stod(s);
       fftOverdrive = 1 + od / 1000;
+    } else if (key == "-roe") {
+      assert(s.empty());
+      logROE = true;
     } else if (key == "-tune") {
       assert(s.empty());
       doTune = true;

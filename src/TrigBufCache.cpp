@@ -25,7 +25,8 @@ double2 root1Fancy(u32 N, u32 k) {
   return {double(cosl(angle) - 1), double(sinl(angle))};
 }
 
-static double trigError(double c, double s) { return abs((c * c + s * s) - 1.0); }
+static double trigNorm(double c, double s) { return c * c + s * s; }
+static double trigError(double c, double s) { return abs(trigNorm(c, s) - 1.0); }
 
 // Round trig long double to double as to satisfy c^2 + s^2 == 1 as best as possible
 static double2 roundTrig(long double lc, long double ls) {
@@ -67,7 +68,12 @@ double2 root1(u32 N, u32 k) {
 #if 1
     return roundTrig(cosl(angle), sinl(angle));
 #else
-    return {cos(double(angle)), sin(double(angle))};
+    double c = cos(double(angle)), s = sin(double(angle));
+    if ((c * c + s * s == 1.0)) {
+      return {c, s};
+    } else {
+      return {double(cosl(angle)), double(sinl(angle))};
+    }
 #endif
   }
 }

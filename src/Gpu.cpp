@@ -986,7 +986,8 @@ void Gpu::doBigLog(u32 k, u64 res, bool checkOK, float secsPerIt, u32 nIters, u3
     log("Danger ROE! Z=%.1f is too small, increase precision or FFT size!\n", z);
   }
 
-  wantROE = 400; // only a few iterations for low overhead
+  // Unless ROE log is not explicitly requested, measure only a few iterations to minimize overhead
+  wantROE = args.logROE ? ROE_SIZE : 400;
 
   RoeInfo carryStats = readCarryStats();
   if (carryStats.N > 2) {
@@ -1012,12 +1013,20 @@ int ulps(double a, double b) {
   return delta;
 }
 
+[[maybe_unused]] static double trigNorm(double c, double s) {
+  double c2 = c * c;
+  double err = fma(c, c, -c2);
+  double norm = c2 + fma(s, s, err);
+  return norm;
+}
+
 void Gpu::selftestTrig() {
   const u32 n = hN / 8;
   testTrig(buf1);
   vector<double> trig = buf1.read(n * 2);
   int sup = 0, sdown = 0;
   int cup = 0, cdown = 0;
+  int oneUp = 0, oneDown = 0;
   for (u32 k = 0; k < n; ++k) {
     double c = trig[2*k];
     double s = trig[2*k + 1];
@@ -1034,63 +1043,18 @@ void Gpu::selftestTrig() {
     if (s < refSin) { ++sdown; }
     if (c > refCos) { ++cup; }
     if (c < refCos) { ++cdown; }
+    
+    double norm = trigNorm(c, s);
+    
+    if (norm < 1.0) { ++oneDown; }
+    if (norm > 1.0) { ++oneUp; }
   }
 
   log("TRIG sin(): imperfect %d / %d (%.2f%%), balance %d\n",
       sup + sdown, n, (sup + sdown) * 100.0 / n, sup - sdown);
   log("TRIG cos(): imperfect %d / %d (%.2f%%), balance %d\n",
       cup + cdown, n, (cup + cdown) * 100.0 / n, cup - cdown);
-
-  /*
-  testFFT4(buf1);
-  vector<double> fft4 = buf1.read(4 * 2);
-  for (int i = 0; i < 4; ++i) {
-    log("FFT4[%d] = %f, %f\n", i, fft4[2*i], fft4[2*i + 1]);
-  }
-  */
-
-  /*
-  vector<double> data{1, 2, -3, -4, 1, 0, 0, 1, -1, 2, 0, -1, 0, -2, 5, 1, 5, 2, -2, -1, 0, 1, 0, 2, 0, 3, 1, -1, 1, -2};
-  buf1.write(data);
-
-  testFFT15(buf1);
-  vector<double> fft15 = buf1.read(15 * 2);
-  for (int i = 0; i < 15; ++i) {
-    log("FFT15[%d] = %f, %f\n", i, fft15[2*i], fft15[2*i + 1]);
-  }
-  */
-
-  /*
-  for (int i = 0; i < 2*7; ++i) { data.push_back(i); }
-  buf1.write(data);
-  testFFT7(buf1);
-  data = buf1.read(7 * 2);
-  for (int i = 0; i < 7; ++i) {
-    log("FFT7[%d] = %f, %f\n", i, data[2*i], data[2*i + 1]);
-  }
-  */
-
-  /*
-  vector<double> data;
-  for (int i = 0; i < 2 * 16; ++i) { data.push_back(2*16 - i); }
-  vector<double> ref = data;
-  buf1.write(data);
-  testFFT(buf1);
-
-  data = buf1.read(2 * 16);
-  for (int i = 0; i < 16; ++i) { log("FFT[%d] = %f, %f\n", i, data.at(2*i), data.at(2*i + 1)); }
-
-  for (int i = 1; i < 2 * 16; i += 2) { data[i] = - data[i]; }
-  buf1.write(data);
-
-  testFFT(buf1);
-
-  data = buf1.read(2 * 16);
-  for (int i = 1; i < 2 * 16; i += 2) { data[i] = -data[i]; }
-
-  for (int i = 0; i < 16; ++i) { log("FFT[%d] = %f, %f (%d %d)\n", i, data.at(2*i) / 16, data.at(2*i + 1) / 16,
-        ulps(ref.at(2*i), data.at(2*i)/16), ulps(ref.at(2*i + 1), data.at(2*i+1)/16)); }
-  */
+  log("TRIG norm: up %d, down %d\n", oneUp, oneDown);
 }
 
 static u32 mod3(const std::vector<u32> &words) {
@@ -1435,7 +1399,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   while (true) {
     assert(k < kEndEnd);
     
-    if (!wantROE && k - startK > 30) { wantROE = 2'000; }
+    if (!wantROE && k - startK > 30) { wantROE = args.logROE ? ROE_SIZE : 2'000; }
 
     if (skipNextCheckUpdate) {
       skipNextCheckUpdate = false;
