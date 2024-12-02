@@ -200,7 +200,8 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
 void writeTailFusedLine(T2 *u, P(T2) out, u32 line) {
 #if PADDING
 #if MIDDLE == 4 || MIDDLE == 8 || MIDDLE == 16
-  out += line * (SMALL_HEIGHT + PAD_SIZE) + line / MIDDLE * PAD_SIZE + (u32) get_local_id(0); // Pad every output line plus every MIDDLE
+  u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
+  out += line * (SMALL_HEIGHT + PAD_SIZE) + line / MIDDLE * BIG_PAD_SIZE + (u32) get_local_id(0); // Pad every output line plus every MIDDLE
 #else
   out += line * (SMALL_HEIGHT + PAD_SIZE) + (u32) get_local_id(0);      // Pad every output line
 #endif
@@ -214,7 +215,10 @@ void writeTailFusedLine(T2 *u, P(T2) out, u32 line) {
 void readMiddleOutLine(T2 *u, CP(T2) in, u32 y, u32 x) {
 #if PADDING
 #if MIDDLE == 4 || MIDDLE == 8 || MIDDLE == 16
-  in += y * MIDDLE * (SMALL_HEIGHT + PAD_SIZE) + y * PAD_SIZE + x;
+  // Each u[i] increments by one pad size.
+  // Rather than each work group reading successive y's also increment by one, we choose a larger pad increment.
+  u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
+  in += y * MIDDLE * (SMALL_HEIGHT + PAD_SIZE) + y * BIG_PAD_SIZE + x;
 #else
   in += y * MIDDLE * (SMALL_HEIGHT + PAD_SIZE) + x;
 #endif
