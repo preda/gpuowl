@@ -53,6 +53,40 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   }
 }
 
+// The kernel tailSquareZero handles the special cases in tailSquare, i.e. the lines 0 and H/2
+KERNEL(G_H) tailSquareZero(P(T2) out, CP(T2) in, Trig smallTrig) {
+  local T2 lds[SMALL_HEIGHT / 2];
+  T2 u[NH];
+  u32 H = ND / SMALL_HEIGHT;
+
+  // This kernel in executed in two workgroups.
+  u32 which = get_group_id(0);
+  assert(which < 2);
+
+  u32 line = which ? (H/2) : 0;
+  readTailFusedLine(in, u, line);
+
+  u32 me = get_local_id(0);
+
+#if NH == 8
+  T2 w = fancyTrig_N(ND / SMALL_HEIGHT * me);
+#else
+  T2 w = slowTrig_N(ND / SMALL_HEIGHT * me, ND / NH);
+#endif
+
+  T2 trig = slowTrig_N(line + me * H, ND / NH);
+  u32 memline = transPos(line, MIDDLE, WIDTH);
+
+  fft_HEIGHT(lds, u, smallTrig, w);
+  reverse(G_H, lds, u + NH/2, !which);
+  pairSq(NH/2, u,   u + NH/2, trig, !which);
+  reverse(G_H, lds, u + NH/2, !which);
+
+  bar();
+  fft_HEIGHT(lds, u, smallTrig, w);
+  writeTailFusedLine(u, out, memline);
+}
+
 KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT];
 
@@ -60,8 +94,8 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
   u32 H = ND / SMALL_HEIGHT;
 
-  u32 line1 = get_group_id(0);
-  u32 line2 = line1 ? H - line1 : (H / 2);
+  u32 line1 = get_group_id(0) + 1;
+  u32 line2 = H - line1;
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
 
@@ -82,22 +116,9 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
   T2 trig = slowTrig_N(line1 + me * H, ND / NH);
 
-  if (line1) {
-    reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, trig, false);
-    reverseLine(G_H, lds, v);
-  } else {
-    // Line 0 is special: it pairs with itself, offseted by 1.
-    reverse(G_H, lds, u + NH/2, true);
-    pairSq(NH/2, u,   u + NH/2, trig, true);
-    reverse(G_H, lds, u + NH/2, true);
-
-    // Line H/2 also pairs with itself (but without offset).
-    T2 trig2 = cmulFancy(trig, TAILT);
-    reverse(G_H, lds, v + NH/2, false);
-    pairSq(NH/2, v,   v + NH/2, trig2, false);
-    reverse(G_H, lds, v + NH/2, false);
-  }
+  reverseLine(G_H, lds, v);
+  pairSq(NH, u, v, trig, false);
+  reverseLine(G_H, lds, v);
 
   bar();
   fft_HEIGHT(lds, v, smallTrig, w);

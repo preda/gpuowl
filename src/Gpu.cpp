@@ -375,6 +375,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   WIDTH(fft.shape.width),
   SMALL_H(fft.shape.height),
   BIG_H(SMALL_H * fft.shape.middle),
+  MIDDLE(fft.shape.middle),
   hN(N / 2),
   nW(fft.shape.nW()),
   nH(fft.shape.nH()),
@@ -382,10 +383,11 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   useLongCarry{args.carry == Args::CARRY_LONG},
   compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, extraConf, E, logFftSize)},
   
-#define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
+#define K(name, file, nameInFile, workSize, defines) name(#name, &compiler, profile.make(#name), queue, file, nameInFile, workSize, 0, defines)
+#define K_WG(name, file, nameInFile, nGroups, defines) name(#name, &compiler, profile.make(#name), queue, file, nameInFile, 0, nGroups, defines)
 
   //  W / nW
-  K(kCarryFused,    "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW),
+  K(kCarryFused,    "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW, ""),
   K(kCarryFusedROE, "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW, "-DROE=1"),
 
   K(kCarryFusedMul,    "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW, "-DMUL3=1"),
@@ -393,43 +395,45 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
 
   K(kCarryFusedLL,     "carryfused.cl", "carryFused", WIDTH * (BIG_H + 1) / nW, "-DLL=1"),
 
-  K(kCarryA,    "carry.cl", "carry", hN / CARRY_LEN),
+  K(kCarryA,    "carry.cl", "carry", hN / CARRY_LEN, ""),
   K(kCarryAROE, "carry.cl", "carry", hN / CARRY_LEN, "-DROE=1"),
 
   K(kCarryM,    "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1"),
   K(kCarryMROE, "carry.cl", "carry", hN / CARRY_LEN, "-DMUL3=1 -DROE=1"),
 
   K(kCarryLL,   "carry.cl", "carry", hN / CARRY_LEN, "-DLL=1"),
-  K(carryB, "carryb.cl", "carryB",   hN / CARRY_LEN),
+  K(carryB, "carryb.cl", "carryB",   hN / CARRY_LEN, ""),
 
-  K(fftP, "fftp.cl", "fftP", hN / nW),
-  K(fftW, "fftw.cl", "fftW", hN / nW),
+  K(fftP, "fftp.cl", "fftP", hN / nW, ""),
+  K(fftW, "fftw.cl", "fftW", hN / nW, ""),
   
   // SMALL_H / nH
-  K(fftHin,  "ffthin.cl",  "fftHin",  hN / nH),
+  K(fftHin,  "ffthin.cl",  "fftHin",  hN / nH, ""),
 
-  K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH / 2),
-  K(tailMul,       "tailmul.cl", "tailMul",       hN / nH / 2),
+  K_WG(tailSquare,     "tailsquare.cl", "tailSquare", (WIDTH * MIDDLE - 2) / 2, ""),
+  K_WG(tailSquareZero, "tailsquare.cl", "tailSquareZero", 2, ""),
+
+  K(tailMul,       "tailmul.cl", "tailMul",       hN / nH / 2, ""),
   K(tailMulLow,    "tailmul.cl", "tailMul",       hN / nH / 2, "-DMUL_LOW=1"),
   
   // 256
-  K(fftMidIn,  "fftmiddlein.cl",  "fftMiddleIn",  hN / (BIG_H / SMALL_H)),
-  K(fftMidOut, "fftmiddleout.cl", "fftMiddleOut", hN / (BIG_H / SMALL_H)),
+  K(fftMidIn,  "fftmiddlein.cl",  "fftMiddleIn",  hN / (BIG_H / SMALL_H), ""),
+  K(fftMidOut, "fftmiddleout.cl", "fftMiddleOut", hN / (BIG_H / SMALL_H), ""),
   
   // 64
-  K(transpIn,  "transpose.cl", "transposeIn",  hN / 64),
-  K(transpOut, "transpose.cl", "transposeOut", hN / 64),
+  K(transpIn,  "transpose.cl", "transposeIn",  hN / 64, ""),
+  K(transpOut, "transpose.cl", "transposeOut", hN / 64, ""),
   
   K(readResidue, "etc.cl", "readResidue", 32, "-DREADRESIDUE=1"),
 
   // 256
   K(kernIsEqual, "etc.cl", "isEqual", 256 * 256, "-DISEQUAL=1"),
   K(sum64,       "etc.cl", "sum64",   256 * 256, "-DSUM64=1"),
-  K(testTrig,    "selftest.cl", "testTrig", 256 * 256),
-  K(testFFT4, "selftest.cl", "testFFT4", 256),
-  K(testFFT, "selftest.cl", "testFFT", 256),
-  K(testFFT15, "selftest.cl", "testFFT15", 256),
-  K(testFFT14, "selftest.cl", "testFFT14", 256),
+  K(testTrig,    "selftest.cl", "testTrig", 256 * 256, ""),
+  K(testFFT4, "selftest.cl", "testFFT4", 256, ""),
+  K(testFFT, "selftest.cl", "testFFT", 256, ""),
+  K(testFFT15, "selftest.cl", "testFFT15", 256, ""),
+  K(testFFT14, "selftest.cl", "testFFT14", 256, ""),
 #undef K
 
   bufTrigW{shared.bufCache->smallTrig(WIDTH, nW)},
@@ -514,6 +518,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   tailMulLow.setFixedArgs(3, bufTrigH);
   tailMul.setFixedArgs(3, bufTrigH);
   tailSquare.setFixedArgs(2, bufTrigH);
+  tailSquareZero.setFixedArgs(2, bufTrigH);
   kernIsEqual.setFixedArgs(2, bufTrue);
 
   bufReady.zero();
@@ -815,6 +820,7 @@ static bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
 
 void Gpu::bottomHalf(Buffer<double>& out, Buffer<double>& inTmp) {
   fftMidIn(out, inTmp);
+  tailSquareZero(inTmp, out);
   tailSquare(inTmp, out);
   fftMidOut(out, inTmp);
 }

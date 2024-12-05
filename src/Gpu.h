@@ -103,6 +103,7 @@ private:
   u32 WIDTH;
   u32 SMALL_H;
   u32 BIG_H;
+  u32 MIDDLE;
 
   u32 hN, nW, nH, bufSize;
   bool useLongCarry;
@@ -131,6 +132,8 @@ private:
   Kernel fftHin;
 
   Kernel tailSquare;
+  Kernel tailSquareZero;
+  
   Kernel tailMul;
   Kernel tailMulLow;
 
