@@ -65,4 +65,19 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig, T2 w) {
   fft_NH(u);
 }
 
+void fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w) {
+
+#if !UNROLL_H
+  __attribute__((opencl_unroll_hint(1)))
+#endif
+
+  for (u32 s = 1; s < SMALL_HEIGHT / NH; s *= NH) {
+    if (s > 1) { if (SMALL_HEIGHT / NH > WAVEFRONT) bar(); }
+    fft_NH(u);
+    tabMul2(SMALL_HEIGHT / NH, trig, u, NH, s);
+    shufl2(SMALL_HEIGHT / NH, lds,  u, NH, s);
+  }
+  fft_NH(u);
+}
+
 #endif

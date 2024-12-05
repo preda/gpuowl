@@ -69,11 +69,11 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
   u32 line2 = line1 ? H - line1 : (H / 2);
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
-    
-  readTailFusedLine(in, u, line1);
-  readTailFusedLine(in, v, line2);
 
   u32 me = get_local_id(0);
+  readTailFusedLine(in, u, line1, me);
+  readTailFusedLine(in, v, line2, me);
+
 #if NH == 8
   T2 w = fancyTrig_N(ND / SMALL_HEIGHT * me);
 #else
@@ -87,8 +87,8 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
   bar();
   fft_HEIGHT(lds, v, smallTrig, w);
 #else
-  readTailFusedLine(a, p, line1);
-  readTailFusedLine(a, q, line2);
+  readTailFusedLine(a, p, line1, me);
+  readTailFusedLine(a, q, line2, me);
   fft_HEIGHT(lds, u, smallTrig, w);
   bar();
   fft_HEIGHT(lds, v, smallTrig, w);
@@ -122,6 +122,6 @@ KERNEL(G_H) tailMul(P(T2) out, CP(T2) in, CP(T2) a, Trig smallTrig) {
   fft_HEIGHT(lds, v, smallTrig, w);
   bar();
   fft_HEIGHT(lds, u, smallTrig, w);
-  writeTailFusedLine(v, out, memline2);
-  writeTailFusedLine(u, out, memline1);
+  writeTailFusedLine(v, out, memline2, me);
+  writeTailFusedLine(u, out, memline1, me);
 }

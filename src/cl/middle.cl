@@ -133,8 +133,7 @@ void writeMiddleInLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
 
 // Read a line for tailFused or fftHin
 // This reads partially transposed data as written by fftMiddleIn
-void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
-  u32 me = get_local_id(0);
+void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 me) {
   u32 SIZEY = IN_WG / IN_SIZEX;
 
 #if PADDING
@@ -199,17 +198,17 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line) {
 //      i in u[i] ranges 0...MIDDLE-1 (multiples of SMALL_HEIGHT)
 //      y         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)          (processed in batches of OUT_WG/OUT_SIZEX)
 
-void writeTailFusedLine(T2 *u, P(T2) out, u32 line) {
+void writeTailFusedLine(T2 *u, P(T2) out, u32 line, u32 me) {
 #if PADDING
 #if MIDDLE == 4 || MIDDLE == 8 || MIDDLE == 16
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
-  out += line * (SMALL_HEIGHT + PAD_SIZE) + line / MIDDLE * BIG_PAD_SIZE + (u32) get_local_id(0); // Pad every output line plus every MIDDLE
+  out += line * (SMALL_HEIGHT + PAD_SIZE) + line / MIDDLE * BIG_PAD_SIZE + me; // Pad every output line plus every MIDDLE
 #else
-  out += line * (SMALL_HEIGHT + PAD_SIZE) + (u32) get_local_id(0);      // Pad every output line
+  out += line * (SMALL_HEIGHT + PAD_SIZE) + me;                         // Pad every output line
 #endif
   for (u32 i = 0; i < NH; ++i) { out[i * G_H] = u[i]; }
 #else                                                                   // No padding, might be better on nVidia cards
-  out += line * SMALL_HEIGHT + (u32) get_local_id(0);
+  out += line * SMALL_HEIGHT + me;
   for (u32 i = 0; i < NH; ++i) { out[i * G_H] = u[i]; }
 #endif
 }

@@ -408,7 +408,18 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   // SMALL_H / nH
   K(fftHin,  "ffthin.cl",  "fftHin",  hN / nH),
 
+#if DOUBLE_WIDE
+  // Two double-wide kernels
+  K(tailSquareOne, "tailsquare.cl", "tailSquareOne", SMALL_H / nH * 2),
+  K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH - SMALL_H / nH * 2),
+#elif DOUBLE_WIDE_ONEK   
+  // One double-wide kernel
+  K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH),
+#else
+  // Old-style single-wide kernel
   K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH / 2),
+#endif
+
   K(tailMul,       "tailmul.cl", "tailMul",       hN / nH / 2),
   K(tailMulLow,    "tailmul.cl", "tailMul",       hN / nH / 2, "-DMUL_LOW=1"),
   
@@ -513,6 +524,9 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
   tailMulLow.setFixedArgs(3, bufTrigH);
   tailMul.setFixedArgs(3, bufTrigH);
+#if DOUBLE_WIDE
+  tailSquareOne.setFixedArgs(2, bufTrigH);
+#endif
   tailSquare.setFixedArgs(2, bufTrigH);
   kernIsEqual.setFixedArgs(2, bufTrue);
 
@@ -815,6 +829,9 @@ static bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
 
 void Gpu::bottomHalf(Buffer<double>& out, Buffer<double>& inTmp) {
   fftMidIn(out, inTmp);
+#if DOUBLE_WIDE
+  tailSquareOne(inTmp, out);
+#endif
   tailSquare(inTmp, out);
   fftMidOut(out, inTmp);
 }
@@ -1360,7 +1377,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   }
 
   assert(blockSize > 0 && LOG_STEP % blockSize == 0);
-  
+
   u32 checkStep = checkStepForErrors(blockSize, nErrors);
   assert(checkStep % LOG_STEP == 0);
 
