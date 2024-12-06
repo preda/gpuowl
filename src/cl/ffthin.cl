@@ -11,9 +11,10 @@ KERNEL(G_H) fftHin(P(T2) out, CP(T2) in, Trig smallTrig) {
   T2 u[NH];
   u32 g = get_group_id(0);
 
-  readTailFusedLine(in, u, g);
-
   u32 me = get_local_id(0);
+
+  readTailFusedLine(in, u, g, me);
+
 #if NH == 8
   T2 w = fancyTrig_N(ND / SMALL_HEIGHT * me);
 #else
