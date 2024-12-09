@@ -77,6 +77,7 @@ void fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w) {
 #else
 
 void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig, T2 w) {
+  u32 me = get_local_id(0);
 
 #if !UNROLL_H
   __attribute__((opencl_unroll_hint(1)))
@@ -85,23 +86,25 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig, T2 w) {
   for (u32 s = 1; s < SMALL_HEIGHT / NH; s *= NH) {
     if (s > 1) { bar(); }
     fft_NH(u);
-    tabMul(SMALL_HEIGHT / NH, trig, u, NH, s);
+    tabMul(SMALL_HEIGHT / NH, trig, u, NH, s, me);
     shufl(SMALL_HEIGHT / NH, lds,  u, NH, s);
   }
   fft_NH(u);
 }
 
 void fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w) {
+  u32 me = get_local_id(0);
+  u32 WG = SMALL_HEIGHT / NH;
 
 #if !UNROLL_H
   __attribute__((opencl_unroll_hint(1)))
 #endif
 
-  for (u32 s = 1; s < SMALL_HEIGHT / NH; s *= NH) {
-    if (s > 1) { if (SMALL_HEIGHT / NH > WAVEFRONT) bar(); }
+  for (u32 s = 1; s < WG; s *= NH) {
+    if (s > 1) { if (WG > WAVEFRONT) bar(); }
     fft_NH(u);
-    tabMul2(SMALL_HEIGHT / NH, trig, u, NH, s);
-    shufl2(SMALL_HEIGHT / NH, lds,  u, NH, s);
+    tabMul(WG, trig, u, NH, s, me % WG);
+    shufl2(WG, lds,  u, NH, s);
   }
   fft_NH(u);
 }

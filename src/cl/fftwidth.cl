@@ -47,6 +47,7 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
 #else
 
 void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
+  u32 me = get_local_id(0);
 
 #if !UNROLL_W
   __attribute__((opencl_unroll_hint(1)))
@@ -54,7 +55,7 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 1; s < WIDTH / NW; s *= NW) {
     if (s > 1) { bar(); }
     fft_NW(u);
-    tabMul(WIDTH / NW, trig, u, NW, s);
+    tabMul(WIDTH / NW, trig, u, NW, s, me);
     shufl( WIDTH / NW, lds,  u, NW, s);
   }
   fft_NW(u);

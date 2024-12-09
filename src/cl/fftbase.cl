@@ -130,9 +130,7 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 }
 
 
-void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
-  u32 me = get_local_id(0);
-
+void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
 #if 0
   u32 p = me / f * f;
 #else
@@ -188,80 +186,6 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
     u[2] = cmul(u[2], U2(fma(-2 * w.y, w.y, 1), a));
     a *= 2;
     T2 base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
-    for (u32 i = 3; i < n; ++i) {
-      u[i] = cmul(u[i], base);
-      base = cmul(base, w);
-    }
-  }
-#else
-#error CLEAN must be 0 or 1
-#endif
-}
-
-// Tabmul two simultaneous FFT_HEIGHTs.  Needed for the new tailSquared where u and v are computed simultaneously in different threads.
-
-void tabMul2(u32 WG, Trig trig, T2 *u, u32 n, u32 f) {
-  u32 me = get_local_id(0);
-
-  me = me % WG;
-#if 0
-  u32 p = me / f * f;
-#else
-  u32 p = me & ~(f - 1);
-#endif
-
-#if 0
-  T2 w = slowTrig_N(ND / n / WG * p, ND / n);
-  T2 base = w;
-  for (int i = 1; i < n; ++i) {
-    u[i] = cmul(u[i], w);
-    w = cmul(w, base);
-  }
-#endif
-
-  T2 w = trig[p];
-
-  if (n >= 8) {
-    u[1] = cmulFancy(u[1], w);
-  } else {
-    u[1] = cmul(u[1], w);
-  }
-
-#if 0//CLEAN == 2                          // Titan V likes this case -- only one read.  But Z not helped much.  Needs more investigation.
-
-  u32 midpt = (n + 1) / 2;
-  T2 base = trig[(midpt-1)*WG + p];
-  T2 tmp = cmulFancyDual_setup(base, w);
-  u[midpt] = cmul(u[midpt], base);
-  T2 base1 = cmulFancyDual_conj(base, w, tmp);
-  u[midpt - 1] = cmul(u[midpt - 1], base1);
-  T2 base2 = cmulFancyDual_plain(base, w, tmp);
-  u[midpt + 1] = cmul(u[midpt + 1], base2);
-  for (u32 i = 2; midpt + i < MIDDLE; ++i) {
-    if (midpt - i > 1) u[midpt - i] = cmul(u[midpt - i], base1 = cmulFancy(base1, conjugate(w)));
-    u[midpt + i] = cmul(u[midpt + i], base2 = cmulFancy(base2, w));
-  }
-
-#elif CLEAN == 1                        // Radeon VII loves this case
-
-  for (u32 i = 2; i < n; ++i) {
-    T2 base = trig[(i-1)*WG + p];
-    u[i] = cmul(u[i], base);
-  }
-
-#elif CLEAN == 0
-  if (n >= 8) {
-    T2 base = csqTrigFancyFancy(w);
-    u[2] = cmulFancy(u[2], base);
-    base = ccubeTrigFancy(base, w);
-    for (u32 i = 3; i < n; ++i) {
-      u[i] = cmul(u[i], base);
-      base = cmulFancy(base, w);
-    }
-  } else {
-    T2 base = csqTrig(w);
-    u[2] = cmul(u[2], base);
-    base = ccubeTrig(base, w);
     for (u32 i = 3; i < n; ++i) {
       u[i] = cmul(u[i], base);
       base = cmul(base, w);
