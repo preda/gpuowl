@@ -136,9 +136,7 @@ private:
 
   Kernel fftHin;
 
-#if DOUBLE_WIDE
-  Kernel tailSquareOne;
-#endif
+  Kernel tailSquareZero;
   Kernel tailSquare;
   Kernel tailMul;
   Kernel tailMulLow;

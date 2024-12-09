@@ -60,6 +60,39 @@ void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
   }
 }
 
+// The kernel tailSquareZero handles the special cases in tailSquare, i.e. the lines 0 and H/2
+// This kernel is launched with 2 workgroups (handling line 0, resp. H/2)
+KERNEL(G_H) tailSquareZero(P(T2) out, CP(T2) in, Trig smallTrig) {
+  local T2 lds[SMALL_HEIGHT / 2];
+  T2 u[NH];
+  u32 H = ND / SMALL_HEIGHT;
+
+  // This kernel in executed in two workgroups.
+  u32 which = get_group_id(0);
+  assert(which < 2);
+
+  u32 line = which ? (H/2) : 0;
+  u32 me = get_local_id(0);
+  readTailFusedLine(in, u, line, me);
+
+#if NH == 8
+  T2 w = fancyTrig_N(ND / SMALL_HEIGHT * me);
+#else
+  T2 w = slowTrig_N(ND / SMALL_HEIGHT * me, ND / NH);
+#endif
+
+  T2 trig = slowTrig_N(line + me * H, ND / NH);
+
+  fft_HEIGHT(lds, u, smallTrig, w);
+  reverse(G_H, lds, u + NH/2, !which);
+  pairSq(NH/2, u,   u + NH/2, trig, !which);
+  reverse(G_H, lds, u + NH/2, !which);
+
+  bar();
+  fft_HEIGHT(lds, u, smallTrig, w);
+  writeTailFusedLine(u, out, transPos(line, MIDDLE, WIDTH), me);
+}
+
 #if SINGLE_WIDE
 
 KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
@@ -214,44 +247,6 @@ void pairSq2_special(T2 *u, T2 base_squared) {
     T2 new_base_squared = mul_t4(base_squared);
     onePairSq(&u[i+NH/4], &u[NH/2+i+NH/4], -new_base_squared);
   }
-}
-
-KERNEL(G_H*2) tailSquareOne(P(T2) out, CP(T2) in, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT*2];                 // change reverse line to halve this
-
-  T2 u[NH];
-
-  u32 H = ND / SMALL_HEIGHT;
-
-  u32 line_u = 0;
-  u32 me = get_local_id(0);
-
-  u32 line_v = H / 2;
-  u32 line_uv = (me < G_H) ? line_u : line_v;
-
-  // Read lines u and v
-  readTailFusedLine(in, u, line_uv, me % G_H);
-
-#if NH == 8
-  T2 w = fancyTrig_N(ND / SMALL_HEIGHT * (me % G_H));
-#else
-  T2 w = slowTrig_N(ND / SMALL_HEIGHT * (me % G_H), ND / NH);
-#endif
-
-  fft_HEIGHT2(lds, u, smallTrig, w);
-
-  T2 trig = slowTrig_N(line_uv + (me % G_H) * H, (G_H-1) * H);
-
-  // Line 0 and H/2 are special: they pair with themselves, line 0 is offseted by 1.
-  reverse2(lds, u);
-  pairSq2_special(u, trig);
-  reverse2(lds, u);
-
-  bar();
-  fft_HEIGHT2(lds, u, smallTrig, w);
-
-  // Write lines u and v
-  writeTailFusedLine(u, out, transPos(line_uv, MIDDLE, WIDTH), me % G_H);
 }
 
 KERNEL(G_H*2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {

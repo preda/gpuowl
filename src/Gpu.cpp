@@ -407,10 +407,10 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   
   // SMALL_H / nH
   K(fftHin,  "ffthin.cl",  "fftHin",  hN / nH),
+  K(tailSquareZero, "tailsquare.cl", "tailSquareZero", SMALL_H / nH * 2),
 
 #if DOUBLE_WIDE
   // Two double-wide kernels
-  K(tailSquareOne, "tailsquare.cl", "tailSquareOne", SMALL_H / nH * 2),
   K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH - SMALL_H / nH * 2),
 #elif DOUBLE_WIDE_ONEK   
   // One double-wide kernel
@@ -524,9 +524,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   carryB.setFixedArgs(1, bufCarry, bufBitsC);
   tailMulLow.setFixedArgs(3, bufTrigH);
   tailMul.setFixedArgs(3, bufTrigH);
-#if DOUBLE_WIDE
-  tailSquareOne.setFixedArgs(2, bufTrigH);
-#endif
+  tailSquareZero.setFixedArgs(2, bufTrigH);
   tailSquare.setFixedArgs(2, bufTrigH);
   kernIsEqual.setFixedArgs(2, bufTrue);
 
@@ -830,7 +828,7 @@ static bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
 void Gpu::bottomHalf(Buffer<double>& out, Buffer<double>& inTmp) {
   fftMidIn(out, inTmp);
 #if DOUBLE_WIDE
-  tailSquareOne(inTmp, out);
+  tailSquareZero(inTmp, out);
 #endif
   tailSquare(inTmp, out);
   fftMidOut(out, inTmp);
