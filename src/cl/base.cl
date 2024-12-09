@@ -4,8 +4,8 @@
 
 /* Tunable paramaters for -ctune :
 
-IN_WG, OUT_WG: 64, 128, 256. Default: 256.
-IN_SIZEX, OUT_SIZEX: 4, 8, 16, 32. Default: 32 on AMD, 4 on Nvidia.
+IN_WG, OUT_WG: 64, 128, 256. Default: 128.
+IN_SIZEX, OUT_SIZEX: 4, 8, 16, 32. Default: 16.
 UNROLL_W: 0, 1. Default: 0 on AMD, 1 on Nvidia.
 UNROLL_H: 0, 1. Default: 1.
 */
