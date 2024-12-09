@@ -7,7 +7,7 @@
 
 Kernel::Kernel(string_view name, KernelCompiler* compiler, TimeInfo* timeInfo, Queue* queue,
        string_view fileName, string_view nameInFile,
-       size_t workSize, u32 nGroups, string_view defines):
+       size_t workSize, string_view defines):
   name{name},
   compiler{compiler},
   fileName{fileName},
@@ -15,11 +15,8 @@ Kernel::Kernel(string_view name, KernelCompiler* compiler, TimeInfo* timeInfo, Q
   defines{defines},
   timeInfo{timeInfo},
   queue{queue},
-  workSize{workSize},
-  nGroups{nGroups}
-{
-  assert(!workSize || !nGroups); // Use only one way to indicate size: either threads or groups.
-}
+  workSize{workSize}
+{}
 
 Kernel::~Kernel() = default;
 
@@ -36,14 +33,7 @@ void Kernel::finishLoad() {
   assert(kernel);
   groupSize = getWorkGroupSize(kernel.get(), deviceId, name.c_str());
   assert(groupSize);
-  if (!workSize) {
-    assert(nGroups);
-    workSize = groupSize * nGroups;
-  } else {
-    assert(workSize % groupSize == 0);
-    assert(nGroups == 0);
-    nGroups = workSize / groupSize;
-  }
+  assert(workSize % groupSize == 0);
 
   for (auto [pos, arg] : pendingArgs) { setArgs(pos, arg); }
 }

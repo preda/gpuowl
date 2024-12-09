@@ -25,7 +25,6 @@ class Kernel {
 
   Queue* queue;
   size_t workSize;
-  u32 nGroups = 0;
   u32 groupSize = 0;
   
   KernelHolder kernel{};
@@ -37,7 +36,7 @@ public:
   Kernel(string_view name, KernelCompiler* compiler,
          TimeInfo* timeInfo, Queue* queue,
          string_view fileName, string_view nameInFile,
-         size_t workSize, u32 nGroups, string_view defines = "");
+         size_t workSize, string_view defines = "");
 
   ~Kernel();
 
