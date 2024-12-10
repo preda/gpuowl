@@ -4,9 +4,10 @@
 #include "trig.cl"
 #include "fftheight.cl"
 
-// Klunky defines for single-wide vs. double-wide tailSquare
-// Clean this up once we determine which options to make user visible
+#if !defined(SINGLE_WIDE)
 #define SINGLE_WIDE             0       // Old single-wide tailSquare
+#endif
+
 #define DOUBLE_WIDE_ONEK        0       // New single-wide tailSquare in a single kernel
 #define DOUBLE_WIDE             1       // New single-wide tailSquare in two kernels
 
@@ -249,7 +250,7 @@ void pairSq2_special(T2 *u, T2 base_squared) {
   }
 }
 
-KERNEL(G_H*2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
+KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT*2];                 // change reverse line to halve this
 
   T2 u[NH];
@@ -257,33 +258,36 @@ KERNEL(G_H*2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 H = ND / SMALL_HEIGHT;
 
   u32 line_u = get_group_id(0) + 1;
-  u32 me = get_local_id(0);
-
   u32 line_v = H - line_u;
-  u32 line_uv = (me < G_H) ? line_u : line_v;
+  
+  u32 me = get_local_id(0);
+  u32 lowMe = me % G_H;  // lane-id in one of the two halves (half-workgroups).
+  
+  u32 line = (me < G_H) ? line_u : line_v;
 
   // Read lines u and v
-  readTailFusedLine(in, u, line_uv, me % G_H);
+  readTailFusedLine(in, u, line, lowMe);
 
 #if NH == 8
-  T2 w = fancyTrig_N(ND / SMALL_HEIGHT * (me % G_H));
+  T2 w = fancyTrig_N(H * lowMe);
 #else
-  T2 w = slowTrig_N(ND / SMALL_HEIGHT * (me % G_H), ND / NH);
+  T2 w = slowTrig_N(H * lowMe, ND / NH);
 #endif
 
   fft_HEIGHT2(lds, u, smallTrig, w);
 
-  T2 trig = slowTrig_N(line_u + (me % G_H) * H + (me / G_H) * ND / NH, 2 * ND / NH);
+  T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
 
-  reverseLine2(lds, u);
-  pairSq2(u, trig);
-  unreverseLine2(lds, u);
-
-  if (G_H > WAVEFRONT) bar();
+  revSwapLine(G_H, lds, u + NH/2, NH/2);
+  pairSq(NH/2, u, u + NH/2, trig, false);
+  revSwapLine(G_H, lds, u + NH/2, NH/2);
+  
+  // if (G_H > WAVEFRONT) bar();
+  bar();
   fft_HEIGHT2(lds, u, smallTrig, w);
 
   // Write lines u and v
-  writeTailFusedLine(u, out, transPos(line_uv, MIDDLE, WIDTH), me % G_H);
+  writeTailFusedLine(u, out, transPos(line, MIDDLE, WIDTH), lowMe);
 }
 
 #endif

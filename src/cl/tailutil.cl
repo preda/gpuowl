@@ -37,6 +37,23 @@ void reverseLine(u32 WG, local T2 *lds2, T2 *u) {
   for (u32 i = 0; i < NH; ++i) { u[i] = lds[WG * i]; }
 }
 
+void revSwapLine(u32 WG, local T2* lds2, T2 *u, u32 n) {
+  u32 me = get_local_id(0);
+  u32 lowMe = me % WG;
+  bool upHalf = me >= WG;
+
+  // We are initially using LDS with the same half-discipline as the fft_HEIGHT() which precedes us,
+  // so only a half-bar is needed here.
+  // if (WG > WAVEFRONT) { bar(); }
+  bar();
+
+  u32 revLowMe = WG - 1 - lowMe;
+
+  for (u32 i = 0; i < n; ++i) { lds2[WG * n * upHalf + WG * (n - 1 - i) + revLowMe] = u[i]; }
+  bar();   // we need a full bar because we're going to swap halves
+  for (u32 i = 0; i < n; ++i) { u[i] = lds2[WG * n * !upHalf + WG * i + lowMe]; }
+}
+
 // computes 2*(a.x*b.x+a.y*b.y) + i*2*(a.x*b.y+a.y*b.x)
 // which happens to be the cyclical convolution (a.x, a.y)x(b.x, b.y) * 2
 T2 foo2(T2 a, T2 b) {
