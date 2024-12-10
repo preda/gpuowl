@@ -64,7 +64,7 @@ T optionalHalve(T w) {    // return w >= 4 ? w / 2 : w;
   // where this routine took as input values from 1.0 to 4.0 required both an AND and an OR instruction on the exponent.
   assert(w >= 2 && w < 8);
   uint2 u = as_uint2(w);
-  // u.y &= 0xFFEFFFFF;
-  u.y = bfi(u.y, 0xffefffff, 0);
+  u.y &= 0xFFEFFFFF;
+  //u.y = bfi(u.y, 0xffefffff, 0);
   return as_double(u);
 }
