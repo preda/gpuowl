@@ -50,7 +50,8 @@
 
 void writeCarryFusedLine(T2 *u, P(T2) out, u32 line) {
 #if PADDING
-  out += line * WIDTH + line / SMALL_HEIGHT * PAD_SIZE + (u32) get_local_id(0); // One padding every SMALL_HEIGHT lines
+  u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
+  out += line * WIDTH + line * PAD_SIZE + line / SMALL_HEIGHT * BIG_PAD_SIZE + (u32) get_local_id(0); // One pad every line + a big pad every SMALL_HEIGHT lines
   for (u32 i = 0; i < NW; ++i) { out[i * G_W] = u[i]; }
 #else
   out += line * WIDTH + (u32) get_local_id(0);
@@ -60,8 +61,11 @@ void writeCarryFusedLine(T2 *u, P(T2) out, u32 line) {
 
 void readMiddleInLine(T2 *u, CP(T2) in, u32 y, u32 x) {
 #if PADDING
-  in += y * WIDTH + y / SMALL_HEIGHT * PAD_SIZE + x;
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * (SMALL_HEIGHT * WIDTH + PAD_SIZE)]; }
+  // Each work group reads successive y's which increments by one pad size.
+  // Rather than having u[i] also increment by one, we choose a larger pad increment
+  u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
+  in += y * WIDTH + y * PAD_SIZE + (y / SMALL_HEIGHT) * BIG_PAD_SIZE + x;
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * (SMALL_HEIGHT * (WIDTH + PAD_SIZE) + BIG_PAD_SIZE)]; }
 #else
   in += y * WIDTH + x;
   for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH]; }
