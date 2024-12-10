@@ -251,7 +251,7 @@ void pairSq2_special(T2 *u, T2 base_squared) {
 }
 
 KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT*2];                 // change reverse line to halve this
+  local T2 lds[SMALL_HEIGHT];
 
   T2 u[NH];
 
@@ -263,7 +263,10 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 me = get_local_id(0);
   u32 lowMe = me % G_H;  // lane-id in one of the two halves (half-workgroups).
   
-  u32 line = (me < G_H) ? line_u : line_v;
+  // It's not clear where up/down is, so we're going to call the halves "first-half" and "second-half".
+  bool isSecondHalf = me >= G_H;
+  
+  u32 line = !isSecondHalf ? line_u : line_v;
 
   // Read lines u and v
   readTailFusedLine(in, u, line, lowMe);
@@ -278,12 +281,17 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
   T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
 
-  revSwapLine(G_H, lds, u + NH/2, NH/2);
+  bar(G_H);
+
+  revCrossLine(G_H, lds, u + NH/2, NH/2, isSecondHalf);
   pairSq(NH/2, u, u + NH/2, trig, false);
-  revSwapLine(G_H, lds, u + NH/2, NH/2);
-  
-  // if (G_H > WAVEFRONT) bar();
-  bar();
+
+  bar(G_H);
+  // We change the LDS halves we're using in order to enable half-bars
+  revCrossLine(G_H, lds, u + NH/2, NH/2, !isSecondHalf);
+
+  bar(G_H);
+
   fft_HEIGHT2(lds, u, smallTrig, w);
 
   // Write lines u and v

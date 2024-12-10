@@ -70,16 +70,6 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   local T* lds = (local T*) lds2;
 
-#if 0
-  // This also works for *f* that is not a power of two.
-  for (u32 i = 0; i < n; ++i) { lds[i * f + (me / f) * f * n + me % f] = u[i].x; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { lds[i * f + (me / f) * f * n + me % f] = u[i].y; }
-  bar();
-  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
-#else
   u32 mask = f - 1;
   assert((mask & (mask + 1)) == 0);
   for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
@@ -89,7 +79,6 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
   bar();
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
-#endif
 }
 
 // Shufl two simultaneous FFT_HEIGHTs.  Needed for tailSquared where u and v are computed simultaneously in different threads.
@@ -101,32 +90,21 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 
   // Partition lds memory into upper and lower halves
   assert(WG == G_H);
-  lds2 += (me / WG) * SMALL_HEIGHT;
 
   // Accessing lds memory as doubles is faster than T2 accesses
-  local T* lds = (local T*) lds2;
+  local T* lds = ((local T*) lds2) + (me / WG) * SMALL_HEIGHT;
 
   me = me % WG;
-#if 0
-  // This also works for *f* that is not a power of two.
-  for (u32 i = 0; i < n; ++i) {
-    u32 idx = i * f + (me / f) * f * n + me % f;
-    lds[idx] = u[i].x;
-    lds[SMALL_HEIGHT + idx] = u[i].y;
-  }
-  if (WG > WAVEFRONT) bar();
-  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; u[i].y = lds[SMALL_HEIGHT + i * WG + me]; }
-#else
   u32 mask = f - 1;
   assert((mask & (mask + 1)) == 0);
-  for (u32 i = 0; i < n; ++i) {
-    u32 idx = i * f + (me & ~mask) * n + (me & mask);
-    lds[idx] = u[i].x;
-    lds[SMALL_HEIGHT + idx] = u[i].y;
-  }
-  if (WG > WAVEFRONT) bar();
-  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; u[i].y = lds[SMALL_HEIGHT + i * WG + me]; }
-#endif
+  
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }  
 }
 
 

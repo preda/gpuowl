@@ -42,7 +42,7 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig, T2 w) {
 void fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w) {
   u32 WG = SMALL_HEIGHT / NH;
   for (u32 s = 1; s < SMALL_HEIGHT / NH; s *= NH) {
-    if (/* WG > WAVEFRONT && */ s > 1) { bar(); }
+    if (s > 1) { bar(WG); }
     fft_NH(u);
     w = bcast(w, s);
 
@@ -84,7 +84,7 @@ void fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w) {
 #endif
 
   for (u32 s = 1; s < WG; s *= NH) {
-    if (s > 1) { if (WG > WAVEFRONT) bar(); }
+    if (s > 1) { bar(WG); }
     fft_NH(u);
     tabMul(WG, trig, u, NH, s, me % WG);
     shufl2(WG, lds,  u, NH, s);
