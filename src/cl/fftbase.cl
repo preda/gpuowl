@@ -132,7 +132,16 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
     u[1] = cmul(u[1], w);
   }
 
-#if CLEAN == 1
+// Theoretically, maximum accuracy.  Uses memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
+#if CLEAN == 1                // Radeon VII loves this case, in fact it is faster than the CLEAN == 0 case.  nVidia Titan V hates this case.
+
+  for (u32 i = 2; i < n; ++i) {
+    T2 base = trig[(i-1)*WG + p];
+    u[i] = cmul(u[i], base);
+  }
+
+// Original CLEAN==1, saves one cmul at the cost of a memory access.  I see little use for this case.
+#elif CLEAN == 1
   T2 base = trig[WG + p];
 
   if (n >= 8) {
@@ -147,6 +156,9 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
     }
   }
 
+// This code uses chained complex multiplies which could be faster on GPUs with great DP throughput or poor memory bandwidth or caching.
+// This ought to be the least accurate version of Tabmul.  In practice this is more accurate (at least when n==8) than reading precomputed
+// values from memory.  Perhaps chained Fancy muls are the reason.
 #elif CLEAN == 0
   if (n >= 8) {
     T2 base = csqTrigFancy(w);
