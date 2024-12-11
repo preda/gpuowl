@@ -43,31 +43,17 @@ void ROUNDOFF_CHECK(double x) {
 // Rounding constant: 3 * 2^51, See https://stackoverflow.com/questions/17035464
 #define RNDVAL (3.0 * (1l << 51))
 
-i64 doubleToLong(double x, float* maxROE) {
-  // Unfortunatelly (i64) rint() is slow!
-  // return rint(x);
-
-  double d = x + RNDVAL;
-  float roundoff = fabs((float) (x - (d - RNDVAL)));
-  *maxROE = max(*maxROE, roundoff);
-
+// Convert a double to long efficiently.  Double must be in RNDVAL+integer format.
+i64 RNDVALdoubleToLong(double d) {
   int2 words = as_int2(d);
-
 #if EXP / NWORDS >= 19
   // We extend the range to 52 bits instead of 51 by taking the sign from the negation of bit 51
   words.y ^= 0x00080000u;
   words.y = lowBits(words.y, 20);
-
-#if 0
-  words.y <<= 12;
-  words.y ^= 0x80000000u;
-  words.y >>= 12;
-#endif
 #else
   // Take the sign from bit 50 (i.e. use lower 51 bits).
   words.y = lowBits(words.y, 19);
 #endif
-
   return as_long(words);
 }
 
@@ -111,14 +97,6 @@ typedef i64 CFcarry;
 #else
 typedef i32 CFcarry;
 #endif
-
-Word2 carryPairMul(T2 u, i64 *outCarry, bool b1, bool b2, i64 inCarry, float* maxROE, float* carryMax) {
-  i64 midCarry;
-  Word a = carryStep(3 * doubleToLong(u.x, maxROE) + inCarry, &midCarry, b1);
-  Word b = carryStep(3 * doubleToLong(u.y, maxROE) + midCarry, outCarry, b2);
-  *carryMax = max(*carryMax, max(boundCarry(midCarry), boundCarry(*outCarry)));
-  return (Word2) (a, b);
-}
 
 // The carry for the non-fused CarryA, CarryB, CarryM kernels.
 // Simply use large carry always as the split kernels are slow anyway (and seldomly used normally).
