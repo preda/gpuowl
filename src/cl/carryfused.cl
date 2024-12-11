@@ -56,7 +56,11 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
     T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, iweightStep(i)));
     T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP));
 
-    u[i] = conjugate(u[i]) * U2(invWeight1, invWeight2);
+    // Apply the inverse weights, optionally compute roundoff error, and convert to integer.  Also apply MUL3 here.
+    * ((long2*) &u[i]) = weightAndCarry(conjugate(u[i]), U2(invWeight1, invWeight2),
+                      // For an LL test, add -2 as the very initial "carry in"
+                      // We'd normally use logical &&, but the compiler whines with warning and bitwise fixes it
+                      (LL & (i == 0) & (line==0) & (me == 0)) ? -2 : 0, &roundMax);
   }
 
   // On Titan V it is faster to derive the big vs. little flags from the fractional number of bits in each FFT word rather read the flags from memory.
@@ -77,14 +81,9 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
     bool biglit0 = test(b, 2 * i);
     bool biglit1 = test(b, 2 * i + 1);
 #endif
-#if MUL3
-    wu[i] = carryPairMul(u[i], &carry[i], biglit0, biglit1, 0, &roundMax, &carryMax);
-#else
-    wu[i] = carryPair(u[i], &carry[i], biglit0, biglit1,
-                      // For an LL test, add -2 as the very initial "carry in"
-                      // We'd normally use logical &&, but the compiler whines with warning and bitwise fixes it
-                      (LL & (i == 0) & (line==0) & (me == 0)) ? -2 : 0, &roundMax, &carryMax);
-#endif
+
+    // Propagate carries through two words.  Generate the output carry.
+    wu[i] = carryPair(*(long2*)&u[i], &carry[i], biglit0, biglit1, &carryMax);
   }
 
 #if ROE

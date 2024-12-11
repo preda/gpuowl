@@ -29,13 +29,8 @@ KERNEL(G_W) carry(P(Word2) out, CP(T2) in, u32 posROE, P(CarryABM) carryOut, CP(
     u32 p = G_W * gx + WIDTH * (CARRY_LEN * gy + i) + me;
     double w1 = optionalDouble(fancyMul(base, THREAD_WEIGHTS[G_W + gy * CARRY_LEN + i].x));
     double w2 = optionalDouble(fancyMul(w1, IWEIGHT_STEP));
-    T2 x = conjugate(in[p]) * U2(w1, w2);
-        
-#if MUL3
-    out[p] = carryPairMul(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax, &carryMax);
-#else
-    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), carry, &roundMax, &carryMax);
-#endif
+    long2 x = weightAndCarry(conjugate(in[p]), U2(w1, w2), carry, &roundMax);
+    out[p] = carryPair(x, &carry, test(b, 2 * i), test(b, 2 * i + 1), &carryMax);
   }
   carryOut[G_W * g + me] = carry;
 
