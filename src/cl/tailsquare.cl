@@ -4,6 +4,8 @@
 #include "trig.cl"
 #include "fftheight.cl"
 
+#define PREFER_DP_TO_MEM        1       // Middle ground solution to DP-vs-Memory tradeoff
+
 #if !defined(SINGLE_WIDE)
 #define SINGLE_WIDE             0       // Old single-wide tailSquare
 #endif
@@ -228,28 +230,6 @@ KERNEL(G_H*2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
 #else
 
-// Similar to pairSq except v values are at u[NH/2]
-void pairSq2(T2 *u, T2 base_squared) {
-  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t4(base_squared)) {
-    onePairSq(&u[i], &u[NH/2+i], -base_squared);
-    onePairSq(&u[i+NH/4], &u[NH/2+i+NH/4], base_squared);
-  }
-}
-
-void pairSq2_special(T2 *u, T2 base_squared) {
-  u32 me = get_local_id(0);
-  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
-    if (i == 0 && me == 0) {
-      u[0] = 2 * foo(conjugate(u[0]));
-      u[NH/2] = 4 * csq(conjugate(u[NH/2]));
-    } else {
-      onePairSq(&u[i], &u[NH/2+i], -base_squared);
-    }
-    T2 new_base_squared = mul_t4(base_squared);
-    onePairSq(&u[i+NH/4], &u[NH/2+i+NH/4], -new_base_squared);
-  }
-}
-
 KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT];
 
@@ -279,7 +259,28 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
   fft_HEIGHT2(lds, u, smallTrig, w);
 
+  // Compute trig value from scratch.  Good on GPUs with high DP throughput.
+#if PREFER_DP_TO_MEM >= 2
   T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
+
+  // Do a little bit of memory access and a little bit of DP math.  Good on a Radeon VII.
+#elif PREFER_DP_TO_MEM == 1
+  // Calculate number of trig values used by fft_HEIGHT.
+  // The trig values used here are pre-computed and stored after the fft_HEIGHT trig values.
+  u32 height_trigs = SMALL_HEIGHT/NH*(NH-1);
+  // Read a hopefully cached line of data and one non-cached T2 per line
+  T2 trig = smallTrig[height_trigs + lowMe];                                 // Trig values for line zero, should be cached
+  T2 mult = smallTrig[height_trigs + G_H + (line_u-1)*2 + isSecondHalf];     // Two multipliers.  One for line u, one for line v.
+  trig = cmulFancy(trig, mult);
+
+  // On consumer-grade GPUs, it is likely beneficial to read all trig values.
+#else
+  // Calculate number of trig values used by fft_HEIGHT.
+  // The trig values used here are pre-computed and stored after the fft_HEIGHT trig values.
+  u32 height_trigs = SMALL_HEIGHT/NH*(NH-1);
+  // Read pre-computed trig values
+  T2 trig = smallTrig[height_trigs + (line_u-1)*G_H*2 + me];
+#endif
 
   bar(G_H);
 
