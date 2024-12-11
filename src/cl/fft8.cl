@@ -32,3 +32,15 @@ void fft8(T2 *u) {
   SWAP(u[1], u[4]);
   SWAP(u[3], u[6]);
 }
+
+// The first four X2 operations have already been done
+void fft8initialX2done(T2 *u) {
+  u[5] = mul_t8_delayed(u[5]);
+  u[6] = mul_t4(u[6]);
+  u[7] = mul_3t8_delayed(u[7]);
+  fft4Core(u);
+  fft4CoreSpecial(u + 4);
+  // revbin [0, 4, 2, 6, 1, 5, 3, 7] undo
+  SWAP(u[1], u[4]);
+  SWAP(u[3], u[6]);
+}
