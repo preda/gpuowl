@@ -27,7 +27,7 @@ KERNEL(G_W) fftP(P(T2) out, CP(Word2) in, Trig smallTrig, BigTab THREAD_WEIGHTS)
     u[i] = U2(in[p].x, in[p].y) * U2(w1, w2);
   }
 
-  fft_WIDTH(lds, u, smallTrig);
+  fft_WIDTH(lds, u, smallTrig, false);
  
   writeCarryFusedLine(u, out, g);
 }

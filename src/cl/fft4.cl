@@ -60,3 +60,35 @@ void fft4by(T2 *u, u32 base, u32 step, u32 M) {
 }
 
 void fft4(T2 *u) { fft4by(u, 0, 1, 4); }
+
+// The first two X2 operations have already been done
+void fft4initialX2done(T2 *u) {
+
+  double x0 = u[0].x;
+  double x2 = u[2].x;
+  double y0 = u[0].y;
+  double y2 = u[2].y;
+
+  double x1 = u[1].x;
+  double y3 = u[3].x;
+  double y1 = u[1].y;
+  double x3 = -u[3].y;
+
+  double a0 = x0 + x1;
+  double a1 = x0 - x1;
+
+  double b0 = y0 + y1;
+  double b1 = y0 - y1;
+
+  double a2 = x2 + x3;
+  double a3 = x2 - x3;
+
+  double b2 = y2 + y3;
+  double b3 = y2 - y3;
+
+  u[0] = U2(a0, b0);
+  u[1] = U2(a2, b2);
+  u[2] = U2(a1, b1);
+  u[3] = U2(a3, b3);
+}
+

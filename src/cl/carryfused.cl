@@ -5,6 +5,8 @@
 #include "fftwidth.cl"
 #include "middle.cl"
 
+#define INITIAL_X2 1
+
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
@@ -28,7 +30,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 #undef GPW
 #endif
 
-  fft_WIDTH(lds, u, smallTrig);
+  fft_WIDTH(lds, u, smallTrig, false);
 
   Word2 wu[NW];
 #if AMDGPU
@@ -162,12 +164,20 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   for (u32 i = 0; i < NW; ++i) {
     T weight1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
     T weight2 = optionalHalve(fancyMul(weight1, WEIGHT_STEP));
-    u[i] = U2(wu[i].x, wu[i].y) * U2(weight1, weight2);
+    T2 ints = U2(wu[i].x, wu[i].y);
+    T2 wgts = U2(weight1, weight2);
+    if (!INITIAL_X2 | (i < NW/2) | (NW % 2 == 1))
+      u[i] = ints * wgts;
+    else {
+      // Perform the initial X2 operation with FMAs
+      u[i] = fma(ints, wgts, -u[i-NW/2]);       // Weighted high word - weighted low word
+      u[i-NW/2] = fma(ints, wgts, u[i-NW/2]);   // Weighted high word + weighted low word
+    }    
   }
 
   bar();
 
-  fft_WIDTH(lds, u, smallTrig);
+  fft_WIDTH(lds, u, smallTrig, INITIAL_X2);
   writeCarryFusedLine(u, out, line);
 
   // Clear carry ready flag for next iteration
