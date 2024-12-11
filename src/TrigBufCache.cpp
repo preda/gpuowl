@@ -2,6 +2,11 @@
 
 #include "TrigBufCache.h"
 
+// Trial balloon.  I'm hoping we can create one #define that indicates a GPU's preference for doing extra DP work in exchange for
+// less memory accesses.  I can envision a Titan V (slow memory, 1:2 SP:DP ratio) setting this value to a high value, whereas a
+// consumer grade nVidia GPU with 1:32 or 1:64 SP:DP ratio would set this to zero.
+#define PREFER_DP_TO_MEM	1
+
 #define _USE_MATH_DEFINES
 #include <cmath>
 
@@ -102,6 +107,44 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
   return tab;
 }
 
+// Generate the small trig values for fft_HEIGHT plus optionally trig values used in pairSq.
+vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
+  if (LOG_TRIG_ALLOC) { log("genSmallTrigCombo(%u, %u)\n", size, radix); }
+
+  vector<double2> tab;
+  for (u32 line = 1; line < radix; ++line) {
+    for (u32 col = 0; col < size / radix; ++col) {
+      tab.push_back(radix / line >= 8 ? root1Fancy(size, col * line) : root1(size, col * line));
+    }
+  }
+  // From tailSquare pre-calculate some or all of these:  T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
+#if PREFER_DP_TO_MEM == 2             // No pre-computed trig values
+#elif PREFER_DP_TO_MEM == 1           // best option on a Radeon VII.
+  u32 height = size;
+  // Output line 0 trig values to be read by every u,v pair of lines
+  for (u32 me = 0; me < height / radix; ++me) {
+    tab.push_back(root1(width * middle * height, width * middle * me));
+  }
+  // Output the two T2 multipliers to be read by one u,v pair of lines
+  for (u32 line = 1; line < width * middle / 2; ++line) {
+    tab.push_back(root1Fancy(width * middle * height, line));
+    tab.push_back(root1Fancy(width * middle * height, width * middle - line));
+  }
+#else
+  u32 height = size;
+  for (u32 u = 1; u < width * middle / 2; ++u) {
+    for (u32 v = 0; v < 2; ++v) {
+      u32 line = (v == 0) ? u : width * middle - u;
+      for (u32 me = 0; me < height / radix; ++me) {
+        tab.push_back(root1(width * middle * height, line + width * middle * me));
+      }
+    }
+  }
+#endif
+
+  return tab;
+}
+
 // starting from a MIDDLE of 5 we consider angles in [0, 2Pi/MIDDLE] as worth storing with the
 // cos-1 "fancy" trick.
 #define SHARP_MIDDLE 5
@@ -136,6 +179,26 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   auto it = m.find(key);
   if (it == m.end() || !(p = it->second.lock())) {
     p = make_shared<TrigBuf>(context, genSmallTrig(W, nW));
+    m[key] = p;
+    smallCache.add(p);
+  }
+  return p;
+}
+
+TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW) {
+  lock_guard lock{mut};
+  auto& m = small;
+#if PREFER_DP_TO_MEM == 2             // No pre-computed trig values
+  decay_t<decltype(m)>::key_type key{W, nW};
+#else
+  // Hack so that width 512 and height 512 don't share the same buffer.  Width could share the height buffer since it is a subset of the combo height buffer.
+  decay_t<decltype(m)>::key_type key{W, nW+1};
+#endif
+
+  TrigPtr p{};
+  auto it = m.find(key);
+  if (it == m.end() || !(p = it->second.lock())) {
+    p = make_shared<TrigBuf>(context, genSmallTrigCombo(width, middle, W, nW));
     m[key] = p;
     smallCache.add(p);
   }
