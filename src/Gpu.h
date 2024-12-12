@@ -23,8 +23,8 @@
 // Klunky defines for single-wide vs. double-wide tailSquare
 // Clean this up once we determine which options to make user visible
 #define SINGLE_WIDE             0       // Old single-wide tailSquare
-#define DOUBLE_WIDE_ONEK        0       // New single-wide tailSquare in a single kernel
-#define DOUBLE_WIDE             1       // New single-wide tailSquare in two kernels
+#define DOUBLE_WIDE_ONEK        0       // Double-wide tailSquare in a single kernel
+#define DOUBLE_WIDE             1       // Double-wide tailSquare in two kernels
 
 struct PRPResult;
 struct Task;

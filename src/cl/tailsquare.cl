@@ -4,15 +4,14 @@
 #include "trig.cl"
 #include "fftheight.cl"
 
-#define PREFER_DP_TO_MEM        1       // Middle ground solution to DP-vs-Memory tradeoff
+#define PREFER_DP_TO_MEM        2       // Excellent DP GPU such as Titan V or Radeon VII Pro.
+//#define PREFER_DP_TO_MEM      1       // Good DP GPU.  Tuned for Radeon VII.
+//#define PREFER_DP_TO_MEM      0       // Poor DP GPU.  A typical consumer grade GPU.
 
 #if !defined(SINGLE_WIDE)
-#define SINGLE_WIDE             0       // Old single-wide tailSquare
+#define SINGLE_WIDE             0       // Old single-wide tailSquare vs. new double-wide tailSquare
 #endif
-
-#define DOUBLE_WIDE_ONEK        0       // New single-wide tailSquare in a single kernel
-#define DOUBLE_WIDE             1       // New single-wide tailSquare in two kernels
-
+#define DOUBLE_WIDE_ONEK        0       // Double-wide tailSquare in a single kernel
 
 // Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
 // Now consider these lines from the original implementation (comments appear alongside):
@@ -158,16 +157,9 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 // We hope to get better occupancy with the reduced register usage
 //
 
-#elif DOUBLE_WIDE_ONEK
+#else
 
-// Similar to pairSq except v values are at u[NH/2]
-void pairSq2(T2 *u, T2 base_squared) {
-  for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t4(base_squared)) {
-    onePairSq(&u[i], &u[NH/2+i], -base_squared);
-    onePairSq(&u[i+NH/4], &u[NH/2+i+NH/4], base_squared);
-  }
-}
-
+// Special pairSq for double-wide line 0
 void pairSq2_special(T2 *u, T2 base_squared) {
   u32 me = get_local_id(0);
   for (i32 i = 0; i < NH / 4; ++i, base_squared = mul_t8(base_squared)) {
@@ -182,54 +174,6 @@ void pairSq2_special(T2 *u, T2 base_squared) {
   }
 }
 
-KERNEL(G_H*2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
-  local T2 lds[SMALL_HEIGHT*2];                 // change reverse line to halve this
-
-  T2 u[NH];
-
-  u32 H = ND / SMALL_HEIGHT;
-
-  u32 line_u = get_group_id(0);
-  u32 me = get_local_id(0);
-
-  u32 line_v = line_u ? H - line_u : (H / 2);
-  u32 line_uv = (me < G_H) ? line_u : line_v;
-
-  // Read lines u and v
-  readTailFusedLine(in, u, line_uv, me % G_H);
-
-#if NH == 8
-  T2 w = fancyTrig_N(ND / SMALL_HEIGHT * (me % G_H));
-#else
-  T2 w = slowTrig_N(ND / SMALL_HEIGHT * (me % G_H), ND / NH);
-#endif
-
-  fft_HEIGHT2(lds, u, smallTrig, w);
-
-  u32 angle = line_u + (me % G_H) * H;
-  if (me >= G_H) angle += (line_u == 0) ? H / 2 : ND / NH;
-  T2 trig = slowTrig_N(angle, 2 * ND / NH);
-
-  if (line_u) {
-    reverseLine2(lds, u);
-    pairSq2(u, trig);
-    unreverseLine2(lds, u);
-  } else {
-    // Line 0 and H/2 are special: they pair with themselves, line 0 is offseted by 1.
-    reverse2(lds, u);
-    pairSq2_special(u, trig);
-    reverse2(lds, u);
-  }
-
-  if (G_H > WAVEFRONT) bar();
-  fft_HEIGHT2(lds, u, smallTrig, w);
-
-  // Write lines u and v
-  writeTailFusedLine(u, out, transPos(line_uv, MIDDLE, WIDTH), me % G_H);
-}
-
-#else
-
 KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   local T2 lds[SMALL_HEIGHT];
 
@@ -237,8 +181,13 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
   u32 H = ND / SMALL_HEIGHT;
 
+#if DOUBLE_WIDE_ONEK
+  u32 line_u = get_group_id(0);
+  u32 line_v = line_u ? H - line_u : (H / 2);
+#else
   u32 line_u = get_group_id(0) + 1;
   u32 line_v = H - line_u;
+#endif
   
   u32 me = get_local_id(0);
   u32 lowMe = me % G_H;  // lane-id in one of the two halves (half-workgroups).
@@ -270,7 +219,7 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   u32 height_trigs = SMALL_HEIGHT/NH*(NH-1);
   // Read a hopefully cached line of data and one non-cached T2 per line
   T2 trig = smallTrig[height_trigs + lowMe];                                 // Trig values for line zero, should be cached
-  T2 mult = smallTrig[height_trigs + G_H + (line_u-1)*2 + isSecondHalf];     // Two multipliers.  One for line u, one for line v.
+  T2 mult = smallTrig[height_trigs + G_H + line_u*2 + isSecondHalf];         // Two multipliers.  One for line u, one for line v.
   trig = cmulFancy(trig, mult);
 
   // On consumer-grade GPUs, it is likely beneficial to read all trig values.
@@ -279,17 +228,29 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   // The trig values used here are pre-computed and stored after the fft_HEIGHT trig values.
   u32 height_trigs = SMALL_HEIGHT/NH*(NH-1);
   // Read pre-computed trig values
-  T2 trig = smallTrig[height_trigs + (line_u-1)*G_H*2 + me];
+  T2 trig = smallTrig[height_trigs + line_u*G_H*2 + me];
 #endif
 
   bar(G_H);
 
-  revCrossLine(G_H, lds, u + NH/2, NH/2, isSecondHalf);
-  pairSq(NH/2, u, u + NH/2, trig, false);
+#if DOUBLE_WIDE_ONEK
+  // Line 0 and H/2 are special: they pair with themselves, line 0 is offseted by 1.
+  if (line_u == 0) {
+    reverse2(lds, u);
+    pairSq2_special(u, trig);
+    reverse2(lds, u);
+  }
+  else {
+#else
+  if (1) {
+#endif
+    revCrossLine(G_H, lds, u + NH/2, NH/2, isSecondHalf);
+    pairSq(NH/2, u, u + NH/2, trig, false);
 
-  bar(G_H);
-  // We change the LDS halves we're using in order to enable half-bars
-  revCrossLine(G_H, lds, u + NH/2, NH/2, !isSecondHalf);
+    bar(G_H);
+    // We change the LDS halves we're using in order to enable half-bars
+    revCrossLine(G_H, lds, u + NH/2, NH/2, !isSecondHalf);
+  }
 
   bar(G_H);
 
