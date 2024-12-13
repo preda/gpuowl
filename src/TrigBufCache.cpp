@@ -9,6 +9,11 @@
 //#define PREFER_DP_TO_MEM      1               // Good DP GPU.  Tuned for Radeon VII.
 //#define PREFER_DP_TO_MEM      0               // Poor DP GPU.  A typical consumer grade GPU.
 
+// Klunky defines for single-wide vs. double-wide tailSquare
+// Clean this up once we determine which options to make user visible
+#define SINGLE_WIDE             0       // Old single-wide tailSquare vs. new double-wide tailSquare
+#define SINGLE_KERNEL           0       // Implement tailSquare in a single kernel vs. two kernels
+
 #define _USE_MATH_DEFINES
 #include <cmath>
 
@@ -127,15 +132,15 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
   for (u32 me = 0; me < height / radix; ++me) {
     tab.push_back(root1(width * middle * height, width * middle * me));
   }
-  // Output the two T2 multipliers to be read by one u,v pair of lines
+  // Output the one or two T2 multipliers to be read by one u,v pair of lines
   for (u32 line = 0; line < width * middle / 2; ++line) {
     tab.push_back(root1Fancy(width * middle * height, line));
-    tab.push_back(root1Fancy(width * middle * height, width * middle - line));
+    if (!SINGLE_WIDE) tab.push_back(root1Fancy(width * middle * height, width * middle - line));
   }
 #else
   u32 height = size;
   for (u32 u = 0; u < width * middle / 2; ++u) {
-    for (u32 v = 0; v < 2; ++v) {
+    for (u32 v = 0; v < (SINGLE_WIDE ? 1 : 2); ++v) {
       u32 line = (v == 0) ? u : width * middle - u;
       for (u32 me = 0; me < height / radix; ++me) {
         tab.push_back(root1(width * middle * height, line + width * middle * me));

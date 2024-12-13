@@ -11,7 +11,7 @@
 #if !defined(SINGLE_WIDE)
 #define SINGLE_WIDE             0       // Old single-wide tailSquare vs. new double-wide tailSquare
 #endif
-#define DOUBLE_WIDE_ONEK        0       // Double-wide tailSquare in a single kernel
+#define SINGLE_KERNEL           0       // Implement tailSquare in a single kernel vs. two kernels
 
 // Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
 // Now consider these lines from the original implementation (comments appear alongside):
@@ -104,8 +104,13 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
   u32 H = ND / SMALL_HEIGHT;
 
+#if SINGLE_KERNEL
   u32 line1 = get_group_id(0);
   u32 line2 = line1 ? H - line1 : (H / 2);
+#else
+  u32 line1 = get_group_id(0) + 1;
+  u32 line2 = H - line1;
+#endif
   u32 memline1 = transPos(line1, MIDDLE, WIDTH);
   u32 memline2 = transPos(line2, MIDDLE, WIDTH);
 
@@ -123,13 +128,31 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   bar();
   fft_HEIGHT(lds, v, smallTrig, w);
 
+  // Compute trig value from scratch.  Good on GPUs with high DP throughput.
+#if PREFER_DP_TO_MEM >= 2
   T2 trig = slowTrig_N(line1 + me * H, ND / NH);
 
-  if (line1) {
-    reverseLine(G_H, lds, v);
-    pairSq(NH, u, v, trig, false);
-    reverseLine(G_H, lds, v);
-  } else {
+  // Do a little bit of memory access and a little bit of DP math.  Good on a Radeon VII.
+#elif PREFER_DP_TO_MEM == 1
+  // Calculate number of trig values used by fft_HEIGHT.
+  // The trig values used here are pre-computed and stored after the fft_HEIGHT trig values.
+  u32 height_trigs = SMALL_HEIGHT/NH*(NH-1);
+  // Read a hopefully cached line of data and one non-cached T2 per line
+  T2 trig = smallTrig[height_trigs + me];                    // Trig values for line zero, should be cached
+  T2 mult = smallTrig[height_trigs + G_H + line1];           // Line multiplier
+  trig = cmulFancy(trig, mult);
+
+  // On consumer-grade GPUs, it is likely beneficial to read all trig values.
+#else
+  // Calculate number of trig values used by fft_HEIGHT.
+  // The trig values used here are pre-computed and stored after the fft_HEIGHT trig values.
+  u32 height_trigs = SMALL_HEIGHT/NH*(NH-1);
+  // Read pre-computed trig values
+  T2 trig = smallTrig[height_trigs + line1*G_H + me];
+#endif
+
+#if SINGLE_KERNEL
+  if (line1 == 0) {
     // Line 0 is special: it pairs with itself, offseted by 1.
     reverse(G_H, lds, u + NH/2, true);
     pairSq(NH/2, u,   u + NH/2, trig, true);
@@ -140,6 +163,14 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
     reverse(G_H, lds, v + NH/2, false);
     pairSq(NH/2, v,   v + NH/2, trig2, false);
     reverse(G_H, lds, v + NH/2, false);
+  }
+  else {
+#else
+  if (1) {
+#endif
+    reverseLine(G_H, lds, v);
+    pairSq(NH, u, v, trig, false);
+    reverseLine(G_H, lds, v);
   }
 
   bar();
@@ -181,7 +212,7 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
   u32 H = ND / SMALL_HEIGHT;
 
-#if DOUBLE_WIDE_ONEK
+#if SINGLE_KERNEL
   u32 line_u = get_group_id(0);
   u32 line_v = line_u ? H - line_u : (H / 2);
 #else
@@ -233,7 +264,7 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
   bar(G_H);
 
-#if DOUBLE_WIDE_ONEK
+#if SINGLE_KERNEL
   // Line 0 and H/2 are special: they pair with themselves, line 0 is offseted by 1.
   if (line_u == 0) {
     reverse2(lds, u);

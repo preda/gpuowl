@@ -409,14 +409,17 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   K(fftHin,  "ffthin.cl",  "fftHin",  hN / nH),
   K(tailSquareZero, "tailsquare.cl", "tailSquareZero", SMALL_H / nH * 2),
 
-#if DOUBLE_WIDE
-  // Two double-wide kernels
+#if !SINGLE_WIDE && !SINGLE_KERNEL
+  // Double-wide tailSquare with two kernels
   K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH - SMALL_H / nH * 2),
-#elif DOUBLE_WIDE_ONEK   
-  // One double-wide kernel
+#elif !SINGLE_WIDE   
+  // Double-wide tailSquare with one kernel
   K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH),
+#elif !SINGLE_KERNEL
+  // Single-wide tailSquare with two kernels
+  K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH / 2 - SMALL_H / nH),
 #else
-  // Old-style single-wide kernel
+  // Single-wide tailSquare with one kernel
   K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH / 2),
 #endif
 
@@ -827,7 +830,7 @@ static bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
 
 void Gpu::bottomHalf(Buffer<double>& out, Buffer<double>& inTmp) {
   fftMidIn(out, inTmp);
-#if DOUBLE_WIDE
+#if !SINGLE_KERNEL
   tailSquareZero(inTmp, out);
 #endif
   tailSquare(inTmp, out);
