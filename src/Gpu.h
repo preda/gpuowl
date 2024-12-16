@@ -153,6 +153,7 @@ private:
   Kernel testFFT;
   Kernel testFFT15;
   Kernel testFFT14;
+  Kernel testTime;
 
   // Kernel testKernel;
 

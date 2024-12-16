@@ -17,6 +17,138 @@
 #include "fft15.cl"
 #include "fft16.cl"
 
+// Measure instruction latency.
+KERNEL(64) testTime(int what, global i64* io) {
+#if HAS_ASM
+  i64 clock0, clock1;
+  
+  if (what == 6) { // V_MAD_U64_U32
+    u32 a = 2;
+    u64 b = 3;
+        
+    __asm (
+    "s_waitcnt lgkmcnt(0)\n\t"
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock0) : "v"(a), "v"(b));
+        
+    for (int i = 0; i < 48; ++i) {
+      __asm("v_mad_u64_u32 %1, vcc, %0, %0, %1" : : "v"(a), "v"(b));
+    }
+        
+    __asm(
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock1));
+  } else if (what == 0) { // V_NOP
+    __asm (
+    "s_waitcnt lgkmcnt(0)\n\t"
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock0) : );
+    
+    for (int i = 0; i < 48; ++i) {
+      __asm("v_nop");
+    }
+    
+    __asm(
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock1) : );
+  } else if (what == 1) { // V_ADD_I32
+    int a = 2, b = 3;
+    
+    __asm (
+    "s_waitcnt lgkmcnt(0)\n\t"
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock0) : "v"(a), "v"(b));
+    
+    for (int i = 0; i < 48; ++i) {
+      __asm("v_add_i32 %0, %1, %0" : : "v"(a), "v"(b));
+    }
+    
+    __asm(
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock1));
+  } else if (what == 2) { // V_FMA_F32
+    float a = 2, b = 3;
+    
+    __asm (
+    "s_waitcnt lgkmcnt(0)\n\t"
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock0) : "v"(a), "v"(b));
+    
+    for (int i = 0; i < 48; ++i) {
+      __asm("v_fma_f32 %0, %0, %1, %0" : : "v"(a), "v"(b));
+    }
+    
+    __asm(
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock1));    
+  } else if (what == 3) { // V_ADD_F64
+    double a = 2, b = 3;
+    
+    __asm (
+    "s_waitcnt lgkmcnt(0)\n\t"
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock0) : "v"(a), "v"(b));
+    
+    for (int i = 0; i < 48; ++i) {
+      __asm("v_add_f64 %0, %0, %1" : : "v"(a), "v"(b));
+    }
+    
+    __asm(
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock1));    
+  } else if (what == 4) { // V_FMA_F64
+    double a = 2, b = 3;
+    
+    __asm (
+    "s_waitcnt lgkmcnt(0)\n\t"
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock0) : "v"(a), "v"(b));
+    
+    for (int i = 0; i < 48; ++i) {
+      __asm("v_fma_f64 %0, %0, %1, %0" : : "v"(a), "v"(b));
+    }
+    
+    __asm(
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock1));
+  } else if (what == 5) { // V_MUL_F64
+    double a = 2, b = 3;
+    
+    __asm (
+    "s_waitcnt lgkmcnt(0)\n\t"
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock0) : "v"(a), "v"(b));
+    
+    for (int i = 0; i < 48; ++i) {
+      __asm("v_mul_f64 %0, %0, %1" : : "v"(a), "v"(b));
+    }
+    
+    __asm(
+    "s_memtime %0\n\t"
+    "s_waitcnt lgkmcnt(0)\n\t"
+    : "=s"(clock1));
+  }
+  
+  if (get_local_id(0) == 0) {
+    io[get_group_id(0)] = clock1 - clock0;
+  }
+}
+#endif
+
+
 KERNEL(256) testFFT3(global double2* io) {
   T2 u[4];
   if (get_global_id(0) == 0) {

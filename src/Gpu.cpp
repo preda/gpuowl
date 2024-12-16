@@ -444,6 +444,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   K(testFFT, "selftest.cl", "testFFT", 256),
   K(testFFT15, "selftest.cl", "testFFT15", 256),
   K(testFFT14, "selftest.cl", "testFFT14", 256),
+  K(testTime, "selftest.cl", "testTime", 4096 * 64),
 #undef K
 
   bufTrigW{shared.bufCache->smallTrig(WIDTH, nW)},
@@ -1073,6 +1074,31 @@ void Gpu::selftestTrig() {
   log("TRIG cos(): imperfect %d / %d (%.2f%%), balance %d\n",
       cup + cdown, n, (cup + cdown) * 100.0 / n, cup - cdown);
   log("TRIG norm: up %d, down %d\n", oneUp, oneDown);
+  
+  if (isAmdGpu(queue->context->deviceId())) {
+    vector<string> WHATS {"V_NOP", "V_ADD_I32", "V_FMA_F32", "V_ADD_F64", "V_FMA_F64", "V_MUL_F64", "V_MAD_U64_U32"};
+    for (int w = 0; w < int(WHATS.size()); ++w) {
+      const int what = w;
+      testTime(what, bufCarry);
+      vector<i64> times = bufCarry.read(4096);
+      [[maybe_unused]] i64 prev = 0;
+      u64 min = -1;
+      u64 sum = 0;
+      for (int i = 0; i < int(times.size()); ++i) {
+        i64 x = times[i];
+#if 0
+        if (x != prev) {
+          log("%4d : %ld\n", i, x);
+          prev = x;
+        }
+#endif
+        if (x > 0 && u64(x) < min) { min = x; }
+        if (x > 0) { sum += x; }
+      }
+      log("%-15s : %.2f cycles latency; time min: %d; avg %.0f\n",
+          WHATS[w].c_str(), double(min - 40) / 48, int(min), double(sum) / times.size());
+    }
+  }
 }
 
 static u32 mod3(const std::vector<u32> &words) {
