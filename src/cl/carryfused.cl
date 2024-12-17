@@ -8,7 +8,7 @@
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-		       CP(u32) bits, ConstBigTab CONST_THREAD_WEIGHTS, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
+                       CP(u32) bits, ConstBigTab CONST_THREAD_WEIGHTS, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
   local T2 lds[WIDTH / 2];
 
   u32 gr = get_group_id(0);
@@ -43,6 +43,13 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 #else
   P(CFcarry) carryShuttlePtr = (P(CFcarry)) carryShuttle;
   CFcarry carry[NW+1];
+#endif
+
+#if AMDGPU
+#define CarryShuttleAccess(me,i)        ((me) * NW + (i))                       // Generates denser global_load_dwordx4 instructions
+//#define CarryShuttleAccess(me,i)      ((me) * 4 + (i)%4 + (i)/4 * 4*G_W)      // Also generates global_load_dwordx4 instructions and unit stride when NW=8
+#else
+#define CarryShuttleAccess(me,i)        ((me) + (i) * G_W)                      // nVidia likes this better unit stride better
 #endif
 
   float roundMax = 0;
@@ -95,7 +102,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   // Write out our carries. Only groups 0 to H-1 need to write carries out.
   // Group H is a duplicate of group 0 (producing the same results) so we don't care about group H writing out,
   // but it's fine either way.
-  if (gr < H) { for (i32 i = 0; i < NW; ++i) { carryShuttlePtr[gr * WIDTH + me * NW + i] = carry[i]; } }
+  if (gr < H) { for (i32 i = 0; i < NW; ++i) { carryShuttlePtr[gr * WIDTH + CarryShuttleAccess(me, i)] = carry[i]; } }
 
 #if OLD_FENCE
 
@@ -125,7 +132,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   // The new carry layout lets the compiler generate global_load_dwordx4 instructions.
   if (gr < H) {
     for (i32 i = 0; i < NW; ++i) {
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + me * NW + i];
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + CarryShuttleAccess(me, i)];
     }
   } else {
 
@@ -135,7 +142,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 #endif
 
     for (i32 i = 0; i < NW; ++i) {
-      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + (me + G_W - 1) % G_W * NW + i /* ((me!=0) + NW - 1 + i) % NW*/];
+      carry[i] = carryShuttlePtr[(gr - 1) * WIDTH + CarryShuttleAccess((me + G_W - 1) % G_W, i) /* ((me!=0) + NW - 1 + i) % NW*/];
     }
 
     if (me == 0) {
