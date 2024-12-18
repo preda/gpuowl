@@ -1080,7 +1080,7 @@ void Gpu::selftestTrig() {
     for (int w = 0; w < int(WHATS.size()); ++w) {
       const int what = w;
       testTime(what, bufCarry);
-      vector<i64> times = bufCarry.read(4096);
+      vector<i64> times = bufCarry.read(4096 * 2);
       [[maybe_unused]] i64 prev = 0;
       u64 min = -1;
       u64 sum = 0;

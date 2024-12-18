@@ -18,7 +18,7 @@
 #include "fft16.cl"
 
 // Measure instruction latency.
-KERNEL(64) testTime(int what, global i64* io) {
+KERNEL(32) testTime(int what, global i64* io) {
 #if HAS_ASM
   i64 clock0, clock1;
   
@@ -41,11 +41,12 @@ KERNEL(64) testTime(int what, global i64* io) {
     "s_waitcnt lgkmcnt(0)\n\t"
     : "=s"(clock1));
   } else if (what == 0) { // V_NOP
+    // clock0 = __builtin_readcyclecounter();
     __asm (
     "s_waitcnt lgkmcnt(0)\n\t"
     "s_memtime %0\n\t"
     "s_waitcnt lgkmcnt(0)\n\t"
-    : "=s"(clock0) : );
+    : "=s"(clock0));
     
     for (int i = 0; i < 48; ++i) {
       __asm("v_nop");
@@ -107,16 +108,19 @@ KERNEL(64) testTime(int what, global i64* io) {
     "s_waitcnt lgkmcnt(0)\n\t"
     : "=s"(clock1));    
   } else if (what == 4) { // V_FMA_F64
-    double a = 2, b = 3;
+    double a = 2, b = 3, c = 4, d = 5;
     
     __asm (
     "s_waitcnt lgkmcnt(0)\n\t"
     "s_memtime %0\n\t"
     "s_waitcnt lgkmcnt(0)\n\t"
-    : "=s"(clock0) : "v"(a), "v"(b));
+    : "=s"(clock0) : "v"(a), "v"(b), "v"(c), "v"(d));
     
-    for (int i = 0; i < 48; ++i) {
-      __asm("v_fma_f64 %0, %0, %1, %0" : : "v"(a), "v"(b));
+    for (int i = 0; i < 24; ++i) {
+      __asm(
+      "v_fma_f64 %0, %0, %1, %0\n\t"
+      "v_fma_f64 %2, %2, %3, %2\n\t"
+      : : "v"(a), "v"(b), "v"(c), "v"(d));
     }
     
     __asm(
