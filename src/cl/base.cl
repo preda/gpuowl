@@ -126,6 +126,10 @@ typedef double2 T2;
 #define P(x) global x * restrict
 #define CP(x) const P(x)
 
+// Macros for non-temporal load and store (in case we later want to provide a -use option to turn this off)
+#define NTLOAD(mem)        __builtin_nontemporal_load(&(mem))
+#define NTSTORE(mem,val)   __builtin_nontemporal_store(val, &(mem))
+
 // For reasons unknown, loading trig values into nVidia's constant cache has terrible performance
 #if AMDGPU
 typedef constant const T2* Trig;
