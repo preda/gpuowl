@@ -5,6 +5,15 @@
 #include "fftwidth.cl"
 #include "middle.cl"
 
+void spin() {
+#if AMDGPU
+  __builtin_amdgcn_s_sleep(0);
+#else
+  // nothing: just spin
+  // on Nvidia: see if there's some brief sleep function
+#endif
+}
+
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
@@ -107,25 +116,39 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 #if OLD_FENCE
 
   if (gr < H) {
-    work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+    // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+    write_mem_fence(CLK_GLOBAL_MEM_FENCE);
+    bar();
+    
     if (me == 0) { atomic_store((atomic_uint *) &ready[gr], 1); }
   }
   if (gr == 0) { return; }
-  if (me == 0) { while(!atomic_load((atomic_uint *) &ready[gr - 1])); }
-  work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+  if (me == 0) { do { spin(); } while(!atomic_load((atomic_uint *) &ready[gr - 1])); }
+  // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+  bar();
+  read_mem_fence(CLK_GLOBAL_MEM_FENCE);
+
+  // Clear carry ready flag for next iteration
+  if (me == 0) ready[gr - 1] = 0;
 
 #else
 
   if (gr < H) {
     write_mem_fence(CLK_GLOBAL_MEM_FENCE);
-    if (me % WAVEFRONT == 0) { atomic_store((atomic_uint *) &ready[gr * (G_W / WAVEFRONT) + me / WAVEFRONT], 1); }
+    if (me % WAVEFRONT == 0) { 
+      u32 pos = gr * (G_W / WAVEFRONT) + me / WAVEFRONT;
+      atomic_store((atomic_uint *) &ready[pos], 1);
+    }
   }
   if (gr == 0) { return; }
+  u32 pos = (gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT;
   if (me % WAVEFRONT == 0) {
-    while(!atomic_load((atomic_uint *) &ready[(gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT]));
+    do { spin(); } while(atomic_load((atomic_uint *) &ready[pos]) == 0);
   }
-  read_mem_fence(CLK_GLOBAL_MEM_FENCE);
+  mem_fence(CLK_GLOBAL_MEM_FENCE);
 
+  // Clear carry ready flag for next iteration
+  if (me % WAVEFRONT == 0) ready[(gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT] = 0;
 #endif
 
   // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
@@ -138,7 +161,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
 #if !OLD_FENCE
     // For gr==H we need the barrier since the carry reading is shifted, thus the per-wavefront trick does not apply.
-    work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+    bar();
 #endif
 
     for (i32 i = 0; i < NW; ++i) {
@@ -146,8 +169,6 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
     }
 
     if (me == 0) {
-      // Tcarry tmp = carry[NW - 1];
-
       carry[NW] = carry[NW-1];
       for (i32 i = NW-1; i; --i) { carry[i] = carry[i-1]; }
       carry[0] = carry[NW];
@@ -176,11 +197,4 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
   fft_WIDTH(lds, u, smallTrig);
   writeCarryFusedLine(u, out, line);
-
-  // Clear carry ready flag for next iteration
-#if OLD_FENCE
-  if (me == 0) ready[gr - 1] = 0;
-#else
-  if (me % WAVEFRONT == 0) ready[(gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT] = 0;
-#endif
 }
