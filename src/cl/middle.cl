@@ -52,10 +52,10 @@ void writeCarryFusedLine(T2 *u, P(T2) out, u32 line) {
 #if PADDING
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
   out += line * WIDTH + line * PAD_SIZE + line / SMALL_HEIGHT * BIG_PAD_SIZE + (u32) get_local_id(0); // One pad every line + a big pad every SMALL_HEIGHT lines
-  for (u32 i = 0; i < NW; ++i) { out[i * G_W] = u[i]; }
+  for (u32 i = 0; i < NW; ++i) { NTSTORE(out[i * G_W], u[i]); }
 #else
   out += line * WIDTH + (u32) get_local_id(0);
-  for (u32 i = 0; i < NW; ++i) { out[i * G_W] = u[i]; }
+  for (u32 i = 0; i < NW; ++i) { NTSTORE(out[i * G_W], u[i]); }
 #endif
 }
 
@@ -65,10 +65,10 @@ void readMiddleInLine(T2 *u, CP(T2) in, u32 y, u32 x) {
   // Rather than having u[i] also increment by one, we choose a larger pad increment
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
   in += y * WIDTH + y * PAD_SIZE + (y / SMALL_HEIGHT) * BIG_PAD_SIZE + x;
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * (SMALL_HEIGHT * (WIDTH + PAD_SIZE) + BIG_PAD_SIZE)]; }
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = NTLOAD(in[i * (SMALL_HEIGHT * (WIDTH + PAD_SIZE) + BIG_PAD_SIZE)]); }
 #else
   in += y * WIDTH + x;
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT * WIDTH]; }
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = NTLOAD(in[i * SMALL_HEIGHT * WIDTH]); }
 #endif
 }
 
@@ -102,7 +102,7 @@ void writeMiddleInLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
                                                         //              = SMALL_HEIGHT / (IN_WG / IN_SIZEX) * (MIDDLE * IN_WG + PAD_SIZE)
                                                         //              = SMALL_HEIGHT * MIDDLE * IN_SIZEX + SMALL_HEIGHT / SIZEY * PAD_SIZE
   // Write each u[i] sequentially
-  for (int i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
+  for (int i = 0; i < MIDDLE; ++i) { NTSTORE(out[i * IN_WG], u[i]); }
 
 #else
 
@@ -112,7 +112,7 @@ void writeMiddleInLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
                                                         //                       = MIDDLE * SMALL_HEIGHT / (IN_WG / IN_SIZEX) * IN_WG
                                                         //                       = MIDDLE * SMALL_HEIGHT * IN_SIZEX
   // Write each u[i] sequentially
-  for (int i = 0; i < MIDDLE; ++i) { out[i * IN_WG] = u[i]; }
+  for (int i = 0; i < MIDDLE; ++i) { NTSTORE(out[i * IN_WG], u[i]); }
 
 #endif
 }
@@ -141,7 +141,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 me) {
   for (i32 i = 0; i < NH; ++i) {
     u32 fftMiddleIn_y = i * G_H + me;                           // The fftMiddleIn y value
     u32 chunk_y = fftMiddleIn_y / SIZEY;                        // The fftMiddleIn chunk_y value
-    u[i] = in[chunk_y * (MIDDLE * IN_WG + PAD_SIZE)];           // Adjust in pointer the same way writeMiddleInLine did
+    u[i] = NTLOAD(in[chunk_y * (MIDDLE * IN_WG + PAD_SIZE)]);   // Adjust in pointer the same way writeMiddleInLine did
   }
 
 #else                                                           // Read data that was not rotated or padded
@@ -162,7 +162,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 me) {
   for (i32 i = 0; i < NH; ++i) {
     u32 fftMiddleIn_y = i * G_H + me;                           // The fftMiddleIn y value
     u32 chunk_y = fftMiddleIn_y / SIZEY;                        // The fftMiddleIn chunk_y value
-    u[i] = in[chunk_y * (MIDDLE * IN_WG)];                      // Adjust in pointer the same way writeMiddleInLine did
+    u[i] = NTLOAD(in[chunk_y * (MIDDLE * IN_WG)]);              // Adjust in pointer the same way writeMiddleInLine did
   }
 
 #endif
@@ -192,10 +192,10 @@ void writeTailFusedLine(T2 *u, P(T2) out, u32 line, u32 me) {
 #else
   out += line * (SMALL_HEIGHT + PAD_SIZE) + me;                         // Pad every output line
 #endif
-  for (u32 i = 0; i < NH; ++i) { out[i * G_H] = u[i]; }
+  for (u32 i = 0; i < NH; ++i) { NTSTORE(out[i * G_H], u[i]); }
 #else                                                                   // No padding, might be better on nVidia cards
   out += line * SMALL_HEIGHT + me;
-  for (u32 i = 0; i < NH; ++i) { out[i * G_H] = u[i]; }
+  for (u32 i = 0; i < NH; ++i) { NTSTORE(out[i * G_H], u[i]); }
 #endif
 }
 
@@ -209,10 +209,10 @@ void readMiddleOutLine(T2 *u, CP(T2) in, u32 y, u32 x) {
 #else
   in += y * MIDDLE * (SMALL_HEIGHT + PAD_SIZE) + x;
 #endif
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * (SMALL_HEIGHT + PAD_SIZE)]; }
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = NTLOAD(in[i * (SMALL_HEIGHT + PAD_SIZE)]); }
 #else                                                                   // No rotation, might be better on nVidia cards
   in += y * MIDDLE * SMALL_HEIGHT + x;
-  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = in[i * SMALL_HEIGHT]; }
+  for (i32 i = 0; i < MIDDLE; ++i) { u[i] = NTLOAD(in[i * SMALL_HEIGHT]); }
 #endif
 }
 
@@ -279,7 +279,7 @@ void writeMiddleOutLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
                                                         //              = WIDTH / (OUT_WG / OUT_SIZEX) * (MIDDLE * OUT_WG + PAD_SIZE)
                                                         //              = WIDTH * MIDDLE * OUT_SIZEX + WIDTH / SIZEY * PAD_SIZE
   // Write each u[i] sequentially
-  for (int i = 0; i < MIDDLE; ++i) { out[i * OUT_WG] = u[i]; }
+  for (int i = 0; i < MIDDLE; ++i) { NTSTORE(out[i * OUT_WG], u[i]); }
 
 #else
 
@@ -289,7 +289,7 @@ void writeMiddleOutLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
                                         //                       = MIDDLE * WIDTH / (OUT_WG / OUT_SIZEX) * OUT_WG
                                         //                       = MIDDLE * WIDTH * OUT_SIZEX
   // Write each u[i] sequentially
-  for (int i = 0; i < MIDDLE; ++i) { out[i * OUT_WG] = u[i]; }
+  for (int i = 0; i < MIDDLE; ++i) { NTSTORE(out[i * OUT_WG], u[i]); }
 
 #endif
 }
@@ -318,7 +318,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   for (i32 i = 0; i < NW; ++i) {
     u32 fftMiddleOut_y = i * G_W + me;                          // The fftMiddleOut y value
     u32 chunk_y = fftMiddleOut_y / SIZEY;                       // The fftMiddleOut chunk_y value
-    u[i] = in[chunk_y * (MIDDLE * OUT_WG + PAD_SIZE)];          // Adjust in pointer the same way writeMiddleOutLine did
+    u[i] = NTLOAD(in[chunk_y * (MIDDLE * OUT_WG + PAD_SIZE)]);  // Adjust in pointer the same way writeMiddleOutLine did
   }
 
 #else                                                           // Read data that was not rotated or padded
@@ -339,7 +339,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   for (i32 i = 0; i < NW; ++i) {
     u32 fftMiddleOut_y = i * G_W + me;                          // The fftMiddleOut y value
     u32 chunk_y = fftMiddleOut_y / SIZEY;                       // The fftMiddleOut chunk_y value
-    u[i] = in[chunk_y * MIDDLE * OUT_WG];                       // Adjust in pointer the same way writeMiddleOutLine did
+    u[i] = NTLOAD(in[chunk_y * MIDDLE * OUT_WG]);               // Adjust in pointer the same way writeMiddleOutLine did
   }
 
 #endif

@@ -148,7 +148,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   // The trig values used here are pre-computed and stored after the fft_HEIGHT trig values.
   u32 height_trigs = SMALL_HEIGHT/NH*(NH-1);
   // Read pre-computed trig values
-  T2 trig = smallTrig[height_trigs + line1*G_H + me];
+  T2 trig = NTLOAD(smallTrig[height_trigs + line1*G_H + me]);
 #endif
 
 #if SINGLE_KERNEL
@@ -259,7 +259,7 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   // The trig values used here are pre-computed and stored after the fft_HEIGHT trig values.
   u32 height_trigs = SMALL_HEIGHT/NH*(NH-1);
   // Read pre-computed trig values
-  T2 trig = smallTrig[height_trigs + line_u*G_H*2 + me];
+  T2 trig = NTLOAD(smallTrig[height_trigs + line_u*G_H*2 + me]);
 #endif
 
   bar(G_H);
