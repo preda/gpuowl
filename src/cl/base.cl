@@ -149,12 +149,6 @@ typedef global const double2* BigTab;
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
 
-// Prototypes
-void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base);
-void write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base);
-OVERLOAD void bar();
-OVERLOAD void bar(u32);
-
 void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
   in += base + (u32) get_local_id(0);
   for (u32 i = 0; i < N; ++i) { u[i] = in[i * WG]; }
