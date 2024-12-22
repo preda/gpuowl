@@ -1132,13 +1132,14 @@ void Gpu::doDiv9(u32 E, Words& words) {
   doDiv3(E, words);
 }
 
-fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet) {
+fs::path Gpu::saveProof(const Args& args, const ProofSet& proofSet, u32 instance) {
   for (int retry = 0; retry < 2; ++retry) {
     auto [proof, hashes] = proofSet.computeProof(this);
-    fs::path tmpFile = proof.file(args.proofToVerifyDir);
+    fs::path worker = "worker-" + to_string(instance);
+    fs::path tmpFile = proof.file(worker / args.proofToVerifyDir);
     proof.save(tmpFile);
             
-    fs::path proofFile = proof.file(args.proofResultDir);
+    fs::path proofFile = proof.file(worker / args.proofResultDir);
 
     bool ok = Proof::load(tmpFile).verify(this, hashes);
     log("Proof '%s' verification %s\n", tmpFile.string().c_str(), ok ? "OK" : "FAILED");
@@ -1175,8 +1176,8 @@ PRPState Gpu::loadPRP(Saver<PRPState>& saver) {
   throw "Error on load";
 }
 
-u32 Gpu::getProofPower(u32 k) {
-  u32 power = ProofSet::effectivePower(E, args.getProofPow(E), k);
+u32 Gpu::getProofPower(u32 k, u32 instance) {
+  u32 power = ProofSet::effectivePower(E, args.getProofPow(E), k, instance);
 
   if (power != args.getProofPow(E)) {
     log("Proof using power %u (vs %u)\n", power, args.getProofPow(E));
@@ -1381,7 +1382,7 @@ double Gpu::timePRP() {
   return secsPerIt * 1e6;
 }
 
-PRPResult Gpu::isPrimePRP(const Task& task) {
+PRPResult Gpu::isPrimePRP(const Task& task, u32 instance) {
   const constexpr u32 LOG_STEP = 20'000; // log every 20k its
   assert(E == task.exponent);
 
@@ -1398,7 +1399,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   double elapsedBefore = 0;
 
   {
-    PRPState state = loadPRP(*getSaver());
+    PRPState state = loadPRP(*getSaver(instance));
     nErrors = std::max(nErrors, state.nErrors);
     blockSize = state.blockSize;
     k = state.k;
@@ -1410,9 +1411,9 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   u32 checkStep = checkStepForErrors(blockSize, nErrors);
   assert(checkStep % LOG_STEP == 0);
 
-  u32 power = getProofPower(k);
+  u32 power = getProofPower(k, instance);
   
-  ProofSet proofSet{E, power};
+  ProofSet proofSet{E, power, instance};
 
   bool isPrime = false;
 
@@ -1472,7 +1473,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
         ++nErrors;
         goto reload;
       }
-      (*background)([=, E=this->E] { ProofSet::save(E, power, k, compactBits(rawData, E)); });
+      (*background)([=, E=this->E] { ProofSet::save(E, power, k, compactBits(rawData, E), instance); });
       persistK = proofSet.next(k);
     }
 
@@ -1510,8 +1511,8 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
     if (!doCheck) {
       (*background)([=, this] {
-        getSaver()->saveUnverified({E, k, blockSize, res, compactBits(rawCheck, E), nErrors,
-                                    elapsedBefore + elapsedTimer.at()});
+        getSaver(instance)->saveUnverified({E, k, blockSize, res, compactBits(rawCheck, E), nErrors,
+                                            elapsedBefore + elapsedTimer.at()});
       });
 
       log("   %9u %016" PRIx64 " %4.0f\n", k, res, /*k / float(kEndEnd) * 100*,*/ secsPerIt * 1'000'000);
@@ -1532,14 +1533,14 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
 
         if (k < kEnd) {
           (*background)([=, this, rawCheck = std::move(rawCheck)] {
-            getSaver()->save({E, k, blockSize, res, compactBits(rawCheck, E), nErrors, elapsedBefore + elapsedTimer.at()});
+            getSaver(instance)->save({E, k, blockSize, res, compactBits(rawCheck, E), nErrors, elapsedBefore + elapsedTimer.at()});
           });
         }
 
         doBigLog(k, res, ok, secsPerIt, kEndEnd, nErrors);
           
         if (k >= kEndEnd) {
-          fs::path proofFile = saveProof(args, proofSet);
+          fs::path proofFile = saveProof(args, proofSet, instance);
           return {isPrime, finalRes64, nErrors, proofFile.string(), toHex(res2048)};
         }        
       } else {
@@ -1569,13 +1570,13 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   }
 }
 
-LLResult Gpu::isPrimeLL(const Task& task) {
+LLResult Gpu::isPrimeLL(const Task& task, u32 instance) {
   assert(E == task.exponent);
   wantROE = 0;
 
   Timer elapsedTimer;
 
-  Saver<LLState> saver{E, 1000, args.nSavefiles};
+  Saver<LLState> saver{E, 1000, args.nSavefiles, instance};
 
   reload:
   elapsedTimer.reset();
@@ -1715,15 +1716,15 @@ array<u64, 4> Gpu::isCERT(const Task& task) {
 }
 
 
-void Gpu::clear(bool isPRP) {
+void Gpu::clear(bool isPRP, u32 instance) {
   if (isPRP) {
-    Saver<PRPState>::clear(E);
+    Saver<PRPState>::clear(E, instance);
   } else {
-    Saver<LLState>::clear(E);
+    Saver<LLState>::clear(E, instance);
   }
 }
 
-Saver<PRPState> *Gpu::getSaver() {
-  if (!saver) { saver = make_unique<Saver<PRPState>>(E, args.blockSize, args.nSavefiles); }
+Saver<PRPState> *Gpu::getSaver(u32 instance) {
+  if (!saver) { saver = make_unique<Saver<PRPState>>(E, args.blockSize, args.nSavefiles, instance); }
   return saver.get();
 }

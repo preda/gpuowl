@@ -26,7 +26,7 @@ void gpuWorker(GpuCommon shared, Queue *q, i32 instance) {
   // LogContext context{(instance ? shared.args->tailDir() : ""s) + to_string(instance) + ' '};
   // log("Starting worker %d\n", instance);
   if (instance > 0) {
-    initLog(("gpuowl-"s + to_string(instance) + ".log").c_str());
+    initLog(("worker-"s + to_string(instance) + "/gpuowl.log").c_str());
     log("PRPLL %s, instance %d\n", VERSION, instance);
   }
 
@@ -67,20 +67,12 @@ int main(int argc, char **argv) {
       }
     }
     
-    fs::path poolDir;
-    {
-      Args args{true};
-      args.readConfig("config.txt");
-      args.parse(mainLine);
-      poolDir = args.masterDir;
-    }
-        
-    initLog("gpuowl-0.log");
+    fs::create_directory("worker-0");
+    initLog("worker-0/gpuowl.log");
     log("PRPLL %s starting\n", VERSION);
     
     Args args;
 
-    if (!poolDir.empty()) { args.readConfig(poolDir / "config.txt"); }
     args.readConfig("config.txt");
     args.parse(mainLine);
     args.setDefaults();

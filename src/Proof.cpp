@@ -127,8 +127,8 @@ bool Proof::verify(Gpu *gpu, const vector<u64>& hashes) const {
 
 // ---- ProofSet ----
 
-ProofSet::ProofSet(u32 E, u32 power)
-  : E{E}, power{power} {
+ProofSet::ProofSet(u32 E, u32 power, u32 instance)
+  : E{E}, power{power}, instance{instance} {
   
   assert(E & 1); // E is supposed to be prime
   if (power <= 0 || power > 12) {
@@ -136,7 +136,7 @@ ProofSet::ProofSet(u32 E, u32 power)
     throw "Invalid proof power";
   }
 
-  fs::create_directories(proofPath(E));
+  fs::create_directories(proofPath(E, instance));
 
   vector<u32> spans;
   for (u32 span = (E + 1) / 2; spans.size() < power; span = (span + 1) / 2) { spans.push_back(span); }
@@ -179,9 +179,9 @@ bool ProofSet::isInPoints(u32 E, u32 power, u32 k) {
   return false;
 }
 
-bool ProofSet::canDo(u32 E, u32 power, u32 currentK) {
+bool ProofSet::canDo(u32 E, u32 power, u32 currentK, u32 instance) {
   assert(power > 0 && power <= 12);
-  return ProofSet{E, power}.isValidTo(currentK);
+  return ProofSet{E, power, instance}.isValidTo(currentK);
 }
 
 u32 ProofSet::bestPower(u32 E) {
@@ -205,16 +205,16 @@ double ProofSet::diskUsageGB(u32 E, u32 power) {
   return power ? ldexp(E, -33 + int(power)) * 1.05 : 0.0;
 }
 
-u32 ProofSet::effectivePower(u32 E, u32 power, u32 currentK) {
+u32 ProofSet::effectivePower(u32 E, u32 power, u32 currentK, u32 instance) {
   for (u32 p = power; p > 0; --p) {
     // log("validating proof residues for power %u\n", p);
-    if (canDo(E, p, currentK)) { return p; }
+    if (canDo(E, p, currentK, instance)) { return p; }
   }
   return 0;
 }
     
 bool ProofSet::fileExists(u32 k) const {
-  return File::size(proofPath(E) / to_string(k)) == i64(E / 32 + 2) * 4;
+  return File::size(proofPath(E, instance) / to_string(k)) == i64(E / 32 + 2) * 4;
 }
 
 bool ProofSet::isValidTo(u32 limitK) const {
@@ -245,18 +245,18 @@ u32 ProofSet::next(u32 k) const {
   return *cacheIt;
 }
 
-void ProofSet::save(u32 E, u32 power, u32 k, const Words& words) {
+void ProofSet::save(u32 E, u32 power, u32 k, const Words& words, u32 instance) {
   assert(k && k <= E);
   assert(isInPoints(E, power, k));
 
-  File::openWrite(proofPath(E) / to_string(k)).writeChecked(words);
-  assert(load(E, power, k) == words);
+  File::openWrite(proofPath(E, instance) / to_string(k)).writeChecked(words);
+  assert(load(E, power, k, instance) == words);
 }
 
-Words ProofSet::load(u32 E, u32 power, u32 k) {
+Words ProofSet::load(u32 E, u32 power, u32 k, u32 instance) {
   assert(k && k <= E);
   assert(isInPoints(E, power, k));
-  return File::openReadThrow(proofPath(E) / to_string(k)).readChecked<u32>(E/32 + 1);
+  return File::openReadThrow(proofPath(E, instance) / to_string(k)).readChecked<u32>(E/32 + 1);
 }
 
 std::pair<Proof, vector<u64>> ProofSet::computeProof(Gpu *gpu) const {

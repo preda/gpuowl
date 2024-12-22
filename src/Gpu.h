@@ -237,7 +237,7 @@ private:
 
   void modMul(Buffer<int>& ioA, Buffer<int>& inB, bool mul3 = false);
   
-  fs::path saveProof(const Args& args, const ProofSet& proofSet);
+  fs::path saveProof(const Args& args, const ProofSet& proofSet, u32 instance);
   std::pair<RoeInfo, RoeInfo> readROE();
   RoeInfo readCarryStats();
   
@@ -260,8 +260,8 @@ public:
 
   ~Gpu();
 
-  PRPResult isPrimePRP(const Task& task);
-  LLResult isPrimeLL(const Task& task);
+  PRPResult isPrimePRP(const Task& task, u32 instance);
+  LLResult isPrimeLL(const Task& task, u32 instance);
   array<u64, 4> isCERT(const Task& task);
 
   double timePRP();
@@ -269,7 +269,7 @@ public:
   tuple<bool, u64, RoeInfo, RoeInfo> measureROE(bool quick);
   tuple<bool, RoeInfo> measureCarry();
 
-  Saver<PRPState> *getSaver();
+  Saver<PRPState> *getSaver(u32 instance);
 
   void carryA(Buffer<double>& a, Buffer<double>& b) { carryA(reinterpret_cast<Buffer<int>&>(a), b); }
 
@@ -314,9 +314,9 @@ public:
   Words expExp2(const Words& A, u32 n);
   vector<Buffer<i32>> makeBufVector(u32 size);
 
-  void clear(bool isPRP);
+  void clear(bool isPRP, u32 instance);
 
 private:
-  u32 getProofPower(u32 k);
+  u32 getProofPower(u32 k, u32 instance);
   void doBigLog(u32 k, u64 res, bool checkOK, float secsPerIt, u32 nIters, u32 nErrors);
 };
