@@ -55,35 +55,39 @@ class ProofSet {
 public:
   const u32 E;
   const u32 power;
+  const u32 instance;
   
 private:  
   vector<u32> points;  
   
   bool isValidTo(u32 limitK) const;
 
-  static bool canDo(u32 E, u32 power, u32 currentK);
+  static bool canDo(u32 E, u32 power, u32 currentK, u32 instance);
 
   mutable decltype(points)::const_iterator cacheIt{};
 
   bool fileExists(u32 k) const;
 
-  static fs::path proofPath(u32 E) { return fs::path(to_string(E)) / "proof"; }
+  static fs::path proofPath(u32 E, u32 instance) {
+    fs::path worker = "worker-" + to_string(instance);
+    return fs::path(worker / to_string(E)) / "proof";
+  }
 public:
   
   static u32 bestPower(u32 E);
-  static u32 effectivePower(u32 E, u32 power, u32 currentK);
+  static u32 effectivePower(u32 E, u32 power, u32 currentK, u32 instance);
   static double diskUsageGB(u32 E, u32 power);
   static bool isInPoints(u32 E, u32 power, u32 k);
   
-  ProofSet(u32 E, u32 power);
+  ProofSet(u32 E, u32 power, u32 instance);
     
   u32 next(u32 k) const;
 
-  static void save(u32 E, u32 power, u32 k, const Words& words);
-  static Words load(u32 E, u32 power, u32 k);
+  static void save(u32 E, u32 power, u32 k, const Words& words, u32 instance);
+  static Words load(u32 E, u32 power, u32 k, u32 instance);
         
-  void save(u32 k, const Words& words) const { return save(E, power, k, words); }
-  Words load(u32 k) const { return load(E, power, k); }
+  void save(u32 k, const Words& words) const { return save(E, power, k, words, instance); }
+  Words load(u32 k) const { return load(E, power, k, instance); }
 
 
   std::pair<Proof, vector<u64>> computeProof(Gpu *gpu) const;
