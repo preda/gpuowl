@@ -41,9 +41,6 @@ bool TuneEntry::willUpdate(const vector<TuneEntry>& results) const {
 
 vector<TuneEntry> TuneEntry::readTuneFile(const Args& args) {
   fs::path tuneFile = "tune.txt";
-  if (!fs::exists(tuneFile)) {
-    tuneFile = args.masterDir / "tune.txt";
-  }
 
   // if (!fs::exists(tuneFile)) { log("Tune file %s not found\n", tuneFile.string().c_str()); }
 
