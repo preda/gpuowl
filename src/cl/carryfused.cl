@@ -6,8 +6,10 @@
 #include "middle.cl"
 
 void spin() {
-#if AMDGPU
+#if defined(__has_builtin) && __has_builtin(__builtin_amdgcn_s_sleep)
   __builtin_amdgcn_s_sleep(0);
+#elif HAS_ASM
+  __asm("s_sleep 0");
 #else
   // nothing: just spin
   // on Nvidia: see if there's some brief sleep function
