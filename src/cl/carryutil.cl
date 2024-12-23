@@ -6,9 +6,12 @@
 #if STATS || ROE
 void updateStats(global uint *bufROE, u32 posROE, float roundMax) {
   assert(roundMax >= 0);
-  u32 groupRound = work_group_reduce_max(as_uint(roundMax));
+  // work_group_reduce_max() allocates an additional 256Bytes LDS for a 64lane workgroup, so avoid it.
+  // u32 groupRound = work_group_reduce_max(as_uint(roundMax));
+  // if (get_local_id(0) == 0) { atomic_max(bufROE + posROE, groupRound); }
 
-  if (get_local_id(0) == 0) { atomic_max(bufROE + posROE, groupRound); }
+  // Do the reduction directly over global mem.
+  atomic_max(bufROE + posROE, as_uint(roundMax));
 }
 #endif
 

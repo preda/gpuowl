@@ -16,20 +16,16 @@ KERNEL(32) readResidue(P(Word2) out, CP(Word2) in) {
 #endif
 
 #if SUM64
-KERNEL(256) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
+KERNEL(64) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
   if (get_global_id(0) == 0) { out[0] = 0; }
   
   ulong sum = 0;
   for (i32 p = get_global_id(0); p < sizeBytes / sizeof(u64); p += get_global_size(0)) {
     sum += in[p];
   }
-  sum = work_group_reduce_add(sum);
-  if (get_local_id(0) == 0) {
-    u32 low = sum;
-    u32 prev = atomic_add((global u32*)out, low);
-    u32 high = (sum + prev) >> 32;
-    atomic_add(((global u32*)out) + 1, high);
-  }
+  u32 prev = atomic_add((global u32*)out, (u32) sum);
+  u32 high = (sum + prev) >> 32;
+  atomic_add(((global u32*)out) + 1, high);
 }
 #endif
 
