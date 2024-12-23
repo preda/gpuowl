@@ -5,8 +5,8 @@
 #include "base.cl"
 
 // a * (b + 1) == a * b + a
-OVERLOAD T  fancyMul(T a, T b)   { return fma(a, b, a); }
-OVERLOAD T2 fancyMul(T2 a, T2 b) { return U2(fancyMul(a.x, b.x), fancyMul(a.y, b.y)); }
+T OVERLOAD fancyMul(T a, T b)   { return fma(a, b, a); }
+T2 OVERLOAD fancyMul(T2 a, T2 b) { return U2(fancyMul(a.x, b.x), fancyMul(a.y, b.y)); }
 
 T2 cmul(T2 a, T2 b) {
 #if 1

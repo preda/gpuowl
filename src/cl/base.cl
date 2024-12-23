@@ -172,7 +172,7 @@ T2 U2(T a, T b) { return (T2) (a, b); }
 #endif
 #endif
 
-OVERLOAD void bar() {
+void OVERLOAD bar(void) {
   // barrier(CLK_LOCAL_MEM_FENCE) is correct, but it turns out that on some GPUs
   // (in particular on Radeon VII and Radeon PRO VII) barrier(0) works as well and is faster.
   // So allow selecting the faster path when it works with -use FAST_BARRIER
@@ -183,7 +183,7 @@ OVERLOAD void bar() {
 #endif
 }
 
-OVERLOAD void bar(u32 WG) { if (WG > WAVEFRONT) { bar(); } }
+void OVERLOAD bar(u32 WG) { if (WG > WAVEFRONT) { bar(); } }
 
 // A half-barrier is only needed when half-a-workgroup needs a barrier.
 // This is used e.g. by the double-wide tailSquare, where LDS is split between the halves.
