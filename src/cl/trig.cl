@@ -37,7 +37,6 @@ double2 reducedCosSin(int k, double cosBase) {
 }
 
 double2 fancyTrig_N(u32 k) {
-  assert(k <= n / 8);
   return reducedCosSin(k, 0);
 }
 
