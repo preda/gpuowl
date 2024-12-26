@@ -213,7 +213,8 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "DEBUG",
                               "CARRY64",
                               "BCAST",
-                              "BIGLIT"
+                              "BIGLIT",
+                              "NONTEMPORAL"
                             });
     if (!isValid) {
       log("Warning: unrecognized -use key '%s'\n", k.c_str());
