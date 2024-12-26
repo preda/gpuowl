@@ -68,6 +68,13 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #define OLD_FENCE 1
 #endif
 
+// Nonteporal reads and writes might be a little bit faster on many GPUs by keeping more reusable data in the caches.
+// However, on those GPUs with large caches there should be a significant speed gain from keeping FFT data in the caches.
+// Default to the big win when caching is beneficial rather than the tiny gain when non-temporal is better.
+#if !defined(NONTEMPORAL)
+#define NONTEMPORAL 0
+#endif
+
 #if FFT_VARIANT > 3
 #error FFT_VARIANT must be between 0 and 3
 #endif
@@ -127,8 +134,13 @@ typedef double2 T2;
 #define CP(x) const P(x)
 
 // Macros for non-temporal load and store (in case we later want to provide a -use option to turn this off)
+#if NONTEMPORAL
 #define NTLOAD(mem)        __builtin_nontemporal_load(&(mem))
 #define NTSTORE(mem,val)   __builtin_nontemporal_store(val, &(mem))
+#else
+#define NTLOAD(mem)        (mem)
+#define NTSTORE(mem,val)   (mem) = val
+#endif
 
 // For reasons unknown, loading trig values into nVidia's constant cache has terrible performance
 #if AMDGPU
@@ -148,7 +160,7 @@ typedef global const double2* BigTab;
 #endif
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
-
+   
 void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
   in += base + (u32) get_local_id(0);
   for (u32 i = 0; i < N; ++i) { u[i] = in[i * WG]; }
