@@ -134,7 +134,7 @@ typedef double2 T2;
 #define CP(x) const P(x)
 
 // Macros for non-temporal load and store (in case we later want to provide a -use option to turn this off)
-#if NONTEMPORAL
+#if NONTEMPORAL && defined(__has_builtin) && __has_builtin(__builtin_nontemporal_load) && __has_builtin(__builtin_nontemporal_store)
 #define NTLOAD(mem)        __builtin_nontemporal_load(&(mem))
 #define NTSTORE(mem,val)   __builtin_nontemporal_store(val, &(mem))
 #else
