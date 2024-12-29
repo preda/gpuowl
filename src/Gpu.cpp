@@ -243,8 +243,8 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
 
   u32 N = fft.shape.size();
 
-  defines += toDefine("WEIGHT_STEP", double(weight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
-  defines += toDefine("IWEIGHT_STEP", double(invWeight(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1) - 1));
+  defines += toDefine("WEIGHT_STEP", weightM1(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1));
+  defines += toDefine("IWEIGHT_STEP", invWeightM1(N, E, fft.shape.height * fft.shape.middle, 0, 0, 1));
   defines += toDefine("FFT_VARIANT", fft.variant);
   defines += toDefine("TAILT", root1Fancy(fft.shape.height * 2, 1));
 
