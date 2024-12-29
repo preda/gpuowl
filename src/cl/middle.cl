@@ -16,20 +16,30 @@
 #define OUT_SIZEX 16
 #endif
 
-// Parameters we may want to let user tune.  WIDTH other than 512 and 1K is untested.  SMALL_HEIGHT other than 256 and 512 is untested.
+// Let user control whether padding is enabled with -use PAD=0 or -use PAD=1.
+// The default is padding is on for AMD GPUs and off for others.
+// I do not know the correct setting for Intel BattleMage and I only have data on one nVidia GPU - the Titan V.
+#if !defined(PAD)
 #if AMDGPU
+#define PAD  1
+#else
+#define PAD  0
+#endif
+#endif
+   
+// Padding parameters we may want to let user tune.  WIDTH other than 512 and 1K is untested.  SMALL_HEIGHT other than 256 and 512 is untested.
+#if PAD
 #define PADDING 1                                       // Prefer padding to avoid bad strides
 #define MIDDLE_IN_LDS_TRANSPOSE (IN_WG >= 128)          // Radeon VII likes LDS transpose for larger workgroups
 #define MIDDLE_OUT_LDS_TRANSPOSE (OUT_WG >= 128)        // Radeon VII likes LDS transpose for larger workgroups
 #define PAD_SIZE 16                                     // Radeon VII likes 16 T2 values = 256 bytes 
-#endif
 
-// nVidia Titan V see no padding benefit, likes LDS transposes
-#if !AMDGPU
+// nVidia Titan V sees no padding benefit, likes LDS transposes
+#else
 #define PADDING 0                                       // Don't prefer padding to avoid bad strides
 #define MIDDLE_IN_LDS_TRANSPOSE 1                       // nVidia likes LDS transpose
 #define MIDDLE_OUT_LDS_TRANSPOSE 1                      // nVidia likes LDS transpose
-#define PAD_SIZE 8                                      // nVidia documentation indicates 8 T2 values = 128 bytes should be best
+#define PAD_SIZE 8                                      // nVidia documentation indicates 8 T2 values = 128 bytes ought to be best if we ever turn padding on
 #endif
 
 //****************************************************************************************
