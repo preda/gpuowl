@@ -39,6 +39,10 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 #undef GPW
 #endif
 
+// Try this weird FFT_width call that adds a "hidden zero" when unrolling.  This prevents the compiler from finding
+// common sub-expressions to re-use in the second fft_WIDTH call.  Re-using this data requires dozens of VGPRs
+// which causes a terrible reduction in occupancy.
+//  fft_WIDTH(lds + (get_group_id(0) / 131072), u, smallTrig + (get_group_id(0) / 131072));
   fft_WIDTH(lds, u, smallTrig);
 
   Word2 wu[NW];
