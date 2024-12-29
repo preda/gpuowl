@@ -214,7 +214,8 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "CARRY64",
                               "BCAST",
                               "BIGLIT",
-                              "NONTEMPORAL"
+                              "NONTEMPORAL",
+                              "PAD"
                             });
     if (!isValid) {
       log("Warning: unrecognized -use key '%s'\n", k.c_str());
@@ -476,7 +477,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   BUF(bufROE, ROE_SIZE),
   BUF(bufStatsCarry, CARRY_SIZE),
 
-  BUF(buf1, N + N/4),		// Let's us play with padding instead of rotating.  Need to calculate actual cost of padding
+  BUF(buf1, N + N/4),           // Let's us play with padding instead of rotating.  Need to calculate actual cost of padding
   BUF(buf2, N + N/4),
   BUF(buf3, N + N/4),
 #undef BUF
