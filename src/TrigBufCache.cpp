@@ -193,21 +193,20 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
 }
 
 TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW) {
-  lock_guard lock{mut};
-  auto& m = small;
 #if PREFER_DP_TO_MEM == 2             // No pre-computed trig values
-  decay_t<decltype(m)>::key_type key{W, nW};
-#else
-  // Hack so that width 512 and height 512 don't share the same buffer.  Width could share the height buffer since it is a subset of the combo height buffer.
-  decay_t<decltype(m)>::key_type key{W, nW+1};
+  return smallTrig(W, nW);
 #endif
+
+  lock_guard lock{mut};
+  auto& m = combo;
+  decay_t<decltype(m)>::key_type key{width, middle, W, nW};
 
   TrigPtr p{};
   auto it = m.find(key);
   if (it == m.end() || !(p = it->second.lock())) {
     p = make_shared<TrigBuf>(context, genSmallTrigCombo(width, middle, W, nW));
     m[key] = p;
-    smallCache.add(p);
+    smallComboCache.add(p);
   }
   return p;
 }
