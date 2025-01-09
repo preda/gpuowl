@@ -14,6 +14,8 @@
 #define SINGLE_WIDE             0       // Old single-wide tailSquare vs. new double-wide tailSquare
 #define SINGLE_KERNEL           0       // Implement tailSquare in a single kernel vs. two kernels
 
+#define SAVE_ONE_MORE_MUL 1             // I'll probably make this the only option -- still studying if rocm optimizer is making a mess of this in carryfused
+
 #define _USE_MATH_DEFINES
 #include <cmath>
 
@@ -97,19 +99,96 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
   if (LOG_TRIG_ALLOC) { log("genSmallTrig(%u, %u)\n", size, radix); }
 
   vector<double2> tab;
-#if 1
+// old fft_WIDTH
   for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
       tab.push_back(radix / line >= 8 ? root1Fancy(size, col * line) : root1(size, col * line));
     }
   }
   tab.resize(size);
-#else
-  tab.resize(size);
-  auto *p = tab.data() + radix;
-  for (u32 w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
-  assert(p - tab.data() == size);
+
+// New fft_WIDTH
+  // Epsilon value, 2^-250, should have an exact representation as a double
+  const double epsilon = 5.5271478752604445602472651921923E-76;  // Protect against divide by zero
+  // Sine/cosine values for first fft8
+//TO DO: explore using long doubles through the division (though dividing by double(cosine) may make sense)
+  for (u32 line = 1; line < radix-1; line += 2) {  // Output pairs of lines
+    for (u32 col = 0; col < size / radix; ++col) {
+      double2 rootA = root1(size, col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, col * (line + 1)); rootB.first += epsilon;
+      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
+      tab.push_back(sine_over_cosines);
+    }
+  }
+  for (u32 line = radix-1; line < radix; ++line) {
+    for (u32 col = 0; col < size / radix; col += 2) {
+      double2 rootA = root1(size, col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, (col + 1) * line); rootB.first += epsilon;
+      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
+      tab.push_back(sine_over_cosines);
+    }
+  }
+  // Sine/cosine values for second fft8
+  for (u32 line = 0; line < radix; ++line) {
+    for (u32 col = 0; col < size / radix / 8; col += 2) {
+      double2 rootA = root1(size, 8 * col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, 8 * (col + 1) * line); rootB.first += epsilon;
+      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
+      tab.push_back(sine_over_cosines);
+    }
+  }
+  // Cosine values for first fft8 (output in post-shufl order)
+//TODO: Examine why when sine is 0.0 cosine is not 1.0 or -1.0 (printf is outputting 0.999... and -0.999...)
+  for (u32 col = 0; col < size / radix; ++col) {  // Output pairs of lines, col 0..7 is line0, col 8..15 is line1, etc.
+    if (col & 8) continue;                        // Skip line1, line3, etc.
+    for (u32 line = 0; line < radix; ++line) {
+      double2 rootA = root1(size, col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, (col + 8) * line); rootB.first += epsilon;
+#if SAVE_ONE_MORE_MUL
+      if (col / 8 == 2) { // Compute cosine3 / cosine1
+      rootB.first /= root1(size, (col + 8 - 16) * line).first + epsilon;
+      }
+      if (col / 8 == 4) { // Compute cosine5 / cosine1
+      rootB.first /= root1(size, (col + 8 - 32) * line).first + epsilon;
+      }
 #endif
+      if (col / 8 == 6) { // Compute cosine6 / cosine2
+        rootA.first /= root1(size, (col - 32) * line).first + epsilon;
+      }
+      if (col / 8 == 6) { // Compute cosine7 / cosine3
+        rootB.first /= root1(size, (col + 8 - 32) * line).first + epsilon;
+      }
+      double2 cosines = {rootA.first, rootB.first};
+      tab.push_back(cosines);
+    }
+  }
+  // Cosine values for second fft8 (output in post-shufl order)
+  for (u32 col = 0; col < size / radix / 8; ++col) {
+    for (u32 line = 0; line < radix; line += 2) {
+      double2 rootA = root1(size, 8 * col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, 8 * col * (line + 1)); rootB.first += epsilon;
+#if SAVE_ONE_MORE_MUL
+      if (col == 3) { // Compute cosine3 / cosine1
+        rootA.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
+        rootB.first /= root1(size, 8 * (col - 2) * (line + 1)).first + epsilon;
+      }
+      if (col == 5) { // Compute cosine5 / cosine1
+        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+      }
+#endif
+      if (col == 6) { // Compute cosine6 / cosine2
+        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+      }
+      if (col == 7) { // Compute cosine7 / cosine3
+        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+      }
+      double2 cosines = {rootA.first, rootB.first};
+      tab.push_back(cosines);
+    }
+  }
 
   return tab;
 }
@@ -119,11 +198,98 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
   if (LOG_TRIG_ALLOC) { log("genSmallTrigCombo(%u, %u)\n", size, radix); }
 
   vector<double2> tab;
+// old fft_HEIGHT
   for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
       tab.push_back(radix / line >= 8 ? root1Fancy(size, col * line) : root1(size, col * line));
     }
   }
+  tab.resize(size);
+
+// New fft_HEIGHT
+  // Epsilon value, 2^-250, should have an exact representation as a double
+  const double epsilon = 5.5271478752604445602472651921923E-76;  // Protect against divide by zero
+  // Sine/cosine values for first fft8
+//TO DO: explore using long doubles through the division (though dividing by double(cosine) may make sense)
+  for (u32 line = 1; line < radix-1; line += 2) {  // Output pairs of lines
+    for (u32 col = 0; col < size / radix; ++col) {
+      double2 rootA = root1(size, col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, col * (line + 1)); rootB.first += epsilon;
+      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
+      tab.push_back(sine_over_cosines);
+    }
+  }
+  for (u32 line = radix-1; line < radix; ++line) {
+    for (u32 col = 0; col < size / radix; col += 2) {
+      double2 rootA = root1(size, col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, (col + 1) * line); rootB.first += epsilon;
+      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
+      tab.push_back(sine_over_cosines);
+    }
+  }
+  // Sine/cosine values for second fft8
+  for (u32 line = 0; line < radix; ++line) {
+    for (u32 col = 0; col < size / radix / 8; col += 2) {
+      double2 rootA = root1(size, 8 * col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, 8 * (col + 1) * line); rootB.first += epsilon;
+      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
+      tab.push_back(sine_over_cosines);
+    }
+  }
+  // Cosine values for first fft8 (output in post-shufl order)
+//TODO: Examine why when sine is 0.0 cosine is not 1.0 or -1.0 (printf is outputting 0.999... and -0.999...)
+  for (u32 col = 0; col < size / radix; ++col) {  // Output pairs of lines, col 0..7 is line0, col 8..15 is line1, etc.
+    if (col & 8) continue;                        // Skip line1, line3, etc.
+    for (u32 line = 0; line < radix; ++line) {
+      double2 rootA = root1(size, col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, (col + 8) * line); rootB.first += epsilon;
+#if SAVE_ONE_MORE_MUL
+      if (col / 8 == 2) { // Compute cosine3 / cosine1
+      rootB.first /= root1(size, (col + 8 - 16) * line).first + epsilon;
+      }
+      if (col / 8 == 4) { // Compute cosine5 / cosine1
+      rootB.first /= root1(size, (col + 8 - 32) * line).first + epsilon;
+      }
+#endif
+      if (col / 8 == 6) { // Compute cosine6 / cosine2
+        rootA.first /= root1(size, (col - 32) * line).first + epsilon;
+      }
+      if (col / 8 == 6) { // Compute cosine7 / cosine3
+        rootB.first /= root1(size, (col + 8 - 32) * line).first + epsilon;
+      }
+      double2 cosines = {rootA.first, rootB.first};
+      tab.push_back(cosines);
+    }
+  }
+  // Cosine values for second fft8 (output in post-shufl order)
+  for (u32 col = 0; col < size / radix / 8; ++col) {
+    for (u32 line = 0; line < radix; line += 2) {
+      double2 rootA = root1(size, 8 * col * line); rootA.first += epsilon;
+      double2 rootB = root1(size, 8 * col * (line + 1)); rootB.first += epsilon;
+#if SAVE_ONE_MORE_MUL
+      if (col == 3) { // Compute cosine3 / cosine1
+        rootA.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
+        rootB.first /= root1(size, 8 * (col - 2) * (line + 1)).first + epsilon;
+      }
+      if (col == 5) { // Compute cosine5 / cosine1
+        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+      }
+#endif
+      if (col == 6) { // Compute cosine6 / cosine2
+        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+      }
+      if (col == 7) { // Compute cosine7 / cosine3
+        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+      }
+      double2 cosines = {rootA.first, rootB.first};
+      tab.push_back(cosines);
+    }
+  }
+  tab.resize(size*4);
+
   // From tailSquare pre-calculate some or all of these:  T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
 #if PREFER_DP_TO_MEM == 2             // No pre-computed trig values
 #elif PREFER_DP_TO_MEM == 1           // best option on a Radeon VII.
@@ -199,7 +365,8 @@ TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW) {
   decay_t<decltype(m)>::key_type key{W, nW};
 #else
   // Hack so that width 512 and height 512 don't share the same buffer.  Width could share the height buffer since it is a subset of the combo height buffer.
-  decay_t<decltype(m)>::key_type key{W, nW+1};
+  // Also add in middle so that 512:15:512 does not share buffer with 512:14:512.
+  decay_t<decltype(m)>::key_type key{W, nW+middle};
 #endif
 
   TrigPtr p{};

@@ -145,8 +145,10 @@ typedef double2 T2;
 // For reasons unknown, loading trig values into nVidia's constant cache has terrible performance
 #if AMDGPU
 typedef constant const T2* Trig;
+typedef constant const T* TrigSingle;
 #else
 typedef global const T2* Trig;
+typedef global const T* TrigSingle;
 #endif
 // However, caching weights in nVidia's constant cache improves performance.
 // Even better is to not pollute the constant cache with weights that are used only once.
