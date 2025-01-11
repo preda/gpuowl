@@ -7,9 +7,9 @@
 
 void spin() {
 #if defined(__has_builtin) && __has_builtin(__builtin_amdgcn_s_sleep)
-  __builtin_amdgcn_s_sleep(0);
+  __builtin_amdgcn_s_sleep(1);
 #elif HAS_ASM
-  __asm("s_sleep 0");
+  __asm("s_sleep 1");
 #else
   // nothing: just spin
   // on Nvidia: see if there's some brief sleep function
