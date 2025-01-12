@@ -7,9 +7,9 @@
 
 void spin() {
 #if defined(__has_builtin) && __has_builtin(__builtin_amdgcn_s_sleep)
-  __builtin_amdgcn_s_sleep(1);
+  __builtin_amdgcn_s_sleep(0);
 #elif HAS_ASM
-  __asm("s_sleep 1");
+  __asm("s_sleep 0");
 #else
   // nothing: just spin
   // on Nvidia: see if there's some brief sleep function
@@ -160,7 +160,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   if (gr == 0) { return; }
   u32 pos = (gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT;
   if (me % WAVEFRONT == 0) {
-    do { spin(); } while(atomic_load((atomic_uint *) &ready[pos]) == 0);
+    do { spin(); } while(atomic_load_explicit((atomic_uint *) &ready[pos], memory_order_relaxed, memory_scope_device) == 0);
   }
   mem_fence(CLK_GLOBAL_MEM_FENCE);
 
