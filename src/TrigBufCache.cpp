@@ -95,6 +95,20 @@ double2 root1(u32 N, u32 k) {
 namespace {
 static const constexpr bool LOG_TRIG_ALLOC = false;
 
+// Interleave two lines of trig values so that AMD GPUs can use global_load_dwordx4 instructions
+void T2shuffle(u32 size, u32 radix, u32 line, vector<double> &tab) {
+  vector<double> line1, line2;
+  u32 line_size = size / radix;
+  for (u32 col = 0; col < line_size; ++col) {
+    line1.push_back(tab[line*line_size + col]);
+    line2.push_back(tab[(line+1)*line_size + col]);
+  }
+  for (u32 col = 0; col < line_size; ++col) {
+    tab[line*line_size + 2*col] = line1[col];
+    tab[line*line_size + 2*col + 1] = line2[col];
+  }
+}
+
 vector<double2> genSmallTrig(u32 size, u32 radix) {
   if (LOG_TRIG_ALLOC) { log("genSmallTrig(%u, %u)\n", size, radix); }
 
@@ -108,87 +122,73 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
   tab.resize(size);
 
 // New fft_WIDTH
+  vector<double> tab1;
   // Epsilon value, 2^-250, should have an exact representation as a double
   const double epsilon = 5.5271478752604445602472651921923E-76;  // Protect against divide by zero
   // Sine/cosine values for first fft8
 //TO DO: explore using long doubles through the division (though dividing by double(cosine) may make sense)
-  for (u32 line = 1; line < radix-1; line += 2) {  // Output pairs of lines
+  for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
-      double2 rootA = root1(size, col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, col * (line + 1)); rootB.first += epsilon;
-      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
-      tab.push_back(sine_over_cosines);
+      double2 root = root1(size, col * line); root.first += epsilon;
+      tab1.push_back(root.second / root.first);
     }
   }
-  for (u32 line = radix-1; line < radix; ++line) {
-    for (u32 col = 0; col < size / radix; col += 2) {
-      double2 rootA = root1(size, col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, (col + 1) * line); rootB.first += epsilon;
-      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
-      tab.push_back(sine_over_cosines);
-    }
-  }
+  // Interleave trig values for faster AMD GPU access
+  for (u32 i = 0; i < 6; i += 2) T2shuffle(size, radix, i, tab1);
   // Sine/cosine values for second fft8
   for (u32 line = 0; line < radix; ++line) {
-    for (u32 col = 0; col < size / radix / 8; col += 2) {
-      double2 rootA = root1(size, 8 * col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, 8 * (col + 1) * line); rootB.first += epsilon;
-      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
-      tab.push_back(sine_over_cosines);
+    for (u32 col = 0; col < size / radix / 8; ++col) {
+      double2 root = root1(size, 8 * col * line); root.first += epsilon;
+      tab1.push_back(root.second / root.first);
     }
   }
   // Cosine values for first fft8 (output in post-shufl order)
 //TODO: Examine why when sine is 0.0 cosine is not 1.0 or -1.0 (printf is outputting 0.999... and -0.999...)
-  for (u32 col = 0; col < size / radix; ++col) {  // Output pairs of lines, col 0..7 is line0, col 8..15 is line1, etc.
-    if (col & 8) continue;                        // Skip line1, line3, etc.
+  for (u32 col = 0; col < size / radix; ++col) {  // col 0..7 will be line0, col 8..15 will be line1, etc.
     for (u32 line = 0; line < radix; ++line) {
-      double2 rootA = root1(size, col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, (col + 8) * line); rootB.first += epsilon;
+      double2 root = root1(size, col * line); root.first += epsilon;
 #if SAVE_ONE_MORE_MUL
-      if (col / 8 == 2) { // Compute cosine3 / cosine1
-      rootB.first /= root1(size, (col + 8 - 16) * line).first + epsilon;
+      if (col / 8 == 3) { // Compute cosine3 / cosine1
+        root.first /= root1(size, (col - 16) * line).first + epsilon;
       }
-      if (col / 8 == 4) { // Compute cosine5 / cosine1
-      rootB.first /= root1(size, (col + 8 - 32) * line).first + epsilon;
+      if (col / 8 == 5) { // Compute cosine5 / cosine1
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
       }
 #endif
       if (col / 8 == 6) { // Compute cosine6 / cosine2
-        rootA.first /= root1(size, (col - 32) * line).first + epsilon;
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
       }
-      if (col / 8 == 6) { // Compute cosine7 / cosine3
-        rootB.first /= root1(size, (col + 8 - 32) * line).first + epsilon;
+      if (col / 8 == 7) { // Compute cosine7 / cosine3
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
       }
-      double2 cosines = {rootA.first, rootB.first};
-      tab.push_back(cosines);
+      tab1.push_back(root.first);
     }
   }
+  // Interleave trig values for faster AMD GPU access
+  for (u32 i = 8; i < 16; i += 2) T2shuffle(size, radix, i, tab1);
   // Cosine values for second fft8 (output in post-shufl order)
   for (u32 col = 0; col < size / radix / 8; ++col) {
-    for (u32 line = 0; line < radix; line += 2) {
-      double2 rootA = root1(size, 8 * col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, 8 * col * (line + 1)); rootB.first += epsilon;
+    for (u32 line = 0; line < radix; ++line) {
+      double2 root = root1(size, 8 * col * line); root.first += epsilon;
 #if SAVE_ONE_MORE_MUL
       if (col == 3) { // Compute cosine3 / cosine1
-        rootA.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
-        rootB.first /= root1(size, 8 * (col - 2) * (line + 1)).first + epsilon;
+        root.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
       }
       if (col == 5) { // Compute cosine5 / cosine1
-        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
-        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
       }
 #endif
       if (col == 6) { // Compute cosine6 / cosine2
-        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
-        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
       }
       if (col == 7) { // Compute cosine7 / cosine3
-        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
-        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
       }
-      double2 cosines = {rootA.first, rootB.first};
-      tab.push_back(cosines);
+      tab1.push_back(root.first);
     }
   }
+  // Convert to a vector of double2
+  for (u32 i = 0; i < tab1.size(); i += 2) tab.push_back({tab1[i], tab1[i+1]});
 
   return tab;
 }
@@ -207,87 +207,74 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
   tab.resize(size);
 
 // New fft_HEIGHT
+  vector<double> tab1;
   // Epsilon value, 2^-250, should have an exact representation as a double
   const double epsilon = 5.5271478752604445602472651921923E-76;  // Protect against divide by zero
   // Sine/cosine values for first fft8
 //TO DO: explore using long doubles through the division (though dividing by double(cosine) may make sense)
-  for (u32 line = 1; line < radix-1; line += 2) {  // Output pairs of lines
+  for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
-      double2 rootA = root1(size, col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, col * (line + 1)); rootB.first += epsilon;
-      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
-      tab.push_back(sine_over_cosines);
+      double2 root = root1(size, col * line); root.first += epsilon;
+      tab1.push_back(root.second / root.first);
     }
   }
-  for (u32 line = radix-1; line < radix; ++line) {
-    for (u32 col = 0; col < size / radix; col += 2) {
-      double2 rootA = root1(size, col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, (col + 1) * line); rootB.first += epsilon;
-      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
-      tab.push_back(sine_over_cosines);
-    }
-  }
+  // Interleave trig values for faster AMD GPU access
+  for (u32 i = 0; i < 6; i += 2) T2shuffle(size, radix, i, tab1);
   // Sine/cosine values for second fft8
   for (u32 line = 0; line < radix; ++line) {
-    for (u32 col = 0; col < size / radix / 8; col += 2) {
-      double2 rootA = root1(size, 8 * col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, 8 * (col + 1) * line); rootB.first += epsilon;
-      double2 sine_over_cosines = {rootA.second / rootA.first, rootB.second / rootB.first};
-      tab.push_back(sine_over_cosines);
+    for (u32 col = 0; col < size / radix / 8; ++col) {
+      double2 root = root1(size, 8 * col * line); root.first += epsilon;
+      tab1.push_back(root.second / root.first);
     }
   }
   // Cosine values for first fft8 (output in post-shufl order)
 //TODO: Examine why when sine is 0.0 cosine is not 1.0 or -1.0 (printf is outputting 0.999... and -0.999...)
-  for (u32 col = 0; col < size / radix; ++col) {  // Output pairs of lines, col 0..7 is line0, col 8..15 is line1, etc.
-    if (col & 8) continue;                        // Skip line1, line3, etc.
+  for (u32 col = 0; col < size / radix; ++col) {  // col 0..7 will be line0, col 8..15 will be line1, etc.
     for (u32 line = 0; line < radix; ++line) {
-      double2 rootA = root1(size, col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, (col + 8) * line); rootB.first += epsilon;
+      double2 root = root1(size, col * line); root.first += epsilon;
 #if SAVE_ONE_MORE_MUL
-      if (col / 8 == 2) { // Compute cosine3 / cosine1
-      rootB.first /= root1(size, (col + 8 - 16) * line).first + epsilon;
+      if (col / 8 == 3) { // Compute cosine3 / cosine1
+        root.first /= root1(size, (col - 16) * line).first + epsilon;
       }
-      if (col / 8 == 4) { // Compute cosine5 / cosine1
-      rootB.first /= root1(size, (col + 8 - 32) * line).first + epsilon;
+      if (col / 8 == 5) { // Compute cosine5 / cosine1
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
       }
 #endif
       if (col / 8 == 6) { // Compute cosine6 / cosine2
-        rootA.first /= root1(size, (col - 32) * line).first + epsilon;
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
       }
-      if (col / 8 == 6) { // Compute cosine7 / cosine3
-        rootB.first /= root1(size, (col + 8 - 32) * line).first + epsilon;
+      if (col / 8 == 7) { // Compute cosine7 / cosine3
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
       }
-      double2 cosines = {rootA.first, rootB.first};
-      tab.push_back(cosines);
+      tab1.push_back(root.first);
     }
   }
+  // Interleave trig values for faster AMD GPU access
+  for (u32 i = 8; i < 16; i += 2) T2shuffle(size, radix, i, tab1);
   // Cosine values for second fft8 (output in post-shufl order)
   for (u32 col = 0; col < size / radix / 8; ++col) {
-    for (u32 line = 0; line < radix; line += 2) {
-      double2 rootA = root1(size, 8 * col * line); rootA.first += epsilon;
-      double2 rootB = root1(size, 8 * col * (line + 1)); rootB.first += epsilon;
+    for (u32 line = 0; line < radix; ++line) {
+      double2 root = root1(size, 8 * col * line); root.first += epsilon;
 #if SAVE_ONE_MORE_MUL
       if (col == 3) { // Compute cosine3 / cosine1
-        rootA.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
-        rootB.first /= root1(size, 8 * (col - 2) * (line + 1)).first + epsilon;
+        root.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
       }
       if (col == 5) { // Compute cosine5 / cosine1
-        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
-        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
       }
 #endif
       if (col == 6) { // Compute cosine6 / cosine2
-        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
-        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
       }
       if (col == 7) { // Compute cosine7 / cosine3
-        rootA.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
-        rootB.first /= root1(size, 8 * (col - 4) * (line + 1)).first + epsilon;
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
       }
-      double2 cosines = {rootA.first, rootB.first};
-      tab.push_back(cosines);
+      tab1.push_back(root.first);
     }
   }
+  // Convert to a vector of double2
+  for (u32 i = 0; i < tab1.size(); i += 2) tab.push_back({tab1[i], tab1[i+1]});
+
   tab.resize(size*4);
 
   // From tailSquare pre-calculate some or all of these:  T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
