@@ -32,6 +32,10 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
   readCarryFusedLine(in, u, line);
 
+#if HAS_ASM
+  __asm("s_setprio 3");
+#endif
+
 // Split 32 bits into NW groups of 2 bits.  See later for different way to do this.
 #if !BIGLIT
 #define GPW (16 / NW)
@@ -158,10 +162,16 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
     }
   }
   if (gr == 0) { return; }
+#if HAS_ASM
+  __asm("s_setprio 0");
+#endif
   u32 pos = (gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT;
   if (me % WAVEFRONT == 0) {
     do { spin(); } while(atomic_load_explicit((atomic_uint *) &ready[pos], memory_order_relaxed, memory_scope_device) == 0);
   }
+#if HAS_ASM
+  __asm("s_setprio 1");
+#endif
   mem_fence(CLK_GLOBAL_MEM_FENCE);
 
   // Clear carry ready flag for next iteration
