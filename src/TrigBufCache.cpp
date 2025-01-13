@@ -14,7 +14,8 @@
 #define SINGLE_WIDE             0       // Old single-wide tailSquare vs. new double-wide tailSquare
 #define SINGLE_KERNEL           0       // Implement tailSquare in a single kernel vs. two kernels
 
-#define SAVE_ONE_MORE_MUL 1             // I'll probably make this the only option -- still studying if rocm optimizer is making a mess of this in carryfused
+#define SAVE_ONE_MORE_WIDTH_MUL  0      // I want to make saving the only option -- but rocm optimizer is inexplicably making it slower in carryfused
+#define SAVE_ONE_MORE_HEIGHT_MUL 1      // In tailSquar this is the fastest option
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -147,7 +148,7 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
   for (u32 col = 0; col < size / radix; ++col) {  // col 0..7 will be line0, col 8..15 will be line1, etc.
     for (u32 line = 0; line < radix; ++line) {
       double2 root = root1(size, col * line); root.first += epsilon;
-#if SAVE_ONE_MORE_MUL
+#if SAVE_ONE_MORE_WIDTH_MUL
       if (col / 8 == 3) { // Compute cosine3 / cosine1
         root.first /= root1(size, (col - 16) * line).first + epsilon;
       }
@@ -170,7 +171,7 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
   for (u32 col = 0; col < size / radix / 8; ++col) {
     for (u32 line = 0; line < radix; ++line) {
       double2 root = root1(size, 8 * col * line); root.first += epsilon;
-#if SAVE_ONE_MORE_MUL
+#if SAVE_ONE_MORE_WIDTH_MUL
       if (col == 3) { // Compute cosine3 / cosine1
         root.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
       }
@@ -232,7 +233,7 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
   for (u32 col = 0; col < size / radix; ++col) {  // col 0..7 will be line0, col 8..15 will be line1, etc.
     for (u32 line = 0; line < radix; ++line) {
       double2 root = root1(size, col * line); root.first += epsilon;
-#if SAVE_ONE_MORE_MUL
+#if SAVE_ONE_MORE_HEIGHT_MUL
       if (col / 8 == 3) { // Compute cosine3 / cosine1
         root.first /= root1(size, (col - 16) * line).first + epsilon;
       }
@@ -255,7 +256,7 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
   for (u32 col = 0; col < size / radix / 8; ++col) {
     for (u32 line = 0; line < radix; ++line) {
       double2 root = root1(size, 8 * col * line); root.first += epsilon;
-#if SAVE_ONE_MORE_MUL
+#if SAVE_ONE_MORE_HEIGHT_MUL
       if (col == 3) { // Compute cosine3 / cosine1
         root.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
       }

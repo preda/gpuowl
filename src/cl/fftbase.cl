@@ -182,8 +182,6 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
 }
 
 
-#define SAVE_ONE_MORE_MUL 1
-
 // Preload trig values for the first partial tabMul.  We load the sine/cosine values early so that F64 ops can hide the read latency.
 void preload_tabMul_trig(u32 WG, Trig trig, T *preloads, u32 f, u32 me) {
   u32 old_width_trigs = WG*8;
@@ -243,18 +241,13 @@ void partial_tabMul(u32 WG, local T2 *lds, Trig trig, T *preloads, T2 *u, u32 f,
   else {
     // Load cosine4, cosine5/cosine1, cosine6/cosine2, cosine7/cosine3, cosine2, cosine3/cosine1, cosine1
     // Load them in the order they will be used, though it probably won't matter.
-#if !SAVE_ONE_MORE_MUL
     preloads[1] = lds1[WG + 1*8 + me/8];
-#endif
     preloads[4] = lds1[WG + 4*8 + me/8];
     preloads[5] = lds1[WG + 5*8 + me/8];
     preloads[6] = lds1[WG + 6*8 + me/8];
     preloads[7] = lds1[WG + 7*8 + me/8];
     preloads[2] = lds1[WG + 2*8 + me/8];
     preloads[3] = lds1[WG + 3*8 + me/8];
-#if SAVE_ONE_MORE_MUL
-    preloads[1] = lds1[WG + 1*8 + me/8];
-#endif
     bar(WG);
   }
 }
@@ -263,7 +256,7 @@ void partial_tabMul(u32 WG, local T2 *lds, Trig trig, T *preloads, T2 *u, u32 f,
 #define X2_via_FMA(a, c, b) { T2 t = a; a = fma(c, b, t); b = fma(-c, b, t); }
 
 // Finish off a partial tabMul while doing next fft8 making more use of FMA.
-void finish_tabMul_fft8(u32 WG, local T2 *lds, Trig trig, T *preloads, T2 *u, u32 f, u32 me) {
+void finish_tabMul_fft8(u32 WG, local T2 *lds, Trig trig, T *preloads, T2 *u, u32 f, u32 me, u32 save_one_more_mul) {
   local T *lds1 = (local T *) lds;
   u32 old_width_trigs = WG*8;
   TrigSingle trig1 = (TrigSingle) (trig + old_width_trigs);
@@ -275,7 +268,7 @@ void finish_tabMul_fft8(u32 WG, local T2 *lds, Trig trig, T *preloads, T2 *u, u3
   // Apply cosine0 to u[0]
   if (f == 1) u[0] = u[0] * preloads[0];
 
-#if SAVE_ONE_MORE_MUL
+ if (save_one_more_mul) {   // This should always be the best option.  ROCm optimizer is doing something weird in new_fft_WIDTH case.
 
   // Apply cosine4, cosine5/cosine1, cosine6/cosine2, cosine7/cosine3 to u[4] through u[7] using FMA
   X2_via_FMA(u[0], preloads[4], u[4]);
@@ -303,7 +296,7 @@ void finish_tabMul_fft8(u32 WG, local T2 *lds, Trig trig, T *preloads, T2 *u, u3
   X2_via_FMA(u[4], cosine1_SQRT1_2, u[5]);
   X2_via_FMA(u[6], cosine1_SQRT1_2, u[7]);
 
-#else
+ } else {
 
   // Apply cosine to u[1]
   u[1] = u[1] * preloads[1];
@@ -332,7 +325,7 @@ void finish_tabMul_fft8(u32 WG, local T2 *lds, Trig trig, T *preloads, T2 *u, u3
   X2_apply_delay(u[4], u[5]);
   X2_apply_delay(u[6], u[7]);
 
-#endif
+ }
 
   // revbin [0, 4, 2, 6, 1, 5, 3, 7] undo
   SWAP(u[1], u[4]);

@@ -82,7 +82,7 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
 
 // Custom code for WIDTH=512, NW=8
 
-  T preloads[9];              // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  T preloads[8];              // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
 
   // Preload trig values to hide global memory latencies.  As the preloads are used, the next set of trig values are preloaded.
   preload_tabMul_trig(WG, trig, preloads, 1, me);
@@ -93,13 +93,13 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
   shufl(WG, lds, u, NW, 1);
 
   // Finish the first tabMul and perform second fft8.  Do second partial tabMul and shufl.
-  finish_tabMul_fft8(WG, lds, trig, preloads, u, 1, me);
+  finish_tabMul_fft8(WG, lds, trig, preloads, u, 1, me, 0);  // We'd rather set save_one_more_mul to 1
   partial_tabMul(WG, lds, trig, preloads, u, 8, me);
   bar();
   shufl(WG, lds, u, NW, 8);
 
   // Finish second tabMul and perform final fft8.
-  finish_tabMul_fft8(WG, lds, trig, preloads, u, 8, me);
+  finish_tabMul_fft8(WG, lds, trig, preloads, u, 8, me, 0);  // We'd rather set save_one_more_mul to 1
 
 #else
 
