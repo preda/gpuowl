@@ -74,10 +74,15 @@ def fetch(what):
     # print(res)
     
     BEGIN_MARK = "<!--BEGIN_ASSIGNMENTS_BLOCK-->"
-    begin = res.find("<!--BEGIN_ASSIGNMENTS_BLOCK-->")
-    if begin == -1: raise(AssertionError("assignment no BEGIN mark"))
-    begin += len(BEGIN_MARK)
-    end   = res.find("<!--END_ASSIGNMENTS_BLOCK-->", begin)
+    # begin = res.find(BEGIN_MARK)
+    begin = res.find(">PRP=")
+    if begin == -1: begin = res.find(">LL=")
+    if begin == -1:
+        print(res)
+        raise(AssertionError("assignment no BEGIN mark"))
+    begin += 1
+    # begin += len(BEGIN_MARK)
+    end   = res.find("</", begin)
     if end == -1: raise(AssertionError("assignemnt no END mark"))
     line = res[begin:end].strip().strip('\n')
     print(datetime.now(), " New assignment: ", line)
