@@ -62,11 +62,19 @@ T2 csqFancyUpdate(T2 a) {
 T2 mul_t4(T2 a)  { return U2(-a.y, a.x); } // i.e. a * i
 
 T2 mul_t8(T2 a)  { // mul(a, U2( 1, 1)) * (T)(M_SQRT1_2); }
-  return U2(a.x - a.y, a.x + a.y) * M_SQRT1_2;
+  // One mul, two FMAs
+  T ay = a.y * M_SQRT1_2;
+  return U2(fma(a.x, M_SQRT1_2, -ay), fma(a.x, M_SQRT1_2, ay));
+// Two adds, two muls
+//  return U2(a.x - a.y, a.x + a.y) * M_SQRT1_2;
 }
 
 T2 mul_3t8(T2 a) { // mul(a, U2(-1, 1)) * (T)(M_SQRT1_2); }
-  return U2(-(a.x + a.y), a.x - a.y) * M_SQRT1_2;
+  // One mul, two FMAs
+  T ay = a.y * M_SQRT1_2;
+  return U2(fma(-a.x, M_SQRT1_2, -ay), fma(a.x, M_SQRT1_2, -ay));
+// Two adds, two muls
+//  return U2(-(a.x + a.y), a.x - a.y) * M_SQRT1_2;
 }
 
 T2 swap(T2 a)   { return U2(a.y, a.x); }

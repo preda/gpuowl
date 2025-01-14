@@ -14,6 +14,9 @@
 #define SINGLE_WIDE             0       // Old single-wide tailSquare vs. new double-wide tailSquare
 #define SINGLE_KERNEL           0       // Implement tailSquare in a single kernel vs. two kernels
 
+#define SAVE_ONE_MORE_WIDTH_MUL  0      // I want to make saving the only option -- but rocm optimizer is inexplicably making it slower in carryfused
+#define SAVE_ONE_MORE_HEIGHT_MUL 1      // In tailSquar this is the fastest option
+
 #define _USE_MATH_DEFINES
 #include <cmath>
 
@@ -93,23 +96,100 @@ double2 root1(u32 N, u32 k) {
 namespace {
 static const constexpr bool LOG_TRIG_ALLOC = false;
 
+// Interleave two lines of trig values so that AMD GPUs can use global_load_dwordx4 instructions
+void T2shuffle(u32 size, u32 radix, u32 line, vector<double> &tab) {
+  vector<double> line1, line2;
+  u32 line_size = size / radix;
+  for (u32 col = 0; col < line_size; ++col) {
+    line1.push_back(tab[line*line_size + col]);
+    line2.push_back(tab[(line+1)*line_size + col]);
+  }
+  for (u32 col = 0; col < line_size; ++col) {
+    tab[line*line_size + 2*col] = line1[col];
+    tab[line*line_size + 2*col + 1] = line2[col];
+  }
+}
+
 vector<double2> genSmallTrig(u32 size, u32 radix) {
   if (LOG_TRIG_ALLOC) { log("genSmallTrig(%u, %u)\n", size, radix); }
 
   vector<double2> tab;
-#if 1
+// old fft_WIDTH
   for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
       tab.push_back(radix / line >= 8 ? root1Fancy(size, col * line) : root1(size, col * line));
     }
   }
   tab.resize(size);
-#else
-  tab.resize(size);
-  auto *p = tab.data() + radix;
-  for (u32 w = radix; w < size; w *= radix) { p = smallTrigBlock(w, std::min(radix, size / w), p); }
-  assert(p - tab.data() == size);
+
+// New fft_WIDTH
+  vector<double> tab1;
+  // Epsilon value, 2^-250, should have an exact representation as a double
+  const double epsilon = 5.5271478752604445602472651921923E-76;  // Protect against divide by zero
+  // Sine/cosine values for first fft8
+//TO DO: explore using long doubles through the division (though dividing by double(cosine) may make sense)
+  for (u32 line = 1; line < radix; ++line) {
+    for (u32 col = 0; col < size / radix; ++col) {
+      double2 root = root1(size, col * line); root.first += epsilon;
+      tab1.push_back(root.second / root.first);
+    }
+  }
+  // Interleave trig values for faster AMD GPU access
+  for (u32 i = 0; i < 6; i += 2) T2shuffle(size, radix, i, tab1);
+  // Sine/cosine values for second fft8
+  for (u32 line = 0; line < radix; ++line) {
+    for (u32 col = 0; col < size / radix / 8; ++col) {
+      double2 root = root1(size, 8 * col * line); root.first += epsilon;
+      tab1.push_back(root.second / root.first);
+    }
+  }
+  // Cosine values for first fft8 (output in post-shufl order)
+//TODO: Examine why when sine is 0.0 cosine is not 1.0 or -1.0 (printf is outputting 0.999... and -0.999...)
+  for (u32 col = 0; col < size / radix; ++col) {  // col 0..7 will be line0, col 8..15 will be line1, etc.
+    for (u32 line = 0; line < radix; ++line) {
+      double2 root = root1(size, col * line); root.first += epsilon;
+#if SAVE_ONE_MORE_WIDTH_MUL
+      if (col / 8 == 3) { // Compute cosine3 / cosine1
+        root.first /= root1(size, (col - 16) * line).first + epsilon;
+      }
+      if (col / 8 == 5) { // Compute cosine5 / cosine1
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
+      }
 #endif
+      if (col / 8 == 6) { // Compute cosine6 / cosine2
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
+      }
+      if (col / 8 == 7) { // Compute cosine7 / cosine3
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
+      }
+      tab1.push_back(root.first);
+    }
+  }
+  // Interleave trig values for faster AMD GPU access
+  for (u32 i = 8; i < 16; i += 2) T2shuffle(size, radix, i, tab1);
+  // Cosine values for second fft8 (output in post-shufl order)
+  for (u32 col = 0; col < size / radix / 8; ++col) {
+    for (u32 line = 0; line < radix; ++line) {
+      double2 root = root1(size, 8 * col * line); root.first += epsilon;
+#if SAVE_ONE_MORE_WIDTH_MUL
+      if (col == 3) { // Compute cosine3 / cosine1
+        root.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
+      }
+      if (col == 5) { // Compute cosine5 / cosine1
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+      }
+#endif
+      if (col == 6) { // Compute cosine6 / cosine2
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+      }
+      if (col == 7) { // Compute cosine7 / cosine3
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+      }
+      tab1.push_back(root.first);
+    }
+  }
+  // Convert to a vector of double2
+  for (u32 i = 0; i < tab1.size(); i += 2) tab.push_back({tab1[i], tab1[i+1]});
 
   return tab;
 }
@@ -119,11 +199,85 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
   if (LOG_TRIG_ALLOC) { log("genSmallTrigCombo(%u, %u)\n", size, radix); }
 
   vector<double2> tab;
+// old fft_HEIGHT
   for (u32 line = 1; line < radix; ++line) {
     for (u32 col = 0; col < size / radix; ++col) {
       tab.push_back(radix / line >= 8 ? root1Fancy(size, col * line) : root1(size, col * line));
     }
   }
+  tab.resize(size);
+
+// New fft_HEIGHT
+  vector<double> tab1;
+  // Epsilon value, 2^-250, should have an exact representation as a double
+  const double epsilon = 5.5271478752604445602472651921923E-76;  // Protect against divide by zero
+  // Sine/cosine values for first fft8
+//TO DO: explore using long doubles through the division (though dividing by double(cosine) may make sense)
+  for (u32 line = 1; line < radix; ++line) {
+    for (u32 col = 0; col < size / radix; ++col) {
+      double2 root = root1(size, col * line); root.first += epsilon;
+      tab1.push_back(root.second / root.first);
+    }
+  }
+  // Interleave trig values for faster AMD GPU access
+  for (u32 i = 0; i < 6; i += 2) T2shuffle(size, radix, i, tab1);
+  // Sine/cosine values for second fft8
+  for (u32 line = 0; line < radix; ++line) {
+    for (u32 col = 0; col < size / radix / 8; ++col) {
+      double2 root = root1(size, 8 * col * line); root.first += epsilon;
+      tab1.push_back(root.second / root.first);
+    }
+  }
+  // Cosine values for first fft8 (output in post-shufl order)
+//TODO: Examine why when sine is 0.0 cosine is not 1.0 or -1.0 (printf is outputting 0.999... and -0.999...)
+  for (u32 col = 0; col < size / radix; ++col) {  // col 0..7 will be line0, col 8..15 will be line1, etc.
+    for (u32 line = 0; line < radix; ++line) {
+      double2 root = root1(size, col * line); root.first += epsilon;
+#if SAVE_ONE_MORE_HEIGHT_MUL
+      if (col / 8 == 3) { // Compute cosine3 / cosine1
+        root.first /= root1(size, (col - 16) * line).first + epsilon;
+      }
+      if (col / 8 == 5) { // Compute cosine5 / cosine1
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
+      }
+#endif
+      if (col / 8 == 6) { // Compute cosine6 / cosine2
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
+      }
+      if (col / 8 == 7) { // Compute cosine7 / cosine3
+        root.first /= root1(size, (col - 32) * line).first + epsilon;
+      }
+      tab1.push_back(root.first);
+    }
+  }
+  // Interleave trig values for faster AMD GPU access
+  for (u32 i = 8; i < 16; i += 2) T2shuffle(size, radix, i, tab1);
+  // Cosine values for second fft8 (output in post-shufl order)
+  for (u32 col = 0; col < size / radix / 8; ++col) {
+    for (u32 line = 0; line < radix; ++line) {
+      double2 root = root1(size, 8 * col * line); root.first += epsilon;
+#if SAVE_ONE_MORE_HEIGHT_MUL
+      if (col == 3) { // Compute cosine3 / cosine1
+        root.first /= root1(size, 8 * (col - 2) * line).first + epsilon;
+      }
+      if (col == 5) { // Compute cosine5 / cosine1
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+      }
+#endif
+      if (col == 6) { // Compute cosine6 / cosine2
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+      }
+      if (col == 7) { // Compute cosine7 / cosine3
+        root.first /= root1(size, 8 * (col - 4) * line).first + epsilon;
+      }
+      tab1.push_back(root.first);
+    }
+  }
+  // Convert to a vector of double2
+  for (u32 i = 0; i < tab1.size(); i += 2) tab.push_back({tab1[i], tab1[i+1]});
+
+  tab.resize(size*4);
+
   // From tailSquare pre-calculate some or all of these:  T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
 #if PREFER_DP_TO_MEM == 2             // No pre-computed trig values
 #elif PREFER_DP_TO_MEM == 1           // best option on a Radeon VII.

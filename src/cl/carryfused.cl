@@ -29,10 +29,14 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   u32 line = gr % H;
 
   T2 u[NW];
-  
+
   readCarryFusedLine(in, u, line);
 
-  // Split 32 bits into NW groups of 2 bits.  See later for different way to do this.
+#if HAS_ASM
+  __asm("s_setprio 3");
+#endif
+
+// Split 32 bits into NW groups of 2 bits.  See later for different way to do this.
 #if !BIGLIT
 #define GPW (16 / NW)
   u32 b = bits[(G_W * line + me) / GPW] >> (me % GPW * (2 * NW));
@@ -43,7 +47,18 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 // common sub-expressions to re-use in the second fft_WIDTH call.  Re-using this data requires dozens of VGPRs
 // which causes a terrible reduction in occupancy.
 //  fft_WIDTH(lds + (get_group_id(0) / 131072), u, smallTrig + (get_group_id(0) / 131072));
-  fft_WIDTH(lds, u, smallTrig);
+
+// A temporary hack until we figure out which combinations we want to finally offer:
+// UNROLL_W=0: old fft_WIDTH, no loop unrolling
+// UNROLL_W=1: old fft_WIDTH, loop unrolling
+// UNROLL_W=2: old fft_WIDTH, loop unrolling with "hidden zero" hack to thwart rocm optimizer.  I'm seeing this as best R7Pro option.
+// UNROLL_W=3: new fft_WIDTH if applicable, hidden zero hack.  Slightly better on Radeon VII -- more study needed as to why results weren't better.
+// UNROLL_W=4: new fft_WIDTH if applicable, no hidden zero hack.  Best on Titan V.
+#if UNROLL_W == 2 || UNROLL_W == 3
+  new_fft_WIDTH1(lds + (get_group_id(0) / 131072), u, smallTrig + (get_group_id(0) / 131072));
+#else
+  new_fft_WIDTH1(lds, u, smallTrig);
+#endif
 
   Word2 wu[NW];
 #if AMDGPU
@@ -86,7 +101,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   }
 
   // On Titan V it is faster to derive the big vs. little flags from the fractional number of bits in each FFT word rather read the flags from memory.
-  // On Radeon VII this code is about he same speed.  Not sure which is better on other GPUs.
+  // On Radeon VII this code is about the same speed.  Not sure which is better on other GPUs.
 #if BIGLIT
   // Calculate the most significant 32-bits of FRAC_BPW * the index of the FFT word.  Also add FRAC_BPW_HI to test first biglit flag.
   u32 fft_word_index = (me * H + line) * 2;
@@ -147,10 +162,16 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
     }
   }
   if (gr == 0) { return; }
+#if HAS_ASM
+  __asm("s_setprio 0");
+#endif
   u32 pos = (gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT;
   if (me % WAVEFRONT == 0) {
-    do { spin(); } while(atomic_load((atomic_uint *) &ready[pos]) == 0);
+    do { spin(); } while(atomic_load_explicit((atomic_uint *) &ready[pos], memory_order_relaxed, memory_scope_device) == 0);
   }
+#if HAS_ASM
+  __asm("s_setprio 1");
+#endif
   mem_fence(CLK_GLOBAL_MEM_FENCE);
 
   // Clear carry ready flag for next iteration
@@ -201,6 +222,8 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
   bar();
 
-  fft_WIDTH(lds, u, smallTrig);
+//  fft_WIDTH(lds, u, smallTrig);
+  new_fft_WIDTH2(lds, u, smallTrig);
+
   writeCarryFusedLine(u, out, line);
 }
