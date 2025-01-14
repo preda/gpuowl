@@ -334,7 +334,7 @@ TrigBufCache::~TrigBufCache() = default;
 TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   lock_guard lock{mut};
   auto& m = small;
-  decay_t<decltype(m)>::key_type key{W, nW};
+  decay_t<decltype(m)>::key_type key{W, nW, 0, 0};
 
   TrigPtr p{};
   auto it = m.find(key);
@@ -347,21 +347,22 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
 }
 
 TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW) {
-  lock_guard lock{mut};
-  auto& m = small;
 #if PREFER_DP_TO_MEM == 2             // No pre-computed trig values
-  decay_t<decltype(m)>::key_type key{W, nW};
-#else
-  // Hack so that width 512 and height 512 don't share the same buffer.  Width could share the height buffer since it is a subset of the combo height buffer.
-  // Also add in middle so that 512:15:512 does not share buffer with 512:14:512.
-  decay_t<decltype(m)>::key_type key{W, nW+middle};
+  return smallTrig(W, nW);
 #endif
 
+  lock_guard lock{mut};
+  auto& m = small;
+  decay_t<decltype(m)>::key_type key1{W, nW, width, middle};
+  // We write the "combo" under two keys, so it can also be retrieved as non-combo by smallTrig()
+  decay_t<decltype(m)>::key_type key2{W, nW, 0, 0};
+
   TrigPtr p{};
-  auto it = m.find(key);
+  auto it = m.find(key1);
   if (it == m.end() || !(p = it->second.lock())) {
     p = make_shared<TrigBuf>(context, genSmallTrigCombo(width, middle, W, nW));
-    m[key] = p;
+    m[key1] = p;
+    m[key2] = p;
     smallCache.add(p);
   }
   return p;
