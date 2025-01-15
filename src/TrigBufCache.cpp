@@ -122,6 +122,7 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
   }
   tab.resize(size);
 
+if (radix==8) {
 // New fft_WIDTH
   vector<double> tab1;
   // Epsilon value, 2^-250, should have an exact representation as a double
@@ -190,6 +191,7 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
   }
   // Convert to a vector of double2
   for (u32 i = 0; i < tab1.size(); i += 2) tab.push_back({tab1[i], tab1[i+1]});
+}
 
   return tab;
 }
@@ -207,6 +209,7 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
   }
   tab.resize(size);
 
+if (radix==8) {
 // New fft_HEIGHT
   vector<double> tab1;
   // Epsilon value, 2^-250, should have an exact representation as a double
@@ -275,6 +278,7 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
   }
   // Convert to a vector of double2
   for (u32 i = 0; i < tab1.size(); i += 2) tab.push_back({tab1[i], tab1[i+1]});
+}
 
   tab.resize(size*4);
 
