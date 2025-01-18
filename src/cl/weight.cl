@@ -33,16 +33,17 @@ T iweightStep(u32 i) {
   return TWO_TO_MINUS_NTH[i * STEP % NW * (8 / NW)];
 }
 
-u32 bfi(u32 u, u32 mask, u32 bits) {
-#if HAS_ASM
-  u32 out;
-  __asm("v_bfi_b32 %0, %1, %2, %3" : "=v"(out) : "v"(mask), "v"(u), "v"(bits));
-  return out;
-#else
-  // return (u & mask) | (bits & ~mask);
-  return (u & mask) | bits;
-#endif
-}
+// This routine is not used.  It forces "-use NO_ASM" in Windows.  bfi should be replaced by a builtin if ever needed.
+//u32 bfi(u32 u, u32 mask, u32 bits) {
+//#if HAS_ASM
+//  u32 out;
+//  __asm("v_bfi_b32 %0, %1, %2, %3" : "=v"(out) : "v"(mask), "v"(u), "v"(bits));
+//  return out;
+//#else
+//  // return (u & mask) | (bits & ~mask);
+//  return (u & mask) | bits;
+//#endif
+//}
 
 T optionalDouble(T iw) {
   // In a straightforward implementation, inverse weights are between 0.5 and 1.0.  We use inverse weights between 1.0 and 2.0
