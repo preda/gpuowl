@@ -350,9 +350,9 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   return p;
 }
 
-TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW) {
+TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 variant) {
 #if PREFER_DP_TO_MEM == 2             // No pre-computed trig values
-  return smallTrig(W, nW);
+  if (variant != 2) return smallTrig(W, nW);  // FFT variant 2 may generate non-sharable trig values because SAVE_ONE_MORE_WIDTH_MUL != SAVE_ONE_MORE_HEIGHT_MUL
 #endif
 
   lock_guard lock{mut};

@@ -450,7 +450,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
 #undef K
 
   bufTrigW{shared.bufCache->smallTrig(WIDTH, nW)},
-  bufTrigH{shared.bufCache->smallTrigCombo(WIDTH, fft.shape.middle, SMALL_H, nH)},
+  bufTrigH{shared.bufCache->smallTrigCombo(WIDTH, fft.shape.middle, SMALL_H, nH, fft.variant)},
   bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H, WIDTH)},
 
   weights{genWeights(E, WIDTH, BIG_H, nW, isAmdGpu(q->context->deviceId()))},
