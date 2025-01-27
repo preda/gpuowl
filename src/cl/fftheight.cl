@@ -105,28 +105,95 @@ void new_fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w, int callnum) {
 
 // Custom code for various SMALL_HEIGHT values
 
-#if SMALL_HEIGHT == 512 && NH == 8 && !BCAST && CLEAN == 1
+#if SMALL_HEIGHT == 256 && NH == 4 && !BCAST && CLEAN == 1
+
+// Custom code for SMALL_HEIGHT=256, NH=4
+
+  T preloads[6];              // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  trig += WG*4 + 2*WG*4;      // Skip past old FFT_width trig values.  Also skip past !save_one_more_mul trig values.
+
+  // Preload trig values to hide global memory latencies.  As the preloads are used, the next set of trig values are preloaded.
+  preload_tabMul4_trig(WG, trig, preloads, 1, me);
+
+  // Do first fft4, partial tabMul, and shufl.
+  fft4(u);
+  partial_tabMul4(WG, partitioned_lds, trig, preloads, u, 1, me);
+  shufl2(WG, lds, u, NH, 1);
+
+  // Finish the first tabMul and perform second fft4.  Do second partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, partitioned_lds, trig, preloads, u, 1, me, 1);
+  partial_tabMul4(WG, partitioned_lds, trig, preloads, u, 4, me);
+  bar(WG);
+  shufl2(WG, lds, u, NH, 4);
+
+  // Finish the second tabMul and perform third fft4.  Do third partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, partitioned_lds, trig, preloads, u, 4, me, 1);
+  partial_tabMul4(WG, partitioned_lds, trig, preloads, u, 16, me);
+  bar(WG);
+  shufl2(WG, lds, u, NH, 16);
+
+  // Finish third tabMul and perform final fft4.
+  finish_tabMul4_fft4(WG, partitioned_lds, trig, preloads, u, 16, me, 1);
+
+#elif SMALL_HEIGHT == 512 && NH == 8 && !BCAST && CLEAN == 1
 
 // Custom code for SMALL_HEIGHT=512, NH=8
 
-  T preloads[8];              // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  T preloads[10];             // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  trig += WG*8 + 2*WG*8;      // Skip past old FFT_width trig values.  Also skip past !save_one_more_mul trig values.
 
   // Preload trig values to hide global memory latencies.  As the preloads are used, the next set of trig values are preloaded.
-  preload_tabMul_trig(WG, trig, preloads, 1, me);
+  preload_tabMul8_trig(WG, trig, preloads, 1, me);
 
   // Do first fft8, partial tabMul, and shufl.
   fft8(u);
-  partial_tabMul(WG, partitioned_lds, trig, preloads, u, 1, me);
+  partial_tabMul8(WG, partitioned_lds, trig, preloads, u, 1, me);
   shufl2(WG, lds, u, NH, 1);
 
   // Finish the first tabMul and perform second fft8.  Do second partial tabMul and shufl.
-  finish_tabMul_fft8(WG, partitioned_lds, trig, preloads, u, 1, me, 1);
-  partial_tabMul(WG, partitioned_lds, trig, preloads, u, 8, me);
+  finish_tabMul8_fft8(WG, partitioned_lds, trig, preloads, u, 1, me, 1);
+  partial_tabMul8(WG, partitioned_lds, trig, preloads, u, 8, me);
   bar(WG);
   shufl2(WG, lds, u, NH, 8);
 
   // Finish second tabMul and perform final fft8.
-  finish_tabMul_fft8(WG, partitioned_lds, trig, preloads, u, 8, me, 1);
+  finish_tabMul8_fft8(WG, partitioned_lds, trig, preloads, u, 8, me, 1);
+
+#elif SMALL_HEIGHT == 1024 && NH == 4 && !BCAST && CLEAN == 1
+
+// Custom code for SMALL_HEIGHT=1024, NH=4
+
+  T preloads[6];              // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  trig += WG*4 + 2*WG*4;      // Skip past old FFT_width trig values.  Also skip past !save_one_more_mul trig values.
+
+  // Preload trig values to hide global memory latencies.  As the preloads are used, the next set of trig values are preloaded.
+  preload_tabMul4_trig(WG, trig, preloads, 1, me);
+
+  // Do first fft4, partial tabMul, and shufl.
+  fft4(u);
+  partial_tabMul4(WG, partitioned_lds, trig, preloads, u, 1, me);
+  shufl2(WG, lds, u, NH, 1);
+
+  // Finish the first tabMul and perform second fft4.  Do second partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, partitioned_lds, trig, preloads, u, 1, me, 1);
+  partial_tabMul4(WG, partitioned_lds, trig, preloads, u, 4, me);
+  bar(WG);
+  shufl2(WG, lds, u, NH, 4);
+
+  // Finish the second tabMul and perform third fft4.  Do third partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, partitioned_lds, trig, preloads, u, 4, me, 1);
+  partial_tabMul4(WG, partitioned_lds, trig, preloads, u, 16, me);
+  bar(WG);
+  shufl2(WG, lds, u, NH, 16);
+
+  // Finish the third tabMul and perform fourth fft4.  Do fourth partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, partitioned_lds, trig, preloads, u, 16, me, 1);
+  partial_tabMul4(WG, partitioned_lds, trig, preloads, u, 64, me);
+  bar(WG);
+  shufl2(WG, lds, u, NH, 64);
+
+  // Finish fourth tabMul and perform final fft4.
+  finish_tabMul4_fft4(WG, partitioned_lds, trig, preloads, u, 64, me, 1);
 
 #else
 
