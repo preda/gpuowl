@@ -78,28 +78,125 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
 
 // Custom code for various WIDTH values
 
-#if WIDTH == 512 && NW == 8 && !BCAST && CLEAN == 1 && UNROLL_W >= 3
+#if WIDTH == 256 && NW == 4 && !BCAST && CLEAN == 1 && UNROLL_W >= 3
+
+// Custom code for WIDTH=256, NW=4
+
+  T preloads[6];              // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  trig += WG*4 + 2*WG*4;      // Skip past old FFT_width trig values.  Also skip past !save_one_more_mul trig values.
+
+  // Preload trig values to hide global memory latencies.  As the preloads are used, the next set of trig values are preloaded.
+  preload_tabMul4_trig(WG, trig, preloads, 1, me);
+
+  // Do first fft4, partial tabMul, and shufl.
+  fft4(u);
+  partial_tabMul4(WG, lds, trig, preloads, u, 1, me);
+  shufl(WG, lds, u, NW, 1);
+
+  // Finish the first tabMul and perform second fft4.  Do second partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, lds, trig, preloads, u, 1, me, 1);
+  partial_tabMul4(WG, lds, trig, preloads, u, 4, me);
+  bar(WG);
+  shufl(WG, lds, u, NW, 4);
+
+  // Finish the second tabMul and perform third fft4.  Do third partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, lds, trig, preloads, u, 4, me, 1);
+  partial_tabMul4(WG, lds, trig, preloads, u, 16, me);
+  bar(WG);
+  shufl(WG, lds, u, NW, 16);
+
+  // Finish third tabMul and perform final fft4.
+  finish_tabMul4_fft4(WG, lds, trig, preloads, u, 16, me, 1);
+
+#elif WIDTH == 512 && NW == 8 && !BCAST && CLEAN == 1 && UNROLL_W >= 3
 
 // Custom code for WIDTH=512, NW=8
 
-  T preloads[8];              // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  T preloads[10];             // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  trig += WG*8;               // Skip past old FFT_width trig values.
 
   // Preload trig values to hide global memory latencies.  As the preloads are used, the next set of trig values are preloaded.
-  preload_tabMul_trig(WG, trig, preloads, 1, me);
+  preload_tabMul8_trig(WG, trig, preloads, 1, me);
 
   // Do first fft8, partial tabMul, and shufl.
   fft8(u);
-  partial_tabMul(WG, lds, trig, preloads, u, 1, me);
+  partial_tabMul8(WG, lds, trig, preloads, u, 1, me);
   shufl(WG, lds, u, NW, 1);
 
   // Finish the first tabMul and perform second fft8.  Do second partial tabMul and shufl.
-  finish_tabMul_fft8(WG, lds, trig, preloads, u, 1, me, 0);  // We'd rather set save_one_more_mul to 1
-  partial_tabMul(WG, lds, trig, preloads, u, 8, me);
+  finish_tabMul8_fft8(WG, lds, trig, preloads, u, 1, me, 0);  // We'd rather set save_one_more_mul to 1
+  partial_tabMul8(WG, lds, trig, preloads, u, 8, me);
   bar();
   shufl(WG, lds, u, NW, 8);
 
   // Finish second tabMul and perform final fft8.
-  finish_tabMul_fft8(WG, lds, trig, preloads, u, 8, me, 0);  // We'd rather set save_one_more_mul to 1
+  finish_tabMul8_fft8(WG, lds, trig, preloads, u, 8, me, 0);  // We'd rather set save_one_more_mul to 1
+
+#elif WIDTH == 1024 && NW == 4 && !BCAST && CLEAN == 1 && UNROLL_W >= 3
+
+// Custom code for WIDTH=1024, NW=4
+
+  T preloads[6];              // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  trig += WG*4 + 2*WG*4;      // Skip past old FFT_width trig values.  Also skip past !save_one_more_mul trig values.
+
+  // Preload trig values to hide global memory latencies.  As the preloads are used, the next set of trig values are preloaded.
+  preload_tabMul4_trig(WG, trig, preloads, 1, me);
+
+  // Do first fft4, partial tabMul, and shufl.
+  fft4(u);
+  partial_tabMul4(WG, lds, trig, preloads, u, 1, me);
+  shufl(WG, lds, u, NW, 1);
+
+  // Finish the first tabMul and perform second fft4.  Do second partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, lds, trig, preloads, u, 1, me, 1);
+  partial_tabMul4(WG, lds, trig, preloads, u, 4, me);
+  bar(WG);
+  shufl(WG, lds, u, NW, 4);
+
+  // Finish the second tabMul and perform third fft4.  Do third partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, lds, trig, preloads, u, 4, me, 1);
+  partial_tabMul4(WG, lds, trig, preloads, u, 16, me);
+  bar(WG);
+  shufl(WG, lds, u, NW, 16);
+
+  // Finish the third tabMul and perform fourth fft4.  Do fourth partial tabMul and shufl.
+  finish_tabMul4_fft4(WG, lds, trig, preloads, u, 16, me, 1);
+  partial_tabMul4(WG, lds, trig, preloads, u, 64, me);
+  bar(WG);
+  shufl(WG, lds, u, NW, 64);
+
+  // Finish fourth tabMul and perform final fft4.
+  finish_tabMul4_fft4(WG, lds, trig, preloads, u, 64, me, 1);
+
+#elif WIDTH == 4096 && NW == 8 && !BCAST && CLEAN == 1 && UNROLL_W >= 3
+
+// Custom code for WIDTH=4K, NW=8
+
+  T preloads[10];             // Place to store preloaded trig values.  We want F64 ops to hide load latencies without creating register pressure.
+  trig += WG*8;               // Skip past old FFT_width trig values to the !save_one_more_mul trig values
+
+  // Preload trig values to hide global memory latencies.  As the preloads are used, the next set of trig values are preloaded.
+  preload_tabMul8_trig(WG, trig, preloads, 1, me);
+
+  // Do first fft8, partial tabMul, and shufl.
+  fft8(u);
+  partial_tabMul8(WG, lds, trig, preloads, u, 1, me);
+  shufl(WG, lds, u, NW, 1);
+
+  // Finish the first tabMul and perform second fft8.  Do second partial tabMul and shufl.
+  finish_tabMul8_fft8(WG, lds, trig, preloads, u, 1, me, 0);  // We'd rather set save_one_more_mul to 1
+  partial_tabMul8(WG, lds, trig, preloads, u, 8, me);
+  bar();
+  shufl(WG, lds, u, NW, 8);
+
+  // Finish the second tabMul and perform third fft8.  Do third partial tabMul and shufl.
+  finish_tabMul8_fft8(WG, lds, trig, preloads, u, 8, me, 0);  // We'd rather set save_one_more_mul to 1
+  partial_tabMul8(WG, lds, trig, preloads, u, 64, me);
+  bar();
+  shufl(WG, lds, u, NW, 64);
+
+  // Finish third tabMul and perform final fft8.
+  finish_tabMul8_fft8(WG, lds, trig, preloads, u, 64, me, 0);  // We'd rather set save_one_more_mul to 1
 
 #else
 

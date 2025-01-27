@@ -19,9 +19,13 @@ void spin() {
 // The "carryFused" is equivalent to the sequence: fftW, carryA, carryB, fftPremul.
 // It uses "stairway forwarding" (forwarding carry data from one workgroup to the next)
 KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(u32) ready, Trig smallTrig,
-                       CP(u32) bits, ConstBigTab CONST_THREAD_WEIGHTS, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
-  local T2 lds[WIDTH / 2];
+		       CP(u32) bits, ConstBigTab CONST_THREAD_WEIGHTS, BigTab THREAD_WEIGHTS, P(uint) bufROE) {
 
+#if 0   // fft_WIDTH uses shufl_int instead of shufl
+  local T2 lds[WIDTH / 4];
+#else
+  local T2 lds[WIDTH / 2];
+#endif
   u32 gr = get_group_id(0);
   u32 me = get_local_id(0);
 
@@ -30,11 +34,11 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
   T2 u[NW];
 
-  readCarryFusedLine(in, u, line);
-
 #if HAS_ASM
   __asm("s_setprio 3");
 #endif
+
+  readCarryFusedLine(in, u, line);
 
 // Split 32 bits into NW groups of 2 bits.  See later for different way to do this.
 #if !BIGLIT
