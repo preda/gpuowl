@@ -345,11 +345,11 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 x_within_out_wg = fftMiddleOut_x % OUT_SIZEX;             // There were OUT_SIZEX x values within OUT_WG
   in += x_within_out_wg * SIZEY;                                // Adjust in pointer the same way writeMiddleOutLine wrote x values with OUT_WG
 
-  // Adjust in pointer based on the y value used in writeMiddleOutLine.  This code is a little obscure as rocm compiler has trouble optimizing commented out code.
+  // Adjust in pointer based on the i value used in writeMiddleOutLine
   u32 fftMiddleOut_i = line / SMALL_HEIGHT;                     // The i in fftMiddleOut's u[i]
   in += fftMiddleOut_i * OUT_WG;                                // Adjust in pointer the same way writeMiddleOutLine did
 
-  // Adjust in pointer based on the y value used in writeMiddleOutLine
+  // Adjust in pointer based on the y value used in writeMiddleOutLine.  This code is a little obscure as rocm compiler has trouble optimizing commented out code.
   in += me % SIZEY;                                             // Adjust in pointer to read SIZEY consecutive values
   u32 fftMiddleOut_y = me;                                      // The i=0 fftMiddleOut y value
   u32 chunk_y = fftMiddleOut_y / SIZEY;                         // The i=0 fftMiddleOut chunk_y value
