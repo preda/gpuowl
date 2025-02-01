@@ -323,12 +323,17 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 fftMiddleOut_i = line / SMALL_HEIGHT;                     // The i in fftMiddleOut's u[i]
   in += fftMiddleOut_i * OUT_WG;                                // Adjust in pointer the same way writeMiddleOutLine did
 
-  // Adjust in pointer based on the y value used in writeMiddleOutLine
+  // Adjust in pointer based on the y value used in writeMiddleOutLine.  This code is a little obscure as rocm compiler has trouble optimizing commented out code.
   in += me % SIZEY;                                             // Adjust in pointer to read SIZEY consecutive values
+  u32 fftMiddleOut_y = me;                                      // The i=0 fftMiddleOut y value
+  u32 chunk_y = fftMiddleOut_y / SIZEY;                         // The i=0 fftMiddleOut chunk_y value
+  u32 fftMiddleOut_y_incr = G_W;                                // The increment to next fftMiddleOut y value
+  u32 chunk_y_incr = fftMiddleOut_y_incr / SIZEY;               // The increment to next fftMiddleOut chunk_y value
   for (i32 i = 0; i < NW; ++i) {
-    u32 fftMiddleOut_y = i * G_W + me;                          // The fftMiddleOut y value
-    u32 chunk_y = fftMiddleOut_y / SIZEY;                       // The fftMiddleOut chunk_y value
+//    u32 fftMiddleOut_y = i * G_W + me;                          // The fftMiddleOut y value
+//    u32 chunk_y = fftMiddleOut_y / SIZEY;                       // The fftMiddleOut chunk_y value
     u[i] = NTLOAD(in[chunk_y * (MIDDLE * OUT_WG + PAD_SIZE)]);  // Adjust in pointer the same way writeMiddleOutLine did
+    chunk_y += chunk_y_incr;
   }
 
 #else                                                           // Read data that was not rotated or padded
@@ -340,16 +345,21 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 x_within_out_wg = fftMiddleOut_x % OUT_SIZEX;             // There were OUT_SIZEX x values within OUT_WG
   in += x_within_out_wg * SIZEY;                                // Adjust in pointer the same way writeMiddleOutLine wrote x values with OUT_WG
 
-  // Adjust in pointer based on the i value used in writeMiddleOutLine
+  // Adjust in pointer based on the y value used in writeMiddleOutLine.  This code is a little obscure as rocm compiler has trouble optimizing commented out code.
   u32 fftMiddleOut_i = line / SMALL_HEIGHT;                     // The i in fftMiddleOut's u[i]
   in += fftMiddleOut_i * OUT_WG;                                // Adjust in pointer the same way writeMiddleOutLine did
 
   // Adjust in pointer based on the y value used in writeMiddleOutLine
   in += me % SIZEY;                                             // Adjust in pointer to read SIZEY consecutive values
+  u32 fftMiddleOut_y = me;                                      // The i=0 fftMiddleOut y value
+  u32 chunk_y = fftMiddleOut_y / SIZEY;                         // The i=0 fftMiddleOut chunk_y value
+  u32 fftMiddleOut_y_incr = G_W;                                // The increment to next fftMiddleOut y value
+  u32 chunk_y_incr = fftMiddleOut_y_incr / SIZEY;               // The increment to next fftMiddleOut chunk_y value
   for (i32 i = 0; i < NW; ++i) {
-    u32 fftMiddleOut_y = i * G_W + me;                          // The fftMiddleOut y value
-    u32 chunk_y = fftMiddleOut_y / SIZEY;                       // The fftMiddleOut chunk_y value
+//    u32 fftMiddleOut_y = i * G_W + me;                          // The fftMiddleOut y value
+//    u32 chunk_y = fftMiddleOut_y / SIZEY;                       // The fftMiddleOut chunk_y value
     u[i] = NTLOAD(in[chunk_y * MIDDLE * OUT_WG]);               // Adjust in pointer the same way writeMiddleOutLine did
+    chunk_y += chunk_y_incr;
   }
 
 #endif

@@ -4,8 +4,8 @@
 #include "trig.cl"
 #include "fftheight.cl"
 
-//#define PREFER_DP_TO_MEM        2       // Excellent DP GPU such as Titan V or Radeon VII Pro.
-#define PREFER_DP_TO_MEM      1       // Good DP GPU.  Tuned for Radeon VII.
+#define PREFER_DP_TO_MEM        2       // Excellent DP GPU such as Titan V or Radeon VII Pro.
+//#define PREFER_DP_TO_MEM      1       // Good DP GPU.  Tuned for Radeon VII.
 //#define PREFER_DP_TO_MEM      0       // Poor DP GPU.  A typical consumer grade GPU.
 
 #if !defined(SINGLE_WIDE)
