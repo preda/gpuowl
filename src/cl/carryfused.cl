@@ -43,7 +43,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 // Split 32 bits into NW groups of 2 bits.  See later for different way to do this.
 #if !BIGLIT
 #define GPW (16 / NW)
-  u32 b = bits[(G_W * line + me) / GPW] >> (me % GPW * (2 * NW));
+  u32 b = NTLOAD(bits[(G_W * line + me) / GPW]) >> (me % GPW * (2 * NW));
 #undef GPW
 #endif
 
@@ -110,14 +110,15 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   // Calculate the most significant 32-bits of FRAC_BPW * the index of the FFT word.  Also add FRAC_BPW_HI to test first biglit flag.
   u32 fft_word_index = (me * H + line) * 2;
   u32 frac_bits = fft_word_index * FRAC_BPW_HI + mad_hi (fft_word_index, FRAC_BPW_LO, FRAC_BPW_HI);
-  u32 tmp = frac_bits;
 #endif
 
   // Generate our output carries
   for (i32 i = 0; i < NW; ++i) {
 #if BIGLIT
-    bool biglit0 = tmp <= FRAC_BPW_HI; tmp += FRAC_BPW_HI;
-    bool biglit1 = tmp <= FRAC_BPW_HI; tmp += FRAC_BITS_BIGSTEP - FRAC_BPW_HI;
+//    bool biglit0 = frac_bits + i * FRAC_BITS_BIGSTEP <= FRAC_BPW_HI;
+//    bool biglit1 = frac_bits + i * FRAC_BITS_BIGSTEP + FRAC_BPW_HI <= FRAC_BPW_HI;
+    bool biglit0 = frac_bits + i * FRAC_BITS_BIGSTEP <= FRAC_BPW_HI;
+    bool biglit1 = frac_bits + i * FRAC_BITS_BIGSTEP >= -FRAC_BPW_HI;
 #else
     bool biglit0 = test(b, 2 * i);
     bool biglit1 = test(b, 2 * i + 1);
@@ -209,7 +210,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   // Apply each 32 or 64 bit carry to the 2 words
   for (i32 i = 0; i < NW; ++i) {
 #if BIGLIT
-    bool biglit0 = frac_bits <= FRAC_BPW_HI; frac_bits += FRAC_BITS_BIGSTEP;
+    bool biglit0 = frac_bits + i * FRAC_BITS_BIGSTEP <= FRAC_BPW_HI;
 #else
     bool biglit0 = test(b, 2 * i);
 #endif
