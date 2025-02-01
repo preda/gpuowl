@@ -146,12 +146,17 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 me) {
   u32 fftMiddleIn_i = line / WIDTH;                             // The i in fftMiddleIn's u[i]
   in += fftMiddleIn_i * IN_WG;                                  // Adjust in pointer the same way writeMiddleInLine did
 
-  // Adjust in pointer based on the y value used in writeMiddleInLine
+  // Adjust in pointer based on the y value used in writeMiddleInLine.  This code is a little obscure as rocm compiler has trouble optimizing commented out code.
   in += me % SIZEY;                                             // Adjust in pointer to read SIZEY consecutive values
+  u32 fftMiddleIn_y = me;                                       // The i=0 fftMiddleIn y value
+  u32 chunk_y = fftMiddleIn_y / SIZEY;                          // The i=0 fftMiddleIn chunk_y value
+  u32 fftMiddleIn_y_incr = G_H;                                 // The increment to next fftMiddleIn y value
+  u32 chunk_y_incr = fftMiddleIn_y_incr / SIZEY;                // The increment to next fftMiddleIn chunk_y value
   for (i32 i = 0; i < NH; ++i) {
-    u32 fftMiddleIn_y = i * G_H + me;                           // The fftMiddleIn y value
-    u32 chunk_y = fftMiddleIn_y / SIZEY;                        // The fftMiddleIn chunk_y value
+//    u32 fftMiddleIn_y = i * G_H + me;                           // The fftMiddleIn y value
+//    u32 chunk_y = fftMiddleIn_y / SIZEY;                        // The fftMiddleIn chunk_y value
     u[i] = NTLOAD(in[chunk_y * (MIDDLE * IN_WG + PAD_SIZE)]);   // Adjust in pointer the same way writeMiddleInLine did
+    chunk_y += chunk_y_incr;
   }
 
 #else                                                           // Read data that was not rotated or padded
@@ -167,12 +172,17 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 me) {
   u32 fftMiddleIn_i = line / WIDTH;                             // The i in fftMiddleIn's u[i]
   in += fftMiddleIn_i * IN_WG;                                  // Adjust in pointer the same way writeMiddleInLine did
 
-  // Adjust in pointer based on the y value used in writeMiddleInLine
+  // Adjust in pointer based on the y value used in writeMiddleInLine.  This code is a little obscure as rocm compiler has trouble optimizing commented out code.
   in += me % SIZEY;                                             // Adjust in pointer to read SIZEY consecutive values
+  u32 fftMiddleIn_y = me;                                       // The i=0 fftMiddleIn y value
+  u32 chunk_y = fftMiddleIn_y / SIZEY;                          // The i=0 fftMiddleIn chunk_y value
+  u32 fftMiddleIn_y_incr = G_H;                                 // The increment to next fftMiddleIn y value
+  u32 chunk_y_incr = fftMiddleIn_y_incr / SIZEY;                // The increment to next fftMiddleIn chunk_y value
   for (i32 i = 0; i < NH; ++i) {
     u32 fftMiddleIn_y = i * G_H + me;                           // The fftMiddleIn y value
     u32 chunk_y = fftMiddleIn_y / SIZEY;                        // The fftMiddleIn chunk_y value
     u[i] = NTLOAD(in[chunk_y * (MIDDLE * IN_WG)]);              // Adjust in pointer the same way writeMiddleInLine did
+    chunk_y += chunk_y_incr;
   }
 
 #endif
