@@ -15,7 +15,12 @@ void updateStats(global uint *bufROE, u32 posROE, float roundMax) {
 }
 #endif
 
+#if defined(__has_builtin) && __has_builtin(__builtin_amdgcn_sbfe)
+i32 lowBits(i32 u, u32 bits) { return __builtin_amdgcn_sbfe(u, 0, bits); }
+#else
 i32 lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
+#endif
+
 #if defined(__has_builtin) && __has_builtin(__builtin_amdgcn_alignbit)
 i32 xtract32(i64 x, u32 bits) { return __builtin_amdgcn_alignbit(as_int2(x).y, as_int2(x).x, bits); }
 #else
@@ -69,9 +74,8 @@ Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
 
 Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
-  x <<= 32 - nBits;
-  Word w = as_int2(x).x >> (32 - nBits);
-  *outCarry = as_int2(x).y + (w < 0);
+  Word w = lowBits(x, nBits);
+  *outCarry = xtract32(x, nBits) + (w < 0);
   return w;
 }
 
