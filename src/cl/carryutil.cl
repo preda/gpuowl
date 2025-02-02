@@ -69,8 +69,9 @@ Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
 
 Word OVERLOAD carryStep(i64 x, i32 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
-  Word w = lowBits(x, nBits);
-  *outCarry = xtract32(x, nBits) + (w < 0);
+  x <<= 32 - nBits;
+  Word w = as_int2(x).x >> (32 - nBits);
+  *outCarry = as_int2(x).y + (w < 0);
   return w;
 }
 
