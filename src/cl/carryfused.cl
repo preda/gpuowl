@@ -88,7 +88,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 
   float roundMax = 0;
   float carryMax = 0;
-  
+
   // On Titan V it is faster to derive the big vs. little flags from the fractional number of bits in each FFT word rather read the flags from memory.
   // On Radeon VII this code is about the same speed.  Not sure which is better on other GPUs.
 #if BIGLIT
@@ -117,8 +117,9 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 #endif
 
     // Apply the inverse weights, optionally compute roundoff error, and convert to integer.  Also apply MUL3 here.
-    // Then propagate carries through two words.  Generate the output carry.
-    wu[i] = weightAndCarryPair(conjugate(u[i]), U2(invWeight1, invWeight2),
+    // Then propagate carries through two words (the first carry does not have to be accurately calculated because it will
+    // be accurately calculated by carryFinal later on).  The second carry must be accurate for output to the carry shuttle.
+    wu[i] = weightAndCarryPairSloppy(conjugate(u[i]), U2(invWeight1, invWeight2),
                       // For an LL test, add -2 as the very initial "carry in"
                       // We'd normally use logical &&, but the compiler whines with warning and bitwise fixes it
                       (LL & (i == 0) & (line==0) & (me == 0)) ? -2 : 0, &roundMax, &carry[i], biglit0, biglit1, &carryMax);

@@ -21,6 +21,12 @@ i32 lowBits(i32 u, u32 bits) { return __builtin_amdgcn_sbfe(u, 0, bits); }
 i32 lowBits(i32 u, u32 bits) { return ((u << (32 - bits)) >> (32 - bits)); }
 #endif
 
+#if defined(__has_builtin) && __has_builtin(__builtin_amdgcn_ubfe)
+i32 ulowBits(i32 u, u32 bits) { return __builtin_amdgcn_ubfe(u, 0, bits); }
+#else
+i32 ulowBits(i32 u, u32 bits) { u32 uu = (u32) u; return ((uu << (32 - bits)) >> (32 - bits)); }
+#endif
+
 #if defined(__has_builtin) && __has_builtin(__builtin_amdgcn_alignbit)
 i32 xtract32(i64 x, u32 bits) { return __builtin_amdgcn_alignbit(as_int2(x).y, as_int2(x).x, bits); }
 #else
@@ -118,6 +124,27 @@ Word OVERLOAD carryStep(i32 x, i32 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
   Word w = lowBits(x, nBits);
   *outCarry = (x - w) >> nBits;
+  return w;
+}
+
+Word OVERLOAD carryStepSloppy(i64 x, i64 *outCarry, bool isBigWord) {
+  u32 nBits = bitlen(isBigWord);
+  Word w = ulowBits(x, nBits);
+  *outCarry = x >> nBits;
+  return w;
+}
+
+Word OVERLOAD carryStepSloppy(i64 x, i32 *outCarry, bool isBigWord) {
+  u32 nBits = bitlen(isBigWord);
+  Word w = ulowBits(x, nBits);
+  *outCarry = xtract32(x, nBits);
+  return w;
+}
+
+Word OVERLOAD carryStepSloppy(i32 x, i32 *outCarry, bool isBigWord) {
+  u32 nBits = bitlen(isBigWord);
+  Word w = ulowBits(x, nBits);
+  *outCarry = x >> nBits;
   return w;
 }
 
