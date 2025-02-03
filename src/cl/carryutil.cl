@@ -64,6 +64,41 @@ i64 RNDVALdoubleToLong(double d) {
   return as_long(words);
 }
 
+// Apply inverse weight, add in optional carry, calculate roundoff error, convert to integer. Handle MUL3.
+i64 weightAndCarryOne(T u, T invWeight, i64 inCarry, float* maxROE, int sloppy_result_is_acceptable) {
+
+#if !MUL3
+
+  // Convert carry into RNDVAL + carry.
+  int2 tmp = as_int2(inCarry); tmp.y += as_int2(RNDVAL).y;
+  double RNDVALCarry = as_double(tmp);
+
+  // Apply inverse weight and RNDVAL+carry
+  double d = fma(u, invWeight, RNDVALCarry);
+
+  // Optionally calculate roundoff error
+  float roundoff = fabs((float) fma(u, -invWeight, d - RNDVALCarry));
+  *maxROE = max(*maxROE, roundoff);
+
+  // Convert to long (for CARRY32 case we don't need to strip off the RNDVAL bits)
+  if (sloppy_result_is_acceptable) return as_long(d);
+  else return RNDVALdoubleToLong(d);
+
+#else  // We cannot add in the carry until after the mul by 3
+
+  // Apply inverse weight and RNDVAL
+  double d = fma(u, invWeight, RNDVAL);
+
+  // Optionally calculate roundoff error
+  float roundoff = fabs((float) fma(u, -invWeight, d - RNDVAL));
+  *maxROE = max(*maxROE, roundoff);
+
+  // Convert to long, mul by 3, and add carry
+  return RNDVALdoubleToLong(d) * 3 + inCarry;
+
+#endif
+}
+
 Word OVERLOAD carryStep(i64 x, i64 *outCarry, bool isBigWord) {
   u32 nBits = bitlen(isBigWord);
   Word w = lowBits(x, nBits);
@@ -115,3 +150,4 @@ Word2 carryWord(Word2 a, CarryABM* carry, bool b1, bool b2) {
   a.y = carryStep(a.y + *carry, carry, b2);
   return a;
 }
+

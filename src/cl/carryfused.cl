@@ -89,21 +89,6 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   float roundMax = 0;
   float carryMax = 0;
   
-  // Apply the inverse weights
-
-  T invBase = optionalDouble(weights.x);
-  
-  for (u32 i = 0; i < NW; ++i) {
-    T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, iweightStep(i)));
-    T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP));
-
-    // Apply the inverse weights, optionally compute roundoff error, and convert to integer.  Also apply MUL3 here.
-    * ((long2*) &u[i]) = weightAndCarry(conjugate(u[i]), U2(invWeight1, invWeight2),
-                      // For an LL test, add -2 as the very initial "carry in"
-                      // We'd normally use logical &&, but the compiler whines with warning and bitwise fixes it
-                      (LL & (i == 0) & (line==0) & (me == 0)) ? -2 : 0, &roundMax);
-  }
-
   // On Titan V it is faster to derive the big vs. little flags from the fractional number of bits in each FFT word rather read the flags from memory.
   // On Radeon VII this code is about the same speed.  Not sure which is better on other GPUs.
 #if BIGLIT
@@ -112,8 +97,15 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   u32 frac_bits = fft_word_index * FRAC_BPW_HI + mad_hi (fft_word_index, FRAC_BPW_LO, FRAC_BPW_HI);
 #endif
 
-  // Generate our output carries
-  for (i32 i = 0; i < NW; ++i) {
+  // Apply the inverse weights and carry propagate pairs to generate the output carries
+
+  T invBase = optionalDouble(weights.x);
+  
+  for (u32 i = 0; i < NW; ++i) {
+    T invWeight1 = i == 0 ? invBase : optionalDouble(fancyMul(invBase, iweightStep(i)));
+    T invWeight2 = optionalDouble(fancyMul(invWeight1, IWEIGHT_STEP));
+
+    // Generate big-word/little-word flags
 #if BIGLIT
 //    bool biglit0 = frac_bits + i * FRAC_BITS_BIGSTEP <= FRAC_BPW_HI;
 //    bool biglit1 = frac_bits + i * FRAC_BITS_BIGSTEP + FRAC_BPW_HI <= FRAC_BPW_HI;
@@ -124,8 +116,12 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
     bool biglit1 = test(b, 2 * i + 1);
 #endif
 
-    // Propagate carries through two words.  Generate the output carry.
-    wu[i] = carryPair(*(long2*)&u[i], &carry[i], biglit0, biglit1, &carryMax);
+    // Apply the inverse weights, optionally compute roundoff error, and convert to integer.  Also apply MUL3 here.
+    // Then propagate carries through two words.  Generate the output carry.
+    wu[i] = weightAndCarryPair(conjugate(u[i]), U2(invWeight1, invWeight2),
+                      // For an LL test, add -2 as the very initial "carry in"
+                      // We'd normally use logical &&, but the compiler whines with warning and bitwise fixes it
+                      (LL & (i == 0) & (line==0) & (me == 0)) ? -2 : 0, &roundMax, &carry[i], biglit0, biglit1, &carryMax);
   }
 
 #if ROE
