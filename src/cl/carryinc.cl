@@ -31,3 +31,14 @@ Word2 OVERLOAD weightAndCarryPair(T2 u, T2 invWeight, i64 inCarry, float* maxROE
   *carryMax = max(*carryMax, max(boundCarry(midCarry), boundCarry(*outCarry)));
   return (Word2) (a, b);
 }
+
+// Like weightAndCarryPair except that a strictly accuracy calculation of the first carry is not required.
+Word2 OVERLOAD weightAndCarryPairSloppy(T2 u, T2 invWeight, i64 inCarry, float* maxROE, iCARRY *outCarry, bool b1, bool b2, float* carryMax) {
+  iCARRY midCarry;
+  i64 tmp1 = weightAndCarryOne(u.x, invWeight.x, inCarry, maxROE, sizeof(midCarry) == 4);
+  Word a = carryStepSloppy(tmp1, &midCarry, b1);
+  i64 tmp2 = weightAndCarryOne(u.y, invWeight.y, midCarry, maxROE, sizeof(midCarry) == 4);
+  Word b = carryStep(tmp2, outCarry, b2);
+  *carryMax = max(*carryMax, max(boundCarry(midCarry), boundCarry(*outCarry)));
+  return (Word2) (a, b);
+}
