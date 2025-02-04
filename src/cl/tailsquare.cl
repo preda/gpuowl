@@ -26,16 +26,17 @@ void onePairSq(T2* pa, T2* pb, T2 conjugate_t_squared) {
   T2 a = *pa;
   T2 b = *pb;
 
+//  X2conjb(a, b);
+//  *pb = mul2(cmul(a, b));
+//  *pa = csqa(a, cmul(csq(b), conjugate_t_squared));
+//  X2conja(*pa, *pb);
+
+  // Less readable version of the above that saves one complex add by using FMA instructions
   X2conjb(a, b);
-
-  T2 tmp = a;
-  a = csqa(a, cmul(csq(b), conjugate_t_squared));
-  b = 2 * cmul(tmp, b);
-
-  X2conja(a, b);
-
-  *pa = a;
-  *pb = b;
+  T2 minusnewb = mulminus2(cmul(a, b));                          // -newb = -2ab
+  *pb = csqa(a, cfma(csq(b), conjugate_t_squared, minusnewb));   // final b = newa - newb = a^2 + (bt')^2 - newb
+  (*pa).x = fma(-2.0, minusnewb.x, (*pb).x);                     // final a = newa + newb = finalb + 2 * newb
+  (*pa).y = fma(2.0, minusnewb.y, -(*pb).y);                     // conjugate(final a)
 }
 
 void pairSq(u32 N, T2 *u, T2 *v, T2 base_squared, bool special) {
