@@ -169,7 +169,7 @@ template<> LLState Saver<LLState>::initState() {
 // ---- Saver ----
 
 template<typename State>
-Saver<State>::Saver(u32 exponent, u32 blockSize, u32 nSavefiles) :
+Saver<State>::Saver(u32 exponent, u32 blockSize, u32 nSavefiles, u32 instance) :
   exponent{exponent},
   blockSize{blockSize},
   prefix{to_string(exponent) + '-'},
@@ -177,9 +177,11 @@ Saver<State>::Saver(u32 exponent, u32 blockSize, u32 nSavefiles) :
 {
   assert(blockSize && (blockSize % 100 == 0) && (10'000 % blockSize == 0));
 
+  fs::path worker = "worker-" + to_string(instance);
+
   base = std::is_same_v<State, PRPState> ?
-        fs::current_path() / to_string(exponent)
-      : fs::current_path() / (string(State::KIND) + '-' + to_string(exponent));
+        fs::current_path() / worker / to_string(exponent)
+      : fs::current_path() / worker / (string(State::KIND) + '-' + to_string(exponent));
 
   if (!fs::exists(base)) { fs::create_directories(base); }
 }
@@ -188,11 +190,12 @@ template<typename State>
 Saver<State>::~Saver() = default;
 
 template<typename State>
-void Saver<State>::clear(u32 exponent) {
+void Saver<State>::clear(u32 exponent, u32 instance) {
   error_code dummy;
+  fs::path worker = "worker-" + to_string(instance);
   fs::path base = std::is_same_v<State, PRPState> ?
-        fs::current_path() / to_string(exponent)
-      : fs::current_path() / (string(State::KIND) + '-' + to_string(exponent));
+        fs::current_path() / worker / to_string(exponent)
+      : fs::current_path() / worker / (string(State::KIND) + '-' + to_string(exponent));
   fs::remove_all(base, dummy);
 }
 
