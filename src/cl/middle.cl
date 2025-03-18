@@ -16,30 +16,22 @@
 #define OUT_SIZEX 16
 #endif
 
-// Let user control whether padding is enabled with -use PAD=0 or -use PAD=1.
-// The default is padding is on for AMD GPUs and off for others.
-// I do not know the correct setting for Intel BattleMage and I only have data on one nVidia GPU - the Titan V.
+// The default is padding of 256 bytes for AMD GPUs, no padding otherwise.
 #if !defined(PAD)
 #if AMDGPU
-#define PAD  1
+#define PAD  256
 #else
 #define PAD  0
 #endif
 #endif
-   
-// Padding parameters we may want to let user tune.  WIDTH other than 512 and 1K is untested.  SMALL_HEIGHT other than 256 and 512 is untested.
-#if PAD
-#define PADDING 1                                       // Prefer padding to avoid bad strides
-#define MIDDLE_IN_LDS_TRANSPOSE (IN_WG >= 128)          // Radeon VII likes LDS transpose for larger workgroups
-#define MIDDLE_OUT_LDS_TRANSPOSE (OUT_WG >= 128)        // Radeon VII likes LDS transpose for larger workgroups
-#define PAD_SIZE 16                                     // Radeon VII likes 16 T2 values = 256 bytes 
+#define PAD_SIZE (PAD/16)          // Convert padding amount from bytes to number of T2 values
 
-// nVidia Titan V sees no padding benefit, likes LDS transposes
-#else
-#define PADDING 0                                       // Don't prefer padding to avoid bad strides
-#define MIDDLE_IN_LDS_TRANSPOSE 1                       // nVidia likes LDS transpose
-#define MIDDLE_OUT_LDS_TRANSPOSE 1                      // nVidia likes LDS transpose
-#define PAD_SIZE 8                                      // nVidia documentation indicates 8 T2 values = 128 bytes ought to be best if we ever turn padding on
+// The default setting for LDS transpose is on.  Only Intel battlemage is reported as faster without LDS transpose.
+#if !defined(MIDDLE_IN_LDS_TRANSPOSE)
+#define MIDDLE_IN_LDS_TRANSPOSE  1
+#endif
+#if !defined(MIDDLE_OUT_LDS_TRANSPOSE)
+#define MIDDLE_OUT_LDS_TRANSPOSE 1
 #endif
 
 //****************************************************************************************
@@ -59,7 +51,7 @@
 //      y         ranges 0...SMALL_HEIGHT-1 (multiples of one)
 
 void writeCarryFusedLine(T2 *u, P(T2) out, u32 line) {
-#if PADDING
+#if PAD_SIZE > 0
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
   out += line * WIDTH + line * PAD_SIZE + line / SMALL_HEIGHT * BIG_PAD_SIZE + (u32) get_local_id(0); // One pad every line + a big pad every SMALL_HEIGHT lines
   for (u32 i = 0; i < NW; ++i) { NTSTORE(out[i * G_W], u[i]); }
@@ -70,7 +62,7 @@ void writeCarryFusedLine(T2 *u, P(T2) out, u32 line) {
 }
 
 void readMiddleInLine(T2 *u, CP(T2) in, u32 y, u32 x) {
-#if PADDING
+#if PAD_SIZE > 0
   // Each work group reads successive y's which increments by one pad size.
   // Rather than having u[i] also increment by one, we choose a larger pad increment
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
@@ -100,7 +92,7 @@ void writeMiddleInLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
   //u32 num_x_chunks = WIDTH / IN_SIZEX;                // Number of x chunks
   //u32 num_y_chunks = SMALL_HEIGHT / SIZEY;            // Number of y chunks
 
-#if PADDING
+#if PAD_SIZE > 0
 
   u32 SIZEY = IN_WG / IN_SIZEX;
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
@@ -116,7 +108,7 @@ void writeMiddleInLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
 
 #else
 
-  // Output data such that readCarryFused lines are packed tightly together.  No rotations or padding.
+  // Output data such that readCarryFused lines are packed tightly together.  No padding.
   out += chunk_y * MIDDLE * IN_WG +                     // Write y chunks after middles
          chunk_x * MIDDLE * SMALL_HEIGHT * IN_SIZEX;    // num_y_chunks * IN_WG = SMALL_HEIGHT / SIZEY * MIDDLE * IN_WG
                                                         //                       = MIDDLE * SMALL_HEIGHT / (IN_WG / IN_SIZEX) * IN_WG
@@ -132,7 +124,7 @@ void writeMiddleInLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
 void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 me) {
   u32 SIZEY = IN_WG / IN_SIZEX;
 
-#if PADDING
+#if PAD_SIZE > 0
 
   // Adjust in pointer based on the x value used in writeMiddleInLine
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
@@ -205,7 +197,7 @@ void readTailFusedLine(CP(T2) in, T2 *u, u32 line, u32 me) {
 //      y         ranges 0...WIDTH-1 (multiples of BIG_HEIGHT)          (processed in batches of OUT_WG/OUT_SIZEX)
 
 void writeTailFusedLine(T2 *u, P(T2) out, u32 line, u32 me) {
-#if PADDING
+#if PAD_SIZE > 0
 #if MIDDLE == 4 || MIDDLE == 8 || MIDDLE == 16
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
   out += line * (SMALL_HEIGHT + PAD_SIZE) + line / MIDDLE * BIG_PAD_SIZE + me; // Pad every output line plus every MIDDLE
@@ -213,14 +205,14 @@ void writeTailFusedLine(T2 *u, P(T2) out, u32 line, u32 me) {
   out += line * (SMALL_HEIGHT + PAD_SIZE) + me;                         // Pad every output line
 #endif
   for (u32 i = 0; i < NH; ++i) { NTSTORE(out[i * G_H], u[i]); }
-#else                                                                   // No padding, might be better on nVidia cards
+#else                                                                   // No padding
   out += line * SMALL_HEIGHT + me;
   for (u32 i = 0; i < NH; ++i) { NTSTORE(out[i * G_H], u[i]); }
 #endif
 }
 
 void readMiddleOutLine(T2 *u, CP(T2) in, u32 y, u32 x) {
-#if PADDING
+#if PAD_SIZE > 0
 #if MIDDLE == 4 || MIDDLE == 8 || MIDDLE == 16
   // Each u[i] increments by one pad size.
   // Rather than each work group reading successive y's also increment by one, we choose a larger pad increment.
@@ -268,12 +260,12 @@ void readMiddleOutLine(T2 *u, CP(T2) in, u32 y, u32 x) {
 // or b) output the next set of x values (readCarryFused lines are spread out over a greater area) or c) the MIDDLE lines for sequential writes.
 // In our example, readCarryFusedLine will read from WIDTH/8=128 different 2KB chunks.  128 2KB strides sounds scary to me.  To get a variety of
 // strides we can rotate data within 2KB chunks or use a small padding less than 2KB.  A GPU is likely to prefer 128, 256, or 512 byte reads -- this
-// limits the number of rotation/padding options in a 2KB chunk to 16, 8, or just 4.  If we go with option (b) or (c) we can rotate data over a larger
+// limits the number of padding options in a 2KB chunk to 16, 8, or just 4.  If we go with option (b) or (c) we can rotate data over a larger
 // area, but that is of no benefit as the stride will still be some multiple of 2KB.  If there are other bad stride values, (e.g. some CPUs don't like
 // 64KB strides) that could impact our decision here (e.g. option (c) with MIDDLE=16 would result in a 32KB stride).
 //
 // If we output all MIDDLE i values after the x and y values, there will be a huge power-of-two stride between these writes.
-// This is a problem on Radeon VII.  Another rotation or padding would be necessary.
+// This is a problem on Radeon VII.  Another padding is necessary.
 //
 // After experimentation, we've chosen to output the MIDDLE values next with padding (padding is simpler code than rotation).
 // Other options are workable with no measurable degradation in performance.
@@ -288,7 +280,7 @@ void writeMiddleOutLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
   //u32 num_x_chunks = SMALL_HEIGHT / OUT_SIZEX;  // Number of x chunks
   //u32 num_y_chunks = WIDTH / SIZEY;             // Number of y chunks
 
-#if PADDING
+#if PAD_SIZE > 0
 
   u32 SIZEY = OUT_WG / OUT_SIZEX;
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;
@@ -303,7 +295,7 @@ void writeMiddleOutLine (P(T2) out, T2 *u, u32 chunk_y, u32 chunk_x)
 
 #else
 
-  // Output data such that readCarryFused lines are packed tightly together.  No rotations or padding.
+  // Output data such that readCarryFused lines are packed tightly together.  No padding.
   out += chunk_y * MIDDLE * OUT_WG +             // Write y chunks after middles
          chunk_x * MIDDLE * WIDTH * OUT_SIZEX;   // num_y_chunks * OUT_WG = WIDTH / SIZEY * MIDDLE * OUT_WG
                                         //                       = MIDDLE * WIDTH / (OUT_WG / OUT_SIZEX) * OUT_WG
@@ -319,7 +311,7 @@ void readCarryFusedLine(CP(T2) in, T2 *u, u32 line) {
   u32 me = get_local_id(0);
   u32 SIZEY = OUT_WG / OUT_SIZEX;
 
-#if PADDING
+#if PAD_SIZE > 0
 
   // Adjust in pointer based on the x value used in writeMiddleOutLine
   u32 BIG_PAD_SIZE = (PAD_SIZE/2+1)*PAD_SIZE;

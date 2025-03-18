@@ -184,8 +184,12 @@ named "config.txt" in the prpll run directory.
                      3 = double wide, two kernels
   -use TAIL_TRIGS=<val> : change how tailSquare computes final trig values according to <val>:
                      2 = calculate from scratch, no memory read
-		     1 = calculate using one complex multiply from cached memory and uncached memory
-		     0 = read trig values from memory
+                     1 = calculate using one complex multiply from cached memory and uncached memory
+                     0 = read trig values from memory
+  -use PAD=<val>   : insert pad bytes to possibly improve memory access patterns.  Val is number bytes to pad.
+  -use MIDDLE_IN_LDS_TRANSPOSE=0|1  : Transpose values in local memory before writing to global memory
+  -use MIDDLE_OUT_LDS_TRANSPOSE=0|1 : Transpose values in local memory before writing to global memory
+
   -use DEBUG       : enable asserts in OpenCL kernels (slow, developers)
 
 -tune              : measures the speed of the FFTs specified in -fft <spec> to find the best FFT for each exponent.
