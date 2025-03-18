@@ -185,7 +185,7 @@ constexpr bool isInList(const string& s, initializer_list<string> list) {
 }
 
 string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<KeyVal>& extraConf, u32 E, bool doLog,
-                 bool &tail_single_wide, bool &tail_single_kernel) {
+                 bool &tail_single_wide, bool &tail_single_kernel, u32 &tail_trigs) {
   map<string, string> config;
 
   // Highest priority is the requested "extra" conf
@@ -201,7 +201,8 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   }
 
   // Default value for -use options that must also be parsed in C++ code
-  tail_single_wide = 0, tail_single_kernel = 0;        // Default tailSquare is double-wide with two kernels
+  tail_single_wide = 0, tail_single_kernel = 0;         // Default tailSquare is double-wide with two kernels
+  tail_trigs = 2;                                       // Default to calculating from scratch, no memory accesses
 
   // Validate -use options
   for (const auto& [k, v] : config) {
@@ -221,7 +222,8 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "BIGLIT",
                               "NONTEMPORAL",
                               "PAD",
-                              "TAIL_KERNELS"
+                              "TAIL_KERNELS",
+                              "TAIL_TRIGS"
                             });
     if (!isValid) {
       log("Warning: unrecognized -use key '%s'\n", k.c_str());
@@ -234,6 +236,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
       if (atoi(v.c_str()) == 2) tail_single_wide = 0, tail_single_kernel = 1;
       if (atoi(v.c_str()) == 3) tail_single_wide = 0, tail_single_kernel = 0;
     }
+    if (k == "TAIL_TRIGS") tail_trigs = atoi(v.c_str());
   }
 
   string defines = toDefine(config);
@@ -396,7 +399,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   nH(fft.shape.nH()),
   bufSize(N * sizeof(double)),
   useLongCarry{args.carry == Args::CARRY_LONG},
-  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, extraConf, E, logFftSize, tail_single_wide, tail_single_kernel)},
+  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, extraConf, E, logFftSize, tail_single_wide, tail_single_kernel, tail_trigs)},
 
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 
@@ -454,7 +457,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
 #undef K
 
   bufTrigW{shared.bufCache->smallTrig(WIDTH, nW)},
-  bufTrigH{shared.bufCache->smallTrigCombo(WIDTH, fft.shape.middle, SMALL_H, nH, fft.variant, tail_single_wide)},
+  bufTrigH{shared.bufCache->smallTrigCombo(WIDTH, fft.shape.middle, SMALL_H, nH, fft.variant, tail_single_wide, tail_trigs)},
   bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H, WIDTH)},
 
   weights{genWeights(E, WIDTH, BIG_H, nW, isAmdGpu(q->context->deviceId()))},

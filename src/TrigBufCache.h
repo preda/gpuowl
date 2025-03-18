@@ -43,7 +43,7 @@ public:
   ~TrigBufCache();
 
   TrigPtr smallTrig(u32 W, u32 nW);
-  TrigPtr smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 variant, bool tail_single_wide);
+  TrigPtr smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 variant, bool tail_single_wide, u32 tail_trigs);
   TrigPtr middleTrig(u32 SMALL_H, u32 MIDDLE, u32 W);
 };
 

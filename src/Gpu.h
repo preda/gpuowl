@@ -155,7 +155,8 @@ private:
   // Copy of some -use options needed for Kernel, Trig, and Weights initialization
   bool tail_single_wide;
   bool tail_single_kernel;
-  
+  u32 tail_trigs;
+
   // Twiddles: trigonometry constant buffers, used in FFTs.
   // The twiddles depend only on FFT config and do not depend on the exponent.
   TrigPtr bufTrigW;

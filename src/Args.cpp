@@ -176,12 +176,16 @@ named "config.txt" in the prpll run directory.
                      1 = CarryFused
                      2 = CarryFusedMul
                      4 = CarryA
-	             8 = CarryMul
+                     8 = CarryMul
   -use TAIL_KERNELS=<val> : change how tailSquare operates according to <val>:
-		     0 = single wide, single kernel
-		     1 = single wide, two kernels
-		     2 = double wide, single kernel
-		     3 = double wide, two kernels
+                     0 = single wide, single kernel
+                     1 = single wide, two kernels
+                     2 = double wide, single kernel
+                     3 = double wide, two kernels
+  -use TAIL_TRIGS=<val> : change how tailSquare computes final trig values according to <val>:
+                     2 = calculate from scratch, no memory read
+		     1 = calculate using one complex multiply from cached memory and uncached memory
+		     0 = read trig values from memory
   -use DEBUG       : enable asserts in OpenCL kernels (slow, developers)
 
 -tune              : measures the speed of the FFTs specified in -fft <spec> to find the best FFT for each exponent.

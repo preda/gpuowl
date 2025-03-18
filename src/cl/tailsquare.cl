@@ -4,9 +4,13 @@
 #include "trig.cl"
 #include "fftheight.cl"
 
-//#define PREFER_DP_TO_MEM        2       // Excellent DP GPU such as Titan V or Radeon VII Pro.
-#define PREFER_DP_TO_MEM      1       // Good DP GPU.  Tuned for Radeon VII.
-//#define PREFER_DP_TO_MEM      0       // Poor DP GPU.  A typical consumer grade GPU.
+// TAIL_TRIGS setting:
+//      2 = No memory accesses, trig values computed from scratch.  Good for excellent DP GPUs such as Titan V or Radeon VII Pro.
+//      1 = Limited memory accesses and some DP computation.  Tuned for Radeon VII a GPU with good DP performance.
+//      0 = No DP computation.  Trig vaules read from memory.  Good for GPUs with poor DP performance (a typical consumer grade GPU).
+#if !defined(TAIL_TRIGS)
+#define TAIL_TRIGS      2                         // Default is compute trig values from scratch
+#endif
 
 // TAIL_KERNELS setting:
 //      0 = single wide, single kernel
@@ -136,11 +140,11 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   fft_HEIGHT(lds, v, smallTrig, w);
 
   // Compute trig values from scratch.  Good on GPUs with high DP throughput.
-#if PREFER_DP_TO_MEM >= 2
+#if TAIL_TRIGS == 2
   T2 trig = slowTrig_N(line1 + me * H, ND / NH);
 
   // Do a little bit of memory access and a little bit of DP math.  Good on a Radeon VII.
-#elif PREFER_DP_TO_MEM == 1
+#elif TAIL_TRIGS == 1
   // Calculate number of trig values used by fft_HEIGHT (see genSmallTrigCombo in trigBufCache.cpp)
   // The trig values used here are pre-computed and stored after the fft_HEIGHT trig values.
   u32 height_trigs = SMALL_HEIGHT*5;
@@ -247,11 +251,11 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   new_fft_HEIGHT2_1(lds, u, smallTrig, w);
 
   // Compute trig values from scratch.  Good on GPUs with high DP throughput.
-#if PREFER_DP_TO_MEM >= 2
+#if TAIL_TRIGS == 2
   T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
 
   // Do a little bit of memory access and a little bit of DP math.  Good on a Radeon VII.
-#elif PREFER_DP_TO_MEM == 1
+#elif TAIL_TRIGS == 1
   // Calculate number of trig values used by fft_HEIGHT (see genSmallTrigCombo in trigBufCache.cpp)
   // The trig values used here are pre-computed and stored after the fft_HEIGHT trig values.
   u32 height_trigs = SMALL_HEIGHT*5;
