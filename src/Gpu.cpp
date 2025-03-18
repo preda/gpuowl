@@ -185,7 +185,7 @@ constexpr bool isInList(const string& s, initializer_list<string> list) {
 }
 
 string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<KeyVal>& extraConf, u32 E, bool doLog,
-                 bool &tail_single_wide, bool &tail_single_kernel, u32 &tail_trigs) {
+                 bool &tail_single_wide, bool &tail_single_kernel, u32 &tail_trigs, u32 &pad_size) {
   map<string, string> config;
 
   // Highest priority is the requested "extra" conf
@@ -202,7 +202,8 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
 
   // Default value for -use options that must also be parsed in C++ code
   tail_single_wide = 0, tail_single_kernel = 0;         // Default tailSquare is double-wide with two kernels
-  tail_trigs = 2;                                       // Default to calculating from scratch, no memory accesses
+  tail_trigs = 2;                                       // Default is calculating from scratch, no memory accesses
+  pad_size = 16;                                        // Default is 16 T2 values = 256 bytes
 
   // Validate -use options
   for (const auto& [k, v] : config) {
@@ -237,6 +238,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
       if (atoi(v.c_str()) == 3) tail_single_wide = 0, tail_single_kernel = 0;
     }
     if (k == "TAIL_TRIGS") tail_trigs = atoi(v.c_str());
+    if (k == "PAD") pad_size = atoi(v.c_str());
   }
 
   string defines = toDefine(config);
@@ -399,7 +401,8 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   nH(fft.shape.nH()),
   bufSize(N * sizeof(double)),
   useLongCarry{args.carry == Args::CARRY_LONG},
-  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, extraConf, E, logFftSize, tail_single_wide, tail_single_kernel, tail_trigs)},
+  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, extraConf, E, logFftSize,
+                                           tail_single_wide, tail_single_kernel, tail_trigs, pad_size)},
 
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 
@@ -484,9 +487,11 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   BUF(bufROE, ROE_SIZE),
   BUF(bufStatsCarry, CARRY_SIZE),
 
-  BUF(buf1, N + N/4),           // Let's us play with padding instead of rotating.  Need to calculate actual cost of padding
-  BUF(buf2, N + N/4),
-  BUF(buf3, N + N/4),
+  // Allocate extra for padding.  We can probably tighten up the amount of extra memory allocated.
+  #define total_padding   ((pad_size == 0 ? 0 : (pad_size <= 128 ? N/8 : (pad_size <= 256 ? N/4 : N/2))))
+  BUF(buf1, N + total_padding),
+  BUF(buf2, N + total_padding),
+  BUF(buf3, N + total_padding),
 #undef BUF
 
   statsBits{u32(args.value("STATS", 0))},

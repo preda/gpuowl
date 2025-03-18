@@ -153,16 +153,17 @@ private:
   // Kernel testKernel;
 
   // Copy of some -use options needed for Kernel, Trig, and Weights initialization
-  bool tail_single_wide;
-  bool tail_single_kernel;
-  u32 tail_trigs;
+  bool tail_single_wide;                // TailSquare processes one line at a time
+  bool tail_single_kernel;              // TailSquare does not use a separate kernel for line zero
+  u32 tail_trigs;                       // 0,1,2.  Increasing values use more DP and less memory accesses
+  u32 pad_size;                         // Pad size in bytes
 
   // Twiddles: trigonometry constant buffers, used in FFTs.
   // The twiddles depend only on FFT config and do not depend on the exponent.
   TrigPtr bufTrigW;
   TrigPtr bufTrigH;
   TrigPtr bufTrigM;
-  
+
   Weights weights;
 
   // The weights and the "bigWord bits" depend on the exponent.
@@ -180,7 +181,7 @@ private:
 
   // Carry buffers, used in carry and fusedCarry.
   Buffer<i64> bufCarry;  // Carry shuttle.
-  
+
   Buffer<int> bufReady;  // Per-group ready flag for stairway carry propagation.
 
   // Small aux buffers.
