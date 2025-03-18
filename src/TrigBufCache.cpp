@@ -5,14 +5,9 @@
 // Trial balloon.  I'm hoping we can create one #define that indicates a GPU's preference for doing extra DP work in exchange for
 // less memory accesses.  I can envision a Titan V (slow memory, 1:2 SP:DP ratio) setting this value to a high value, whereas a
 // consumer grade nVidia GPU with 1:32 or 1:64 SP:DP ratio would set this to zero.
-#define PREFER_DP_TO_MEM        2               // Excellent DP GPU such as Titan V or Radeon VII Pro.
-//#define PREFER_DP_TO_MEM      1               // Good DP GPU.  Tuned for Radeon VII.
+//#define PREFER_DP_TO_MEM        2               // Excellent DP GPU such as Titan V or Radeon VII Pro.
+#define PREFER_DP_TO_MEM      1               // Good DP GPU.  Tuned for Radeon VII.
 //#define PREFER_DP_TO_MEM      0               // Poor DP GPU.  A typical consumer grade GPU.
-
-// Klunky defines for single-wide vs. double-wide tailSquare
-// Clean this up once we determine which options to make user visible
-#define SINGLE_WIDE             0       // Old single-wide tailSquare vs. new double-wide tailSquare
-#define SINGLE_KERNEL           0       // Implement tailSquare in a single kernel vs. two kernels
 
 #define SAVE_ONE_MORE_WIDTH_MUL  0      // I want to make saving the only option -- but rocm optimizer is inexplicably making it slower in carryfused
 #define SAVE_ONE_MORE_HEIGHT_MUL 1      // In tailSquar this is the fastest option
@@ -233,7 +228,7 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
 }
 
 // Generate the small trig values for fft_HEIGHT plus optionally trig values used in pairSq.
-vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
+vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix, bool tail_single_wide) {
   if (LOG_TRIG_ALLOC) { log("genSmallTrigCombo(%u, %u)\n", size, radix); }
 
   vector<double2> tab = genSmallTrig(size, radix);
@@ -249,12 +244,12 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix) {
   // Output the one or two T2 multipliers to be read by one u,v pair of lines
   for (u32 line = 0; line < width * middle / 2; ++line) {
     tab.push_back(root1Fancy(width * middle * height, line));
-    if (!SINGLE_WIDE) tab.push_back(root1Fancy(width * middle * height, width * middle - line));
+    if (!tail_single_wide) tab.push_back(root1Fancy(width * middle * height, width * middle - line));
   }
 #else
   u32 height = size;
   for (u32 u = 0; u < width * middle / 2; ++u) {
-    for (u32 v = 0; v < (SINGLE_WIDE ? 1 : 2); ++v) {
+    for (u32 v = 0; v < (tail_single_wide ? 1 : 2); ++v) {
       u32 line = (v == 0) ? u : width * middle - u;
       for (u32 me = 0; me < height / radix; ++me) {
         tab.push_back(root1(width * middle * height, line + width * middle * me));
@@ -306,7 +301,7 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   return p;
 }
 
-TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 variant) {
+TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 variant, bool tail_single_wide) {
 #if PREFER_DP_TO_MEM == 2             // No pre-computed trig values.  We might be able to share this trig table with fft_WIDTH
   return smallTrig(W, nW);
 #endif
@@ -320,7 +315,7 @@ TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 v
   TrigPtr p{};
   auto it = m.find(key1);
   if (it == m.end() || !(p = it->second.lock())) {
-    p = make_shared<TrigBuf>(context, genSmallTrigCombo(width, middle, W, nW));
+    p = make_shared<TrigBuf>(context, genSmallTrigCombo(width, middle, W, nW, tail_single_wide));
     m[key1] = p;
     m[key2] = p;
     smallCache.add(p);

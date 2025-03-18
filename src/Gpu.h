@@ -20,11 +20,6 @@
 #include <filesystem>
 #include <cmath>
 
-// Klunky defines for single-wide vs. double-wide tailSquare
-// Clean this up once we determine which options to make user visible
-#define SINGLE_WIDE             0       // Old single-wide tailSquare vs. new double-wide tailSquare
-#define SINGLE_KERNEL           0       // Implement tailSquare in a single kernel vs. two kernels
-
 struct PRPResult;
 struct Task;
 
@@ -157,6 +152,10 @@ private:
 
   // Kernel testKernel;
 
+  // Copy of some -use options needed for Kernel, Trig, and Weights initialization
+  bool tail_single_wide;
+  bool tail_single_kernel;
+  
   // Twiddles: trigonometry constant buffers, used in FFTs.
   // The twiddles depend only on FFT config and do not depend on the exponent.
   TrigPtr bufTrigW;
