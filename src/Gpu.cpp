@@ -184,7 +184,8 @@ constexpr bool isInList(const string& s, initializer_list<string> list) {
   return false;
 }
 
-string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<KeyVal>& extraConf, u32 E, bool doLog) {
+string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<KeyVal>& extraConf, u32 E, bool doLog,
+                 bool &tail_single_wide, bool &tail_single_kernel) {
   map<string, string> config;
 
   // Highest priority is the requested "extra" conf
@@ -199,6 +200,10 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
     config.insert(it->second.begin(), it->second.end());
   }
 
+  // Default value for -use options that must also be parsed in C++ code
+  tail_single_wide = 0, tail_single_kernel = 0;        // Default tailSquare is double-wide with two kernels
+
+  // Validate -use options
   for (const auto& [k, v] : config) {
     bool isValid = isInList(k, {
                               "FAST_BARRIER",
@@ -215,10 +220,19 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "BCAST",
                               "BIGLIT",
                               "NONTEMPORAL",
-                              "PAD"
+                              "PAD",
+                              "TAIL_KERNELS"
                             });
     if (!isValid) {
       log("Warning: unrecognized -use key '%s'\n", k.c_str());
+    }
+
+    // Some -use options are needed in both OpenCL code and C++ initialization code
+    if (k == "TAIL_KERNELS") {
+      if (atoi(v.c_str()) == 0) tail_single_wide = 1, tail_single_kernel = 1;
+      if (atoi(v.c_str()) == 1) tail_single_wide = 1, tail_single_kernel = 0;
+      if (atoi(v.c_str()) == 2) tail_single_wide = 0, tail_single_kernel = 1;
+      if (atoi(v.c_str()) == 3) tail_single_wide = 0, tail_single_kernel = 0;
     }
   }
 
@@ -382,8 +396,8 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   nH(fft.shape.nH()),
   bufSize(N * sizeof(double)),
   useLongCarry{args.carry == Args::CARRY_LONG},
-  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, extraConf, E, logFftSize)},
-  
+  compiler{args, queue->context, clDefines(args, queue->context->deviceId(), fft, extraConf, E, logFftSize, tail_single_wide, tail_single_kernel)},
+
 #define K(name, ...) name(#name, &compiler, profile.make(#name), queue, __VA_ARGS__)
 
   //  W / nW
@@ -410,20 +424,10 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   // SMALL_H / nH
   K(fftHin,  "ffthin.cl",  "fftHin",  hN / nH),
   K(tailSquareZero, "tailsquare.cl", "tailSquareZero", SMALL_H / nH * 2),
-
-#if !SINGLE_WIDE && !SINGLE_KERNEL
-  // Double-wide tailSquare with two kernels
-  K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH - SMALL_H / nH * 2),
-#elif !SINGLE_WIDE   
-  // Double-wide tailSquare with one kernel
-  K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH),
-#elif !SINGLE_KERNEL
-  // Single-wide tailSquare with two kernels
-  K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH / 2 - SMALL_H / nH),
-#else
-  // Single-wide tailSquare with one kernel
-  K(tailSquare,    "tailsquare.cl", "tailSquare", hN / nH / 2),
-#endif
+  K(tailSquare, "tailsquare.cl", "tailSquare", !tail_single_wide && !tail_single_kernel ? hN / nH - SMALL_H / nH * 2 : // Double-wide tailSquare with two kernels
+                                               !tail_single_wide ? hN / nH :                                           // Double-wide tailSquare with one kernel
+                                               !tail_single_kernel ? hN / nH / 2 - SMALL_H / nH :                      // Single-wide tailSquare with two kernels
+                                               hN / nH / 2),                                                           // Single-wide tailSquare with one kernel
 
   K(tailMul,       "tailmul.cl", "tailMul",       hN / nH / 2),
   K(tailMulLow,    "tailmul.cl", "tailMul",       hN / nH / 2, "-DMUL_LOW=1"),
@@ -450,7 +454,7 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
 #undef K
 
   bufTrigW{shared.bufCache->smallTrig(WIDTH, nW)},
-  bufTrigH{shared.bufCache->smallTrigCombo(WIDTH, fft.shape.middle, SMALL_H, nH, fft.variant)},
+  bufTrigH{shared.bufCache->smallTrigCombo(WIDTH, fft.shape.middle, SMALL_H, nH, fft.variant, tail_single_wide)},
   bufTrigM{shared.bufCache->middleTrig(SMALL_H, BIG_H / SMALL_H, WIDTH)},
 
   weights{genWeights(E, WIDTH, BIG_H, nW, isAmdGpu(q->context->deviceId()))},
@@ -833,9 +837,7 @@ static bool testBit(u64 x, int bit) { return x & (u64(1) << bit); }
 
 void Gpu::bottomHalf(Buffer<double>& out, Buffer<double>& inTmp) {
   fftMidIn(out, inTmp);
-#if !SINGLE_KERNEL
-  tailSquareZero(inTmp, out);
-#endif
+  if (!tail_single_kernel) tailSquareZero(inTmp, out);
   tailSquare(inTmp, out);
   fftMidOut(out, inTmp);
 }

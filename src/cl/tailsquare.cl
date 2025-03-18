@@ -4,14 +4,20 @@
 #include "trig.cl"
 #include "fftheight.cl"
 
-#define PREFER_DP_TO_MEM        2       // Excellent DP GPU such as Titan V or Radeon VII Pro.
-//#define PREFER_DP_TO_MEM      1       // Good DP GPU.  Tuned for Radeon VII.
+//#define PREFER_DP_TO_MEM        2       // Excellent DP GPU such as Titan V or Radeon VII Pro.
+#define PREFER_DP_TO_MEM      1       // Good DP GPU.  Tuned for Radeon VII.
 //#define PREFER_DP_TO_MEM      0       // Poor DP GPU.  A typical consumer grade GPU.
 
-#if !defined(SINGLE_WIDE)
-#define SINGLE_WIDE             0       // Old single-wide tailSquare vs. new double-wide tailSquare
+// TAIL_KERNELS setting:
+//      0 = single wide, single kernel
+//      1 = single wide, two kernels
+//      2 = double wide, single kernel
+//      3 = double wide, two kernels
+#if !defined(TAIL_KERNELS)
+#define TAIL_KERNELS    3                         // Default is double-wide tailSquare with two kernels
 #endif
-#define SINGLE_KERNEL           0       // Implement tailSquare in a single kernel vs. two kernels
+#define SINGLE_WIDE     TAIL_KERNELS < 2          // Old single-wide tailSquare vs. new double-wide tailSquare
+#define SINGLE_KERNEL   (TAIL_KERNELS & 1) == 0   // TailSquare uses a single kernel vs. two kernels
 
 // Why does this alternate implementation work?  Let t' be the conjugate of t and note that t*t' = 1.
 // Now consider these lines from the original implementation (comments appear alongside):
@@ -129,7 +135,7 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   bar();
   fft_HEIGHT(lds, v, smallTrig, w);
 
-  // Compute trig value from scratch.  Good on GPUs with high DP throughput.
+  // Compute trig values from scratch.  Good on GPUs with high DP throughput.
 #if PREFER_DP_TO_MEM >= 2
   T2 trig = slowTrig_N(line1 + me * H, ND / NH);
 
@@ -240,7 +246,7 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
 
   new_fft_HEIGHT2_1(lds, u, smallTrig, w);
 
-  // Compute trig value from scratch.  Good on GPUs with high DP throughput.
+  // Compute trig values from scratch.  Good on GPUs with high DP throughput.
 #if PREFER_DP_TO_MEM >= 2
   T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
 

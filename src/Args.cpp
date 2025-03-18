@@ -98,7 +98,7 @@ bool Args::hasFlag(const string& key) const { return flags.find(key) != flags.en
 
 void Args::printHelp() {
   printf(R"(
-PRPLL is "PRobable Prime and Lucas-Lehmer Cathegorizer", AKA "Purrple-cat"
+PRPLL is "PRobable Prime and Lucas-Lehmer Categorizer", AKA "Purple-cat"
 PRPLL is under active development and not ready for production use.
 
 PRPLL is an OpenCL (GPU) program for primality testing Mersenne numbers (of the form 2^n - 1).
@@ -171,17 +171,17 @@ named "config.txt" in the prpll run directory.
   -use FAST_BARRIER: on AMD Radeon VII and older AMD GPUs, use a faster barrier(). Do not use
                      this option on Nvidia GPUs or on RDNA AMD GPUs where it produces errors
                      (which are nevertheless detected).
-  -use DIRTY       : dirty is faster but with less precision
-  -use TRIG_HI     : increased precision but slower (use at the upper bound of the FFT)
-  -use TAIL_TAB    : use a lookup table in the tailSquare/tailMul kernels
-
   -use NO_ASM      : do not use __asm() blocks (inline assembly)
   -use STATS=<val> : enable carry statistics collection & logging, for the kernel according to <val>:
                      1 = CarryFused
                      2 = CarryFusedMul
                      4 = CarryA
-                     8 = CarryMul
-
+	             8 = CarryMul
+  -use TAIL_KERNELS=<val> : change how tailSquare operates according to <val>:
+		     0 = single wide, single kernel
+		     1 = single wide, two kernels
+		     2 = double wide, single kernel
+		     3 = double wide, two kernels
   -use DEBUG       : enable asserts in OpenCL kernels (slow, developers)
 
 -tune              : measures the speed of the FFTs specified in -fft <spec> to find the best FFT for each exponent.
