@@ -2,13 +2,6 @@
 
 #include "TrigBufCache.h"
 
-// Trial balloon.  I'm hoping we can create one #define that indicates a GPU's preference for doing extra DP work in exchange for
-// less memory accesses.  I can envision a Titan V (slow memory, 1:2 SP:DP ratio) setting this value to a high value, whereas a
-// consumer grade nVidia GPU with 1:32 or 1:64 SP:DP ratio would set this to zero.
-//#define PREFER_DP_TO_MEM        2               // Excellent DP GPU such as Titan V or Radeon VII Pro.
-#define PREFER_DP_TO_MEM      1               // Good DP GPU.  Tuned for Radeon VII.
-//#define PREFER_DP_TO_MEM      0               // Poor DP GPU.  A typical consumer grade GPU.
-
 #define SAVE_ONE_MORE_WIDTH_MUL  0      // I want to make saving the only option -- but rocm optimizer is inexplicably making it slower in carryfused
 #define SAVE_ONE_MORE_HEIGHT_MUL 1      // In tailSquar this is the fastest option
 
@@ -210,7 +203,7 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
         // Compute cosine5 / cosine1, cosine6 / cosine2, cosine7 / cosine3
         if (radix == 8 && ((save_one_more_mul && line == 5) || line == 6 || line == 7)) { 
           divide_by = root1cos(size, grp * (col - 4*(WG/radix)));
-	}
+        }
         tab1.push_back(root1cosover(size, grp * col, divide_by));
       }
     }
@@ -228,35 +221,35 @@ vector<double2> genSmallTrig(u32 size, u32 radix) {
 }
 
 // Generate the small trig values for fft_HEIGHT plus optionally trig values used in pairSq.
-vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix, bool tail_single_wide) {
+vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix, bool tail_single_wide, u32 tail_trigs) {
   if (LOG_TRIG_ALLOC) { log("genSmallTrigCombo(%u, %u)\n", size, radix); }
 
   vector<double2> tab = genSmallTrig(size, radix);
 
   // From tailSquare pre-calculate some or all of these:  T2 trig = slowTrig_N(line + H * lowMe, ND / NH * 2);
-#if PREFER_DP_TO_MEM == 2             // No pre-computed trig values
-#elif PREFER_DP_TO_MEM == 1           // best option on a Radeon VII.
-  u32 height = size;
-  // Output line 0 trig values to be read by every u,v pair of lines
-  for (u32 me = 0; me < height / radix; ++me) {
-    tab.push_back(root1(width * middle * height, width * middle * me));
+  if (tail_trigs == 1) {          // Some trig values in memory, some are computed with a complex multiply.  Best option on a Radeon VII.
+    u32 height = size;
+    // Output line 0 trig values to be read by every u,v pair of lines
+    for (u32 me = 0; me < height / radix; ++me) {
+      tab.push_back(root1(width * middle * height, width * middle * me));
+    }
+    // Output the one or two T2 multipliers to be read by one u,v pair of lines
+    for (u32 line = 0; line < width * middle / 2; ++line) {
+      tab.push_back(root1Fancy(width * middle * height, line));
+      if (!tail_single_wide) tab.push_back(root1Fancy(width * middle * height, width * middle - line));
+    }
   }
-  // Output the one or two T2 multipliers to be read by one u,v pair of lines
-  for (u32 line = 0; line < width * middle / 2; ++line) {
-    tab.push_back(root1Fancy(width * middle * height, line));
-    if (!tail_single_wide) tab.push_back(root1Fancy(width * middle * height, width * middle - line));
-  }
-#else
-  u32 height = size;
-  for (u32 u = 0; u < width * middle / 2; ++u) {
-    for (u32 v = 0; v < (tail_single_wide ? 1 : 2); ++v) {
-      u32 line = (v == 0) ? u : width * middle - u;
-      for (u32 me = 0; me < height / radix; ++me) {
-        tab.push_back(root1(width * middle * height, line + width * middle * me));
+  if (tail_trigs == 0) {          // All trig values read from memory.  Best option for GPUs with lousy DP performance.
+    u32 height = size;
+    for (u32 u = 0; u < width * middle / 2; ++u) {
+      for (u32 v = 0; v < (tail_single_wide ? 1 : 2); ++v) {
+        u32 line = (v == 0) ? u : width * middle - u;
+        for (u32 me = 0; me < height / radix; ++me) {
+          tab.push_back(root1(width * middle * height, line + width * middle * me));
+        }
       }
     }
   }
-#endif
 
   return tab;
 }
@@ -301,10 +294,9 @@ TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   return p;
 }
 
-TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 variant, bool tail_single_wide) {
-#if PREFER_DP_TO_MEM == 2             // No pre-computed trig values.  We might be able to share this trig table with fft_WIDTH
-  return smallTrig(W, nW);
-#endif
+TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 variant, bool tail_single_wide, u32 tail_trigs) {
+  if (tail_trigs == 2)             // No pre-computed trig values.  We might be able to share this trig table with fft_WIDTH
+    return smallTrig(W, nW);
 
   lock_guard lock{mut};
   auto& m = small;
@@ -315,7 +307,7 @@ TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 v
   TrigPtr p{};
   auto it = m.find(key1);
   if (it == m.end() || !(p = it->second.lock())) {
-    p = make_shared<TrigBuf>(context, genSmallTrigCombo(width, middle, W, nW, tail_single_wide));
+    p = make_shared<TrigBuf>(context, genSmallTrigCombo(width, middle, W, nW, tail_single_wide, tail_trigs));
     m[key1] = p;
     m[key2] = p;
     smallCache.add(p);
