@@ -391,8 +391,14 @@ void Args::parse(const string& line) {
     } else if (key == "-block") {
       blockSize = stoi(s);
       if (blockSize != 1000 && blockSize != 500 && blockSize != 200) {
-        log("-block must be one of 1000, 5000, 200\n");
+        log("-block must be one of 1000, 500, 200\n");
         throw "invalid block size";
+      }
+    } else if (key == "-log") {
+      logStep = stoi(s);
+      if (logStep % 1000 != 0) {
+        log("-log must be a multiple of 1000\n");
+        throw "invalid log size";
       }
     } else if (key == "-use") {
       for (const auto& [key, val] : splitUses(s)) {

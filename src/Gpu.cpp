@@ -1394,7 +1394,6 @@ double Gpu::timePRP() {
 }
 
 PRPResult Gpu::isPrimePRP(const Task& task) {
-  const constexpr u32 LOG_STEP = 20'000; // log every 20k its
   assert(E == task.exponent);
 
   // This timer is used to measure total elapsed time to be written to the savefile.
@@ -1403,7 +1402,8 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
   u32 nErrors = 0;
   int nSeqErrors = 0;
   u64 lastFailedRes64 = 0;
-  
+  u32 logStep = args.logStep;
+
  reload:
   elapsedTimer.reset();
   u32 blockSize{}, k{};
@@ -1417,10 +1417,10 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
     elapsedBefore = state.elapsed;
   }
 
-  assert(blockSize > 0 && LOG_STEP % blockSize == 0);
+  assert(blockSize > 0 && logStep % blockSize == 0);
 
   u32 checkStep = checkStepForErrors(blockSize, nErrors);
-  assert(checkStep % LOG_STEP == 0);
+  assert(checkStep % logStep == 0);
 
   u32 power = getProofPower(k);
   
@@ -1500,7 +1500,7 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
     }
 
     bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
-    bool doLog = k % LOG_STEP == 0;
+    bool doLog = k % logStep == 0;
 
     if (!leadOut || (!doCheck && !doLog)) {
       if (k % args.flushStep == 0) { queue->finish(); }
