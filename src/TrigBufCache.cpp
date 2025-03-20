@@ -1,4 +1,4 @@
-// Copyright Mihai Preda
+ // Copyright Mihai Preda
 
 #include "TrigBufCache.h"
 
@@ -236,14 +236,14 @@ vector<double2> genSmallTrigCombo(u32 width, u32 middle, u32 size, u32 radix, bo
     // Output the one or two T2 multipliers to be read by one u,v pair of lines
     for (u32 line = 0; line < width * middle / 2; ++line) {
       tab.push_back(root1Fancy(width * middle * height, line));
-      if (!tail_single_wide) tab.push_back(root1Fancy(width * middle * height, width * middle - line));
+      if (!tail_single_wide) tab.push_back(root1Fancy(width * middle * height, line ? width * middle - line : width * middle / 2));
     }
   }
   if (tail_trigs == 0) {          // All trig values read from memory.  Best option for GPUs with lousy DP performance.
     u32 height = size;
     for (u32 u = 0; u < width * middle / 2; ++u) {
       for (u32 v = 0; v < (tail_single_wide ? 1 : 2); ++v) {
-        u32 line = (v == 0) ? u : width * middle - u;
+        u32 line = (v == 0) ? u : (u ? width * middle - u : width * middle / 2);
         for (u32 me = 0; me < height / radix; ++me) {
           tab.push_back(root1(width * middle * height, line + width * middle * me));
         }
