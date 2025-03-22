@@ -28,6 +28,14 @@ T2 conjugate(T2 a) { return U2(a.x, -a.y); }
 
 T2 cmul_by_conjugate(T2 a, T2 b) { return cmul(a, conjugate(b)); }
 
+// Multiply a by b and conjugate(b).  This saves 2 multiplies.
+void cmul_a_by_b_and_conjb(T2 *res1, T2 *res2, T2 a, T2 b) {
+  T axbx = a.x * b.x;
+  T aybx = a.y * b.x;
+  res1->x = fma(a.y, -b.y, axbx), res1->y = fma(a.x,  b.y, aybx);
+  res2->x = fma(a.y,  b.y, axbx), res2->y = fma(a.x, -b.y, aybx);
+}
+
 T2 cfma(T2 a, T2 b, T2 c) {
 #if 1
   return U2(fma(a.x, b.x, fma(a.y, -b.y, c.x)), fma(a.y, b.x, fma(a.x, b.y, c.y)));
@@ -53,6 +61,14 @@ T2 csqa(T2 a, T2 c) { return U2(fma(a.x, a.x, fma(a.y, -a.y, c.x)), fma(mul2(a.x
 // Complex a * (b + 1)
 // Useful for mul with twiddles of small angles, where the real part is stored with the -1 trick for increased precision
 T2 cmulFancy(T2 a, T2 b) { return cfma(a, b, a); }
+
+// Multiply a by fancy b and conjugate(fancy b).  This saves 2 FMAs.
+void cmul_a_by_fancyb_and_conjfancyb(T2 *res1, T2 *res2, T2 a, T2 b) {
+  T axbx = fma(a.x, b.x, a.x);
+  T aybx = fma(a.y, b.x, a.y);
+  res1->x = fma(a.y, -b.y, axbx), res1->y = fma(a.x,  b.y, aybx);
+  res2->x = fma(a.y,  b.y, axbx), res2->y = fma(a.x, -b.y, aybx);
+}
 
 // Returns complex (a + 1) * (b + 1) - 1
 T2 cmulFancyUpdate(T2 a, T2 b) { return cfma(a, b, a + b); }
