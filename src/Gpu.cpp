@@ -201,7 +201,7 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
   }
 
   // Default value for -use options that must also be parsed in C++ code
-  tail_single_wide = 0, tail_single_kernel = 0;         // Default tailSquare is double-wide with two kernels
+  tail_single_wide = 0, tail_single_kernel = 1;         // Default tailSquare is double-wide in one kernel
   tail_trigs = 2;                                       // Default is calculating from scratch, no memory accesses
   pad_size = isAmdGpu(id) ? 256 : 0;                    // Default is 256 bytes for AMD, 0 for others
 
