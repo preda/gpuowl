@@ -135,9 +135,15 @@ KERNEL(G_H) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   T2 w = slowTrig_N(ND / SMALL_HEIGHT * me, ND / NH);
 #endif
 
+#if ZEROHACK_H
+  fft_HEIGHT(lds + (get_group_id(0) / 131072), u, smallTrig + (get_group_id(0) / 131072), w);
+  bar();
+  fft_HEIGHT(lds + (get_group_id(0) / 131072), v, smallTrig + (get_group_id(0) / 131072), w);
+#else
   fft_HEIGHT(lds, u, smallTrig, w);
   bar();
   fft_HEIGHT(lds, v, smallTrig, w);
+#endif
 
   // Compute trig values from scratch.  Good on GPUs with high DP throughput.
 #if TAIL_TRIGS == 2
@@ -248,7 +254,11 @@ KERNEL(G_H * 2) tailSquare(P(T2) out, CP(T2) in, Trig smallTrig) {
   T2 w = slowTrig_N(H * lowMe, ND / NH);
 #endif
 
+#if ZEROHACK_H
+  new_fft_HEIGHT2_1(lds + (get_group_id(0) / 131072), u, smallTrig + (get_group_id(0) / 131072), w);
+#else
   new_fft_HEIGHT2_1(lds, u, smallTrig, w);
+#endif
 
   // Compute trig values from scratch.  Good on GPUs with high DP throughput.
 #if TAIL_TRIGS == 2

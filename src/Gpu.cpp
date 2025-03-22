@@ -216,6 +216,8 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "OUT_WG",
                               "UNROLL_H",
                               "UNROLL_W",
+                              "ZEROHACK_H",
+                              "ZEROHACK_W",
                               "NO_ASM",
                               "DEBUG",
                               "CARRY64",

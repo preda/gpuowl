@@ -55,10 +55,8 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 // A temporary hack until we figure out which combinations we want to finally offer:
 // UNROLL_W=0: old fft_WIDTH, no loop unrolling
 // UNROLL_W=1: old fft_WIDTH, loop unrolling
-// UNROLL_W=2: old fft_WIDTH, loop unrolling with "hidden zero" hack to thwart rocm optimizer.  I'm seeing this as best R7Pro option.
-// UNROLL_W=3: new fft_WIDTH if applicable, hidden zero hack.  Slightly better on Radeon VII -- more study needed as to why results weren't better.
-// UNROLL_W=4: new fft_WIDTH if applicable, no hidden zero hack.  Best on Titan V.
-#if UNROLL_W == 2 || UNROLL_W == 3
+// UNROLL_W=3: new fft_WIDTH if applicable.  Slightly better on Radeon VII -- more study needed as to why results weren't better.
+#if ZEROHACK_W
   new_fft_WIDTH1(lds + (get_group_id(0) / 131072), u, smallTrig + (get_group_id(0) / 131072));
 #else
   new_fft_WIDTH1(lds, u, smallTrig);
@@ -83,7 +81,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
 #define CarryShuttleAccess(me,i)        ((me) * NW + (i))                       // Generates denser global_load_dwordx4 instructions
 //#define CarryShuttleAccess(me,i)      ((me) * 4 + (i)%4 + (i)/4 * 4*G_W)      // Also generates global_load_dwordx4 instructions and unit stride when NW=8
 #else
-#define CarryShuttleAccess(me,i)        ((me) + (i) * G_W)                      // nVidia likes this better unit stride better
+#define CarryShuttleAccess(me,i)        ((me) + (i) * G_W)                      // nVidia likes this unit stride better
 #endif
 
   float roundMax = 0;
