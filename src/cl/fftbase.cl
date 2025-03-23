@@ -5,6 +5,85 @@
 #include "trig.cl"
 // #include "math.cl"
 
+void chainMul4(T2 *u, T2 w) {
+  u[1] = cmul(u[1], w);
+
+  T2 base = csqTrig(w);
+  u[2] = cmul(u[2], base);
+
+  double a = 2 * base.y;
+  base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
+  u[3] = cmul(u[3], base);
+}
+
+#if 1
+// This version of chainMul8 tries to minimize roundoff error even if more F64 ops are used.
+// Trial and error looking at Z values on a WIDTH=512 FFT was used to determine when to switch from fancy to non-fancy powers of w.
+void chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
+  u[1] = cmulFancy(u[1], w);
+
+  T2 w2;
+  // Rocm optimizer behaves weirdly. Using multiple mul2s instead of one mul2 in csqTrigFancy makes double-wide single-kernel tailSquare inexplicably slower
+  if (!tailSquareBcast) {
+    w2 = csqTrigFancy(w);
+  } else {
+    w2 = U2(mulminus2(w.y) * w.y, mul2(fma(w.x, w.y, w.y)));
+  }
+  u[2] = cmulFancy(u[2], w2);
+
+  T2 w3;
+  // Rocm optimizer behaves weirdly yet again. Using mul2 instead of 2.0* makes double-wide single-kernel tailSquare inexplicably slower
+  // even though it is one fewer F64 op.
+  if (!tailSquareBcast) {
+    w3 = ccubeTrigFancy(w2, w);
+  } else {
+    double a = 2*w2.y;
+    w3 = U2(fma(a, -w.y, w.x), fma(a, w.x, a - w.y));
+  }
+  u[3] = cmulFancy(u[3], w3);
+
+  w3.x += 1;
+  T2 base = cmulFancy (w3, w);
+  for (int i = 4; i < 8; ++i) {
+    u[i] = cmul(u[i], base);
+    base = cmulFancy(base, w);
+  }
+}
+
+#else
+// This version of chainMul8 minimizes F64 ops even if that increases roundoff error.
+// This version is faster on a Radeon 7 with worse roundoff in :0 fft spec.  The :2 fft spec is even faster with no roundoff penalty.
+// This version is the same speed on a TitanV due to its great F64 throughput.
+// This version is slower on R7Pro due to a rocm optimizer issue in double-wide single-kernel tailSquare using BCAST.  I could not find a work-around.
+// Other GPUs?  This version might be useful.
+void chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
+  u[1] = cmulFancy(u[1], w);
+
+  T2 w2 = csqTrigFancy(w);
+  u[2] = cmulFancy(u[2], w2);
+
+  T2 w3 = ccubeTrigDefancy(w2, w);
+  u[3] = cmul(u[3], w3);
+
+  T2 w4 = csqTrigDefancy(w2);
+  u[4] = cmul(u[4], w4);
+
+  T2 w6 = csqTrig(w3);
+  T2 w5, w7; cmul_a_by_fancyb_and_conjfancyb(&w7, &w5, w6, w);
+  u[5] = cmul(u[5], w5);
+  u[6] = cmul(u[6], w6);
+  u[7] = cmul(u[7], w7);
+}
+#endif
+
+void chainMul(u32 len, T2 *u, T2 w, u32 tailSquareBcast) {
+  // Do a length 4 chain mul, w must not be in Fancy format
+  if (len == 4) chainMul4(u, w);
+  // Do a length 8 chain mul, w must be in Fancy format
+  if (len == 8) chainMul8(u, w, tailSquareBcast);
+}
+
+
 #if BCAST
 
 int bcast4(int x)  { return __builtin_amdgcn_mov_dpp(x, 0, 0xf, 0xf, false); }
@@ -20,38 +99,6 @@ T2 bcast(T2 src, u32 span) {
   int4 s = as_int4(src);
   for (int i = 0; i < 4; ++i) { s[i] = bcastAux(s[i], span); }
   return as_double2(s);
-}
-
-void chainMul4(T2 *u, T2 w) {
-  u[1] = cmul(u[1], w);
-
-  T2 base = csqTrig(w);
-  u[2] = cmul(u[2], base);
-
-  double a = 2 * base.y;
-  base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
-  u[3] = cmul(u[3], base);
-}
-
-void chainMul8(T2 *u, T2 w) {
-  u[1] = cmulFancy(u[1], w);
-
-#if 1
-  T2 base = 2 * U2(- w.y * w.y, fma(w.x, w.y, w.y));
-  u[2] = cmulFancy(u[2], base);
-#else
-  T2 base = U2(fma(-2 * w.y, w.y, 1), 2 * fma(w.x, w.y, w.y));
-  u[2] = cmul(u[2], base);
-#endif
-
-  double a = 2 * base.y;
-  // base = U2(fma(a, -w.y, w.x + 1), fma(a, w.x, a - w.y));
-  base = U2(fma(a, -w.y, w.x + 1), fma(a, w.x, a - w.y));
-
-  for (int i = 3; i < 8; ++i) {
-    u[i] = cmul(u[i], base);
-    base = cmulFancy(base, w);
-  }
 }
 
 #endif
@@ -151,6 +198,9 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
   }
 #endif
 
+// Theoretically, maximum accuracy.  Uses memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
+#if CLEAN == 1                // Radeon VII loves this case, in fact it is faster than the CLEAN == 0 case.  nVidia Titan V hates this case.
+
   T2 w = trig[p];
 
   if (n >= 8) {
@@ -159,16 +209,21 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
     u[1] = cmul(u[1], w);
   }
 
-// Theoretically, maximum accuracy.  Uses memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
-#if CLEAN == 1                // Radeon VII loves this case, in fact it is faster than the CLEAN == 0 case.  nVidia Titan V hates this case.
-
   for (u32 i = 2; i < n; ++i) {
     T2 base = trig[(i-1)*WG + p];
     u[i] = cmul(u[i], base);
   }
 
 // Original CLEAN==1, saves one cmul at the cost of a memory access.  I see little use for this case.
-#elif CLEAN == 1
+#elif 0
+  T2 w = trig[p];
+
+  if (n >= 8) {
+    u[1] = cmulFancy(u[1], w);
+  } else {
+    u[1] = cmul(u[1], w);
+  }
+
   T2 base = trig[WG + p];
 
   if (n >= 8) {
@@ -187,23 +242,8 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
 // This ought to be the least accurate version of Tabmul.  In practice this is more accurate (at least when n==8) than reading precomputed
 // values from memory.  Perhaps chained Fancy muls are the reason.
 #elif CLEAN == 0
-  if (n >= 8) {
-    T2 base = csqTrigFancy(w);
-    u[2] = cmulFancy(u[2], base);
-    base = ccubeTrigFancy(base, w);
-    for (u32 i = 3; i < n; ++i) {
-      u[i] = cmul(u[i], base);
-      base = cmulFancy(base, w);
-    }
-  } else {
-    T2 base = csqTrig(w);
-    u[2] = cmul(u[2], base);
-    base = ccubeTrig(base, w);
-    for (u32 i = 3; i < n; ++i) {
-      u[i] = cmul(u[i], base);
-      base = cmul(base, w);
-    }
-  }
+  T2 w = trig[p];
+  chainMul (n, u, w, 0);
 #else
 #error CLEAN must be 0 or 1
 #endif

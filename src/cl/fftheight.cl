@@ -28,11 +28,7 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig, T2 w) {
     fft_NH(u);
     w = bcast(w, s);
 
-#if NH == 8
-    chainMul8(u, w);
-#else
-    chainMul4(u, w);
-#endif
+    chainMul(NH, u, w, 1);
 
     shufl(SMALL_HEIGHT / NH, lds,  u, NH, s);
   }
@@ -46,11 +42,7 @@ void fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w) {
     fft_NH(u);
     w = bcast(w, s);
 
-#if NH == 8
-    chainMul8(u, w);
-#else
-    chainMul4(u, w);
-#endif
+    chainMul(NH, u, w, 1);
 
     shufl2(SMALL_HEIGHT / NH, lds,  u, NH, s);
   }
