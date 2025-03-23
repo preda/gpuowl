@@ -33,11 +33,7 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
     fft_NW(u);
     w = bcast(w, s);
 
-#if NW == 8
-    chainMul8(u, w);
-#else
-    chainMul4(u, w);
-#endif
+    chainMul(NW, u, w, 0);
 
     shufl( WIDTH / NW, lds,  u, NW, s);
   }

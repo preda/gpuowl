@@ -44,16 +44,19 @@ T2 cfma(T2 a, T2 b, T2 c) {
 #endif
 }
 
-// Square any complex number
+// Square a complex number
 T2 csq(T2 a) { return U2(fma(a.x, a.x, - a.y * a.y), mul2(a.x) * a.y); }
 
-// Square a (cos,sin) complex number.  Fancy squaring returns a fancy value.
-T2 csqTrig(T2 a) { return U2(fma(mulminus2(a.y), a.y, 1), mul2(a.x) * a.y); }
-T2 csqTrigFancy(T2 a) { return U2(mulminus2(a.y) * a.y, mul2(fma(a.x, a.y, a.y))); }
+// Square a (cos,sin) complex number.  Fancy squaring returns a fancy value.  Defancy squares a fancy number returning a non-fancy number.
+T2 csqTrig(T2 a) { T two_ay = mul2(a.y); return U2(fma(-two_ay, a.y, 1), a.x * two_ay); }
+T2 csqTrigFancy(T2 a) { T two_ay = mul2(a.y); return U2(-two_ay * a.y, fma(a.x, two_ay, two_ay)); }
+T2 csqTrigDefancy(T2 a) { T two_ay = mul2(a.y); return U2(fma (-two_ay, a.y, 1), fma(a.x, two_ay, two_ay)); }
 
 // Cube a complex number w (cos,sin) given w^2 and w.  The squared input can be either fancy or not fancy.
+// Fancy cCube takes a fancy w argument and returns a fancy value.  Defancy takes a fancy w argument and returns a non-fancy value.
 T2 ccubeTrig(T2 sq, T2 w) { T tmp = mul2(sq.y); return U2(fma(tmp, -w.y, w.x), fma(tmp, w.x, -w.y)); }
-T2 ccubeTrigFancy(T2 sq, T2 w) { T tmp = mul2(sq.y); T wx = w.x + 1; return U2(fma(tmp, -w.y, wx), fma(tmp, wx, -w.y)); }
+T2 ccubeTrigFancy(T2 sq, T2 w) { T tmp = mul2(sq.y); return U2(fma(tmp, -w.y, w.x), fma(tmp, w.x, tmp - w.y)); }
+T2 ccubeTrigDefancy(T2 sq, T2 w) { T tmp = mul2(sq.y); T wx = w.x + 1; return U2(fma(tmp, -w.y, wx), fma(tmp, wx, -w.y)); }
 
 // a^2 + c
 T2 csqa(T2 a, T2 c) { return U2(fma(a.x, a.x, fma(a.y, -a.y, c.x)), fma(mul2(a.x), a.y, c.y)); }
@@ -70,14 +73,6 @@ void cmul_a_by_fancyb_and_conjfancyb(T2 *res1, T2 *res2, T2 a, T2 b) {
   res2->x = fma(a.y,  b.y, axbx), res2->y = fma(a.x, -b.y, aybx);
 }
 
-// Returns complex (a + 1) * (b + 1) - 1
-T2 cmulFancyUpdate(T2 a, T2 b) { return cfma(a, b, a + b); }
-
-// (a + 1)^2 - 1
-T2 csqFancyUpdate(T2 a) {
-  // Below we use (x + 1)^2 + y^2 == 1
-  return mul2(U2(fma(a.x, a.x, mul2(a.x)), fma(a.x, a.y, a.y)));
-}
 
 T2 mul_t4(T2 a)  { return U2(-a.y, a.x); } // i.e. a * i
 
