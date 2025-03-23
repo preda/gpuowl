@@ -183,15 +183,24 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig) {
 
 #if MM2_CHAIN == 0
 
-    T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT, ND / MIDDLE * 2) * factor;
-    WADD(0, base);
-    WADD(1, base);
+    u32 mid = MIDDLE / 2;
+    T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT * mid, ND / MIDDLE * (mid + 1)) * factor;
+    WADD(mid, base);
 
-    for (u32 k = 2; k < MIDDLE; ++k) {
-      base = cmulFancy(base, w);
-      WADD(k, base);
+    T2 basehi, baselo;
+    cmul_a_by_fancyb_and_conjfancyb(&basehi, &baselo, base, w);
+    WADD(mid-1, baselo);
+    WADD(mid+1, basehi);
+
+    for (int i = mid-2; i >= 0; --i) {
+      baselo = cmulFancy(baselo, conjugate(w));
+      WADD(i, baselo);
     }
-    WSUBF(0, w);
+
+    for (int i = mid+2; i < MIDDLE; ++i) {
+      basehi = cmulFancy(basehi, w);
+      WADD(i, basehi);
+    }
 
 #elif MM2_CHAIN == 1
     u32 cnt = 1;
