@@ -130,17 +130,37 @@ void middleMul(T2 *u, u32 s, Trig trig) {
       WADD(k, base);
     }
 
-#elif MM_CHAIN == 1
+#elif 0 && MM_CHAIN == 1        // This is fewer F64 ops, but slower on Radeon 7 -- probably the optimizer being weird.  It also has somewhat worse Z.
     for (u32 k = 3 + (MIDDLE - 2) % 3; k < MIDDLE; k += 3) {
-      T2 base = slowTrig_N(WIDTH * k * s, WIDTH * SMALL_HEIGHT * k);
-      WADD(k-1, base);
+      T2 base, base_minus1, base_plus1;
+      base = slowTrig_N(WIDTH * k * s, WIDTH * SMALL_HEIGHT * k);
+      cmul_a_by_fancyb_and_conjfancyb(&base_plus1, &base_minus1, base, w);
+      WADD(k-1, base_minus1);
       WADD(k,   base);
-      WADD(k+1, base);
+      WADD(k+1, base_plus1);
     }
 
+    WADDF(1, w);
+
+    T2 w2;
+    if ((MIDDLE - 2) % 3 > 0) {
+      w2 = csqTrigFancy(w);
+      WADDF(2, w2);
+    }
+
+    if ((MIDDLE - 2) % 3 == 2) {
+      T2 w3 = ccubeTrigFancy(w2, w);
+      WADDF(3, w3);
+    }
+
+#elif MM_CHAIN == 1
     for (u32 k = 3 + (MIDDLE - 2) % 3; k < MIDDLE; k += 3) {
-      WSUBF(k-1, w);
-      WADDF(k+1, w);
+      T2 base, base_minus1, base_plus1;
+      base = slowTrig_N(WIDTH * k * s, WIDTH * SMALL_HEIGHT * k);
+      cmul_a_by_fancyb_and_conjfancyb(&base_plus1, &base_minus1, base, w);
+      WADD(k-1, base_minus1);
+      WADD(k,   base);
+      WADD(k+1, base_plus1);
     }
 
     WADDF(1, w);
@@ -230,22 +250,22 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig) {
     T2 base, base_minus1, base_plus1;
     for (u32 i = 1; ; i += 3) {
       if (i-1 == MIDDLE-1) {
-	base_minus1 = slowTrig_N(x * y + x * SMALL_HEIGHT * (i - 1), ND / MIDDLE * i) * factor;
-	WADD(i-1, base_minus1);
-	break;
+        base_minus1 = slowTrig_N(x * y + x * SMALL_HEIGHT * (i - 1), ND / MIDDLE * i) * factor;
+        WADD(i-1, base_minus1);
+        break;
       } else if (i == MIDDLE-1) {
-	base_minus1 = slowTrig_N(x * y + x * SMALL_HEIGHT * (i - 1), ND / MIDDLE * i) * factor;
+        base_minus1 = slowTrig_N(x * y + x * SMALL_HEIGHT * (i - 1), ND / MIDDLE * i) * factor;
         base = cmulFancy(base_minus1, w);
         WADD(i-1, base_minus1);
-	WADD(i,   base);
-	break;
+        WADD(i,   base);
+        break;
       } else {
         base = slowTrig_N(x * y + x * SMALL_HEIGHT * i, ND / MIDDLE * (i + 1)) * factor;
         cmul_a_by_fancyb_and_conjfancyb(&base_plus1, &base_minus1, base, w);
         WADD(i-1, base_minus1);
         WADD(i,   base);
-	WADD(i+1, base_plus1);
-	if (i+1 == MIDDLE-1) break;
+        WADD(i+1, base_plus1);
+        if (i+1 == MIDDLE-1) break;
       }
     }
 #else
