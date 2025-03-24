@@ -117,15 +117,18 @@ void middleMul(T2 *u, u32 s, Trig trig) {
     if (MIDDLE >= 10) {
       base = csqTrigFancy(w);
       WADDF(2, base);
+      base = ccubeTrigFancy(base, w);
+      WADDF(3, base);
       base.x += 1;
     } else {
-      base = w;
+      base = csqTrigFancy(w);
+      WADDF(2, base);
+      base = ccubeTrigFancy(base, w);
+      WADDF(3, base);
       base.x += 1;
-      base = cmulFancy(base, w);
-      WADD(2, base);
     }
 
-    for (u32 k = 3; k < MIDDLE; ++k) {
+    for (u32 k = 4; k < MIDDLE; ++k) {
       base = cmulFancy(base, w);
       WADD(k, base);
     }
