@@ -114,26 +114,18 @@ void middleMul(T2 *u, u32 s, Trig trig) {
 #if MM_CHAIN == 0
     WADDF(1, w);
     T2 base;
-    if (MIDDLE >= 10) {
-      base = csqTrigFancy(w);
-      WADDF(2, base);
-      base = ccubeTrigFancy(base, w);
-      WADDF(3, base);
-      base.x += 1;
-    } else {
-      base = csqTrigFancy(w);
-      WADDF(2, base);
-      base = ccubeTrigFancy(base, w);
-      WADDF(3, base);
-      base.x += 1;
-    }
+    base = csqTrigFancy(w);
+    WADDF(2, base);
+    base = ccubeTrigFancy(base, w);
+    WADDF(3, base);
+    base.x += 1;
 
     for (u32 k = 4; k < MIDDLE; ++k) {
       base = cmulFancy(base, w);
       WADD(k, base);
     }
 
-#elif 0 && MM_CHAIN == 1        // This is fewer F64 ops, but slower on Radeon 7 -- probably the optimizer being weird.  It also has somewhat worse Z.
+#elif 0 && MM_CHAIN == 1        // This is fewer F64 ops, but may be slower on Radeon 7 -- probably the optimizer being weird.  It also has somewhat worse Z.
     for (u32 k = 3 + (MIDDLE - 2) % 3; k < MIDDLE; k += 3) {
       T2 base, base_minus1, base_plus1;
       base = slowTrig_N(WIDTH * k * s, WIDTH * SMALL_HEIGHT * k);
@@ -204,7 +196,19 @@ void middleMul2(T2 *u, u32 x, u32 y, double factor, Trig trig) {
   } else { // MIDDLE >= 5
     // T2 w = slowTrig_N(x * SMALL_HEIGHT, ND / MIDDLE);
 
-#if MM2_CHAIN == 0
+#if AMDGPU && MM2_CHAIN == 0		// Oddly, Radeon 7 is faster with this version that uses more F64 ops
+
+    T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT, ND / MIDDLE * 2) * factor;
+    WADD(0, base);
+    WADD(1, base);
+
+    for (u32 k = 2; k < MIDDLE; ++k) {
+      base = cmulFancy(base, w);
+      WADD(k, base);
+    }
+    WSUBF(0, w);
+
+#elif MM2_CHAIN == 0
 
     u32 mid = MIDDLE / 2;
     T2 base = slowTrig_N(x * y + x * SMALL_HEIGHT * mid, ND / MIDDLE * (mid + 1)) * factor;
