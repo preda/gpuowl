@@ -18,7 +18,7 @@
 //      2 = double wide, single kernel
 //      3 = double wide, two kernels
 #if !defined(TAIL_KERNELS)
-#define TAIL_KERNELS    3                         // Default is double-wide tailSquare with two kernels
+#define TAIL_KERNELS    2                         // Default is double-wide tailSquare with two kernels
 #endif
 #define SINGLE_WIDE     TAIL_KERNELS < 2          // Old single-wide tailSquare vs. new double-wide tailSquare
 #define SINGLE_KERNEL   (TAIL_KERNELS & 1) == 0   // TailSquare uses a single kernel vs. two kernels
