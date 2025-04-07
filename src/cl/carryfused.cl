@@ -134,48 +134,57 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
   // but it's fine either way.
   if (gr < H) { for (i32 i = 0; i < NW; ++i) { carryShuttlePtr[gr * WIDTH + CarryShuttleAccess(me, i)] = carry[i]; } }
 
-#if OLD_FENCE
-
+  // Tell next line that its carries are ready
   if (gr < H) {
+#if OLD_FENCE
     // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
     write_mem_fence(CLK_GLOBAL_MEM_FENCE);
     bar();
-    
     if (me == 0) { atomic_store((atomic_uint *) &ready[gr], 1); }
-  }
-  if (gr == 0) { return; }
-  if (me == 0) { do { spin(); } while(!atomic_load((atomic_uint *) &ready[gr - 1])); }
-  // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
-  bar();
-  read_mem_fence(CLK_GLOBAL_MEM_FENCE);
-
-  // Clear carry ready flag for next iteration
-  if (me == 0) ready[gr - 1] = 0;
-
 #else
-
-  if (gr < H) {
     write_mem_fence(CLK_GLOBAL_MEM_FENCE);
     if (me % WAVEFRONT == 0) { 
       u32 pos = gr * (G_W / WAVEFRONT) + me / WAVEFRONT;
       atomic_store((atomic_uint *) &ready[pos], 1);
     }
+#endif
   }
+
+  // Line zero will be redone when gr == H
   if (gr == 0) { return; }
+
+  // Do some work while our carries may not be ready
 #if HAS_ASM
   __asm("s_setprio 0");
 #endif
+
+  // Calculate inverse weights
+  T base = optionalHalve(weights.y);
+  for (u32 i = 0; i < NW; ++i) {
+    T weight1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
+    T weight2 = optionalHalve(fancyMul(weight1, WEIGHT_STEP));
+    u[i] = U2(weight1, weight2);
+  }
+
+  // Wait until our carries are ready
+#if OLD_FENCE
+  if (me == 0) { do { spin(); } while(!atomic_load_explicit((atomic_uint *) &ready[gr - 1], memory_order_relaxed, memory_scope_device)); }
+  // work_group_barrier(CLK_GLOBAL_MEM_FENCE, memory_scope_device);
+  bar();
+  read_mem_fence(CLK_GLOBAL_MEM_FENCE);
+  // Clear carry ready flag for next iteration
+  if (me == 0) ready[gr - 1] = 0;
+#else
   u32 pos = (gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT;
   if (me % WAVEFRONT == 0) {
     do { spin(); } while(atomic_load_explicit((atomic_uint *) &ready[pos], memory_order_relaxed, memory_scope_device) == 0);
   }
-#if HAS_ASM
-  __asm("s_setprio 1");
-#endif
   mem_fence(CLK_GLOBAL_MEM_FENCE);
-
   // Clear carry ready flag for next iteration
   if (me % WAVEFRONT == 0) ready[(gr - 1) * (G_W / WAVEFRONT) + me / WAVEFRONT] = 0;
+#endif
+#if HAS_ASM
+  __asm("s_setprio 1");
 #endif
 
   // Read from the carryShuttle carries produced by the previous WIDTH row.  Rotate carries from the last WIDTH row.
@@ -210,14 +219,7 @@ KERNEL(G_W) carryFused(P(T2) out, CP(T2) in, u32 posROE, P(i64) carryShuttle, P(
     bool biglit0 = test(b, 2 * i);
 #endif
     wu[i] = carryFinal(wu[i], carry[i], biglit0);
-  }
-  
-  T base = optionalHalve(weights.y);
-  
-  for (u32 i = 0; i < NW; ++i) {
-    T weight1 = i == 0 ? base : optionalHalve(fancyMul(base, fweightStep(i)));
-    T weight2 = optionalHalve(fancyMul(weight1, WEIGHT_STEP));
-    u[i] = U2(wu[i].x, wu[i].y) * U2(weight1, weight2);
+    u[i] *= U2(wu[i].x, wu[i].y);
   }
 
   bar();
