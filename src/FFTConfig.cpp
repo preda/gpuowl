@@ -15,6 +15,16 @@
 #include <array>
 #include <map>
 
+
+
+// BUG, BUG, BUG:  We need to redo calculations for maxBPW for FFT variants.  There are more variants now.  Can we derive a formula for each variation
+// as a percentage of the best variant?  Ex: if variant 313 is the most accurate, dropping to 213 might be 99.92% of max, 113 might be 99.86% of max,
+// 303 might be 99.75% of max, etc.  Warning: the percentage change from changing the middle variant will be different for every middle size.
+// This hack crudely maps new variant numbers to old variant numbers
+#define vhack(x)  ((variant_W(x) >= 2 ? 2 : 0) + (variant_M(x) == 1 ? 1 : 0))
+
+
+
 using namespace std;
 
 struct FftBpw {
@@ -170,7 +180,9 @@ FFTConfig::FFTConfig(FFTShape shape, u32 variant, u32 carry) :
   variant{variant},
   carry{carry}
 {
-  assert(variant < N_VARIANT);
+  assert(variant_W() < N_VARIANT_W);
+  assert(variant_M() < N_VARIANT_M);
+  assert(variant_H() < N_VARIANT_H);
 }
 
 string FFTConfig::spec() const {
@@ -179,7 +191,7 @@ string FFTConfig::spec() const {
 }
 
 double FFTConfig::maxBpw() const {
-  double b = shape.bpw[variant];
+  double b = shape.bpw[vhack(variant)];
   return carry == CARRY_32 ? std::min(shape.carry32BPW(), b) : b;
 }
 

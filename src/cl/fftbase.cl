@@ -84,7 +84,7 @@ void chainMul(u32 len, T2 *u, T2 w, u32 tailSquareBcast) {
 }
 
 
-#if BCAST
+#if AMDGPU
 
 int bcast4(int x)  { return __builtin_amdgcn_mov_dpp(x, 0, 0xf, 0xf, false); }
 int bcast8(int x)  { return __builtin_amdgcn_ds_swizzle(x, 0x0018); }
@@ -182,13 +182,14 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }  
 }
 
-void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
+void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me, bool chainmul) {
 #if 0
   u32 p = me / f * f;
 #else
   u32 p = me & ~(f - 1);
 #endif
 
+// Compute trigs from scratch every time.  This can't possibly be a good idea on any GPUs.
 #if 0
   T2 w = slowTrig_N(ND / n / WG * p, ND / n);
   T2 base = w;
@@ -196,57 +197,37 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
     u[i] = cmul(u[i], w);
     w = cmul(w, base);
   }
+  return;
 #endif
-
-// Theoretically, maximum accuracy.  Uses memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
-#if CLEAN == 1                // Radeon VII loves this case, in fact it is faster than the CLEAN == 0 case.  nVidia Titan V hates this case.
-
-  T2 w = trig[p];
-
-  if (n >= 8) {
-    u[1] = cmulFancy(u[1], w);
-  } else {
-    u[1] = cmul(u[1], w);
-  }
-
-  for (u32 i = 2; i < n; ++i) {
-    T2 base = trig[(i-1)*WG + p];
-    u[i] = cmul(u[i], base);
-  }
-
-// Original CLEAN==1, saves one cmul at the cost of a memory access.  I see little use for this case.
-#elif 0
-  T2 w = trig[p];
-
-  if (n >= 8) {
-    u[1] = cmulFancy(u[1], w);
-  } else {
-    u[1] = cmul(u[1], w);
-  }
-
-  T2 base = trig[WG + p];
-
-  if (n >= 8) {
-    for (u32 i = 2; i < n; ++i) {
-      u[i] = cmul(u[i], base);
-      base = cmulFancy(base, w);
-    }
-  } else {
-    for (u32 i = 2; i < n; ++i) {
-      u[i] = cmul(u[i], base);
-      base = cmul(base, w);
-    }
-  }
 
 // This code uses chained complex multiplies which could be faster on GPUs with great DP throughput or poor memory bandwidth or caching.
 // This ought to be the least accurate version of Tabmul.  In practice this is more accurate (at least when n==8) than reading precomputed
-// values from memory.  Perhaps chained Fancy muls are the reason.
-#elif CLEAN == 0
-  T2 w = trig[p];
-  chainMul (n, u, w, 0);
-#else
-#error CLEAN must be 0 or 1
-#endif
+// values from memory.  Perhaps chained Fancy muls are the reason (or was resolved when the algorithm to precompute trig values changed).
+
+  if (chainmul) {
+    T2 w = trig[p];
+    chainMul (n, u, w, 0);
+    return;
+  }
+
+// Theoretically, maximum accuracy.  Use memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
+// Radeon VII loves this case, it is faster than the chainmul case.  nVidia Titan V hates this case.
+
+  if (!chainmul) {
+    T2 w = trig[p];
+
+    if (n >= 8) {
+      u[1] = cmulFancy(u[1], w);
+    } else {
+      u[1] = cmul(u[1], w);
+    }
+
+    for (u32 i = 2; i < n; ++i) {
+      T2 base = trig[(i-1)*WG + p];
+      u[i] = cmul(u[i], base);
+    }
+    return;
+  }
 }
 
 

@@ -84,7 +84,7 @@ void fft_MIDDLE(T2 *u) {
 // Keep in sync with TrigBufCache.cpp, see comment there.
 #define SHARP_MIDDLE 5
 
-#if !defined(MM_CHAIN) && !defined(MM2_CHAIN) && TRIG_HI
+#if !defined(MM_CHAIN) && !defined(MM2_CHAIN) && FFT_VARIANT_M == 1
 #define MM_CHAIN 1
 #define MM2_CHAIN 2
 #endif
