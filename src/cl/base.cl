@@ -68,23 +68,35 @@ G_H        "group height" == SMALL_HEIGHT / NH
 #define OLD_FENCE 1
 #endif
 
-// Nonteporal reads and writes might be a little bit faster on many GPUs by keeping more reusable data in the caches.
+// Nontemporal reads and writes might be a little bit faster on many GPUs by keeping more reusable data in the caches.
 // However, on those GPUs with large caches there should be a significant speed gain from keeping FFT data in the caches.
 // Default to the big win when caching is beneficial rather than the tiny gain when non-temporal is better.
 #if !defined(NONTEMPORAL)
 #define NONTEMPORAL 0
 #endif
 
-#if FFT_VARIANT > 3
-#error FFT_VARIANT must be between 0 and 3
+// FFT variant is in 3 parts.  One digit for WIDTH, one digit for MIDDLE, one digit for HEIGHT.
+// For WIDTH and HEIGHT there are 4 variants:
+// 0   compute one trig, bcast, chainmul                                        previously was :even/:odd BCAST=1
+// 1   read one trig, with old chainmul                                         previously was :0/:1
+// 2   read all trigs, no chainmul                                              previously was :2/:3
+// 3   read all trigs, sin/cos format for more FMA                              previously was :2/:3 UNROLL_W=3
+// Note smaller numbers above do more F64 and are less accurate, larger numbers have more memory accesses
+// For MIDDLE there are two variants:
+// 0   chainmul
+// 1   lots of computing trigs, very short chainmul for maximum accuracy        previously was :1/:3
+#define FFT_VARIANT_W    (FFT_VARIANT / 100)
+#define FFT_VARIANT_M    (FFT_VARIANT % 100 / 10)
+#define FFT_VARIANT_H    (FFT_VARIANT % 10)
+#if FFT_VARIANT_W > 3
+#error FFT_VARIANT_W must be between 0 and 3
 #endif
-
-#if defined(TRIG_HI) || defined(CLEAN)
-#error Use FFT_VARIANT instead of TRIG_HI or CLEAN
+#if FFT_VARIANT_M > 1
+#error FFT_VARIANT_M must be between 0 and 1
 #endif
-
-#define TRIG_HI (FFT_VARIANT & 1)
-#define CLEAN (FFT_VARIANT >> 1)
+#if FFT_VARIANT_H > 3
+#error FFT_VARIANT_H must be between 0 and 3
+#endif
 
 #if !defined(UNROLL_W)
 #if AMDGPU

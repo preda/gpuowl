@@ -161,7 +161,7 @@ void Tune::ztune() {
   for (FFTShape shape : configs) {
     double bpw[4];
     double A[4];
-    for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
+    for (u32 variant = 0; variant <= LAST_VARIANT; variant = next_variant(variant)) {
       FFTConfig fft{shape, variant, CARRY_AUTO};
       std::tie(bpw[variant], A[variant]) = maxBpw(fft);
     }
@@ -275,7 +275,7 @@ void Tune::tune() {
     // Time an exponent that's good for all variants and carry-config.
     u32 exponent = primes.prevPrime(FFTConfig{shape, 0, CARRY_32}.maxExp());
 
-    for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
+    for (u32 variant = 0; variant <= LAST_VARIANT; variant = next_variant (variant)) {
       vector carryToTest{CARRY_32};
       // We need to test both carry-32 and carry-64 only when the carry transition is within the BPW range.
       if (FFTConfig{shape, variant, CARRY_64}.maxBpw() > FFTConfig{shape, variant, CARRY_32}.maxBpw()) {

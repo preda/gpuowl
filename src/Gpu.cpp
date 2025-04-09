@@ -221,7 +221,6 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "NO_ASM",
                               "DEBUG",
                               "CARRY64",
-                              "BCAST",
                               "BIGLIT",
                               "NONTEMPORAL",
                               "PAD",
