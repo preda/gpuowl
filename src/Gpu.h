@@ -21,7 +21,7 @@
 #include <cmath>
 
 struct PRPResult;
-struct Task;
+class Task;
 
 class Signal;
 class ProofSet;
@@ -298,7 +298,6 @@ public:
   Words readAndCompress(Buffer<int>& buf);
   vector<u32> readCheck();
   vector<u32> readData();
-
 
   u32 getFFTSize() { return N; }
 

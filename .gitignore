@@ -17,3 +17,6 @@ txt/
 bug/
 prpll-debug
 prpll-release
+build/
+.vscode/
+.vs/

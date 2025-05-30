@@ -151,15 +151,15 @@ FFTConfig::FFTConfig(const string& spec) {
   // assert(v.size() == 1 || v.size() == 3 || v.size() == 4 || v.size() == 5);
 
   if (v.size() == 1) {
-    *this = {FFTShape::multiSpec(spec).front(), 3, CARRY_AUTO};
+    *this = {FFTShape::multiSpec(spec).front(), 3, static_cast<u32>(CARRY_AUTO)};
   } if (v.size() == 3) {
-    *this = {FFTShape{v[0], v[1], v[2]}, 3, CARRY_AUTO};
+    *this = {FFTShape{v[0], v[1], v[2]}, 3, static_cast<u32>(CARRY_AUTO)};
   } else if (v.size() == 4) {
-    *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3]), CARRY_AUTO};
+    *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3]), static_cast<u32>(CARRY_AUTO)};
   } else if (v.size() == 5) {
     int c = parseInt(v[4]);
     assert(c == 0 || c == 1);
-    *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3]), c == 0 ? CARRY_32 : CARRY_64};
+    *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3]), static_cast<u32>(c == 0 ? CARRY_32 : CARRY_64)};
   } else {
     throw "FFT spec";
   }
@@ -175,7 +175,7 @@ FFTConfig::FFTConfig(FFTShape shape, u32 variant, u32 carry) :
 
 string FFTConfig::spec() const {
   string s = shape.spec() + ":" + to_string(variant);
-  return carry == CARRY_AUTO ? s : (s + (carry == CARRY_32 ? ":0" : ":1"));
+  return carry == static_cast<u32>(CARRY_AUTO) ? s : (s + (carry == CARRY_32 ? ":0" : ":1"));
 }
 
 double FFTConfig::maxBpw() const {
@@ -205,7 +205,10 @@ FFTConfig FFTConfig::bestFit(const Args& args, u32 E, const string& spec) {
   // Take the first FFT that can handle E
   for (const FFTShape& shape : FFTShape::allShapes()) {
     for (u32 v = 0; v < 4; ++v) {
-      if (FFTConfig fft{shape, v, CARRY_AUTO}; fft.maxExp() * args.fftOverdrive >= E) { return fft; }
+      if (FFTConfig fft{shape, v, static_cast<u32>(CARRY_AUTO)}; fft.maxExp() * args.fftOverdrive >= E)
+      {
+        return fft;
+      }
     }
   }
 

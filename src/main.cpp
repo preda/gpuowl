@@ -18,6 +18,7 @@
 
 #include <filesystem>
 #include <thread>
+#include <cstdlib>
 // #include <format> from GCC-13 onwards
 
 namespace fs = std::filesystem;
@@ -41,15 +42,20 @@ void gpuWorker(GpuCommon shared, Queue *q, i32 instance) {
   }
 }
 
-
 #ifdef __MINGW32__ // for Windows
 extern int putenv(const char *);
 #endif
 
 int main(int argc, char **argv) {
+//!MSVC version support
+#ifdef _MSC_VER
+  _set_printf_count_output(1);
+#endif
 
 #ifdef __MINGW32__
   putenv("ROC_SIGNAL_POOL_SIZE=32");
+#elif defined(_WIN32)
+  _putenv_s("ROC_SIGNAL_POOL_SIZE", "32");
 #else
   // Required to work around a ROCm bug when using multiple queues
   setenv("ROC_SIGNAL_POOL_SIZE", "32", 0);

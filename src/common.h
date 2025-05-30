@@ -11,7 +11,13 @@ using i32 = int32_t;
 using u32 = uint32_t;
 using i64 = int64_t;
 using u64 = uint64_t;
+//! Support for CrossPlatform
+#if defined(_WIN32) || defined(__WIN32__)
+// using f128 = long double; #add only if need to be used for compilation. __float128 didnt support by MSVC
+#else
 using f128 = __float128;
+#endif
+//! End
 
 static_assert(sizeof(u8)  == 1, "size u8");
 static_assert(sizeof(u32) == 4, "size u32");
