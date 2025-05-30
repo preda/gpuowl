@@ -162,7 +162,7 @@ void Tune::ztune() {
     double bpw[4];
     double A[4];
     for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
-      FFTConfig fft{shape, variant, CARRY_AUTO};
+      FFTConfig fft{shape, variant, static_cast<u32>(CARRY_AUTO)};
       std::tie(bpw[variant], A[variant]) = maxBpw(fft);
     }
     string s = "\""s + shape.spec() + "\"";
@@ -178,7 +178,7 @@ void Tune::carryTune() {
   shared.args->flags["STATS"] = "1";
   u32 prevSize = 0;
   for (FFTShape shape : FFTShape::multiSpec(shared.args->fftSpec)) {
-    FFTConfig fft{shape, 3, CARRY_AUTO};
+    FFTConfig fft{shape, 3, static_cast<u32>(CARRY_AUTO)};
     if (prevSize == fft.size()) { continue; }
     prevSize = fft.size();
 
@@ -283,7 +283,7 @@ void Tune::tune() {
       }
 
       for (auto carry : carryToTest) {
-        FFTConfig fft{shape, variant, carry};
+        FFTConfig fft{shape, variant, static_cast<u32>(carry)};
 
         if (minCost > 0 && !TuneEntry{minCost, fft}.willUpdate(results)) {
           // log("skipped %s %9u\n", fft.spec().c_str(), fft.maxExp());

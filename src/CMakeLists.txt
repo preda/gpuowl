@@ -1,8 +1,41 @@
+if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  set(CMAKE_CXX_COMPILE g++-14)
+endif()
+
+#Replace add_custom_command version.inc
+execute_process(
+  COMMAND git describe --tags --long --dirty --always --match v/prpll/*
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  OUTPUT_VARIABLE GIT_VERSION
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET
+)
+
+if (NOT GIT_VERSION)
+  set(GIT_VERSION "unknown")
+  message(WARNING "Cant take version, using default value")
+endif()
+
+set(GIT_VERSION_QUOTED "\"${GIT_VERSION}\"")
+
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/version.inc" "${GIT_VERSION_QUOTED}\n")
+
+file(GLOB CL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/cl/*.cl")
+
+set(bundle_cpp "${CMAKE_CURRENT_BINARY_DIR}/bundle.cpp")
+
+add_custom_command(
+  OUTPUT ${bundle_cpp}
+  COMMAND ${CMAKE_COMMAND} -DCL_SOURCES="${CL_SOURCES}" -DOUTPUT=${bundle_cpp} -P ${CMAKE_SOURCE_DIR}/genbundle.cmake
+  DEPENDS ${CL_SOURCES}
+  COMMENT "Generation bundle.cpp"
+)
+
+add_library(bundle STATIC ${bundle_cpp})
 
 add_executable(prpll
   Trig.cpp
   Primes.cpp
-  bundle.cpp
   Proof.cpp
   log.cpp md5.cpp sha3.cpp AllocTrac.cpp FFTConfig.cpp Worktodo.cpp common.cpp main.cpp Gpu.cpp clwrap.cpp Task.cpp timeutil.cpp Args.cpp state.cpp Signal.cpp
   File.cpp
@@ -21,39 +54,18 @@ add_executable(prpll
   TuneEntry.cpp
   fs.cpp
   version.inc
-  )
+)
 
-if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-  # Real GCC (not clang), needed for 128-bit floats and std::filesystem::path
-  set(CMAKE_CXX_COMPILER g++-14)
-endif()
+target_link_libraries(prpll PRIVATE bundle)
 
 find_package(OpenCL)
 
-if (${OpenCL_FOUND})
+if (OpenCL_FOUND)
   # Use OpenCL library found by cmake
-  target_link_libraries(prpll OpenCL::OpenCL)
+  target_link_libraries(prpll PRIVATE OpenCL::OpenCL)
 else()
   # Pass -lOpenCL to the linker and hope for the best
-  target_link_libraries(prpll OpenCL)
+  target_link_libraries(prpll PRIVATE OpenCL)
 endif()
 
 target_include_directories(prpll PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-
-add_custom_command(
-  OUTPUT version.inc
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-  COMMAND git describe --tags --long --dirty --always --match ${CMAKE_SOURCE_DIR} | sed 's/.*/"&"/' > ${CMAKE_CURRENT_BINARY_DIR}/version.inc
-  DEPENDS ${CMAKE_SOURCE_DIR}
-  )
-
-file(
-  GLOB CL_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/cl/*.cl
-  )
-
-add_custom_command(
-  OUTPUT bundle.cpp
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-  COMMAND ${CMAKE_SOURCE_DIR}/genbundle.sh ${CL_SOURCES} > ${CMAKE_CURRENT_BINARY_DIR}/bundle.cpp
-  DEPENDS ${CL_SOURCES}
-  )

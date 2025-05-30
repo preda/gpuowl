@@ -6,7 +6,7 @@
 
 using namespace std;
 
-File::File(const std::filesystem::__cxx11::path& path, const string& mode, bool throwOnError)
+File::File(const std::filesystem::path& path, const string& mode, bool throwOnError)
   : readOnly{mode == "rb"}, name{path.string()} {
   assert(readOnly || throwOnError);
 
