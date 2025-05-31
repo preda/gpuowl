@@ -139,7 +139,7 @@ void writeResult(u32 E, const char *workType, const string &status, const std::s
   fields += tailFields(AID, args);
   string s = json(std::move(fields));
   log("%s\n", s.c_str());
-  File::append(args.resultsFile, s + '\n');
+  File::append("results.txt", s + '\n');
 }
 
 }
@@ -191,7 +191,7 @@ void Task::writeResultCERT(const Args &args, array <u64, 4> hash, u32 squarings,
   fields += tailFields(AID, args);
   string s = json(std::move(fields));
   log("%s\n", s.c_str());
-  File::append(args.resultsFile, s + '\n');
+  File::append("results.txt", s + '\n');
 }
 
 void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
