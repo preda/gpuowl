@@ -66,21 +66,12 @@ int main(int argc, char **argv) {
         fs::current_path(args.dir);
       }
     }
-    
-    fs::path poolDir;
-    {
-      Args args{true};
-      args.readConfig("config.txt");
-      args.parse(mainLine);
-      poolDir = args.masterDir;
-    }
-        
+
     initLog("gpuowl-0.log");
     log("PRPLL %s starting\n", VERSION);
     
     Args args;
 
-    if (!poolDir.empty()) { args.readConfig(poolDir / "config.txt"); }
     args.readConfig("config.txt");
     args.parse(mainLine);
     args.setDefaults();
