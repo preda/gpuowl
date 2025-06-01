@@ -133,18 +133,19 @@ vector<string> tailFields(const std::string &AID, const Args &args) {
 }
 
 void writeResult(u32 E, const char *workType, const string &status, const std::string &AID, const Args &args,
-                 const vector<string>& extras) {
+                 const vector<string>& extras, u32 instance) {
   vector<string> fields = commonFields(E, workType, status);
   fields += extras;
   fields += tailFields(AID, args);
   string s = json(std::move(fields));
   log("%s\n", s.c_str());
-  File::append("results.txt", s + '\n');
+  string resultsFile = "results-" + to_string(instance) + ".txt";
+  File::append(resultsFile, s + '\n');
 }
 
 }
 
-void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, const string& res2048, u32 fftSize, u32 nErrors, const fs::path& proofPath) const {
+void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, const string& res2048, u32 fftSize, u32 nErrors, const fs::path& proofPath, u32 instance) const {
   vector<string> fields{json("res64", hex(res64)),
                         json("res2048", res2048),
                         json("residue-type", 1),
@@ -165,20 +166,20 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, const strin
     }
   }
   
-  writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
+  writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields, instance);
 }
 
-void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
+void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize, u32 instance) const {
   vector<string> fields{json("res64", hex(res64)),
                         json("fft-length", fftSize),
                         json("shift-count", 0),
                         json("error-code", "00000000"), // I don't know the meaning of this
   };
 
-  writeResult(exponent, "LL", isPrime ? "P" : "C", AID, args, fields);
+  writeResult(exponent, "LL", isPrime ? "P" : "C", AID, args, fields, instance);
 }
 
-void Task::writeResultCERT(const Args &args, array <u64, 4> hash, u32 squarings, u32 fftSize) const {
+void Task::writeResultCERT(const Args &args, array <u64, 4> hash, u32 squarings, u32 fftSize, u32 instance) const {
   string hexhash = hex(hash[3]) + hex(hash[2]) + hex(hash[1]) + hex(hash[0]);
   vector<string> fields{json("worktype", "Cert"),
 			json("exponent", exponent),
@@ -191,7 +192,8 @@ void Task::writeResultCERT(const Args &args, array <u64, 4> hash, u32 squarings,
   fields += tailFields(AID, args);
   string s = json(std::move(fields));
   log("%s\n", s.c_str());
-  File::append("results.txt", s + '\n');
+  string resultsFile = "results-" + to_string(instance) + ".txt";
+  File::append(resultsFile, s + '\n');
 }
 
 void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
@@ -216,11 +218,11 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
     if (kind == PRP) {
       auto [tmpIsPrime, res64, nErrors, proofPath, res2048] = gpu->isPrimePRP(*this);
       isPrime = tmpIsPrime;
-      writeResultPRP(*shared.args, isPrime, res64, res2048, fft.size(), nErrors, proofPath);
+      writeResultPRP(*shared.args, isPrime, res64, res2048, fft.size(), nErrors, proofPath, instance);
     } else { // LL
       auto [tmpIsPrime, res64] = gpu->isPrimeLL(*this);
       isPrime = tmpIsPrime;
-      writeResultLL(*shared.args, isPrime, res64, fft.size());
+      writeResultLL(*shared.args, isPrime, res64, fft.size(), instance);
     }
 
     Worktodo::deleteTask(*this, instance);
@@ -232,7 +234,7 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
     }
   } else if (kind == CERT) {
     auto sha256 = gpu->isCERT(*this);
-    writeResultCERT(*shared.args, sha256, squarings, fft.size());
+    writeResultCERT(*shared.args, sha256, squarings, fft.size(), instance);
     Worktodo::deleteTask(*this, instance);
   } else {
     throw "Unexpected task kind " + to_string(kind);

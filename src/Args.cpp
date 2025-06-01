@@ -408,5 +408,9 @@ void Args::setDefaults() {
   uid = getUidFromPos(device);
   log("device %d, OpenCL %s, unique id '%s'\n", device, getDriverVersionByPos(device).c_str(), uid.c_str());
   for (auto& p : {proofResultDir, proofToVerifyDir, cacheDir}) { fs::create_directory(p); }
-  File::openAppend("results.txt");  // verify that it's possible to write results
+
+  for (u32 i = 0; i < workers; ++i) {
+    string resultsFile = "results-" + to_string(i) + ".txt";
+    File::openAppend(resultsFile);  // verify that it's possible to write results
+  }
 }
