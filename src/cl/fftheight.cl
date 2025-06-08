@@ -68,7 +68,7 @@ void fft_HEIGHT(local T2 *lds, T2 *u, Trig trig, T2 w) {
   for (u32 s = 1; s < SMALL_HEIGHT / NH; s *= NH) {
     if (s > 1) { bar(); }
     fft_NH(u);
-    tabMul(SMALL_HEIGHT / NH, trig, u, NH, s, me, FFT_VARIANT_H == 1);
+    tabMul(SMALL_HEIGHT / NH, trig, u, NH, s, me);
     shufl(SMALL_HEIGHT / NH, lds,  u, NH, s);
   }
   fft_NH(u);
@@ -85,7 +85,7 @@ void fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w) {
   for (u32 s = 1; s < WG; s *= NH) {
     if (s > 1) { bar(WG); }
     fft_NH(u);
-    tabMul(WG, trig, u, NH, s, me % WG, FFT_VARIANT_H == 1);
+    tabMul(WG, trig, u, NH, s, me % WG);
     shufl2(WG, lds,  u, NH, s);
   }
   fft_NH(u);
@@ -104,7 +104,7 @@ void new_fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w, int callnum) {
 
 // Custom code for various SMALL_HEIGHT values
 
-#if SMALL_HEIGHT == 256 && NH == 4 && FFT_VARIANT_H == 3
+#if SMALL_HEIGHT == 256 && NH == 4 && FFT_VARIANT_H == 2
 
 // Custom code for SMALL_HEIGHT=256, NH=4
 
@@ -134,7 +134,7 @@ void new_fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w, int callnum) {
   // Finish third tabMul and perform final fft4.
   finish_tabMul4_fft4(WG, partitioned_lds, trig, preloads, u, 16, me, 1);
 
-#elif SMALL_HEIGHT == 512 && NH == 8 && FFT_VARIANT_H == 3
+#elif SMALL_HEIGHT == 512 && NH == 8 && FFT_VARIANT_H == 2
 
 // Custom code for SMALL_HEIGHT=512, NH=8
 
@@ -158,7 +158,7 @@ void new_fft_HEIGHT2(local T2 *lds, T2 *u, Trig trig, T2 w, int callnum) {
   // Finish second tabMul and perform final fft8.
   finish_tabMul8_fft8(WG, partitioned_lds, trig, preloads, u, 8, me, 1);
 
-#elif SMALL_HEIGHT == 1024 && NH == 4 && FFT_VARIANT_H == 3
+#elif SMALL_HEIGHT == 1024 && NH == 4 && FFT_VARIANT_H == 2
 
 // Custom code for SMALL_HEIGHT=1024, NH=4
 

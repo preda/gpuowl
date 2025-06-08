@@ -58,7 +58,7 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
   for (u32 s = 1; s < WIDTH / NW; s *= NW) {
     if (s > 1) { bar(); }
     fft_NW(u);
-    tabMul(WIDTH / NW, trig, u, NW, s, me, FFT_VARIANT_W == 1);
+    tabMul(WIDTH / NW, trig, u, NW, s, me);
     shufl( WIDTH / NW, lds,  u, NW, s);
   }
   fft_NW(u);
@@ -81,7 +81,7 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
 
 // Custom code for various WIDTH values
 
-#if WIDTH == 256 && NW == 4 && FFT_VARIANT_W == 3
+#if WIDTH == 256 && NW == 4 && FFT_VARIANT_W == 2
 
 // Custom code for WIDTH=256, NW=4
 
@@ -111,7 +111,7 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
   // Finish third tabMul and perform final fft4.
   finish_tabMul4_fft4(WG, lds, trig, preloads, u, 16, me, 1);
 
-#elif WIDTH == 512 && NW == 8 && FFT_VARIANT_W == 3
+#elif WIDTH == 512 && NW == 8 && FFT_VARIANT_W == 2
 
 // Custom code for WIDTH=512, NW=8
 
@@ -135,7 +135,7 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
   // Finish second tabMul and perform final fft8.
   finish_tabMul8_fft8(WG, lds, trig, preloads, u, 8, me, 0);  // We'd rather set save_one_more_mul to 1
 
-#elif WIDTH == 1024 && NW == 4 && FFT_VARIANT_W == 3
+#elif WIDTH == 1024 && NW == 4 && FFT_VARIANT_W == 2
 
 // Custom code for WIDTH=1024, NW=4
 
@@ -171,7 +171,7 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
   // Finish fourth tabMul and perform final fft4.
   finish_tabMul4_fft4(WG, lds, trig, preloads, u, 64, me, 1);
 
-#elif WIDTH == 4096 && NW == 8 && FFT_VARIANT_W == 3
+#elif WIDTH == 4096 && NW == 8 && FFT_VARIANT_W == 2
 
 // Custom code for WIDTH=4K, NW=8
 
