@@ -189,6 +189,9 @@ named "config.txt" in the prpll run directory.
   -use PAD=<val>   : insert pad bytes to possibly improve memory access patterns.  Val is number bytes to pad.
   -use MIDDLE_IN_LDS_TRANSPOSE=0|1  : Transpose values in local memory before writing to global memory
   -use MIDDLE_OUT_LDS_TRANSPOSE=0|1 : Transpose values in local memory before writing to global memory
+  -use TABMUL_CHAIN=<val>: Controls how trig values are obtained in WIDTH and HEIGHT when FFT-spec is 1.
+                     0 = Read one trig value and compute the next 3 or 7.
+                     1 = All trig values are pre-computed and read from memmory.
 
   -use DEBUG       : enable asserts in OpenCL kernels (slow, developers)
 

@@ -15,24 +15,14 @@
 #include <array>
 #include <map>
 
-
-
-// BUG, BUG, BUG:  We need to redo calculations for maxBPW for FFT variants.  There are more variants now.  Can we derive a formula for each variation
-// as a percentage of the best variant?  Ex: if variant 313 is the most accurate, dropping to 213 might be 99.92% of max, 113 might be 99.86% of max,
-// 303 might be 99.75% of max, etc.  Warning: the percentage change from changing the middle variant will be different for every middle size.
-// This hack crudely maps new variant numbers to old variant numbers
-#define vhack(x)  ((variant_W(x) >= 2 ? 2 : 0) + (variant_M(x) == 1 ? 1 : 0))
-
-
-
 using namespace std;
 
 struct FftBpw {
   string fft;
-  array<double, 4> bpw;
+  array<double, NUM_BPW_ENTRIES> bpw;
 };
 
-map<string, array<double, 4>> BPW {
+map<string, array<double, NUM_BPW_ENTRIES>> BPW {
 #include "fftbpw.h"
 };
 
@@ -127,6 +117,11 @@ double FFTShape::carry32BPW() const {
   // while the 0.5*log2() models the impact of FFT size changes.
   // We model carry with a Gumbel distrib similar to the one used for ROE, and measure carry with
   // -use STATS=1. See -carryTune
+
+//GW:  I have no idea why this is needed.  Without it, -tune fails on FFT sizes from 256K to 1M
+// Perhaps it has something to do with RNDVALdoubleToLong in carryutil
+if (18.35 + 0.5 * (log2(13 * 1024 * 512) - log2(size())) > 19.0) return 19.0;
+
   return 18.35 + 0.5 * (log2(13 * 1024 * 512) - log2(size()));
 }
 
@@ -149,11 +144,39 @@ FFTShape::FFTShape(u32 w, u32 m, u32 h) :
       bpw = FFTShape{h, m, w}.bpw;
     } else {
       // Make up some defaults
-      double d = 0.275 * (log2(size()) - log2(256 * 13 * 1024 * 2));
-      bpw = {18.1-d, 18.2-d, 18.2-d, 18.3-d};
-      log("BPW info for %s not found, defaults={%.2f, %.2f, %.2f, %.2f}\n", s.c_str(), bpw[0], bpw[1], bpw[2], bpw[3]);
+
+      //double d = 0.275 * (log2(size()) - log2(256 * 13 * 1024 * 2));
+      //bpw = {18.1-d, 18.2-d, 18.2-d, 18.3-d};
+      //log("BPW info for %s not found, defaults={%.2f, %.2f, %.2f, %.2f}\n", s.c_str(), bpw[0], bpw[1], bpw[2], bpw[3]);
+
+      // Manipulate the shape into something that was likely pre-computed
+      while (m < 9) { m *= 2; w /= 2; }
+      while (w >= 4*h) { w /= 2; h *= 2; }
+      while (w < h || w < 256 || w == 2048) { w *= 2; h /= 2; }
+      while (h < 256) { h *= 2; m /= 2; }
+      bpw = FFTShape{w, m, h}.bpw;
+      for (u32 j = 0; j < NUM_BPW_ENTRIES; ++j) bpw[j] -= 0.05;   // Assume this fft spec is worse than measured fft specs
+      printf("BPW info for %s not found, defaults={", s.c_str());
+      for (u32 j = 0; j < NUM_BPW_ENTRIES; ++j) printf("%s%.2f", j ? ", " : "", bpw[j]);
+      printf("}\n");
     }
   }
+}
+
+// Return TRUE for "favored" shapes.  That is, those that are most likely to be useful.  To save time in generating bpw data, only these favored
+// shapes have their bpw data pre-computed.  Bpw for non-favored shapes is guessed from the bpw data we do have.  Also. -tune will normally only
+// time favored shapes.  These are the rules for deciding favored shapes:
+//      WIDTH >= HEIGHT
+//      WIDTH=4K:  HEIGHT>=512, MIDDLE>=9       (2*8 combos)
+//      WIDTH=1K:  MIDDLE>=5                    (3*12 combos)
+//      WIDTH=512: MIDDLE>=4                    (2*13 combos)
+//      WIDTH=256: MIDDLE>=1                    (16 combos)
+bool FFTShape::isFavoredShape() const {
+  return width >= height &&
+        ((width == 4096 && height >= 512 && middle >= 9) ||
+         (width == 1024 && middle >= 5) ||
+         (width == 512 && middle >= 4) ||
+         (width == 256 && middle >= 1));
 }
 
 FFTConfig::FFTConfig(const string& spec) {
@@ -161,9 +184,9 @@ FFTConfig::FFTConfig(const string& spec) {
   // assert(v.size() == 1 || v.size() == 3 || v.size() == 4 || v.size() == 5);
 
   if (v.size() == 1) {
-    *this = {FFTShape::multiSpec(spec).front(), 3, CARRY_AUTO};
+    *this = {FFTShape::multiSpec(spec).front(), LAST_VARIANT, CARRY_AUTO};
   } if (v.size() == 3) {
-    *this = {FFTShape{v[0], v[1], v[2]}, 3, CARRY_AUTO};
+    *this = {FFTShape{v[0], v[1], v[2]}, LAST_VARIANT, CARRY_AUTO};
   } else if (v.size() == 4) {
     *this = {FFTShape{v[0], v[1], v[2]}, parseInt(v[3]), CARRY_AUTO};
   } else if (v.size() == 5) {
@@ -180,18 +203,30 @@ FFTConfig::FFTConfig(FFTShape shape, u32 variant, u32 carry) :
   variant{variant},
   carry{carry}
 {
-  assert(variant_W() < N_VARIANT_W);
-  assert(variant_M() < N_VARIANT_M);
-  assert(variant_H() < N_VARIANT_H);
+  assert(variant_W(variant) < N_VARIANT_W);
+  assert(variant_M(variant) < N_VARIANT_M);
+  assert(variant_H(variant) < N_VARIANT_H);
 }
 
 string FFTConfig::spec() const {
-  string s = shape.spec() + ":" + to_string(variant);
+  string s = shape.spec() + ":" + to_string(variant_W(variant)) + to_string(variant_M(variant)) + to_string(variant_H(variant));
   return carry == CARRY_AUTO ? s : (s + (carry == CARRY_32 ? ":0" : ":1"));
 }
 
 double FFTConfig::maxBpw() const {
-  double b = shape.bpw[vhack(variant)];
+  double b;
+  // Look up the pre-computed maximum bpw.  The lookup table contains data for variants 000, 101, 202, 010, 111, 212.
+  // For 4K width, the lookup table contains data for variants 100, 101, 202, 110, 111, 212 since BCAST only works for width <= 1024.
+  if (variant_W(variant) == variant_H(variant) ||
+      (shape.width > 1024 && variant_W(variant) == 1 && variant_H(variant) == 0)) {
+    b = shape.bpw[variant_M(variant) * 3 + variant_H(variant)];
+  }
+  // Interpolate for the maximum bpw.  This might could be improved upon.  However, I doubt people will use these variants often.
+  else {
+    double b1 = shape.bpw[variant_M(variant) * 3 + variant_W(variant)];
+    double b2 = shape.bpw[variant_M(variant) * 3 + variant_H(variant)];
+    b = (b1 + b2) / 2.0;
+  }
   return carry == CARRY_32 ? std::min(shape.carry32BPW(), b) : b;
 }
 

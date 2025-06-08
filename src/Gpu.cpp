@@ -227,7 +227,8 @@ string clDefines(const Args& args, cl_device_id id, FFTConfig fft, const vector<
                               "MIDDLE_IN_LDS_TRANSPOSE",
                               "MIDDLE_OUT_LDS_TRANSPOSE",
                               "TAIL_KERNELS",
-                              "TAIL_TRIGS"
+                              "TAIL_TRIGS",
+                              "TABMUL_CHAIN"
                             });
     if (!isValid) {
       log("Warning: unrecognized -use key '%s'\n", k.c_str());

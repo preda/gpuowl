@@ -11,7 +11,7 @@ void chainMul4(T2 *u, T2 w) {
   T2 base = csqTrig(w);
   u[2] = cmul(u[2], base);
 
-  double a = 2 * base.y;
+  double a = mul2(base.y);
   base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
   u[3] = cmul(u[3], base);
 }
@@ -52,10 +52,11 @@ void chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
 
 #else
 // This version of chainMul8 minimizes F64 ops even if that increases roundoff error.
-// This version is faster on a Radeon 7 with worse roundoff in :0 fft spec.  The :2 fft spec is even faster with no roundoff penalty.
-// This version is the same speed on a TitanV due to its great F64 throughput.
+// This version is faster on a Radeon 7 with worse roundoff.  However, new_FFT_width is even faster with better roundoff.
+// This version is the same speed on a TitanV probably due to its great F64 throughput.
 // This version is slower on R7Pro due to a rocm optimizer issue in double-wide single-kernel tailSquare using BCAST.  I could not find a work-around.
-// Other GPUs?  This version might be useful.
+// Other GPUs???  This version might be useful.  If we decide to make this available, it will need a new width and height fft spec number.
+// Consequently, an increase in the BPW table and increase work for -ztune and -tune.
 void chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
   u[1] = cmulFancy(u[1], w);
 
@@ -182,7 +183,7 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }  
 }
 
-void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me, bool chainmul) {
+void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
 #if 0
   u32 p = me / f * f;
 #else
@@ -201,10 +202,10 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me, bool chainmul) {
 #endif
 
 // This code uses chained complex multiplies which could be faster on GPUs with great DP throughput or poor memory bandwidth or caching.
-// This ought to be the least accurate version of Tabmul.  In practice this is more accurate (at least when n==8) than reading precomputed
-// values from memory.  Perhaps chained Fancy muls are the reason (or was resolved when the algorithm to precompute trig values changed).
+// This ought to be the least accurate version of Tabmul.  In practice, this is just as accurate as reading precomputed values from memory.
+// Apparently, chained Fancy muls at these short n=4 and n=8 lengths are very accurate.
 
-  if (chainmul) {
+  if (TABMUL_CHAIN) {
     T2 w = trig[p];
     chainMul (n, u, w, 0);
     return;
@@ -213,7 +214,7 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me, bool chainmul) {
 // Theoretically, maximum accuracy.  Use memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
 // Radeon VII loves this case, it is faster than the chainmul case.  nVidia Titan V hates this case.
 
-  if (!chainmul) {
+  if (!TABMUL_CHAIN) {
     T2 w = trig[p];
 
     if (n >= 8) {
