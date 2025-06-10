@@ -282,7 +282,7 @@ TrigBufCache::~TrigBufCache() = default;
 TrigPtr TrigBufCache::smallTrig(u32 W, u32 nW) {
   lock_guard lock{mut};
   auto& m = small;
-  decay_t<decltype(m)>::key_type key{W, nW, 0, 0};
+  decay_t<decltype(m)>::key_type key{W, nW, 0, 0, 0, 0};
 
   TrigPtr p{};
   auto it = m.find(key);
@@ -300,9 +300,9 @@ TrigPtr TrigBufCache::smallTrigCombo(u32 width, u32 middle, u32 W, u32 nW, u32 v
 
   lock_guard lock{mut};
   auto& m = small;
-  decay_t<decltype(m)>::key_type key1{W, nW, width, middle};
+  decay_t<decltype(m)>::key_type key1{W, nW, width, middle, tail_single_wide, tail_trigs};
   // We write the "combo" under two keys, so it can also be retrieved as non-combo by smallTrig()
-  decay_t<decltype(m)>::key_type key2{W, nW, 0, 0};
+  decay_t<decltype(m)>::key_type key2{W, nW, 0, 0, 0, 0};
 
   TrigPtr p{};
   auto it = m.find(key1);
