@@ -327,9 +327,243 @@ void Tune::ctune() {
 
 void Tune::tune() {
   Args *args = shared.args;
-  string fftSpec = args->fftSpec;
+  vector<FFTShape> shapes = FFTShape::multiSpec(args->fftSpec);
 
-//GW: detail all the configs we should auto-time first
+  // There are some options and variants that are different based on GPU manufacturer
+  bool AMDGPU = isAmdGpu(q->context->deviceId());
+
+  // Look for best settings of various options
+
+  if (1) {
+    u32 variant = 101;
+//GW: if fft spec on the command line specifies a variant then we should use that variant (I get some interesting results with 000 vs 101 vs 201 vs 202 likely due to rocm optimizer)
+
+    // Find best FAST_BARRIER setting
+    if (1 && AMDGPU) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_fast_barrier = 0;
+      double best_cost = -1.0;
+      for (u32 fast_barrier : {0, 1}) {
+        shared.args->flags["FAST_BARRIER"] = to_string(fast_barrier);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using FAST_BARRIER=%u is %6.1f\n", fft.spec().c_str(), fast_barrier, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_fast_barrier = fast_barrier; }
+      }
+      log("Best FAST_BARRIER is %u.  Default FAST_BARRIER is 0.\n", best_fast_barrier);
+      shared.args->flags["FAST_BARRIER"] = to_string(best_fast_barrier);
+    }
+
+    // Find best TAIL_TRIGS setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_tail_trigs = 0;
+      double best_cost = -1.0;
+      for (u32 tail_trigs : {0, 1, 2}) {
+        shared.args->flags["TAIL_TRIGS"] = to_string(tail_trigs);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using TAIL_TRIGS=%u is %6.1f\n", fft.spec().c_str(), tail_trigs, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_tail_trigs = tail_trigs; }
+      }
+      log("Best TAIL_TRIGS is %u.  Default TAIL_TRIGS is 2.\n", best_tail_trigs);
+      shared.args->flags["TAIL_TRIGS"] = to_string(best_tail_trigs);
+    }
+
+    // Find best TAIL_KERNELS setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_tail_kernels = 0;
+      double best_cost = -1.0;
+      for (u32 tail_kernels : {0, 1, 2, 3}) {
+        shared.args->flags["TAIL_KERNELS"] = to_string(tail_kernels);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using TAIL_KERNELS=%u is %6.1f\n", fft.spec().c_str(), tail_kernels, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_tail_kernels = tail_kernels; }
+      }
+      if (best_tail_kernels & 1)
+        log("Best TAIL_KERNELS is %u.  Default TAIL_KERNELS is 2.\n", best_tail_kernels);
+      else
+        log("Best TAIL_KERNELS is %u (but best may be %u when running two workers on one GPU).  Default TAIL_KERNELS is 2.\n", best_tail_kernels, best_tail_kernels | 1);
+      shared.args->flags["TAIL_KERNELS"] = to_string(best_tail_kernels);
+    }
+
+    // Find best TABMUL_CHAIN setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, 101, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_tabmul_chain = 0;
+      double best_cost = -1.0;
+      for (u32 tabmul_chain : {0, 1}) {
+        shared.args->flags["TABMUL_CHAIN"] = to_string(tabmul_chain);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using TABMUL_CHAIN=%u is %6.1f\n", fft.spec().c_str(), tabmul_chain, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_tabmul_chain = tabmul_chain; }
+      }
+      log("Best TABMUL_CHAIN is %u.  Default TABMUL_CHAIN is 0.\n", best_tabmul_chain);
+      shared.args->flags["TABMUL_CHAIN"] = to_string(best_tabmul_chain);
+    }
+
+    // Find best PAD setting.  Default is 256 bytes for AMD, 0 for all others.
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_pad = 0;
+      double best_cost = -1.0;
+      for (u32 pad : {0, 64, 128, 256, 512}) {
+        shared.args->flags["PAD"] = to_string(pad);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using PAD=%u is %6.1f\n", fft.spec().c_str(), pad, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_pad = pad; }
+      }
+      log("Best PAD is %u bytes.  Default PAD is %u bytes.\n", best_pad, AMDGPU ? 256 : 0);
+      shared.args->flags["PAD"] = to_string(best_pad);
+    }
+
+    // Find best NONTEMPORAL setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_nontemporal = 0;
+      double best_cost = -1.0;
+      for (u32 nontemporal : {0, 1}) {
+        shared.args->flags["NONTEMPORAL"] = to_string(nontemporal);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using NONTEMPORAL=%u is %6.1f\n", fft.spec().c_str(), nontemporal, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_nontemporal = nontemporal; }
+      }
+      log("Best NONTEMPORAL is %u.  Default NONTEMPORAL is 0.\n", best_nontemporal);
+      shared.args->flags["NONTEMPORAL"] = to_string(best_nontemporal);
+    }
+
+    // Find best UNROLL_W setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_unroll_w = 0;
+      double best_cost = -1.0;
+      for (u32 unroll_w : {0, 1}) {
+        shared.args->flags["UNROLL_W"] = to_string(unroll_w);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using UNROLL_W=%u is %6.1f\n", fft.spec().c_str(), unroll_w, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_unroll_w = unroll_w; }
+      }
+      log("Best UNROLL_W is %u.  Default UNROLL_W is %u.\n", best_unroll_w, AMDGPU ? 0 : 1);
+      shared.args->flags["UNROLL_W"] = to_string(best_unroll_w);
+    }
+
+    // Find best UNROLL_H setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_unroll_h = 0;
+      double best_cost = -1.0;
+      for (u32 unroll_h : {0, 1}) {
+        shared.args->flags["UNROLL_H"] = to_string(unroll_h);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using UNROLL_H=%u is %6.1f\n", fft.spec().c_str(), unroll_h, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_unroll_h = unroll_h; }
+      }
+      log("Best UNROLL_H is %u.  Default UNROLL_H is %u.\n", best_unroll_h, AMDGPU && shape.height >= 1024 ? 0 : 1);
+      shared.args->flags["UNROLL_H"] = to_string(best_unroll_h);
+    }
+
+    // Find best ZEROHACK_W setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_zerohack_w = 0;
+      double best_cost = -1.0;
+      for (u32 zerohack_w : {0, 1}) {
+        shared.args->flags["ZEROHACK_W"] = to_string(zerohack_w);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using ZEROHACK_W=%u is %6.1f\n", fft.spec().c_str(), zerohack_w, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_zerohack_w = zerohack_w; }
+      }
+      log("Best ZEROHACK_W is %u.  Default ZEROHACK_W is 1.\n", best_zerohack_w);
+      shared.args->flags["ZEROHACK_W"] = to_string(best_zerohack_w);
+    }
+
+    // Find best ZEROHACK_H setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_zerohack_h = 0;
+      double best_cost = -1.0;
+      for (u32 zerohack_h : {0, 1}) {
+        shared.args->flags["ZEROHACK_H"] = to_string(zerohack_h);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using ZEROHACK_H=%u is %6.1f\n", fft.spec().c_str(), zerohack_h, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_zerohack_h = zerohack_h; }
+      }
+      log("Best ZEROHACK_H is %u.  Default ZEROHACK_H is 1.\n", best_zerohack_h);
+      shared.args->flags["ZEROHACK_H"] = to_string(best_zerohack_h);
+    }
+
+    // Find best MIDDLE_IN_LDS_TRANSPOSE setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_middle_in_lds_transpose = 0;
+      double best_cost = -1.0;
+      for (u32 middle_in_lds_transpose : {0, 1}) {
+        shared.args->flags["MIDDLE_IN_LDS_TRANSPOSE"] = to_string(middle_in_lds_transpose);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using MIDDLE_IN_LDS_TRANSPOSE=%u is %6.1f\n", fft.spec().c_str(), middle_in_lds_transpose, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_middle_in_lds_transpose = middle_in_lds_transpose; }
+      }
+      log("Best MIDDLE_IN_LDS_TRANSPOSE is %u.  Default MIDDLE_IN_LDS_TRANSPOSE is 1.\n", best_middle_in_lds_transpose);
+      shared.args->flags["MIDDLE_IN_LDS_TRANSPOSE"] = to_string(best_middle_in_lds_transpose);
+    }
+
+    // Find best MIDDLE_OUT_LDS_TRANSPOSE setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_middle_out_lds_transpose = 0;
+      double best_cost = -1.0;
+      for (u32 middle_out_lds_transpose : {0, 1}) {
+        shared.args->flags["MIDDLE_OUT_LDS_TRANSPOSE"] = to_string(middle_out_lds_transpose);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using MIDDLE_OUT_LDS_TRANSPOSE=%u is %6.1f\n", fft.spec().c_str(), middle_out_lds_transpose, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_middle_out_lds_transpose = middle_out_lds_transpose; }
+      }
+      log("Best MIDDLE_OUT_LDS_TRANSPOSE is %u.  Default MIDDLE_OUT_LDS_TRANSPOSE is 1.\n", best_middle_out_lds_transpose);
+      shared.args->flags["MIDDLE_OUT_LDS_TRANSPOSE"] = to_string(best_middle_out_lds_transpose);
+    }
+
+    // Find best BIGLIT setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_biglit = 0;
+      double best_cost = -1.0;
+      for (u32 biglit : {0, 1}) {
+        shared.args->flags["BIGLIT"] = to_string(biglit);
+        double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+        log("Time for %12s using BIGLIT=%u is %6.1f\n", fft.spec().c_str(), biglit, cost);
+        if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_biglit = biglit; }
+      }
+      log("Best BIGLIT is %u.  Default BIGLIT is 1.  The BIGLIT=0 option will probably be deprecated.\n", best_biglit);
+      shared.args->flags["BIGLIT"] = to_string(best_biglit);
+    }
+
+    //GW:  Time some IN/OUT_WG/SIZEX combos?
+  }
 
   // Flags that prune the amount of shapes and variants to time.
   // These should be computed automatically and saved in the tune.txt or config.txt file.
@@ -341,11 +575,8 @@ void Tune::tune() {
   // The width = height = 512 FFT shape is so good, we probably don't need to time the width = 1024, height = 256 shape.
   bool skip_1K_256 = 1;
 
-  // There are some variands only AMD GPUs can execute
-  bool AMDGPU = isAmdGpu(q->context->deviceId());
-
-// make command line args for this?
-skip_some_WH_variants = 2;
+// make command line args for this? 
+skip_some_WH_variants = 2;   // should default be 1??
 skip_1K_256 = 0;
 
 //GW:  Suggest tuning with TAIL_KERNELS=2 even if production runs use TAIL_KERNELS=3
@@ -359,7 +590,6 @@ skip_1K_256 = 0;
   map<int, u32> fastest_height_variants;
 
   vector<TuneEntry> results = TuneEntry::readTuneFile(*args);
-  vector<FFTShape> shapes = FFTShape::multiSpec(args->fftSpec);
 
   // Loop through all possible FFT shapes
   for (const FFTShape& shape : shapes) {

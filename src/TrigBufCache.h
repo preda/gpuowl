@@ -27,7 +27,7 @@ class TrigBufCache {
   const Context* context;
   std::mutex mut;
 
-  std::map<tuple<u32, u32, u32, u32>, TrigPtr::weak_type> small;
+  std::map<tuple<u32, u32, u32, u32, bool, u32>, TrigPtr::weak_type> small;
   std::map<tuple<u32, u32, u32>, TrigPtr::weak_type> middle;
 
   // The shared-pointers below keep the most recent set of buffers alive even without any Gpu instance
