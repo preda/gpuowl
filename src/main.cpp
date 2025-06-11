@@ -67,11 +67,20 @@ int main(int argc, char **argv) {
       }
     }
 
+    fs::path sharedConfigDir;
+    {
+      Args args{true};
+      args.readConfig("config.txt");
+      args.parse(mainLine);
+      sharedConfigDir = args.sharedConfigDir;
+    }
+
     initLog("gpuowl-0.log");
     log("PRPLL %s starting\n", VERSION);
     
     Args args;
 
+    if (!sharedConfigDir.empty()) { args.readConfig(sharedConfigDir / "config.txt"); }
     args.readConfig("config.txt");
     args.parse(mainLine);
     args.setDefaults();

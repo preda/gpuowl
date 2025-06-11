@@ -127,6 +127,8 @@ named "config.txt" in the prpll run directory.
 -h                 : print general help, list of FFTs, list of devices
 -info <fft>        : print detailed information about the given FFT; e.g. -h 1K:13:256
 -dir <folder>      : specify local work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
+-defaults <folder> : specify a directory with the shared config.txt and tune.txt files
+                     This option allows to use the same config for multiple PRPLL instances.
 -verbose           : print more log, useful for developers
 -version           : print only the version and exit
 -user <name>       : specify the mersenne.org user name (for result reporting)
@@ -351,6 +353,7 @@ void Args::parse(const string& line) {
       }
       verifyPath = s;
     }
+    else if (key == "-defaults") { sharedConfigDir = s; }
     else if (key == "-maxAlloc" || key == "-maxalloc") {
       assert(!s.empty());
       u32 multiple = (s.back() == 'G') ? (1u << 30) : (1u << 20);
