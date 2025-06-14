@@ -338,6 +338,50 @@ void Tune::tune() {
     u32 variant = 101;
 //GW: if fft spec on the command line specifies a variant then we should use that variant (I get some interesting results with 000 vs 101 vs 201 vs 202 likely due to rocm optimizer)
 
+    // Find best IN_WG,IN_SIZEX setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_in_wg = 0;
+      u32 best_in_sizex = 0;
+      double best_cost = -1.0;
+      for (u32 in_wg : {64, 128, 256}) {
+        for (u32 in_sizex : {8, 16, 32}) {
+          shared.args->flags["IN_WG"] = to_string(in_wg);
+          shared.args->flags["IN_SIZEX"] = to_string(in_sizex);
+          double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+          log("Time for %12s using IN_WG=%u, IN_SIZEX=%u is %6.1f\n", fft.spec().c_str(), in_wg, in_sizex, cost);
+	  if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_in_wg = in_wg; best_in_sizex = in_sizex; }
+	}
+      }
+      log("Best IN_WG, IN_SIZEX is %u, %u.  Default is 128, 16.\n", best_in_wg, best_in_sizex);
+      shared.args->flags["IN_WG"] = to_string(best_in_wg);
+      shared.args->flags["IN_SIZEX"] = to_string(best_in_sizex);
+    }
+
+    // Find best OUT_WG,OUT_SIZEX setting
+    if (1) {
+      const FFTShape& shape = shapes[0];
+      FFTConfig fft{shape, variant, CARRY_32};
+      u32 exponent = primes.prevPrime(fft.maxExp());
+      u32 best_out_wg = 0;
+      u32 best_out_sizex = 0;
+      double best_cost = -1.0;
+      for (u32 out_wg : {64, 128, 256}) {
+        for (u32 out_sizex : {8, 16, 32}) {
+          shared.args->flags["OUT_WG"] = to_string(out_wg);
+          shared.args->flags["OUT_SIZEX"] = to_string(out_sizex);
+          double cost = Gpu::make(q, exponent, shared, fft, {}, false)->timePRP();
+          log("Time for %12s using OUT_WG=%u, OUT_SIZEX=%u is %6.1f\n", fft.spec().c_str(), out_wg, out_sizex, cost);
+	  if (best_cost < 0.0 || cost < best_cost) { best_cost = cost; best_out_wg = out_wg; best_out_sizex = out_sizex; }
+	}
+      }
+      log("Best OUT_WG, OUT_SIZEX is %u, %u.  Default is 128, 16.\n", best_out_wg, best_out_sizex);
+      shared.args->flags["OUT_WG"] = to_string(best_out_wg);
+      shared.args->flags["OUT_SIZEX"] = to_string(best_out_sizex);
+    }
+
     // Find best FAST_BARRIER setting
     if (1 && AMDGPU) {
       const FFTShape& shape = shapes[0];
