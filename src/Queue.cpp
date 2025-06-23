@@ -7,6 +7,8 @@
 #include "log.h"
 
 #include <cassert>
+#include <chrono>
+#include <thread>
 
 void Events::clearCompleted() { while (!empty() && front().isComplete()) { pop_front(); } }
 
@@ -101,11 +103,8 @@ void Queue::waitForMarkerEvent() {
   // By default, nVidia finish causes a CPU busy wait.  Instead, sleep for a while.  Since we know how many items are enqueued after the marker we can make an
   // educated guess of how long to sleep to keep CPU overhead low.
   while (getEventInfo(markerEvent) != CL_COMPLETE) {
-#if defined(__CYGWIN__)
-    sleep(1);                                  // 1 second.  A very steep overhead as 500 iterations won't take that long.
-#else
-    usleep(1 + queueCount * squareTime / 10);  // There are 4 kernels per squaring.  Don't overestimate sleep time.  Divide by 10 instead of 4.
-#endif
+    // There are 4 kernels per squaring.  Don't overestimate sleep time.  Divide by 10 instead of 4.
+    std::this_thread::sleep_for(std::chrono::microseconds(1 + queueCount * squareTime / 10));
   }
   markerQueued = false;
 }
