@@ -1504,15 +1504,13 @@ PRPResult Gpu::isPrimePRP(const Task& task) {
     bool doCheck = doStop || (k % checkStep == 0) || (k >= kEndEnd) || (k - startK == 2 * blockSize);
     bool doLog = k % logStep == 0;
 
-    if (!leadOut || (!doCheck && !doLog)) {
-      if (k % args.flushStep == 0) { queue->finish(); }
-      continue;
-    }
+    if (!leadOut || (!doCheck && !doLog)) continue;
 
     assert(doCheck || doLog);
 
     u64 res = dataResidue();
     float secsPerIt = iterationTimer.reset(k);
+    queue->setSquareTime((int) (secsPerIt * 1'000'000));
 
     vector<int> rawCheck = readChecked(bufCheck);
     if (rawCheck.empty()) {
@@ -1630,10 +1628,7 @@ LLResult Gpu::isPrimeLL(const Task& task) {
     squareLL(bufData, leadIn, leadOut);
     leadIn = leadOut;
 
-    if (!doLog) {
-      if (k % args.flushStep == 0) { queue->finish(); } // Periodically flush the queue
-      continue;
-    }
+    if (!doLog) continue;
 
     u64 res64 = 0;
     auto data = readData();
@@ -1656,6 +1651,7 @@ LLResult Gpu::isPrimeLL(const Task& task) {
     }
 
     float secsPerIt = iterationTimer.reset(k);
+    queue->setSquareTime((int) (secsPerIt * 1'000'000));
     log("%9u %016" PRIx64 " %4.0f\n", k, res64, secsPerIt * 1'000'000);
 
     if (k >= kEnd) { return {isAllZero, res64}; }
@@ -1707,16 +1703,14 @@ array<u64, 4> Gpu::isCERT(const Task& task) {
     squareCERT(bufData, leadIn, leadOut);
     leadIn = leadOut;
 
-    if (!doLog) {
-      if (k % args.flushStep == 0) { queue->finish(); } // Periodically flush the queue
-      continue;
-    }
+    if (!doLog) continue;
 
     Words data = readData();
     assert(data.size() >= 2);
     u64 res64 = (u64(data[1]) << 32) | data[0];
 
     float secsPerIt = iterationTimer.reset(k);
+    queue->setSquareTime((int) (secsPerIt * 1'000'000));
     log("%9u %016" PRIx64 " %4.0f\n", k, res64, secsPerIt * 1'000'000);
 
     if (k >= kEnd) {
