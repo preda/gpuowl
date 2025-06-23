@@ -71,7 +71,8 @@ cl_command_queue clCreateCommandQueueWithPropertiesAPPLE(cl_context, cl_device_i
 #else
 cl_command_queue clCreateCommandQueueWithProperties(cl_context, cl_device_id, const cl_queue_properties *, int *);
 #endif
-  
+
+int clEnqueueMarkerWithWaitList(cl_command_queue, unsigned num_events_in_wait_list, const cl_event* event_wait_list, cl_event* event);
 int clEnqueueReadBuffer(cl_command_queue, cl_mem, cl_bool, size_t, size_t, void *,
                         unsigned numEvents, const cl_event *waitEvents, cl_event *outEvent);
 int clEnqueueWriteBuffer(cl_command_queue, cl_mem, cl_bool, size_t, size_t, const void *,

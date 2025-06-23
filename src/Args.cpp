@@ -333,9 +333,6 @@ void Args::parse(const string& line) {
       if (workers < 1 || workers > 4) {
         throw "Number of workers must be between 1 and 4";
       }
-    } else if (key == "-flush") {
-      flushStep = stoi(s);
-      assert(flushStep);
     } else if (key == "-cache") {
       useCache = true;
     } else if (key == "-noclean") {

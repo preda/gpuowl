@@ -49,4 +49,15 @@ public:
   void readAsync(cl_mem buf, u32 size, void* out, TimeInfo* tInfo);
   void copyBuf(cl_mem src, cl_mem dst, u32 size, TimeInfo* tInfo);
   void finish();
+
+  void setSquareTime(int);          // Set the time to do one squaring (in microseconds)
+
+private:                            // This replaces the "call queue->finish every 400 squarings" code in Gpu.cpp.  Solves the busy wait on nVidia GPUs.
+  int MAX_QUEUE_COUNT;              // Queue size before a marker will be enqueued.  Typically, 100 to 1000 squarings.
+  cl_event markerEvent;             // Event associated with an enqueued marker placed in the queue every MAX_QUEUE_COUNT entries and before r/w operations.
+  bool markerQueued;                // TRUE if a marker and event have been queued
+  int queueCount;                   // Count of items added to the queue since last marker
+  int squareTime;                   // Time to do one squaring (in microseconds)
+  void queueMarkerEvent();          // Queue the marker event
+  void waitForMarkerEvent();        // Wait for marker event to complete
 };
