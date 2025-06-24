@@ -92,18 +92,25 @@ std::optional<Task> parse(const std::string& line) {
   return {};
 }
 
-// Among the valid tasks from fileName, return the "best" which means the smallest CERT, or otherwise the exponent PRP/LL
+// Process CERT tasks with priority
 static std::optional<Task> bestTask(const fs::path& fileName) {
-  optional<Task> best;
+  optional<Task> firstNonCert;
+
   for (const string& line : File::openRead(fileName)) {
     optional<Task> task = parse(line);
-    if (task && (!best
-                 || (best->kind != Task::CERT && task->kind == Task::CERT)
-                 || ((best->kind != Task::CERT || task->kind == Task::CERT) && task->exponent < best->exponent))) {
-      best = task;
+    if (!task)
+      continue;
+
+    if (task->kind == Task::CERT) {
+      return task;
+    }
+
+    if (!firstNonCert) {
+      firstNonCert = task;
     }
   }
-  return best;
+
+  return firstNonCert;
 }
 
 string workName(i32 instance) { return "worktodo-" + to_string(instance) + ".txt"; }
@@ -113,52 +120,6 @@ optional<Task> getWork(Args& args, i32 instance) {
 
   // Try to get a task from the local worktodo-<N> file.
   if (optional<Task> task = bestTask(localWork)) { return task; }
-
-  if (args.masterDir.empty()) { return {}; }
-
-  fs::path worktodo = args.masterDir / "worktodo.txt";
-
-  /*
-    We need to aquire a task from the global worktodo.txt, and "atomically"
-    add the task to the local worktodo-N.txt and remove it from worktodo.txt
-
-    Below we call the global worktodo.txt "global worktodo", and worktodo-N.txt "local worktodo".
-
-    We want to avoid filesystem-based locking, so we approximate it this way:
-    1. read the file-size of the global worktodo
-    2. read one task from the global worktodo
-    3. append the task to the local worktodo
-    4. write the new content of the global worktodo without the task to a temporary file
-    5. compare the size of the global worktodo with its initial size (as an heuristic to detect modifications to it)
-    6a. if the size is not changed, rename the temporary file to global worktodo and done
-    6b. if the size is changed (i.e. global worktodo was modified in the meantime):
-       7. remove the task from the local worktodo (undo the local task add)
-       8. start again (from step 1)
-  */
-
-  for (int retry = 0; retry < 2; ++retry) {
-    u64 initialSize = fileSize(worktodo);
-    if (!initialSize) { return {}; }
-
-    optional<Task> task = bestTask(worktodo);
-    if (!task) { return {}; }
-
-    string workLine = task->line;
-    File::append(localWork, workLine);
-
-    if (deleteLine(worktodo, workLine, initialSize)) {
-      return task;
-    }
-
-    // Undo add to local worktodo. Attempt twice.
-    bool found = deleteLine(localWork, workLine) || deleteLine(localWork, workLine);
-    assert(found);
-    if (!found) { return {}; }
-  }
-
-  log("Could not extract a task from '%s'\n", worktodo.string().c_str());
-  // must be tough luck to be preempted twice while mutating the global worktodo
-  assert(false);
   return {};
 }
 

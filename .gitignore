@@ -7,7 +7,7 @@ build-*
 src/version.inc
 *.log
 t?
-results.txt
+results-*.txt
 kernel-cache
 prp-*/
 ll-*/

@@ -116,10 +116,7 @@ and should be able to run.
 
 Worktodo:
 PRPLL keeps the active tasks in per-worker files worktodo-0.txt, worktodo-1.txt etc in the local directory.
-These per-worker files are supplied from the global worktodo.txt file if -pool is used.
-In turn the global worktodo.txt can be supplied through the primenet.py script,
-either the one located at gpuowl/tools/primenet.py or https://download.mersenne.ca/primenet.py
-
+These files can be supplied through the autoprimenet.py script, located at https://download.mersenne.ca/AutoPrimeNet
 It is also possible to manually add exponents by adding lines of the form "PRP=118063003" to worktodo-<N>.txt
 
 
@@ -130,9 +127,8 @@ named "config.txt" in the prpll run directory.
 -h                 : print general help, list of FFTs, list of devices
 -info <fft>        : print detailed information about the given FFT; e.g. -h 1K:13:256
 -dir <folder>      : specify local work directory (containing worktodo.txt, results.txt, config.txt, gpuowl.log)
--pool <dir>        : specify a directory with the shared (pooled) worktodo.txt and results.txt
-                     Multiple PRPLL instances, each in its own directory, can share a pool of assignments and report
-                     the results back to the common pool.
+-defaults <folder> : specify a directory with the shared config.txt and tune.txt files
+                     This option allows to use the same config for multiple PRPLL instances.
 -verbose           : print more log, useful for developers
 -version           : print only the version and exit
 -user <name>       : specify the mersenne.org user name (for result reporting)
@@ -160,7 +156,6 @@ named "config.txt" in the prpll run directory.
                      A lower power reduces disk space requirements but increases the verification cost.
                      A higher power increases disk usage a lot.
                      e.g. proof power 10 for a 120M exponent uses about %.0fGB of disk space.
--results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
@@ -218,7 +213,7 @@ named "config.txt" in the prpll run directory.
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", ProofSet::diskUsageGB(120000000, 10), resultsFile.string().c_str(), nSavefiles);
+)", ProofSet::diskUsageGB(120000000, 10), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
@@ -358,14 +353,7 @@ void Args::parse(const string& line) {
       }
       verifyPath = s;
     }
-    else if (key == "-pool") {
-      masterDir = s;
-      if (!masterDir.is_absolute()) {
-        log("-pool <path> requires an absolute path\n");
-        throw("-pool <path> requires an absolute path");
-      }
-    }
-    else if (key == "-results") { resultsFile = s; }
+    else if (key == "-defaults") { sharedConfigDir = s; }
     else if (key == "-maxAlloc" || key == "-maxalloc") {
       assert(!s.empty());
       u32 multiple = (s.back() == 'G') ? (1u << 30) : (1u << 20);
@@ -422,15 +410,10 @@ void Args::parse(const string& line) {
 void Args::setDefaults() {
   uid = getUidFromPos(device);
   log("device %d, OpenCL %s, unique id '%s'\n", device, getDriverVersionByPos(device).c_str(), uid.c_str());
-  
-  if (!masterDir.empty()) {
-    assert(masterDir.is_absolute());
-    for (filesystem::path* p : {&proofResultDir, &proofToVerifyDir, &cacheDir, &resultsFile}) {
-      if (p->is_relative()) { *p = masterDir / *p; }
-    }
-  }
-
   for (auto& p : {proofResultDir, proofToVerifyDir, cacheDir}) { fs::create_directory(p); }
 
-  File::openAppend(resultsFile);  // verify that it's possible to write results
+  for (u32 i = 0; i < workers; ++i) {
+    string resultsFile = "results-" + to_string(i) + ".txt";
+    File::openAppend(resultsFile);  // verify that it's possible to write results
+  }
 }
