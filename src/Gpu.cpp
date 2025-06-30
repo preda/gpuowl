@@ -492,7 +492,8 @@ Gpu::Gpu(Queue* q, GpuCommon shared, FFTConfig fft, u32 E, const vector<KeyVal>&
   BUF(bufStatsCarry, CARRY_SIZE),
 
   // Allocate extra for padding.  We can probably tighten up the amount of extra memory allocated.
-  #define total_padding   ((pad_size == 0 ? 0 : (pad_size <= 128 ? N/8 : (pad_size <= 256 ? N/4 : N/2))))
+  // The worst case seems to be MIDDLE=4, PAD_SIZE=512
+  #define total_padding   (((pad_size == 0 ? 0 : (pad_size <= 128 ? N/8 : (pad_size <= 256 ? N/4 : N/2)))) * (fft.shape.middle == 4 ? 5 : 4) / 4)
   BUF(buf1, N + total_padding),
   BUF(buf2, N + total_padding),
   BUF(buf3, N + total_padding),
@@ -1365,6 +1366,7 @@ double Gpu::timePRP() {
   if (Signal::stopRequested()) { throw "stop requested"; }
 
   Timer t;
+  queue->setSquareTime(0);     // Busy wait on nVidia to get the most accurate timings while tuning
   bool leadIn = useLongCarry;
   while (true) {
     while (k % blockSize < blockSize-1) {
