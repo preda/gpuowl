@@ -27,7 +27,7 @@ public:
   string verifyPath; // For Verify
   void execute(GpuCommon shared, Queue* q, u32 instance);
 
-  void writeResultPRP(const Args&, bool isPrime, u64 res64, const std::string& res2048, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;
-  void writeResultLL(const Args&, bool isPrime, u64 res64, u32 fftSize) const;
-  void writeResultCERT(const Args&, array <u64, 4> hash, u32 squarings, u32 fftSize) const;
+  void writeResultPRP(const Args&, u32 instance, bool isPrime, u64 res64, const std::string& res2048, u32 fftSize, u32 nErrors, const fs::path& proofPath) const;
+  void writeResultLL(const Args&, u32 instance, bool isPrime, u64 res64, u32 fftSize) const;
+  void writeResultCERT(const Args&, u32 instance, array <u64, 4> hash, u32 squarings, u32 fftSize) const;
 };
