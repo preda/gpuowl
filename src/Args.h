@@ -66,7 +66,6 @@ public:
   fs::path proofResultDir = "proof";
   fs::path proofToVerifyDir = "proof-tmp";
   fs::path cacheDir = "kernel-cache";
-  fs::path resultsFile = "results.txt";
   // fs::path tuneFile = "tune.txt";
 
   bool keepProof = false;

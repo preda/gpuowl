@@ -160,7 +160,6 @@ named "config.txt" in the prpll run directory.
                      A lower power reduces disk space requirements but increases the verification cost.
                      A higher power increases disk usage a lot.
                      e.g. proof power 10 for a 120M exponent uses about %.0fGB of disk space.
--results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
@@ -218,7 +217,7 @@ named "config.txt" in the prpll run directory.
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", ProofSet::diskUsageGB(120000000, 10), resultsFile.string().c_str(), nSavefiles);
+)", ProofSet::diskUsageGB(120000000, 10), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
@@ -365,7 +364,6 @@ void Args::parse(const string& line) {
         throw("-pool <path> requires an absolute path");
       }
     }
-    else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxAlloc" || key == "-maxalloc") {
       assert(!s.empty());
       u32 multiple = (s.back() == 'G') ? (1u << 30) : (1u << 20);
@@ -425,12 +423,10 @@ void Args::setDefaults() {
   
   if (!masterDir.empty()) {
     assert(masterDir.is_absolute());
-    for (filesystem::path* p : {&proofResultDir, &proofToVerifyDir, &cacheDir, &resultsFile}) {
+    for (filesystem::path* p : {&proofResultDir, &proofToVerifyDir, &cacheDir}) {
       if (p->is_relative()) { *p = masterDir / *p; }
     }
   }
 
   for (auto& p : {proofResultDir, proofToVerifyDir, cacheDir}) { fs::create_directory(p); }
-
-  File::openAppend(resultsFile);  // verify that it's possible to write results
 }
