@@ -229,7 +229,7 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
 
     if (isPrime) {
       log("%u is PRIME!\n", exponent);
-    } else {
+    } else if (shared.args->clean) {
       gpu->clear(kind == PRP);
     }
   } else if (kind == CERT) {
