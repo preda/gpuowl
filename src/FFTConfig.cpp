@@ -251,7 +251,7 @@ FFTConfig FFTConfig::bestFit(const Args& args, u32 E, const string& spec) {
 
   // Take the first FFT that can handle E
   for (const FFTShape& shape : FFTShape::allShapes()) {
-    for (u32 v = 0; v < 4; ++v) {
+    for (u32 v : {101, 202}) {
       if (FFTConfig fft{shape, v, CARRY_AUTO}; fft.maxExp() * args.fftOverdrive >= E) { return fft; }
     }
   }
