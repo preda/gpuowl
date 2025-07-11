@@ -231,7 +231,7 @@ string getBuildLog(cl_program program, cl_device_id deviceId) {
   if (logSize > 0) {
     // Avoid printing excessively large compile logs
     if (logSize > maxLogSize) {
-      log("getBuildLog: log size is %lu bytes, not showing\n", logSize);
+      log("getBuildLog: log size is %lu bytes, not showing\n", (unsigned long) logSize);
       return {};
     }
     std::unique_ptr<char[]> buf(new char[logSize + 1]);
