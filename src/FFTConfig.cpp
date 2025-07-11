@@ -156,9 +156,11 @@ FFTShape::FFTShape(u32 w, u32 m, u32 h) :
       while (h < 256) { h *= 2; m /= 2; }
       bpw = FFTShape{w, m, h}.bpw;
       for (u32 j = 0; j < NUM_BPW_ENTRIES; ++j) bpw[j] -= 0.05;   // Assume this fft spec is worse than measured fft specs
-      printf("BPW info for %s not found, defaults={", s.c_str());
-      for (u32 j = 0; j < NUM_BPW_ENTRIES; ++j) printf("%s%.2f", j ? ", " : "", bpw[j]);
-      printf("}\n");
+      if (this->isFavoredShape()) {  // Don't output this warning message for non-favored shapes (we expect the BPW info to be missing)
+        printf("BPW info for %s not found, defaults={", s.c_str());
+        for (u32 j = 0; j < NUM_BPW_ENTRIES; ++j) printf("%s%.2f", j ? ", " : "", bpw[j]);
+	printf("}\n");
+      }
     }
   }
 }
