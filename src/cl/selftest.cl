@@ -149,8 +149,8 @@ KERNEL(32) testTime(int what, global i64* io) {
   if (get_local_id(0) == 0) {
     io[get_group_id(0)] = clock1 - clock0;
   }
-}
 #endif
+}
 
 
 KERNEL(256) testFFT3(global double2* io) {
