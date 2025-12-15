@@ -26,7 +26,7 @@ private:
 
   Queue* queue;
   TimeInfo *tInfo;
-  
+
   Buffer(cl_context context, TimeInfo *tInfo, Queue* queue, size_t size, unsigned flags, const T* ptr = nullptr)
     : ptr{size == 0 ? NULL : makeBuf_(context, flags, size * sizeof(T), ptr)}
     , size{size}

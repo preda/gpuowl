@@ -6,7 +6,9 @@
 #error WIDTH must be one of: 256, 512, 1024, 4096, 625
 #endif
 
-void fft_NW(T2 *u) {
+#if FFT_FP64
+
+void OVERLOAD fft_NW(T2 *u) {
 #if NW == 4
   fft4(u);
 #elif NW == 5
@@ -18,9 +20,16 @@ void fft_NW(T2 *u) {
 #endif
 }
 
-#if BCAST && (WIDTH <= 1024)
+#if FFT_VARIANT_W == 0
 
-void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
+#if WIDTH > 1024
+#error FFT_VARIANT_W == 0 only supports WIDTH <= 1024
+#endif
+#if !AMDGPU
+#error FFT_VARIANT_W == 0 only supported by AMD GPUs
+#endif
+
+void OVERLOAD fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
   u32 me = get_local_id(0);
 #if NW == 8
   T2 w = fancyTrig_N(ND / WIDTH * me);
@@ -42,7 +51,7 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
 
 #else
 
-void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
+void OVERLOAD fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
   u32 me = get_local_id(0);
 
 #if !UNROLL_W
@@ -52,7 +61,7 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
     if (s > 1) { bar(); }
     fft_NW(u);
     tabMul(WIDTH / NW, trig, u, NW, s, me);
-    shufl( WIDTH / NW, lds,  u, NW, s);
+    shufl(WIDTH / NW, lds,  u, NW, s);
   }
   fft_NW(u);
 }
@@ -60,21 +69,18 @@ void fft_WIDTH(local T2 *lds, T2 *u, Trig trig) {
 #endif
 
 
-
-
-
 // New fft_WIDTH that uses more FMA instructions than the old fft_WIDTH.
 // The tabMul after fft8 only does a partial complex multiply, saving a mul-by-cosine for the next fft8 using FMA instructions.
-// To maximize FMA opportunities we precompute tig values as cosine and sine/cosine rather than cosine and sine.
+// To maximize FMA opportunities we precompute trig values as cosine and sine/cosine rather than cosine and sine.
 // The downside is sine/cosine cannot be computed with chained multiplies.
 
-void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
+void OVERLOAD new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
   u32 WG = WIDTH / NW;
   u32 me = get_local_id(0);
 
 // Custom code for various WIDTH values
 
-#if WIDTH == 256 && NW == 4 && !BCAST && CLEAN == 1 && UNROLL_W >= 3
+#if WIDTH == 256 && NW == 4 && FFT_VARIANT_W == 2
 
 // Custom code for WIDTH=256, NW=4
 
@@ -104,7 +110,7 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
   // Finish third tabMul and perform final fft4.
   finish_tabMul4_fft4(WG, lds, trig, preloads, u, 16, me, 1);
 
-#elif WIDTH == 512 && NW == 8 && !BCAST && CLEAN == 1 && UNROLL_W >= 3
+#elif WIDTH == 512 && NW == 8 && FFT_VARIANT_W == 2
 
 // Custom code for WIDTH=512, NW=8
 
@@ -128,7 +134,7 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
   // Finish second tabMul and perform final fft8.
   finish_tabMul8_fft8(WG, lds, trig, preloads, u, 8, me, 0);  // We'd rather set save_one_more_mul to 1
 
-#elif WIDTH == 1024 && NW == 4 && !BCAST && CLEAN == 1 && UNROLL_W >= 3
+#elif WIDTH == 1024 && NW == 4 && FFT_VARIANT_W == 2
 
 // Custom code for WIDTH=1024, NW=4
 
@@ -164,7 +170,7 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
   // Finish fourth tabMul and perform final fft4.
   finish_tabMul4_fft4(WG, lds, trig, preloads, u, 64, me, 1);
 
-#elif WIDTH == 4096 && NW == 8 && !BCAST && CLEAN == 1 && UNROLL_W >= 3
+#elif WIDTH == 4096 && NW == 8 && FFT_VARIANT_W == 2
 
 // Custom code for WIDTH=4K, NW=8
 
@@ -202,6 +208,119 @@ void new_fft_WIDTH(local T2 *lds, T2 *u, Trig trig, int callnum) {
 #endif
 }
 
-void new_fft_WIDTH1(local T2 *lds, T2 *u, Trig trig) { new_fft_WIDTH(lds, u, trig, 1); }
-void new_fft_WIDTH2(local T2 *lds, T2 *u, Trig trig) { new_fft_WIDTH(lds, u, trig, 2); }
+// There are two version of new_fft_WIDTH in case we want to try saving some trig values from new_fft_WIDTH1 in LDS memory for later use in new_fft_WIDTH2.
+void OVERLOAD new_fft_WIDTH1(local T2 *lds, T2 *u, Trig trig) { new_fft_WIDTH(lds, u, trig, 1); }
+void OVERLOAD new_fft_WIDTH2(local T2 *lds, T2 *u, Trig trig) { new_fft_WIDTH(lds, u, trig, 2); }
 
+#endif
+
+
+/**************************************************************************/
+/*            Similar to above, but for an FFT based on FP32              */
+/**************************************************************************/
+
+#if FFT_FP32
+
+void OVERLOAD fft_NW(F2 *u) {
+#if NW == 4
+  fft4(u);
+#elif NW == 8
+  fft8(u);
+#else
+#error NW
+#endif
+}
+
+void OVERLOAD fft_WIDTH(local F2 *lds, F2 *u, TrigFP32 trig) {
+  u32 me = get_local_id(0);
+
+#if !UNROLL_W
+  __attribute__((opencl_unroll_hint(1)))
+#endif
+  for (u32 s = 1; s < WIDTH / NW; s *= NW) {
+    if (s > 1) { bar(); }
+    fft_NW(u);
+    tabMul(WIDTH / NW, trig, u, NW, s, me);
+    shufl(WIDTH / NW, lds,  u, NW, s);
+  }
+  fft_NW(u);
+}
+
+void OVERLOAD new_fft_WIDTH1(local F2 *lds, F2 *u, TrigFP32 trig) { fft_WIDTH(lds, u, trig); }
+void OVERLOAD new_fft_WIDTH2(local F2 *lds, F2 *u, TrigFP32 trig) { fft_WIDTH(lds, u, trig); }
+
+#endif
+
+
+/**************************************************************************/
+/*          Similar to above, but for an NTT based on GF(M31^2)           */
+/**************************************************************************/
+
+#if NTT_GF31
+
+void OVERLOAD fft_NW(GF31 *u) {
+#if NW == 4
+  fft4(u);
+#elif NW == 8
+  fft8(u);
+#else
+#error NW
+#endif
+}
+
+void OVERLOAD fft_WIDTH(local GF31 *lds, GF31 *u, TrigGF31 trig) {
+  u32 me = get_local_id(0);
+
+#if !UNROLL_W
+  __attribute__((opencl_unroll_hint(1)))
+#endif
+  for (u32 s = 1; s < WIDTH / NW; s *= NW) {
+    if (s > 1) { bar(); }
+    fft_NW(u);
+    tabMul(WIDTH / NW, trig, u, NW, s, me);
+    shufl(WIDTH / NW, lds,  u, NW, s);
+  }
+  fft_NW(u);
+}
+
+void OVERLOAD new_fft_WIDTH1(local GF31 *lds, GF31 *u, TrigGF31 trig) { fft_WIDTH(lds, u, trig); }
+void OVERLOAD new_fft_WIDTH2(local GF31 *lds, GF31 *u, TrigGF31 trig) { fft_WIDTH(lds, u, trig); }
+
+#endif
+
+
+/**************************************************************************/
+/*          Similar to above, but for an NTT based on GF(M61^2)           */
+/**************************************************************************/
+
+#if NTT_GF61
+
+void OVERLOAD fft_NW(GF61 *u) {
+#if NW == 4
+  fft4(u);
+#elif NW == 8
+  fft8(u);
+#else
+#error NW
+#endif
+}
+
+void OVERLOAD fft_WIDTH(local GF61 *lds, GF61 *u, TrigGF61 trig) {
+  u32 me = get_local_id(0);
+
+#if !UNROLL_W
+  __attribute__((opencl_unroll_hint(1)))
+#endif
+  for (u32 s = 1; s < WIDTH / NW; s *= NW) {
+    if (s > 1) { bar(); }
+    fft_NW(u);
+    tabMul(WIDTH / NW, trig, u, NW, s, me);
+    shufl(WIDTH / NW, lds,  u, NW, s);
+  }
+  fft_NW(u);
+}
+
+void OVERLOAD new_fft_WIDTH1(local GF61 *lds, GF61 *u, TrigGF61 trig) { fft_WIDTH(lds, u, trig); }
+void OVERLOAD new_fft_WIDTH2(local GF61 *lds, GF61 *u, TrigGF61 trig) { fft_WIDTH(lds, u, trig); }
+
+#endif

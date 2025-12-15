@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda and George Woltman
 
+#if FFT_FP64
+
 #if 1
 #include "fft3.cl"
 #include "fft4.cl"
@@ -73,5 +75,7 @@ void fft12(T2 *u) {
   u[5] = tmp68a + tmp68b;
   u[7] = tmp68a - tmp68b;
 }
+
+#endif
 
 #endif

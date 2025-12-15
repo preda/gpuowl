@@ -22,8 +22,8 @@ private:
   GpuCommon shared;
   Primes primes;
 
-  std::pair<double, double> maxBpw(FFTConfig fft);
-  double zForBpw(double bpw, FFTConfig fft);
+  float maxBpw(FFTConfig fft);
+  float zForBpw(float bpw, FFTConfig fft, u32);
 
 public:
   Tune(Queue *q, GpuCommon shared) : q{q}, shared{shared} {}

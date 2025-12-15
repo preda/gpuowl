@@ -43,6 +43,7 @@ public:
   string uid;
   string verifyPath;
 
+  string tune;
   vector<string> ctune;
 
   bool doCtune{};
@@ -53,7 +54,7 @@ public:
 
   std::map<std::string, std::string> flags;
   std::map<std::string, vector<KeyVal>> perFftConfig;
-  
+
   int device = 0;
   
   bool safeMath = true;
@@ -61,12 +62,12 @@ public:
   bool verbose = false;
   bool useCache = false;
   bool profile = false;
+  bool smallest = false;
 
   fs::path masterDir;
   fs::path proofResultDir = "proof";
   fs::path proofToVerifyDir = "proof-tmp";
   fs::path cacheDir = "kernel-cache";
-  fs::path resultsFile = "results.txt";
   // fs::path tuneFile = "tune.txt";
 
   bool keepProof = false;
@@ -75,7 +76,6 @@ public:
   u32 workers = 1;
   u32 blockSize = 1000;
   u32 logStep = 20000;
-  u32 flushStep = 400;
   string fftSpec;
 
   u32 prpExp = 0;

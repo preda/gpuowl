@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda and George Woltman
 
+#if FFT_FP64
+
 // To calculate a 13-complex FFT in a brute force way (using a shorthand notation):
 // The sin/cos values (w = 13th root of unity) are:
 // w^1 = .885 - .465i
@@ -155,3 +157,5 @@ void fft13(T2 *u) {
   fma_addsub(u[5], u[8], SIN1, tmp69a, tmp69b);
   fma_addsub(u[6], u[7], SIN1, tmp78a, tmp78b);
 }
+
+#endif

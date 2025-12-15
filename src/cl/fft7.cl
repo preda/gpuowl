@@ -4,6 +4,8 @@
 
 #include "base.cl"
 
+#if FFT_FP64
+
 #define A(i) u[(base + i * step) % M]
 
 #if 1
@@ -108,3 +110,5 @@ void fft7by(T2 *u, u32 base, u32 step, u32 M) {
 #undef A
 
 void fft7(T2 *u) { return fft7by(u, 0, 1, 7); }
+
+#endif

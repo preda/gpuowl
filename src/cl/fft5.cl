@@ -2,6 +2,8 @@
 
 #pragma once
 
+#if FFT_FP64
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.4 "5-Point DFT".
 // 12 FMA + 24 ADD (or 10 FMA + 28 ADD)
 void fft5by(T2 *u, u32 base, u32 step, u32 m) {
@@ -45,3 +47,5 @@ void fft5by(T2 *u, u32 base, u32 step, u32 m) {
 }
 
 void fft5(T2 *u) { return fft5by(u, 0, 1, 5); }
+
+#endif

@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda
 
+#if FFT_FP64
+
 #include "fft5.cl"
 
 // PFA(5*2): 24 FMA + 68 ADD
@@ -14,3 +16,5 @@ void fft10(T2 *u) {
   CYCLE(2, 4, 8, 6);
 #undef CYCLE
 }
+
+#endif

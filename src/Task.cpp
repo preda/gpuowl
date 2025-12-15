@@ -8,6 +8,7 @@
 #include "Worktodo.h"
 #include "Saver.h"
 #include "version.h"
+#include "Primes.h"
 #include "Proof.h"
 #include "log.h"
 #include "timeutil.h"
@@ -40,7 +41,7 @@ constexpr int platform() {
 
   const constexpr bool IS_32BIT = (sizeof(void*) == 4);
 
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__) || defined(__MINGW32__) || defined(__MINGW64__) || defined(__MSYS__)
   return IS_32BIT ? WIN_32 : WIN_64;
 
 #elif __APPLE__
@@ -82,6 +83,13 @@ OsInfo getOsInfo() {
 OsInfo getOsInfo() { return getOsInfoMinimum(); }
 
 #endif
+
+string ffttype(FFTConfig fft) {
+  return fft.shape.fft_type == FFT64 ? "FP64" : fft.shape.fft_type == FFT3161 ? "M31+M61" :
+         fft.shape.fft_type == FFT61 ? "M61"  : fft.shape.fft_type == FFT3261 ? "FP32+M61" :
+         fft.shape.fft_type == FFT31 ? "M31"  : fft.shape.fft_type == FFT3231 ? "FP32+M31" :
+         fft.shape.fft_type == FFT32 ? "FP32" : fft.shape.fft_type == FFT6431 ? "FP64+M31" : fft.shape.fft_type == FFT323161 ? "FP32+M31+M61" : "unknown";
+}
 
 string json(const vector<string>& v) {
   bool isFirst = true;
@@ -132,24 +140,26 @@ vector<string> tailFields(const std::string &AID, const Args &args) {
   };
 }
 
-void writeResult(u32 E, const char *workType, const string &status, const std::string &AID, const Args &args,
+void writeResult(u32 instance, u32 E, const char *workType, const string &status, const std::string &AID, const Args &args,
                  const vector<string>& extras) {
+  fs::path resultsFile = "results-" + to_string(instance) + ".txt";
   vector<string> fields = commonFields(E, workType, status);
   fields += extras;
   fields += tailFields(AID, args);
   string s = json(std::move(fields));
   log("%s\n", s.c_str());
-  File::append(args.resultsFile, s + '\n');
+  File::append(resultsFile, s + '\n');
 }
 
 }
 
-void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, const string& res2048, u32 fftSize, u32 nErrors, const fs::path& proofPath) const {
+void Task::writeResultPRP(FFTConfig fft, const Args &args, u32 instance, bool isPrime, u64 res64, const string& res2048, u32 nErrors, const fs::path& proofPath) const {
   vector<string> fields{json("res64", hex(res64)),
                         json("res2048", res2048),
                         json("residue-type", 1),
                         json("errors", vector<string>{json("gerbicz", nErrors)}),
-                        json("fft-length", fftSize)
+                        json("fft-type", ffttype(fft)),
+                        json("fft-length", fft.size())
   };
 
   // "proof":{"version":1, "power":6, "hashsize":64, "md5":"0123456789ABCDEF"}, 
@@ -165,39 +175,56 @@ void Task::writeResultPRP(const Args &args, bool isPrime, u64 res64, const strin
     }
   }
   
-  writeResult(exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
+  writeResult(instance, exponent, "PRP-3", isPrime ? "P" : "C", AID, args, fields);
 }
 
-void Task::writeResultLL(const Args &args, bool isPrime, u64 res64, u32 fftSize) const {
+void Task::writeResultLL(FFTConfig fft, const Args &args, u32 instance, bool isPrime, u64 res64) const {
   vector<string> fields{json("res64", hex(res64)),
-                        json("fft-length", fftSize),
+                        json("fft-type", ffttype(fft)),
+                        json("fft-length", fft.size()),
                         json("shift-count", 0),
                         json("error-code", "00000000"), // I don't know the meaning of this
   };
 
-  writeResult(exponent, "LL", isPrime ? "P" : "C", AID, args, fields);
+  writeResult(instance, exponent, "LL", isPrime ? "P" : "C", AID, args, fields);
 }
 
-void Task::writeResultCERT(const Args &args, array <u64, 4> hash, u32 squarings, u32 fftSize) const {
+void Task::writeResultCERT(FFTConfig fft, const Args &args, u32 instance, array <u64, 4> hash, u32 squarings) const {
   string hexhash = hex(hash[3]) + hex(hash[2]) + hex(hash[1]) + hex(hash[0]);
   vector<string> fields{json("worktype", "Cert"),
-			json("exponent", exponent),
-			json("sha3-hash", hexhash.c_str()),
-			json("squarings", squarings),
-                        json("fft-length", fftSize),
+                        json("exponent", exponent),
+                        json("sha3-hash", hexhash.c_str()),
+                        json("squarings", squarings),
+                        json("fft-type", ffttype(fft)),
+                        json("fft-length", fft.size()),
                         json("shift-count", 0),
                         json("error-code", "00000000"), // I don't know the meaning of this
   };
   fields += tailFields(AID, args);
   string s = json(std::move(fields));
   log("%s\n", s.c_str());
-  File::append(args.resultsFile, s + '\n');
+  fs::path resultsFile = "results-" + to_string(instance) + ".txt";
+  File::append(resultsFile, s + '\n');
 }
 
 void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
   if (kind == VERIFY) { exponent = proof::getInfo(verifyPath).exp; }
 
   assert(exponent);
+
+  // Testing exponent 140000001 using FFT 512:15:512 fails with severe round off errors.
+  // I'm guessing this is because bot the exponent and FFT size are divisible by 3.
+  // Here we make sure the exponent is prime.  If not we do not raise an error because it
+  // is very common to use command line argument "-prp some-random-exponent" to get a quick
+  // timing.  Instead, we output a warning and test a smaller prime exponent.
+  {
+    Primes primes;
+    if (!primes.isPrime(exponent)) {
+      u32 new_exponent = primes.prevPrime(exponent);
+      log("Warning: Exponent %u is not prime.  Using exponent %u instead.\n", exponent, new_exponent);
+      exponent = new_exponent;
+    }
+  }
 
   LogContext pushContext(std::to_string(exponent));
 
@@ -216,23 +243,23 @@ void Task::execute(GpuCommon shared, Queue *q, u32 instance) {
     if (kind == PRP) {
       auto [tmpIsPrime, res64, nErrors, proofPath, res2048] = gpu->isPrimePRP(*this);
       isPrime = tmpIsPrime;
-      writeResultPRP(*shared.args, isPrime, res64, res2048, fft.size(), nErrors, proofPath);
+      writeResultPRP(fft, *shared.args, instance, isPrime, res64, res2048, nErrors, proofPath);
     } else { // LL
       auto [tmpIsPrime, res64] = gpu->isPrimeLL(*this);
       isPrime = tmpIsPrime;
-      writeResultLL(*shared.args, isPrime, res64, fft.size());
+      writeResultLL(fft, *shared.args, instance, isPrime, res64);
     }
 
     Worktodo::deleteTask(*this, instance);
 
     if (isPrime) {
       log("%u is PRIME!\n", exponent);
-    } else {
+    } else if (shared.args->clean) {
       gpu->clear(kind == PRP);
     }
   } else if (kind == CERT) {
     auto sha256 = gpu->isCERT(*this);
-    writeResultCERT(*shared.args, sha256, squarings, fft.size());
+    writeResultCERT(fft, *shared.args, instance, sha256, squarings);
     Worktodo::deleteTask(*this, instance);
   } else {
     throw "Unexpected task kind " + to_string(kind);

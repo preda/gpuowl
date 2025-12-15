@@ -156,11 +156,11 @@ named "config.txt" in the prpll run directory.
 -prp <exponent>    : run a single PRP test and exit, ignoring worktodo.txt
 -ll <exponent>     : run a single LL test and exit, ignoring worktodo.txt
 -verify <file>     : verify PRP-proof contained in <file>
+-smallest          : work on smallest exponent in worktodo.txt rather than the first exponent in worktodo.txt    
 -proof <power>     : generate proof of power <power> (default: optimal depending on exponent).
                      A lower power reduces disk space requirements but increases the verification cost.
                      A higher power increases disk usage a lot.
                      e.g. proof power 10 for a 120M exponent uses about %.0fGB of disk space.
--results <file>    : name of results file, default '%s'
 -iters <N>         : run next PRP test for <N> iterations and exit. Multiple of 10000.
 -save <N>          : specify the number of savefiles to keep (default %u).
 -noclean           : do not delete data after the test is complete.
@@ -186,36 +186,32 @@ named "config.txt" in the prpll run directory.
                      2 = calculate from scratch, no memory read
                      1 = calculate using one complex multiply from cached memory and uncached memory
                      0 = read trig values from memory
+  -use INPLACE=n   : Perform tranforms in-place.  Great if the reduced memory usage fits in the GPU's L2 cache.
+                     0 = not in-place, 1 = nVidia friendly access pattern, 2 = AMD friendly access pattern.
   -use PAD=<val>   : insert pad bytes to possibly improve memory access patterns.  Val is number bytes to pad.
   -use MIDDLE_IN_LDS_TRANSPOSE=0|1  : Transpose values in local memory before writing to global memory
   -use MIDDLE_OUT_LDS_TRANSPOSE=0|1 : Transpose values in local memory before writing to global memory
+  -use TABMUL_CHAIN=<val>: Controls how trig values are obtained in WIDTH and HEIGHT when FFT-spec is 1.
+                     0 = Read one trig value and compute the next 3 or 7.
+                     1 = All trig values are pre-computed and read from memmory.
 
   -use DEBUG       : enable asserts in OpenCL kernels (slow, developers)
 
--tune              : measures the speed of the FFTs specified in -fft <spec> to find the best FFT for each exponent.
-
--ctune <configs>   : finds the best configuration for each FFT specified in -fft <spec>.
-                     Prints the results in a form that can be incorporated in config.txt
-                      -fft 6.5M  -ctune "OUT_SIZEX=32,8;OUT_WG=64,128,256"
-
-                     It is possible to specify -ctune multiple times on the same command in order to define multiple
-                     sets of parameters to be combined, e.g.:
-                        -ctune "IN_WG=256,128,64" -ctune "OUT_WG=256,64;OUT_SIZEX=32,16,8"
-                     which would try only 8 combinations among those two sets.
-
-                     The tunable parameters (with the default value emphasized) are:
-                       IN_WG, OUT_WG: 64, 128, *256*
-                       IN_SIZEX, OUT_SIZEX: 4, 8, 16, *32*
-                       UNROLL_W: *0*, 1
-                       UNROLL_H: 0, 1
-
+-tune <options>    : Looks for best settings to include in config.txt.  Times many FFTs to find fastest one to test exponents -- written to tune.txt.
+                     An -fft <spec> can be given on the command line to limit which FFTs are timed.
+                     Options are not required.  If present, the options are a comma separated list from below.
+                         noconfig     - Skip timings to find best config.txt settings
+                         fp64         - Tune for settings that affect FP64 FFTs.  Time FP64 FFTs for tune.txt.
+                         ntt          - Tune for settings that affect integer NTTs.  Time integer NTTs for tune.txt.
+                         minexp=<val> - Time FFTs to find the best one for exponents greater than <val>.
+                         maxexp=<val> - Time FFTs to find the best one for exponents less than <val>.
 -device <N>        : select the GPU at position N in the list of devices
 -uid    <UID>      : select the GPU with the given UID (on ROCm/AMDGPU, Linux)
 -pci    <BDF>      : select the GPU with the given PCI BDF, e.g. "0c:00.0"
 
 Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list below
 
-)", ProofSet::diskUsageGB(120000000, 10), resultsFile.string().c_str(), nSavefiles);
+)", ProofSet::diskUsageGB(120000000, 10), nSavefiles);
 
   vector<cl_device_id> deviceIds = getAllDeviceIDs();
   if (!deviceIds.empty()) {
@@ -234,31 +230,34 @@ Device selection : use one of -uid <UID>, -pci <BDF>, -device <N>, see the list 
            );
 
   }
-  printf("\nFFT Configurations (specify with -fft <width>:<middle>:<height> from the set below):\n"
+  printf("\nFFT Configurations (specify with -fft <type>:<width>:<middle>:<height> from the set below):\n"
          " Size   MaxExp   BPW    FFT\n");
-  
+
   vector<FFTShape> configs = FFTShape::allShapes();
   configs.push_back(configs.front()); // dummy guard for the loop below.
-  string variants;
   u32 activeSize = 0;
-  double maxBpw = 0;
-  for (auto c : configs) {
-    if (c.size() != activeSize) {
-      if (!variants.empty()) {
-        printf("%5s  %7.2fM  %.2f  %s\n",
-               numberK(activeSize).c_str(),
-               // activeSize * FFTShape::MIN_BPW / 1'000'000,
-               activeSize * maxBpw / 1'000'000.0,
-               maxBpw,
-               variants.c_str());
-        variants.clear();
+  float maxBpw = 0;
+  string variants;
+  for (enum FFT_TYPES type : {FFT64, FFT3161, FFT3261, FFT61}) {
+    for (auto c : configs) {
+      if (c.fft_type != type) continue;
+      if (c.size() != activeSize) {
+        if (!variants.empty()) {
+          printf("%5s  %7.2fM  %.2f  %s\n",
+                 numberK(activeSize).c_str(),
+                 // activeSize * FFTShape::MIN_BPW / 1'000'000,
+                 activeSize * maxBpw / 1'000'000.0,
+                 maxBpw,
+                 variants.c_str());
+          variants.clear();
+        }
+        activeSize = c.size();
+        maxBpw = 0;
       }
-      activeSize = c.size();
-      maxBpw = 0;
+      maxBpw = max(maxBpw, c.maxBpw());
+      if (!variants.empty()) { variants.push_back(','); }
+      variants += c.spec();
     }
-    maxBpw = max(maxBpw, c.maxBpw());
-    if (!variants.empty()) { variants.push_back(','); }
-    variants += c.spec();
   }
 }
 
@@ -293,9 +292,10 @@ void Args::parse(const string& line) {
         log("-info expects an FFT spec, e.g. -info 1K:13:256\n");
         throw "-info <fft>";
       }
-      log(" FFT         | BPW   | Max exp (M)\n");
+      log(" FFT              | BPW   | Max exp (M)\n");
       for (const FFTShape& shape : FFTShape::multiSpec(s)) {
-        for (u32 variant = 0; variant < FFTConfig::N_VARIANT; ++variant) {
+        for (u32 variant = 0; variant <= LAST_VARIANT; variant = next_variant (variant)) {
+          if (variant != LAST_VARIANT && shape.fft_type != FFT64) continue;
           FFTConfig fft{shape, variant, CARRY_AUTO};
           log("%12s | %.2f | %5.1f\n", fft.spec().c_str(), fft.maxBpw(), fft.maxExp() / 1'000'000.0);
         }
@@ -308,8 +308,8 @@ void Args::parse(const string& line) {
       assert(s.empty());
       logROE = true;
     } else if (key == "-tune") {
-      assert(s.empty());
       doTune = true;
+      if (!s.empty()) { tune = s; }
     } else if (key == "-ctune") {
       doCtune = true;
       if (!s.empty()) { ctune.push_back(s); }
@@ -330,9 +330,6 @@ void Args::parse(const string& line) {
       if (workers < 1 || workers > 4) {
         throw "Number of workers must be between 1 and 4";
       }
-    } else if (key == "-flush") {
-      flushStep = stoi(s);
-      assert(flushStep);
     } else if (key == "-cache") {
       useCache = true;
     } else if (key == "-noclean") {
@@ -365,7 +362,6 @@ void Args::parse(const string& line) {
         throw("-pool <path> requires an absolute path");
       }
     }
-    else if (key == "-results") { resultsFile = s; }
     else if (key == "-maxAlloc" || key == "-maxalloc") {
       assert(!s.empty());
       u32 multiple = (s.back() == 'G') ? (1u << 30) : (1u << 20);
@@ -374,6 +370,7 @@ void Args::parse(const string& line) {
     else if (key == "-iters") { iters = stoi(s); assert(iters && (iters % 10000 == 0)); }
     else if (key == "-prp" || key == "-PRP") { prpExp = stoll(s); }
     else if (key == "-ll" || key == "-LL") { llExp = stoll(s); }
+    else if (key == "-smallest") { smallest = true; }
     else if (key == "-fft") { fftSpec = s; }
     else if (key == "-dump") { dump = s; }
     else if (key == "-user") { user = s; }
@@ -425,12 +422,10 @@ void Args::setDefaults() {
   
   if (!masterDir.empty()) {
     assert(masterDir.is_absolute());
-    for (filesystem::path* p : {&proofResultDir, &proofToVerifyDir, &cacheDir, &resultsFile}) {
+    for (filesystem::path* p : {&proofResultDir, &proofToVerifyDir, &cacheDir}) {
       if (p->is_relative()) { *p = masterDir / *p; }
     }
   }
 
   for (auto& p : {proofResultDir, proofToVerifyDir, cacheDir}) { fs::create_directory(p); }
-
-  File::openAppend(resultsFile);  // verify that it's possible to write results
 }

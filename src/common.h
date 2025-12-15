@@ -11,6 +11,8 @@ using i32 = int32_t;
 using u32 = uint32_t;
 using i64 = int64_t;
 using u64 = uint64_t;
+using i128 = __int128;
+using u128 = unsigned __int128;
 using f128 = _Float128;
 
 static_assert(sizeof(u8)  == 1, "size u8");
@@ -20,6 +22,19 @@ static_assert(sizeof(u64) == 8, "size u64");
 using namespace std;
 namespace std::filesystem{};
 namespace fs = std::filesystem;
+
+// When using multiple primes in an NTT the size of an integer FFT "word" can be 64 bits.  Original FP64 FFT needs only 32 bits.
+// C code will use i64 integer data.  The code that reads and writes GPU buffers will downsize the integers to 32 bits when required.
+typedef i64 Word;
+
+// Create datatype names that mimic the ones used in OpenCL code
+using double2 = pair<double, double>;
+using float2 = pair<float, float>;
+using int2 = pair<i32, i32>;
+using uint = u32;
+using uint2 = pair<u32, u32>;
+using ulong = u64;
+using ulong2 = pair<u64, u64>;
 
 std::vector<std::string> split(const string& s, char delim);
 

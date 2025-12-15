@@ -268,7 +268,7 @@ std::pair<Proof, vector<u64>> ProofSet::computeProof(Gpu *gpu) const {
 
   auto hash = proof::hashWords(E, B);
 
-  vector<Buffer<i32>> bufVect = gpu->makeBufVector(power);
+  vector<Buffer<Word>> bufVect = gpu->makeBufVector(power);
 
   for (u32 p = 0; p < power; ++p) {
     auto bufIt = bufVect.begin();

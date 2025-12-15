@@ -172,6 +172,12 @@ bool isAmdGpu(cl_device_id id) {
   return pcieId == 0x1002;
 }
 
+bool isNvidiaGpu(cl_device_id id) {
+  u32 pcieId = 0;
+  GET_INFO(id, CL_DEVICE_VENDOR_ID, pcieId);
+  return pcieId == 0x10DE;
+}
+
 /*
 static string getFreq(cl_device_id device) {
   unsigned computeUnits, frequency;
@@ -231,7 +237,7 @@ string getBuildLog(cl_program program, cl_device_id deviceId) {
   if (logSize > 0) {
     // Avoid printing excessively large compile logs
     if (logSize > maxLogSize) {
-      log("getBuildLog: log size is %lu bytes, not showing\n", logSize);
+      log("getBuildLog: log size is %lu bytes, not showing\n", (unsigned long) logSize);
       return {};
     }
     std::unique_ptr<char[]> buf(new char[logSize + 1]);
@@ -355,6 +361,12 @@ EventHolder fillBuf(cl_queue q, vector<cl_event>&& waits,
   CHECK1(clEnqueueFillBuffer(q, buf, pat, patSize, 0 /*start*/, size,
                              waits.size(), waits.empty() ? 0 : waits.data(), genEvent ? &event : nullptr));
   return genEvent ? EventHolder{event} : EventHolder{};
+}
+
+EventHolder enqueueMarker(cl_queue q) {
+  cl_event event{};
+  CHECK1(clEnqueueMarkerWithWaitList(q, 0, 0, &event));
+  return EventHolder{event};
 }
 
 void waitForEvents(vector<cl_event>&& waits) {

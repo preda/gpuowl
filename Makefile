@@ -19,8 +19,12 @@ else
 CXX = g++
 endif
 
-COMMON_FLAGS = -Wall -std=c++20
-# -static-libstdc++ -static-libgcc
+ifneq ($(findstring MINGW, $(HOST_OS)), MINGW)
+COMMON_FLAGS = -Wall -std=c++20 -static-libstdc++ -static-libgcc
+else
+# For mingw-64 use this:
+COMMON_FLAGS = -Wall -std=c++20 -static-libstdc++ -static-libgcc -static
+endif
 # -fext-numeric-literals
 
 ifeq ($(HOST_OS), Darwin)

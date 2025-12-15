@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda and George Woltman
 
+#if FFT_FP64
+
 // The fft3by() and fft5by() below use a different "output map" relative to fft3.cl and fft5.cl
 // This way fft15() does not need a "fix order" step at the end.
 // See "An In-Place, In-Order Prime Factor Algorithm" by Burrus & Eschenbacher (1981)
@@ -73,3 +75,5 @@ void fft15(T2 *u) {
   fft5_15(u,  5);
   fft5_15(u, 10);
 }
+
+#endif

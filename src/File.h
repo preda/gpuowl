@@ -60,11 +60,17 @@ class File {
     _commit(fileno(f));
 #elif defined(__APPLE__)
     fcntl(fileno(f), F_FULLFSYNC, 0);
+#elif defined(__MINGW32__) || defined(__MINGW64__)
+    fdatasync(fileno(f));
+#elif defined(__MSYS__) // MSYS2 using CLANG64 compiler
+#define fileno(__F) ((__F)->_file)
+    fsync(fileno(f)); // This doesn't work
+#undef fileno
 #else
     fdatasync(fileno(f));
 #endif
   }
-  
+
 public:
   const std::string name;
 

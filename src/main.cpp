@@ -20,8 +20,6 @@
 #include <thread>
 // #include <format> from GCC-13 onwards
 
-namespace fs = std::filesystem;
-
 void gpuWorker(GpuCommon shared, Queue *q, i32 instance) {
   // LogContext context{(instance ? shared.args->tailDir() : ""s) + to_string(instance) + ' '};
   // log("Starting worker %d\n", instance);
@@ -42,13 +40,15 @@ void gpuWorker(GpuCommon shared, Queue *q, i32 instance) {
 }
 
 
-#ifdef __MINGW32__ // for Windows
-extern int putenv(const char *);
+#if defined(__MINGW32__) || defined(__MINGW64__) || defined(__MSYS__) // for Windows
+extern int putenv(char *);
 #endif
 
 int main(int argc, char **argv) {
 
-#ifdef __MINGW32__
+#if defined(__MSYS__)
+  // I was unable to get putenv to link in MSYS2
+#elif defined(__MINGW32__) || defined(__MINGW64__)
   putenv("ROC_SIGNAL_POOL_SIZE=32");
 #else
   // Required to work around a ROCm bug when using multiple queues
@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
         fs::current_path(args.dir);
       }
     }
-    
+
     fs::path poolDir;
     {
       Args args{true};
@@ -74,24 +74,27 @@ int main(int argc, char **argv) {
       args.parse(mainLine);
       poolDir = args.masterDir;
     }
-        
+
     initLog("gpuowl-0.log");
     log("PRPLL %s starting\n", VERSION);
-    
+
     Args args;
 
     if (!poolDir.empty()) { args.readConfig(poolDir / "config.txt"); }
     args.readConfig("config.txt");
     args.parse(mainLine);
     args.setDefaults();
-        
+
     if (args.maxAlloc) { AllocTrac::setMaxAlloc(args.maxAlloc); }
 
     Context context(getDevice(args.device));
-    TrigBufCache bufCache{&context};
     Signal signal;
     Background background;
-    GpuCommon shared{&args, &bufCache, &background};
+    GpuCommon shared;
+    shared.args = &args;
+    TrigBufCache bufCache{&context};
+    shared.bufCache = &bufCache;
+    shared.background = &background;
 
     if (args.doCtune || args.doTune || args.doZtune || args.carryTune) {
       Queue q(context, args.profile);

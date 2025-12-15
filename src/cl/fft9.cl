@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda and George Woltman
 
+#if FFT_FP64
+
 // Adapted from: Nussbaumer, "Fast Fourier Transform and Convolution Algorithms", 5.5.7 "9-Point DFT".
 // 12 FMA + 8 MUL, 72 ADD
 void fft9(T2 *u) {
@@ -61,3 +63,5 @@ void fft9(T2 *u) {
   X2(u[2], u[7]);
   X2(u[1], u[8]);
 }
+
+#endif

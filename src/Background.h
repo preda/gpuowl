@@ -16,10 +16,10 @@
 class Background {
   unsigned maxSize;
   std::deque<std::function<void()> > tasks;
-  std::jthread thread;
   std::mutex mut;
   std::condition_variable cond;
-  bool stopRequested{};
+  bool stopRequested;
+  std::jthread thread;
 
   void run() {
     std::function<void()> task;
@@ -59,6 +59,7 @@ class Background {
 public:
   Background(unsigned size = 2) :
     maxSize{size},
+    stopRequested(false),
     thread{&Background::run, this} {
   }
 

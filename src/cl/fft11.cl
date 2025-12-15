@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda & George Woltman
 
+#if FFT_FP64
+
 #if 0
 // Adapted from https://web.archive.org/web/20101126231320/http://cnx.org/content/col10569/1.7/pdf
 // 40 FMA + 150 ADD
@@ -176,5 +178,7 @@ void fft11(T2 *u) {
   fma_addsub(u[4], u[7], SIN1, tmp58a, tmp58b);
   fma_addsub(u[5], u[6], SIN1, tmp67a, tmp67b);
 }
+
+#endif
 
 #endif

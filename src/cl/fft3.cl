@@ -2,6 +2,8 @@
 
 #pragma once
 
+#if FFT_FP64
+
 // 6 FMA + 6 ADD
 void fft3by(T2 *u, u32 base, u32 step, u32 M) {
 #define A(k) u[(base + k * step) % M]
@@ -28,3 +30,5 @@ void fft3by(T2 *u, u32 base, u32 step, u32 M) {
 }
 
 void fft3(T2 *u) { fft3by(u, 0, 1, 3); }
+
+#endif

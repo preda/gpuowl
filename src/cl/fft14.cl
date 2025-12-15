@@ -1,5 +1,7 @@
 // Copyright (C) Mihai Preda and George Woltman
 
+#if FFT_FP64
+
 #if 1
 
 #include "fft7.cl"
@@ -95,4 +97,6 @@ void fft14(T2 *u) {
   fma_addsub(u[5], u[9], SIN1, tmp610a, tmp610b);
   fma_addsub(u[6], u[8], SIN1, tmp79a, tmp79b);
 }
+#endif
+
 #endif

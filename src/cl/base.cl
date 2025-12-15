@@ -19,7 +19,9 @@ CARRY_LEN
 NW
 NH
 AMDGPU  : if this is an AMD GPU
-HAS_ASM : set if we believe __asm() can be used
+NVIDIAGPU : if this is an nVidia GPU
+HAS_ASM : set if we believe __asm() can be used for AMD GCN
+HAS_PTX : set if we believe __asm() can be used for nVidia PTX
 
 -- Derived from above:
 BIG_HEIGHT == SMALL_HEIGHT * MIDDLE
@@ -56,35 +58,99 @@ G_H        "group height" == SMALL_HEIGHT / NH
 //__builtin_assume(condition)
 #endif // DEBUG
 
-#if AMDGPU
-// On AMDGPU the default is HAS_ASM
-#if !NO_ASM
+#if NO_ASM
+#define HAS_ASM 0
+#define HAS_PTX 0
+#elif AMDGPU
 #define HAS_ASM 1
+#define HAS_PTX 0
+#elif NVIDIAGPU
+#define HAS_ASM 0
+#define HAS_PTX 1200        // Assume CUDA 12.00 support until we can figure out how to automatically determine this at runtime
+#else
+#define HAS_ASM 0
+#define HAS_PTX 0
 #endif
-#endif // AMDGPU
+
+// Default is not adding -2 to results for LL
+#if !defined(LL)
+#define LL 0
+#endif
 
 // On Nvidia we need the old sync between groups in carryFused
 #if !defined(OLD_FENCE) && !AMDGPU
 #define OLD_FENCE 1
 #endif
 
-// Nonteporal reads and writes might be a little bit faster on many GPUs by keeping more reusable data in the caches.
+// Nontemporal reads and writes might be a little bit faster on many GPUs by keeping more reusable data in the caches.
 // However, on those GPUs with large caches there should be a significant speed gain from keeping FFT data in the caches.
 // Default to the big win when caching is beneficial rather than the tiny gain when non-temporal is better.
 #if !defined(NONTEMPORAL)
 #define NONTEMPORAL 0
 #endif
 
-#if FFT_VARIANT > 3
-#error FFT_VARIANT must be between 0 and 3
+// FFT variant is in 3 parts.  One digit for WIDTH, one digit for MIDDLE, one digit for HEIGHT.
+// For WIDTH and HEIGHT there are 3 variants:
+// 0   compute one trig, bcast, chainmul                                        previously was :even/:odd BCAST=1
+// 1   if TABMUL_CHAIN, read one trig then chainmul                             previously was :0/:1
+//     if !TABMUL_CHAIN, read all trigs, no chainmul                            previously was :2/:3
+// 2   read all trigs in sin/cos format for more FMA                            previously was :2/:3 UNROLL_W=3
+// Note: smaller numbers above do more F64 and are less accurate, larger numbers have more memory accesses and are more accurate
+// For MIDDLE there are two variants:
+// 0   full length chainmul
+// 1   lots of computing trigs, very short chainmul for maximum accuracy        previously was :1/:3
+#define FFT_VARIANT_W    (FFT_VARIANT / 100)
+#define FFT_VARIANT_M    (FFT_VARIANT % 100 / 10)
+#define FFT_VARIANT_H    (FFT_VARIANT % 10)
+#if FFT_VARIANT_W > 2
+#error FFT_VARIANT_W must be between 0 and 2
+#endif
+#if FFT_VARIANT_M > 1
+#error FFT_VARIANT_M must be between 0 and 1
+#endif
+#if FFT_VARIANT_H > 2
+#error FFT_VARIANT_H must be between 0 and 2
+#endif
+// C code ensures that only AMD GPUs use FFT_VARIANT_W=0 and FFT_VARIANT_H=0.  However, this does not guarantee that the OpenCL compiler supports
+// the necessary amdgcn builtins.  If those builtins are not present convert to variant one.
+#if AMDGPU
+#if !defined(__has_builtin) || !__has_builtin(__builtin_amdgcn_mov_dpp) || !__has_builtin(__builtin_amdgcn_ds_swizzle) || !__has_builtin(__builtin_amdgcn_readfirstlane)
+#if FFT_VARIANT_W == 0
+#warning Missing builtins for FFT_VARIANT_W=0, switching to FFT_VARIANT_W=1
+#undef FFT_VARIANT_W
+#define FFT_VARIANT_W 1
+#endif
+#if FFT_VARIANT_H == 0
+#warning Missing builtins for FFT_VARIANT_H=0, switching to FFT_VARIANT_H=1
+#undef FFT_VARIANT_H
+#define FFT_VARIANT_H 1
+#endif
+#endif
 #endif
 
-#if defined(TRIG_HI) || defined(CLEAN)
-#error Use FFT_VARIANT instead of TRIG_HI or CLEAN
+#if !defined(BIGLIT)
+#define BIGLIT 1
 #endif
 
-#define TRIG_HI (FFT_VARIANT & 1)
-#define CLEAN (FFT_VARIANT >> 1)
+#if !defined(TABMUL_CHAIN)
+#define TABMUL_CHAIN 0
+#endif
+#if !defined(TABMUL_CHAIN31)
+#define TABMUL_CHAIN31 0
+#endif
+#if !defined(TABMUL_CHAIN32)
+#define TABMUL_CHAIN32 0
+#endif
+#if !defined(TABMUL_CHAIN61)
+#define TABMUL_CHAIN61 0
+#endif
+#if !defined(MODM31)
+#define MODM31 0
+#endif
+
+#if !defined(MIDDLE_CHAIN)
+#define MIDDLE_CHAIN 0
+#endif
 
 #if !defined(UNROLL_W)
 #if AMDGPU
@@ -129,59 +195,159 @@ typedef uint u32;
 typedef long i64;
 typedef ulong u64;
 
+// Data types for data stored in FFTs and NTTs during the transform
+typedef double T;           // For historical reasons, classic FFTs using doubles call their data T and T2.
+typedef double2 T2;         // A complex value using doubles in a classic FFT.
+typedef float F;            // A classic FFT using floats.  Use typedefs F and F2.
+typedef float2 F2;
+typedef uint Z31;           // A value calculated mod M31.  For a GF(M31^2) NTT.
+typedef uint2 GF31;         // A complex value using two Z31s.  For a GF(M31^2) NTT.
+typedef ulong Z61;          // A value calculated mod M61.  For a GF(M61^2) NTT.
+typedef ulong2 GF61;        // A complex value using two Z61s.  For a GF(M61^2) NTT.
+//typedef ulong NCW;          // A value calculated mod 2^64 - 2^32 + 1.
+//typedef ulong2 NCW2;        // A complex value using NCWs.  For a Nick Craig-Wood's insipred NTT using prime 2^64 - 2^32 + 1.
+
+// Defines for the various supported FFTs/NTTs.  These match the enumeration in FFTConfig.h.  Sanity check for supported FFT/NTT.
+#define FFT64           0
+#define FFT3161         1
+#define FFT3261         2
+#define FFT61           3
+#define FFT323161       4
+#define FFT3231         50
+#define FFT6431         51
+#define FFT31           52
+#define FFT32           53
+#if FFT_TYPE < 0 || (FFT_TYPE > 4 && FFT_TYPE < 50) || FFT_TYPE > 53
+#error - unsupported FFT/NTT
+#endif
+// Word and Word2 define the data type for FFT integers passed between the CPU and GPU.
+#if WordSize == 8
+typedef i64 Word;
+typedef long2 Word2;
+#elif WordSize == 4
 typedef i32 Word;
 typedef int2 Word2;
+#else
+error - unsupported integer WordSize
+#endif
 
-typedef double T;
-typedef double2 T2;
+// Routine to create a pair
+double2 OVERLOAD U2(double a, double b) { return (double2) (a, b); }
+float2 OVERLOAD U2(float a, float b) { return (float2) (a, b); }
+int2 OVERLOAD U2(int a, int b) { return (int2) (a, b); }
+long2 OVERLOAD U2(long a, long b) { return (long2) (a, b); }
+uint2 OVERLOAD U2(uint a, uint b) { return (uint2) (a, b); }
+ulong2 OVERLOAD U2(ulong a, ulong b) { return (ulong2) (a, b); }
 
+// Other handy macros
 #define RE(a) (a.x)
 #define IM(a) (a.y)
 
 #define P(x) global x * restrict
 #define CP(x) const P(x)
 
-// Macros for non-temporal load and store (in case we later want to provide a -use option to turn this off)
-#if NONTEMPORAL && defined(__has_builtin) && __has_builtin(__builtin_nontemporal_load) && __has_builtin(__builtin_nontemporal_store)
+// Macros for non-temporal load and store.  The theory behind only non-temporal reads (option 2) is that with alternating buffers,
+// read buffers will not be needed for quite a while, but write buffers will be needed soon.
+#if NONTEMPORAL == 1 && defined(__has_builtin) && __has_builtin(__builtin_nontemporal_load) && __has_builtin(__builtin_nontemporal_store)
 #define NTLOAD(mem)        __builtin_nontemporal_load(&(mem))
 #define NTSTORE(mem,val)   __builtin_nontemporal_store(val, &(mem))
+#elif NONTEMPORAL == 2 && defined(__has_builtin) && __has_builtin(__builtin_nontemporal_load)
+#define NTLOAD(mem)        __builtin_nontemporal_load(&(mem))
+#define NTSTORE(mem,val)   (mem) = val
 #else
 #define NTLOAD(mem)        (mem)
 #define NTSTORE(mem,val)   (mem) = val
 #endif
 
+// Prefetch macros.  Unused at present, I tried using them in fftMiddleInGF61 on a 5080 with no benefit.
+void PREFETCHL1(const __global void *addr) {
+#if HAS_PTX >= 200         // Prefetch instruction requires sm_20 support or higher
+  __asm("prefetch.global.L1  [%0];" : : "l"(addr));
+#endif
+}
+void PREFETCHL2(const __global void *addr) {
+#if HAS_PTX >= 200         // Prefetch instruction requires sm_20 support or higher
+  __asm("prefetch.global.L2  [%0];" : : "l"(addr));
+#endif
+}
+
 // For reasons unknown, loading trig values into nVidia's constant cache has terrible performance
 #if AMDGPU
 typedef constant const T2* Trig;
 typedef constant const T* TrigSingle;
+typedef constant const F2* TrigFP32;
+typedef constant const GF31* TrigGF31;
+typedef constant const GF61* TrigGF61;
 #else
 typedef global const T2* Trig;
 typedef global const T* TrigSingle;
+typedef global const F2* TrigFP32;
+typedef global const GF31* TrigGF31;
+typedef global const GF61* TrigGF61;
 #endif
 // However, caching weights in nVidia's constant cache improves performance.
 // Even better is to not pollute the constant cache with weights that are used only once.
 // This requires two typedefs depending on how we want to use the BigTab pointer.
 // For AMD we can declare BigTab as constant or global - it doesn't really matter.
 typedef constant const double2* ConstBigTab;
+typedef constant const float2* ConstBigTabFP32;
 #if AMDGPU
 typedef constant const double2* BigTab;
+typedef constant const float2* BigTabFP32;
 #else
 typedef global const double2* BigTab;
+typedef global const float2* BigTabFP32;
 #endif
 
 #define KERNEL(x) kernel __attribute__((reqd_work_group_size(x, 1, 1))) void
-   
-void read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
+
+#if FFT_FP64
+void OVERLOAD read(u32 WG, u32 N, T2 *u, const global T2 *in, u32 base) {
   in += base + (u32) get_local_id(0);
   for (u32 i = 0; i < N; ++i) { u[i] = in[i * WG]; }
 }
 
-void write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base) {
+void OVERLOAD write(u32 WG, u32 N, T2 *u, global T2 *out, u32 base) {
   out += base + (u32) get_local_id(0);
   for (u32 i = 0; i < N; ++i) { out[i * WG] = u[i]; }
 }
+#endif
 
-T2 U2(T a, T b) { return (T2) (a, b); }
+#if FFT_FP32
+void OVERLOAD read(u32 WG, u32 N, F2 *u, const global F2 *in, u32 base) {
+  in += base + (u32) get_local_id(0);
+  for (u32 i = 0; i < N; ++i) { u[i] = in[i * WG]; }
+}
+
+void OVERLOAD write(u32 WG, u32 N, F2 *u, global F2 *out, u32 base) {
+  out += base + (u32) get_local_id(0);
+  for (u32 i = 0; i < N; ++i) { out[i * WG] = u[i]; }
+}
+#endif
+
+#if NTT_GF31
+void OVERLOAD read(u32 WG, u32 N, GF31 *u, const global GF31 *in, u32 base) {
+  in += base + (u32) get_local_id(0);
+  for (u32 i = 0; i < N; ++i) { u[i] = in[i * WG]; }
+}
+
+void OVERLOAD write(u32 WG, u32 N, GF31 *u, global GF31 *out, u32 base) {
+  out += base + (u32) get_local_id(0);
+  for (u32 i = 0; i < N; ++i) { out[i * WG] = u[i]; }
+}
+#endif
+
+#if NTT_GF61
+void OVERLOAD read(u32 WG, u32 N, GF61 *u, const global GF61 *in, u32 base) {
+  in += base + (u32) get_local_id(0);
+  for (u32 i = 0; i < N; ++i) { u[i] = in[i * WG]; }
+}
+
+void OVERLOAD write(u32 WG, u32 N, GF61 *u, global GF61 *out, u32 base) {
+  out += base + (u32) get_local_id(0);
+  for (u32 i = 0; i < N; ++i) { out[i * WG] = u[i]; }
+}
+#endif
 
 // On "classic" AMD GCN GPUs such as Radeon VII, the wavefront size was always 64. On RDNA GPUs the wavefront can
 // be configured to be either 64 or 32. We use the FAST_BARRIER define as an indicator for GCN GPUs.

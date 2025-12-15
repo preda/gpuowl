@@ -18,7 +18,7 @@ KERNEL(32) readResidue(P(Word2) out, CP(Word2) in) {
 #if SUM64
 KERNEL(64) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
   if (get_global_id(0) == 0) { out[0] = 0; }
-  
+
   ulong sum = 0;
   for (i32 p = get_global_id(0); p < sizeBytes / sizeof(u64); p += get_global_size(0)) {
     sum += in[p];
@@ -32,7 +32,7 @@ KERNEL(64) sum64(global ulong* out, u32 sizeBytes, global ulong* in) {
 #if ISEQUAL
 // outEqual must be "true" on entry.
 KERNEL(256) isEqual(global i64 *in1, global i64 *in2, P(int) outEqual) {
-  for (i32 p = get_global_id(0); p < ND; p += get_global_size(0)) {
+  for (i32 p = get_global_id(0); p < NWORDS * sizeof(Word) / sizeof(i64); p += get_global_size(0)) {
     if (in1[p] != in2[p]) {
       *outEqual = 0;
       return;
@@ -50,5 +50,4 @@ kernel void testKernel(global int* in, global double* out) {
   int p = me * in[me] % 8; // % 15;
   out[me] = TAB[p];
 }
-
 #endif

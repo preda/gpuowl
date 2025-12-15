@@ -2,6 +2,8 @@
 
 #include "fft3.cl"
 
+#if FFT_FP64
+
 // 12 FMA + 24 ADD
 void fft6(T2 *u) {
 #if 1
@@ -36,3 +38,5 @@ void fft6(T2 *u) {
   fma_addsub(u[2], u[4], -SIN1, tmp35a, u[2]);
 #endif
 }
+
+#endif

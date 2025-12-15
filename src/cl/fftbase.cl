@@ -5,13 +5,15 @@
 #include "trig.cl"
 // #include "math.cl"
 
-void chainMul4(T2 *u, T2 w) {
+#if FFT_FP64
+
+void OVERLOAD chainMul4(T2 *u, T2 w) {
   u[1] = cmul(u[1], w);
 
   T2 base = csqTrig(w);
   u[2] = cmul(u[2], base);
 
-  double a = 2 * base.y;
+  double a = mul2(base.y);
   base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
   u[3] = cmul(u[3], base);
 }
@@ -19,7 +21,7 @@ void chainMul4(T2 *u, T2 w) {
 #if 1
 // This version of chainMul8 tries to minimize roundoff error even if more F64 ops are used.
 // Trial and error looking at Z values on a WIDTH=512 FFT was used to determine when to switch from fancy to non-fancy powers of w.
-void chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
+void OVERLOAD chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
   u[1] = cmulFancy(u[1], w);
 
   T2 w2;
@@ -52,11 +54,12 @@ void chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
 
 #else
 // This version of chainMul8 minimizes F64 ops even if that increases roundoff error.
-// This version is faster on a Radeon 7 with worse roundoff in :0 fft spec.  The :2 fft spec is even faster with no roundoff penalty.
-// This version is the same speed on a TitanV due to its great F64 throughput.
+// This version is faster on a Radeon 7 with worse roundoff.  However, new_FFT_width is even faster with better roundoff.
+// This version is the same speed on a TitanV probably due to its great F64 throughput.
 // This version is slower on R7Pro due to a rocm optimizer issue in double-wide single-kernel tailSquare using BCAST.  I could not find a work-around.
-// Other GPUs?  This version might be useful.
-void chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
+// Other GPUs???  This version might be useful.  If we decide to make this available, it will need a new width and height fft spec number.
+// Consequently, an increase in the BPW table and increase work for -ztune and -tune.
+void OVERLOAD chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
   u[1] = cmulFancy(u[1], w);
 
   T2 w2 = csqTrigFancy(w);
@@ -76,7 +79,7 @@ void chainMul8(T2 *u, T2 w, u32 tailSquareBcast) {
 }
 #endif
 
-void chainMul(u32 len, T2 *u, T2 w, u32 tailSquareBcast) {
+void OVERLOAD chainMul(u32 len, T2 *u, T2 w, u32 tailSquareBcast) {
   // Do a length 4 chain mul, w must not be in Fancy format
   if (len == 4) chainMul4(u, w);
   // Do a length 8 chain mul, w must be in Fancy format
@@ -84,7 +87,7 @@ void chainMul(u32 len, T2 *u, T2 w, u32 tailSquareBcast) {
 }
 
 
-#if BCAST
+#if AMDGPU && (FFT_VARIANT_W == 0 || FFT_VARIANT_H == 0)
 
 int bcast4(int x)  { return __builtin_amdgcn_mov_dpp(x, 0, 0xf, 0xf, false); }
 int bcast8(int x)  { return __builtin_amdgcn_ds_swizzle(x, 0x0018); }
@@ -103,7 +106,7 @@ T2 bcast(T2 src, u32 span) {
 
 #endif
 
-void shuflBigLDS(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
+void OVERLOAD shuflBigLDS(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   u32 mask = f - 1;
   assert((mask & (mask + 1)) == 0);
@@ -113,7 +116,7 @@ void shuflBigLDS(u32 WG, local T2 *lds, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { u[i] = lds[i * WG + me]; }
 }
 
-void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
+void OVERLOAD shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   local T* lds = (local T*) lds2;
 
@@ -132,7 +135,7 @@ void shufl(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 // Lower LDS requirements should let the optimizer use fewer VGPRs and increase occupancy for WIDTHs >= 1024.
 // Alas, the increased occupancy does not offset extra code needed for shufl_int (the assembly
 // code generated is not pretty).  This might not be true for nVidia or future ROCm optimizers.
-void shufl_int(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
+void OVERLOAD shufl_int(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
   local int* lds = (local int*) lds2;
 
@@ -160,7 +163,7 @@ void shufl_int(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
 // NOTE:  It is very important for this routine to use lds memory in coordination with reverseLine2 and unreverseLine2.
 // Failure to do so would result in the need for more bar() calls.  Specifically, the u values are stored in the upper half
 // of lds memory (first SMALL_HEIGHT T2 values).  The v values are stored in the lower half of lds memory (next SMALL_HEIGHT T2 values).
-void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
+void OVERLOAD shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   u32 me = get_local_id(0);
 
   // Partition lds memory into upper and lower halves
@@ -172,7 +175,7 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   me = me % WG;
   u32 mask = f - 1;
   assert((mask & (mask + 1)) == 0);
-  
+
   for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
   bar(WG);
   for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
@@ -182,13 +185,14 @@ void shufl2(u32 WG, local T2 *lds2, T2 *u, u32 n, u32 f) {
   for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }  
 }
 
-void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
+void OVERLOAD tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
 #if 0
   u32 p = me / f * f;
 #else
   u32 p = me & ~(f - 1);
 #endif
 
+// Compute trigs from scratch every time.  This can't possibly be a good idea on any GPUs.
 #if 0
   T2 w = slowTrig_N(ND / n / WG * p, ND / n);
   T2 base = w;
@@ -196,57 +200,37 @@ void tabMul(u32 WG, Trig trig, T2 *u, u32 n, u32 f, u32 me) {
     u[i] = cmul(u[i], w);
     w = cmul(w, base);
   }
+  return;
 #endif
-
-// Theoretically, maximum accuracy.  Uses memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
-#if CLEAN == 1                // Radeon VII loves this case, in fact it is faster than the CLEAN == 0 case.  nVidia Titan V hates this case.
-
-  T2 w = trig[p];
-
-  if (n >= 8) {
-    u[1] = cmulFancy(u[1], w);
-  } else {
-    u[1] = cmul(u[1], w);
-  }
-
-  for (u32 i = 2; i < n; ++i) {
-    T2 base = trig[(i-1)*WG + p];
-    u[i] = cmul(u[i], base);
-  }
-
-// Original CLEAN==1, saves one cmul at the cost of a memory access.  I see little use for this case.
-#elif 0
-  T2 w = trig[p];
-
-  if (n >= 8) {
-    u[1] = cmulFancy(u[1], w);
-  } else {
-    u[1] = cmul(u[1], w);
-  }
-
-  T2 base = trig[WG + p];
-
-  if (n >= 8) {
-    for (u32 i = 2; i < n; ++i) {
-      u[i] = cmul(u[i], base);
-      base = cmulFancy(base, w);
-    }
-  } else {
-    for (u32 i = 2; i < n; ++i) {
-      u[i] = cmul(u[i], base);
-      base = cmul(base, w);
-    }
-  }
 
 // This code uses chained complex multiplies which could be faster on GPUs with great DP throughput or poor memory bandwidth or caching.
-// This ought to be the least accurate version of Tabmul.  In practice this is more accurate (at least when n==8) than reading precomputed
-// values from memory.  Perhaps chained Fancy muls are the reason.
-#elif CLEAN == 0
-  T2 w = trig[p];
-  chainMul (n, u, w, 0);
-#else
-#error CLEAN must be 0 or 1
-#endif
+// This ought to be the least accurate version of Tabmul.  In practice, this is just as accurate as reading precomputed values from memory.
+// Apparently, chained Fancy muls at these short n=4 and n=8 lengths are very accurate.
+
+  if (TABMUL_CHAIN) {
+    T2 w = trig[p];
+    chainMul (n, u, w, 0);
+    return;
+  }
+
+// Theoretically, maximum accuracy.  Use memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
+// Radeon VII loves this case, it is faster than the chainmul case.  nVidia Titan V hates this case.
+
+  if (!TABMUL_CHAIN) {
+    T2 w = trig[p];
+
+    if (n >= 8) {
+      u[1] = cmulFancy(u[1], w);
+    } else {
+      u[1] = cmul(u[1], w);
+    }
+
+    for (u32 i = 2; i < n; ++i) {
+      T2 base = trig[(i-1)*WG + p];
+      u[i] = cmul(u[i], base);
+    }
+    return;
+  }
 }
 
 
@@ -488,3 +472,373 @@ void finish_tabMul8_fft8(u32 WG, local T2 *lds, Trig trig, T *preloads, T2 *u, u
   SWAP(u[1], u[4]);
   SWAP(u[3], u[6]);
 }
+
+#endif
+
+
+/**************************************************************************/
+/*            Similar to above, but for an FFT based on FP32              */
+/**************************************************************************/
+
+#if FFT_FP32
+
+void OVERLOAD chainMul4(F2 *u, F2 w) {
+  u[1] = cmul(u[1], w);
+
+  F2 base = csqTrig(w);
+  u[2] = cmul(u[2], base);
+
+  F a = mul2(base.y);
+  base = U2(fma(a, -w.y, w.x), fma(a, w.x, -w.y));
+  u[3] = cmul(u[3], base);
+}
+
+void OVERLOAD chainMul8(F2 *u, F2 w, u32 tailSquareBcast) {
+  u[1] = cmulFancy(u[1], w);
+						  //GWBUG - see FP64 version for many possible optimizations
+  F2 w2 = csqTrigFancy(w);
+  u[2] = cmulFancy(u[2], w2);
+
+  F2 w3 = ccubeTrigFancy(w2, w);
+  u[3] = cmulFancy(u[3], w3);
+
+  w3.x += 1;
+  F2 base = cmulFancy (w3, w);
+  for (int i = 4; i < 8; ++i) {
+    u[i] = cmul(u[i], base);
+    base = cmulFancy(base, w);
+  }
+}
+
+void OVERLOAD chainMul(u32 len, F2 *u, F2 w, u32 tailSquareBcast) {
+  // Do a length 4 chain mul
+  if (len == 4) chainMul4(u, w);
+  // Do a length 8 chain mul
+  if (len == 8) chainMul8(u, w, tailSquareBcast);
+}
+
+void OVERLOAD shuflBigLDS(u32 WG, local F2 *lds, F2 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i] = lds[i * WG + me]; }
+}
+
+void OVERLOAD shufl(u32 WG, local F2 *lds2, F2 *u, u32 n, u32 f) {				//GWBUG - is shufl of int2 faster (BigLDS)?
+  u32 me = get_local_id(0);
+  local F* lds = (local F*) lds2;
+
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+}
+
+// Shufl two simultaneous FFT_HEIGHTs.  Needed for tailSquared where u and v are computed simultaneously in different threads.
+// NOTE:  It is very important for this routine to use lds memory in coordination with reverseLine2 and unreverseLine2.
+// Failure to do so would result in the need for more bar() calls.  Specifically, the u values are stored in the upper half
+// of lds memory (first SMALL_HEIGHT GF31 values).  The v values are stored in the lower half of lds memory (next SMALL_HEIGHT GF31 values).
+void OVERLOAD shufl2(u32 WG, local F2 *lds2, F2 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+
+  // Partition lds memory into upper and lower halves
+  assert(WG == G_H);
+
+  // Accessing lds memory as F is faster than F2 accesses					//GWBUG???
+  local F* lds = ((local F*) lds2) + (me / WG) * SMALL_HEIGHT;
+
+  me = me % WG;
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }  
+}
+
+void OVERLOAD tabMul(u32 WG, TrigFP32 trig, F2 *u, u32 n, u32 f, u32 me) {
+  u32 p = me & ~(f - 1);
+
+// This code uses chained complex multiplies which could be faster on GPUs with great mul throughput or poor memory bandwidth or caching.
+
+  if (TABMUL_CHAIN32) {
+    chainMul (n, u, trig[p], 0);
+    return;
+  }
+
+// Use memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
+
+  if (!TABMUL_CHAIN32) {
+    if (n >= 8) {
+      u[1] = cmulFancy(u[1], trig[p]);
+    } else {
+      u[1] = cmul(u[1], trig[p]);
+    }
+    for (u32 i = 2; i < n; ++i) {
+      u[i] = cmul(u[i], trig[(i-1)*WG + p]);
+    }
+    return;
+  }
+}
+
+#endif
+
+
+/**************************************************************************/
+/*          Similar to above, but for an NTT based on GF(M31^2)           */
+/**************************************************************************/
+
+#if NTT_GF31
+
+void OVERLOAD chainMul4(GF31 *u, GF31 w) {
+  u[1] = cmul(u[1], w);
+
+  GF31 base = csqTrig(w);
+  u[2] = cmul(u[2], base);
+
+  base = ccubeTrig(base, w);
+  u[3] = cmul(u[3], base);
+}
+
+void OVERLOAD chainMul8(GF31 *u, GF31 w) {
+  u[1] = cmul(u[1], w);
+
+  GF31 base = csqTrig(w);
+  u[2] = cmul(u[2], base);
+
+  base = ccubeTrig(base, w);
+  for (int i = 3; i < 8; ++i) {
+    u[i] = cmul(u[i], base);
+    base = cmul(base, w);
+  }
+}
+
+void OVERLOAD chainMul(u32 len, GF31 *u, GF31 w) {
+  // Do a length 4 chain mul
+  if (len == 4) chainMul4(u, w);
+  // Do a length 8 chain mul
+  if (len == 8) chainMul8(u, w);
+}
+
+void OVERLOAD shuflBigLDS(u32 WG, local GF31 *lds, GF31 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i] = lds[i * WG + me]; }
+}
+
+void OVERLOAD shufl(u32 WG, local GF31 *lds2, GF31 *u, u32 n, u32 f) {				//GWBUG - is shufl of int2 faster (BigLDS)?
+  u32 me = get_local_id(0);
+  local Z31* lds = (local Z31*) lds2;
+
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+}
+
+// Shufl two simultaneous FFT_HEIGHTs.  Needed for tailSquared where u and v are computed simultaneously in different threads.
+// NOTE:  It is very important for this routine to use lds memory in coordination with reverseLine2 and unreverseLine2.
+// Failure to do so would result in the need for more bar() calls.  Specifically, the u values are stored in the upper half
+// of lds memory (first SMALL_HEIGHT GF31 values).  The v values are stored in the lower half of lds memory (next SMALL_HEIGHT GF31 values).
+void OVERLOAD shufl2(u32 WG, local GF31 *lds2, GF31 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+
+  // Partition lds memory into upper and lower halves
+  assert(WG == G_H);
+
+  // Accessing lds memory as Z31s is faster than GF31 accesses					//GWBUG???
+  local Z31* lds = ((local Z31*) lds2) + (me / WG) * SMALL_HEIGHT;
+
+  me = me % WG;
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }  
+}
+
+void OVERLOAD tabMul(u32 WG, TrigGF31 trig, GF31 *u, u32 n, u32 f, u32 me) {
+  u32 p = me & ~(f - 1);
+
+// This code uses chained complex multiplies which could be faster on GPUs with great mul throughput or poor memory bandwidth or caching.
+
+  if (TABMUL_CHAIN31) {
+    chainMul (n, u, trig[p]);
+    return;
+  }
+
+// Use memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
+
+  if (!TABMUL_CHAIN31) {
+    for (u32 i = 1; i < n; ++i) {
+      u[i] = cmul(u[i], trig[(i-1)*WG + p]);
+    }
+    return;
+  }
+}
+
+#endif
+
+
+/**************************************************************************/
+/*          Similar to above, but for an NTT based on GF(M61^2)           */
+/**************************************************************************/
+
+#if NTT_GF61
+
+void OVERLOAD chainMul4(GF61 *u, GF61 w) {
+  u[1] = cmul(u[1], w);
+
+  GF61 base = csq(w);
+  u[2] = cmul(u[2], base);
+
+  base = cmul(base, w);			//GWBUG - see FP64 version for possible optimization
+  u[3] = cmul(u[3], base);
+}
+
+void OVERLOAD chainMul8(GF61 *u, GF61 w, u32 tailSquareBcast) {
+  u[1] = cmul(u[1], w);
+
+  GF61 w2 = csq(w);
+  u[2] = cmul(u[2], w2);
+
+  GF61 base = cmul (w2, w);		//GWBUG - see FP64 version for many possible optimizations
+  for (int i = 3; i < 8; ++i) {
+    u[i] = cmul(u[i], base);
+    base = cmul(base, w);
+  }
+}
+
+void OVERLOAD chainMul(u32 len, GF61 *u, GF61 w, u32 tailSquareBcast) {
+  // Do a length 4 chain mul
+  if (len == 4) chainMul4(u, w);
+  // Do a length 8 chain mul
+  if (len == 8) chainMul8(u, w, tailSquareBcast);
+}
+
+void OVERLOAD shuflBigLDS(u32 WG, local GF61 *lds, GF61 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i] = lds[i * WG + me]; }
+}
+
+void OVERLOAD shufl(u32 WG, local GF61 *lds2, GF61 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+  local Z61* lds = (local Z61*) lds2;
+
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }
+}
+
+// Same as shufl but use ints instead of Z61s to reduce LDS memory requirements.
+// Lower LDS requirements should let the optimizer use fewer VGPRs and increase occupancy for WIDTHs >= 1024.
+// Alas, the increased occupancy does not offset extra code needed for shufl_int (the assembly
+// code generated is not pretty).  This might not be true for nVidia or future ROCm optimizers.
+void OVERLOAD shufl_int(u32 WG, local GF61 *lds2, GF61 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+  local int* lds = (local int*) lds2;
+
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = as_int4(u[i]).x; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { int4 tmp = as_int4(u[i]); tmp.x = lds[i * WG + me]; u[i] = as_ulong2(tmp); }
+  bar();
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = as_int4(u[i]).y; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { int4 tmp = as_int4(u[i]); tmp.y = lds[i * WG + me]; u[i] = as_ulong2(tmp); }
+  bar();
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = as_int4(u[i]).z; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { int4 tmp = as_int4(u[i]); tmp.z = lds[i * WG + me]; u[i] = as_ulong2(tmp); }
+  bar();
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = as_int4(u[i]).w; }
+  bar();
+  for (u32 i = 0; i < n; ++i) { int4 tmp = as_int4(u[i]); tmp.w = lds[i * WG + me]; u[i] = as_ulong2(tmp); }
+  bar();   // I'm not sure why this barrier call is needed
+}
+
+// Shufl two simultaneous FFT_HEIGHTs.  Needed for tailSquared where u and v are computed simultaneously in different threads.
+// NOTE:  It is very important for this routine to use lds memory in coordination with reverseLine2 and unreverseLine2.
+// Failure to do so would result in the need for more bar() calls.  Specifically, the u values are stored in the upper half
+// of lds memory (first SMALL_HEIGHT GF61 values).  The v values are stored in the lower half of lds memory (next SMALL_HEIGHT GF61 values).
+void OVERLOAD shufl2(u32 WG, local GF61 *lds2, GF61 *u, u32 n, u32 f) {
+  u32 me = get_local_id(0);
+
+  // Partition lds memory into upper and lower halves
+  assert(WG == G_H);
+
+  // Accessing lds memory as Z61s is faster than GF61 accesses
+  local Z61* lds = ((local Z61*) lds2) + (me / WG) * SMALL_HEIGHT;
+
+  me = me % WG;
+  u32 mask = f - 1;
+  assert((mask & (mask + 1)) == 0);
+
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].x; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { u[i].x = lds[i * WG + me]; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { lds[i * f + (me & ~mask) * n + (me & mask)] = u[i].y; }
+  bar(WG);
+  for (u32 i = 0; i < n; ++i) { u[i].y = lds[i * WG + me]; }  
+}
+
+void OVERLOAD tabMul(u32 WG, TrigGF61 trig, GF61 *u, u32 n, u32 f, u32 me) {
+  u32 p = me & ~(f - 1);
+
+// This code uses chained complex multiplies which could be faster on GPUs with great mul throughput or poor memory bandwidth or caching.
+
+  if (TABMUL_CHAIN61) {
+    chainMul (n, u, trig[p], 0);
+    return;
+  }
+
+// Use memory accesses (probably cached) to reduce complex muls.  Beneficial when memory bandwidth is not the bottleneck.
+
+  if (!TABMUL_CHAIN61) {
+    for (u32 i = 1; i < n; ++i) {
+      u[i] = cmul(u[i], trig[(i-1)*WG + p]);
+    }
+    return;
+  }
+}
+
+#endif

@@ -93,13 +93,13 @@ std::optional<Task> parse(const std::string& line) {
 }
 
 // Among the valid tasks from fileName, return the "best" which means the smallest CERT, or otherwise the exponent PRP/LL
-static std::optional<Task> bestTask(const fs::path& fileName) {
+static std::optional<Task> bestTask(const fs::path& fileName, bool smallest) {
   optional<Task> best;
   for (const string& line : File::openRead(fileName)) {
     optional<Task> task = parse(line);
     if (task && (!best
                  || (best->kind != Task::CERT && task->kind == Task::CERT)
-                 || ((best->kind != Task::CERT || task->kind == Task::CERT) && task->exponent < best->exponent))) {
+                 || ((best->kind != Task::CERT || task->kind == Task::CERT) && smallest && task->exponent < best->exponent))) {
       best = task;
     }
   }
@@ -112,7 +112,7 @@ optional<Task> getWork(Args& args, i32 instance) {
   fs::path localWork = workName(instance);
 
   // Try to get a task from the local worktodo-<N> file.
-  if (optional<Task> task = bestTask(localWork)) { return task; }
+  if (optional<Task> task = bestTask(localWork, args.smallest)) { return task; }
 
   if (args.masterDir.empty()) { return {}; }
 
@@ -140,7 +140,7 @@ optional<Task> getWork(Args& args, i32 instance) {
     u64 initialSize = fileSize(worktodo);
     if (!initialSize) { return {}; }
 
-    optional<Task> task = bestTask(worktodo);
+    optional<Task> task = bestTask(worktodo, args.smallest);
     if (!task) { return {}; }
 
     string workLine = task->line;

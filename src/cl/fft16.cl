@@ -1,5 +1,6 @@
 // Copyright (C) Mihai Preda
 
+#if FFT_FP64
 
 #if 0
 
@@ -8,7 +9,7 @@
 #include "fft4.cl"
 
 // 24 FMA (of which 16 MUL) + 136 ADD
-void fft16(T2 *u) {
+void OVERLOAD fft16(T2 *u) {
   double
       C1 = 0.92387953251128674, // cos(tau/16)
       S1 = 0.38268343236508978; // sin(tau/16)
@@ -43,7 +44,7 @@ void fft16(T2 *u) {
 
 #include "fft8.cl"
 
-void fft16(T2 *u) {
+void OVERLOAD fft16(T2 *u) {
   double
       C1 = 0.92387953251128674, // cos(tau/16)
       S1 = 0.38268343236508978; // sin(tau/16)
@@ -77,7 +78,7 @@ void fft16(T2 *u) {
 
 // FFT-16 Adapted from Nussbaumer, "Fast Fourier Transform and Convolution Algorithms"
 // 28 FMA + 124 ADD
-void fft16(T2 *u) {
+void OVERLOAD fft16(T2 *u) {
   double
       C1 = 0.70710678118654757,   // cos(2t/16)
       C2 = 0.38268343236508978,   // cos(3t/16)
@@ -149,6 +150,131 @@ void fft16(T2 *u) {
   X2(u[5], u[11]);
   X2(u[6], u[10]);
   X2(u[9], u[7]);
+}
+
+#endif
+
+#endif
+
+
+/**************************************************************************/
+/*            Similar to above, but for an FFT based on FP32              */
+/**************************************************************************/
+
+#if FFT_FP32
+
+#include "fft8.cl"
+
+void OVERLOAD fft16(F2 *u) {
+  float
+      C1 = 0.92387953251128674, // cos(tau/16)
+      S1 = 0.38268343236508978; // sin(tau/16)
+
+  for (int i = 0; i < 8; ++i) { X2(u[i], u[i + 8]); }
+  u[ 9] = cmul(u[ 9], U2( C1, S1)); // 1t16
+  u[11] = cmul(u[11], U2( S1, C1)); // 3t16
+  u[13] = cmul(u[13], U2(-S1, C1)); // 5t16
+  u[15] = cmul(u[15], U2(-C1, S1)); // 7t16
+
+  u[10] = mul_t8(u[10]);
+  u[12] = mul_t4(u[12]);
+  u[14] = mul_3t8(u[14]);
+
+  fft8Core(u);
+  fft8Core(u + 8);
+
+  // revbin fix order
+  // 0 8 4 12 2 10 6 14 1 9 5 13 3 11 7 15
+  SWAP(u[1], u[8]);
+  SWAP(u[2], u[4]);
+  SWAP(u[3], u[12]);
+  SWAP(u[5], u[10]);
+  SWAP(u[7], u[14]);
+  SWAP(u[11], u[13]);
+}
+
+#endif
+
+
+/**************************************************************************/
+/*          Similar to above, but for an NTT based on GF(M31^2)           */
+/**************************************************************************/
+
+#if NTT_GF31
+
+#include "fft8.cl"
+
+void OVERLOAD fft16(GF31 *u) {
+  const Z31 C1 = 1556715293;
+  const Z31 S1 = 978592373;
+
+  X2(u[0], u[8]);
+  X2(u[1], u[9]);
+  X2_mul_t8(u[2], u[10]);
+  X2(u[3], u[11]);
+  X2_mul_t4(u[4], u[12]);
+  X2(u[5], u[13]);
+  X2_mul_3t8(u[6], u[14]);
+  X2(u[7], u[15]);
+
+  u[ 9] = cmul(u[ 9], U2( C1, S1)); // 1t16
+  u[11] = cmul(u[11], U2( S1, C1)); // 3t16
+  u[13] = cmul(u[13], U2(neg(S1), C1)); // 5t16		//GWBUG - check if optimizer is eliminating the neg (or better yet perhaps tweak follow up code to expect a negative)
+  u[15] = cmul(u[15], U2(neg(C1), S1)); // 7t16
+
+  fft8Core(u);
+  fft8Core(u + 8);
+
+  // revbin fix order
+  // 0 8 4 12 2 10 6 14 1 9 5 13 3 11 7 15
+  SWAP(u[1], u[8]);
+  SWAP(u[2], u[4]);
+  SWAP(u[3], u[12]);
+  SWAP(u[5], u[10]);
+  SWAP(u[7], u[14]);
+  SWAP(u[11], u[13]);
+}
+
+#endif
+
+
+/**************************************************************************/
+/*          Similar to above, but for an NTT based on GF(M61^2)           */
+/**************************************************************************/
+
+#if NTT_GF61
+
+#include "fft8.cl"
+
+void OVERLOAD fft16(GF61 *u) {
+  const Z61 C1 = 22027337052962166ULL;
+  const Z61 S1 = 1693317751237720973ULL;
+
+  X2(u[0], u[8]);
+  X2(u[1], u[9]);
+  X2_mul_t8(u[2], u[10]);
+  X2(u[3], u[11]);
+  X2_mul_t4(u[4], u[12]);
+  X2(u[5], u[13]);
+  X2_mul_3t8(u[6], u[14]);
+  X2(u[7], u[15]);
+
+  u[ 9] = cmul(u[ 9], U2( C1, S1)); // 1t16
+  u[11] = cmul(u[11], U2( S1, C1)); // 3t16
+  u[13] = cmul(u[13], U2(neg(S1), C1)); // 5t16		//GWBUG - check if optimizer is eliminating the neg (or better yet perhaps tweak follow up code to expect a negative)
+  u[15] = cmul(u[15], U2(neg(C1), S1)); // 7t16
+
+  fft8Core(u);
+  fft8Core(u + 8);
+
+  // revbin fix order
+  // 0 8 4 12 2 10 6 14 1 9 5 13 3 11 7 15
+  SWAP(u[1], u[8]);
+  SWAP(u[2], u[4]);
+  SWAP(u[3], u[12]);
+  SWAP(u[5], u[10]);
+  SWAP(u[7], u[14]);
+  SWAP(u[11], u[13]);
 }
 
 #endif

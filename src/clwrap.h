@@ -62,6 +62,7 @@ float getGpuRamGB(cl_device_id id);
 u64 getFreeMem(cl_device_id id);
 bool hasFreeMemInfo(cl_device_id id);
 bool isAmdGpu(cl_device_id id);
+bool isNvidiaGpu(cl_device_id id);
 string getDriverVersion(cl_device_id id);
 string getDriverVersionByPos(int pos);
 
@@ -104,6 +105,8 @@ EventHolder write(cl_queue queue, vector<cl_event>&& waits,
 EventHolder copyBuf(cl_queue queue, vector<cl_event>&& waits, const cl_mem src, cl_mem dst, size_t size, bool genEvent);
 
 EventHolder fillBuf(cl_queue q, vector<cl_event>&& waits, cl_mem buf, const void *pat, size_t patSize, size_t size, bool genEvent);
+
+EventHolder enqueueMarker(cl_queue q);
 
 void waitForEvents(vector<cl_event>&& waits);
 
