@@ -2,7 +2,7 @@
 
 # The build artifacts are put in the "build-release" subfolder (or "build-debug" for a debug build).
 
-# On Windows invoke with "make exe" or "make all"
+# On Windows invoke "make deplib" after building to copy dependent DLLs to the binary folder.
 
 # Uncomment below as desired to set a particular compiler or force a debug build:
 # CXX = g++-12
@@ -86,6 +86,15 @@ $(BIN)/%.o : src/%.cpp $(DEPDIR)/%.d
 	$(COMPILE.cc) $(OUTPUT_OPTION) $<
 	$(POSTCOMPILE)
 
+ifeq ($(shell case $(HOST_OS) in (*_NT*) echo 1;; esac),1)
+# Copy dependent DLLs to the binary folder on Windows
+# At present this should only be libwinpthread
+deplib: $(BIN)/prpll
+	ldd $(BIN)/prpll.exe | grep "=> /.[^/]" | awk '{print $$3}' | xargs -- cp -t $(BIN)
+else
+# Mostly pointless on Linux. Has a point on Darwin but not implemented yet.
+deplib:
+endif
 
 # src/bundle.cpp is just a wrapping of the OpenCL sources (*.cl) as a C string.
 

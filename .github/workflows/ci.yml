@@ -76,6 +76,7 @@ jobs:
     - name: Script
       run: | # Cannot use `make exe`, as the OpenCL ICD Loader does not support static linking
         make prpll -O -j $env:NUMBER_OF_PROCESSORS
+        make deplib
         cd build-release
         rm *.o
         .\prpll.exe -h
