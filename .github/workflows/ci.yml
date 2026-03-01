@@ -31,7 +31,7 @@ jobs:
         cd build-release
         rm -f -- *.o
         ./prpll -h
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       if: always()
       with:
         name: ${{ matrix.os }}_${{ matrix.cxx }}_prpll
@@ -79,7 +79,7 @@ jobs:
         cd build-release
         rm *.o
         .\prpll.exe -h
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       if: always()
       with:
         name: win_${{ matrix.cxx }}_prpll
@@ -100,7 +100,7 @@ jobs:
         cd build-release
         rm -f -- *.o
         ./prpll -h
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       if: always()
       with:
         name: macos_prpll
