@@ -1,3 +1,4 @@
+#!/bin/bash
 cat <<EOM
 // Copyright (C) Mihai Preda
 // Generated file, do not edit. See genbundle.sh and src/cl/*.cl
@@ -9,24 +10,24 @@ EOM
 
 names=
 
-for xx in $*
+for xx in "$@"
 do
-    x=`basename $xx`
+    x=$(basename "$xx")
     
     if [ "$x" = "genbundle.sh" ] ; then continue ; fi
     
     names=${names}\"${x}\",
 
-    echo // $xx
+    echo "// $xx"
     #echo const char ${x}_cl[] = R\"cltag\(
-    echo R\"cltag\(
-    cat $xx
-    echo \)cltag\"\,
+    echo 'R"cltag('
+    cat "$xx"
+    echo ')cltag",'
     echo
 done
-echo \}\;
+echo '};'
 
-echo static const std::vector\<const char*\> CL_FILE_NAMES\{${names}\}\;
+echo "static const std::vector<const char*> CL_FILE_NAMES{${names}};"
 
 cat <<EOM
 const std::vector<const char*>& getClFileNames() { return CL_FILE_NAMES; }

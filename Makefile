@@ -14,9 +14,9 @@ HOST_OS = $(shell uname -s)
 
 ifeq ($(HOST_OS), Darwin)
 # Real GCC (not clang), needed for 128-bit floats and std::filesystem::path
-CXX = g++-14
+CXX ?= g++-15
 else
-CXX = g++
+CXX ?= g++
 endif
 
 ifneq ($(findstring MINGW, $(HOST_OS)), MINGW)
@@ -45,7 +45,7 @@ else
 
 BIN=build-release
 
-CXXFLAGS = -O2 -DNDEBUG $(COMMON_FLAGS)
+CXXFLAGS = -O3 -DNDEBUG $(COMMON_FLAGS)
 STRIP=-s
 
 endif
@@ -90,7 +90,7 @@ $(BIN)/%.o : src/%.cpp $(DEPDIR)/%.d
 # src/bundle.cpp is just a wrapping of the OpenCL sources (*.cl) as a C string.
 
 src/bundle.cpp: genbundle.sh src/cl/*.cl
-	./genbundle.sh $^ > src/bundle.cpp
+	bash genbundle.sh $^ > src/bundle.cpp
 
 $(DEPDIR)/%.d: ;
 .PRECIOUS: $(DEPDIR)/%.d

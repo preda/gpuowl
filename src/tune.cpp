@@ -947,7 +947,7 @@ void Tune::tune() {
       config.write("\n  -log 1000000\n");
     }
     if (args->workers < 2) {
-      config.write("\n# Running two workers sometimes gives better throughput.  Autoprimenet will need to create up a second worktodo file.");
+      config.write("\n# Running two workers sometimes gives better throughput.  AutoPrimeNet will need to create up a second worktodo file (use --num-workers 2).");
       config.write("\n#  -workers 2\n");
       config.write("\n# Changing TAIL_KERNELS to 3 when running two workers may be better.");
       config.write("\n#  -use TAIL_KERNELS=3\n");
