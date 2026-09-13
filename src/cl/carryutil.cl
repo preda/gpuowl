@@ -681,7 +681,12 @@ Word OVERLOAD carryStepSignedSloppy(i96 x, i64 *outCarry, bool isBigWord) {
 //  i64 xhi = i96_hi64(x) + xmid_topbit;
 //  *outCarry = xhi >> (nBits - 32);
 //  return as_long((int2)(i96_lo32(x), whi));
-#elif EXP / NWORDS == 31 || SLOPPY_MAXBPW >= 3200       // nBits = 31 or 32, bigwordBits = 32 (or allowed to create 32-bit word for better performance)
+// Like the i64/i32 variant below, the sloppy 32-bit word fails when BPW is low.  With 32-bit words the convolution digits
+// reach ~2^63, and the carry that carryFinal then computes into its i32 tmpCarry (carryStep(i64, i32*) -> xtract32) needs
+// about 63 - 2*nBits bits, i.e. more than 31 once nBits <= 15: the high bits are dropped and the residue is wrong.
+// Observed with the FP32+M61 and M31+M61 FFTs (the i96 users) at 11.5-13.4 BPW (measured 39.5/36.2/33.9 bits needed;
+// 29.5 at 14.5 BPW works); M3021377 reported composite, -prp Gerbicz errors.  Same BPW guard as the i64 variant below.
+#elif EXP / NWORDS == 31 || (EXP / NWORDS >= 23 && SLOPPY_MAXBPW >= 3200)       // nBits = 31 or 32, bigwordBits = 32 (or allowed to create 32-bit word for better performance)
   i32 w = i96_lo32(x);                                  // lowBits(x, bigwordBits = 32);
   *outCarry = (i96_hi64(x) + (w < 0)) << (32 - nBits);
   return w;
